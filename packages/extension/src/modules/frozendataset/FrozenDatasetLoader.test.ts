@@ -2,18 +2,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ProductionGuard, type OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
 import { readCountingContract } from './CountingContract.js';
 import {
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
+  FrozenLoadFailedError,
   LoadConfigError,
   type FrozenDatasetLoaderDeps,
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
 import { LoadGuardError } from './LoadGuards.js';
+import { loadCreatedRecords, loadToRemove } from './loadRecords.js';
 import { standardPriceIds } from '../../core/common/platformRecords.js';
 import type { FrozenDataset } from './types.js';
 import type {
@@ -662,7 +664,7 @@ describe('FrozenDatasetLoader — required fields the dataset leaves empty', () 
     const message = (refusal as Error).message;
     expect(message).toContain('requiredFieldDefaults["Account.Tier__c"]');
     expect(message).toContain('requiredFieldDefaults["Contact.Region__c"]');
-    expect(message).toContain('Nothing was written');
+    expect(message).toContain('Nothing of the dataset was written');
     expect(calls).toEqual([]);
   });
 
@@ -1382,6 +1384,30 @@ describe("FrozenDatasetLoader — the target's dates of what it wrote", () => {
     await expect(
       new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { signal: stop.signal })),
     ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    expect((await recorded(deps.sasDir))?.writtenBetween).toEqual({
+      first: '2026-09-24T10:00:01.000Z',
+      last: '2026-09-24T10:00:01.000Z',
+    });
+  });
+
+  it('dates what it wrote before a failure', async () => {
+    const dataset = makeAccountContactDataset();
+    const writer = makeWriter([]);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      if (args[1] === 'Contact') throw new Error('Bulk job failed: the connection was reset');
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: targetDates({ 'REAL-Account-1': at('10:00:01') }),
+    });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)),
+    ).rejects.toBeInstanceOf(FrozenLoadFailedError);
 
     expect((await recorded(deps.sasDir))?.writtenBetween).toEqual({
       first: '2026-09-24T10:00:01.000Z',
@@ -2790,6 +2816,531 @@ describe('FrozenDatasetLoader — a cancel', () => {
     expect(writer.update).toHaveBeenCalledTimes(1);
     // A contract would count the links as restored.
     expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
+  });
+});
+
+describe('FrozenDatasetLoader — a load that fails part way', () => {
+  // Kept only at its end and at a cancel, the mapping of a load that failed
+  // part way named nothing it had written: no reload purged it, no removal
+  // could take it back, and the next load did not know it.
+
+  /** The loads the sas records, the last first, as a removal and a reload read them. */
+  const recordedLoads = (sasDir: string) =>
+    new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recordedLoads();
+
+  /** What a removal would take next, per object, as its confirmation lists it. */
+  async function removalPlan(sasDir: string) {
+    const load = loadToRemove(await recordedLoads(sasDir));
+    return load ? loadCreatedRecords(load) : [];
+  }
+
+  /** Key prefixes of the ids the writer below answers with. */
+  const KEY_PREFIX: Record<string, string> = {
+    Account: '001',
+    Contact: '003',
+    Order: '801',
+    OrderItem: '802',
+    Pricebook2: '01s',
+    PricebookEntry: '01u',
+    Product2: '01t',
+    ObjA__c: 'a00',
+    ObjB__c: 'a01',
+  };
+
+  /**
+   * Writer mock whose inserts answer with record ids — fifteen letters and
+   * digits, the only ids a removal takes — numbered in the order written.
+   */
+  function makeIdWriter(calls: DmlCall[]): FrozenDmlWriter {
+    const writer = makeWriter(calls);
+    let counter = 0;
+    writer.insert = vi.fn(
+      async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+        calls.push({ op: 'insert', objectApiName, payload: records });
+        return records.map(() => ({
+          id: `${KEY_PREFIX[objectApiName]}${String(++counter).padStart(12, '0')}`,
+          success: true,
+          errors: [],
+        }));
+      },
+    );
+    return writer;
+  }
+
+  /** Production Guard refusing the writes `refuses` picks, and judging the others as it does. */
+  function refusingGuard(refuses: (request: OperationRequest) => boolean): ProductionGuard {
+    const guard = new ProductionGuard();
+    const judge = guard.check.bind(guard);
+    vi.spyOn(guard, 'check').mockImplementation((request) =>
+      refuses(request)
+        ? {
+            allowed: false,
+            requiresConfirmation: false,
+            requiresApproval: false,
+            blockedReason: 'not on this org',
+            warnings: [],
+            impactSummary: '',
+          }
+        : judge(request),
+    );
+    return guard;
+  }
+
+  /** What a load ended with, thrown or returned. */
+  const failureOf = (load: Promise<unknown>): Promise<unknown> => load.catch((e: unknown) => e);
+
+  const OLD_ACCOUNT = '001OLDACCOUNT01';
+  const OLD_CONTACT = '003OLDCONTACT01';
+
+  /** The mapping of an earlier load that created an account and a contact. */
+  async function seedEarlierLoad(sasDir: string): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000001', OLD_ACCOUNT],
+        ['Contact-000001', OLD_CONTACT],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+  }
+
+  it('keeps what it wrote when Production Guard refuses a batch after others went through', async () => {
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeIdWriter(calls),
+      guard: refusingGuard((request) => request.objectName === 'Contact'),
+    });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).cause).toBeInstanceOf(LoadGuardError);
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['insert:Account']);
+    const [load] = await recordedLoads(deps.sasDir);
+    expect(load.mapping.get('Account-000001')).toBe('001000000000001');
+    expect(load.created).toEqual([{ objectApiName: 'Account', referenceIds: ['Account-000001'] }]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+    // The report says the load failed, why, and what it left.
+    const message = (error as Error).message;
+    expect(message).toMatch(/^Production guard refused insert on Contact: not on this org\n/);
+    expect(message).toContain('The load failed after it had created 1 record(s) (Account: 1).');
+    expect((error as FrozenLoadFailedError).written.perObject).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', inserted: 1 }),
+    ]);
+  });
+
+  it('keeps the placeholder it made when the target refuses the next one', async () => {
+    const dataset = makeAccountContactDataset();
+    const describes = describeFromDataset(dataset, {
+      Contact: [
+        field({
+          name: 'Mandatory_Lookup__c',
+          type: 'reference',
+          nillable: false,
+          referenceTo: ['Account'],
+        }),
+        field({
+          name: 'Second_Lookup__c',
+          type: 'reference',
+          nillable: false,
+          referenceTo: ['Account'],
+        }),
+      ],
+    });
+    const calls: DmlCall[] = [];
+    const writer = makeIdWriter(calls);
+    const insert = writer.insert;
+    let inserts = 0;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) =>
+      ++inserts === 2
+        ? [{ success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no technical record'] }]
+        : insert(...args),
+    );
+    const deps = makeDeps({
+      dataset,
+      describes,
+      writer,
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_ONE' },
+          'Contact.Second_Lookup__c': { name: 'TECH_PLACEHOLDER_TWO' },
+        },
+      },
+    });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).cause).toBeInstanceOf(LoadConfigError);
+    expect((error as Error).message).toContain(
+      'Placeholder insert failed for required lookup Contact.Second_Lookup__c',
+    );
+    const [load] = await recordedLoads(deps.sasDir);
+    expect(load.created).toEqual([
+      {
+        objectApiName: 'Account',
+        referenceIds: ['placeholder:Account:Contact.Mandatory_Lookup__c'],
+      },
+    ]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+  });
+
+  it('keeps what it wrote when a write throws part way, and the next reload purges it', async () => {
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const writer = makeIdWriter(calls);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      if (args[1] === 'Contact') throw new Error('Bulk job failed: the connection was reset');
+      return insert(...args);
+    });
+    const deps = makeDeps({ dataset, writer });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).message).toMatch(/^Bulk job failed: the connection was reset\n/);
+    expect((await recordedLoads(deps.sasDir))[0].created).toEqual([
+      { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+    ]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+    // The next reload knows it, and purges it.
+    calls.length = 0;
+    const next = makeDeps({ dataset, sasDir: deps.sasDir, writer: makeWriter(calls) });
+    await new FrozenDatasetLoader(next).load(makeOptions(next, dataset, { reload: true }));
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([
+      { op: 'delete', objectApiName: 'Account', payload: ['001000000000001'] },
+    ]);
+  });
+
+  it('counts and keeps the standard prices it wrote when the custom prices throw', async () => {
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [
+            { referenceId: 'Pricebook2-000001', fields: { Name: 'Resellers' } },
+            { referenceId: 'Pricebook2-000002', fields: { Name: 'Standard' } },
+          ],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [{ referenceId: 'Product2-000001', fields: { Name: 'A' } }],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            {
+              referenceId: 'PricebookEntry-000001',
+              fields: { Pricebook2Id: 'Pricebook2-000001', Product2Id: 'Product2-000001' },
+            },
+            {
+              referenceId: 'PricebookEntry-000002',
+              fields: { Pricebook2Id: 'Pricebook2-000002', Product2Id: 'Product2-000001' },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000002',
+    };
+    const calls: DmlCall[] = [];
+    const writer = makeIdWriter(calls);
+    const insert = writer.insert;
+    let prices = 0;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      if (args[1] === 'PricebookEntry' && ++prices === 2) {
+        throw new Error('UNKNOWN_EXCEPTION: An unexpected error occurred');
+      }
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01s000000000STD' }] : [],
+    });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    // The standard price is in the target: counted for the audit trail and
+    // in what the report says the load left.
+    expect((error as FrozenLoadFailedError).written.perObject).toContainEqual(
+      expect.objectContaining({ objectApiName: 'PricebookEntry', fromFiles: 2, inserted: 1 }),
+    );
+    expect((error as Error).message).toContain(
+      'created 3 record(s) (Pricebook2: 1, Product2: 1, PricebookEntry: 1)',
+    );
+    // Named in the mapping, and taken by a removal; the standard book it
+    // matched never is.
+    expect((await recordedLoads(deps.sasDir))[0].created).toEqual([
+      { objectApiName: 'Pricebook2', referenceIds: ['Pricebook2-000001'] },
+      { objectApiName: 'Product2', referenceIds: ['Product2-000001'] },
+      { objectApiName: 'PricebookEntry', referenceIds: ['PricebookEntry-000002'] },
+    ]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'PricebookEntry', ids: ['01u000000000003'] },
+      { objectApiName: 'Product2', ids: ['01t000000000002'] },
+      { objectApiName: 'Pricebook2', ids: ['01s000000000001'] },
+    ]);
+  });
+
+  it('keeps what it wrote when the patch of a cycle throws', async () => {
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'ObjA__c',
+          records: [
+            { referenceId: 'ObjA__c-000001', fields: { Name: 'A', B__c: 'ObjB__c-000001' } },
+          ],
+        },
+        {
+          objectApiName: 'ObjB__c',
+          records: [
+            { referenceId: 'ObjB__c-000001', fields: { Name: 'B', A__c: 'ObjA__c-000001' } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    const writer = makeIdWriter([]);
+    writer.update = vi.fn(async () => {
+      throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record');
+    });
+    const deps = makeDeps({ dataset, writer });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect(writer.update).toHaveBeenCalledTimes(1);
+    expect((await recordedLoads(deps.sasDir))[0].created).toEqual([
+      { objectApiName: 'ObjA__c', referenceIds: ['ObjA__c-000001'] },
+      { objectApiName: 'ObjB__c', referenceIds: ['ObjB__c-000001'] },
+    ]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'ObjB__c', ids: ['a01000000000002'] },
+      { objectApiName: 'ObjA__c', ids: ['a00000000000001'] },
+    ]);
+  });
+
+  it('keeps what it wrote when the statuses set aside at insert throw', async () => {
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Order',
+          records: [{ referenceId: 'Order-000001', fields: { Status: 'ST002' } }],
+        },
+        {
+          objectApiName: 'OrderItem',
+          records: [
+            { referenceId: 'OrderItem-000001', fields: { OrderId: 'Order-000001', Quantity: 2 } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    const writer = makeIdWriter([]);
+    writer.update = vi.fn(async () => {
+      throw new Error('REQUEST_RUNNING_TOO_LONG: Your request was running for too long');
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM OrderStatus')
+          ? [
+              { ApiName: 'ST002', StatusCode: 'Activated' },
+              { ApiName: 'ST001', StatusCode: 'Draft' },
+            ]
+          : [],
+    });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect(writer.update).toHaveBeenCalledWith('00D-target', 'Order', [
+      { Id: '801000000000001', Status: 'ST002' },
+    ]);
+    expect((await recordedLoads(deps.sasDir))[0].created).toEqual([
+      { objectApiName: 'Order', referenceIds: ['Order-000001'] },
+      { objectApiName: 'OrderItem', referenceIds: ['OrderItem-000001'] },
+    ]);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'OrderItem', ids: ['802000000000002'] },
+      { objectApiName: 'Order', ids: ['801000000000001'] },
+    ]);
+  });
+
+  it('keeps what it wrote when the PersonContact pass throws', async () => {
+    const dataset = {
+      ...makeAccountContactDataset(),
+      personContactSidecar: [
+        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+      ],
+    };
+    const writer = makeIdWriter([]);
+    writer.update = vi.fn(async () => {
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+    const deps = makeDeps({ dataset, writer });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).message).toContain('created 2 record(s) (Account: 1, Contact: 1)');
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'Contact', ids: ['003000000000002'] },
+      { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+    // Nor is a contract written over it: the links it counts were never restored.
+    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
+  });
+
+  it('keeps what the purge left of the earlier load when Production Guard refuses it part way', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedEarlierLoad(sasDir);
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: makeIdWriter(calls),
+      guard: refusingGuard(
+        (request) => request.operation === 'delete' && request.objectName === 'Account',
+      ),
+    });
+
+    const error = await failureOf(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true })),
+    );
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['delete:Contact']);
+    expect((error as Error).message).toContain(
+      'The load failed after it had purged 1 record(s) that earlier loads created.',
+    );
+    // The contact it purged is named nowhere any more; the account it did
+    // not reach is still the earlier load's, and the removal takes it alone.
+    const loads = await recordedLoads(sasDir);
+    expect(loads.map((load) => [...load.mapping.values()])).toEqual([[], [OLD_ACCOUNT]]);
+    expect(await removalPlan(sasDir)).toEqual([{ objectApiName: 'Account', ids: [OLD_ACCOUNT] }]);
+  });
+
+  it("keeps what the purge did when a reload's configuration leaves a required field uncovered", async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedEarlierLoad(sasDir);
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: makeIdWriter(calls),
+      describes: describeFromDataset(dataset, {
+        Contact: [field({ name: 'Region__c', nillable: false })],
+      }),
+    });
+
+    const error = await failureOf(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true })),
+    );
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).cause).toBeInstanceOf(LoadConfigError);
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual([
+      'delete:Contact',
+      'delete:Account',
+    ]);
+    const message = (error as Error).message;
+    expect(message).toContain('Nothing of the dataset was written');
+    expect(message).toContain('purged 2 record(s) that earlier loads created');
+    // Both are gone: no removal and no reload looks for them again.
+    const loads = await recordedLoads(sasDir);
+    expect(loads).toHaveLength(1);
+    expect(loads[0].created).toEqual([]);
+    expect(await removalPlan(sasDir)).toEqual([]);
+  });
+
+  it('keeps its mapping once when what fails comes after it was kept', async () => {
+    // The counting contract is written after the mapping. Kept a second time,
+    // the load would be one of the loads before it too, offered for removal
+    // twice.
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({ dataset, writer: makeIdWriter([]) });
+    fs.mkdirSync(path.join(deps.sasDir, 'counting-contract.json'));
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as Error).cause).toMatchObject({ code: 'EISDIR' });
+    expect(await recordedLoads(deps.sasDir)).toHaveLength(1);
+    expect(await removalPlan(deps.sasDir)).toEqual([
+      { objectApiName: 'Contact', ids: ['003000000000002'] },
+      { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+  });
+
+  it('says so when the mapping that would name what it wrote cannot be written', async () => {
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({
+      dataset,
+      writer: makeIdWriter([]),
+      guard: refusingGuard((request) => request.objectName === 'Contact'),
+    });
+    vi.spyOn(deps.mappingStore, 'persist').mockRejectedValue(
+      new Error('ENOSPC: no space left on device'),
+    );
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect((error as FrozenLoadFailedError).mappingKept).toBe(false);
+    const message = (error as Error).message;
+    expect(message).toMatch(/^Production guard refused insert on Contact/);
+    expect(message).toContain(
+      'The mapping could not be written, and nothing names what it created — no removal or ' +
+        'reload will find it: ENOSPC: no space left on device',
+    );
+  });
+
+  it('leaves the mapping as it was, and ends on what it failed on, when it failed before writing', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedEarlierLoad(sasDir);
+    const file = path.join(sasDir, 'referenceid-mapping.json');
+    const before = fs.readFileSync(file, 'utf8');
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: makeIdWriter(calls),
+      guard: refusingGuard((request) => request.objectName === 'Account'),
+    });
+
+    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect(calls).toEqual([]);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
   });
 });
 

@@ -77,6 +77,7 @@ import {
   FrozenDatasetLoader,
   FrozenDatasetWriter,
   FrozenLoadCancelledError,
+  FrozenLoadFailedError,
   InsideRepoPathError,
   LoadConfigError,
   LoadGuardError,
@@ -1455,13 +1456,20 @@ export class FrozenDatasetHandler implements DomainHandler {
         return;
       }
       // Stopped when the guard refused the first batch it was asked about:
-      // nothing was written. After a batch went through, the load failed.
+      // nothing was written. After a batch went through, the load failed —
+      // recorded with what it wrote, when it says, which its mapping names;
+      // the code is the one of what it failed on.
       const stopped =
         (guardDecision === 'refused' || guardDecision === 'declined') && !batchLetThrough;
-      recordLoad(stopped ? 'stopped' : 'failure');
+      const failed = err instanceof FrozenLoadFailedError ? err : undefined;
+      const cause = failed ? failed.cause : err;
+      recordLoad(
+        stopped ? 'stopped' : 'failure',
+        failed ? frozenAuditObjects(failed.written) : undefined,
+      );
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
-        code: this.errorCodeFor(err, 'LOAD_ERROR'),
-        retryable: err instanceof TimeoutError,
+        code: this.errorCodeFor(cause, 'LOAD_ERROR'),
+        retryable: cause instanceof TimeoutError,
       });
       // The load's end, as every write run posts it: with the error alone,
       // the recent operations and the side panel showed a failed load running

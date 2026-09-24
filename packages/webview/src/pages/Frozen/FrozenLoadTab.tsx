@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ShieldCheck } from 'lucide-react';
 import type {
@@ -70,6 +70,17 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       onRefetchStatus();
     }
   }, [loadMutation.data, setLoadReport, onRefetchStatus]);
+
+  // A load that ends on an error — cancelled, or failed part way — keeps in
+  // its mapping what it wrote, and the card below offers to remove it once
+  // the status is read again. Read once per error: one the store kept from
+  // before this tab was shown was read for by the tab that heard it.
+  const seenError = useRef(lastError);
+  useEffect(() => {
+    if (lastError === seenError.current) return;
+    seenError.current = lastError;
+    if (lastError?.source === 'frozen:load') onRefetchStatus();
+  }, [lastError, onRefetchStatus]);
 
   const effectiveTarget = targetOrgId || selectedOrgId || '';
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');

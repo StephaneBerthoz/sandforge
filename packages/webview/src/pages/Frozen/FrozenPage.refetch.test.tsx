@@ -135,7 +135,13 @@ describe('FrozenPage — the status it reads again', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [DEV], selectedOrgId: DEV.id });
-    useFrozenStore.setState({ tab: 'load', status: null, loadReport: null, progress: [] });
+    useFrozenStore.setState({
+      tab: 'load',
+      status: null,
+      loadReport: null,
+      progress: [],
+      lastError: null,
+    });
     render(<FrozenPage />);
     answerStatuses(0);
   });
@@ -147,6 +153,25 @@ describe('FrozenPage — the status it reads again', () => {
     const before = sentAll('frozen:status').length;
 
     answer(load, 'frozen:load:response', { report: REPORT });
+
+    expect(answerStatuses(before)).toBe(1);
+  });
+
+  it('reads the status once after a load ends on an error, whose mapping names what it wrote', () => {
+    // Read only after a load that answered, the card went on offering the
+    // load before it, and its removal was refused as another load's.
+    fireEvent.click(screen.getByTestId('frozen-load-run'));
+    const load = sentAll('frozen:load').pop();
+    if (!load) throw new Error("no 'frozen:load' was sent");
+    const before = sentAll('frozen:status').length;
+
+    answer(load, 'frozen:load:error', {
+      message:
+        'Production guard refused insert on Contact: not on this org\n' +
+        'The load failed after it had created 1 record(s) (Account: 1).',
+      code: 'GUARD_REFUSED',
+      retryable: false,
+    });
 
     expect(answerStatuses(before)).toBe(1);
   });

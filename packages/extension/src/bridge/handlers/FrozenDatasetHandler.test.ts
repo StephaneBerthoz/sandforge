@@ -6,6 +6,8 @@ import {
   buildFrozenManifest,
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
+  FrozenLoadFailedError,
+  LoadGuardError,
   serializeManifest,
   writeSelectionToSas,
 } from '../../modules/frozendataset/index.js';
@@ -663,6 +665,54 @@ describe('FrozenDatasetHandler', () => {
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({ outcome: 'failure', guard: 'declined' }),
         ]);
+      });
+
+      it('records a load that failed after writing with what it wrote, and says why and what it left', async () => {
+        // Recorded with nothing, the trail said such a load wrote nothing,
+        // and the page heard the code of an unknown load error.
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(
+          async (options: { onGuardDecision?: (d: string) => void }) => {
+            options.onGuardDecision?.('allowed');
+            options.onGuardDecision?.('refused');
+            throw new FrozenLoadFailedError(
+              new LoadGuardError(
+                'guard-refused',
+                'Production guard refused insert on Contact: not on this org',
+              ),
+              {
+                perObject: [
+                  {
+                    objectApiName: 'Account',
+                    fromFiles: 2,
+                    inserted: 2,
+                    reused: 0,
+                    skippedDuplicates: [],
+                    failed: [],
+                  },
+                ],
+                placeholders: [],
+                purge: { deleted: {}, deactivated: {}, failures: [] },
+              },
+            );
+          },
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'failure',
+            guard: 'refused',
+            objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
+          }),
+        ]);
+        const [error] = posted(deps, 'frozen:load:error');
+        expect(error.payload.code).toBe('GUARD_REFUSED');
+        expect(String(error.payload.message)).toContain(
+          'The load failed after it had created 2 record(s) (Account: 2).',
+        );
       });
 
       it('ends a load the cancel stopped as aborted, recorded with what it wrote', async () => {

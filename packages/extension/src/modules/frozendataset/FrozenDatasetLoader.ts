@@ -47,6 +47,7 @@ import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
   EMAIL_MESSAGE,
@@ -196,6 +197,108 @@ export class FrozenLoadCancelledError extends Error {
     );
     this.name = 'FrozenLoadCancelledError';
   }
+}
+
+/**
+ * Raised when a load fails once it has created records, or purged some an
+ * earlier load created: a Production Guard refusal after some batches, a
+ * placeholder the target refused, a write that threw, a pass after the
+ * inserts that did. The mapping is kept by then, as at a cancel — with what
+ * the load created so far and the target's dates of it — so a removal takes
+ * it back and a reload purges it. `written` says what that was, for the audit
+ * trail; the cause says why the load failed.
+ */
+export class FrozenLoadFailedError extends Error {
+  /** Whether the mapping names what the load wrote: false when the sas could not be written. */
+  readonly mappingKept: boolean;
+
+  constructor(
+    cause: unknown,
+    readonly written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+    /** Why the mapping could not be kept, when it could not. */
+    notKept?: string,
+  ) {
+    super(failedLoadMessage(cause, written, notKept), { cause });
+    this.name = 'FrozenLoadFailedError';
+    this.mappingKept = notKept === undefined;
+  }
+}
+
+/**
+ * What a load that failed once it had written says after why it failed: what
+ * it left in the target — the records it created, per object, and how many
+ * of the earlier loads' it purged — and whether the mapping names them.
+ */
+function failedLoadMessage(
+  cause: unknown,
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+  notKept: string | undefined,
+): string {
+  const createdPerObject = new Map<string, number>();
+  const count = (objectApiName: string, records: number): void => {
+    if (records === 0) return;
+    createdPerObject.set(objectApiName, (createdPerObject.get(objectApiName) ?? 0) + records);
+  };
+  for (const placeholder of written.placeholders) count(placeholder.placeholderObjectApiName, 1);
+  for (const object of written.perObject) count(object.objectApiName, object.inserted);
+  const created = [...createdPerObject.values()].reduce((sum, n) => sum + n, 0);
+  const purged = [
+    ...Object.values(written.purge.deleted),
+    ...Object.values(written.purge.deactivated),
+  ].reduce((sum, n) => sum + n, 0);
+  const left = [
+    ...(created > 0
+      ? [
+          `created ${created} record(s) (` +
+            [...createdPerObject].map(([object, n]) => `${object}: ${n}`).join(', ') +
+            ')',
+        ]
+      : []),
+    ...(purged > 0 ? [`purged ${purged} record(s) that earlier loads created`] : []),
+  ].join(' and ');
+  let named: string;
+  if (notKept !== undefined) {
+    named =
+      created > 0
+        ? `The mapping could not be written, and nothing names what it created — no removal or reload will find it: ${notKept}`
+        : `The mapping could not be written: ${notKept}`;
+  } else {
+    named =
+      created > 0
+        ? 'What it created is kept in the mapping: a removal takes it back, and a reload purges it or finds it again.'
+        : 'What the earlier loads created and it did not purge is still named in the mapping, for a removal or the next reload.';
+  }
+  return `${extractErrorMessage(cause)}\nThe load failed after it had ${left}. ${named}`;
+}
+
+/** What a load that fails part way has to keep, handed over by the load before its first write. */
+interface LoadInProgress {
+  /** Keep its mapping, with what it created so far and the target's dates of it. */
+  keepMapping(): Promise<void>;
+  /** Whether its mapping was kept already: as it ended, or at a cancel. */
+  mappingKept(): boolean;
+  /** Whether it created a record, or purged one an earlier load created. */
+  wroteSome(): boolean;
+  /** What it wrote so far, for the audit trail. */
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>;
+}
+
+/**
+ * Keep the mapping of a load that failed once it had written — unless its end
+ * kept it already — and the error it then ends with.
+ */
+async function keptAfterFailure(
+  cause: unknown,
+  load: LoadInProgress,
+): Promise<FrozenLoadFailedError> {
+  if (!load.mappingKept()) {
+    try {
+      await load.keepMapping();
+    } catch (err: unknown) {
+      return new FrozenLoadFailedError(cause, load.written, extractErrorMessage(err));
+    }
+  }
+  return new FrozenLoadFailedError(cause, load.written);
 }
 
 /** A cycle FK nullified at pass 1, to patch at pass 2. */
@@ -362,8 +465,33 @@ export class FrozenDatasetLoader {
     this.sasGuard = deps.sasGuard ?? new SasPathGuard();
   }
 
-  /** Load (or reload) the frozen dataset into the target sandbox. */
+  /**
+   * Load (or reload) the frozen dataset into the target sandbox.
+   *
+   * A load that fails once it has created records, or purged some an earlier
+   * load created, keeps its mapping as a cancelled one does and ends with
+   * {@link FrozenLoadFailedError}. Kept only at its end and at a cancel, a
+   * load that failed part way was named nowhere: no reload purged what it
+   * wrote, no removal could take it back, and the next load did not know it.
+   * One that fails before it created or purged a record leaves the mapping as
+   * it was, and ends with what it failed on.
+   */
   async load(options: FrozenLoadOptions): Promise<FrozenLoadReport> {
+    const running: { load?: LoadInProgress } = {};
+    try {
+      return await this.loadInto(options, running);
+    } catch (err: unknown) {
+      const load = running.load;
+      if (err instanceof FrozenLoadCancelledError || !load?.wroteSome()) throw err;
+      throw await keptAfterFailure(err, load);
+    }
+  }
+
+  /** {@link load}, handing `running` what a failure keeps before its first write. */
+  private async loadInto(
+    options: FrozenLoadOptions,
+    running: { load?: LoadInProgress },
+  ): Promise<FrozenLoadReport> {
     const now = options.now ?? (() => new Date());
     const startedAt = now();
     const emit = (event: FrozenLoadProgressEvent): void => options.onProgress?.(event);
@@ -455,10 +583,16 @@ export class FrozenDatasetLoader {
      */
     const settled = new Set<string>();
 
+    /**
+     * Whether the mapping was kept. Kept a second time, the load would also
+     * read as one of the loads before it, and be offered for removal twice.
+     */
+    let mappingKept = false;
+
     /*
      * Keep the mapping of what this load wrote — with what it created, the
      * target's dates of it, and the loads before it with what they still have
-     * in the org — at its end, and at a cancel.
+     * in the org — at its end, at a cancel, and at a failure once it wrote.
      */
     const persistMapping = async (): Promise<void> => {
       const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
@@ -468,6 +602,7 @@ export class FrozenDatasetLoader {
         ...(writtenBetween ? { writtenBetween } : {}),
         earlier: { settled: [...settled] },
       });
+      mappingKept = true;
     };
 
     /*
@@ -482,6 +617,19 @@ export class FrozenDatasetLoader {
       if (!options.signal?.aborted) return;
       await persistMapping();
       throw new FrozenLoadCancelledError({ perObject, placeholders, purge });
+    };
+
+    // What a failure keeps from here on, as the cancel does: a record this
+    // load created, or one of an earlier load it purged, is known from the
+    // moment the target answers the write.
+    running.load = {
+      keepMapping: persistMapping,
+      mappingKept: () => mappingKept,
+      wroteSome: () =>
+        created.list().length > 0 ||
+        Object.keys(purge.deleted).length > 0 ||
+        Object.keys(purge.deactivated).length > 0,
+      written: { perObject, placeholders, purge },
     };
 
     if (options.reload) {
@@ -765,13 +913,15 @@ export class FrozenDatasetLoader {
         // looked at it here, and the custom prices were written after it.
         if (options.signal?.aborted) perObject.push({ ...standardPrices, fromFiles });
         await checkpoint();
-        objectResult = mergeResults(
-          standardPrices,
-          await insert(
-            startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
-            fromFiles,
-          ),
-        );
+        const customPrices = await insert(
+          startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
+          fromFiles,
+        ).catch((err: unknown) => {
+          // Counted, as at a cancel: the standard prices are in the target.
+          perObject.push({ ...standardPrices, fromFiles });
+          throw err;
+        });
+        objectResult = mergeResults(standardPrices, customPrices);
       } else {
         objectResult = await insert(startingRecords, fromFiles);
       }
@@ -1525,8 +1675,8 @@ export class FrozenDatasetLoader {
     if (gaps.length > 0) {
       throw new LoadConfigError(
         `The dataset leaves ${gaps.length} required field(s) empty that the configuration does ` +
-          'not cover. Nothing was written. Declare them all, then load again — records are ' +
-          `never silently excluded:\n- ${gaps.join('\n- ')}`,
+          'not cover. Nothing of the dataset was written. Declare them all, then load again — ' +
+          `records are never silently excluded:\n- ${gaps.join('\n- ')}`,
       );
     }
     return plans;
