@@ -26,7 +26,8 @@ export const PRODUCT_OBJECT = 'Product2';
 /**
  * The catalog — prices, products, selling models and the options that join
  * the two, price books — in the order a record-scoped run reads it, once the
- * rest of the graph has been read. A node something reaches from above is
+ * rest of the graph has been read, but for what its own rows name (see
+ * {@link sortNodesAskedAgain}). A node something reaches from above is
  * read at its turn as well, for the rows under what it reached, and read
  * here all the same: the records read after it name rows of it too.
  *
@@ -68,6 +69,75 @@ export function sortNodesForExecution(
 ): ForgeGraphNode[] {
   const sorted = topologicalSort(graph);
   return rootObjectApiName ? bringRootToFront(sorted, rootObjectApiName) : sorted;
+}
+
+/** A catalog node asked again once the first pass is done. */
+export interface CatalogNodeAskedAgain {
+  readonly node: ForgeGraphNode;
+  /** The source fields its turn described: what its rows can name. */
+  readonly fieldInfos: readonly FieldInfo[];
+}
+
+/**
+ * The order the nodes asked again once the first pass is done are read in:
+ * the nodes put off that the catalog's rows cannot bring into scope, then the
+ * catalog in {@link CATALOG_READ_ORDER}, then the nodes put off that its rows
+ * can.
+ *
+ * The catalog is read once, by the ids the records read point at, so each
+ * record that can name a row of it has to be read before it — and a node put
+ * off can: nothing had named it at its turn, something read since has. Read
+ * after the catalog, the asset a line renews — put off, since the line comes
+ * after it — names a product and a price no line names, neither is read, and
+ * the asset goes to the target without them.
+ *
+ * What the catalog's rows point at goes the other way — the classification
+ * a product is based on, the proration policy of a selling model option: it
+ * is read by the ids those rows name. So is whatever the graph reads under
+ * one of those, which waits for its rows. What such a node names of the
+ * catalog comes too late for its one read.
+ *
+ * The fields of a catalog node's turn say what its rows can name — any
+ * object one of its lookups can point at — and the graph's edges what a node
+ * is read under. The nodes put off keep the order the first pass met them
+ * in, parents first.
+ *
+ * @param putOff - The nodes put off, in the order the first pass met them.
+ * @param catalog - The catalog nodes to read again, put off or read at their turn.
+ * @param edges - The graph's edges (parent→child).
+ */
+export function sortNodesAskedAgain(
+  putOff: readonly ForgeGraphNode[],
+  catalog: readonly CatalogNodeAskedAgain[],
+  edges: readonly ForgeGraphEdge[],
+): ForgeGraphNode[] {
+  const inReadOrder = CATALOG_READ_ORDER.flatMap((name) =>
+    catalog.filter(({ node }) => node.objectApiName === name),
+  );
+  const named = new Set(
+    inReadOrder.flatMap(({ fieldInfos }) =>
+      fieldInfos.flatMap((f) => (f.isReference ? (f.referenceTo ?? []) : [])),
+    ),
+  );
+  const parentsOf = new Map<string, string[]>();
+  for (const { sourceObject, targetObject } of edges) {
+    const parents = parentsOf.get(targetObject);
+    if (parents) parents.push(sourceObject);
+    else parentsOf.set(targetObject, [sourceObject]);
+  }
+  const before: ForgeGraphNode[] = [];
+  const after: ForgeGraphNode[] = [];
+  const readAfter = new Set<string>();
+  for (const node of putOff) {
+    const name = node.objectApiName;
+    if (named.has(name) || (parentsOf.get(name) ?? []).some((p) => readAfter.has(p))) {
+      readAfter.add(name);
+      after.push(node);
+    } else {
+      before.push(node);
+    }
+  }
+  return [...before, ...inReadOrder.map(({ node }) => node), ...after];
 }
 
 /**

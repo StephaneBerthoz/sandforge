@@ -2861,6 +2861,174 @@ describe('ForgeExecutor', () => {
         expect(summary.errors).toEqual([]);
       });
 
+      describe('a record put off until the first pass is done', () => {
+        // The asset a line renews sits at the edge of the graph: a parent of
+        // the line, so its turn comes before it, when nothing read names it
+        // yet. It is put off, and asked again once the first pass is done —
+        // after the catalog, which read by what had been named so far left
+        // out the product the asset was sold as, and the price it was sold at.
+        // Each product is based on a classification, which nothing but the
+        // products names: put off as well, and read after them.
+        const ASSET = '02i000000000001AAA';
+        const OLD_PRICE = '01u000000000036AAA';
+        const HARDWARE = '11B000000000001AAA';
+        const LEGACY = '11B000000000002AAA';
+
+        function assetOrgs() {
+          const tables = catalogTables();
+          tables['Product2'] = tables['Product2'].map((row) => ({
+            ...row,
+            BasedOnId: row['Id'] === product(6) ? LEGACY : HARDWARE,
+          }));
+          // Widget 6's old price, in a book nothing else in the clone uses.
+          tables['PricebookEntry'].push({
+            Id: OLD_PRICE,
+            Name: 'Widget 6 quotes',
+            Pricebook2Id: QUOTE_BOOK,
+            Product2Id: product(6),
+            UnitPrice: '12',
+          });
+          return fakeOrgs(
+            {
+              ...tables,
+              Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Pricebook2Id: CUSTOM_BOOK }],
+              OpportunityLineItem: [
+                {
+                  Id: '00k000000000001AAA',
+                  OpportunityId: OPPORTUNITY,
+                  PricebookEntryId: price('custom', 1),
+                  Product2Id: product(1),
+                  Renewed_Asset__c: ASSET,
+                  Quantity: '1',
+                },
+              ],
+              Asset: [
+                {
+                  Id: ASSET,
+                  Name: 'Installed widget',
+                  Product2Id: product(6),
+                  Sold_At__c: OLD_PRICE,
+                },
+              ],
+              ProductClassification: [
+                { Id: HARDWARE, Name: 'Hardware' },
+                { Id: LEGACY, Name: 'Legacy' },
+                { Id: '11B000000000003AAA', Name: 'Services' },
+              ],
+            },
+            {
+              ...catalogFields,
+              Product2: [
+                ...catalogFields['Product2'],
+                lookup('BasedOnId', 'ProductClassification'),
+              ],
+              ProductClassification: [idField, text('Name')],
+              Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+              OpportunityLineItem: [
+                idField,
+                lookup('OpportunityId', 'Opportunity', true),
+                lookup('PricebookEntryId', 'PricebookEntry'),
+                lookup('Product2Id', 'Product2'),
+                lookup('Renewed_Asset__c', 'Asset'),
+                text('Quantity'),
+              ],
+              Asset: [
+                idField,
+                text('Name'),
+                lookup('Product2Id', 'Product2'),
+                lookup('Sold_At__c', 'PricebookEntry'),
+              ],
+            },
+          );
+        }
+
+        /** Two levels around the opportunity; the asset's and the product's lookups are walked. */
+        function assetGraph(): ForgeGraph {
+          return makeGraph(
+            [
+              makeNode('Opportunity'),
+              makeNode('Pricebook2'),
+              makeNode('ProductClassification'),
+              makeNode('Product2'),
+              makeNode('PricebookEntry'),
+              makeNode('Asset'),
+              makeNode('OpportunityLineItem'),
+            ],
+            [
+              edge('Pricebook2', 'Opportunity'),
+              edge('ProductClassification', 'Product2'),
+              edge('Product2', 'Asset'),
+              edge('PricebookEntry', 'Asset'),
+              edge('Opportunity', 'OpportunityLineItem'),
+              edge('Asset', 'OpportunityLineItem'),
+              { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+              edge('Product2', 'OpportunityLineItem'),
+              { ...edge('Pricebook2', 'PricebookEntry'), required: true },
+              { ...edge('Product2', 'PricebookEntry'), required: true },
+            ],
+          );
+        }
+
+        it('reads the catalog after it, for the product and the price only it names', async () => {
+          const { orgDeps, inserted, updated } = assetOrgs();
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            assetGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+          );
+
+          expect(read['Product2']).toEqual(new Set([product(1), product(6)]));
+          expect(read['PricebookEntry']).toEqual(
+            new Set([price('custom', 1), price('standard', 1), OLD_PRICE, price('standard', 6)]),
+          );
+          expect(inserted['Product2'].map((r) => r['Name'])).toEqual(['Widget 1', 'Widget 6']);
+          expect(inserted['Pricebook2'].map((r) => r['Name'])).toEqual(['Custom', 'Quotes']);
+          expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+            'Widget 1 standard',
+            'Widget 6 standard',
+            'Widget 1 custom',
+            'Widget 6 quotes',
+          ]);
+          expect(inserted['Asset']).toEqual([
+            {
+              Name: 'Installed widget',
+              Product2Id: 'Product2:Widget 6',
+              Sold_At__c: 'PricebookEntry:Widget 6 quotes',
+            },
+          ]);
+          expect(updated).toEqual([]);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('still reads after the catalog what its rows name, the classification of that product among them', async () => {
+          const { orgDeps, inserted } = assetOrgs();
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            assetGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+          );
+
+          expect(read['ProductClassification']).toEqual(new Set([HARDWARE, LEGACY]));
+          expect(inserted['ProductClassification'].map((r) => r['Name'])).toEqual([
+            'Hardware',
+            'Legacy',
+          ]);
+          expect(inserted['Product2']).toEqual([
+            { Name: 'Widget 1', BasedOnId: 'ProductClassification:Hardware' },
+            { Name: 'Widget 6', BasedOnId: 'ProductClassification:Legacy' },
+          ]);
+          expect(summary.errors).toEqual([]);
+        });
+      });
+
       it('still brings every price of a price book it is rooted at, with only their standard prices', async () => {
         // Rooted at the catalog, the book is what is cloned. The standard
         // book matched beside it used to count as a book in scope as well,

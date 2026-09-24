@@ -8,6 +8,7 @@ import {
   readsFromAbove,
   seedOwnIds,
   seedScopeCache,
+  sortNodesAskedAgain,
   sortNodesForExecution,
   sortNodesForWriting,
 } from './ScopeResolver.js';
@@ -599,6 +600,91 @@ describe('the catalog', () => {
 
       expect(readOptions(cache).kind).toBe('skip');
     });
+  });
+});
+
+describe('sortNodesAskedAgain', () => {
+  const idField: FieldInfo = { name: 'Id', queryable: true, createable: false, isReference: false };
+  const lookup = (name: string, ...referenceTo: string[]): FieldInfo => ({
+    name,
+    queryable: true,
+    createable: true,
+    isReference: true,
+    referenceTo,
+  });
+  const link = (parent: string, child: string): ForgeGraphEdge => ({
+    sourceObject: parent,
+    targetObject: child,
+    relationshipName: `${parent}To${child}`,
+    type: 'lookup',
+  });
+  /**
+   * Prices, books and products, in no particular order: a product names its
+   * classification and its supplier.
+   */
+  const catalog = [
+    { node: makeNode('Pricebook2'), fieldInfos: [idField] },
+    {
+      node: makeNode('Product2'),
+      fieldInfos: [
+        idField,
+        lookup('BasedOnId', 'ProductClassification'),
+        lookup('Supplier__c', 'Account'),
+      ],
+    },
+    {
+      node: makeNode('PricebookEntry'),
+      fieldInfos: [idField, lookup('Pricebook2Id', 'Pricebook2'), lookup('Product2Id', 'Product2')],
+    },
+  ];
+  const names = (nodes: ForgeGraphNode[]): string[] => nodes.map((n) => n.objectApiName);
+
+  it('reads the catalog in its own order after the nodes put off that its rows cannot name', () => {
+    const sorted = sortNodesAskedAgain([makeNode('Asset'), makeNode('Contact')], catalog, [
+      link('Product2', 'Asset'),
+      link('Account', 'Contact'),
+    ]);
+
+    expect(names(sorted)).toEqual(['Asset', 'Contact', 'PricebookEntry', 'Product2', 'Pricebook2']);
+  });
+
+  it('reads after the catalog a node its rows can name, and a node the graph reads under that one', () => {
+    const sorted = sortNodesAskedAgain(
+      [
+        makeNode('ProductClassification'),
+        makeNode('Asset'),
+        makeNode('ProductClassificationAttr'),
+        makeNode('Contact'),
+      ],
+      catalog,
+      [link('ProductClassification', 'ProductClassificationAttr'), link('Product2', 'Asset')],
+    );
+
+    expect(names(sorted)).toEqual([
+      'Asset',
+      'Contact',
+      'PricebookEntry',
+      'Product2',
+      'Pricebook2',
+      'ProductClassification',
+      'ProductClassificationAttr',
+    ]);
+  });
+
+  it('keeps before the catalog a node read under an object its rows name that was not put off', () => {
+    // The accounts were read in the first pass: a product naming its supplier
+    // among them changes nothing of what a contact of theirs is read under.
+    const sorted = sortNodesAskedAgain([makeNode('Contact')], catalog, [
+      link('Account', 'Contact'),
+    ]);
+
+    expect(names(sorted)).toEqual(['Contact', 'PricebookEntry', 'Product2', 'Pricebook2']);
+  });
+
+  it('keeps the nodes put off as they are when the run holds no catalog', () => {
+    const putOff = [makeNode('Contact'), makeNode('Asset')];
+
+    expect(sortNodesAskedAgain(putOff, [], [link('Contact', 'Asset')])).toEqual(putOff);
   });
 });
 

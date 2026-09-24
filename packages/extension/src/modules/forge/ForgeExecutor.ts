@@ -24,15 +24,16 @@ import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageCo
 import {
   buildNodeQuery,
   CATALOG_OBJECTS,
-  CATALOG_READ_ORDER,
   catalogWriteEdges,
   PRODUCT_OBJECT,
   queryNodeRecords,
   readsFromAbove,
   seedOwnIds,
   seedScopeCache,
+  sortNodesAskedAgain,
   sortNodesForExecution,
   sortNodesForWriting,
+  type CatalogNodeAskedAgain,
   type NodeQueryInput,
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
@@ -687,9 +688,9 @@ interface ExecutionState {
   /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
-   * at their turn for what they reached. See `CATALOG_READ_ORDER`.
+   * at their turn for what they reached. See `sortNodesAskedAgain`.
    */
-  readonly catalogNodes: ForgeGraphNode[];
+  readonly catalogNodes: CatalogNodeAskedAgain[];
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
   /**
@@ -1497,14 +1498,14 @@ export class ForgeExecutor {
     // One retry, not a loop: a second unscoped verdict means nothing read in
     // this run refers to the object at all.
     //
-    // The catalog goes first, the nodes put off and those read at their turn
-    // alike, prices before products and books: a price names its product and
-    // its book, and what the catalog points at in turn — a selling model — is
-    // among the nodes asked again after it.
-    const catalog = CATALOG_READ_ORDER.flatMap((name) =>
-      state.catalogNodes.filter((n) => n.objectApiName === name),
+    // The catalog — its nodes put off and those read at their turn alike — is
+    // read after the other nodes put off that can name its rows, and before
+    // those its rows name: see `sortNodesAskedAgain`.
+    const deferred = sortNodesAskedAgain(
+      state.deferredNodes.splice(0, state.deferredNodes.length),
+      state.catalogNodes,
+      graph.edges,
     );
-    const deferred = [...catalog, ...state.deferredNodes.splice(0, state.deferredNodes.length)];
     for (const node of deferred) {
       if (this.isAborted) {
         throw new ForgeAbortedError(
@@ -2261,7 +2262,7 @@ export class ForgeExecutor {
       };
       const query = buildNodeQuery(queryInput);
       if (allowDefer && this.waitsForWhatPointsAtIt(node, query, state)) {
-        state.catalogNodes.push(node);
+        state.catalogNodes.push({ node, fieldInfos });
         return false;
       }
       if (query.kind === 'skip') {
@@ -2408,7 +2409,7 @@ export class ForgeExecutor {
       const scopeCache = state.scopeCache;
       if (allowDefer && scopeCache && CATALOG_OBJECTS.has(node.objectApiName)) {
         seedScopeCache(scopeCache, node.objectApiName, records, fieldInfos, { settle: false });
-        state.catalogNodes.push(node);
+        state.catalogNodes.push({ node, fieldInfos });
         return false;
       }
 
@@ -2573,7 +2574,7 @@ export class ForgeExecutor {
 
   /**
    * Whether a node of the catalog waits until the rest of the graph has been
-   * read, to be read by what the records point at (`CATALOG_READ_ORDER`).
+   * read, to be read by what the records point at (`sortNodesAskedAgain`).
    *
    * It waits when nothing reaches it from above: it is not the root, and no
    * statement of its read is under a parent in scope. Its turn in
