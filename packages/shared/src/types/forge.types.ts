@@ -298,7 +298,8 @@ export interface ForgeUndoObjectResult {
   unchecked: string[];
   /**
    * Why records were refused, or could not be checked, in the org's words,
-   * each reason once and a few at most.
+   * and a status the removal set to Draft for a delete and gave back, or could
+   * not: each reason once, and a few at most.
    */
   reasons: string[];
 }
@@ -433,11 +434,16 @@ export interface ForgeFieldsLeftOut {
  * the run's records tells a change made since the run by.
  */
 export interface ForgeWrittenBetween {
-  /** The earliest `CreatedDate` of the records the run created, ISO 8601. */
+  /**
+   * The earliest `CreatedDate` of the records the run created, ISO 8601 — the
+   * system stamp of a record whose audit dates the run may have copied from
+   * the source, both orgs letting its user set them.
+   */
   first: string;
   /**
-   * The latest `LastModifiedDate` the run left on them, read as it ended:
-   * a record modified after it was changed since the run. ISO 8601.
+   * The latest `LastModifiedDate` the run left on them, read as it ended —
+   * the system stamp, likewise: a record modified after it was changed since
+   * the run. ISO 8601.
    */
   last: string;
 }
@@ -560,10 +566,19 @@ export interface ForgeExecutionResult {
   fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
   /**
    * When the target dated the run's writes. Absent from a run that created
-   * nothing, one whose dates could not be read back, and runs recorded before
-   * it was kept: removing their records dates them from the records instead.
+   * nothing, one whose dates could not all be read back, and runs recorded
+   * before it was kept: removing their records dates them from the records
+   * and from `timestamp` instead.
    */
   writtenBetween?: ForgeWrittenBetween;
+  /**
+   * What removals of the run's records wrote to records they left in the
+   * org — an order set to Draft for a delete that did not happen, then given
+   * its status back — by record id: the `LastModifiedDate` the org left on
+   * each. A later removal reads a record modified no later than that as
+   * unchanged since the run. Absent until a removal wrote to one.
+   */
+  removalStamps?: Record<string, string>;
   /**
    * The configuration that produced this run, minus the org ids.
    *

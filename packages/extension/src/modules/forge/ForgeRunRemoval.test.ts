@@ -12,6 +12,11 @@ const RUN_ENDED = '2026-09-20T10:05:00.000Z';
 const AFTER_RUN = '2026-09-20T11:00:00.000+0000';
 const BEFORE_RUN = '2026-09-19T09:00:00.000+0000';
 
+/** The user the removal runs as, and so writes as. */
+const USER = id('005', 1);
+/** Someone else working in the org. */
+const COLLEAGUE = id('005', 2);
+
 type Row = Record<string, unknown> & { Id: string };
 interface Relationship {
   childSObject: string;
@@ -38,6 +43,13 @@ class FakeOrg implements RemovalOrg {
   readonly columns = new Map<string, string[]>();
   /** What a delete of a record does to others: a roll-up restamping its parent. */
   onDelete?: (object: string, row: Row) => void;
+  /** An update the org refuses, by what it would write. */
+  refuseUpdate?: (
+    object: string,
+    record: Record<string, unknown>,
+  ) => { statusCode: string; message: string } | undefined;
+  /** Told of every query before it is answered. */
+  onQuery?: (soql: string) => void;
   readonly queries: string[] = [];
   readonly deletes: Array<{ object: string; ids: string[] }> = [];
   /** How far the org's clock runs ahead of this machine's; behind when negative. */
@@ -50,6 +62,10 @@ class FakeOrg implements RemovalOrg {
 
   async serverTime(): Promise<string> {
     return this.now();
+  }
+
+  async userId(): Promise<string> {
+    return USER;
   }
 
   add(object: string, ...rows: Row[]): void {
@@ -90,14 +106,18 @@ class FakeOrg implements RemovalOrg {
   async update(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown> {
     this.updates.push({ object: objectApiName, records: records.map((r) => ({ ...r })) });
     return records.map((record) => {
+      const refusal = this.refuseUpdate?.(objectApiName, record);
+      if (refusal) return { id: record.Id, success: false, errors: [{ ...refusal, fields: [] }] };
       const row = (this.rows.get(objectApiName) ?? []).find((r) => r.Id === record.Id);
-      if (row) Object.assign(row, record, { LastModifiedDate: new Date().toISOString() });
+      // Stamped by the org's clock, as written by the user the session runs as.
+      if (row) Object.assign(row, record, { LastModifiedDate: this.now(), LastModifiedById: USER });
       return { id: record.Id, success: row !== undefined, errors: [] };
     });
   }
 
   async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
     this.queries.push(soql);
+    this.onQuery?.(soql);
     if (this.failingQueries.some((pattern) => pattern.test(soql))) {
       throw new Error('INVALID_FIELD: No such column on entity');
     }
@@ -736,6 +756,7 @@ describe('removeRunRecords', () => {
           ParentId: opportunity,
           CreatedDate: now,
           LastModifiedDate: now,
+          CreatedById: USER,
         });
       };
 
@@ -898,6 +919,184 @@ describe('removeRunRecords', () => {
     });
   });
 
+  describe('an activated order the removal sets to Draft, then leaves in the org', () => {
+    const ORDER = id('801', 1);
+    const ITEM = id('802', 1);
+    const PLAN = [
+      { objectApiName: 'OrderItem', ids: [ITEM] },
+      { objectApiName: 'Order', ids: [ORDER] },
+    ];
+
+    /**
+     * An activated order and its item, as a clone writes them back: the org
+     * refuses to delete either while the order is activated.
+     */
+    function activatedOrder(): FakeOrg {
+      const org = new FakeOrg();
+      org.add('OrderStatus', { Id: 'status-open', ApiName: 'Open', StatusCode: 'Draft' });
+      org.add('OrderStatus', { Id: 'status-live', ApiName: 'Live', StatusCode: 'Activated' });
+      org.add('Order', runRow(ORDER, { Status: 'Live' }));
+      org.add('OrderItem', runRow(ITEM, { OrderId: ORDER }));
+      org.relationships.set('Order', [
+        { childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true },
+      ]);
+      org.refuse = (object, row) => {
+        const orderOf =
+          object === 'Order'
+            ? row
+            : (org.rows.get('Order') ?? []).find((o) => o.Id === row.OrderId);
+        return orderOf?.Status === 'Live'
+          ? { statusCode: 'FIELD_INTEGRITY_EXCEPTION', message: 'unable to modify activated order' }
+          : undefined;
+      };
+      return org;
+    }
+
+    const statusOf = (org: FakeOrg): unknown =>
+      (org.rows.get('Order') ?? []).find((o) => o.Id === ORDER)?.Status;
+    const REFUSED = {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'A validation rule refused it.',
+    };
+
+    it('gives an order its status back when the org refuses one of its items, which holds it', async () => {
+      // Set to Draft before any delete, the order was then held by the item
+      // the org refused, and stayed in the org deactivated without a word.
+      const org = activatedOrder();
+      org.refusals.set(ITEM, REFUSED);
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'OrderItem', deleted: 0, refused: 1 }),
+        expect.objectContaining({
+          objectApiName: 'Order',
+          deleted: 0,
+          keptDependents: 1,
+          heldBy: ['OrderItem'],
+          reasons: ['Status set to Open for the delete, then back to Live.'],
+        }),
+      ]);
+      expect(statusOf(org)).toBe('Live');
+    });
+
+    it('gives an order the org refuses to delete its status back', async () => {
+      const org = activatedOrder();
+      org.refusals.set(ORDER, REFUSED);
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'OrderItem', deleted: 1 }),
+        expect.objectContaining({
+          objectApiName: 'Order',
+          refused: 1,
+          reasons: [
+            'Status set to Open for the delete, then back to Live.',
+            'FIELD_CUSTOM_VALIDATION_EXCEPTION: A validation rule refused it.',
+          ],
+        }),
+      ]);
+      expect(statusOf(org)).toBe('Live');
+    });
+
+    it('sets no status once cancelled, even while it reads the statuses', async () => {
+      const org = activatedOrder();
+      const stop = new AbortController();
+      org.onQuery = (soql) => {
+        if (soql.includes('FROM OrderStatus')) stop.abort();
+      };
+
+      const outcome = await removeRunRecords(org, PLAN, options({ signal: stop.signal }));
+
+      expect(outcome).toMatchObject({ cancelled: true, objects: [] });
+      expect(org.updates).toEqual([]);
+      expect(statusOf(org)).toBe('Live');
+    });
+
+    it("gives back the status it set when it is cancelled before the order's turn", async () => {
+      const org = activatedOrder();
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        PLAN,
+        options({
+          signal: stop.signal,
+          onProgress: (settled) => {
+            if (settled >= 1) stop.abort();
+          },
+        }),
+      );
+
+      expect(outcome.cancelled).toBe(true);
+      // Back as it was, the order not reached is not named.
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'OrderItem', deleted: 1 }),
+      ]);
+      expect(statusOf(org)).toBe('Live');
+    });
+
+    it('says an order stays in Draft when the org refuses its status back, reached or not', async () => {
+      const org = activatedOrder();
+      org.refuseUpdate = (_object, record) => (record.Status === 'Live' ? REFUSED : undefined);
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        PLAN,
+        options({
+          signal: stop.signal,
+          onProgress: (settled) => {
+            if (settled >= 1) stop.abort();
+          },
+        }),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'OrderItem', deleted: 1 }),
+        expect.objectContaining({
+          objectApiName: 'Order',
+          planned: 1,
+          deleted: 0,
+          reasons: [
+            'Status set to Open for the delete, and left there: the org refused Live back — FIELD_CUSTOM_VALIDATION_EXCEPTION: A validation rule refused it.',
+          ],
+        }),
+      ]);
+      expect(statusOf(org)).toBe('Open');
+    });
+
+    it('does not read what an earlier removal wrote to an order it left as a change since the run', async () => {
+      // The first removal set the order to Draft and gave its status back: the
+      // order's last stamp is that removal's, not anyone's since the run.
+      const org = activatedOrder();
+      org.refusals.set(ITEM, REFUSED);
+      const first = await removeRunRecords(org, PLAN, options());
+      org.refusals.delete(ITEM);
+
+      const second = await removeRunRecords(org, PLAN, options({ removalStamps: first.stamps }));
+
+      expect(first.stamps).toEqual({ [ORDER]: expect.any(String) });
+      expect(second.objects.map((o) => [o.objectApiName, o.deleted, o.keptChanged])).toEqual([
+        ['OrderItem', 1, 0],
+        ['Order', 1, 0],
+      ]);
+      expect(org.rows.get('Order')).toEqual([]);
+    });
+
+    it('names no stamp for an order someone changed since the run, which the request included', async () => {
+      const org = activatedOrder();
+      (org.rows.get('Order') ?? [])[0].LastModifiedDate = AFTER_RUN;
+      org.refusals.set(ITEM, REFUSED);
+
+      const outcome = await removeRunRecords(org, PLAN, options({ includeChanged: true }));
+
+      expect(statusOf(org)).toBe('Live');
+      expect(outcome.stamps).toEqual({});
+    });
+  });
+
   describe("the org's clock, never this machine's", () => {
     /** A run's opportunity and line item, whose delete the org answers with a feed item. */
     function opportunityWithLineItem() {
@@ -919,6 +1118,7 @@ describe('removeRunRecords', () => {
           ParentId: opportunity,
           CreatedDate: now,
           LastModifiedDate: now,
+          CreatedById: USER,
         });
       };
       const plan = [
@@ -1011,6 +1211,138 @@ describe('removeRunRecords', () => {
         }),
       ]);
       expect(org.has('Contact', id('003', 1))).toBe(false);
+    });
+
+    it('dates a run that kept no dates by when it was recorded: what changed after it ended stays, however long it read', async () => {
+      // Four minutes of reading the source, one of writing, recorded as it
+      // ended on a machine whose clock agrees with the org's. Two minutes
+      // later a colleague edited a contact and logged a task on the account.
+      const at = (minutes: number): string =>
+        new Date(Date.parse('2026-09-20T10:00:00.000Z') + minutes * 60_000).toISOString();
+      const org = new FakeOrg();
+      org.relationships.set('Account', ACCOUNT_CHILDREN);
+      org.add('Account', { Id: id('001', 1), CreatedDate: at(4), LastModifiedDate: at(4) });
+      org.add(
+        'Contact',
+        {
+          Id: id('003', 1),
+          AccountId: id('001', 1),
+          CreatedDate: at(4.5),
+          LastModifiedDate: at(5),
+        },
+        {
+          Id: id('003', 2),
+          AccountId: id('001', 1),
+          CreatedDate: at(4.5),
+          LastModifiedDate: at(7),
+        },
+      );
+      org.add('Task', {
+        Id: id('00T', 1),
+        WhatId: id('001', 1),
+        CreatedDate: at(7),
+        LastModifiedDate: at(7),
+        CreatedById: COLLEAGUE,
+      });
+      const plan = [
+        { objectApiName: 'Contact', ids: [id('003', 1), id('003', 2)] },
+        { objectApiName: 'Account', ids: [id('001', 1)] },
+      ];
+
+      const outcome = await removeRunRecords(org, plan, {
+        runDurationMs: 5 * 60_000,
+        runRecordedAt: new Date(at(5)),
+        includeChanged: false,
+      });
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', deleted: 1, keptChanged: 1 }),
+        expect.objectContaining({
+          objectApiName: 'Account',
+          deleted: 0,
+          keptDependents: 1,
+          heldBy: ['Contact', 'Task'],
+        }),
+      ]);
+      expect(org.has('Task', id('00T', 1))).toBe(true);
+    });
+
+    it('starts a run that kept no dates when it began, not at the creation dates it copied from the source', async () => {
+      // The run's user may set audit fields in both orgs, so its account
+      // carries the source's creation date, years before the run. A contact
+      // created two months before the run was moved under it since.
+      const org = new FakeOrg();
+      org.relationships.set('Account', ACCOUNT_CHILDREN);
+      org.add('Account', {
+        Id: id('001', 1),
+        CreatedDate: '2019-05-01T08:00:00.000+0000',
+        LastModifiedDate: '2019-06-01T08:00:00.000+0000',
+      });
+      org.add('Contact', {
+        Id: id('003', 9),
+        AccountId: id('001', 1),
+        CreatedDate: '2026-07-20T09:00:00.000+0000',
+        LastModifiedDate: AFTER_RUN,
+        CreatedById: COLLEAGUE,
+      });
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'Account', ids: [id('001', 1)] }],
+        { runDurationMs: 5 * 60_000, runRecordedAt: new Date(RUN_ENDED), includeChanged: true },
+      );
+
+      // The run never made it: asking for what changed since the run does not reach it.
+      expect(outcome.objects[0]).toMatchObject({
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['Contact'],
+      });
+      expect(org.has('Contact', id('003', 9))).toBe(true);
+    });
+
+    it('keeps a parent someone else added a record under while the removal ran, and that record', async () => {
+      // A colleague logs a task on the cloned account while the removal is
+      // deleting its contacts: created once the removal started, and still
+      // not the removal's doing.
+      const { org, plan } = accountWithContacts();
+      org.onDelete = (object) => {
+        if (object !== 'Contact' || org.has('Task', id('00T', 1))) return;
+        const now = org.now();
+        org.add('Task', {
+          Id: id('00T', 1),
+          WhatId: id('001', 1),
+          CreatedDate: now,
+          LastModifiedDate: now,
+          CreatedById: COLLEAGUE,
+        });
+      };
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({
+        objectApiName: 'Account',
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['Task'],
+      });
+      expect(org.has('Task', id('00T', 1))).toBe(true);
+    });
+
+    it('takes nothing for its own when the org does not say who it runs as', async () => {
+      const { org, opportunity, plan } = opportunityWithLineItem();
+      org.userId = async () => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      };
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['FeedItem'],
+      });
+      expect(org.has('Opportunity', opportunity)).toBe(true);
     });
   });
 

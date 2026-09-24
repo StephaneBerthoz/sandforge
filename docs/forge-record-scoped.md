@@ -90,10 +90,14 @@ createable on an object with records to write are listed per object in
 content is the files stage's.
 
 Once the run has written, it reads back from the target the `CreatedDate` and
-`LastModifiedDate` of every record it created, and keeps the earliest creation
-and the latest stamp as `writtenBetween`, a stopped run included. Removing the
-run's records compares the org's dates with those, and with the org's time as
-the removal starts, never with this machine's clock.
+`LastModifiedDate` of every record it created — the `SystemModstamp` of an
+object whose audit dates both orgs let the run's user set, as the clone then
+copies the source's — and keeps the earliest creation and the latest stamp as
+`writtenBetween`, a stopped run included. A run whose dates could not all be
+read back is left without it. Removing the run's records compares the org's
+dates with those, and with the org's time as the removal starts, never with
+this machine's clock; a run without `writtenBetween` is dated by when it was
+recorded, read on the org's clock.
 
 ## ExecuteOptions
 

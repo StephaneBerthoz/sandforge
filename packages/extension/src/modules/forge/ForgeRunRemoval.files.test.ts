@@ -168,6 +168,11 @@ class TargetOrg implements RemovalOrg {
     return new Date().toISOString();
   }
 
+  /** The user it writes as: the owner of every file. */
+  async userId(): Promise<string> {
+    return OWNER;
+  }
+
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     return ids.map((recordId) => {
       if (objectApiName === 'ContentVersion') {

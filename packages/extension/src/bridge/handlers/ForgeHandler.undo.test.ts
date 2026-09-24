@@ -41,6 +41,8 @@ const RUN_ENDED = '2026-09-20T10:05:00.000Z';
 const DURING_RUN = '2026-09-20T10:02:00.000+0000';
 const AFTER_RUN = '2026-09-20T11:00:00.000+0000';
 const TARGET_ORG = 'tgt-org';
+/** The user the session to the target writes as. */
+const USER = id('005', 1);
 
 const GRAPH: ForgeGraph = {
   nodes: [],
@@ -88,10 +90,12 @@ type Row = Record<string, unknown> & { Id: string };
 /**
  * The target org, as jsforce shows it to the removal: rows per object, the
  * account's cascading children, a delete that takes what cascades along, and
- * a clock of its own, which may run apart from this machine's.
+ * a clock of its own, which may run apart from this machine's. An update is
+ * stamped by that clock, as written by the session's user.
  */
 function targetOrg() {
   const accountChildren = [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }];
+  const children = new Map([['Account', accountChildren]]);
   const clock = { aheadMs: 0 };
   const orgNow = (): string => new Date(Date.now() + clock.aheadMs).toISOString();
   const rows = new Map<string, Row[]>([
@@ -116,9 +120,16 @@ function targetOrg() {
   ]);
   const deletes: Array<{ object: string; ids: string[] }> = [];
   let beforeDelete: (object: string) => void | Promise<void> = () => {};
+  let refuseDelete: (object: string, row: Row) => string | undefined = () => undefined;
   const conn = {
     limitInfo: undefined,
     query: vi.fn(async (soql: string) => {
+      // The statuses of a lifecycle object, each with its category.
+      const statuses = /^SELECT ApiName, StatusCode FROM (\w+)$/.exec(soql);
+      if (statuses) {
+        const records = rows.get(statuses[1]) ?? [];
+        return { totalSize: records.length, done: true, records };
+      }
       const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
       if (!match) throw new Error(`unexpected query: ${soql}`);
       const [, columns, object, field, list] = match;
@@ -132,10 +143,16 @@ function targetOrg() {
       name: object,
       label: object,
       fields: [],
-      childRelationships: object === 'Account' ? accountChildren : [],
+      childRelationships: children.get(object) ?? [],
     })),
     describeGlobal: vi.fn(async () => ({
-      sobjects: ['Account', ...accountChildren.map((c) => c.childSObject)].map((name) => ({
+      sobjects: [
+        ...new Set([
+          'Account',
+          ...rows.keys(),
+          ...[...children.values()].flat().map((c) => c.childSObject),
+        ]),
+      ].map((name) => ({
         name,
         label: name,
         queryable: true,
@@ -143,12 +160,24 @@ function targetOrg() {
         layoutable: true,
       })),
     })),
-    soap: { getServerTimestamp: vi.fn(async () => ({ timestamp: orgNow() })) },
+    soap: {
+      getServerTimestamp: vi.fn(async () => ({ timestamp: orgNow() })),
+      getUserInfo: vi.fn(async () => ({ userId: USER })),
+    },
     sobject: (object: string) => ({
       destroy: vi.fn(async (ids: string[]) => {
         await beforeDelete(object);
         deletes.push({ object, ids: [...ids] });
         return ids.map((recordId) => {
+          const row = (rows.get(object) ?? []).find((r) => r.Id === recordId);
+          const refused = row && refuseDelete(object, row);
+          if (refused) {
+            return {
+              id: recordId,
+              success: false,
+              errors: [{ statusCode: 'FIELD_INTEGRITY_EXCEPTION', message: refused, fields: [] }],
+            };
+          }
           rows.set(
             object,
             (rows.get(object) ?? []).filter((r) => r.Id !== recordId),
@@ -156,6 +185,14 @@ function targetOrg() {
           return { id: recordId, success: true, errors: [] };
         });
       }),
+      update: vi.fn(async (records: Array<Record<string, unknown>>) =>
+        records.map((record) => {
+          const row = (rows.get(object) ?? []).find((r) => r.Id === record.Id);
+          if (row)
+            Object.assign(row, record, { LastModifiedDate: orgNow(), LastModifiedById: USER });
+          return { id: record.Id, success: row !== undefined, errors: [] };
+        }),
+      ),
     }),
   };
   return {
@@ -163,10 +200,15 @@ function targetOrg() {
     rows,
     deletes,
     accountChildren,
+    children,
     clock,
     orgNow,
     onDelete: (hook: (object: string) => void | Promise<void>) => {
       beforeDelete = hook;
+    },
+    /** Refuse the delete of a record, with the message the org gives. */
+    refuseDelete: (rule: (object: string, row: Row) => string | undefined) => {
+      refuseDelete = rule;
     },
   };
 }
@@ -623,7 +665,9 @@ describe('forge:undo', () => {
       });
     });
 
-    it('dates a run recorded before runs kept their dates by its records, for as long as it took', async () => {
+    it('dates a run recorded before runs kept their dates by its records and by when it was recorded, give or take a few seconds', async () => {
+      // Recorded at 10:05:00 by a machine a few seconds behind the org, whose
+      // clock has caught up with the org's since.
       datedByTheOrg();
       store.set(
         'forge:history',
@@ -635,6 +679,30 @@ describe('forge:undo', () => {
 
       expect(answer()).toMatchObject({ status: 'success' });
       expect(org.rows.get('Account')).toEqual([]);
+    });
+
+    it('keeps what changed after the end of a run the target did not date, however long the run read before it wrote', async () => {
+      // Recorded before runs kept their dates: a minute of reading the source,
+      // then two seconds of writing, recorded as it ended on a machine whose
+      // clock agrees with the org's. Someone edited a contact half a minute
+      // after the last write.
+      datedByTheOrg();
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = '2026-09-20T10:05:30.000+0000';
+      store.set(
+        'forge:history',
+        [runEntry({ timestamp: '2026-09-20T10:05:04.000Z', duration: 62_000 })],
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'partial',
+        objects: [
+          { objectApiName: 'Contact', deleted: 1, keptChanged: 1 },
+          { objectApiName: 'Account', deleted: 0, keptDependents: 1, heldBy: ['Contact'] },
+        ],
+      });
     });
 
     it("dates its own start by the org's clock: what the org records of the removal does not hold the account", async () => {
@@ -650,7 +718,13 @@ describe('forge:undo', () => {
         if (object !== 'Contact' || (org.rows.get('FeedItem') ?? []).length > 0) return;
         const now = org.orgNow();
         org.rows.set('FeedItem', [
-          { Id: id('0D5', 1), ParentId: id('001', 1), CreatedDate: now, LastModifiedDate: now },
+          {
+            Id: id('0D5', 1),
+            ParentId: id('001', 1),
+            CreatedDate: now,
+            LastModifiedDate: now,
+            CreatedById: USER,
+          },
         ]);
       });
 
@@ -663,6 +737,84 @@ describe('forge:undo', () => {
           { objectApiName: 'Account', deleted: 1, keptDependents: 0 },
         ],
       });
+    });
+  });
+
+  describe('an activated order a removal sets to Draft and leaves', () => {
+    const ORDER = id('801', 1);
+    const ITEM = id('802', 1);
+
+    /** A run that created an activated order and its item; the org refuses the item once. */
+    function orderRun(): { itemRefused: { value: boolean } } {
+      store.set(
+        'forge:history',
+        [
+          runEntry({
+            idRemapTable: { [src('801', 1)]: ORDER, [src('802', 1)]: ITEM },
+            idRemapExisting: [],
+            idRemapCreated: [
+              { objectApiName: 'Order', sourceIds: [src('801', 1)] },
+              { objectApiName: 'OrderItem', sourceIds: [src('802', 1)] },
+            ],
+            writtenBetween: { first: '2026-09-20T10:00:00.000Z', last: RUN_ENDED },
+          }),
+        ],
+        'forge',
+      );
+      org.rows.set('OrderStatus', [
+        { Id: 'status-open', ApiName: 'Open', StatusCode: 'Draft' },
+        { Id: 'status-live', ApiName: 'Live', StatusCode: 'Activated' },
+      ]);
+      org.rows.set('Order', [
+        { Id: ORDER, Status: 'Live', CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN },
+      ]);
+      org.rows.set('OrderItem', [
+        { Id: ITEM, OrderId: ORDER, CreatedDate: DURING_RUN, LastModifiedDate: DURING_RUN },
+      ]);
+      org.children.set('Order', [
+        { childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true },
+      ]);
+      const itemRefused = { value: true };
+      org.refuseDelete((object, row) => {
+        if (object === 'OrderItem' && itemRefused.value) return 'A validation rule refused it.';
+        const orderOf =
+          object === 'Order'
+            ? row
+            : (org.rows.get('Order') ?? []).find((o) => o.Id === row.OrderId);
+        return orderOf?.Status === 'Live' ? 'unable to modify activated order' : undefined;
+      });
+      return { itemRefused };
+    }
+
+    it('gives the order its status back and keeps on the entry what that wrote, for the next removal', async () => {
+      const { itemRefused } = orderRun();
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'failure',
+        objects: [
+          { objectApiName: 'OrderItem', refused: 1 },
+          { objectApiName: 'Order', keptDependents: 1 },
+        ],
+      });
+      expect(org.rows.get('Order')?.[0]).toMatchObject({ Status: 'Live' });
+      // Offered again, with the order's last stamp as the removal's own.
+      expect(history()[0].undo).toBeUndefined();
+      expect(history()[0].removalStamps).toEqual({ [ORDER]: expect.any(String) });
+
+      itemRefused.value = false;
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'OrderItem', deleted: 1 },
+          { objectApiName: 'Order', deleted: 1, keptChanged: 0 },
+        ],
+      });
+      expect(org.rows.get('Order')).toEqual([]);
     });
   });
 

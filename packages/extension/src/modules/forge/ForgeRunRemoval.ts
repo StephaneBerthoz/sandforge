@@ -31,15 +31,23 @@ const REASON_LIMIT = 5;
 const DEPENDENTS_READ_LIMIT = 2_000;
 
 /**
- * The dates a read of dependents asks for, tried in turn: an object that has
- * neither `CreatedDate` nor `LastModifiedDate` may still keep a system stamp,
- * and one that keeps none is read without dates.
+ * The dates a read of dependents asks for, tried in turn, with who created
+ * the record where the object keeps both dates: an object that has neither
+ * `CreatedDate` nor `LastModifiedDate` may still keep a system stamp, and one
+ * that keeps none is read without dates.
  */
 const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
-  ['CreatedDate', 'LastModifiedDate'],
+  ['CreatedDate', 'LastModifiedDate', 'CreatedById'],
   ['SystemModstamp'],
   [],
 ];
+
+/**
+ * Leeway on a date this machine's clock gave, once read on the org's: the
+ * drift of one clock from the other between a run and its removal, and the
+ * second the org rounds its dates to.
+ */
+const CLOCK_LEEWAY_MS = 10_000;
 
 /**
  * The code the org refuses a delete with while other records still hang from
@@ -132,11 +140,17 @@ export type RemovalOrg = Pick<
    * start by it, as the org dates what the removal makes it do.
    */
   serverTime(): Promise<string>;
+  /**
+   * The id of the user the session writes as: what the org creates in answer
+   * to the removal is created by that user.
+   */
+  userId(): Promise<string>;
 };
 
 /**
  * The org a removal works on, over a jsforce connection: the session the
- * cleanup work uses, and the org's clock, which only the SOAP API tells.
+ * cleanup work uses, and the org's clock and the session's user, which only
+ * the SOAP API tells.
  *
  * @param conn - The run's target org.
  * @param context - Names the work in the API-usage warnings.
@@ -145,6 +159,7 @@ export function removalOrg(conn: Connection, context: string): RemovalOrg {
   return {
     ...orgSession(conn, context),
     serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+    userId: async () => (await conn.soap.getUserInfo()).userId,
   };
 }
 
@@ -156,28 +171,45 @@ export function removalOrg(conn: Connection, context: string): RemovalOrg {
  * behind the org's, the records a run wrote last would read as changed since.
  * Given, it is what the run read back from the org as it ended
  * (`ForgeExecutionResult.writtenBetween`); absent — a run recorded before runs
- * kept it — it is read from the records.
+ * kept it, or one whose dates could not all be read back — it is read from the
+ * records and from when the run was recorded.
  */
 export interface RunRemovalOptions {
   /**
    * The target's date of the run's first write: a record older than this did
-   * not come with it. Absent, the earliest `CreatedDate` of the run's records.
+   * not come with it. Absent, the earliest `CreatedDate` of the run's records,
+   * or when the run began if that is later.
    */
   runStartedAt?: Date;
   /**
    * The target's date of the last stamp the run left: a record modified after
-   * it was changed since. Absent, the start plus `runDurationMs`: the run's
-   * writes all fell within that long after its first, whichever clock timed it.
+   * it was changed since. Absent, when the run was recorded, read on the
+   * org's clock; or, with no such time, the start plus `runDurationMs`.
    */
   runEndedAt?: Date;
   /** How long the run took, for a run whose end the target did not date. */
   runDurationMs?: number;
   /**
+   * When the run was recorded, on this machine's clock, right after its last
+   * write: for a run the target did not date, the latest that write can have
+   * been, once read on the org's clock.
+   */
+  runRecordedAt?: Date;
+  /**
+   * What earlier removals of the run wrote to records they left in the org,
+   * by record id: the `LastModifiedDate` the org left on each. A record last
+   * modified no later than that was not changed since the run.
+   */
+  removalStamps?: Readonly<Record<string, string>>;
+  /**
    * Delete the records the run created that were modified since it ended too,
    * and let what was added to its records since go with them.
    */
   includeChanged: boolean;
-  /** Stops the removal before its next call to the org. */
+  /**
+   * Stops the removal before its next call to the org, but for the calls that
+   * give a status it changed for a delete back to the records it leaves.
+   */
   signal?: AbortSignal;
   /** Told how many of the run's records are settled, after each step. */
   onProgress?: (settled: number, total: number, objectApiName: string) => void;
@@ -185,14 +217,24 @@ export interface RunRemovalOptions {
 
 /** What a removal did, object by object. */
 export interface RunRemovalOutcome {
-  /** Per object, in the order they were removed; an object not reached is left out. */
+  /**
+   * Per object, in the order they were removed. An object not reached is left
+   * out, unless the removal could not give a status back to one of its records.
+   */
   objects: ForgeUndoObjectResult[];
   /** Whether the removal was stopped before it was through. */
   cancelled: boolean;
+  /**
+   * What this removal wrote to records of the run it left in the org, by
+   * record id: the `LastModifiedDate` the org left on each, for a later
+   * removal to pass back as `removalStamps`. Only records unchanged since the
+   * run are named: a change someone made before stays a change.
+   */
+  stamps: Record<string, string>;
 }
 
-/** One row of a delete's answer. */
-const deleteResultSchema = z
+/** One row of a delete's answer, or an update's. */
+const writeResultSchema = z
   .object({
     success: z.boolean(),
     errors: z
@@ -212,7 +254,7 @@ const deleteResultSchema = z
   })
   .passthrough();
 
-type DeleteError = NonNullable<z.infer<typeof deleteResultSchema>['errors']>[number];
+type WriteError = NonNullable<z.infer<typeof writeResultSchema>['errors']>[number];
 
 /** A record by its first fifteen characters: the same record, whichever length its id is written in. */
 function recordKey(id: string): string {
@@ -224,13 +266,13 @@ function epochOf(value: unknown): number {
   return typeof value === 'string' ? Date.parse(value) : Number.NaN;
 }
 
-/** The code of a delete's error, whichever name the answer gave it. */
-function codeOf(error: DeleteError): string | undefined {
+/** The code of a write's error, whichever name the answer gave it. */
+function codeOf(error: WriteError): string | undefined {
   return typeof error === 'string' ? undefined : (error.statusCode ?? error.errorCode);
 }
 
-/** One error of a delete, as the org said it: `CODE: message`. */
-function describeError(error: DeleteError): string {
+/** One error of a write, as the org said it: `CODE: message`. */
+function describeError(error: WriteError): string {
   if (typeof error === 'string') return error;
   const code = codeOf(error);
   const message = error.message ?? '';
@@ -319,7 +361,12 @@ class ObjectRemoval {
  * is counted as already gone; one modified after the run ended is kept unless
  * `includeChanged` says otherwise. What the removal itself stamps — a refused
  * delete, a child deleted under a record — is never read as a change, because
- * that reading is the one taken before the first delete.
+ * that reading is the one taken before the first delete; and what it wrote to
+ * a record it left, a later removal is told (`RunRemovalOutcome.stamps`).
+ *
+ * An order or a contract past Draft is set to Draft before anything is
+ * deleted, and one the removal leaves in the org — kept, refused, or not
+ * reached when it was cancelled — gets its status back as it ends.
  *
  * The objects go in the order their records can go, not the reverse of the
  * one they were written in. A clone writes its root first and its optional
@@ -346,7 +393,8 @@ class ObjectRemoval {
  * @param org - The run's target org.
  * @param plan - The run's records, children before their parents as far as
  *   the run knows — the reverse of the order it wrote them.
- * @param options - The run's time span, whether changed records go, the stop signal.
+ * @param options - The run's time span, what earlier removals of it wrote,
+ *   whether changed records go, the stop signal.
  */
 export async function removeRunRecords(
   org: RemovalOrg,
@@ -356,21 +404,10 @@ export async function removeRunRecords(
   const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const stopped = (): boolean => options.signal?.aborted === true;
 
-  // Every record of the run, by key; a record in the org is changed when it
-  // was modified after the run ended, both by the org's clock.
-  const runRecords = new Set(plan.flatMap((object) => object.ids.map(recordKey)));
-  const changed = new Set<string>();
   const snapshots = new Map<string, ObjectSnapshot>();
   for (const { objectApiName, ids } of plan) {
-    if (stopped()) return { objects: [], cancelled: true };
+    if (stopped()) return { objects: [], cancelled: true, stamps: {} };
     snapshots.set(objectApiName, await snapshotOf(org, objectApiName, ids));
-  }
-  const { start: runStart, end: runEnd } = runSpan(options, snapshots.values());
-  for (const snapshot of snapshots.values()) {
-    for (const [key, modified] of snapshot.lastModified) {
-      // A date that cannot be read cannot show the record was left alone.
-      if (!(modified <= runEnd)) changed.add(key);
-    }
   }
 
   // Each object described once: the order and the dependents check read it.
@@ -380,6 +417,7 @@ export async function removeRunRecords(
     destroy: (objectApiName, ids) => org.destroy(objectApiName, ids),
     update: (objectApiName, records) => org.update(objectApiName, records),
     serverTime: () => org.serverTime(),
+    userId: () => org.userId(),
     describeGlobal: () => org.describeGlobal(),
     describe: (objectApiName) => {
       let described = describes.get(objectApiName);
@@ -391,9 +429,27 @@ export async function removeRunRecords(
     },
   };
   const order = await removalOrder(session, plan);
-  // Read before the removal's first write: what the org creates from then on
-  // is the removal's doing, dated by the same clock as the run.
-  const removalStart = await removalStartOf(session);
+  // Read before the removal's first write: what the org creates from then on,
+  // as the user the removal runs as, is the removal's doing, dated by the same
+  // clock as the run.
+  const [clock, removalUser] = await Promise.all([removalClockOf(session), removalUserOf(session)]);
+
+  // Every record of the run, by key; a record in the org is changed when it
+  // was modified after the run ended, both by the org's clock — or after what
+  // an earlier removal of the run wrote to it, which was that removal's doing.
+  const runRecords = new Set(plan.flatMap((object) => object.ids.map(recordKey)));
+  const { start: runStart, end: runEnd } = runSpan(options, snapshots.values(), clock.aheadMs);
+  const stampedBefore = new Map(
+    Object.entries(options.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
+  );
+  const changed = new Set<string>();
+  for (const snapshot of snapshots.values()) {
+    for (const [key, modified] of snapshot.lastModified) {
+      // A date that cannot be read cannot show the record was left alone.
+      const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+      if (!unchanged) changed.add(key);
+    }
+  }
 
   /** Records of the run whose object the removal has been through. */
   const reached = new Set<string>();
@@ -403,26 +459,51 @@ export async function removeRunRecords(
     stays: (key) => changed.has(key) && !options.includeChanged,
     runStart,
     runEnd,
-    removalStart,
+    removalStart: clock.start,
+    removalUser,
     includeChanged: options.includeChanged,
   });
 
-  if (stopped()) return { objects: [], cancelled: true };
-  await backToDraft(session, dependents, order, (objectApiName, id) => {
-    const key = recordKey(id);
-    const snapshot = snapshots.get(objectApiName);
-    return (
-      snapshot?.error === undefined &&
-      snapshot?.lastModified.has(key) === true &&
-      !(changed.has(key) && !options.includeChanged)
-    );
-  });
+  if (stopped()) return { objects: [], cancelled: true, stamps: {} };
+  const drafting = await backToDraft(
+    session,
+    dependents,
+    order,
+    (objectApiName, id) => {
+      const key = recordKey(id);
+      const snapshot = snapshots.get(objectApiName);
+      return (
+        snapshot?.error === undefined &&
+        snapshot?.lastModified.has(key) === true &&
+        !(changed.has(key) && !options.includeChanged)
+      );
+    },
+    stopped,
+  );
 
   const removals: ObjectRemoval[] = [];
-  const outcome = (cancelled: boolean): RunRemovalOutcome => ({
-    objects: removals.map((removal) => removal.settle()),
-    cancelled,
-  });
+  // Every way out once a status may have been changed: what the removal leaves
+  // in the org gets its status back first.
+  const outcome = async (cancelled: boolean): Promise<RunRemovalOutcome> => {
+    const stamps = await putBackStatuses(session, drafting.drafted, {
+      note: (objectApiName, reason, failed) => {
+        let removal = removals.find((r) => r.result.objectApiName === objectApiName);
+        // An object not reached is named only for a record left in Draft:
+        // otherwise it is as the removal found it.
+        if (!removal) {
+          if (!failed) return;
+          const planned = plan.find((object) => object.objectApiName === objectApiName);
+          removal = new ObjectRemoval(objectApiName, planned?.ids.length ?? 0);
+          removals.push(removal);
+        }
+        removal.note(reason);
+      },
+      unchangedSinceRun: (id) => !changed.has(recordKey(id)),
+      removalUser,
+    });
+    return { objects: removals.map((removal) => removal.settle()), cancelled, stamps };
+  };
+  if (drafting.cancelled) return outcome(true);
   let settled = 0;
   for (const { objectApiName, ids } of order) {
     if (stopped()) return outcome(true);
@@ -572,6 +653,16 @@ function queryOf(org: RemovalOrg): SoqlQuery {
   };
 }
 
+/** A record {@link backToDraft} set to Draft, and the status it had. */
+interface Drafted {
+  objectApiName: string;
+  id: string;
+  /** The Draft status it was set to. */
+  draft: string;
+  /** The status it had, and gets back if it stays in the org. */
+  status: string;
+}
+
 /**
  * Return to a Draft status, before anything is deleted, the run's records of
  * an object with a status lifecycle — an order, a contract — that are past
@@ -584,6 +675,11 @@ function queryOf(org: RemovalOrg): SoqlQuery {
  * changed since the run or held for a record that stays, is left as it is. A
  * refusal here shows again, with its reason, as the delete that follows.
  *
+ * Which records stay is only known once the deletes are through — an item the
+ * org refuses holds its order — so each record set to Draft is handed back
+ * with the status it had, for {@link putBackStatuses}. Stopped, it sets
+ * nothing more.
+ *
  * @param goes - Whether the record is still in the org and not kept as changed.
  */
 async function backToDraft(
@@ -591,13 +687,16 @@ async function backToDraft(
   dependents: DependentsCheck,
   order: readonly ForgeRunObjectRecords[],
   goes: (objectApiName: string, id: string) => boolean,
-): Promise<void> {
+  stopped: () => boolean,
+): Promise<{ drafted: Drafted[]; cancelled: boolean }> {
   const query = queryOf(org);
+  const drafted: Drafted[] = [];
   for (const { objectApiName, ids } of order) {
     const lifecycle = STATUS_LIFECYCLES[objectApiName];
     if (!lifecycle) continue;
     const candidates = ids.filter((id) => goes(objectApiName, id));
     if (candidates.length === 0) continue;
+    if (stopped()) return { drafted, cancelled: true };
     const categories = await statusCategories(query, lifecycle);
     if (!categories?.draft) continue;
     const draft = categories.draft;
@@ -614,19 +713,143 @@ async function backToDraft(
         const category = categories.categoryOf.get(String(row.Status));
         return category !== undefined && category !== 'Draft';
       })
-      .map((row) => String(row.Id));
+      .map((row) => ({ objectApiName, id: String(row.Id), draft, status: String(row.Status) }));
     for (let at = 0; at < pastDraft.length; at += RECORDS_PER_CALL) {
+      if (stopped()) return { drafted, cancelled: true };
       const batch = pastDraft.slice(at, at + RECORDS_PER_CALL);
+      // Kept before the call: an update the org applied without answering is
+      // put back all the same.
+      drafted.push(...batch);
       try {
         await org.update(
           objectApiName,
-          batch.map((id) => ({ Id: id, Status: draft })),
+          batch.map(({ id }) => ({ Id: id, Status: draft })),
         );
       } catch {
         // Shown again by the delete.
       }
     }
   }
+  return { drafted, cancelled: false };
+}
+
+/** How {@link putBackStatuses} says what it did, and which stamps it keeps. */
+interface PutBackHooks {
+  /**
+   * Say something of an object's records on its result.
+   *
+   * @param failed - Whether a record of it was left in Draft.
+   */
+  note: (objectApiName: string, reason: string, failed: boolean) => void;
+  /** Whether a record was unchanged since the run when the removal read it. */
+  unchangedSinceRun: (id: string) => boolean;
+  /** The key of the user the removal runs as; undefined when the org did not tell. */
+  removalUser: string | undefined;
+}
+
+/**
+ * Give each record {@link backToDraft} set to Draft that the removal leaves in
+ * the org — kept, refused, or not reached — the status it had, and say so on
+ * its object, whether the org took it back or not.
+ *
+ * Set to Draft before any delete, an order was then held by an item the org
+ * refused, or refused itself, or the removal was cancelled before its turn:
+ * it stayed in the org deactivated, and nothing said so. A record the removal
+ * set to Draft and someone changed since is left as they left it.
+ *
+ * @returns The `LastModifiedDate` the org left on each of them, by id — for
+ *   the ones unchanged since the run: what a later removal reads as this
+ *   one's doing, not as a change since the run.
+ */
+async function putBackStatuses(
+  org: RemovalOrg,
+  drafted: readonly Drafted[],
+  hooks: PutBackHooks,
+): Promise<Record<string, string>> {
+  const stamps: Record<string, string> = {};
+  const objects = [...new Set(drafted.map((record) => record.objectApiName))];
+  for (const objectApiName of objects) {
+    const records = drafted.filter((record) => record.objectApiName === objectApiName);
+    const byKey = new Map(records.map((record) => [recordKey(record.id), record]));
+    const ids = records.map((record) => record.id);
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await readRecordsById(org, objectApiName, ['Status'], ids);
+    } catch (err: unknown) {
+      hooks.note(
+        objectApiName,
+        `Status set to ${records[0].draft} for the delete, and not read back to be restored: ${extractErrorMessage(err)}`,
+        true,
+      );
+      continue;
+    }
+    const inDraft = rows.flatMap((row) => {
+      const record = typeof row.Id === 'string' ? byKey.get(recordKey(row.Id)) : undefined;
+      return record && row.Status === record.draft ? [record] : [];
+    });
+    for (let at = 0; at < inDraft.length; at += RECORDS_PER_CALL) {
+      const batch = inDraft.slice(at, at + RECORDS_PER_CALL);
+      let answer: unknown;
+      try {
+        answer = await org.update(
+          objectApiName,
+          batch.map(({ id, status }) => ({ Id: id, Status: status })),
+        );
+      } catch (err: unknown) {
+        answer = batch.map(() => ({ success: false, errors: [extractErrorMessage(err)] }));
+      }
+      const answered = Array.isArray(answer) ? answer : [answer];
+      batch.forEach(({ draft, status }, index) => {
+        const row = writeResultSchema.safeParse(answered[index]);
+        if (row.success && row.data.success) {
+          hooks.note(
+            objectApiName,
+            `Status set to ${draft} for the delete, then back to ${status}.`,
+            false,
+          );
+          return;
+        }
+        const errors = row.success ? (row.data.errors ?? []) : [];
+        const reason = errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.';
+        hooks.note(
+          objectApiName,
+          `Status set to ${draft} for the delete, and left there: the org refused ${status} back — ${reason}`,
+          true,
+        );
+      });
+    }
+    // Read once the statuses are back: the stamp the org left last, when the
+    // removal's user left it — a record someone else changed meanwhile keeps
+    // their change. Unread, a later removal reads them as changed since the
+    // run, and keeps them.
+    const user = hooks.removalUser;
+    const stay = rows
+      .map((row) => String(row.Id))
+      .filter((id) => byKey.has(recordKey(id)) && hooks.unchangedSinceRun(id));
+    if (user === undefined || stay.length === 0) continue;
+    let stamped: Array<Record<string, unknown>> = [];
+    try {
+      stamped = await readRecordsById(
+        org,
+        objectApiName,
+        ['LastModifiedDate', 'LastModifiedById'],
+        stay,
+      );
+    } catch {
+      // See above.
+    }
+    for (const row of stamped) {
+      if (
+        typeof row.Id === 'string' &&
+        typeof row.LastModifiedDate === 'string' &&
+        typeof row.LastModifiedById === 'string' &&
+        recordKey(row.LastModifiedById) === user
+      ) {
+        stamps[row.Id] = row.LastModifiedDate;
+      }
+    }
+  }
+  return stamps;
 }
 
 /**
@@ -747,20 +970,44 @@ async function snapshotOf(
   return { lastModified: new Map(), firstCreated: Number.NaN, error };
 }
 
-/**
- * When a removal starts, by the org's clock, to the second: the org dates
- * what it writes to the second, so what the removal makes it write within
- * the second it started is dated to that second's start. An org that does
- * not tell its clock leaves nothing read as the removal's own doing.
- */
-async function removalStartOf(org: RemovalOrg): Promise<number> {
+/** The org's clock as a removal starts. */
+interface RemovalClock {
+  /**
+   * When the removal starts, by the org's clock, to the second: the org dates
+   * what it writes to the second, so what the removal makes it write within
+   * the second it started is dated to that second's start. Infinite when the
+   * org did not tell its clock: nothing is then read as the removal's doing.
+   */
+  start: number;
+  /** How far the org's clock runs ahead of this machine's; NaN when untold. */
+  aheadMs: number;
+}
+
+/** The org's clock, read once, before the removal's first write. */
+async function removalClockOf(org: RemovalOrg): Promise<RemovalClock> {
+  const before = Date.now();
   let now = Number.NaN;
   try {
     now = epochOf(await org.serverTime());
   } catch {
-    // Untold: see above.
+    // Untold: see `RemovalClock`.
   }
-  return Number.isFinite(now) ? Math.floor(now / 1000) * 1000 : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(now)) return { start: Number.POSITIVE_INFINITY, aheadMs: Number.NaN };
+  // This machine's time halfway through the call: the org read its clock in it.
+  return { start: Math.floor(now / 1000) * 1000, aheadMs: now - (before + Date.now()) / 2 };
+}
+
+/**
+ * The key of the user the removal runs as. An org that does not say leaves
+ * nothing read as the removal's own doing.
+ */
+async function removalUserOf(org: RemovalOrg): Promise<string | undefined> {
+  try {
+    const user = await org.userId();
+    return typeof user === 'string' && user !== '' ? recordKey(user) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The earlier of two dates, either of which may be NaN for a date not read. */
@@ -771,19 +1018,47 @@ function earliest(a: number, b: number): number {
 
 /**
  * The run's span, in the target's dates: the one given, or, for a run whose
- * dates the org did not give back, from its first record's `CreatedDate` to
- * that plus how long the run took. The end is then late rather than early:
- * the run's first write came after it started, so every write it made fell
- * before, and none of its own records reads as changed since it.
+ * dates the org did not give back, read from its records and from when it
+ * was recorded.
+ *
+ * Recorded right after its last write, on this machine's clock, the run is
+ * read on the org's with the gap between the two measured as the removal
+ * starts, give or take {@link CLOCK_LEEWAY_MS}: it ended when it was recorded,
+ * and began as long before as it took, or with its first record's
+ * `CreatedDate` if that came later. Timed from that first record for as long
+ * as the run took, the end fell after the run's last write by the whole of
+ * its reading of the source, and what someone changed or added in that time
+ * went with the run. And a `CreatedDate` alone cannot start it: where the
+ * run's user may set audit fields, the clone writes the source's, years
+ * before the run.
+ *
+ * Without that time, or from an org that does not tell its clock, the span
+ * runs from the first record's `CreatedDate` for as long as the run took:
+ * late rather than early, as the run's first write came after it started.
+ *
+ * @param orgAheadMs - How far the org's clock runs ahead of this machine's.
  */
 function runSpan(
-  options: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs'>,
+  options: Pick<
+    RunRemovalOptions,
+    'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'
+  >,
   snapshots: Iterable<ObjectSnapshot>,
+  orgAheadMs: number,
 ): { start: number; end: number } {
   let firstCreated = Number.NaN;
   for (const snapshot of snapshots) firstCreated = earliest(firstCreated, snapshot.firstCreated);
+  const duration = options.runDurationMs ?? 0;
+  const recordedOnOrg = (options.runRecordedAt?.getTime() ?? Number.NaN) + orgAheadMs;
+  if (options.runEndedAt === undefined && Number.isFinite(recordedOnOrg)) {
+    const began = recordedOnOrg - duration - CLOCK_LEEWAY_MS;
+    return {
+      start: options.runStartedAt?.getTime() ?? (firstCreated > began ? firstCreated : began),
+      end: recordedOnOrg + CLOCK_LEEWAY_MS,
+    };
+  }
   const start = options.runStartedAt?.getTime() ?? firstCreated;
-  const end = options.runEndedAt?.getTime() ?? start + (options.runDurationMs ?? 0);
+  const end = options.runEndedAt?.getTime() ?? start + duration;
   return { start, end };
 }
 
@@ -812,7 +1087,7 @@ async function deleteBatch(
   }
   const rows = Array.isArray(answer) ? answer : [answer];
   return batch.map((_, index): DeleteOutcome => {
-    const row = deleteResultSchema.safeParse(rows[index]);
+    const row = writeResultSchema.safeParse(rows[index]);
     if (row.success && row.data.success) return { kind: 'deleted' };
     const errors = row.success ? (row.data.errors ?? []) : [];
     if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) return { kind: 'gone' };
@@ -835,10 +1110,12 @@ interface DependentsContext {
   runStart: number;
   runEnd: number;
   /**
-   * When this removal started, by the org's clock: what was created after it
-   * is its own doing. Infinite when the org did not tell.
+   * When this removal started, by the org's clock: what its user created
+   * after it is its own doing. Infinite when the org did not tell.
    */
   removalStart: number;
+  /** The key of the user the removal runs as; undefined when the org did not tell. */
+  removalUser: string | undefined;
   /** Whether what changed since the run, and what was added since, goes too. */
   includeChanged: boolean;
 }
@@ -974,15 +1251,17 @@ class DependentsCheck {
    *   changed records back out means those too.
    *
    * What the platform adds on its own to a record of the run comes with the
-   * run, whatever its date: see `PLATFORM_ADDED`. An object that keeps no
-   * created and modified dates is read by its system stamp; one that keeps no
-   * date at all stays.
+   * run, whatever its date: see `PLATFORM_ADDED`; and what the user the
+   * removal runs as created once it was under way is the removal's doing. An
+   * object that keeps no created and modified dates is read by its system
+   * stamp; one that keeps no date at all stays.
    *
    * @param object - The record's object.
    */
   private stays(row: Record<string, unknown>, object: string): boolean {
     const key = recordKey(row.Id as string);
-    const { runRecords, reached, runStart, runEnd, removalStart, includeChanged } = this.context;
+    const { runRecords, reached, runStart, runEnd, removalStart, removalUser, includeChanged } =
+      this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     const dated =
@@ -992,12 +1271,19 @@ class DependentsCheck {
     const modified = epochOf(dated === 'CreatedDate' ? row.LastModifiedDate : row.SystemModstamp);
     // A date that cannot be read cannot show the record came with the run.
     if (!(created >= runStart)) return true;
-    // Created once this removal was under way: the org answering what the
-    // removal did. Deleting an opportunity's line items changes its amount,
-    // and feed tracking records the change on the opportunity — which, read
-    // as added since the run, kept the opportunity, and its account and price
-    // book behind it.
-    if (created >= removalStart) return false;
+    // Created once this removal was under way, by the user it runs as: the
+    // org answering what the removal did. Deleting an opportunity's line
+    // items changes its amount, and feed tracking records the change on the
+    // opportunity — which, read as added since the run, kept the opportunity,
+    // and its account and price book behind it. A record someone else created
+    // meanwhile — a colleague's task, an integration's contact — is theirs:
+    // taken for the removal's, it went with its parent, unreported.
+    const creator = row.CreatedById;
+    const byRemoval =
+      removalUser !== undefined &&
+      typeof creator === 'string' &&
+      recordKey(creator) === removalUser;
+    if (byRemoval && created >= removalStart) return false;
     if (modified <= runEnd) return false;
     return !includeChanged;
   }

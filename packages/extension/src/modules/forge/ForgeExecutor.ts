@@ -766,6 +766,25 @@ function statusesByObject(
 }
 
 /**
+ * The columns the dates of the run's records are read back by, tried in
+ * turn: when each was created and last modified, and its system stamp; or,
+ * for an object that keeps no `LastModifiedDate` — a relation of an email
+ * message — the system stamp alone.
+ */
+const WRITTEN_DATE_COLUMNS: readonly (readonly string[])[] = [
+  ['CreatedDate', 'LastModifiedDate', 'SystemModstamp'],
+  ['SystemModstamp'],
+];
+
+/** The audit dates an org may let a user set on the records they create. */
+const AUDIT_DATE_FIELDS: ReadonlySet<string> = new Set(['CreatedDate', 'LastModifiedDate']);
+
+/** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
+function epochOf(value: unknown): number {
+  return typeof value === 'string' ? Date.parse(value) : Number.NaN;
+}
+
+/**
  * Executes a Forge plan by processing graph nodes in topological order.
  *
  * Thin orchestrator over the stage pipeline in `./stages/`:
@@ -1054,8 +1073,16 @@ export class ForgeExecutor {
    * Removing the run's records goes by these, not by this machine's clock: a
    * record the org stamped after the run ended is one changed since, and a
    * clock a second behind the org's made every record the run wrote last read
-   * that way. Best effort — a read refused leaves the run undated, and the
-   * removal then dates it from the records themselves.
+   * that way. Where both orgs let the run's user set audit fields, the clone
+   * wrote the source's creation and modification dates, years before the
+   * run, and a removal took what was created in the target since for the
+   * run's own: those records are dated by their system stamp, which no one
+   * sets.
+   *
+   * Best effort — a read refused leaves the run undated, and the removal then
+   * dates it from the records themselves and from when the run was recorded.
+   * Dated by the objects it could read, the run ended before the writes it
+   * could not, and a removal read those as changes made since the run.
    */
   private async readWrittenBetween(state: ExecutionState): Promise<void> {
     if (state.config.dryRun || state.writtenBetween) return;
@@ -1066,22 +1093,21 @@ export class ForgeExecutor {
         const target = state.remapper.get(id);
         return target ? [target] : [];
       });
+      if (ids.length === 0) continue;
+      const stampOnly = await this.auditDatesCopied(state, objectApiName);
       for (const list of idLists(ids)) {
-        let rows: Record<string, unknown>[];
-        try {
-          rows = await this.deps.queryRecords(
-            state.targetOrgId,
-            `SELECT Id, CreatedDate, LastModifiedDate FROM ${assertSoqlIdentifier(objectApiName)} ` +
-              `WHERE Id IN (${list})`,
-          );
-        } catch {
-          continue;
-        }
+        const rows = await this.writtenDatesOf(state.targetOrgId, objectApiName, list);
+        if (!rows) return;
         for (const row of rows) {
-          const created =
-            typeof row['CreatedDate'] === 'string' ? Date.parse(row['CreatedDate']) : NaN;
-          const modified =
-            typeof row['LastModifiedDate'] === 'string' ? Date.parse(row['LastModifiedDate']) : NaN;
+          // A record whose own date is not the org's, or that keeps none, is
+          // dated by its system stamp.
+          const stamp = epochOf(row['SystemModstamp']);
+          const dated = (field: string): number => {
+            const date = stampOnly ? Number.NaN : epochOf(row[field]);
+            return Number.isFinite(date) ? date : stamp;
+          };
+          const created = dated('CreatedDate');
+          const modified = dated('LastModifiedDate');
           if (Number.isFinite(created)) first = Math.min(first, created);
           if (Number.isFinite(modified)) last = Math.max(last, modified);
         }
@@ -1092,6 +1118,52 @@ export class ForgeExecutor {
         first: new Date(first).toISOString(),
         last: new Date(Math.max(first, last)).toISOString(),
       };
+    }
+  }
+
+  /**
+   * The dates of some records the run created, read by the first set of
+   * {@link WRITTEN_DATE_COLUMNS} their object keeps; undefined when none could
+   * be read.
+   *
+   * @param list - The records' ids, quoted for an `IN (…)`.
+   */
+  private async writtenDatesOf(
+    orgId: string,
+    objectApiName: string,
+    list: string,
+  ): Promise<Record<string, unknown>[] | undefined> {
+    const object = assertSoqlIdentifier(objectApiName);
+    for (const columns of WRITTEN_DATE_COLUMNS) {
+      try {
+        return await this.deps.queryRecords(
+          orgId,
+          `SELECT Id, ${columns.join(', ')} FROM ${object} WHERE Id IN (${list})`,
+        );
+      } catch {
+        // The next set of columns, or none.
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether the run may have written the source's audit dates into its
+   * records of an object: both orgs let its user set them, and a clone writes
+   * every field both let it write. An object either org will not describe may
+   * have them too.
+   */
+  private async auditDatesCopied(state: ExecutionState, objectApiName: string): Promise<boolean> {
+    const settable = (fields: readonly FieldInfo[]): boolean =>
+      fields.some((f) => AUDIT_DATE_FIELDS.has(f.name) && f.createable);
+    try {
+      const [source, target] = await Promise.all([
+        this.deps.describeFields(state.sourceOrgId, objectApiName),
+        this.deps.describeFields(state.targetOrgId, objectApiName),
+      ]);
+      return settable(source) && settable(target);
+    } catch {
+      return true;
     }
   }
 
