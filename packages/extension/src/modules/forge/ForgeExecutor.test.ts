@@ -941,6 +941,26 @@ describe('ForgeExecutor', () => {
       expect(product2Skipped?.message).toContain('out of scope');
     });
 
+    it.each([false, true])(
+      'counts an object no record of the clone reaches as skipped, never as an error (dry run: %s)',
+      async (dryRun) => {
+        // Nothing read points at a product and no product sits under anything
+        // read: the clone holds none, and nothing is wrong. Listed among the
+        // errors as 0 of 0, six such objects made up a real dry run's errors.
+        const graph = makeGraph([makeNode('Case'), makeNode('Product2')], []);
+        vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
+
+        const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Case',
+          dryRun,
+        });
+
+        expect(summary.errors).toEqual([]);
+        expect(summary.skippedCount).toBe(1);
+      },
+    );
+
     it('reads an ancestor whose ids only a descendant knows', async () => {
       // Entry is a parent of LineItem, so the execution order puts it before
       // the root's child — and at that point nothing has read a row that
@@ -4884,6 +4904,168 @@ describe('ForgeExecutor', () => {
       const inserted = vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1]);
       expect(inserted.sort()).toEqual(['Account', 'Contact']);
       expect(summary.skippedCount).toBe(1);
+      // One row of the refused object says the run holds some: no more is read.
+      expect(deps.queryRecords).toHaveBeenCalledWith('src', 'SELECT Id, Name FROM Case LIMIT 1');
+    });
+
+    describe('in a record-scoped run', () => {
+      const ACCOUNT = '001000000000001AAA';
+      const FIRST_CASE = '500000000000001AAA';
+      const SECOND_CASE = '500000000000002AAA';
+      const idField: FieldInfo = {
+        name: 'Id',
+        queryable: true,
+        createable: false,
+        isReference: false,
+      };
+      const name: FieldInfo = {
+        name: 'Name',
+        queryable: true,
+        createable: true,
+        isReference: false,
+      };
+      const lookup = (field: string, target: string): FieldInfo => ({
+        name: field,
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: [target],
+        nillable: true,
+      });
+      const FIELDS: Record<string, FieldInfo[]> = {
+        Account: [idField, name],
+        Case: [idField, name, lookup('AccountId', 'Account')],
+        CaseComment: [idField, name, lookup('ParentId', 'Case')],
+      };
+      /** An account, the cases under it and a comment under the first case. */
+      const GRAPH = makeGraph(
+        [makeNode('Account'), makeNode('Case'), makeNode('CaseComment')],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Case',
+            relationshipName: 'Cases',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Case',
+            targetObject: 'CaseComment',
+            relationshipName: 'CaseComments',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      const NOT_CREATEABLE = {
+        objectApiName: 'Case',
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(node-level skip)',
+            messages: ['Object is not createable on target org'],
+          },
+        ],
+      };
+
+      /**
+       * A clone of the account from a source holding `cases`, and a comment
+       * under the first, into a target that refuses cases. `fails` makes the
+       * source's read or describe of cases fail.
+       */
+      async function cloneRefusingCases(cases: FakeRow[], fails?: 'read' | 'describe') {
+        const tables: Record<string, FakeRow[]> = {
+          Account: [{ Id: ACCOUNT, Name: 'Root' }],
+          Case: cases,
+          CaseComment: [{ Id: '00a000000000001AAA', Name: 'Note', ParentId: FIRST_CASE }],
+        };
+        deps.describeFields = vi.fn<ForgeExecutorDeps['describeFields']>(
+          async (_orgId, objectName) => {
+            if (fails === 'describe' && objectName === 'Case') {
+              throw new Error('INVALID_TYPE: sObject type Case is not supported.');
+            }
+            return FIELDS[objectName] ?? [idField];
+          },
+        );
+        deps.queryRecords = vi.fn<ForgeExecutorDeps['queryRecords']>(async (orgId, soql) => {
+          if (orgId !== 'src') return [];
+          if (fails === 'read' && soql.includes('FROM Case ')) {
+            throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+          }
+          return selectRows(tables, soql);
+        });
+        deps.insertRecords = vi.fn<ForgeExecutorDeps['insertRecords']>(
+          async (_orgId, objectName, records) =>
+            records.map((_record, i) => ({
+              id: `${objectName}:${String(i)}`,
+              success: true,
+              errors: [],
+            })),
+        );
+        deps.isObjectCreatable = vi.fn<CreatableCheck>(
+          async (_orgId, objectName) => objectName !== 'Case',
+        );
+        const summary = await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+        const reads = vi
+          .mocked(deps.queryRecords)
+          .mock.calls.filter(([orgId]) => orgId === 'src')
+          .map(([, soql]) => soql);
+        const inserted = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.map(([, objectName]) => objectName);
+        return { summary, reads, inserted };
+      }
+
+      it('skips without an error an object the target refuses when the clone holds none of its records', async () => {
+        const { summary, inserted } = await cloneRefusingCases([]);
+
+        expect(summary.errors).toEqual([]);
+        expect(progressEvents).toContainEqual({
+          objectName: 'Case',
+          status: 'skipped',
+          progress: 100,
+          message:
+            'Skipped Case (target org rejects inserts on this entity; ' +
+            'the clone holds none of its records)',
+        });
+        expect(inserted).toEqual(['Account']);
+      });
+
+      it('reports an object the target refuses when the clone holds records of it, from one row and nothing under it', async () => {
+        const { summary, reads, inserted } = await cloneRefusingCases([
+          { Id: FIRST_CASE, Name: 'First', AccountId: ACCOUNT },
+          { Id: SECOND_CASE, Name: 'Second', AccountId: ACCOUNT },
+        ]);
+
+        expect(summary.errors).toEqual([NOT_CREATEABLE]);
+        expect(reads.filter((soql) => soql.includes('FROM Case '))).toEqual([
+          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 1`,
+        ]);
+        // Never written, the cases bring nothing under them into the clone:
+        // the comment is not read, as when the object was not read at all.
+        expect(reads.some((soql) => soql.includes('FROM CaseComment'))).toBe(false);
+        expect(inserted).toEqual(['Account']);
+      });
+
+      it.each(['read', 'describe'] as const)(
+        'reports an object the target refuses, failing none of its records, when its %s fails',
+        async (fails) => {
+          const { summary } = await cloneRefusingCases(
+            [{ Id: FIRST_CASE, Name: 'First', AccountId: ACCOUNT }],
+            fails,
+          );
+
+          // Whether the clone holds a record of it is unknown: it is reported
+          // as when it does, and none of its records is counted as failed.
+          expect(summary.errors).toEqual([NOT_CREATEABLE]);
+          expect(summary.failedCount).toBe(0);
+          expect(summary.successCount).toBe(1);
+        },
+      );
     });
 
     it('keeps the describes it starts under the connection-pool cap', async () => {

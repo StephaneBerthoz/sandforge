@@ -431,6 +431,47 @@ describe('sandforge-clone summary', () => {
       expect(jsonResult(summary({ files })).files).toEqual(files);
       expect(jsonResult(summary({})).files).toBeUndefined();
     });
+
+    it('says on a dry run that the files could not all be looked up, never that there is none to copy', () => {
+      const lookupFailure =
+        'The files of the records to clone could not all be looked up in the source ' +
+        '(QUERY_TIMEOUT: Your query request was running for too long.). ' +
+        'Run it again, or leave the files out.';
+      const nothingFound = { maxFileBytes: files.maxFileBytes, objects: [], links: 0, leftOut: [] };
+      const failed = { ...nothingFound, wouldCopy: [], lookupFailure };
+
+      const lines = summaryLines(summary({ successCount: 0, files: failed }), true);
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'files (up to 10 MB each):',
+          `  ${lookupFailure}`,
+          '  A real run stops here, before writing anything.',
+        ]),
+      );
+      expect(lines).not.toContain('  none to copy');
+      expect(jsonResult(summary({ files: failed })).files?.lookupFailure).toBe(lookupFailure);
+      // Every lookup answered and found nothing: then there is none to copy.
+      expect(
+        summaryLines(summary({ successCount: 0, files: { ...nothingFound, wouldCopy: [] } }), true),
+      ).toContain('  none to copy');
+    });
+
+    it('says on a dry run that the files could not all be looked up beside those it found', () => {
+      const lookupFailure =
+        'The files of the records to clone could not all be looked up in the source ' +
+        '(QUERY_TIMEOUT: Your query request was running for too long.). ' +
+        'Run it again, or leave the files out.';
+
+      const lines = summaryLines(summary({ files: { ...files, lookupFailure } }), true);
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          `  ${lookupFailure}`,
+          '  ContentDocument  2 would be copied (3 KB, dry run, nothing written)',
+        ]),
+      );
+    });
   });
 
   it("names, per object, the fields left empty because they hold a file's content", () => {

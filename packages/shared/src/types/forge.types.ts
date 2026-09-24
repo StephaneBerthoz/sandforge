@@ -416,6 +416,14 @@ export interface ForgeFilesReport {
    * written. Absent when there was no file to copy, so none was read.
    */
   remainingStorageBytes?: number;
+  /**
+   * On a dry run, why the files of its records could not all be looked up in
+   * the source: the refusal a real run stops on before writing anything. The
+   * files it lists are then only those the lookups that answered found.
+   * Absent when every lookup answered, and from a run that wrote, which
+   * never gets past it.
+   */
+  lookupFailure?: string;
 }
 
 /**

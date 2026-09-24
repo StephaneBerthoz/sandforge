@@ -43,8 +43,10 @@ ForgeOrchestrator.execute(graph, config)
        │
        ├─ before the node loop: isObjectCreatable for every included object
        │    (target), six describes in flight at a time. An object the target
-       │    refuses is skipped and reported; a check that failed is reported
-       │    for that object, which is still attempted.
+       │    refuses is skipped: at most one row of it is read, into no scope,
+       │    and it is an error only when the clone holds records of it. A
+       │    check that failed is reported for that object, which is still
+       │    attempted.
        │
        ├─ for each node (root-first, then topo):
        │    1. describeFields (source + target → intersect createable)
@@ -115,7 +117,9 @@ recorded, read on the org's clock.
 ## Error structure
 
 `ForgeExecutionResult.errors: ForgeExecutionError[]` is populated whenever any
-record or object failed. Shape:
+record or object failed. An object the clone holds no record of — no record
+read points at it or sits above it, or the target refuses it and there is none
+to write — is counted among the skipped objects, not among the errors. Shape:
 
 ```ts
 interface ForgeExecutionError {

@@ -32,6 +32,7 @@ import {
   seedScopeCache,
   sortNodesForExecution,
   sortNodesForWriting,
+  type NodeQueryInput,
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
@@ -412,7 +413,8 @@ export interface ForgeExecutorDeps {
    * read-only system entities like CaseHistory, ContentDocumentLink,
    * AuditTrail variants, etc. When provided, the executor consults this
    * before scheduling inserts so unsupported nodes are skipped cleanly
-   * with a helpful error rather than failing record-by-record at runtime.
+   * rather than failing record-by-record at runtime — with an error when
+   * the clone holds records of them, which it then cannot write.
    */
   isObjectCreatable?: (orgId: string, objectName: string) => Promise<boolean>;
   /**
@@ -648,6 +650,11 @@ interface ExecutionState {
   readonly batchWriter: BatchWriter;
   /** Objects whose downstream children must be skipped. */
   readonly failedObjects: Set<string>;
+  /**
+   * Objects the target refuses inserts on: read for whether the clone holds
+   * any record of them, never written. Empty on a dry run, which asks nothing.
+   */
+  readonly notCreatable: Set<string>;
   readonly errors: ExecutionObjectError[];
   /** Objects whose source read hit a bound, in the order they were read. */
   readonly truncatedObjects: Set<string>;
@@ -996,6 +1003,7 @@ export class ForgeExecutor {
       orphanExpander: new OrphanExpander(this.deps),
       batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy),
       failedObjects: new Set<string>(),
+      notCreatable: new Set<string>(),
       errors: [],
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
@@ -1312,28 +1320,9 @@ export class ForgeExecutor {
       const creatableCheck = creatableChecks.get(node.objectApiName);
       if (creatableCheck) {
         if (creatableCheck.status === 'fulfilled') {
-          if (!creatableCheck.value) {
-            state.skippedCount++;
-            state.errors.push({
-              objectApiName: node.objectApiName,
-              stage: 'scope',
-              failedCount: 0,
-              attemptedCount: 0,
-              samples: [
-                {
-                  recordSummary: '(node-level skip)',
-                  messages: [`Object is not createable on target org`],
-                },
-              ],
-            });
-            onProgress({
-              objectName: node.objectApiName,
-              status: 'skipped',
-              progress: 100,
-              message: `Skipped ${node.objectApiName} (target org rejects inserts on this entity)`,
-            });
-            continue;
-          }
+          // Still read, for whether the clone holds a record of it: see
+          // `reportNotCreatable`.
+          if (!creatableCheck.value) state.notCreatable.add(node.objectApiName);
         } else {
           const err: unknown = creatableCheck.reason;
           // Surface as a per-object error instead of silently dropping —
@@ -1873,6 +1862,11 @@ export class ForgeExecutor {
       }
     }
     state.files = plannedFilesReport(selection, files.maxFileBytes, remaining);
+    // Only a dry run comes this far past a lookup that failed. Its report
+    // says so beside the files it found, which are then not all there are:
+    // without it, a dry run whose every lookup failed said of its files that
+    // there was none to copy.
+    if (unread) state.files.lookupFailure = unread;
 
     const shortfall =
       remaining === undefined ? null : storageShortfall(bytesOf(selection.files), remaining);
@@ -1923,9 +1917,10 @@ export class ForgeExecutor {
    * scope, query its rows, and seed the scope cache with what they point at.
    *
    * Returns true when the node has rows the write stage should carry. The
-   * branches that finish here — out of scope, reference data resolved by
-   * name, a dry run — return false having already reported themselves; a
-   * node put off, or read to be read again, returns false as well.
+   * branches that finish here — out of scope, refused by the target,
+   * reference data resolved by name, a dry run — return false having already
+   * reported themselves; a node put off, or read to be read again, returns
+   * false as well.
    *
    * `prefetchTargetDescribe` starts the target-org describe alongside the
    * source query, which saves a round-trip when the write follows straight
@@ -1957,7 +1952,7 @@ export class ForgeExecutor {
       // of them could be written, so none is read.
       if (this.skipForFailedParent(node, state, fieldInfos)) return false;
 
-      const query = buildNodeQuery({
+      const queryInput: NodeQueryInput = {
         node,
         edges: state.graph.edges,
         fieldInfos,
@@ -1969,7 +1964,8 @@ export class ForgeExecutor {
         maxRecordsPerObject: config.maxRecordsPerObject,
         readObjects: state.readObjects,
         catalog: CATALOG_OBJECTS,
-      });
+      };
+      const query = buildNodeQuery(queryInput);
       if (allowDefer && this.waitsForWhatPointsAtIt(node, query, state)) {
         state.catalogNodes.push(node);
         return false;
@@ -1979,20 +1975,28 @@ export class ForgeExecutor {
           state.deferredNodes.push(node);
           return false;
         }
+        // Nothing the run read points at it or sits above it, so the clone
+        // holds no record of it: skipped, with nothing wrong. Listed among the
+        // errors as well, as 0 of 0, such objects were all six errors of a
+        // real dry run.
         state.skippedCount++;
-        state.errors.push({
-          objectApiName: node.objectApiName,
-          stage: 'scope',
-          failedCount: 0,
-          attemptedCount: 0,
-          samples: [{ recordSummary: '(no record queried)', messages: [query.reason] }],
-        });
         onProgress({
           objectName: node.objectApiName,
           status: 'skipped',
           progress: 100,
           message: `Skipped ${node.objectApiName} (out of scope: ${query.reason})`,
         });
+        return false;
+      }
+      // One row of an object the target refuses says whether the clone holds
+      // any: no more is read, and what is read goes into no scope.
+      if (state.notCreatable.has(node.objectApiName)) {
+        const probe = buildNodeQuery({ ...queryInput, maxRecordsPerObject: 1 });
+        const held =
+          probe.kind === 'query'
+            ? await queryNodeRecords(probe, (soql) => this.deps.queryRecords(sourceOrgId, soql))
+            : [];
+        this.reportNotCreatable(node, state, held.length > 0);
         return false;
       }
 
@@ -2156,6 +2160,13 @@ export class ForgeExecutor {
       if (err instanceof ForgeAbortedError) {
         throw err;
       }
+      // Never going to be written, it is read only to know whether the clone
+      // holds a record of it: a read that failed leaves that unknown, which
+      // is not a failure of its records.
+      if (state.notCreatable.has(node.objectApiName)) {
+        this.reportNotCreatable(node, state, true);
+        return false;
+      }
       state.failedObjects.add(node.objectApiName);
       state.failedCount += node.recordCount;
       state.errors.push({
@@ -2175,6 +2186,49 @@ export class ForgeExecutor {
       });
       return false;
     }
+  }
+
+  /**
+   * Say that a node the target refuses inserts on was skipped: as an error
+   * when the clone holds records of it, or may — its read failed.
+   *
+   * A record the clone holds of such an object cannot be written, and that is
+   * an error. An object the clone holds none of has lost nothing, and the run
+   * listed it among its errors all the same, as 0 of 0: run against two
+   * sandboxes, the clone of one opportunity listed thirteen such objects, and
+   * held a record of one of them. The row read to know goes into no scope:
+   * never written, it brings nothing under it into the clone, as when the
+   * object was not read at all.
+   */
+  private reportNotCreatable(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    holdsRecords: boolean,
+  ): void {
+    state.skippedCount++;
+    if (holdsRecords) {
+      state.errors.push({
+        objectApiName: node.objectApiName,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(node-level skip)',
+            messages: ['Object is not createable on target org'],
+          },
+        ],
+      });
+    }
+    state.onProgress({
+      objectName: node.objectApiName,
+      status: 'skipped',
+      progress: 100,
+      message: holdsRecords
+        ? `Skipped ${node.objectApiName} (target org rejects inserts on this entity)`
+        : `Skipped ${node.objectApiName} (target org rejects inserts on this entity; ` +
+          'the clone holds none of its records)',
+    });
   }
 
   /**

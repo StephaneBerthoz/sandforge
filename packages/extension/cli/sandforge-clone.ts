@@ -491,12 +491,18 @@ export function failedOutright(summary: ExecutionSummary): boolean {
 
 /**
  * What `--files` did, or — on a dry run — would do: per object the files and
- * their size, the links to the other cloned records, and every file left out
- * with why. Exported so it can be tested.
+ * their size, the links to the other cloned records, every file left out
+ * with why, and on a dry run a lookup of the files that failed. Exported so
+ * it can be tested.
  */
 export function fileLines(files: ForgeFilesReport, dryRun: boolean): string[] {
   const cap = formatFileSize(files.maxFileBytes);
   const lines = [`files (up to ${cap} each):`];
+  // A lookup that failed hides an unknown number of files: what the others
+  // found is not all there is, and none found is not none to copy.
+  if (files.lookupFailure) {
+    lines.push(`  ${files.lookupFailure}`, '  A real run stops here, before writing anything.');
+  }
   for (const entry of files.objects) {
     const size = formatFileSize(entry.plannedBytes);
     lines.push(
@@ -506,7 +512,7 @@ export function fileLines(files: ForgeFilesReport, dryRun: boolean): string[] {
             (entry.failed > 0 ? `, ${entry.failed} failed` : ''),
     );
   }
-  if (files.objects.length === 0) lines.push('  none to copy');
+  if (files.objects.length === 0 && !files.lookupFailure) lines.push('  none to copy');
   if (dryRun && files.wouldCopy && files.wouldCopy.length > 0) {
     lines.push(`  would copy (${files.wouldCopy.length}):`);
     for (const file of files.wouldCopy) {

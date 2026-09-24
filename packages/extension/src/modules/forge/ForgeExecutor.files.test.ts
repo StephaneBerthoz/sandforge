@@ -453,6 +453,33 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
         }),
       );
       expect(summary.files?.wouldCopy?.map((f) => f.sourceId)).toEqual([DOCUMENT]);
+      expect(summary.files?.lookupFailure).toBe(
+        `The files of the records to clone could not all be looked up in the source (${TIMEOUT}). ` +
+          'Run it again, or leave the files out.',
+      );
+    });
+
+    it('says on a dry run whose every lookup failed why it found no file, as a real run would stop on it', async () => {
+      // Its files read "none to copy", as if the records had none, while the
+      // real run was refused for the same failure.
+      const { deps } = failing('FROM ContentDocumentLink');
+      const answer = deps.queryRecords.getMockImplementation()!;
+      deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+        if (org === 'src' && soql.includes('FROM Attachment')) throw new Error(TIMEOUT);
+        return answer(org, soql);
+      });
+
+      const summary = await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+        ...SCOPED,
+        dryRun: true,
+        files: FILES,
+      });
+
+      expect(summary.files?.objects).toEqual([]);
+      expect(summary.files?.lookupFailure).toBe(
+        `The files of the records to clone could not all be looked up in the source (${TIMEOUT}). ` +
+          'Run it again, or leave the files out.',
+      );
     });
   });
 
@@ -586,6 +613,7 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
       { objectApiName: 'ContentDocument', sourceId: DOCUMENT, name: 'Contract', bytes: 4 },
       { objectApiName: 'Attachment', sourceId: ATTACHMENT, name: 'note.txt', bytes: 3 },
     ]);
+    expect(summary.files?.lookupFailure).toBeUndefined();
   });
 
   it('says on a dry run that the files would not fit, without stopping it', async () => {
