@@ -2247,6 +2247,7 @@
     "finishing": "WIRD ABGESCHLOSSEN...",
     "finishingNote": "Alle Objekte im Graphen sind abgeschlossen. Der Lauf wird beendet; die Ergebnisse folgen, sobald er fertig ist.",
     "aborted": "ABGEBROCHEN",
+    "stopped": "ANGEHALTEN",
     "done": "Fertig",
     "running": "Läuft",
     "queued": "In Warteschlange",
@@ -2260,6 +2261,11 @@
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
     "executeForge": "Forge ausführen",
     "executeFailed": "Forge-Ausführung fehlgeschlagen",
+    "runStoppedOn": "Der Lauf wurde vor seinem Ende angehalten: {{message}}",
+    "runStoppedWrote_one": "Bevor er angehalten wurde, hatte er {{count}} Datensatz in der Ziel-Org erstellt.",
+    "runStoppedWrote_other": "Bevor er angehalten wurde, hatte er {{count}} Datensätze in der Ziel-Org erstellt.",
+    "seeStoppedRun": "Anzeigen, was er geschrieben hat",
+    "backToReview": "Zurück zur Überprüfung",
     "reviewAndExecute": "Überprüfen & Ausführen",
     "objects": "Objekte",
     "records": "Datensätze",
@@ -3118,6 +3124,7 @@
     "urgencyWarning": "Warnung",
     "urgencySafe": "Unkritisch",
     "runFinished": "{{name}} abgeschlossen. Geschrieben: {{written}} von {{total}}.",
+    "runStoppedWritten": "{{name}} vor dem Ende angehalten. Geschrieben: {{written}} von {{total}}.",
     "runStopped": "{{name}} bei {{percent}} % angehalten."
   }
 }

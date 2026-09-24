@@ -2091,6 +2091,65 @@ describe('ForgeHandler', () => {
       expect(kept(store)).toEqual([]);
     });
 
+    /** The `forge:execute:error` payloads posted so far. */
+    function errorsPosted(): Array<Record<string, unknown>> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'forge:execute:error')
+        .map((m) => m.payload);
+    }
+
+    it('tells the screen what a run that failed after writing had created, as the history keeps it', async () => {
+      // The error said only what went wrong: the screen could not say that the
+      // run had left records in the target, nor show them.
+      const store = historyStore();
+
+      await executeThrowing(
+        stoppedWith(new Error('INVALID_SESSION_ID: Session expired or invalid')),
+      );
+
+      const [error] = errorsPosted();
+      expect(error).toMatchObject({
+        message: 'INVALID_SESSION_ID: Session expired or invalid',
+        code: 'EXECUTE_ERROR',
+      });
+      // The entry but the config and the org the history adds, as a finished
+      // run is answered: the same run, under the same id, that Retry names.
+      expect(error.result).toEqual({
+        ...kept(store)[0],
+        config: undefined,
+        targetOrgId: undefined,
+      });
+      expect(error.result).not.toHaveProperty('config');
+      expect(error.result).toMatchObject({
+        status: 'failure',
+        createdCount: 1,
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }],
+      });
+    });
+
+    it('tells the screen that a run a cancel stopped after writing was cancelled', async () => {
+      historyStore();
+
+      await executeThrowing(
+        stoppedWith(new ForgeAbortedError('Forge execution was aborted by user request.')),
+      );
+
+      expect(errorsPosted()[0].result).toMatchObject({ status: 'partial', cancelled: true });
+    });
+
+    it('says nothing of records for a run that created none', async () => {
+      historyStore();
+
+      await executeThrowing(stoppedWith(new Error('INVALID_SESSION_ID'), false));
+      await executeThrowing(new Error('source org unreachable'));
+
+      const errors = errorsPosted();
+      expect(errors).toHaveLength(2);
+      expect(errors.map((error) => 'result' in error)).toEqual([false, false]);
+    });
+
     it('records a finished run as it always has', async () => {
       const store = historyStore();
       const result = createMockResult({

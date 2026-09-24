@@ -11,7 +11,8 @@ import type {
   ForgeBatchStrategy,
 } from '@sandforge/shared';
 import type { AnonymizationMethod, ComplianceReport } from '@sandforge/shared';
-import { FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
+import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shared';
+import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
 
 // Re-export shared types so existing imports from this module keep working.
@@ -56,6 +57,36 @@ export interface ForgeLogEntry {
   message: string;
 }
 
+/**
+ * How the run on screen ended when an error ended it rather than its answer:
+ * what went wrong, and what it had written by then when the error said so.
+ */
+export interface ForgeRunError {
+  /** What went wrong, as the extension said it. */
+  message: string;
+  /**
+   * The run as the extension keeps it in its history, when it had created
+   * records before it stopped; null when the error said nothing of them.
+   */
+  stoppedRun: ForgeExecutionResult | null;
+}
+
+/** A `forge:progress` event of a run, as the store takes it. */
+export interface ForgeProgressUpdate {
+  /** The object the event is about. */
+  objectName: string;
+  /** Where the object stands. */
+  status: ForgeNodeStatus;
+  /** How far the object has gone, in percent, when the event says. */
+  progress?: number;
+  /** The executor's own line for the log, when it wrote one. */
+  message?: string;
+  /** What the node turned out to hold, once the run has read it. */
+  recordCount?: number;
+  fieldCount?: number;
+  createableFieldCount?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -65,6 +96,57 @@ export type ForgePhase = 'input' | 'discovery' | 'review' | 'execution' | 'resul
 
 /** Maximum number of results kept in history. */
 const MAX_HISTORY = 50;
+
+/**
+ * Most log lines a run keeps. Forge can emit hundreds of them; without a cap
+ * the array clones grow unbounded and the panel's re-render cost dominates.
+ */
+const MAX_LOGS = 500;
+
+/** `logs` with `entry` appended, the oldest dropped past the cap. */
+function withLogLine(logs: ForgeLogEntry[], entry: ForgeLogEntry): ForgeLogEntry[] {
+  return logs.length >= MAX_LOGS
+    ? [...logs.slice(logs.length - MAX_LOGS + 1), entry]
+    : [...logs, entry];
+}
+
+/** How many log lines were made, for the id of the next. */
+let logLinesMade = 0;
+
+/**
+ * A line for the run's log, stamped now, with an id no other line has: the
+ * lines outlive the screen that shows them, and a counter kept by the screen
+ * started again at each mount.
+ */
+export function forgeLogEntry(level: ForgeLogEntry['level'], message: string): ForgeLogEntry {
+  logLinesMade += 1;
+  return { id: `forge-log-${String(logLinesMade)}`, timestamp: Date.now(), level, message };
+}
+
+/**
+ * How far a run has gone, in percent: the share of the graph's objects that
+ * have settled. A node that was skipped or failed is finished with, so it
+ * counts: dividing only the "done" nodes by the total left a completed run
+ * showing 50% whenever half its objects had been skipped.
+ */
+export function settledPercent(nodes: readonly ForgeGraphNode[]): number {
+  if (nodes.length === 0) return 0;
+  const settled = nodes.filter(
+    (n) => n.status === 'done' || n.status === 'error' || n.status === 'skipped',
+  ).length;
+  return Math.round((settled / nodes.length) * 100);
+}
+
+/** Every node back to idle, keeping what discovery said went wrong with each. */
+function idleNodes(nodes: ForgeGraphNode[]): ForgeGraphNode[] {
+  return nodes.map((n: ForgeGraphNode) => ({
+    ...n,
+    status: 'idle' as ForgeNodeStatus,
+    progress: 0,
+    successCount: 0,
+    failureCount: 0,
+  }));
+}
 
 /** Default anonymization rules per category. */
 const DEFAULT_ANONYMIZATION_RULES: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
@@ -115,6 +197,7 @@ const INITIAL_STATE = {
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
   stoppedAt: null as number | null,
+  runError: null as ForgeRunError | null,
 };
 
 /** Forge state machine store — state and actions. */
@@ -171,8 +254,50 @@ export interface ForgeState {
    * The extension correlates the run's progress, result and error to it.
    */
   executionRequestId: string | null;
-  /** Record the id of the forge:execute request that started the run. */
+  /**
+   * Record the id of the forge:execute request that started the run: a new
+   * run, which starts with none of the last one's log lines, error or stop.
+   */
   setExecutionRequestId: (requestId: string | null) => void;
+  /**
+   * Why the run on screen stopped, when an error ended it rather than its
+   * answer, or null.
+   *
+   * Kept here, as its answer is: the execution screen that showed the error
+   * went with the page, and came back as a run under way.
+   */
+  runError: ForgeRunError | null;
+  /**
+   * Take a `forge:progress` event: when it reports on the run on screen, set
+   * its object's status and counts and log it. An event of another request,
+   * or one that comes once the run was left or had stopped, changes nothing.
+   *
+   * @param requestId - The request the event correlates to.
+   * @param update - What the event says of its object.
+   */
+  takeProgress: (requestId: unknown, update: ForgeProgressUpdate) => void;
+  /**
+   * Take the extension's error for a `forge:execute` request: when it ends
+   * the run on screen, keep why, what it had written if the error says, and
+   * where it stopped, and log it. An error of another request, or one that
+   * comes once the run was left, changes nothing.
+   *
+   * @param requestId - The request the error correlates to.
+   * @param message - What went wrong.
+   * @param stoppedRun - What the run had written, when the error carries it.
+   */
+  failRun: (
+    requestId: unknown,
+    message: string,
+    stoppedRun: ForgeExecutionResult | undefined,
+  ) => void;
+  /** Show the results of what the run that stopped had written, when its error said. */
+  showStoppedRun: () => void;
+  /**
+   * Leave the run that stopped for the Review it was started from, with the
+   * graph as discovery left it for the next run.
+   */
+  reviewAgain: () => void;
   /**
    * How far the last run had gone when it was stopped, in percent, or null.
    *
@@ -269,8 +394,23 @@ export interface ForgeState {
   reset: () => void;
 }
 
+/*
+ * Whether a message correlated to `requestId` is the run on screen's. Every
+ * panel receives every forge message, so it is only when it correlates to the
+ * request that started the run; and a run left before it ended — aborted,
+ * back on the input screen, or its results already shown — has no screen to
+ * show it on.
+ */
+function ofRunOnScreen(state: ForgeState, requestId: unknown): boolean {
+  return (
+    state.executionRequestId !== null &&
+    requestId === state.executionRequestId &&
+    state.phase === 'execution'
+  );
+}
+
 /** Zustand store for forge (Smart Clone) state management. */
-export const useForgeStore = create<ForgeState>((set) => ({
+export const useForgeStore = create<ForgeState>((set, get) => ({
   ...INITIAL_STATE,
 
   setConfig(config: ForgeConfig): void {
@@ -301,8 +441,86 @@ export const useForgeStore = create<ForgeState>((set) => ({
     set({ phase });
   },
 
+  /*
+   * The execution screen used to clear the log and the stop as it mounted:
+   * left and come back to, it cleared those of the run it was showing. A run
+   * starts here, once.
+   */
   setExecutionRequestId(executionRequestId: string | null): void {
-    set({ executionRequestId });
+    set({ executionRequestId, logs: [], runError: null, stoppedAt: null });
+  },
+
+  /*
+   * The only listener for these events lived in the execution screen, and
+   * left with it: back on the page, the objects stood where they had stood
+   * when it was left, and the log started empty.
+   */
+  takeProgress(requestId: unknown, update: ForgeProgressUpdate): void {
+    const state = get();
+    // The extension flushes the last throttled event after the error: the
+    // run has ended by then.
+    if (!ofRunOnScreen(state, requestId) || state.runError) return;
+    const { objectName, status, progress } = update;
+    state.updateNodeStatus(objectName, status, progress);
+    // Counts ride the same event when the executor has them; a status change
+    // that knows none leaves the node's own alone.
+    state.updateNodeCounts(objectName, {
+      recordCount: update.recordCount,
+      fieldCount: update.fieldCount,
+      createableFieldCount: update.createableFieldCount,
+    });
+    const line = forgeLogEntry(
+      status === 'error' ? 'error' : 'info',
+      update.message ??
+        `${objectName}: ${status}${progress !== undefined ? ` (${String(progress)}%)` : ''}`,
+    );
+    set((s) => ({ logs: withLogLine(s.logs, line) }));
+  },
+
+  failRun(requestId: unknown, message: string, stoppedRun: ForgeExecutionResult | undefined): void {
+    set((state) => {
+      if (!ofRunOnScreen(state, requestId) || state.runError) return state;
+      return {
+        runError: { message, stoppedRun: stoppedRun ?? null },
+        // Said by the page, whose region outlives the screen: where it stopped.
+        stoppedAt: settledPercent(state.graph?.nodes ?? []),
+        logs: withLogLine(state.logs, forgeLogEntry('error', message)),
+      };
+    });
+  },
+
+  /*
+   * What the run wrote is known to the last record, as the history keeps it:
+   * the results show it as they show a finished run, with its Id map and its
+   * errors, and say why it stopped.
+   */
+  showStoppedRun(): void {
+    set((state) => {
+      const stopped = state.runError?.stoppedRun;
+      if (!stopped || state.phase !== 'execution') return state;
+      return {
+        phase: 'results' as ForgePhase,
+        result: stopped,
+        history: [stopped, ...state.history].slice(0, MAX_HISTORY),
+      };
+    });
+  },
+
+  /*
+   * Only from a run that stopped: leaving a run under way for Review would
+   * leave it writing with no screen to stop it from. The statuses it left on
+   * the graph are not the next run's, and Review draws them.
+   */
+  reviewAgain(): void {
+    set((state) => {
+      if (state.phase !== 'execution' || !state.runError) return state;
+      return {
+        phase: 'review' as ForgePhase,
+        runError: null,
+        ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
+        statusesBeyondGraph: {},
+      };
+    });
   },
 
   setStoppedAt(stoppedAt: number | null): void {
@@ -344,16 +562,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
     set((state) => {
       if (!state.graph) return state;
       return {
-        graph: {
-          ...state.graph,
-          nodes: state.graph.nodes.map((n: ForgeGraphNode) => ({
-            ...n,
-            status: 'idle' as ForgeNodeStatus,
-            progress: 0,
-            successCount: 0,
-            failureCount: 0,
-          })),
-        },
+        graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) },
         statusesBeyondGraph: {},
       };
     });
@@ -482,18 +691,9 @@ export const useForgeStore = create<ForgeState>((set) => ({
     }));
   },
 
-  /*
-   * Every panel receives every forge message, so an answer is the run's only
-   * when it correlates to the request that started it; and a run left before
-   * it answered — aborted, back on the input screen — has no screen to show a
-   * result on.
-   */
   finishRun(requestId: unknown, result: ForgeExecutionResult | undefined): void {
     set((state) => {
-      if (state.executionRequestId === null || requestId !== state.executionRequestId) {
-        return state;
-      }
-      if (state.phase !== 'execution') return state;
+      if (!ofRunOnScreen(state, requestId)) return state;
       // An answer with no result leaves none on screen: a retry's would
       // otherwise show the run it retried.
       return {
@@ -572,17 +772,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
   },
 
   addLog(entry: ForgeLogEntry): void {
-    // Cap log buffer to avoid O(N²) memory churn on long-running Forge runs.
-    // Forge can emit hundreds of log entries; without a cap the array clones
-    // grow unbounded and the panel re-render cost dominates.
-    const MAX_LOGS = 500;
-    set((state) => {
-      const next =
-        state.logs.length >= MAX_LOGS
-          ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), entry]
-          : [...state.logs, entry];
-      return { logs: next };
-    });
+    set((state) => ({ logs: withLogLine(state.logs, entry) }));
   },
 
   clearLogs(): void {
@@ -600,6 +790,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
       metadataDiffs: [],
       logs: [],
       stoppedAt: null,
+      runError: null,
       fileCopy: { ...NO_FILE_COPY },
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
@@ -611,7 +802,32 @@ export const useForgeStore = create<ForgeState>((set) => ({
 }));
 
 /**
- * The extension's answer to a run, taken here rather than by a screen.
+ * A `forge:progress` payload as the store takes it, or null when it names no
+ * object or no status a node can have.
+ */
+function progressUpdate(payload: unknown): ForgeProgressUpdate | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const event = payload as Record<string, unknown>;
+  const status = forgeNodeStatusSchema.safeParse(event.status);
+  if (typeof event.objectName !== 'string' || event.objectName === '' || !status.success) {
+    return null;
+  }
+  const count = (value: unknown): number | undefined =>
+    typeof value === 'number' ? value : undefined;
+  return {
+    objectName: event.objectName,
+    status: status.data,
+    progress: count(event.progress),
+    message: typeof event.message === 'string' ? event.message : undefined,
+    recordCount: count(event.recordCount),
+    fieldCount: count(event.fieldCount),
+    createableFieldCount: count(event.createableFieldCount),
+  };
+}
+
+/**
+ * What the extension says of a run — its progress, its answer, its error —
+ * taken here rather than by a screen.
  *
  * A run's last steps — the lookups filled in last, the files, the statuses
  * given back, reading back when the target dated its writes — come after its
@@ -619,34 +835,53 @@ export const useForgeStore = create<ForgeState>((set) => ({
  * only listener for that answer lived in the execution screen, which left
  * for the results as soon as the last object settled and took the listener
  * with it: an answer later than its exit was dropped, and the results showed
- * no record inserted, no rate from the records read and no Id map. The store
- * outlives every screen of the page, and the page itself.
+ * no record inserted, no rate from the records read and no Id map. The run's
+ * progress and its error went the same way whenever the page was left while
+ * the run went on. The store outlives every screen of the page, and the page
+ * itself.
  */
-function takeRunAnswer(event: MessageEvent): void {
+function takeRunMessage(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview host.
   if (event.origin && !event.origin.startsWith('vscode-webview://')) return;
   const data = event.data as
     | { type?: unknown; correlationId?: unknown; payload?: unknown }
     | null
     | undefined;
-  if (!data || typeof data !== 'object' || data.type !== 'forge:execute:response') return;
-  const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
-  useForgeStore.getState().finishRun(data.correlationId, payload?.result);
+  if (!data || typeof data !== 'object') return;
+  const store = useForgeStore.getState();
+  if (data.type === 'forge:progress') {
+    const update = progressUpdate(data.payload);
+    if (update) store.takeProgress(data.correlationId, update);
+  } else if (data.type === 'forge:execute:response') {
+    const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
+    store.finishRun(data.correlationId, payload?.result);
+  } else if (data.type === 'forge:execute:error') {
+    const payload = (data.payload ?? {}) as { message?: unknown; result?: unknown };
+    const message =
+      typeof payload.message === 'string' && payload.message !== ''
+        ? payload.message
+        : i18n.t('forge.executeFailed');
+    const stoppedRun =
+      payload.result && typeof payload.result === 'object'
+        ? (payload.result as ForgeExecutionResult)
+        : undefined;
+    store.failRun(data.correlationId, message, stoppedRun);
+  }
 }
 
 // HMR-safe listener registration, as the CDC stores do it: re-imported by a
 // hot replace, the module would otherwise stack a listener per reload and
-// keep every answer once per copy.
-let runAnswerListenerRegistered = false;
-function registerRunAnswerListener(): void {
-  if (runAnswerListenerRegistered || typeof window === 'undefined') return;
-  runAnswerListenerRegistered = true;
-  window.addEventListener('message', takeRunAnswer);
+// take every message once per copy.
+let runListenerRegistered = false;
+function registerRunListener(): void {
+  if (runListenerRegistered || typeof window === 'undefined') return;
+  runListenerRegistered = true;
+  window.addEventListener('message', takeRunMessage);
   if (typeof import.meta !== 'undefined' && import.meta.hot) {
     import.meta.hot.dispose(() => {
-      window.removeEventListener('message', takeRunAnswer);
-      runAnswerListenerRegistered = false;
+      window.removeEventListener('message', takeRunMessage);
+      runListenerRegistered = false;
     });
   }
 }
-registerRunAnswerListener();
+registerRunListener();

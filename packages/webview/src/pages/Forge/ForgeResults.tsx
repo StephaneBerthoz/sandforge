@@ -97,8 +97,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const config = useForgeStore((s) => s.config);
   const anonymizationRules = useForgeStore((s) => s.anonymizationRules);
   const anonymizationPresetId = useForgeStore((s) => s.anonymizationPresetId);
+  const runError = useForgeStore((s) => s.runError);
   const addNotification = useNotificationStore((s) => s.addNotification);
   const saver = useSaveForgeTemplate();
+
+  /**
+   * Why the run shown stopped, when an error ended it and these are the
+   * results of what it had written by then; null for a run that answered.
+   */
+  const stoppedOn =
+    runError?.stoppedRun && result && runError.stoppedRun.forgeId === result.forgeId
+      ? runError.message
+      : null;
 
   const nodes = useMemo(() => graph?.nodes ?? [], [graph]);
 
@@ -485,7 +495,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           one, so the finished run is spoken from here. */}
       <ProgressAnnouncer
         message={[
-          t('a11y.runFinished', {
+          // A run an error stopped did not finish: heard as "finished", what
+          // it had written read as the whole of it.
+          t(stoppedOn === null ? 'a11y.runFinished' : 'a11y.runStoppedWritten', {
             name: t('nav.forge'),
             written: inserted,
             total: plannedRecords,
@@ -499,6 +511,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         immediate
         testId="forge-results-status"
       />
+      {/* Above what the run wrote, which is not the whole clone: the error
+          that stopped it went with the execution screen. */}
+      {stoppedOn !== null && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+          data-testid="forge-results-stopped"
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          <p>{t('forge.runStoppedOn', { message: stoppedOn })}</p>
+        </div>
+      )}
       {/* KPI row */}
       <m.div
         variants={staggerContainer}

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
-import type { ForgeGraph } from '@sandforge/shared';
+import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 import '../../i18n';
+import type { ForgeLogEntry, ForgeRunError } from '../../stores/useForgeStore';
 import { ForgeExecution } from './ForgeExecution';
 
 /* ---- Mocks ---- */
@@ -34,13 +35,15 @@ interface PostedEnvelope {
   payload: { type: string; payload?: Record<string, unknown> };
 }
 
-const mockUpdateNodeStatus = vi.fn();
-const mockUpdateNodeCounts = vi.fn();
 const mockSetPhase = vi.fn();
 const mockSetStoppedAt = vi.fn();
 const mockAddLog = vi.fn();
-const mockClearLogs = vi.fn();
-const mockStoreLogs: unknown[] = [];
+const mockShowStoppedRun = vi.fn();
+const mockReviewAgain = vi.fn();
+/** The run's log, as the store keeps it. */
+let mockLogs: ForgeLogEntry[] = [];
+/** Why the run stopped, when an error ended it. */
+let mockRunError: ForgeRunError | null = null;
 
 // Typed as the real graph, so a test can set any node status the union
 // allows without the fixture's literal types getting in the way.
@@ -126,44 +129,35 @@ const makeMockGraph = (): ForgeGraph => ({
 });
 
 let mockGraph = makeMockGraph();
-/** Id of the forge:execute request that started the run on screen. */
-let mockExecutionRequestId: string | null = null;
 
-vi.mock('../../stores/useForgeStore', () => {
+// The run's progress, log and error are the store's, and this file draws what
+// the store holds: how the store takes them is tested with it, and the two
+// together with the page (`ForgePage.runState.test.tsx`). Only the store
+// stands in here; the module's helpers are its own. The state is read at each
+// render: hoisted, this factory runs before the mocks above are initialized.
+vi.mock('../../stores/useForgeStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../stores/useForgeStore')>();
+  const state = () => ({
+    graph: mockGraph,
+    logs: mockLogs,
+    runError: mockRunError,
+    setPhase: mockSetPhase,
+    setStoppedAt: mockSetStoppedAt,
+    addLog: mockAddLog,
+    showStoppedRun: mockShowStoppedRun,
+    reviewAgain: mockReviewAgain,
+  });
   const store = Object.assign(
-    (selector: (state: Record<string, unknown>) => unknown) =>
-      selector({
-        get graph() {
-          return mockGraph;
-        },
-        get executionRequestId() {
-          return mockExecutionRequestId;
-        },
-        updateNodeStatus: mockUpdateNodeStatus,
-        updateNodeCounts: mockUpdateNodeCounts,
-        setPhase: mockSetPhase,
-        setStoppedAt: mockSetStoppedAt,
-        addLog: (...args: unknown[]) => {
-          mockAddLog(...args);
-          mockStoreLogs.push(args[0]);
-        },
-        clearLogs: mockClearLogs,
-        logs: mockStoreLogs,
-      }),
-    {
-      getState: () => ({
-        graph: mockGraph,
-        updateNodeStatus: mockUpdateNodeStatus,
-        updateNodeCounts: mockUpdateNodeCounts,
-        setPhase: mockSetPhase,
-        addLog: mockAddLog,
-        clearLogs: mockClearLogs,
-        logs: mockStoreLogs,
-      }),
-    },
+    (selector: (s: ReturnType<typeof state>) => unknown) => selector(state()),
+    { getState: state },
   );
-  return { useForgeStore: store };
+  return { ...actual, useForgeStore: store };
 });
+
+/** A line of the run's log. */
+function logLine(id: string, level: ForgeLogEntry['level'], message: string): ForgeLogEntry {
+  return { id, timestamp: Date.now(), level, message };
+}
 
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ className }: { className?: string }) => (
@@ -188,8 +182,8 @@ describe('ForgeExecution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
-    mockExecutionRequestId = null;
-    mockStoreLogs.length = 0;
+    mockLogs = [];
+    mockRunError = null;
   });
 
   describe('a run whose objects have all settled', () => {
@@ -309,8 +303,6 @@ describe('ForgeExecution', () => {
     // The abort goes back to the input screen at once, and this screen's
     // announcer goes with it: the page says the run stopped from the store.
     render(<ForgeExecution />);
-    expect(mockSetStoppedAt).toHaveBeenCalledWith(null);
-    mockSetStoppedAt.mockClear();
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
@@ -352,29 +344,11 @@ describe('ForgeExecution', () => {
   });
 
   it('should filter logs to errors only', () => {
+    mockLogs = [
+      logLine('forge-log-1', 'info', 'Account: running (50%)'),
+      logLine('forge-log-2', 'error', 'Case: error (0%)'),
+    ];
     render(<ForgeExecution />);
-
-    // Simulate incoming messages: one info, one error
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'forge:progress',
-            payload: { objectName: 'Account', status: 'running', progress: 50 },
-          },
-        }),
-      );
-    });
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'forge:progress',
-            payload: { objectName: 'Case', status: 'error', progress: 0 },
-          },
-        }),
-      );
-    });
 
     // Before filter: both entries should be visible
     const entriesBefore = screen.getAllByTestId('logstream-entry');
@@ -398,35 +372,18 @@ describe('ForgeExecution', () => {
     expect(values[4].textContent).toBe('17');
   });
 
-  it('should generate unique log IDs via useRef counter', () => {
+  it('shows the log the store kept, not one of its own that a new mount starts empty', () => {
+    mockLogs = [
+      logLine('forge-log-1', 'info', 'Account: done (100%)'),
+      logLine('forge-log-2', 'info', 'Contact: running (10%)'),
+    ];
     render(<ForgeExecution />);
 
-    // Send two progress messages to generate log entries
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'forge:progress',
-            payload: { objectName: 'Account', status: 'running', progress: 10 },
-          },
-        }),
-      );
-    });
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'forge:progress',
-            payload: { objectName: 'Contact', status: 'running', progress: 20 },
-          },
-        }),
-      );
-    });
-
     const entries = screen.getAllByTestId('logstream-entry');
-    expect(entries.length).toBe(2);
-    // Each entry has a unique key — if IDs were not unique, React would warn and rendering would be wrong
-    expect(entries[0]).not.toBe(entries[1]);
+    expect(entries.map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining('Account: done (100%)'),
+      expect.stringContaining('Contact: running (10%)'),
+    ]);
   });
 
   it('should display ETA in the top bar', () => {
@@ -450,69 +407,84 @@ describe('ForgeExecution', () => {
     expect(screen.getByTestId('log-filter-warnings').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('should persist log entries to the store via addLog', () => {
+  it('logs the abort in a line of its own', () => {
     render(<ForgeExecution />);
-    // Simulate a forge:progress message
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'forge:progress',
-            payload: {
-              objectName: 'Account',
-              status: 'running',
-              progress: 50,
-              message: 'Processing Account',
-            },
-          },
-        }),
-      );
-    });
-    // Verify the store's addLog was called
-    expect(mockAddLog).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(mockAddLog).toHaveBeenCalledWith(
+      expect.objectContaining({ level: 'warn', message: 'ABORTED', id: expect.any(String) }),
+    );
   });
 
-  describe('messages answering another run', () => {
-    /** Deliver a forge message correlated to `correlationId`. */
-    function deliver(type: string, correlationId: string, payload: Record<string, unknown>): void {
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: { id: 'host-forge', type, timestamp: Date.now(), correlationId, payload },
-          }),
-        );
-      });
-    }
+  describe('a run an error stopped', () => {
+    /** A run the extension kept, with what it had created before it stopped. */
+    const WROTE_ONE: ForgeExecutionResult = {
+      forgeId: 'forge-stopped',
+      status: 'failure',
+      graph: makeMockGraph(),
+      duration: 3_000,
+      timestamp: '2026-09-24T08:00:00.000Z',
+      idRemapCount: 1,
+      createdCount: 1,
+    };
 
-    beforeEach(() => {
-      mockExecutionRequestId = 'wv-forge-own';
-    });
-
-    it('does not mark its run aborted on an error answering another request', () => {
-      // Every panel receives every forge:execute:error; one from another
-      // panel's run used to end this one.
+    it('says why it stopped, in an alert, and has nothing left to pause or abort', () => {
+      // After the error, Pause and Abort stayed on screen, disabled, and
+      // nothing else: the only way off was to leave the page.
+      mockRunError = { message: 'Insert failed', stoppedRun: null };
       render(<ForgeExecution />);
 
-      deliver('forge:execute:error', 'wv-forge-other', { message: 'Other run failed' });
-
-      expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPED');
+      const alert = screen.getByRole('alert');
+      expect(alert.getAttribute('data-testid')).toBe('forge-execution-error');
+      expect(alert.textContent).toContain('The run stopped before its end: Insert failed');
+      expect(screen.queryByTestId('forge-pause-button')).toBeNull();
+      expect(screen.queryByTestId('forge-abort-button')).toBeNull();
+      expect(screen.queryByTestId('forge-execution-eta')).toBeNull();
     });
 
-    it('ignores progress belonging to another run', () => {
+    it('goes back to the Review when its error says nothing of what it wrote', () => {
+      mockRunError = { message: 'Insert failed', stoppedRun: null };
       render(<ForgeExecution />);
 
-      deliver('forge:progress', 'wv-forge-other', { objectName: 'Opportunity', status: 'done' });
+      expect(screen.queryByTestId('forge-execution-error-written')).toBeNull();
+      expect(screen.queryByTestId('forge-execution-see-stopped')).toBeNull();
+      fireEvent.click(screen.getByTestId('forge-execution-back-to-review'));
 
-      expect(mockUpdateNodeStatus).not.toHaveBeenCalled();
-      expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
+      expect(mockReviewAgain).toHaveBeenCalledTimes(1);
     });
 
-    it('still ends its run on an error answering its own request', () => {
+    it('says what it had created, and shows it, when its error says', () => {
+      mockRunError = { message: 'Insert failed', stoppedRun: WROTE_ONE };
       render(<ForgeExecution />);
 
-      deliver('forge:execute:error', 'wv-forge-own', { message: 'Insert failed' });
+      expect(screen.getByTestId('forge-execution-error-written').textContent).toBe(
+        'Before it stopped, it had created 1 record in the target org.',
+      );
+      expect(screen.queryByTestId('forge-execution-back-to-review')).toBeNull();
+      fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
 
-      expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
+      expect(mockShowStoppedRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops its clock', () => {
+      vi.useFakeTimers();
+      try {
+        mockRunError = { message: 'Insert failed', stoppedRun: null };
+        render(<ForgeExecution />);
+        const before = screen.getByTestId('forge-execution-timer').textContent;
+
+        act(() => {
+          vi.advanceTimersByTime(5_000);
+        });
+
+        expect(screen.getByTestId('forge-execution-timer').textContent).toBe(before);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });
@@ -521,8 +493,8 @@ describe('ForgeExecution progress for assistive technology', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
-    mockExecutionRequestId = null;
-    mockStoreLogs.length = 0;
+    mockLogs = [];
+    mockRunError = null;
   });
 
   it('draws the run progress with a named progress bar', () => {
@@ -547,17 +519,6 @@ describe('ForgeExecution progress for assistive technology', () => {
       vi.useRealTimers();
     });
 
-    /** Post a message from the extension host. */
-    function host(type: string, payload: Record<string, unknown>): void {
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: { id: `host-${type}`, type, timestamp: Date.now(), payload },
-          }),
-        );
-      });
-    }
-
     /** Mark the named objects done in the graph the store hands out. */
     function finish(...names: string[]): void {
       mockGraph = {
@@ -569,7 +530,9 @@ describe('ForgeExecution progress for assistive technology', () => {
     }
 
     /**
-     * A run at 50% whose third object finishes within the announcement interval.
+     * A run at 50% whose third object finishes within the announcement
+     * interval; gives back the region, and a way to draw the screen again from
+     * what the store then holds.
      *
      * The graph is Account done, Contact running, Opportunity queued, Case in
      * error — so two of its four nodes have settled before anything happens.
@@ -577,36 +540,38 @@ describe('ForgeExecution progress for assistive technology', () => {
      * succeeded, so the failed Case read as outstanding work and the run could
      * never reach 100%.
      */
-    function runUnderway(): HTMLElement {
+    function runUnderway(): { region: HTMLElement; redraw: () => void } {
       vi.useFakeTimers();
-      render(<ForgeExecution />);
+      const view = render(<ForgeExecution />);
+      const redraw = (): void => view.rerender(<ForgeExecution />);
       const region = screen.getByTestId('forge-progress-status');
       expect(region.textContent).toBe('Forge progress: 50%');
       finish('Contact');
-      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
+      redraw();
       expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('75');
       // Mid-run values wait for the interval.
       expect(region.textContent).toBe('Forge progress: 50%');
-      return region;
+      return { region, redraw };
     }
 
     it('says the run is finishing as soon as its last object settles', () => {
       // At once, not at the next interval: heard as "100%", the bar said the
       // run was over while its last steps were still to come.
-      const region = runUnderway();
+      const { region, redraw } = runUnderway();
       finish('Opportunity');
-      host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+      redraw();
       expect(region.textContent).toBe(
         'Every object on the graph has settled. The run is finishing; its results follow once it is done.',
       );
     });
 
-    it('records where a failed run stopped, for the page to say so', () => {
-      // It used to say "Forge progress: 75%" and stop there: nothing told a
-      // screen reader that the run had ended short.
-      runUnderway();
-      host('forge:execute:error', { message: 'Insert failed' });
-      expect(mockSetStoppedAt).toHaveBeenLastCalledWith(75);
+    it('says no percentage more of a run an error stopped: the page says where, the alert why', () => {
+      // Drawn again as the page came back, the region said the last
+      // percentage of a run that had ended as though it went on.
+      const { region, redraw } = runUnderway();
+      mockRunError = { message: 'Insert failed', stoppedRun: null };
+      redraw();
+      expect(region.textContent).toBe('');
     });
 
     it('counts a skipped node as settled, so a run of skips reaches 100%', () => {

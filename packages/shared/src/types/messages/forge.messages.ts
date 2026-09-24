@@ -203,7 +203,17 @@ export interface ForgeProgressMessage extends BaseMessage {
 /** `forge:execute:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeExecuteErrorMessage extends BaseMessage {
   type: 'forge:execute:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /**
+     * The run as the history keeps it, when it had created records before it
+     * stopped: what it wrote, and where. Absent when it created none, or when
+     * it stopped before it started writing.
+     */
+    result?: ForgeExecutionResult;
+  };
 }
 
 /** `forge:templates:list:response`. Extension -> WebView. */

@@ -221,6 +221,8 @@ let mockResult = makeMockResult();
 let mockStatusesBeyondGraph: Record<string, string> = {};
 /** The run's choice to copy the files of its records, as Review held it. */
 let mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+/** Why the run shown stopped, when an error ended it, and the run it had written. */
+let mockRunError: { message: string; stoppedRun: { forgeId: string } | null } | null = null;
 const mockResetNodeStatuses = vi.fn(() => {
   mockGraph = {
     ...mockGraph,
@@ -241,6 +243,9 @@ vi.mock('../../stores/useForgeStore', () => {
         },
         get statusesBeyondGraph() {
           return mockStatusesBeyondGraph;
+        },
+        get runError() {
+          return mockRunError;
         },
         reset: (...args: unknown[]) => mockReset(...args),
         forgeAgain: (...args: unknown[]) => mockForgeAgain(...args),
@@ -280,6 +285,7 @@ describe('ForgeResults', () => {
     mockResult = makeMockResult();
     mockStatusesBeyondGraph = {};
     mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+    mockRunError = null;
   });
 
   it('should render with forge-results test id', () => {
@@ -293,6 +299,25 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
     expect(screen.getByTestId('forge-results-status').textContent).toBe(
       'Forge finished. Written: 28 of 35.',
+    );
+    expect(screen.queryByTestId('forge-results-stopped')).toBeNull();
+  });
+
+  it('says a run an error stopped did not finish, and why, above what it had written', () => {
+    // Shown from the execution screen's error: what it wrote, read as a
+    // finished run's, was taken for the whole clone.
+    mockResult = Object.assign(makeMockResult(), { forgeId: 'forge-stopped' });
+    mockRunError = {
+      message: 'INVALID_SESSION_ID: Session expired or invalid',
+      stoppedRun: { forgeId: 'forge-stopped' },
+    };
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-stopped').textContent).toBe(
+      'The run stopped before its end: INVALID_SESSION_ID: Session expired or invalid',
+    );
+    expect(screen.getByTestId('forge-results-status').textContent).toBe(
+      'Forge stopped before its end. Written: 28 of 35.',
     );
   });
 

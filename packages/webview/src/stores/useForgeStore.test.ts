@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useForgeStore } from './useForgeStore';
+import { settledPercent, useForgeStore } from './useForgeStore';
 import type {
   ForgeConfig,
   ForgeGraph,
@@ -707,13 +707,6 @@ describe('useForgeStore', () => {
       );
     }
 
-    /** A run on screen, started by request `wv-run-1`. */
-    function runOnScreen(): void {
-      getState().setGraph(createMockGraph());
-      getState().setExecutionRequestId('wv-run-1');
-      getState().setPhase('execution');
-    }
-
     it('keeps the result and shows the results, whatever screen is mounted', () => {
       // Listened for by the store: the execution screen that listened left
       // before the run's last steps, and the answer went nowhere.
@@ -780,6 +773,273 @@ describe('useForgeStore', () => {
     });
   });
 
+  /** The extension posting `type` for request `correlationId`, from `origin`. */
+  function post(
+    type: string,
+    correlationId: string,
+    payload: Record<string, unknown>,
+    origin = '',
+  ): void {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin,
+        data: { id: `host-${type}`, type, timestamp: Date.now(), correlationId, payload },
+      }),
+    );
+  }
+
+  /** A run on screen over Account and Contact, started by request `wv-run-1`. */
+  function runOnScreen(): void {
+    getState().setGraph(createMockGraph());
+    getState().setExecutionRequestId('wv-run-1');
+    getState().setPhase('execution');
+  }
+
+  /** The statuses of the graph's nodes, in order. */
+  function statuses(): string[] {
+    return getState().graph?.nodes.map((n) => n.status) ?? [];
+  }
+
+  /** The error `sendHandlerError` posts for the run on screen. */
+  function stopped(message: string, result?: ForgeExecutionResult): void {
+    post('forge:execute:error', 'wv-run-1', {
+      message,
+      code: 'EXECUTE_ERROR',
+      retryable: true,
+      ...(result ? { result } : {}),
+    });
+  }
+
+  describe('the progress of a run', () => {
+    // Taken by the store: the execution screen that listened left with the
+    // page, and the objects stood where they had stood when it was left.
+    it('sets the status and counts of the object it reports, and logs the line it wrote', () => {
+      runOnScreen();
+
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'running',
+        progress: 40,
+        recordCount: 12,
+        message: 'Writing Contact',
+      });
+
+      expect(getState().graph?.nodes[1]).toMatchObject({
+        objectApiName: 'Contact',
+        status: 'running',
+        progress: 40,
+        recordCount: 12,
+      });
+      expect(getState().logs).toEqual([
+        expect.objectContaining({ level: 'info', message: 'Writing Contact' }),
+      ]);
+    });
+
+    it('logs an object that failed as an error, in words of its own when the event has none', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'error', progress: 0 });
+      expect(getState().logs).toEqual([
+        expect.objectContaining({ level: 'error', message: 'Contact: error (0%)' }),
+      ]);
+    });
+
+    it('gives each line of the log an id of its own', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'running' });
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+      const ids = getState().logs.map((line) => line.id);
+      expect(ids).toHaveLength(2);
+      expect(new Set(ids).size).toBe(2);
+    });
+
+    it("takes nothing of another panel's run", () => {
+      // Every panel receives every forge message.
+      runOnScreen();
+      post('forge:progress', 'wv-run-other', { objectName: 'Account', status: 'done' });
+      expect(statuses()).toEqual(['idle', 'idle']);
+      expect(getState().logs).toEqual([]);
+    });
+
+    it('takes nothing once the run was left for the input screen', () => {
+      runOnScreen();
+      getState().setPhase('input');
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+      expect(statuses()).toEqual(['idle', 'idle']);
+    });
+
+    it('takes nothing once the run stopped: its last event comes after its error', () => {
+      runOnScreen();
+      stopped('INVALID_SESSION_ID');
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'running' });
+      expect(statuses()).toEqual(['idle', 'idle']);
+      expect(getState().logs.map((line) => line.message)).toEqual(['INVALID_SESSION_ID']);
+    });
+
+    it('takes no event that names no object, or no status a node can have', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { status: 'done' });
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'finished' });
+      expect(statuses()).toEqual(['idle', 'idle']);
+      expect(getState().logs).toEqual([]);
+    });
+
+    it('ignores an event from another origin than the webview host', () => {
+      runOnScreen();
+      post(
+        'forge:progress',
+        'wv-run-1',
+        { objectName: 'Account', status: 'done' },
+        'https://example.invalid',
+      );
+      expect(statuses()).toEqual(['idle', 'idle']);
+    });
+  });
+
+  describe('the error of a run', () => {
+    it('keeps why the run stopped and where, and logs it, on the execution screen', () => {
+      // The screen that showed the error went with the page, and came back
+      // as a run under way.
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+
+      stopped('INVALID_SESSION_ID: Session expired or invalid');
+
+      expect(getState().runError).toEqual({
+        message: 'INVALID_SESSION_ID: Session expired or invalid',
+        stoppedRun: null,
+      });
+      // One object of two had settled: the page says so.
+      expect(getState().stoppedAt).toBe(50);
+      expect(getState().logs.at(-1)).toMatchObject({
+        level: 'error',
+        message: 'INVALID_SESSION_ID: Session expired or invalid',
+      });
+      expect(getState().phase).toBe('execution');
+    });
+
+    it('keeps what the run had written, when its error carries it', () => {
+      runOnScreen();
+      const kept = createMockResult({
+        forgeId: 'forge-stopped',
+        status: 'failure',
+        createdCount: 3,
+      });
+      stopped('INVALID_SESSION_ID', kept);
+      expect(getState().runError?.stoppedRun).toEqual(kept);
+    });
+
+    it('says the run failed when its error has no words', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', { code: 'EXECUTE_ERROR' });
+      expect(getState().runError?.message).toBe('Forge execution failed');
+    });
+
+    it("leaves the run alone on another panel's error", () => {
+      // One used to mark this run aborted.
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-other', { message: 'Other run failed' });
+      expect(getState().runError).toBeNull();
+      expect(getState().stoppedAt).toBeNull();
+    });
+
+    it('takes no error once the run was left for the input screen, as an abort leaves it', () => {
+      runOnScreen();
+      getState().setPhase('input');
+      stopped('Forge execution was aborted by user request.');
+      expect(getState().runError).toBeNull();
+    });
+
+    it('ignores an error from another origin than the webview host', () => {
+      runOnScreen();
+      post(
+        'forge:execute:error',
+        'wv-run-1',
+        { message: 'INVALID_SESSION_ID' },
+        'https://example.invalid',
+      );
+      expect(getState().runError).toBeNull();
+    });
+  });
+
+  describe('the way on from a run that stopped', () => {
+    it('shows the results of what it had written', () => {
+      runOnScreen();
+      const kept = createMockResult({
+        forgeId: 'forge-stopped',
+        status: 'failure',
+        createdCount: 3,
+      });
+      stopped('INVALID_SESSION_ID', kept);
+
+      getState().showStoppedRun();
+
+      expect(getState().phase).toBe('results');
+      expect(getState().result).toEqual(kept);
+      expect(getState().history.map((r) => r.forgeId)).toEqual(['forge-stopped']);
+      // The results say why it stopped.
+      expect(getState().runError?.message).toBe('INVALID_SESSION_ID');
+    });
+
+    it('shows no results of a run whose error said nothing of what it wrote', () => {
+      runOnScreen();
+      stopped('INVALID_SESSION_ID');
+      getState().showStoppedRun();
+      expect(getState().phase).toBe('execution');
+      expect(getState().result).toBeNull();
+    });
+
+    it("goes back to Review with the graph as discovery left it, keeping discovery's errors", () => {
+      runOnScreen();
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account' }),
+          createMockNode({
+            objectApiName: 'EmailStatus',
+            status: 'error',
+            included: false,
+            errors: ['Record count unavailable: INVALID_TYPE_FOR_OPERATION'],
+          }),
+        ]),
+      );
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'running' });
+      stopped('INVALID_SESSION_ID');
+
+      getState().reviewAgain();
+
+      expect(getState().phase).toBe('review');
+      expect(getState().runError).toBeNull();
+      expect(statuses()).toEqual(['idle', 'idle']);
+      expect(getState().graph?.nodes[1].errors).toEqual([
+        'Record count unavailable: INVALID_TYPE_FOR_OPERATION',
+      ]);
+    });
+
+    it('leaves a run under way on its screen', () => {
+      runOnScreen();
+      getState().reviewAgain();
+      expect(getState().phase).toBe('execution');
+    });
+
+    it("starts the next run with none of the last one's log, error or stop", () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+      stopped('INVALID_SESSION_ID');
+
+      getState().setExecutionRequestId('wv-run-2');
+
+      expect(getState().logs).toEqual([]);
+      expect(getState().runError).toBeNull();
+      expect(getState().stoppedAt).toBeNull();
+    });
+
+    it('forgets the error on Forge Again', () => {
+      runOnScreen();
+      stopped('INVALID_SESSION_ID');
+      getState().forgeAgain();
+      expect(getState().runError).toBeNull();
+    });
+  });
+
   describe('the files of the cloned records', () => {
     const accepted = { enabled: true, maxFileSizeMB: 4, acceptedAsIs: true };
 
@@ -811,6 +1071,22 @@ describe('useForgeStore', () => {
       expect(getState().fileCopy.enabled).toBe(false);
       expect(getState().fileCopy.acceptedAsIs).toBe(false);
     });
+  });
+});
+
+describe('how far a run has gone', () => {
+  it('counts the objects skipped or failed as settled, as the bar does', () => {
+    const nodes = [
+      createMockNode({ objectApiName: 'Account', status: 'done' }),
+      createMockNode({ objectApiName: 'Contact', status: 'skipped' }),
+      createMockNode({ objectApiName: 'Case', status: 'error' }),
+      createMockNode({ objectApiName: 'Opportunity', status: 'running' }),
+    ];
+    expect(settledPercent(nodes)).toBe(75);
+  });
+
+  it('has gone nowhere on a graph with no object', () => {
+    expect(settledPercent([])).toBe(0);
   });
 });
 

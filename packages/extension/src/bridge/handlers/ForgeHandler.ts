@@ -1199,9 +1199,9 @@ export class ForgeHandler implements DomainHandler {
       // Kept in the history with what it created and where, so those records
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
-      if (partial) {
-        this.keepStoppedRun(partial, graph, config, { startedAt, cancelled, retryOf });
-      }
+      const stoppedRun = partial
+        ? this.keepStoppedRun(partial, graph, config, { startedAt, cancelled, retryOf })
+        : undefined;
       recordWriteRun(this.deps, {
         action: 'forge_execute',
         module: 'forge',
@@ -1224,10 +1224,13 @@ export class ForgeHandler implements DomainHandler {
       // `forge:execute:error` is what the execution screen shows. The run's
       // end is posted too, as every other module posts it: with the error
       // alone, the recent operations and the side panel showed a failed or
-      // stopped clone as running for the rest of the session.
+      // stopped clone as running for the rest of the session. The run kept in
+      // the history goes with it: the error alone said nothing of the records
+      // the run had left in the target, and the screen had nothing to show.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: 'EXECUTE_ERROR',
         retryable: true,
+        ...(stoppedRun ? { extraPayload: { result: stoppedRun } } : {}),
       });
       if (cancelled) {
         // Aborted in the registry already when the cancel came through it,
@@ -1280,26 +1283,28 @@ export class ForgeHandler implements DomainHandler {
    * partial and says it was cancelled, as a cancelled Sync does; one that
    * failed reads as failed. A run that created nothing leaves nothing to
    * remove, and is not kept.
+   *
+   * @returns The run as it was kept, without the config and the org the
+   *   history adds to it, as a finished run is answered; undefined when none was.
    */
   private keepStoppedRun(
     summary: ExecutionSummary,
     graph: ForgeGraph,
     config: ForgeConfig,
     run: { startedAt: number; cancelled: boolean; retryOf?: string },
-  ): void {
-    if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return;
+  ): ForgeExecutionResult | undefined {
+    if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return undefined;
     const result = forgeRunResult(summary, graph, {
       startedAt: run.startedAt,
       status: run.cancelled ? 'partial' : 'failure',
     });
-    this.addToHistory(
-      {
-        ...result,
-        ...(run.cancelled ? { cancelled: true } : {}),
-        ...(run.retryOf !== undefined ? { retryOf: run.retryOf } : {}),
-      },
-      config,
-    );
+    const stopped: ForgeExecutionResult = {
+      ...result,
+      ...(run.cancelled ? { cancelled: true } : {}),
+      ...(run.retryOf !== undefined ? { retryOf: run.retryOf } : {}),
+    };
+    this.addToHistory(stopped, config);
+    return stopped;
   }
 
   /**

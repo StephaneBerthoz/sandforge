@@ -1105,6 +1105,81 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-execution-status')).toHaveText('FORGING...');
     });
 
+    test('Forge run an error stopped after it wrote, then the results of what it wrote', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      // The error carries the run as the history keeps it: it had created
+      // the account before its session expired.
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-stopped',
+        correlationId: request,
+        payload: {
+          message: 'INVALID_SESSION_ID: Session expired or invalid',
+          code: 'EXECUTE_ERROR',
+          retryable: true,
+          result: {
+            forgeId: 'forge-run-stopped',
+            status: 'failure',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 2_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            idRemapCreated: [{ objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] }],
+            readByObject: [{ objectApiName: 'Account', read: 1 }],
+            failedReads: [],
+          },
+        },
+      });
+
+      await page.getByTestId('forge-execution-error-written').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('STOPPED');
+      const stopped = await checkAccessibility(page);
+      expectNoViolations(stopped);
+      expect(
+        await contrastMeasuredIn(page, stopped, '[data-testid="forge-execution-error"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-execution-see-stopped').click();
+      await page.getByTestId('forge-results-stopped').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-id-mapping-row')).toHaveCount(1);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-stopped"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge run an error stopped before it wrote, and the way back to its Review', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-declined',
+        correlationId: request,
+        payload: {
+          message: 'Operation cancelled by user (production confirmation declined).',
+          code: 'GUARD_DECLINED',
+          retryable: true,
+        },
+      });
+
+      await page.getByTestId('forge-execution-back-to-review').waitFor({ timeout: 10_000 });
+      const stopped = await checkAccessibility(page);
+      expectNoViolations(stopped);
+      expect(
+        await contrastMeasuredIn(page, stopped, '[data-testid="forge-execution-error"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-execution-back-to-review').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+    });
+
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
       page,
     }) => {

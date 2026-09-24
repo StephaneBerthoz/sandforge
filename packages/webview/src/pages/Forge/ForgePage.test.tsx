@@ -10,7 +10,9 @@ let mockPhase = 'input';
 let mockStoppedAt: number | null = null;
 const mockSetStoppedAt = vi.fn();
 
-vi.mock('../../stores/useForgeStore', () => {
+// Only the store stands in: the helpers the screens import with it are its own.
+vi.mock('../../stores/useForgeStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../stores/useForgeStore')>();
   const defaultState = {
     get phase() {
       return mockPhase;
@@ -66,7 +68,7 @@ vi.mock('../../stores/useForgeStore', () => {
     { getState: () => defaultState },
   );
 
-  return { useForgeStore: store };
+  return { ...actual, useForgeStore: store };
 });
 
 let mockOrgState: Record<string, unknown> = {

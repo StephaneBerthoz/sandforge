@@ -2247,6 +2247,7 @@
     "finishing": "FINISHING...",
     "finishingNote": "Every object on the graph has settled. The run is finishing; its results follow once it is done.",
     "aborted": "ABORTED",
+    "stopped": "STOPPED",
     "done": "Done",
     "running": "Running",
     "queued": "Queued",
@@ -2260,6 +2261,11 @@
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
     "executeForge": "Execute Forge",
     "executeFailed": "Forge execution failed",
+    "runStoppedOn": "The run stopped before its end: {{message}}",
+    "runStoppedWrote_one": "Before it stopped, it had created {{count}} record in the target org.",
+    "runStoppedWrote_other": "Before it stopped, it had created {{count}} records in the target org.",
+    "seeStoppedRun": "See what it wrote",
+    "backToReview": "Back to Review",
     "reviewAndExecute": "Review & Execute",
     "objects": "Objects",
     "records": "Records",
@@ -3118,6 +3124,7 @@
     "urgencyWarning": "Warning",
     "urgencySafe": "Safe",
     "runFinished": "{{name}} finished. Written: {{written}} of {{total}}.",
+    "runStoppedWritten": "{{name}} stopped before its end. Written: {{written}} of {{total}}.",
     "runStopped": "{{name}} stopped at {{percent}}%."
   }
 }

@@ -2247,6 +2247,7 @@
     "finishing": "FINALISATION...",
     "finishingNote": "Tous les objets du graphe sont traités. L'exécution se termine ; ses résultats suivront dès qu'elle aura fini.",
     "aborted": "ANNULÉ",
+    "stopped": "ARRÊTÉ",
     "done": "Terminés",
     "running": "En cours",
     "queued": "En attente",
@@ -2260,6 +2261,11 @@
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
     "executeForge": "Exécuter le Forge",
     "executeFailed": "L'exécution du Forge a échoué",
+    "runStoppedOn": "L'exécution s'est arrêtée avant sa fin : {{message}}",
+    "runStoppedWrote_one": "Avant de s'arrêter, elle avait créé {{count}} enregistrement dans l'org cible.",
+    "runStoppedWrote_other": "Avant de s'arrêter, elle avait créé {{count}} enregistrements dans l'org cible.",
+    "seeStoppedRun": "Voir ce qu'elle a écrit",
+    "backToReview": "Retour à la revue",
     "reviewAndExecute": "Revoir et exécuter",
     "objects": "Objets",
     "records": "Enregistrements",
@@ -3118,6 +3124,7 @@
     "urgencyWarning": "Avertissement",
     "urgencySafe": "Sans risque",
     "runFinished": "{{name}} terminé. Écrits : {{written}} sur {{total}}.",
+    "runStoppedWritten": "{{name}} arrêté avant sa fin. Écrits : {{written}} sur {{total}}.",
     "runStopped": "{{name}} arrêté à {{percent}} %."
   }
 }

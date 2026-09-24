@@ -1,33 +1,32 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
-import { useLatestRef } from '../../hooks/useLatestRef';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import { Pause, Play, Square, Flame } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FileText, Pause, Play, Square, Flame } from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import type { ForgeGraph as SharedForgeGraph } from '@sandforge/shared';
 import { LogStream } from '../../components/ui/LogStream';
-import type { LogEntry, LogFilter } from '../../components/ui/LogStream';
+import type { LogFilter } from '../../components/ui/LogStream';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
-import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeNodeStatus, ForgeLogEntry } from '../../stores/useForgeStore';
+import { forgeLogEntry, settledPercent, useForgeStore } from '../../stores/useForgeStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
 
-/** Where the run stands, as the controls set it or its error ended it. */
+/** Where the run stands, as the controls set it. */
 type ExecutionStatus = 'forging' | 'paused' | 'aborted';
 
 /**
- * What the top bar says: the run's status, or, once every object on the graph
- * has settled and the run has not answered, that it is finishing.
+ * What the top bar says: the run's status; that it stopped, once an error
+ * ended it; or, once every object on the graph has settled and the run has
+ * not answered, that it is finishing.
  */
-type ShownStatus = ExecutionStatus | 'finishing';
+type ShownStatus = ExecutionStatus | 'finishing' | 'stopped';
 
 /** Maps the shown status to the i18n key. */
 const STATUS_KEYS: Record<ShownStatus, string> = {
@@ -35,6 +34,7 @@ const STATUS_KEYS: Record<ShownStatus, string> = {
   paused: 'forge.paused',
   finishing: 'forge.finishing',
   aborted: 'forge.aborted',
+  stopped: 'forge.stopped',
 };
 
 /**
@@ -47,24 +47,21 @@ export const ForgeExecution: React.FC = () => {
   const { save } = useFileSave();
   const { t } = useTranslation();
 
-  /** Ref-based log ID counter — resets naturally on component remount. */
-  const logIdRef = useRef(0);
-  const nextLogId = useCallback(() => {
-    logIdRef.current += 1;
-    return `log-${logIdRef.current}`;
-  }, []);
+  // The run's progress, its log and its error are the store's: they go on
+  // while this screen is away, and are here when it comes back.
   const graph = useForgeStore((s) => s.graph);
-  const updateNodeStatus = useForgeStore((s) => s.updateNodeStatus);
-  const updateNodeCounts = useForgeStore((s) => s.updateNodeCounts);
+  const logs = useForgeStore((s) => s.logs);
+  const runError = useForgeStore((s) => s.runError);
   const setPhase = useForgeStore((s) => s.setPhase);
-  const addLogToStore = useForgeStore((s) => s.addLog);
-  const clearLogs = useForgeStore((s) => s.clearLogs);
+  const addLog = useForgeStore((s) => s.addLog);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
-  const executionRequestId = useForgeStore((s) => s.executionRequestId);
+  const showStoppedRun = useForgeStore((s) => s.showStoppedRun);
+  const reviewAgain = useForgeStore((s) => s.reviewAgain);
+  /** Whether an error ended the run: nothing is left to pause or abort. */
+  const stopped = Boolean(runError);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logFilter, setLogFilter] = useState<LogFilter>('all');
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -82,7 +79,7 @@ export const ForgeExecution: React.FC = () => {
 
   // Pause/resume timer when execution status changes
   useEffect(() => {
-    if (isPaused || executionStatus === 'aborted') {
+    if (isPaused || executionStatus === 'aborted' || stopped) {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -92,31 +89,7 @@ export const ForgeExecution: React.FC = () => {
         setElapsed((prev) => prev + 1);
       }, 1000);
     }
-  }, [isPaused, executionStatus]);
-
-  // Clear store logs on mount so a fresh execution starts clean, and forget
-  // where the last run stopped: this one has not.
-  const clearLogsRef = useLatestRef(clearLogs);
-  const setStoppedAtRef = useLatestRef(setStoppedAt);
-  useEffect(() => {
-    clearLogsRef.current();
-    setStoppedAtRef.current(null);
-  }, [clearLogsRef, setStoppedAtRef]);
-
-  /** Add a log entry (local state + store persistence). */
-  const addLog = useCallback(
-    (level: LogEntry['level'], message: string) => {
-      const entry: LogEntry & ForgeLogEntry = {
-        id: nextLogId(),
-        timestamp: Date.now(),
-        level,
-        message,
-      };
-      setLogs((prev) => [...prev, entry]);
-      addLogToStore(entry);
-    },
-    [nextLogId, addLogToStore],
-  );
+  }, [isPaused, executionStatus, stopped]);
 
   // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
   const kpis = useMemo(() => {
@@ -130,93 +103,12 @@ export const ForgeExecution: React.FC = () => {
     const failed = nodeList.filter((n) => n.status === 'error').length;
     const skipped = nodeList.filter((n) => n.status === 'skipped').length;
     const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
-    /*
-     * A node that was skipped or failed is finished with, so it counts toward
-     * the bar. Dividing only the "done" nodes by the total left a completed run
-     * showing 50% whenever half its objects had been skipped, with no card
-     * accounting for them.
-     */
+    // A skipped or failed node is finished with, and counts toward the bar,
+    // measured as the store measures where a run stopped: the two agree.
     const settled = done + failed + skipped;
-    const progress = total > 0 ? Math.round((settled / total) * 100) : 0;
+    const progress = settledPercent(nodeList);
     return { total, done, running, queued, failed, skipped, settled, apiCalls, progress };
   }, [graph]);
-  /** Where the run stands, for recording where it stopped. */
-  const progressRef = useLatestRef(kpis.progress);
-
-  // ---- Bridge message listener ----
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      // SECURITY: Validate origin — only accept messages from the VSCode webview host.
-      if (event.origin && !event.origin.startsWith('vscode-webview://')) {
-        return;
-      }
-      const data = event.data as Record<string, unknown> | undefined;
-      if (!data) return;
-
-      // Every panel receives every forge message. Once the run's request id is
-      // known, a progress event, result or error correlated to another request
-      // belongs to another run: such an error used to mark this run aborted.
-      if (
-        typeof executionRequestId === 'string' &&
-        (data.type === 'forge:execute:response' ||
-          data.type === 'forge:execute:error' ||
-          data.type === 'forge:progress') &&
-        data.correlationId !== executionRequestId
-      ) {
-        return;
-      }
-
-      // The run's end. Its answer is the store's to take (`takeRunAnswer`),
-      // which shows the results; its error is this screen's to show.
-      // `forge:progress` alone cannot close the run: on a backend failure it
-      // simply stops arriving, no node reaches a terminal status, and mission
-      // control spins forever with no way out but Abort.
-      if (data.type === 'forge:execute:error') {
-        const payload = data.payload as { message?: string } | undefined;
-        setExecutionStatus('aborted');
-        setStoppedAt(progressRef.current);
-        addLog('error', payload?.message ?? t('forge.executeFailed'));
-        return;
-      }
-
-      if (data.type !== 'forge:progress') return;
-
-      // The extension emits forge:progress via buildResponse — the event
-      // payload lives under `payload`, not at the message root.
-      const payload = data.payload as Record<string, unknown> | undefined;
-      if (!payload) return;
-      const objectName = payload.objectName as string;
-      const status = payload.status as ForgeNodeStatus;
-      const progress = typeof payload.progress === 'number' ? payload.progress : undefined;
-
-      updateNodeStatus(objectName, status, progress);
-      // Counts ride the same event when the executor has them; a status change
-      // that knows none leaves the node's own alone.
-      updateNodeCounts(objectName, {
-        recordCount: payload.recordCount as number | undefined,
-        fieldCount: payload.fieldCount as number | undefined,
-        createableFieldCount: payload.createableFieldCount as number | undefined,
-      });
-
-      const level: LogEntry['level'] = status === 'error' ? 'error' : 'info';
-      const logMessage =
-        typeof payload.message === 'string'
-          ? payload.message
-          : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
-      addLog(level, logMessage);
-    };
-
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [
-    updateNodeStatus,
-    updateNodeCounts,
-    addLog,
-    setStoppedAt,
-    progressRef,
-    t,
-    executionRequestId,
-  ]);
 
   /*
    * Every object on the graph has settled while the run goes on: it is
@@ -225,10 +117,13 @@ export const ForgeExecution: React.FC = () => {
    * dated its writes — and its answer says what the whole run did. This screen
    * used to leave for the results as soon as the last object settled: the
    * answer came after it had gone, and the results were shown without it. It
-   * stays until the answer takes the page to them.
+   * stays until the answer takes the page to them, or its error says why it
+   * stopped. `forge:progress` alone cannot close the run: on a backend failure
+   * it simply stops arriving, and no node reaches a terminal status.
    */
-  const finishing = executionStatus === 'forging' && kpis.total > 0 && kpis.settled === kpis.total;
-  const shownStatus: ShownStatus = finishing ? 'finishing' : executionStatus;
+  const finishing =
+    !stopped && executionStatus === 'forging' && kpis.total > 0 && kpis.settled === kpis.total;
+  const shownStatus: ShownStatus = stopped ? 'stopped' : finishing ? 'finishing' : executionStatus;
 
   /*
    * Time remaining, from the rate the run has achieved so far.
@@ -263,7 +158,7 @@ export const ForgeExecution: React.FC = () => {
   const handleAbortConfirm = useCallback(() => {
     setShowAbortConfirm(false);
     setExecutionStatus('aborted');
-    addLog('warn', t('forge.aborted'));
+    addLog(forgeLogEntry('warn', t('forge.aborted')));
     // Routed through the broker: the envelope is mandatory since 1.5.0.
     sendBridgeMessage('forge:abort');
     // This screen and its announcer leave with the phase change: the page
@@ -274,6 +169,52 @@ export const ForgeExecution: React.FC = () => {
 
   return (
     <div data-testid="forge-execution" className="flex flex-col gap-4 h-full">
+      {/* The run's error used to go to the log alone, with Pause and Abort
+          left disabled and no way off the screen. Said here with what the
+          run had written, when the error says, and the way on: the results
+          of what it wrote, or the Review it was started from. */}
+      {runError && (
+        <m.div
+          variants={slideUp}
+          initial="hidden"
+          animate="visible"
+          role="alert"
+          data-testid="forge-execution-error"
+          className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          <div className="flex flex-1 flex-col gap-1">
+            <p>{t('forge.runStoppedOn', { message: runError.message })}</p>
+            {runError.stoppedRun && (
+              <p data-testid="forge-execution-error-written">
+                {t('forge.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}
+              </p>
+            )}
+          </div>
+          {runError.stoppedRun ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-execution-see-stopped"
+              onClick={showStoppedRun}
+              icon={<FileText size={12} />}
+            >
+              {t('forge.seeStoppedRun')}
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-execution-back-to-review"
+              onClick={reviewAgain}
+              icon={<ArrowLeft size={12} />}
+            >
+              {t('forge.backToReview')}
+            </Button>
+          )}
+        </m.div>
+      )}
+
       {/* ---- Top bar: progress, timer, status ---- */}
       <m.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
         <div className="flex items-center justify-between text-sm">
@@ -286,8 +227,9 @@ export const ForgeExecution: React.FC = () => {
               {t('forge.elapsed')}: {formatElapsed(elapsed)}
             </span>
             {/* Measured on the objects, it has nothing left to count once they
-                have all settled: it read 0:00 while the run went on. */}
-            {!finishing && (
+                have all settled — it read 0:00 while the run went on — and no
+                time is left to a run that stopped. */}
+            {!finishing && !stopped && (
               <span data-testid="forge-execution-eta" className="text-hue-forge">
                 {t('forge.eta')}:{' '}
                 {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
@@ -309,17 +251,21 @@ export const ForgeExecution: React.FC = () => {
         )}
         <ProgressAnnouncer
           message={
-            finishing
-              ? t('forge.finishingNote')
-              : t('a11y.progressAnnouncement', {
-                  name: t('nav.forge'),
-                  percent: kpis.progress,
-                })
+            stopped
+              ? ''
+              : finishing
+                ? t('forge.finishingNote')
+                : t('a11y.progressAnnouncement', {
+                    name: t('nav.forge'),
+                    percent: kpis.progress,
+                  })
           }
           // Said at once: at 100% the bar would otherwise be heard as the end.
-          // A stopped run is said by the page, where it stopped, and a finished
-          // one by the results.
-          immediate={finishing}
+          // A stopped run is said by the page, where it stopped, and by the
+          // alert above, why: its last percentage, said again from here as
+          // the screen came back, told nothing more. A finished run is said
+          // by the results.
+          immediate={finishing || stopped}
           testId="forge-progress-status"
         />
       </m.div>
@@ -417,29 +363,32 @@ export const ForgeExecution: React.FC = () => {
           />
         </div>
 
-        {/* Control buttons */}
-        <div className={cn('flex items-center gap-3')}>
-          <Button
-            variant="secondary"
-            size="md"
-            icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
-            onClick={handlePauseToggle}
-            disabled={executionStatus === 'aborted'}
-            data-testid="forge-pause-button"
-          >
-            {isPaused ? t('forge.resume') : t('forge.pause')}
-          </Button>
-          <Button
-            variant="danger"
-            size="md"
-            icon={<Square size={14} />}
-            onClick={handleAbort}
-            disabled={executionStatus === 'aborted'}
-            data-testid="forge-abort-button"
-          >
-            {t('forge.abort')}
-          </Button>
-        </div>
+        {/* Control buttons: a run that stopped has nothing left to pause or
+            abort, and its way on is with its error, above. */}
+        {!stopped && (
+          <div className={cn('flex items-center gap-3')}>
+            <Button
+              variant="secondary"
+              size="md"
+              icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
+              onClick={handlePauseToggle}
+              disabled={executionStatus === 'aborted'}
+              data-testid="forge-pause-button"
+            >
+              {isPaused ? t('forge.resume') : t('forge.pause')}
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              icon={<Square size={14} />}
+              onClick={handleAbort}
+              disabled={executionStatus === 'aborted'}
+              data-testid="forge-abort-button"
+            >
+              {t('forge.abort')}
+            </Button>
+          </div>
+        )}
       </m.div>
 
       <DangerConfirm

@@ -2141,6 +2141,7 @@
     "finishing": "仕上げ中...",
     "finishingNote": "グラフ上のすべてのオブジェクトの処理が終わりました。実行は仕上げ中です。完了すると結果が表示されます。",
     "aborted": "中止",
+    "stopped": "停止",
     "done": "完了",
     "running": "実行中",
     "queued": "キュー待ち",
@@ -2154,6 +2155,10 @@
     "discoveryProgress": "検出中… {{discovered}} オブジェクトをスキャン済み、{{queued}} 件待機中",
     "executeForge": "Forgeを実行",
     "executeFailed": "Forge の実行に失敗しました",
+    "runStoppedOn": "実行は完了前に停止しました：{{message}}",
+    "runStoppedWrote_other": "停止する前に、ターゲット組織に {{count}} 件のレコードを作成していました。",
+    "seeStoppedRun": "書き込んだ内容を見る",
+    "backToReview": "確認に戻る",
     "reviewAndExecute": "確認して実行",
     "objects": "オブジェクト",
     "records": "レコード",
@@ -2975,6 +2980,7 @@
     "urgencyWarning": "警告",
     "urgencySafe": "安全",
     "runFinished": "{{name}} が完了しました。書き込み: {{total}} 件中 {{written}} 件。",
+    "runStoppedWritten": "{{name}} は完了前に停止しました。書き込み: {{total}} 件中 {{written}} 件。",
     "runStopped": "{{name}} は {{percent}}% で停止しました。"
   }
 }
