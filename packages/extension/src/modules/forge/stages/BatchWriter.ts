@@ -25,11 +25,11 @@ import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  ACTIVITY_OF_RELATION,
   NATURAL_KEYS,
-  TASK_RELATION,
   directAccountContactRelations,
+  existingActivityRelations,
   existingSellingModelOptions,
-  existingTaskRelations,
   recordsByNaturalKey,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
@@ -250,8 +250,8 @@ export class BatchWriter {
     // again it is refused — "the contact already has a relationship with
     // this account" — and the refusal names no record to link to. The one
     // the platform made is found instead, and linked. So is the relation it
-    // wrote for a task's who as it took the task, and a selling model option
-    // of a product the target already held.
+    // wrote for a task's or an event's who as it took the activity, and a
+    // selling model option of a product the target already held.
     const direct = await this.heldBeforeInsert(node.objectApiName, targetOrgId, input.records);
     for (const [index, id] of direct) {
       const oldId = input.cleanedRecords[index]?.source['Id'];
@@ -545,8 +545,8 @@ export class BatchWriter {
    * The records the target already holds for these payloads, found before
    * the insert, by the index of the payload that describes each: the direct
    * relations the platform created for the contacts this run inserted, the
-   * relations it wrote for the tasks this run inserted, and the selling model
-   * options of products the target already held.
+   * relations it wrote for the tasks and the events this run inserted, and
+   * the selling model options of products the target already held.
    */
   private async heldBeforeInsert(
     objectApiName: string,
@@ -559,8 +559,8 @@ export class BatchWriter {
     if (objectApiName === ACCOUNT_CONTACT_RELATION) {
       return directAccountContactRelations(target, records);
     }
-    if (objectApiName === TASK_RELATION) {
-      return existingTaskRelations(target, records);
+    if (ACTIVITY_OF_RELATION[objectApiName] !== undefined) {
+      return existingActivityRelations(target, objectApiName, records);
     }
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       return existingSellingModelOptions(target, records);

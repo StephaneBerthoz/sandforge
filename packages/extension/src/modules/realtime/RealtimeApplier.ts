@@ -9,6 +9,7 @@ import type {
 } from '@sandforge/shared';
 import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { lookupsThePlatformFills } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import { FieldMappingService } from '../sync/FieldMapping.js';
@@ -707,6 +708,11 @@ export class RealtimeApplier {
    * What a change writes: the fields the target lets the running user write —
    * update them when the record exists, create them when it does not — and the
    * key the write is addressed by.
+   *
+   * A record created goes without the lookups the platform fills in itself,
+   * as every other write of a copy does: an email's task, unless the email is
+   * on a case. Sent with the id read from the source, the email is refused,
+   * "you cannot modify this field". See `lookupsThePlatformFills`.
    */
   private recordFor(
     change: Change,
@@ -714,9 +720,12 @@ export class RealtimeApplier {
     fields: ReadonlyMap<string, DescribedField>,
     exists: boolean,
   ): Record<string, unknown> {
+    const mapped = this.mapped(change);
+    const filled = exists ? [] : lookupsThePlatformFills(this.plan.objectApiName, mapped);
     const record: Record<string, unknown> = {};
-    for (const [field, value] of Object.entries(this.mapped(change))) {
+    for (const [field, value] of Object.entries(mapped)) {
       if (value === undefined || field === 'Id' || field === this.plan.keyField) continue;
+      if (filled.includes(field)) continue;
       const described = fields.get(field);
       if (!described) continue;
       if (exists ? described.updateable !== true : described.createable !== true) continue;

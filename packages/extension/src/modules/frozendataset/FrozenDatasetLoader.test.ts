@@ -4314,6 +4314,80 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
     });
   });
 
+  it("links a relation to the event's who the platform wrote with the event, and inserts one to an invitee", async () => {
+    // The platform writes an event's relation to its who as it writes the
+    // event, as it does a task's.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          records: [
+            { referenceId: ref('Contact', 1), fields: { LastName: 'Who' } },
+            { referenceId: ref('Contact', 2), fields: { LastName: 'Invited' } },
+          ],
+        },
+        {
+          objectApiName: 'Event',
+          records: [
+            { referenceId: ref('Event'), fields: { Subject: 'Visit', WhoId: ref('Contact', 1) } },
+          ],
+        },
+        {
+          objectApiName: 'EventRelation',
+          records: [
+            {
+              referenceId: ref('EventRelation', 1),
+              fields: { EventId: ref('Event'), RelationId: ref('Contact', 1), IsWhat: false },
+            },
+            {
+              referenceId: ref('EventRelation', 2),
+              fields: {
+                EventId: ref('Event'),
+                RelationId: ref('Contact', 2),
+                IsInvitee: true,
+                IsWhat: false,
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      queryImpl: async (_org, soql) =>
+        soql.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+          ? // The relation the platform wrote from the event's who.
+            [{ Id: '0REPLATFORM', EventId: real('Event', 3), RelationId: real('Contact', 1) }]
+          : [],
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'Event')).toEqual([{ Subject: 'Visit', WhoId: real('Contact', 1) }]);
+    expect(insertedOf(calls, 'EventRelation')).toEqual([
+      {
+        EventId: real('Event', 3),
+        RelationId: real('Contact', 2),
+        IsInvitee: true,
+        IsWhat: false,
+      },
+    ]);
+    expect(report.perObject.find((o) => o.objectApiName === 'EventRelation')).toMatchObject({
+      inserted: 1,
+      reused: 1,
+      failed: [],
+    });
+    const mapping = await new SasReferenceIdMappingStore(deps.sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).load();
+    expect(mapping.get(ref('EventRelation', 1))).toBe('0REPLATFORM');
+  });
+
   it('writes the task first and names it on an email on a case, which may name it', async () => {
     const dataset = emailDataset(true);
     const calls: DmlCall[] = [];

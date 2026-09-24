@@ -54,16 +54,16 @@ import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlV
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  ACTIVITY_OF_RELATION,
   EMAIL_MESSAGE,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   TASK,
-  TASK_RELATION,
   draftStartOf,
   emailWriteEdges,
+  existingActivityRelations,
   existingSellingModelOptions,
-  existingTaskRelations,
   leftToThePlatformNote,
   lookupsThePlatformFills,
   recordsByNaturalKey,
@@ -989,8 +989,8 @@ export class FrozenDatasetLoader {
       if (objectApiName === TASK) {
         await this.matchTasksWrittenWithEmails(orgId, working, aligned, mapping, reused);
       }
-      if (objectApiName === TASK_RELATION) {
-        await this.matchTaskRelations(orgId, aligned, mapping, reused);
+      if (ACTIVITY_OF_RELATION[objectApiName] !== undefined) {
+        await this.matchActivityRelations(orgId, objectApiName, aligned, mapping, reused);
       }
       const fromFiles =
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
@@ -2287,23 +2287,26 @@ export class FrozenDatasetLoader {
   }
 
   /**
-   * Link each task relation the target already holds — the ones the platform
-   * wrote for its task's who as it took the task — to the one it holds. See
-   * `existingTaskRelations`; a relation to the task's what never comes this
-   * far (`PLATFORM_WRITTEN_ROWS`).
+   * Link each task or event relation the target already holds — the ones the
+   * platform wrote for its activity's who as it took the activity — to the
+   * one it holds. See `existingActivityRelations`; a relation to the
+   * activity's what never comes this far (`PLATFORM_WRITTEN_ROWS`).
    */
-  private async matchTaskRelations(
+  private async matchActivityRelations(
     orgId: string,
+    objectApiName: string,
     aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
     mapping: Map<string, string>,
     reused: Set<string>,
   ): Promise<void> {
+    const activity = ACTIVITY_OF_RELATION[objectApiName];
     const idOf = (value: unknown): string | undefined =>
       typeof value === 'string' ? mapping.get(value) : undefined;
-    const held = await existingTaskRelations(
+    const held = await existingActivityRelations(
       (soql) => this.deps.orgAccess.query(orgId, soql),
+      objectApiName,
       aligned.map((r) => ({
-        TaskId: idOf(r.fields.TaskId),
+        [activity]: idOf(r.fields[activity]),
         RelationId: idOf(r.fields.RelationId),
       })),
     );

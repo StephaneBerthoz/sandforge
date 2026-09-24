@@ -537,49 +537,65 @@ export async function tasksWrittenWithEmails(
 }
 
 /**
- * The task relations the target already holds for the task and the record
- * each payload names, by the index of the payload.
+ * Per relation object, the lookup that names its activity: a task relation's
+ * task, an event relation's event.
+ */
+export const ACTIVITY_OF_RELATION: Readonly<Record<string, string>> = {
+  [TASK_RELATION]: 'TaskId',
+  [EVENT_RELATION]: 'EventId',
+};
+
+/**
+ * The task or event relations the target already holds for the activity and
+ * the record each payload names, by the index of the payload: none for an
+ * object that is neither.
  *
  * The platform writes a task's relations to its WhoId and its WhatId as it
  * writes the task — in a real source org, every relation was created the
  * second its task was, by the task's author, and named the task's who or
  * what — and the relations of an email's task as it writes that task with its
- * email. The what relation never goes (`PLATFORM_WRITTEN_ROWS`); a relation
- * to a contact or a lead read from the source is the one the platform wrote
- * when the target holds it, linked to rather than sent twice, and sent when it
- * does not: a task shared with several contacts has a relation to each. The
- * payloads carry target ids already.
+ * email. It writes an event's the same way: in a real sandbox each relation
+ * an event held was its who's, written the second the event was last saved,
+ * by the event's author. The what relation never goes
+ * (`PLATFORM_WRITTEN_ROWS`); a relation to a contact or a lead read from the
+ * source is the one the platform wrote when the target holds it, linked to
+ * rather than sent twice, and sent when it does not: a task shared with
+ * several contacts has a relation to each, and an event one to each it
+ * invites. The payloads carry target ids already.
  */
-export async function existingTaskRelations(
+export async function existingActivityRelations(
   query: SoqlQuery,
+  objectApiName: string,
   records: readonly Record<string, unknown>[],
 ): Promise<Map<number, string>> {
   const found = new Map<number, string>();
-  const tasks = [
+  const activity = ACTIVITY_OF_RELATION[objectApiName];
+  if (activity === undefined) return found;
+  const activities = [
     ...new Set(
       records
-        .map((r) => r['TaskId'])
+        .map((r) => r[activity])
         .filter((id): id is string => typeof id === 'string' && id !== ''),
     ),
   ];
-  if (tasks.length === 0) return found;
+  if (activities.length === 0) return found;
   const byPair = new Map<string, string>();
-  for (let i = 0; i < tasks.length; i += WRITTEN_CHUNK) {
-    const inList = tasks
+  for (let i = 0; i < activities.length; i += WRITTEN_CHUNK) {
+    const inList = activities
       .slice(i, i + WRITTEN_CHUNK)
       .map((id) => `'${sanitizeSoqlValue(id)}'`)
       .join(', ');
     const rows = await query(
-      `SELECT Id, TaskId, RelationId FROM ${TASK_RELATION} WHERE TaskId IN (${inList})`,
+      `SELECT Id, ${activity}, RelationId FROM ${objectApiName} WHERE ${activity} IN (${inList})`,
     );
     for (const row of rows) {
       if (typeof row['Id'] === 'string') {
-        byPair.set(`${String(row['TaskId'])}|${String(row['RelationId'])}`, row['Id']);
+        byPair.set(`${String(row[activity])}|${String(row['RelationId'])}`, row['Id']);
       }
     }
   }
   records.forEach((r, i) => {
-    const id = byPair.get(`${String(r['TaskId'])}|${String(r['RelationId'])}`);
+    const id = byPair.get(`${String(r[activity])}|${String(r['RelationId'])}`);
     if (id) found.set(i, id);
   });
   return found;

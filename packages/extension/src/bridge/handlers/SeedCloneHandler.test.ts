@@ -912,6 +912,125 @@ describe('SeedCloneHandler', () => {
       });
     });
 
+    describe("the relation the platform writes for an activity's who", () => {
+      /** Fake ids: two contacts, an activity, its relations to both, and what the target gives. */
+      const WHO = '003Fk00000WhOoAIAV';
+      const OTHER = '003Fk00000OtHrAIAV';
+      const NEW_WHO = '003Fk00000NeWwAIAV';
+      const NEW_OTHER = '003Fk00000NeWoAIAV';
+      const TO_THE_WHO = '0RXFk00000WhOoAIAV';
+      const TO_THE_OTHER = '0RXFk00000OtHrAIAV';
+      const PLATFORM_RELATION = '0RXFk00000PlAtFIAV';
+
+      it.each([
+        ['a task', 'Task', 'TaskRelation', 'TaskId', '00TFk00000AcTvAIAV', '00TFk00000NeWaAIAV'],
+        [
+          'an event',
+          'Event',
+          'EventRelation',
+          'EventId',
+          '00UFk00000AcTvAIAV',
+          '00UFk00000NeWaAIAV',
+        ],
+      ])(
+        "links the relation the platform wrote for %s's who, and writes the one to another contact",
+        async (_, activity, relation, activityField, source, written) => {
+          // The platform writes an activity's relation to its who as it takes
+          // the activity: the one read from the source is that one.
+          const reference = (name: string, ...referenceTo: string[]) => ({
+            name,
+            type: 'reference',
+            referenceTo,
+          });
+          const query = vi.fn(async (soql: string) => ({
+            records: soql.startsWith(`SELECT Id, ${activityField}, RelationId FROM ${relation}`)
+              ? [{ Id: PLATFORM_RELATION, [activityField]: written, RelationId: NEW_WHO }]
+              : [],
+          }));
+          mockGetConn.mockResolvedValue({
+            describe: vi.fn(async (name: string) => ({
+              keyPrefix: null,
+              fields:
+                name === relation
+                  ? [
+                      reference(activityField, activity),
+                      reference('RelationId', 'Contact', 'Lead'),
+                      { name: 'IsWhat', type: 'boolean' },
+                    ]
+                  : name === activity
+                    ? [{ name: 'Subject', type: 'string' }, reference('WhoId', 'Contact', 'Lead')]
+                    : [{ name: 'LastName', type: 'string' }],
+              recordTypeInfos: [],
+            })),
+            query,
+            limitInfo: undefined,
+          } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+          linker.resolveInsertOrder.mockReturnValue(['Contact', activity, relation]);
+          fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+            name === 'Contact'
+              ? [
+                  { Id: WHO, LastName: 'Who' },
+                  { Id: OTHER, LastName: 'Other' },
+                ]
+              : name === activity
+                ? [{ Id: source, Subject: 'Visit', WhoId: WHO }]
+                : [
+                    { Id: TO_THE_WHO, [activityField]: source, RelationId: WHO, IsWhat: false },
+                    { Id: TO_THE_OTHER, [activityField]: source, RelationId: OTHER, IsWhat: false },
+                  ],
+          );
+          writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+            name === 'Contact'
+              ? [
+                  { id: NEW_WHO, success: true, errors: [] },
+                  { id: NEW_OTHER, success: true, errors: [] },
+                ]
+              : records.map(() => ({
+                  id: name === activity ? written : '0RXFk00000NeWrAIAV',
+                  success: true,
+                  errors: [],
+                })),
+          );
+
+          await handler.handle(
+            buildMsg(
+              'seed:clone:execute',
+              clonePayload({
+                objects: [
+                  { objectApiName: 'Contact' },
+                  { objectApiName: activity },
+                  { objectApiName: relation },
+                ],
+              }),
+            ),
+          );
+
+          expect(query).toHaveBeenCalledWith(
+            `SELECT Id, ${activityField}, RelationId FROM ${relation} WHERE ${activityField} IN ('${written}')`,
+          );
+          expect(
+            writer.insert.mock.calls.filter((c) => c[0] === relation).flatMap((c) => c[1]),
+          ).toEqual([{ [activityField]: written, RelationId: NEW_OTHER, IsWhat: false }]);
+          const [response] = posted(deps, 'seed:clone:execute:response');
+          const result = (
+            response.payload as unknown as {
+              objectResults: Array<{
+                objectApiName: string;
+                insertedCount: number;
+                linkedCount?: number;
+                idMappings: unknown[];
+              }>;
+            }
+          ).objectResults.find((r) => r.objectApiName === relation);
+          expect(result).toMatchObject({ insertedCount: 1, linkedCount: 1 });
+          expect(result?.idMappings).toContainEqual({
+            sourceId: TO_THE_WHO,
+            targetId: PLATFORM_RELATION,
+          });
+        },
+      );
+    });
+
     it('leaves out the fields the target does not have, and names them in the result', async () => {
       // The fetcher reads the fields the source describes. A custom field the
       // target lacks cost the whole record: the org refuses a record carrying one.

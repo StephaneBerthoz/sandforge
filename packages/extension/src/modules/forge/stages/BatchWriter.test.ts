@@ -681,6 +681,42 @@ describe('BatchWriter — relations the platform creates', () => {
     expect(input.remapper.existingSourceIds()).toEqual(['0RTSRC1']);
     expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
   });
+
+  it('links the relation the platform wrote for an event’s who instead of sending it twice, and sends one to an invitee', async () => {
+    // An event inserted with its who gets its relation to it from the
+    // platform, as a task does.
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockImplementation(async (_org, _obj, recs) =>
+        recs.map((_, i) => ({ id: `0RENEW${i}`, success: true, errors: [] })),
+      );
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '0REPLATFORM', EventId: '00UE', RelationId: '003WHO' },
+    ]);
+    const payloads = [
+      { EventId: '00UE', RelationId: '003WHO', IsParent: true, IsWhat: false },
+      { EventId: '00UE', RelationId: '005INVITED', IsInvitee: true, IsWhat: false },
+    ];
+    const input = makeInput([], {
+      node: makeNode('EventRelation', 2),
+      records: payloads,
+      cleanedRecords: [
+        { source: { Id: '0RESRC1' }, cleaned: payloads[0], nullifiedFks: [] },
+        { source: { Id: '0RESRC2' }, cleaned: payloads[1], nullifiedFks: [] },
+      ],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(queryRecords).toHaveBeenCalledWith(
+      'tgt',
+      "SELECT Id, EventId, RelationId FROM EventRelation WHERE EventId IN ('00UE')",
+    );
+    expect(insertRecords.mock.calls[0][2]).toEqual([payloads[1]]);
+    expect(input.remapper.get('0RESRC1')).toBe('0REPLATFORM');
+    expect(input.remapper.existingSourceIds()).toEqual(['0RESRC1']);
+    expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
+  });
 });
 
 describe('BatchWriter — duplicates found by their natural key', () => {

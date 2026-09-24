@@ -7409,12 +7409,40 @@ describe('ForgeExecutor', () => {
           expect(summary.existingSourceIds).toContain(OFFER_TASK);
           expect(summary.failedCount).toBe(0);
           expect(summary.errors).toEqual([]);
-          const emailEvents = progressEvents.filter(
-            (e) => e.objectName === 'EmailMessage' && e.status === 'done',
+          // One line ends the object, with what each of its two writes came
+          // to: two read as two objects, the second with the emails that had
+          // waited alone.
+          const emailEnds = progressEvents.filter(
+            (e) => e.objectName === 'EmailMessage' && (e.status === 'done' || e.status === 'error'),
           );
-          expect(emailEvents.map((e) => e.message)).toEqual([
-            'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks',
-            'Completed EmailMessage after their task: 2 succeeded, 0 failed',
+          expect(emailEnds.map((e) => e.message)).toEqual([
+            'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; after their task: 2 succeeded, 0 failed',
+          ]);
+          expect(emailEnds[0].status).toBe('done');
+        });
+
+        it('ends the email object in one line as a failure when its first write failed, with the emails that waited', async () => {
+          const { orgDeps, graph } = mixedRun();
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, records) =>
+            object === 'EmailMessage' && records.some((r) => r['Subject'] === 'Offer')
+              ? records.map(() => ({
+                  id: '',
+                  success: false,
+                  errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no offer by email'],
+                }))
+              : insert(org, object, records);
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+            rootRecordId: ACCOUNT,
+            rootObjectApiName: 'Account',
+          });
+
+          const emailEnds = progressEvents.filter(
+            (e) => e.objectName === 'EmailMessage' && (e.status === 'done' || e.status === 'error'),
+          );
+          expect(emailEnds.map((e) => [e.status, e.message])).toEqual([
+            ['error', 'Failed all EmailMessage records; after their task: 2 succeeded, 0 failed'],
           ]);
         });
 

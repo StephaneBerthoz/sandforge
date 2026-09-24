@@ -7,8 +7,8 @@ import {
   draftStartOf,
   emailOnACase,
   emailWriteEdges,
+  existingActivityRelations,
   existingSellingModelOptions,
-  existingTaskRelations,
   leftToThePlatformNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
@@ -267,13 +267,13 @@ describe('tasksWrittenWithEmails', () => {
   });
 });
 
-describe('existingTaskRelations', () => {
+describe('existingActivityRelations', () => {
   it('finds the relation the target holds for each task and record, and no other', async () => {
     const query = vi.fn<SoqlQuery>(async () => [
       { Id: '0RTWHO', TaskId: '00TT', RelationId: '003WHO' },
     ]);
 
-    const found = await existingTaskRelations(query, [
+    const found = await existingActivityRelations(query, 'TaskRelation', [
       { TaskId: '00TT', RelationId: '003OTHER', IsWhat: false },
       { TaskId: '00TT', RelationId: '003WHO', IsWhat: false },
     ]);
@@ -286,19 +286,49 @@ describe('existingTaskRelations', () => {
     expect([...found]).toEqual([[1, '0RTWHO']]);
   });
 
-  it('asks nothing when no payload names its task, and two hundred tasks at a time', async () => {
+  it('finds the relation the target holds for each event and record, and leaves an invitee to the insert', async () => {
+    // The platform writes an event's relation to its who as it writes the
+    // event, as it does a task's.
+    const query = vi.fn<SoqlQuery>(async () => [
+      { Id: '0REWHO', EventId: '00UE', RelationId: '003WHO' },
+    ]);
+
+    const found = await existingActivityRelations(query, 'EventRelation', [
+      { EventId: '00UE', RelationId: '003WHO', IsParent: true, IsWhat: false },
+      { EventId: '00UE', RelationId: '005INVITED', IsInvitee: true, IsWhat: false },
+    ]);
+
+    expect(query).toHaveBeenCalledWith(
+      "SELECT Id, EventId, RelationId FROM EventRelation WHERE EventId IN ('00UE')",
+    );
+    expect([...found]).toEqual([[0, '0REWHO']]);
+  });
+
+  it('asks nothing of an object that is no activity relation, nor when no payload names its activity', async () => {
     const query = vi.fn<SoqlQuery>(async () => []);
 
-    const none = await existingTaskRelations(query, [{ RelationId: '003WHO' }]);
+    const other = await existingActivityRelations(query, 'AccountContactRelation', [
+      { TaskId: '00TT', EventId: '00UE', RelationId: '003WHO' },
+    ]);
+    const none = await existingActivityRelations(query, 'TaskRelation', [{ RelationId: '003WHO' }]);
+
     expect(query).not.toHaveBeenCalled();
+    expect(other.size).toBe(0);
     expect(none.size).toBe(0);
-    await existingTaskRelations(
+  });
+
+  it('asks two hundred activities at a time', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+
+    await existingActivityRelations(
       query,
+      'EventRelation',
       Array.from({ length: 201 }, (_, i) => ({
-        TaskId: `00T${String(i).padStart(3, '0')}`,
+        EventId: `00U${String(i).padStart(3, '0')}`,
         RelationId: '003WHO',
       })),
     );
+
     expect(query).toHaveBeenCalledTimes(2);
   });
 });

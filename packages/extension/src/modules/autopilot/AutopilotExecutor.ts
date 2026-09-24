@@ -48,6 +48,7 @@ import {
 } from '../../core/common/existingRecordMatch.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  ACTIVITY_OF_RELATION,
   EMAIL_MESSAGE,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
@@ -55,6 +56,7 @@ import {
   TASK,
   directAccountContactRelations,
   draftStartOf,
+  existingActivityRelations,
   lookupsThePlatformFills,
   recordsByNaturalKey,
   statusCategories,
@@ -1181,6 +1183,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       state.linked += direct.size;
       payload = payload.filter((_, index) => !direct.has(index));
     }
+    // So is the relation it wrote for a task's or an event's who as it wrote
+    // the activity: found by the activity and the record it names, now target
+    // ids. See `existingActivityRelations`.
+    if (ACTIVITY_OF_RELATION[objectApiName] !== undefined && queryTarget) {
+      const held = await existingActivityRelations(queryTarget, objectApiName, payload);
+      for (const [index, id] of held) {
+        const sourceId = payload[index]['Id'];
+        if (typeof sourceId === 'string') mappings.push([sourceId, id]);
+      }
+      state.linked += held.size;
+      payload = payload.filter((_, index) => !held.has(index));
+    }
     // The task the platform wrote with one of the run's emails is the one
     // read from the source: linked to, never sent a second time.
     if (objectApiName === TASK && queryTarget) {
@@ -1339,6 +1353,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * waited for the task each names go in, with the id that task has in the
    * target in place of the source's, and are counted with the other emails.
    * The email node is said to have completed once one of them is in.
+   *
+   * A page at a time, a pause honoured before each, as every other write of
+   * the run: written in one call as the task node ended, they went in while
+   * the run stood paused.
    */
   private async writeEmailsAfterTheirTask(
     edges: AutopilotEdge[],
@@ -1348,7 +1366,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     const emails = this.emailsAfterTheirTask.splice(0, this.emailsAfterTheirTask.length);
     if (emails.length === 0) return;
     const state = emptyObjectState();
-    await this.writeBatch(EMAIL_MESSAGE as ApiName, emails, edges, state);
+    for (let i = 0; i < emails.length; i += this.batchSize) {
+      await this.checkPause();
+      await this.writeBatch(
+        EMAIL_MESSAGE as ApiName,
+        emails.slice(i, i + this.batchSize),
+        edges,
+        state,
+      );
+    }
     result.totalSuccess += state.written;
     result.totalFailure += state.failed;
     result.totalLinked = (result.totalLinked ?? 0) + state.linked;

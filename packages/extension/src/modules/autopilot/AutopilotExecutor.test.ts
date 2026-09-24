@@ -1054,6 +1054,66 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
     });
   });
 
+  it.each([
+    ['a task', 'Task', 'TaskRelation', 'TaskId', '00T'],
+    ['an event', 'Event', 'EventRelation', 'EventId', '00U'],
+  ])(
+    "links the relation the platform wrote for %s's who instead of inserting it, and inserts one to another contact",
+    async (_, activity, relation, activityField, prefix) => {
+      // The platform writes an activity's relation to its who as it writes
+      // the activity.
+      const rows = {
+        Contact: [{ Id: 'conWho' }, { Id: 'conOther' }],
+        [activity]: [{ Id: 'actSrc', WhoId: 'conWho' }],
+        [relation]: [
+          { Id: 'relWho', [activityField]: 'actSrc', RelationId: 'conWho', IsWhat: false },
+          { Id: 'relOther', [activityField]: 'actSrc', RelationId: 'conOther', IsWhat: false },
+        ],
+      };
+      const queryTarget = vi.fn<SoqlQuery>(async () => [
+        { Id: 'relPLATFORM', [activityField]: `${prefix}TA`, RelationId: '003TWHO' },
+      ]);
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        remapper: new RecordIdRemapper(),
+        queryTarget,
+        batchSize: 200,
+      });
+      vi.mocked(deps.insert)
+        .mockResolvedValueOnce(written('003TWHO', '003TOTHER'))
+        .mockResolvedValueOnce(written(`${prefix}TA`))
+        .mockResolvedValueOnce(written('relNEW'));
+      const edges = [
+        makeEdge({ from: 'Contact' as ApiName, to: activity as ApiName, fieldApiName: 'WhoId' }),
+        makeEdge({
+          from: activity as ApiName,
+          to: relation as ApiName,
+          fieldApiName: activityField,
+          required: true,
+        }),
+        makeEdge({
+          from: 'Contact' as ApiName,
+          to: relation as ApiName,
+          fieldApiName: 'RelationId',
+        }),
+      ];
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Contact', activity, relation),
+        edges,
+        [],
+        countsOf(rows),
+      );
+
+      expect(queryTarget).toHaveBeenCalledWith(
+        `SELECT Id, ${activityField}, RelationId FROM ${relation} WHERE ${activityField} IN ('${prefix}TA')`,
+      );
+      const relationCall = vi.mocked(deps.insert).mock.calls[2];
+      expect(relationCall[1].map((r) => r['Id'])).toEqual(['relOther']);
+      expect(result.objectOutcomes?.[relation]).toMatchObject({ written: 1, linked: 1, failed: 0 });
+    },
+  );
+
   describe('a record born a draft', () => {
     const orderStatuses = [
       { ApiName: 'ST001', StatusCode: 'Draft' },
@@ -1935,5 +1995,61 @@ describe("AutopilotExecutor — an email's task, which the platform fills in its
     expect(result.objectOutcomes?.['Task']).toMatchObject({ written: 2, linked: 1, failed: 0 });
     expect(result).toMatchObject({ totalSuccess: 7, totalLinked: 1, totalFailure: 0 });
     expect(result.completedObjects).toContain('EmailMessage');
+  });
+
+  it('writes nothing of the emails that waited for their task while the run is paused, and writes them on resume', async () => {
+    const { insert, queryTarget } = platform();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      queryTarget,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+    const executor = new AutopilotExecutor(deps);
+    // Paused as the tasks go in: the emails that waited for them come next.
+    deps.insert = vi.fn(async (objectApiName: string, records: Record<string, unknown>[]) => {
+      if (objectApiName === 'Task') executor.pause();
+      return insert(objectApiName, records);
+    });
+    const written = (): string[] => vi.mocked(deps.insert).mock.calls.map(([name]) => name);
+
+    const run = executor.execute(
+      wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+      edges,
+      [],
+      countsOf(rows),
+    );
+    await vi.waitFor(() => expect(written()).toContain('Task'));
+    // Whatever the run does next without waiting is done by the next tick.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(written()).toEqual(['Account', 'Case', 'EmailMessage', 'Task']);
+    executor.resume();
+    const result = await run;
+    expect(written()).toEqual(['Account', 'Case', 'EmailMessage', 'Task', 'EmailMessage']);
+    expect(result.objectOutcomes?.['EmailMessage']).toMatchObject({ written: 3, failed: 0 });
+  });
+
+  it('writes the emails that waited for their task a page at a time, as it writes every other object', async () => {
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      ...platform(),
+      remapper: new RecordIdRemapper(),
+      batchSize: 1,
+    });
+
+    await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+      edges,
+      [],
+      countsOf(rows),
+    );
+
+    const calls = vi.mocked(deps.insert).mock.calls;
+    const afterTheTasks = calls.slice(calls.map(([name]) => name).lastIndexOf('Task') + 1);
+    expect(afterTheTasks.map(([name, records]) => [name, records.length])).toEqual([
+      ['EmailMessage', 1],
+      ['EmailMessage', 1],
+    ]);
   });
 });

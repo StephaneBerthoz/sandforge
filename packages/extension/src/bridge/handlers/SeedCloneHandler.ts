@@ -45,9 +45,11 @@ import type { PendingFkUpdate } from '../../modules/forge/stages/BatchWriter.js'
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
+  ACTIVITY_OF_RELATION,
   EMAIL_MESSAGE,
   RowsLeftToThePlatform,
   TASK,
+  existingActivityRelations,
   lookupsThePlatformFills,
   rowsACopySends,
   tasksWrittenWithEmails,
@@ -673,6 +675,43 @@ export class SeedCloneHandler implements DomainHandler {
       };
 
       /**
+       * Of the task or event relations about to be written, those the target
+       * already holds for the activity and the record each names — the
+       * relation the platform wrote for the activity's who as it took the
+       * activity — by the relation's source id. See
+       * `existingActivityRelations`. None for another object, or when the
+       * target could not be asked.
+       */
+      const relationsTheTargetHolds = async (
+        objectApiName: string,
+        sourceRecords: readonly Record<string, unknown>[],
+        writeRecords: readonly Record<string, unknown>[],
+      ): Promise<Map<string, string>> => {
+        if (ACTIVITY_OF_RELATION[objectApiName] === undefined) return new Map();
+        let held: Map<number, string>;
+        try {
+          held = await existingActivityRelations(
+            async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+            objectApiName,
+            writeRecords,
+          );
+        } catch (err: unknown) {
+          // Not looked up, the relations go as read, the platform's among
+          // them.
+          this.deps.log(
+            `[seed:clone] ${objectApiName}: the relations the target holds not looked up, written as read: ${extractErrorMessage(err)}`,
+          );
+          return new Map();
+        }
+        const linked = new Map<string, string>();
+        for (const [index, id] of held) {
+          const sourceId = sourceRecords[index]?.['Id'];
+          if (typeof sourceId === 'string') linked.set(sourceId, id);
+        }
+        return linked;
+      };
+
+      /**
        * The tasks have had their turn, whatever they wrote: the emails that
        * waited for the task each names go in, with the id that task has in the
        * target in place of the source's. Counted with the other emails.
@@ -847,13 +886,14 @@ export class SeedCloneHandler implements DomainHandler {
         }
 
         // The task the platform wrote with one of the clone's emails is the
-        // one read from the source: linked, never sent a second time.
-        const linkedTasks =
+        // one read from the source: linked, never sent a second time. So is
+        // the relation it wrote for a task's or an event's who.
+        const linked =
           objectApiName === TASK
             ? await tasksWrittenWithTheirEmail(sourceRecords)
-            : new Map<string, string>();
-        if (linkedTasks.size > 0) {
-          const sent = sourceRecords.map((record) => !linkedTasks.has(String(record['Id'])));
+            : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
+        if (linked.size > 0) {
+          const sent = sourceRecords.map((record) => !linked.has(String(record['Id'])));
           sourceRecords = sourceRecords.filter((_, i) => sent[i]);
           writeRecords = writeRecords.filter((_, i) => sent[i]);
           owed = owed.filter((_, i) => sent[i]);
@@ -876,13 +916,13 @@ export class SeedCloneHandler implements DomainHandler {
           sourceCount: read.length,
           insertedCount: 0,
           failedCount: 0,
-          linkedCount: linkedTasks.size,
+          linkedCount: linked.size,
           ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
           ...(fieldsNotInTarget.length > 0 ? { fieldsNotInTarget } : {}),
           idMappings: [],
           errors: [],
         };
-        for (const [sourceId, targetId] of linkedTasks) {
+        for (const [sourceId, targetId] of linked) {
           globalIdMap.set(sourceId, targetId);
           objectResult.idMappings.push({ sourceId, targetId });
         }

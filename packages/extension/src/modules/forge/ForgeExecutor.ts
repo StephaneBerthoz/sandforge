@@ -892,6 +892,12 @@ interface ExecutionState {
    * `waitsForItsTask`.
    */
   readonly emailsAfterTheirTask: Record<string, unknown>[];
+  /**
+   * How the email node's first write ended while some of its emails waited
+   * for their task: said as a step, and again in the line the write of those
+   * ends the node with. See `endOfTheEmails`.
+   */
+  emailsWrittenFirst?: ForgeProgressEvent;
   /** Whether the task node's turn to be written is over, whatever it wrote. */
   taskTurnOver: boolean;
   /** When the target dated the run's writes, once read back at its end. */
@@ -3703,9 +3709,57 @@ export class ForgeExecutor {
   private async writeEmailsAfterTheirTask(state: ExecutionState): Promise<void> {
     state.taskTurnOver = true;
     const emails = state.emailsAfterTheirTask.splice(0, state.emailsAfterTheirTask.length);
-    if (emails.length === 0 || this.isAborted) return;
     const node = state.graph.nodes.find((n) => n.objectApiName === EMAIL_MESSAGE);
-    if (node) await this.writeNode(node, state, emails);
+    if (node && emails.length > 0 && !this.isAborted) await this.writeNode(node, state, emails);
+    // Emails that waited and were not written — the run stopped first —
+    // leave the node's first write to end it.
+    const first = state.emailsWrittenFirst;
+    state.emailsWrittenFirst = undefined;
+    if (first) state.onProgress(first);
+  }
+
+  /**
+   * What the email node says as its writes end, in one line for the object.
+   *
+   * Some of its emails wait for their task (`holdEmailsForTheirTask`) and go
+   * in once the task node has had its turn: the end of the node's first
+   * write is then a step on the way, said as one, and kept for the end of
+   * the write of those, whose line says both. Said as each write ended, an
+   * email on a case beside another ended the object in two lines, the second
+   * with the emails that had waited alone.
+   *
+   * @param late - Whether the write is that of the emails that waited.
+   */
+  private endOfTheEmails(
+    state: ExecutionState,
+    late: boolean,
+  ): (event: ForgeProgressEvent) => void {
+    return (event) => {
+      if (event.status !== 'done' && event.status !== 'error') {
+        state.onProgress(event);
+        return;
+      }
+      if (!late) {
+        if (state.emailsAfterTheirTask.length === 0) {
+          state.onProgress(event);
+          return;
+        }
+        state.emailsWrittenFirst = event;
+        state.onProgress({ ...event, status: 'running' });
+        return;
+      }
+      const first = state.emailsWrittenFirst;
+      state.emailsWrittenFirst = undefined;
+      state.onProgress(
+        first
+          ? {
+              ...event,
+              status: first.status === 'error' ? 'error' : event.status,
+              message: `${first.message}; ${event.message}`,
+            }
+          : event,
+      );
+    };
   }
 
   /**
@@ -4324,7 +4378,22 @@ export class ForgeExecutor {
     state: ExecutionState,
     afterTheirTask?: Record<string, unknown>[],
   ): Promise<void> {
-    const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
+    const { config, sourceOrgId, targetOrgId, remapper } = state;
+    // The email node ends in one line, the emails that waited for their task
+    // with the others: see `endOfTheEmails`.
+    const onProgress =
+      node.objectApiName === EMAIL_MESSAGE
+        ? this.endOfTheEmails(state, afterTheirTask !== undefined)
+        : state.onProgress;
+    // How the line that ends the node begins; the write of the emails that
+    // waited for their task goes on the line of the write before, when there
+    // was one.
+    const completed =
+      afterTheirTask === undefined
+        ? `Completed ${node.objectApiName}`
+        : state.emailsWrittenFirst
+          ? 'after their task'
+          : `Completed ${node.objectApiName} after their task`;
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
     const { fieldInfos, createableSet, targetSetsPending } = read;
@@ -4389,7 +4458,7 @@ export class ForgeExecutor {
             objectName: node.objectApiName,
             status: 'done',
             progress: 100,
-            message: `Completed ${node.objectApiName}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
+            message: `${completed}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
           });
           return;
         }
@@ -4712,15 +4781,18 @@ export class ForgeExecutor {
             ? `, ${writtenBefore.length} already in the target from the run retried`
             : '';
         const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
-        const completed =
-          afterTheirTask === undefined
-            ? `Completed ${node.objectApiName}`
-            : `Completed ${node.objectApiName} after their task`;
+        // What else became of the object's rows, said once, on the line that
+        // ends the node: after the emails that waited for their task, if any.
+        const notes =
+          waiting === 0
+            ? leftToThePlatformNote(state, node.objectApiName) +
+              heldForExclusionsNote(state, node.objectApiName)
+            : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${afterTheirTask === undefined ? leftToThePlatformNote(state, node.objectApiName) + heldForExclusionsNote(state, node.objectApiName) : ''}`,
+          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${notes}`,
         });
       }
     } catch (err) {

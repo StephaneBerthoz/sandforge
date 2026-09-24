@@ -183,6 +183,63 @@ describe('RealtimeApplier — writing a change', () => {
     ]);
   });
 
+  it('creates an email without the task the platform gives it, unless the email is on a case', async () => {
+    // Sent with the task read from the source, the email is refused:
+    // INSUFFICIENT_ACCESS_OR_READONLY, "you cannot modify this field".
+    class EmailOrg extends MemoryOrg {
+      async describe() {
+        return {
+          fields: [
+            { name: 'Ext__c', type: 'string', createable: true, updateable: true },
+            { name: 'Subject', type: 'string', createable: true, updateable: true },
+            { name: 'ParentId', type: 'reference', createable: true, updateable: false },
+            { name: 'RelatedToId', type: 'reference', createable: true, updateable: true },
+            { name: 'ActivityId', type: 'reference', createable: true, updateable: false },
+          ],
+        };
+      }
+    }
+    const { write, calls } = recordingWrite();
+    const created = (recordId: string, values: Record<string, unknown>): ChangeEvent =>
+      event({
+        channel: '/data/EmailMessageChangeEvent',
+        objectApiName: 'EmailMessage',
+        changeType: 'CREATE',
+        recordIds: [recordId],
+        changedFieldNames: [],
+        values,
+      });
+
+    const { results } = await applier(new EmailOrg([]), new EmailOrg([]), write, {
+      plan: { objectApiName: 'EmailMessage', keyField: 'Ext__c', keySource: 'Ext__c' },
+    }).apply([
+      created('02sSOURCE0000001AA', {
+        Ext__c: 'E1',
+        Subject: 'Offer',
+        RelatedToId: '0Q0SOURCE0000001AA',
+        ActivityId: '00TSOURCE0000001AA',
+      }),
+      created('02sSOURCE0000002AA', {
+        Ext__c: 'E2',
+        Subject: 'Broken',
+        ParentId: '500SOURCE0000001AA',
+        ActivityId: '00TSOURCE0000002AA',
+      }),
+    ]);
+
+    expect(results).toEqual([{ outcome: 'applied' }, { outcome: 'applied' }]);
+    expect(calls[0].config).toMatchObject({ operation: 'upsert', externalIdField: 'Ext__c' });
+    expect(calls[0].records).toEqual([
+      { Subject: 'Offer', RelatedToId: '0Q0SOURCE0000001AA', Ext__c: 'E1' },
+      {
+        Subject: 'Broken',
+        ParentId: '500SOURCE0000001AA',
+        ActivityId: '00TSOURCE0000002AA',
+        Ext__c: 'E2',
+      },
+    ]);
+  });
+
   it('copies the whole source record when an update reaches a record the target lacks', async () => {
     // Written from the update alone, the target would get a record made of
     // one field, or none: the org refuses a Lead without its required fields.
