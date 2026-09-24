@@ -792,6 +792,9 @@
       },
       "results": {
         "title": "Clone Results",
+        "statusSuccess": "Clone complete",
+        "statusPartial": "Partially complete",
+        "statusFailure": "Clone failed",
         "summary": "Source records",
         "inserted": "Inserted",
         "linked": "Linked to existing",
@@ -815,12 +818,14 @@
         "stepSource": "Source Org",
         "stepObjects": "Select Objects",
         "stepPreview": "Preview",
-        "stepExecute": "Execute"
+        "stepExecute": "Execute",
+        "needsBothOrgs": "The clone needs a source org and a target org. It writes to the org selected in SandForge: pick one on the Organizations page."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clone cancelled: the production write was not confirmed.",
         "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
         "CLONE_FAILED": "The clone stopped before it finished.",
+        "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
         "generic": "The clone could not be completed.",
         "detail": "Details: {{detail}}"
       }

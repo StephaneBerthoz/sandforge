@@ -118,10 +118,37 @@ describe('CloneResultsPanel', () => {
     expect(screen.getByTestId('clone-results-summary')).toBeDefined();
 
     const summary = screen.getByTestId('clone-results-summary');
-    expect(summary.textContent).toContain('success');
+    expect(summary.textContent).toContain('Clone complete');
 
     const counts = screen.getByTestId('clone-results-counts');
     expect(counts.textContent).toContain('200');
+  });
+
+  it.each([
+    ['success', 'Clone complete'],
+    ['partial', 'Partially complete'],
+    ['failure', 'Clone failed'],
+  ] as const)('names a %s clone in words, not by the code the host sent', (status, words) => {
+    // The badge read `success`, `partial` or `failure`, in every language.
+    render(<CloneResultsPanel result={{ ...mockPartialResult, status }} onDone={vi.fn()} />);
+
+    const summary = screen.getByTestId('clone-results-summary');
+    expect(summary.textContent).toContain(words);
+    expect(summary.textContent).not.toContain(status);
+  });
+
+  it('names how the clone ended in the language the panel is set to', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
+
+      expect(screen.getByTestId('clone-results-summary').textContent).toContain(
+        fr.seed.clone.results.statusPartial,
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should show duration', () => {
@@ -151,7 +178,7 @@ describe('CloneResultsPanel', () => {
     render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
 
     const summary = screen.getByTestId('clone-results-summary');
-    expect(summary.textContent).toContain('partial');
+    expect(summary.textContent).toContain('Partially complete');
 
     const counts = screen.getByTestId('clone-results-counts');
     expect(counts.textContent).toContain('80');

@@ -20,6 +20,16 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   failure: 'error',
 };
 
+/**
+ * Status to the words its badge shows, as the Seed results name theirs: the
+ * badge read the code the host sent, `success` or `partial`, in every language.
+ */
+const STATUS_LABEL: Record<CloneExecutionResult['status'], string> = {
+  success: 'seed.clone.results.statusSuccess',
+  partial: 'seed.clone.results.statusPartial',
+  failure: 'seed.clone.results.statusFailure',
+};
+
 /** Props for the CloneResultsPanel component. */
 export interface CloneResultsPanelProps {
   /** Clone execution result. */
@@ -192,7 +202,9 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {result.cancelled ? (
           <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
         ) : (
-          <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>{result.status}</Badge>
+          <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>
+            {t(STATUS_LABEL[result.status])}
+          </Badge>
         )}
         <span className="text-xs text-[var(--sf-text-secondary)]">
           {t('seed.clone.results.duration')}: {formattedDuration}s

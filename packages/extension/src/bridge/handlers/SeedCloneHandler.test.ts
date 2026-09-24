@@ -26,6 +26,10 @@ const fetcher = vi.hoisted(() => ({
   fetchRecords: vi.fn(),
   countRecords: vi.fn(),
   fetchSample: vi.fn(),
+  /** The describe the fetcher reads the source by: the org's own. */
+  describe: vi.fn((conn: { describe: (name: string) => Promise<unknown> }, name: string) =>
+    conn.describe(name),
+  ),
 }));
 const linker = vi.hoisted(() => ({
   buildEdgesFromDescribe: vi.fn(),

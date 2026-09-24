@@ -28,6 +28,9 @@ type OperationFailedMessage = BaseMessage & {
   payload?: { operationId?: unknown; error?: unknown; code?: unknown };
 };
 
+/** `seed:clone:error` as the extension posts it; read defensively. */
+type CloneErrorMessage = BaseMessage & { payload?: { code?: unknown } };
+
 /**
  * The failure codes SeedCloneHandler attaches to `operation:failed`.
  *
@@ -181,6 +184,22 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     );
   });
 
+  // A preview or a run the bridge refuses comes back on seed:clone:error with
+  // the check's own English — "Invalid payload — targetOrgId: String must
+  // contain at least 1 character(s)" — which the mutation hands on as it is.
+  // Its code is what the wizard shows, in words; any other failure there
+  // carries what the org said, and stays as it came.
+  const previewRequestId = previewMutation.requestId;
+  useMessageListener<CloneErrorMessage>('seed:clone:error', (message) => {
+    if (message.payload?.code !== 'INVALID_PAYLOAD') return;
+    const refused =
+      (executionStatus === 'previewing' && message.correlationId === previewRequestId) ||
+      (executionStatus === 'executing' && message.correlationId === executeRequestId);
+    if (!refused) return;
+    setExecutionStatus('error');
+    setError(t('seed.clone.error.INVALID_PAYLOAD'));
+  });
+
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */
   /* ------------------------------------------------------------------ */
@@ -236,6 +255,12 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   /** Request a preview of the clone operation. */
   const handlePreview = useCallback(() => {
     if (selectedObjects.length === 0) return;
+    // The wizard keeps Next off without both orgs; asked anyway, nothing is
+    // sent that the bridge would refuse.
+    if (!sourceOrgId || !targetOrgId) {
+      setError(t('seed.clone.wizard.needsBothOrgs'));
+      return;
+    }
     setPreviewResult(null);
     setExecutionStatus('previewing');
     setError(null);
@@ -245,7 +270,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       targetOrgId,
       objects: selectedObjects,
     });
-  }, [sourceOrgId, targetOrgId, selectedObjects, previewMutation]);
+  }, [sourceOrgId, targetOrgId, selectedObjects, previewMutation, t]);
 
   /** Execute the clone operation. */
   const handleExecute = useCallback(() => {

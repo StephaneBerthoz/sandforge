@@ -3,7 +3,7 @@
  * using cursor-based pagination (queryMore) for the Clone pipeline.
  */
 
-import type { Connection } from 'jsforce';
+import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { assertSoqlIdentifier, assertSoqlWhere } from '../../core/common/soqlValidator.js';
 
 /**
@@ -35,10 +35,38 @@ export interface CloneRecordFetcherDeps {
  */
 export class CloneRecordFetcher {
   private readonly log: CloneLogFn;
+  /** Per org, each object's describe as first asked: see {@link describe}. */
+  private readonly described = new WeakMap<
+    Connection,
+    Map<string, Promise<DescribeSObjectResult>>
+  >();
 
   /** @param deps - Injected dependencies. */
   constructor(deps: CloneRecordFetcherDeps) {
     this.log = deps.log;
+  }
+
+  /**
+   * The describe of an object in the org of `conn`, which this fetcher's
+   * queries take their fields from: asked of the org once in the fetcher's
+   * life, however many queries read the object. The clone orders its objects
+   * by the lookups this describe says are read, and its preview samples
+   * them: each asked the org again, and a preview of five objects described
+   * the source ten times. One fetcher serves one preview or one run, so the
+   * next one reads a field deployed in between.
+   */
+  describe(conn: Connection, objectApiName: string): Promise<DescribeSObjectResult> {
+    let ofOrg = this.described.get(conn);
+    if (!ofOrg) {
+      ofOrg = new Map();
+      this.described.set(conn, ofOrg);
+    }
+    let describe = ofOrg.get(objectApiName);
+    if (!describe) {
+      describe = conn.describe(objectApiName);
+      ofOrg.set(objectApiName, describe);
+    }
+    return describe;
   }
 
   /**
@@ -123,7 +151,7 @@ export class CloneRecordFetcher {
    * Get the list of fields to query: all createable fields plus Id and reference fields.
    */
   private async getQueryFields(conn: Connection, objectApiName: string): Promise<string[]> {
-    const describe = await conn.describe(objectApiName);
+    const describe = await this.describe(conn, objectApiName);
     const fieldNames = new Set<string>();
     fieldNames.add('Id');
 

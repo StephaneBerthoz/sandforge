@@ -72,10 +72,12 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           )}
         </div>
 
-        {/* Direction arrow */}
+        {/* Direction arrow. A bare div may not carry a label: axe refused it
+            as soon as this step was scanned. As an image, its label is read. */}
         <div
           className="flex items-center justify-center pt-6"
           data-testid="clone-direction-arrow"
+          role="img"
           aria-label={t('seed.clone.sourcePicker.direction')}
         >
           <ArrowRight size={24} className="text-[var(--sf-text-link)]" />
@@ -89,13 +91,23 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           <span className="text-xs text-[var(--sf-text-secondary)]">
             {t('seed.clone.sourcePicker.targetHint')}
           </span>
-          {targetOrg && (
+          {targetOrg ? (
             <OrgBadge
               alias={targetOrg.alias || targetOrg.username}
               orgType={String(targetOrg.orgType)}
               status={targetOrg.status}
               instanceUrl={targetOrg.instanceUrl}
             />
+          ) : (
+            // The target is the org selected in SandForge: with none, the
+            // column stayed empty, and the preview went out without one.
+            <span
+              className="text-xs text-[var(--sf-text-primary)]"
+              role="status"
+              data-testid="clone-no-target"
+            >
+              {t('seed.clone.wizard.needsBothOrgs')}
+            </span>
           )}
         </div>
       </div>

@@ -107,6 +107,49 @@ describe('CloneRecordFetcher', () => {
     expect(soql).toContain('LIMIT 5');
   });
 
+  describe('the describe its queries take their fields from', () => {
+    beforeEach(() => {
+      vi.mocked(conn.query).mockResolvedValue({
+        done: true,
+        totalSize: 0,
+        records: [],
+      } as unknown as Awaited<ReturnType<typeof conn.query>>);
+    });
+
+    it('asks the org once per object, however many of its queries it builds', async () => {
+      // A preview described each object for its order and again for its
+      // sample: ten describes of the source for five objects.
+      const described = await fetcher.describe(conn, 'Account');
+      await fetcher.fetchSample(conn, 'Account', 5);
+      await fetcher.fetchRecords(conn, 'Account');
+
+      expect(conn.describe).toHaveBeenCalledTimes(1);
+      expect(described.fields.map((field) => field.name)).toContain('AccountId');
+      // The fields each query reads are the ones that describe lists.
+      expect(vi.mocked(conn.query).mock.calls.map(([soql]) => soql)).toEqual([
+        'SELECT Id, Name, AccountId FROM Account LIMIT 5',
+        'SELECT Id, Name, AccountId FROM Account',
+      ]);
+    });
+
+    it('asks again for another object, in another org, and for another fetcher', async () => {
+      // One fetcher serves one preview or one run: the next one reads a field
+      // deployed in between.
+      const otherOrg = createMockConnection();
+      await fetcher.fetchRecords(conn, 'Account');
+      await fetcher.fetchRecords(conn, 'Contact');
+      await fetcher.describe(otherOrg, 'Account');
+      await new CloneRecordFetcher({ log: vi.fn() }).fetchRecords(conn, 'Account');
+
+      expect(vi.mocked(conn.describe).mock.calls.map(([name]) => name)).toEqual([
+        'Account',
+        'Contact',
+        'Account',
+      ]);
+      expect(otherOrg.describe).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('the rows a copy sends', () => {
     /** What `rowsACopySends` gives a feed item. */
     const NOT_TRACKED = "Type != 'TrackedChange'";

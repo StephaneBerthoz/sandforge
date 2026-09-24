@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
 import { CloneSourcePicker } from './CloneSourcePicker';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -70,6 +71,22 @@ describe('CloneSourcePicker', () => {
     expect(screen.getByTestId('clone-direction-arrow')).toBeDefined();
   });
 
+  it('gives the direction arrow as an image, which its label may name', () => {
+    // A label on a bare div is prohibited: axe refused this step for it.
+    render(
+      <CloneSourcePicker
+        sourceOrgId=""
+        targetOrgId="org-target"
+        orgs={mockOrgs}
+        onSourceSelected={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: en.seed.clone.sourcePicker.direction })).toBe(
+      screen.getByTestId('clone-direction-arrow'),
+    );
+  });
+
   it('should exclude target org from source select options', () => {
     render(
       <CloneSourcePicker
@@ -136,5 +153,25 @@ describe('CloneSourcePicker', () => {
     const targetColumn = screen.getByTestId('clone-target-column');
     const badge = targetColumn.querySelector('[data-testid="org-badge"]');
     expect(badge).toBeDefined();
+    expect(screen.queryByTestId('clone-no-target')).toBeNull();
+  });
+
+  it('says where the target comes from when no org is selected', () => {
+    // The target column stayed empty under "Records will be cloned TO this
+    // org", and nothing said a preview could not be made without one.
+    render(
+      <CloneSourcePicker
+        sourceOrgId=""
+        targetOrgId=""
+        orgs={mockOrgs}
+        onSourceSelected={vi.fn()}
+      />,
+    );
+
+    const targetColumn = screen.getByTestId('clone-target-column');
+    expect(targetColumn.querySelector('[data-testid="org-badge"]')).toBeNull();
+    expect(within(targetColumn).getByTestId('clone-no-target').textContent).toBe(
+      en.seed.clone.wizard.needsBothOrgs,
+    );
   });
 });

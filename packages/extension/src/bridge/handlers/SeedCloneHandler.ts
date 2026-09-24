@@ -215,10 +215,12 @@ export class SeedCloneHandler implements DomainHandler {
   /**
    * Preview a clone: per-object counts, bounded samples, relationships, insert order.
    *
-   * The order, the dependencies, the lookups left to the second pass and what
-   * the clone sends are read from the target's describe, as the run reads
-   * them: read from the source's, a lookup one org has and the other lacks
-   * made the preview show an order and a second pass the run does not make.
+   * The order, the dependencies and the lookups left to the second pass are
+   * read as the run reads them: from the target's describe, by the lookups
+   * the source's has too (`lookupsBothHave`); what the clone sends, from the
+   * target's. Read from the source's alone, a lookup one org has and the
+   * other lacks made the preview show an order and a second pass the run
+   * does not make.
    * The rows are counted and sampled in the source, where the run reads them.
    * A request without a target is refused with its payload — the schema asks
    * for one, as it does of the run — and never falls back on the source's
@@ -253,21 +255,20 @@ export class SeedCloneHandler implements DomainHandler {
 
       /** The target's describes, which the run orders and writes by. */
       const describeMap = new Map<string, DescribeSObjectResultLike>();
-      /** The source's, for the lookups the target lacks. */
+      /** The source's, which the rows are read by: the fetcher's own, asked once. */
       const sourceDescribes = new Map<string, DescribeSObjectResultLike>();
       /** Each object counted and sampled; its dependencies come with the order, below. */
       const counted: Array<Omit<ClonePreviewResult['objects'][number], 'relationships'>> = [];
 
       for (const objectConfig of parsed.objects) {
+        // The run stops on either failing too, before writing anything.
         const [describe, sourceDescribe] = await Promise.all([
-          targetConn.describe(objectConfig.objectApiName).catch((err: unknown) => {
-            // The run stops on it too, before writing anything: said here
-            // with the object, which the org's answer does not name.
-            throw new Error(
-              `${objectConfig.objectApiName} could not be described in the target org: ${extractErrorMessage(err)}`,
-            );
-          }),
-          conn.describe(objectConfig.objectApiName),
+          describedIn('target', objectConfig.objectApiName, () =>
+            targetConn.describe(objectConfig.objectApiName),
+          ),
+          describedIn('source', objectConfig.objectApiName, () =>
+            fetcher.describe(conn, objectConfig.objectApiName),
+          ),
         ]);
         checkApiLimits(
           targetConn.limitInfo,
@@ -318,7 +319,10 @@ export class SeedCloneHandler implements DomainHandler {
         });
       }
 
-      const edges = linker.buildEdgesFromDescribe(objectNames, describeMap);
+      const edges = linker.buildEdgesFromDescribe(
+        objectNames,
+        lookupsBothHave(describeMap, sourceDescribes),
+      );
       const insertOrder = linker.resolveInsertOrder(objectNames, edges);
       // The lookups the clone links, as its insert order reads them: read
       // from the describe apart from the order, the list named an email's
@@ -547,19 +551,30 @@ export class SeedCloneHandler implements DomainHandler {
       const objectNames = parsed.objects.map((o) => o.objectApiName);
       const objectSet = new Set(objectNames);
 
-      // Describe every object once: drives both reference remapping and the
-      // topological insert order.
+      // Describe every object once in each org: the target's drives how each
+      // record is written, and with the source's — which the fetcher reads
+      // the rows by — the insert order. A failure names the object and the
+      // org, as the preview does: the org's answer names neither.
       const describeMap = new Map<string, DescribeSObjectResultLike>();
+      const sourceDescribes = new Map<string, DescribeSObjectResultLike>();
       for (const name of objectNames) {
-        const describe = await targetConn.describe(name);
+        const [describe, sourceDescribe] = await Promise.all([
+          describedIn('target', name, () => targetConn.describe(name)),
+          describedIn('source', name, () => fetcher.describe(sourceConn, name)),
+        ]);
         checkApiLimits(targetConn.limitInfo, `seed:clone:execute describe ${name}`);
+        checkApiLimits(sourceConn.limitInfo, `seed:clone:execute describe ${name} in the source`);
         describeMap.set(name, describe as DescribeSObjectResultLike);
+        sourceDescribes.set(name, sourceDescribe as DescribeSObjectResultLike);
         targetObjects.set(name, {
           keyPrefix: describe.keyPrefix ?? null,
           recordTypes: parseRecordTypeInfos(describe.recordTypeInfos),
         });
       }
-      const edges = linker.buildEdgesFromDescribe(objectNames, describeMap);
+      const edges = linker.buildEdgesFromDescribe(
+        objectNames,
+        lookupsBothHave(describeMap, sourceDescribes),
+      );
       const insertOrder = linker.resolveInsertOrder(objectNames, edges);
       /** The lookups the insert leaves empty for the second pass: see `leaveForTheSecondPass`. */
       const filledAfter = linker.lookupsFilledAfter(insertOrder, edges);
@@ -1175,6 +1190,63 @@ function requiredLookupsOf(
         field.type === 'reference' && isRequiredLookup(objectApiName, field.name, field.nillable),
     )
     .map((field) => ({ name: field.name, referenceTo: field.referenceTo ?? [] }));
+}
+
+/**
+ * An object's describe in one org of the clone, or an error that names the
+ * object and the org: the org's answer — "NOT_FOUND: The requested resource
+ * does not exist" — names neither.
+ */
+async function describedIn<T>(
+  org: 'source' | 'target',
+  objectApiName: string,
+  describe: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await describe();
+  } catch (err: unknown) {
+    throw new Error(
+      `${objectApiName} could not be described in the ${org} org: ${extractErrorMessage(err)}`,
+    );
+  }
+}
+
+/**
+ * The target's describe of each object with only the lookups a value is read
+ * for: those the source's describe has too, each at the objects both orgs let
+ * it name. What the order goes by.
+ *
+ * The clone reads the fields the source describes and writes those the target
+ * does (`prepareRecordForWrite`). A lookup only the target has is never read,
+ * and every record goes in without it: ordered by it, the clone wrote its
+ * objects in an order no value asked for, and its preview promised a second
+ * pass the run never made. One only the source has is read and left out of
+ * every record, and named apart (`lookupsOnlyTheSourceHas`). A polymorphic
+ * lookup the source lets name fewer objects holds no id of the others.
+ * Whether a record may leave a lookup empty, and whether an update can set
+ * it, is the target's to say: it takes the records.
+ */
+function lookupsBothHave(
+  targetDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+  sourceDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+): Map<string, DescribeSObjectResultLike> {
+  return new Map(
+    [...targetDescribes].map(([objectApiName, target]) => {
+      const read = new Map(
+        (sourceDescribes.get(objectApiName)?.fields ?? []).map((field) => [
+          field.name,
+          field.referenceTo ?? [],
+        ]),
+      );
+      const fields = target.fields.flatMap((field) => {
+        if (field.type !== 'reference') return [field];
+        const named = read.get(field.name) ?? [];
+        const referenceTo = (field.referenceTo ?? []).filter((name) => named.includes(name));
+        return referenceTo.length > 0 ? [{ ...field, referenceTo }] : [];
+      });
+      return [objectApiName, { fields }];
+    }),
+  );
 }
 
 /** The lookups of `edges` as the preview lists them, in the order their objects are written. */

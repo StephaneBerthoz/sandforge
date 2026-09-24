@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, type RenderHookResult } from '@testing-library/react';
 import { createInstance, type i18n as I18n } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import en from '../../../i18n/locales/en.json';
 import fr from '../../../i18n/locales/fr.json';
-import { useClone } from './useClone';
+import { useClone, type UseCloneReturn } from './useClone';
 
 /* ------------------------------------------------------------------ */
 /* Mocks                                                               */
@@ -32,6 +32,7 @@ let mockPreviewState = {
   loading: false,
   error: null as string | null,
   reset: mockPreviewReset,
+  requestId: null as string | null,
 };
 
 let mockExecuteState = {
@@ -71,6 +72,27 @@ function operationFailed(operationId: string, error: string, code?: string): voi
     );
   });
 }
+
+/** Deliver a `seed:clone:error` the way the extension posts it, correlated to its request. */
+function cloneError(correlationId: string, message: string, code: string): void {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: {
+        id: 'host-error',
+        type: 'seed:clone:error',
+        timestamp: Date.now(),
+        correlationId,
+        payload: { message, code, retryable: false },
+      },
+    }),
+  );
+}
+
+/** What the bridge answers a request it refuses with: its own check, in English. */
+const REFUSED =
+  'Invalid payload — objects.0.whereClause: A WHERE clause may only filter: no LIMIT, OFFSET, ' +
+  'ORDER BY, GROUP BY, HAVING, FOR, WITH, ALL ROWS, subquery or DML keyword, no semicolon or ' +
+  'comment, and every parenthesis and quote closed.';
 
 /**
  * A real i18next instance, not a key-echoing stub: what the wizard shows for a
@@ -113,6 +135,7 @@ describe('useClone', () => {
       loading: false,
       error: null,
       reset: mockPreviewReset,
+      requestId: null,
     };
     mockExecuteState = {
       mutate: mockExecuteMutate,
@@ -221,6 +244,121 @@ describe('useClone', () => {
         objects: [{ objectApiName: 'Account' }],
       }),
     );
+  });
+
+  it('sends no preview without a target org, and says why in words', () => {
+    // Sent with an empty target, the preview was refused by the bridge, and
+    // the wizard showed its check: "Invalid payload — targetOrgId: …".
+    const { result } = renderHook(() => useClone(''));
+
+    act(() => {
+      result.current.handleSourceOrgSelected('source-1');
+    });
+    act(() => {
+      result.current.handleObjectToggle('Account');
+    });
+    act(() => {
+      result.current.handlePreview();
+    });
+
+    expect(mockPreviewMutate).not.toHaveBeenCalled();
+    expect(result.current.executionStatus).toBe('idle');
+    expect(result.current.error).toBe(en.seed.clone.wizard.needsBothOrgs);
+  });
+
+  describe('a request the bridge refuses', () => {
+    /** Select a source and an object, and send the preview, as request `wv-preview`. */
+    function previewSent(): RenderHookResult<UseCloneReturn, unknown> {
+      const hook = renderHook(() => useClone('target-1'));
+      act(() => {
+        hook.result.current.handleSourceOrgSelected('source-1');
+      });
+      act(() => {
+        hook.result.current.handleObjectToggle('Account');
+      });
+      act(() => {
+        hook.result.current.handlePreview();
+      });
+      mockPreviewState = { ...mockPreviewState, loading: true, requestId: 'wv-preview' };
+      hook.rerender();
+      return hook;
+    }
+
+    it('is shown in words, not in the English of the check that refused it', () => {
+      const { result, rerender } = previewSent();
+
+      // The mutation takes the message as it came, from the same dispatch,
+      // and renders the page with it.
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: REFUSED };
+        cloneError('wv-preview', REFUSED, 'INVALID_PAYLOAD');
+      });
+      rerender();
+
+      expect(result.current.executionStatus).toBe('error');
+      expect(result.current.error).toBe(en.seed.clone.error.INVALID_PAYLOAD);
+    });
+
+    it('is shown in the language the panel is set to', async () => {
+      await i18nInstance.changeLanguage('fr');
+      const { result, rerender } = previewSent();
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: REFUSED };
+        cloneError('wv-preview', REFUSED, 'INVALID_PAYLOAD');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(fr.seed.clone.error.INVALID_PAYLOAD);
+      expect(result.current.error).not.toContain('Invalid payload');
+    });
+
+    it('is shown in words for a run too', () => {
+      const { result, rerender } = renderHook(() => useClone('target-1'));
+      act(() => {
+        result.current.handleSourceOrgSelected('source-1');
+      });
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+
+      act(() => {
+        mockExecuteState = { ...mockExecuteState, loading: false, error: REFUSED };
+        cloneError('wv-clone-run', REFUSED, 'INVALID_PAYLOAD');
+      });
+      rerender();
+
+      expect(result.current.executionStatus).toBe('error');
+      expect(result.current.error).toBe(en.seed.clone.error.INVALID_PAYLOAD);
+    });
+
+    it('leaves a failure the org answered as the extension words it', () => {
+      // What the org said is the reason, and the only one the page has.
+      const { result, rerender } = previewSent();
+      const failed =
+        'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist';
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: failed };
+        cloneError('wv-preview', failed, 'UNKNOWN');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(failed);
+    });
+
+    it('is not taken for a refusal of another request', () => {
+      const { result } = previewSent();
+
+      act(() => {
+        cloneError('wv-another-preview', REFUSED, 'INVALID_PAYLOAD');
+      });
+
+      expect(result.current.executionStatus).toBe('previewing');
+      expect(result.current.error).toBeNull();
+    });
   });
 
   it('should send execute mutation on handleExecute', () => {

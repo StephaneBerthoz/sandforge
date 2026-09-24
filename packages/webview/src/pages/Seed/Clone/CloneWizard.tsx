@@ -57,13 +57,20 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
 
   const currentStepIndex = STEP_INDEX[clone.step];
 
+  /**
+   * Whether both orgs are there. Next on the objects step sends the preview,
+   * which goes from one to the other: sent with no org selected, it came back
+   * as the bridge's refusal, "Invalid payload — targetOrgId: …".
+   */
+  const bothOrgs = !!clone.sourceOrgId && !!targetOrgId;
+
   /** Determine if the user can advance to the next step. */
   const canGoNext = (): boolean => {
     switch (clone.step) {
       case 'source':
         return !!clone.sourceOrgId && clone.sourceObjects.length > 0;
       case 'objects':
-        return clone.selectedObjects.length > 0;
+        return clone.selectedObjects.length > 0 && bothOrgs;
       case 'preview':
         return clone.executionStatus !== 'previewing';
       case 'execute':
@@ -128,13 +135,25 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
 
         {/* Step 2: Select Objects */}
         {clone.step === 'objects' && (
-          <CloneObjectSelector
-            sourceObjects={clone.sourceObjects}
-            selectedObjects={clone.selectedObjects}
-            onObjectToggle={clone.handleObjectToggle}
-            onWhereClauseChange={clone.handleWhereClauseChange}
-            loading={clone.loadingSource}
-          />
+          <>
+            <CloneObjectSelector
+              sourceObjects={clone.sourceObjects}
+              selectedObjects={clone.selectedObjects}
+              onObjectToggle={clone.handleObjectToggle}
+              onWhereClauseChange={clone.handleWhereClauseChange}
+              loading={clone.loadingSource}
+            />
+            {/* Why Next stays off: the preview it sends needs both orgs. */}
+            {!bothOrgs && (
+              <p
+                className="mt-[var(--sf-space-2)] text-xs text-[var(--sf-text-secondary)]"
+                role="status"
+                data-testid="clone-needs-both-orgs"
+              >
+                {t('seed.clone.wizard.needsBothOrgs')}
+              </p>
+            )}
+          </>
         )}
 
         {/* Step 3: Preview */}

@@ -792,6 +792,9 @@
       },
       "results": {
         "title": "Resultados de clonación",
+        "statusSuccess": "Clonación completada",
+        "statusPartial": "Parcialmente completada",
+        "statusFailure": "Clonación fallida",
         "summary": "Registros de origen",
         "inserted": "Insertados",
         "linked": "Vinculados a existentes",
@@ -815,12 +818,14 @@
         "stepSource": "Org de origen",
         "stepObjects": "Seleccionar objetos",
         "stepPreview": "Vista previa",
-        "stepExecute": "Ejecutar"
+        "stepExecute": "Ejecutar",
+        "needsBothOrgs": "La clonación necesita una org de origen y una org de destino. Escribe en la org seleccionada en SandForge: elija una en la página Organizaciones."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonación cancelada: no se confirmó la escritura en producción.",
         "PRODUCTION_GUARD_BLOCKED": "La protección de producción bloqueó esta clonación antes de escribir ningún registro.",
         "CLONE_FAILED": "La clonación se detuvo antes de finalizar.",
+        "INVALID_PAYLOAD": "SandForge rechazó esta solicitud antes de leer ninguna de las dos orgs. Una clonación necesita una org de origen, una org de destino y de 1 a 100 objetos, y un filtro solo puede seleccionar registros: sin LIMIT, ORDER BY, subconsulta, punto y coma ni comentario. El canal de salida de SandForge indica qué parte se rechazó.",
         "generic": "No se pudo completar la clonación.",
         "detail": "Detalles: {{detail}}"
       }

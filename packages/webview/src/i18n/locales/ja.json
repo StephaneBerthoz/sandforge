@@ -738,6 +738,9 @@
       },
       "results": {
         "title": "クローン結果",
+        "statusSuccess": "クローン完了",
+        "statusPartial": "一部完了",
+        "statusFailure": "クローン失敗",
         "summary": "ソースレコード",
         "inserted": "挿入済み",
         "linked": "既存にリンク",
@@ -758,12 +761,14 @@
         "stepSource": "ソース組織",
         "stepObjects": "オブジェクト選択",
         "stepPreview": "プレビュー",
-        "stepExecute": "実行"
+        "stepExecute": "実行",
+        "needsBothOrgs": "クローンにはソース組織とターゲット組織が必要です。書き込み先は SandForge で選択されている組織です。組織ページで組織を選択してください。"
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "クローンを中止しました。本番組織への書き込みが承認されませんでした。",
         "PRODUCTION_GUARD_BLOCKED": "本番保護機能により、レコードが書き込まれる前にこのクローンがブロックされました。",
         "CLONE_FAILED": "クローンは完了前に停止しました。",
+        "INVALID_PAYLOAD": "SandForge は、どちらの組織も読み取る前にこのリクエストを拒否しました。クローンにはソース組織、ターゲット組織、1～100 個のオブジェクトが必要で、フィルターはレコードの選択にのみ使えます（LIMIT、ORDER BY、サブクエリ、セミコロン、コメントは使えません）。拒否された部分は SandForge の出力チャネルに表示されます。",
         "generic": "クローンを完了できませんでした。",
         "detail": "詳細: {{detail}}"
       }

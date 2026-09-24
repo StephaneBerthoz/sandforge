@@ -27,6 +27,10 @@ const fetcher = vi.hoisted(() => ({
   fetchRecords: vi.fn(),
   countRecords: vi.fn(),
   fetchSample: vi.fn(),
+  /** The describe the fetcher reads the source by: the org's own. */
+  describe: vi.fn((conn: { describe: (name: string) => Promise<unknown> }, name: string) =>
+    conn.describe(name),
+  ),
 }));
 
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
@@ -649,6 +653,139 @@ describe('SeedCloneHandler — the second pass', () => {
       expect(posted(deps, 'seed:clone:error')[0].payload as unknown).toMatchObject({
         message:
           'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist',
+      });
+    });
+
+    it('orders the preview and the run by the lookups both orgs have: one only the target has orders nothing', async () => {
+      // An invoice's account and the invoice it follows, deployed to the
+      // target alone: the source has no value for either, and the target's
+      // describe put the accounts first all the same, and the preview promised
+      // a second pass for the previous invoice that the run never made.
+      const INVOICE = 'a01Fk00000InVoIIAV';
+      const PICKED = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'Invoice__c' }, { objectApiName: 'Account' }],
+      };
+      twoOrgs(
+        { Invoice__c: [NAME], Account: [NAME] },
+        {
+          Invoice__c: [
+            NAME,
+            lookup('Account__c', 'Account'),
+            lookup('Previous_Invoice__c', 'Invoice__c'),
+          ],
+          Account: [NAME],
+        },
+      );
+      sourceRows({
+        Invoice__c: [{ Id: INVOICE, Name: 'First invoice' }],
+        Account: [{ Id: ACME, Name: 'Acme' }],
+      });
+
+      await handler.handle(buildMsg('seed:clone:preview', PICKED));
+      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+
+      const written = writer.insert.mock.calls.map(([name]) => name);
+      expect(written).toEqual(['Invoice__c', 'Account']);
+      const [preview] = posted(deps, 'seed:clone:preview:response');
+      expect(preview.payload as unknown).toMatchObject({
+        insertOrder: written,
+        objects: [
+          { objectApiName: 'Invoice__c', relationships: [] },
+          { objectApiName: 'Account', relationships: [] },
+        ],
+      });
+      expect(preview.payload).not.toHaveProperty('filledAfterInsert');
+      expect(posted(deps, 'seed:clone:execute:response')[0].payload).not.toHaveProperty(
+        'secondPass',
+      );
+    });
+
+    it('orders by a lookup at an object only where both orgs let it name that object', async () => {
+      // A task's what can name an invoice in the target alone: no task read
+      // names one, and the tasks need not wait for the invoices.
+      const PICKED = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [
+          { objectApiName: 'Task' },
+          { objectApiName: 'Account' },
+          { objectApiName: 'Invoice__c' },
+        ],
+      };
+      const what = (referenceTo: string[]) => ({ ...lookup('WhatId', 'Account'), referenceTo });
+      twoOrgs(
+        { Task: [what(['Account'])], Invoice__c: [NAME], Account: [NAME] },
+        { Task: [what(['Account', 'Invoice__c'])], Invoice__c: [NAME], Account: [NAME] },
+      );
+
+      await handler.handle(buildMsg('seed:clone:preview', PICKED));
+
+      const [preview] = posted(deps, 'seed:clone:preview:response');
+      expect(preview.payload as unknown).toMatchObject({
+        insertOrder: ['Account', 'Task', 'Invoice__c'],
+        objects: [
+          { objectApiName: 'Task', relationships: [{ field: 'WhatId', referenceTo: 'Account' }] },
+          { objectApiName: 'Account', relationships: [] },
+          { objectApiName: 'Invoice__c', relationships: [] },
+        ],
+      });
+    });
+
+    it('names the object the target cannot describe when the run stops on it, before writing anything', async () => {
+      // The preview named it; the run stopped on the org's answer alone,
+      // which names none.
+      twoOrgs(
+        { Invoice__c: [NAME], Account: [NAME] },
+        {
+          Invoice__c: new Error('NOT_FOUND: The requested resource does not exist'),
+          Account: [NAME],
+        },
+      );
+      sourceRows({ Account: [{ Id: ACME, Name: 'Acme' }] });
+
+      await handler.handle(
+        buildMsg('seed:clone:execute', {
+          ...ACCOUNTS_AND_CONTACTS,
+          objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
+        }),
+      );
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
+        error:
+          'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist',
+        code: 'CLONE_FAILED',
+      });
+    });
+
+    it('names the object the source cannot describe, in the preview and in the run, before writing anything', async () => {
+      // The order goes by what the source's describe says is read: without
+      // it, the run cannot tell which lookups order its objects.
+      const PICKED = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
+      };
+      twoOrgs(
+        {
+          Invoice__c: new Error("INVALID_TYPE: sObject type 'Invoice__c' is not supported."),
+          Account: [NAME],
+        },
+        { Invoice__c: [NAME], Account: [NAME] },
+      );
+      sourceRows({ Account: [{ Id: ACME, Name: 'Acme' }] });
+
+      await handler.handle(buildMsg('seed:clone:preview', PICKED));
+      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+
+      const said =
+        "Invoice__c could not be described in the source org: INVALID_TYPE: sObject type 'Invoice__c' is not supported.";
+      expect(posted(deps, 'seed:clone:preview:response')).toEqual([]);
+      expect(posted(deps, 'seed:clone:error')[0].payload as unknown).toMatchObject({
+        message: said,
+      });
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
+        error: said,
       });
     });
 

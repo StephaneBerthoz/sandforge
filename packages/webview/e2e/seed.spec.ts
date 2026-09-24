@@ -4,14 +4,14 @@ import { MOCK_ORGS } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * Forge input form E2E — the record-scoped clone module — and, at the end, one
- * run of the Seed wizard.
+ * Forge input form E2E — the record-scoped clone module — and, further down,
+ * one run of the Seed wizard and the Seed Clone wizard with no org selected.
  *
  * The file name says "seed" and most of its subject does not: the first
  * describe block has read `Forge / Seed page` since it was written, and every
  * assertion in it targets `forge-*` testids. Seed (`src/pages/Seed`) is a
- * different module with its own page, wizard and testids; only the last block
- * drives it. The name is left alone on purpose — renaming the file is a
+ * different module with its own page, wizard and testids; only the two `Seed`
+ * blocks drive it. The name is left alone on purpose — renaming the file is a
  * separate, central move — but read the Forge blocks as the Forge spec they are.
  *
  * What changed to make it run again:
@@ -597,6 +597,42 @@ test.describe('Seed — a wizard run of three objects, which skips the configure
     const contact = template.objects.find((o) => o.objectApiName === 'Contact');
     expect(contact?.recordCount).toBe(300);
     expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
+  });
+});
+
+/** Both sandboxes, neither connected: no org is selected, so a clone has no target. */
+const NONE_SELECTED = MOCK_ORGS.map((org) => ({ ...org, status: 'expired' }));
+
+/** What the Clone wizard says of a missing target, on its first two steps. */
+const NEEDS_BOTH_ORGS =
+  'The clone needs a source org and a target org. It writes to the org selected in SandForge: ' +
+  'pick one on the Organizations page.';
+
+test.describe('Seed Clone — with no org selected', () => {
+  test('never asks for the preview, and says why on both steps', async ({ page }) => {
+    // Sent with an empty target, the preview came back as the bridge's
+    // refusal, shown as it was written: "Invalid payload — targetOrgId: …".
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(NONE_SELECTED);
+    await page.getByTestId('mode-card-clone').click();
+
+    await expect(page.getByTestId('clone-no-target')).toHaveText(NEEDS_BOTH_ORGS);
+    await page.getByTestId('clone-source-select').selectOption('org-src-1');
+    await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+    await respondToAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+      objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+    });
+    await page.getByTestId('clone-wizard-next').click();
+    await page.getByTestId('clone-obj-check-Account').check();
+
+    await expect(page.getByTestId('clone-wizard-next')).toBeDisabled();
+    await expect(page.getByTestId('clone-needs-both-orgs')).toHaveText(NEEDS_BOTH_ORGS);
+    expect(await outgoing(page, 'seed:clone:preview')).toEqual([]);
   });
 });
 

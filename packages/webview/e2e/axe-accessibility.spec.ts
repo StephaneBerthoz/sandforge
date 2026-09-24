@@ -1799,6 +1799,35 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Seed Clone with no org selected, saying on both steps why it cannot preview', async ({
+      page,
+    }) => {
+      // Neither org connected: nothing is selected, so the clone has no target.
+      await navigateToModule(bridge, page, 'seed', 'panel-app', { theme });
+      await bridge.seedOrgs(MOCK_ORGS.map((org) => ({ ...org, status: 'expired' })));
+      await page.getByTestId('mode-card-clone').click();
+      await page.waitForSelector('[data-testid="clone-no-target"]', { timeout: 10_000 });
+      const atSource = await checkAccessibility(page);
+      expectNoViolations(atSource);
+      expect(
+        await contrastMeasuredIn(page, atSource, '[data-testid="clone-no-target"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('clone-source-select').selectOption(DEV_SANDBOX.id);
+      await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+        objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+      });
+      await page.getByTestId('clone-wizard-next').click();
+      await page.getByTestId('clone-obj-check-Account').check();
+      await page.waitForSelector('[data-testid="clone-needs-both-orgs"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-needs-both-orgs"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Sync page', async ({ page }) => {
       await navigateToModule(bridge, page, 'sync', 'panel-app', { theme });
       await bridge.respond('org:list:response', { orgs: MOCK_ORGS });

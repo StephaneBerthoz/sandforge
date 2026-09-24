@@ -792,6 +792,9 @@
       },
       "results": {
         "title": "Klon-Ergebnisse",
+        "statusSuccess": "Klonen abgeschlossen",
+        "statusPartial": "Teilweise abgeschlossen",
+        "statusFailure": "Klonen fehlgeschlagen",
         "summary": "Quelldatensätze",
         "inserted": "Eingefügt",
         "linked": "Mit Vorhandenem verknüpft",
@@ -815,12 +818,14 @@
         "stepSource": "Quell-Org",
         "stepObjects": "Objekte wählen",
         "stepPreview": "Vorschau",
-        "stepExecute": "Ausführen"
+        "stepExecute": "Ausführen",
+        "needsBothOrgs": "Der Klonvorgang braucht eine Quell-Org und eine Ziel-Org. Er schreibt in die in SandForge ausgewählte Org: Wählen Sie eine auf der Seite Organisationen."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Klonen abgebrochen: Der Schreibvorgang in der Produktion wurde nicht bestätigt.",
         "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
+        "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
         "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
         "detail": "Einzelheiten: {{detail}}"
       }
