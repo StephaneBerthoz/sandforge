@@ -184,6 +184,179 @@ describe('SasReferenceIdMappingStore', () => {
     });
   });
 
+  describe('what a load created, for its removal', () => {
+    const ACCOUNT = '001XX00000AbCdEAAA';
+    const CONTACT = '003XX00000AbCdEAAA';
+    const BOOK = '01sXX00000AbCdEAAA';
+    const STARTED = new Date('2026-09-24T10:00:00.000Z');
+    const ENDED = '2026-09-24T10:02:00.000Z';
+
+    /** A load that matched the standard book and inserted an account and a contact. */
+    async function loaded(dir: string, now = ENDED): Promise<SasReferenceIdMappingStore> {
+      const store = new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date(now),
+      });
+      await store.persist(
+        new Map([
+          ['Pricebook2-000001', BOOK],
+          ['Account-000001', ACCOUNT],
+          ['Contact-000001', CONTACT],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+            { objectApiName: 'Contact', referenceIds: ['Contact-000001', 'Contact-000404'] },
+          ],
+          startedAt: STARTED,
+        },
+      );
+      return store;
+    }
+
+    it('keeps which records the load created, and when it began and ended', async () => {
+      const store = await loaded(makeTmpDir());
+
+      await expect(store.recorded()).resolves.toEqual({
+        orgId: 'org-dev',
+        mapping: new Map([
+          ['Account-000001', ACCOUNT],
+          ['Contact-000001', CONTACT],
+          ['Pricebook2-000001', BOOK],
+        ]),
+        // A key the mapping does not hold is not kept as created.
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+        ],
+        startedAt: STARTED.toISOString(),
+        endedAt: ENDED,
+        removalStamps: {},
+        removalSpans: [],
+      });
+      await expect(store.loadCreated()).resolves.toHaveLength(2);
+    });
+
+    it('says nothing of what a load created in a file written before it was kept', async () => {
+      const dir = makeTmpDir();
+      const store = new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        now: () => new Date(ENDED),
+      });
+      await store.persist(new Map([['Account-000001', ACCOUNT]]));
+
+      const recorded = await store.recorded();
+
+      expect(recorded?.created).toBeUndefined();
+      // The load is named by when its mapping was written.
+      expect(recorded?.endedAt).toBe(ENDED);
+      await expect(store.loadCreated()).resolves.toEqual([]);
+    });
+
+    it('has no load to tell of before the first one', async () => {
+      const store = new SasReferenceIdMappingStore(makeTmpDir(), {
+        guard: new SasPathGuard(repoRoot),
+      });
+      await expect(store.recorded()).resolves.toBeUndefined();
+    });
+
+    it('forgets the records a removal took, keeps what it left on the others, and marks the load', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+      const store = new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        now: () => new Date('2026-09-24T11:00:00.000Z'),
+      });
+      const span = {
+        first: '2026-09-24T10:59:00.000Z',
+        last: '2026-09-24T11:00:10.000Z',
+        userId: '005XX0000001AAA',
+      };
+      const mark = {
+        removedAt: '2026-09-24T11:00:00.000Z',
+        deleted: 1,
+        alreadyGone: 0,
+        kept: 1,
+        refused: 0,
+      };
+
+      const written = await store.recordRemoval(ENDED, {
+        // Named by 15 characters: the same record.
+        gone: [CONTACT.slice(0, 15)],
+        stamps: { [ACCOUNT]: '2026-09-24T10:59:30.000Z' },
+        span,
+        mark,
+      });
+
+      expect(written).toBe(true);
+      const recorded = await store.recorded();
+      expect(recorded?.mapping).toEqual(
+        new Map([
+          ['Account-000001', ACCOUNT],
+          ['Pricebook2-000001', BOOK],
+        ]),
+      );
+      expect(recorded?.created).toEqual([
+        { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+      ]);
+      expect(recorded?.removalStamps).toEqual({ [ACCOUNT]: '2026-09-24T10:59:30.000Z' });
+      expect(recorded?.removalSpans).toEqual([span]);
+      expect(recorded?.removal).toEqual(mark);
+      // Still the same load: its span is not the removal's.
+      expect(recorded?.endedAt).toBe(ENDED);
+    });
+
+    it('drops a stamp a later removal left on a record that then went', async () => {
+      const dir = makeTmpDir();
+      const store = await loaded(dir);
+      await store.recordRemoval(ENDED, {
+        gone: [],
+        stamps: { [ACCOUNT]: '2026-09-24T10:59:30.000Z' },
+      });
+
+      await store.recordRemoval(ENDED, { gone: [ACCOUNT], stamps: {} });
+
+      const recorded = await store.recorded();
+      expect(recorded?.removalStamps).toEqual({});
+      expect(recorded?.removal).toBeUndefined();
+    });
+
+    it('writes nothing into the mapping of a load that ran since', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+      // Another load wrote its own mapping meanwhile.
+      const store = await loaded(dir, '2026-09-24T12:00:00.000Z');
+
+      const written = await store.recordRemoval(ENDED, {
+        gone: [ACCOUNT],
+        stamps: {},
+        mark: { removedAt: ENDED, deleted: 1, alreadyGone: 0, kept: 0, refused: 0 },
+      });
+
+      expect(written).toBe(false);
+      const recorded = await store.recorded();
+      expect(recorded?.removal).toBeUndefined();
+      expect(recorded?.mapping.get('Account-000001')).toBe(ACCOUNT);
+    });
+
+    it('drops what an earlier removal kept once a load writes its own mapping', async () => {
+      const dir = makeTmpDir();
+      const store = await loaded(dir);
+      await store.recordRemoval(ENDED, {
+        gone: [CONTACT],
+        stamps: { [ACCOUNT]: '2026-09-24T10:59:30.000Z' },
+        mark: { removedAt: ENDED, deleted: 1, alreadyGone: 0, kept: 1, refused: 0 },
+      });
+
+      await loaded(dir, '2026-09-24T12:00:00.000Z');
+
+      const recorded = await store.recorded();
+      expect(recorded?.removal).toBeUndefined();
+      expect(recorded?.removalStamps).toEqual({});
+    });
+  });
+
   it('refuses a sas directory inside the repository', async () => {
     const store = new SasReferenceIdMappingStore(path.join(repoRoot, 'exports'), {
       guard: new SasPathGuard(repoRoot),

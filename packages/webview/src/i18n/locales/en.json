@@ -2936,6 +2936,23 @@
       "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}"
     },
+    "removal": {
+      "title": "Last load",
+      "loadedInto": "Loaded into {{org}} on {{date}}",
+      "remove": "Remove the records this load created",
+      "removeTitle": "Remove this load's records from {{org}}",
+      "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
+      "includeChanged": "Also remove the records changed since the load, and what was added to them since",
+      "removing": "Removing the records this load created…",
+      "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them.",
+      "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
+      "nothingCreated": "This load created no record: there is nothing to remove.",
+      "resultSuccess": "No record this load created is left in {{org}}.",
+      "resultPartial": "Records this load created were removed from {{org}}; the others stay, as listed.",
+      "resultFailure": "No record this load created was removed from {{org}}.",
+      "resultChanged_one": "{{formatted}} kept, changed since the load",
+      "resultChanged_other": "{{formatted}} kept, changed since the load"
+    },
     "coverage": {
       "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
       "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",

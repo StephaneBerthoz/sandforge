@@ -11,6 +11,7 @@ Typical case: a Developer sandbox refresh leaves you with metadata and zero reco
 3. Set the salt -- `export SANDFORGE_FROZEN_SALT="<stable-secret>"` (never in the repository) -- and create the pseudonymization rules file
 4. **Run selection** (coverage matrix), then **Run extraction**. The 4-point control must return PASS for the dataset to be written
 5. **Load** tab: pick the target sandbox, tick **Pilot** to try a single root graph first, then **Run load**. Post-load verification is chained automatically
+6. To take a load back, **Last load** on the same tab removes the records it created -- see [Removing a Load](#removing-a-load)
 
 ## Features
 
@@ -31,7 +32,7 @@ Entry guards refuse with an actionable message, and never issue DML against the 
 - **mocked callouts**: detected through custom metadata (`mockDetection`); when it is not configured the guard is explicitly disabled and reported in the tab;
 - an **empty dataset** is refused.
 
-Then: schema alignment (missing fields dropped **and listed**, restricted picklists including per-RecordType assignment gaps via the UI API), **technical placeholders** for lookups that became required on the target (never a silent exclusion), a two-pass insert for cycle FKs, a **post-load PersonContact** pass (sidecar `referenceId -> referenceId` resolved into targeted updates), and persistence of the `referenceId -> Id` mapping in the sas.
+Then: schema alignment (missing fields dropped **and listed**, restricted picklists including per-RecordType assignment gaps via the UI API), **technical placeholders** for lookups that became required on the target (never a silent exclusion), a two-pass insert for cycle FKs, a **post-load PersonContact** pass (sidecar `referenceId -> referenceId` resolved into targeted updates), and persistence of the `referenceId -> Id` mapping in the sas -- with which of its records the load **created** (inserted, or a placeholder) rather than linked or reused, and when it ran, which is what removing it takes.
 
 Before the first write, every required field the dataset leaves empty is checked against the configuration, and **all** the gaps are listed in one refusal -- nothing is written until each has a placeholder or a default. Objects with no record are left alone. A value the rules cleared is **left out** of the insert, so the target applies its own default (the running user as owner). Objects are inserted parents first; a cycle is kept together and, inside it, whatever a required lookup points at goes first. Records the platform owns are matched, not inserted: the **standard price book** (standard prices are written before custom ones), and the **direct AccountContactRelation** Salesforce creates with each contact. So are the records the target keeps one of: a **selling model** it already holds, found by its type, pricing term and unit -- which the rules must keep, since a cleared key matches nothing -- and the **selling model option** joining a product and a model the load matched. Options are written before the prices that need them. A record type the running user cannot use is dropped and listed, and the user's default applies. An **Order or Contract** whose status is past Draft is created at a Draft status of the target (read from `OrderStatus` / `ContractStatus`), its children follow, and its status is applied last -- the report lists what the target refused.
 
@@ -42,6 +43,20 @@ Before the first write, every required field the dataset leaves empty is checked
 ### Post-Load Verification
 
 Read-only, chained to the load (or replayed with **Re-verify**): per-object counts against the **counting contract** and orphans on mandatory lookups, both among **the records this load wrote** (a sandbox is seldom empty), presence by key (ExternalId), restored PersonContact links. For robustness it re-measures until **two identical readings** before returning a verdict (`passed` / `failed` / `unstable`). The verdict is recorded in the manifest under `controls.dryRunLoad`.
+
+### Removing a Load
+
+The **Load** tab's **Last load** card names the load whose mapping the sas holds -- run from the panel or from the command line -- and **Remove the records this load created** takes it back without loading again. What goes is what the mapping says the load **created**: every record it inserted, and each technical placeholder. What it linked to or reused stays: the standard price book, a selling model or option the target already held, the direct AccountContactRelation Salesforce made with a contact, a record a reload found by its identity keys.
+
+The removal is Forge's, the one a Forge run's history entry offers. The confirmation names the org, which you type, and the records per object it takes; Production Guard judges the delete, and refuses a production org. Children go before their parents, an activated order or contract is set back to Draft first (and given its status back if it stays), custom prices go before standard ones. A record that records staying in the org depend on is kept, and so is one changed since the load, or one that records added since depend on -- unless you tick **Also remove the records changed since the load**. It runs in **Live Operations**, where Cancel stops it before its next call to the org; the audit trail records it (`cleanup_delete`, module `frozen`, counts only); the result says per object what was deleted, what was already gone, what was kept and why, and what the org refused, in its words.
+
+The mapping then forgets the records that went and is **marked**, so the removal is not offered twice; one cancelled, or that deleted nothing, is offered again and reads what it left on the records as its own doing, not as changes. A sandbox refreshed since the load is refused -- its records went with the refresh -- and so is a mapping written before loads kept what they created: a **reload** purges its records. **Re-verify** refuses a load whose records were removed: load the dataset again first.
+
+From the command line, the same removal, through the panel's own handler: it prints the same plan, asks you to type the alias (unless `--yes`), and removes; `--include-changed` takes what changed since the load too.
+
+```bash
+pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove --config frozen.json --target MY-DEV
+```
 
 ### Configuration
 
@@ -83,4 +98,5 @@ The **Extract** tab edits `rootObject`, the budget, the axes and the edge cases 
 - Selection measures volumetry by running a **real extraction pass** on the retained roots (bounded by the budget). It is an interactive operation, not a batch job.
 - Without `mockDetection` configured, the "mocked callouts" guard is disabled (shown as a warning). Deploy it before loading into an org that makes callouts.
 - Reload without refresh needs identity keys that are usable on the target (ExternalId recommended).
+- A removal takes what the mapping names. A second load without **Reload** replaces the mapping: the records of the load before it are no longer named, and no removal takes them -- remove a load before loading again, or reload.
 - Picklist values outside the RecordType assignment require the **UI API** on the target (available on recent orgs).

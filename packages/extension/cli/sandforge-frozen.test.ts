@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { messageLines, parseArgs } from './sandforge-frozen.js';
+import { messageLines, parseArgs, removalPlanLines } from './sandforge-frozen.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -56,7 +56,7 @@ describe('parseArgs', () => {
   it('refuses a first word that is not a step', () => {
     const { code, message } = refuse('freeze', '--config', 'f.json');
     expect(code).toBe(2);
-    expect(message).toContain('select, extract, load, verify, status');
+    expect(message).toContain('select, extract, load, verify, remove, status');
   });
 
   it('refuses a line with no configuration', () => {
@@ -66,10 +66,101 @@ describe('parseArgs', () => {
   it('refuses a step without the org it needs', () => {
     expect(refuse('select', '--config', 'f.json').message).toContain('--source');
     expect(refuse('verify', '--config', 'f.json').message).toContain('--target');
+    expect(refuse('remove', '--config', 'f.json').message).toContain('--target');
+  });
+
+  it('reads a removal, which keeps what changed since the load unless told otherwise', () => {
+    expect(parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT'))).toMatchObject({
+      step: 'remove',
+      target: 'TGT',
+      includeChanged: false,
+      yes: false,
+    });
+    expect(
+      parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT', '--include-changed'))
+        .includeChanged,
+    ).toBe(true);
+  });
+});
+
+describe('removalPlanLines', () => {
+  it('names the org, what the removal takes per object in its order, and what stays', () => {
+    expect(
+      removalPlanLines(
+        {
+          orgId: '00D000000000001AAA',
+          loadedAt: '2026-09-24T10:05:00.000Z',
+          created: [
+            { objectApiName: 'Contact', count: 2 },
+            { objectApiName: 'Account', count: 1 },
+          ],
+          linked: 4,
+          recorded: true,
+        },
+        'TGT',
+      ),
+    ).toEqual([
+      'the last load wrote to TGT at 2026-09-24T10:05:00.000Z; a removal deletes the 3 record(s) it created, children first:',
+      '  Contact: 2',
+      '  Account: 1',
+      '4 record(s) it linked to or reused stay',
+    ]);
   });
 });
 
 describe('messageLines', () => {
+  it('says what a removal did per object, with the reasons the org gave', () => {
+    const outcome = {
+      planned: 0,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    };
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-1',
+        result: {
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-09-24T11:00:00.000Z',
+          objects: [
+            { ...outcome, objectApiName: 'Contact', planned: 3, deleted: 2, alreadyGone: 1 },
+            {
+              ...outcome,
+              objectApiName: 'Account',
+              planned: 1,
+              keptDependents: 1,
+              heldBy: ['Case'],
+              unchecked: ['ActionableListMember'],
+            },
+            {
+              ...outcome,
+              objectApiName: 'Order',
+              planned: 1,
+              refused: 1,
+              reasons: ['DELETE_FAILED: activated order'],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: PARTIAL',
+      '  Contact: 2 deleted, 1 already gone of 3',
+      '  Account: 1 kept for records that stay (Case) of 1',
+      '  Order: 1 refused of 1',
+      '      DELETE_FAILED: activated order',
+      'not checked, deleted with their parent: ActionableListMember',
+    ]);
+  });
+
   it('names what a load left to the platform after the objects it wrote', () => {
     const lines = messageLines({
       type: 'frozen:load:response',

@@ -2936,6 +2936,23 @@
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}"
     },
+    "removal": {
+      "title": "Dernier chargement",
+      "loadedInto": "Chargé dans {{org}} le {{date}}",
+      "remove": "Supprimer les enregistrements créés par ce chargement",
+      "removeTitle": "Supprimer de {{org}} les enregistrements de ce chargement",
+      "removeDescription": "Supprime de {{org}} les enregistrements créés par ce chargement, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels le chargement s'est lié ou qu'il a réutilisés, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le chargement, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
+      "includeChanged": "Supprimer aussi les enregistrements modifiés depuis le chargement, et ce qui leur a été ajouté depuis",
+      "removing": "Suppression des enregistrements créés par ce chargement…",
+      "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge.",
+      "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
+      "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",
+      "resultSuccess": "Aucun enregistrement créé par ce chargement ne reste dans {{org}}.",
+      "resultPartial": "Des enregistrements créés par ce chargement ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
+      "resultFailure": "Aucun enregistrement créé par ce chargement n'a été supprimé de {{org}}.",
+      "resultChanged_one": "{{formatted}} conservé, modifié depuis le chargement",
+      "resultChanged_other": "{{formatted}} conservés, modifiés depuis le chargement"
+    },
     "coverage": {
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
       "unbounded": "Lus sans la borne de date, faute de CreatedDate : {{objects}}",

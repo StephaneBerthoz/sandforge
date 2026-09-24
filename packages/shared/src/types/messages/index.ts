@@ -411,6 +411,7 @@ import type {
   FrozenManifestGetRequest,
   FrozenLoadRequest,
   FrozenVerifyRequest,
+  FrozenRemoveRequest,
   FrozenStatusRequest,
   FrozenConfigGetResponse,
   FrozenConfigSaveResponse,
@@ -421,12 +422,14 @@ import type {
   FrozenLoadResponse,
   FrozenLoadProgressMessage,
   FrozenVerifyResultMessage,
+  FrozenRemoveResponse,
   FrozenStatusResponse,
   FrozenConfigSaveErrorMessage,
   FrozenSelectErrorMessage,
   FrozenExtractErrorMessage,
   FrozenLoadErrorMessage,
   FrozenVerifyErrorMessage,
+  FrozenRemoveErrorMessage,
 } from './frozen.messages.js';
 
 /** Message from WebView to Extension (requests) */
@@ -605,6 +608,7 @@ export type WebViewToExtensionMessage =
   | FrozenManifestGetRequest
   | FrozenLoadRequest
   | FrozenVerifyRequest
+  | FrozenRemoveRequest
   | FrozenStatusRequest;
 
 /** Message from Extension to WebView (responses / events) */
@@ -829,9 +833,11 @@ export type ExtensionToWebViewMessage =
   | FrozenLoadResponse
   | FrozenLoadProgressMessage
   | FrozenVerifyResultMessage
+  | FrozenRemoveResponse
   | FrozenStatusResponse
   | FrozenConfigSaveErrorMessage
   | FrozenSelectErrorMessage
   | FrozenExtractErrorMessage
   | FrozenLoadErrorMessage
-  | FrozenVerifyErrorMessage;
+  | FrozenVerifyErrorMessage
+  | FrozenRemoveErrorMessage;

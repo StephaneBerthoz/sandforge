@@ -814,6 +814,167 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
   });
 });
 
+describe('FrozenDatasetLoader — what removing the load takes', () => {
+  /** What the load's mapping says of it, read as the removal reads it. */
+  async function recorded(sasDir: string) {
+    return new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recorded();
+  }
+
+  it('keeps as created every record it inserted, and never the standard book it matched', async () => {
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [
+            { referenceId: 'Pricebook2-000001', fields: { Name: 'Resellers' } },
+            { referenceId: 'Pricebook2-000002', fields: { Name: 'Standard' } },
+          ],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [{ referenceId: 'Product2-000001', fields: { Name: 'A' } }],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            {
+              referenceId: 'PricebookEntry-000001',
+              fields: { Pricebook2Id: 'Pricebook2-000001', Product2Id: 'Product2-000001' },
+            },
+            {
+              referenceId: 'PricebookEntry-000002',
+              fields: { Pricebook2Id: 'Pricebook2-000002', Product2Id: 'Product2-000001' },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000002',
+    };
+    const deps = makeDeps({
+      dataset,
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01sTARGETSTANDARD' }] : [],
+    });
+    const started = new Date('2026-09-24T10:00:00.000Z');
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { now: () => started }));
+
+    const load = await recorded(deps.sasDir);
+    expect(load?.mapping.get('Pricebook2-000002')).toBe('01sTARGETSTANDARD');
+    // One entry per object, in the order written: the standard price, in its
+    // own call before the custom one, first.
+    expect(load?.created).toEqual([
+      { objectApiName: 'Pricebook2', referenceIds: ['Pricebook2-000001'] },
+      { objectApiName: 'Product2', referenceIds: ['Product2-000001'] },
+      {
+        objectApiName: 'PricebookEntry',
+        referenceIds: ['PricebookEntry-000002', 'PricebookEntry-000001'],
+      },
+    ]);
+    expect(load?.startedAt).toBe(started.toISOString());
+  });
+
+  it('keeps as created the placeholder it made for a required lookup', async () => {
+    const dataset = makeAccountContactDataset();
+    const describes = describeFromDataset(dataset, {
+      Contact: [
+        field({
+          name: 'Mandatory_Lookup__c',
+          type: 'reference',
+          nillable: false,
+          referenceTo: ['Account'],
+        }),
+      ],
+    });
+    const deps = makeDeps({
+      dataset,
+      describes,
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+        },
+      },
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect((await recorded(deps.sasDir))?.created).toEqual([
+      {
+        objectApiName: 'Account',
+        referenceIds: ['placeholder:Account:Contact.Mandatory_Lookup__c', 'Account-000001'],
+      },
+      { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+    ]);
+  });
+
+  it('keeps as linked, not created, what a reload reused by its identity keys', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([['Account-000001', '001OLD-ACCOUNT']]),
+      {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      config: { identityKeys: { Account: ['ExternalId__c'] } },
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM Account') ? [{ Id: '001OLD-ACCOUNT', ExternalId__c: 'ACC-1' }] : [],
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
+
+    const load = await recorded(sasDir);
+    expect(load?.mapping.get('Account-000001')).toBe('001OLD-ACCOUNT');
+    expect(load?.created).toEqual([{ objectApiName: 'Contact', referenceIds: ['Contact-000001'] }]);
+  });
+
+  it('keeps as created, after a cancel, what the load before it created and it had not replaced', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000001', '001OLD-ACCOUNT'],
+        ['Contact-000001', '003OLD-CONTACT'],
+        ['Pricebook2-000001', '01sTARGETSTANDARD'],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    const stop = new AbortController();
+    const writer = makeWriter([]);
+    const remove = writer.delete;
+    writer.delete = vi.fn(async (...args: Parameters<FrozenDmlWriter['delete']>) => {
+      stop.abort();
+      return remove(...args);
+    });
+    const deps = makeDeps({ dataset, sasDir, writer });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, signal: stop.signal }),
+      ),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    // Removing the load after the cancel takes them, as a reload would purge them.
+    expect((await recorded(sasDir))?.created).toEqual([
+      { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+      { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+    ]);
+  });
+});
+
 describe('FrozenDatasetLoader — a catalog sold under selling models', () => {
   const TARGET_MODEL = '0jPTARGETONETIME';
   const TARGET_PRODUCT = '01tTARGETPRODUCT';

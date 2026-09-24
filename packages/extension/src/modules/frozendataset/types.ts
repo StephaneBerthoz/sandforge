@@ -178,11 +178,32 @@ export interface UnavailableRecordType {
 }
 
 /**
+ * The records of one object a load created — inserted, or a technical
+ * placeholder — by their keys in the mapping, in the order it wrote them.
+ */
+export interface LoadCreatedRecords {
+  objectApiName: string;
+  referenceIds: string[];
+}
+
+/**
+ * What a load says of the mapping it persists, besides the mapping: which of
+ * its records it created — every other one it linked or reused — and when it
+ * began. What removing the load takes, and how it dates the load.
+ */
+export interface PersistedLoad {
+  /** Per object, the keys whose records the load created, in the order it wrote them. */
+  created: readonly LoadCreatedRecords[];
+  /** When the load began, on this machine's clock. */
+  startedAt: Date;
+}
+
+/**
  * Load-phase contract, implemented by {@link SasReferenceIdMappingStore}.
  * Persists the only reliable address of a loaded record: the mapping
  * `referenceId → real target Id` captured at insert (target-org
  * automations may rewrite business identifiers).
  */
 export interface ReferenceIdMappingStore {
-  persist(mapping: ReadonlyMap<string, string>): Promise<void>;
+  persist(mapping: ReadonlyMap<string, string>, load?: PersistedLoad): Promise<void>;
 }

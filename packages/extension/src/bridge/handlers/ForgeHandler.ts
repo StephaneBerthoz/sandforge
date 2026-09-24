@@ -1,15 +1,11 @@
 import type {
   AuditObjectCounts,
-  AuditOutcome,
   BaseMessage,
   ForgeConfig,
   ForgeExecutionResult,
   ForgeGraph,
   ForgeTemplate,
-  ForgeUndoMark,
-  ForgeUndoObjectResult,
   ForgeUndoResult,
-  ForgeUndoStatus,
   ForgeRunObjectRecords,
   ComplianceFrameworkType,
 } from '@sandforge/shared';
@@ -66,6 +62,13 @@ import {
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  removalAuditObjects,
+  removalAuditOutcome,
+  removalMark,
+  removalMarks,
+  removalStatus,
+} from '../../modules/forge/removalOutcome.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import type { ExecutionSummary, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -307,53 +310,6 @@ function forgeCarried(
       row.created + row.linked + (row.updated ?? 0),
     ]),
   );
-}
-
-/** Records of a removal's objects left in the org: kept, or refused. */
-function leftInOrg(object: ForgeUndoObjectResult): number {
-  return object.keptChanged + object.keptDependents + object.refused;
-}
-
-/**
- * How a removal of a run's records ended. Nothing left in the org is a
- * success, whether the removal deleted the records or found them gone.
- */
-function undoStatus(
-  objects: readonly ForgeUndoObjectResult[],
-  cancelled: boolean,
-): ForgeUndoStatus {
-  if (cancelled) return 'cancelled';
-  if (objects.every((o) => leftInOrg(o) === 0)) return 'success';
-  return objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
-}
-
-/**
- * A removal in the audit trail's words. A removal stopped part way is partial
- * when it deleted something, and failed when it deleted nothing.
- */
-function undoAuditOutcome(result: ForgeUndoResult): AuditOutcome {
-  if (result.status !== 'cancelled') return result.status;
-  return result.objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
-}
-
-/** What a removal deleted and what the org refused, per object, for the audit trail. */
-function undoAuditObjects(objects: readonly ForgeUndoObjectResult[]): AuditObjectCounts[] {
-  return objects
-    .filter((o) => o.deleted + o.refused > 0)
-    .map((o) => ({ ...emptyCounts(o.objectApiName), deleted: o.deleted, failed: o.refused }));
-}
-
-/** The removal as its history entry keeps it: when, and how many records went each way. */
-function undoMark(result: ForgeUndoResult): ForgeUndoMark {
-  const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
-    result.objects.reduce((total, o) => total + count(o), 0);
-  return {
-    removedAt: result.finishedAt,
-    deleted: sum((o) => o.deleted),
-    alreadyGone: sum((o) => o.alreadyGone),
-    kept: sum((o) => o.keptChanged + o.keptDependents),
-    refused: sum((o) => o.refused),
-  };
 }
 
 /**
@@ -1665,7 +1621,7 @@ export class ForgeHandler implements DomainHandler {
       });
       const result: ForgeUndoResult = {
         forgeId,
-        status: undoStatus(outcome.objects, outcome.cancelled),
+        status: removalStatus(outcome.objects, outcome.cancelled),
         includeChanged,
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
@@ -1676,17 +1632,16 @@ export class ForgeHandler implements DomainHandler {
         module: 'forge',
         operationId,
         orgId: targetOrgId,
-        outcome: undoAuditOutcome(result),
+        outcome: removalAuditOutcome(result),
         guard: decision,
-        objects: undoAuditObjects(result.objects),
+        objects: removalAuditObjects(result.objects),
       });
 
       // Marked once records went, or none was left to go. A removal stopped
       // part way, or one that deleted nothing, is offered again — with what
       // it wrote to the records it left, and when it ran, which the next one
       // reads as its doing, not as changes since the run.
-      const mark =
-        result.status === 'success' || result.status === 'partial' ? undoMark(result) : undefined;
+      const mark = removalMarks(result.status) ? removalMark(result) : undefined;
       const stamped = Object.keys(outcome.stamps).length > 0;
       const ran = outcome.span;
       if (mark || stamped || ran) {

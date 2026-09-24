@@ -763,6 +763,7 @@ export class ExtensionHandlers {
         'frozen:manifest:get',
         'frozen:load',
         'frozen:verify',
+        'frozen:remove',
         'frozen:status',
       ],
       this.frozenHandler,

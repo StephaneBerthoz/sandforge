@@ -2936,6 +2936,23 @@
       "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
       "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}"
     },
+    "removal": {
+      "title": "Letzter Ladevorgang",
+      "loadedInto": "Geladen in {{org}} am {{date}}",
+      "remove": "Die von diesem Ladevorgang erstellten Datensätze entfernen",
+      "removeTitle": "Datensätze dieses Ladevorgangs aus {{org}} entfernen",
+      "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Ladevorgang erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Ladevorgang verknüpft hat oder die er wiederverwendet hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ladevorgang geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
+      "includeChanged": "Auch die seit dem Ladevorgang geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
+      "removing": "Die von diesem Ladevorgang erstellten Datensätze werden entfernt…",
+      "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein Neuladen bereinigt sie.",
+      "orgGone": "Die Org, in die dieser Ladevorgang geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
+      "nothingCreated": "Dieser Ladevorgang hat keinen Datensatz erstellt: Es gibt nichts zu entfernen.",
+      "resultSuccess": "Kein von diesem Ladevorgang erstellter Datensatz ist mehr in {{org}}.",
+      "resultPartial": "Von diesem Ladevorgang erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
+      "resultFailure": "Kein von diesem Ladevorgang erstellter Datensatz wurde aus {{org}} entfernt.",
+      "resultChanged_one": "{{formatted}} behalten, seit dem Ladevorgang geändert",
+      "resultChanged_other": "{{formatted}} behalten, seit dem Ladevorgang geändert"
+    },
     "coverage": {
       "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
       "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",

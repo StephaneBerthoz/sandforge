@@ -861,6 +861,13 @@ export const frozenLoadPayloadSchema = z.object({
   reload: z.boolean().optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
+// The load is named — its org, when it wrote its last record — never its
+// records: what is removed is what the sas mapping says the load created.
+export const frozenRemovePayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  loadedAt: z.string().min(1).max(64),
+  includeChanged: z.boolean().optional(),
+});
 
 // ── autopilot:* payload schemas ─────────────────────────────────────────────
 // Mirror the shared request contracts (shared/types/messages/autopilot.messages.ts).

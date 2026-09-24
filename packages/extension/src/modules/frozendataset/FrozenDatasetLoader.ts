@@ -68,6 +68,7 @@ import type { FrozenManifest } from './manifest.js';
 import type {
   FrozenDataset,
   FrozenRecord,
+  LoadCreatedRecords,
   RecordTypeIdResolver,
   ReferenceIdMappingStore,
 } from './types.js';
@@ -94,6 +95,8 @@ import {
 /** Mapping store access required by the loader (engine interface + read). */
 export interface LoadMappingStore extends ReferenceIdMappingStore {
   load(): Promise<Map<string, string>>;
+  /** The keys of the stored mapping whose records a load created, per object. */
+  loadCreated(): Promise<LoadCreatedRecords[]>;
   readonly filePath: string;
 }
 
@@ -189,6 +192,36 @@ interface PendingFk {
 /** Synthetic mapping key prefix for placeholder records. */
 const PLACEHOLDER_KEY_PREFIX = 'placeholder:';
 
+/**
+ * The keys of the records a load created, per object, in the order it wrote
+ * them: what removing the load takes. A record it linked or reused is never
+ * among them.
+ */
+class CreatedKeys {
+  private readonly byObject = new Map<string, string[]>();
+
+  /** Note a record the load created. */
+  add(objectApiName: string, key: string): void {
+    const keys = this.byObject.get(objectApiName) ?? [];
+    keys.push(key);
+    this.byObject.set(objectApiName, keys);
+  }
+
+  /**
+   * As the mapping keeps them: the ones `carried` from a mapping kept with
+   * this load's, then the ones this load wrote, one entry per object.
+   */
+  list(carried: readonly LoadCreatedRecords[] = []): LoadCreatedRecords[] {
+    const merged = new Map<string, string[]>();
+    const append = (objectApiName: string, keys: readonly string[]): void => {
+      merged.set(objectApiName, [...(merged.get(objectApiName) ?? []), ...keys]);
+    };
+    for (const { objectApiName, referenceIds } of carried) append(objectApiName, referenceIds);
+    for (const [objectApiName, keys] of this.byObject) append(objectApiName, keys);
+    return [...merged].map(([objectApiName, referenceIds]) => ({ objectApiName, referenceIds }));
+  }
+}
+
 /** Recover the object API name from a mapping key (record or placeholder). */
 function objectFromMappingKey(referenceId: string): string {
   if (referenceId.startsWith(PLACEHOLDER_KEY_PREFIX)) {
@@ -278,6 +311,7 @@ export class FrozenDatasetLoader {
     emit({ phase: 'guards', status: 'done', progress: 2, message: 'Entry guards passed' });
 
     const previousMapping = await this.deps.mappingStore.load();
+    const previousCreated = await this.deps.mappingStore.loadCreated();
 
     // 2. Pilot scope — one root folder: its descendants plus the reference
     //    records it (transitively) points at.
@@ -324,6 +358,7 @@ export class FrozenDatasetLoader {
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     const placeholders: PlaceholderCreation[] = [];
     const perObject: PerObjectLoadResult[] = [];
+    const created = new CreatedKeys();
 
     /*
      * Stop at a cancel, before the next write. A load read no cancel: once
@@ -334,7 +369,17 @@ export class FrozenDatasetLoader {
      */
     const checkpoint = async (): Promise<void> => {
       if (!options.signal?.aborted) return;
-      await this.deps.mappingStore.persist(new Map([...previousMapping, ...mapping]));
+      // What the previous mapping said its load created stays so for the
+      // entries this load has not replaced: removing the load then takes
+      // them, as a reload would purge them.
+      const carried = previousCreated.map(({ objectApiName, referenceIds }) => ({
+        objectApiName,
+        referenceIds: referenceIds.filter((key) => !mapping.has(key)),
+      }));
+      await this.deps.mappingStore.persist(new Map([...previousMapping, ...mapping]), {
+        created: created.list(carried),
+        startedAt,
+      });
       throw new FrozenLoadCancelledError({ perObject, placeholders, purge });
     };
 
@@ -472,7 +517,14 @@ export class FrozenDatasetLoader {
     for (const plan of plans) {
       if (plan.kind === 'placeholder') {
         await checkpoint();
-        await this.createPlaceholder(options, plan, alignedByObject, mapping, placeholders);
+        await this.createPlaceholder(
+          options,
+          plan,
+          alignedByObject,
+          mapping,
+          placeholders,
+          created,
+        );
       } else {
         this.applyScalarDefault(plan.missing, alignedByObject, requiredDefaults);
       }
@@ -535,6 +587,7 @@ export class FrozenDatasetLoader {
           reused,
           pendingFk,
           duplicatePatterns,
+          created,
         );
       // A custom price is refused for a product with no standard one, so the
       // standard prices are written first, in a call of their own.
@@ -625,7 +678,7 @@ export class FrozenDatasetLoader {
       progress: 96,
       message: 'Persisting mapping and contract',
     });
-    await this.deps.mappingStore.persist(mapping);
+    await this.deps.mappingStore.persist(mapping, { created: created.list(), startedAt });
     const leftOut = leftToThePlatform.counts();
     const contractPath = this.writeContract(
       options,
@@ -1164,6 +1217,7 @@ export class FrozenDatasetLoader {
     alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
     mapping: Map<string, string>,
     placeholders: PlaceholderCreation[],
+    created: CreatedKeys,
   ): Promise<void> {
     const { missing, key, targetObject } = plan;
     const record: Record<string, unknown> = { Name: plan.name };
@@ -1176,7 +1230,9 @@ export class FrozenDatasetLoader {
           `${outcome.errors.join('; ') || 'no id returned'}. Fix the target org configuration and retry.`,
       );
     }
-    mapping.set(`${PLACEHOLDER_KEY_PREFIX}${targetObject}:${key}`, outcome.id);
+    const placeholderKey = `${PLACEHOLDER_KEY_PREFIX}${targetObject}:${key}`;
+    mapping.set(placeholderKey, outcome.id);
+    created.add(targetObject, placeholderKey);
     let affected = 0;
     for (const aligned of alignedByObject.get(missing.objectApiName) ?? []) {
       const current = aligned.fields[missing.field];
@@ -1231,6 +1287,7 @@ export class FrozenDatasetLoader {
     reused: Set<string>,
     pendingFk: PendingFk[],
     duplicatePatterns: readonly string[],
+    created: CreatedKeys,
   ): Promise<PerObjectLoadResult> {
     const result: PerObjectLoadResult = {
       objectApiName,
@@ -1280,6 +1337,7 @@ export class FrozenDatasetLoader {
       const referenceId = toInsert[i].referenceId;
       if (outcome.success && outcome.id) {
         mapping.set(referenceId, outcome.id);
+        created.add(objectApiName, referenceId);
         result.inserted++;
       } else if (isDuplicateRejection(outcome.errors, duplicatePatterns)) {
         result.skippedDuplicates.push({ objectApiName, referenceId, errors: outcome.errors });

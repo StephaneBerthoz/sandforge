@@ -5,6 +5,7 @@ import type {
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenRemovalResult,
   FrozenSelectionSummary,
   FrozenStatusInfo,
   FrozenVerifyVerdict,
@@ -69,6 +70,29 @@ export interface FrozenLoadRequest extends BaseMessage {
 export interface FrozenVerifyRequest extends BaseMessage {
   type: 'frozen:verify';
   payload: { targetOrgId: string };
+}
+
+/**
+ * `frozen:remove`. WebView -> Extension. Remove from its target org the records
+ * the last load created, as the sas mapping names them.
+ *
+ * The request names the load — the org it wrote to and when it wrote its last
+ * record, as `frozen:status` said — never records: what is removed is what the
+ * mapping says the load created, and nothing it linked or reused.
+ */
+export interface FrozenRemoveRequest extends BaseMessage {
+  type: 'frozen:remove';
+  payload: {
+    /** The org the load wrote to. */
+    targetOrgId: string;
+    /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+    loadedAt: string;
+    /**
+     * Remove the records modified since the load too, and what was added to
+     * them since; they are kept otherwise.
+     */
+    includeChanged?: boolean;
+  };
 }
 
 /**
@@ -155,6 +179,16 @@ export interface FrozenStatusResponse extends BaseMessage {
   payload: { status: FrozenStatusInfo };
 }
 
+/**
+ * `frozen:remove:response`. Extension -> WebView. What removing the records
+ * the last load created did, object by object — also when the removal was
+ * cancelled part way.
+ */
+export interface FrozenRemoveResponse extends BaseMessage {
+  type: 'frozen:remove:response';
+  payload: { result: FrozenRemovalResult; operationId: string };
+}
+
 // ─── Frozen error channels (Extension -> WebView, via sendHandlerError) ─────
 
 /**
@@ -195,5 +229,16 @@ export interface FrozenLoadErrorMessage extends BaseMessage {
 /** `frozen:verify:error`. Extension -> WebView. `code` classified by errorCodeFor. */
 export interface FrozenVerifyErrorMessage extends BaseMessage {
   type: 'frozen:verify:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:remove:error`. Extension -> WebView. A removal refused before it
+ * started (`NO_LOAD`, `NOT_RECORDED`, `LOAD_CHANGED`, `ALREADY_REMOVED`,
+ * `NOTHING_TO_REMOVE`, `DUPLICATE`, `TARGET_REFRESHED`, the guard's codes), or
+ * one that failed.
+ */
+export interface FrozenRemoveErrorMessage extends BaseMessage {
+  type: 'frozen:remove:error';
   payload: { message: string; code: string; retryable: boolean };
 }

@@ -41,8 +41,8 @@ describe('ForgeRunRemovalPlan', () => {
     render(
       <ForgeRunRemovalPlan
         plan={[
-          { objectApiName: 'Contact', ids: ['003000000000001AAA', '003000000000002AAA'] },
-          { objectApiName: 'Account', ids: ['001000000000001AAA'] },
+          { objectApiName: 'Contact', count: 2 },
+          { objectApiName: 'Account', count: 1 },
         ]}
         linked={0}
       />,
@@ -58,12 +58,7 @@ describe('ForgeRunRemovalPlan', () => {
   });
 
   it('says the linked records are kept', () => {
-    render(
-      <ForgeRunRemovalPlan
-        plan={[{ objectApiName: 'Account', ids: ['001000000000001AAA'] }]}
-        linked={3}
-      />,
-    );
+    render(<ForgeRunRemovalPlan plan={[{ objectApiName: 'Account', count: 1 }]} linked={3} />);
 
     expect(screen.getByTestId('forge-removal-linked').textContent).toBe(
       '3 linked records are kept.',
@@ -162,6 +157,28 @@ describe('ForgeRunRemovalResult', () => {
     rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" result={result({ status: 'cancelled' })} />);
     expect(screen.getByRole('heading').textContent).toBe(
       'Stopped before the end: what was done by then is listed, and the rest is still in DEV-SANDBOX.',
+    );
+  });
+});
+
+describe('ForgeRunRemovalResult of a Frozen load', () => {
+  it('says what the load created, and what changed since the load', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="load"
+        result={result({
+          status: 'partial',
+          objects: [outcome({ objectApiName: 'Contact', deleted: 1, keptChanged: 2 })],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('heading').textContent).toBe(
+      'Records this load created were removed from DEV-SANDBOX; the others stay, as listed.',
+    );
+    expect(screen.getByTestId('forge-removal-result-Contact').textContent).toBe(
+      'Contact: 1 deleted · 2 kept, changed since the load',
     );
   });
 });

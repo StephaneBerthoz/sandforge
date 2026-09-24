@@ -17,6 +17,7 @@ import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useFrozenMutation } from './useFrozenBridge';
+import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -206,6 +207,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
           {verifyMutation.error && <ErrorBanner message={verifyMutation.error} />}
         </CardBody>
       </Card>
+
+      {/* ── Last load, and taking it back ─────────────────────────────── */}
+      <FrozenLoadRemoval
+        records={status?.lastLoadRecords}
+        onRemoved={onRefetchStatus}
+        busy={loadMutation.loading}
+      />
 
       {/* ── Progress ──────────────────────────────────────────────────── */}
       {progress.length > 0 && (

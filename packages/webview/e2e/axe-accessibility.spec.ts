@@ -370,6 +370,43 @@ const FORGE_REMOVAL_RESULT = {
 };
 
 /**
+ * The Frozen page's status once a load into the QA sandbox created an order
+ * with its items, a contact and a technical placeholder, and linked the
+ * standard price book and a selling model the sandbox already held.
+ */
+const FROZEN_STATUS_AFTER_LOAD = {
+  configured: true,
+  sasDir: '/home/dev/.sandforge-sas',
+  datasetDir: '/home/dev/.sandforge-sas/dataset',
+  salt: { present: true, fingerprint: 'abc123def456' },
+  mockDetectionConfigured: true,
+  selection: null,
+  manifest: null,
+  lastLoad: { status: 'completed', orgId: QA_SANDBOX.id, at: '2026-09-24T10:05:00.000Z' },
+  lastVerify: null,
+  lastLoadRecords: {
+    orgId: QA_SANDBOX.id,
+    loadedAt: '2026-09-24T10:05:00.000Z',
+    created: [
+      { objectApiName: 'OrderItem', count: 24 },
+      { objectApiName: 'Order', count: 11 },
+      { objectApiName: 'Contact', count: 2 },
+      { objectApiName: 'Account', count: 1 },
+    ],
+    linked: 2,
+    recorded: true,
+  },
+};
+
+/** What removing that load's records did: the Forge removal's outcomes, on a load. */
+const FROZEN_REMOVAL_RESULT = {
+  status: 'partial',
+  includeChanged: false,
+  finishedAt: '2026-09-24T11:00:00.000Z',
+  objects: FORGE_REMOVAL_RESULT.objects,
+};
+
+/**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
  * guard asked about, and a restore the guard refused.
  */
@@ -533,6 +570,20 @@ async function answerAll(
       payload,
     });
   }
+}
+
+/** The Frozen page's Load tab, with the last load's records `status` names. */
+async function openFrozenLastLoad(
+  bridge: MockBridge,
+  page: Page,
+  theme: ScannedTheme,
+  status: Record<string, unknown> = FROZEN_STATUS_AFTER_LOAD,
+): Promise<void> {
+  await navigateToModule(bridge, page, 'frozen', 'frozen-page', { theme, orgs: true });
+  await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
+  await answerAll(page, 'frozen:status', 'frozen:status:response', { status });
+  await page.getByTestId('page-tab-load').click();
+  await page.getByTestId('frozen-removal').waitFor({ timeout: 10_000 });
 }
 
 /** The Forge page with its recent runs listed: one run whose records can be removed. */
@@ -1782,6 +1833,76 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Frozen load removal confirmation open over the last load', async ({ page }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('forge-removal-plan')).toBeVisible();
+      await expect(dialog.getByTestId('forge-removal-linked')).toBeVisible();
+      await expect(dialog.getByTestId('frozen-removal-include-changed')).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Frozen load removal result, per object, with what the org refused', async ({ page }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('frozen:remove', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove', 'frozen:remove:response', {
+        result: FROZEN_REMOVAL_RESULT,
+        operationId: 'frozen-remove-1',
+      });
+      await page.getByTestId('forge-removal-result').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-removal-result')).toContainText(
+        'changed since the load',
+      );
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Frozen last load whose records were removed', async ({ page }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_AFTER_LOAD,
+        lastLoadRecords: {
+          ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
+          created: [],
+          removed: {
+            removedAt: '2026-09-24T11:00:00.000Z',
+            deleted: 36,
+            alreadyGone: 1,
+            kept: 1,
+            refused: 0,
+          },
+        },
+      });
+      await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen last load recorded before loads kept what they created', async ({ page }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_AFTER_LOAD,
+        lastLoadRecords: {
+          ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
+          created: [],
+          linked: 0,
+          recorded: false,
+        },
+      });
+      await expect(page.getByTestId('frozen-removal-not-recorded')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge recent runs with a run that failed and one a cancel stopped, each removable', async ({

@@ -236,6 +236,12 @@ export interface RunRemovalOutcome {
   /** Whether the removal was stopped before it was through. */
   cancelled: boolean;
   /**
+   * The run's records the removal deleted, or found gone, by their ids as the
+   * plan names them: what a caller that keeps the run's records — a Frozen
+   * load's mapping — no longer has in the org.
+   */
+  gone: string[];
+  /**
    * What this removal left on records of the run it did not delete — what it
    * wrote to them, and what the org wrote in answer to its deletes — by record
    * id: the `LastModifiedDate` the org left on each, for a later removal to
@@ -436,7 +442,7 @@ export async function removeRunRecords(
 
   const snapshots = new Map<string, ObjectSnapshot>();
   for (const { objectApiName, ids } of plan) {
-    if (stopped()) return { objects: [], cancelled: true, stamps: {} };
+    if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
     snapshots.set(objectApiName, await snapshotOf(org, objectApiName, ids));
   }
 
@@ -507,7 +513,7 @@ export async function removeRunRecords(
     includeChanged: options.includeChanged,
   });
 
-  if (stopped()) return { objects: [], cancelled: true, stamps: {} };
+  if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
   const drafting = await backToDraft(
     session,
     dependents,
@@ -565,9 +571,11 @@ export async function removeRunRecords(
       ? await stampsLeft(session, leftUnchanged(), { start: clock.start, user: removalUser })
       : {};
     const span = wrote ? removalSpanOf(clock, removalUser) : undefined;
+    const gone = new Set(removals.flatMap((removal) => [...removal.gone]));
     return {
       objects: removals.map((removal) => removal.settle()),
       cancelled,
+      gone: order.flatMap(({ ids }) => ids.filter((id) => gone.has(recordKey(id)))),
       stamps,
       ...(span ? { span } : {}),
     };
@@ -593,8 +601,10 @@ export async function removeRunRecords(
     for (const id of ids) {
       const key = recordKey(id);
       reached.add(key);
-      if (!snapshot.lastModified.has(key)) removal.result.alreadyGone++;
-      else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
+      if (!snapshot.lastModified.has(key)) {
+        removal.result.alreadyGone++;
+        removal.gone.add(key);
+      } else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
       else candidates.push(id);
     }
     settled += ids.length - candidates.length;

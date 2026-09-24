@@ -306,6 +306,11 @@ describe('FrozenDatasetHandler', () => {
       expect(await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }))).toBe(true);
       expect(await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }))).toBe(true);
       expect(await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-2' }))).toBe(true);
+      expect(
+        await handler.handle(
+          buildMsg('frozen:remove', { targetOrgId: 'org-2', loadedAt: '2026-09-24T10:05:00.000Z' }),
+        ),
+      ).toBe(true);
     });
   });
 

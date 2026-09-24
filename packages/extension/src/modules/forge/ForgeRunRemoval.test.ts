@@ -301,6 +301,26 @@ describe('removeRunRecords', () => {
     expect(org.has('Account', id('001', 1))).toBe(true);
   });
 
+  it('names the records that went, deleted or found gone, and none of those it kept', async () => {
+    const { org, plan } = accountWithContacts();
+    org.add('Contact', runRow(id('003', 3)));
+    (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+    org.rows.set(
+      'Contact',
+      (org.rows.get('Contact') ?? []).filter((r) => r.Id !== id('003', 2)),
+    );
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'Contact', ids: [...plan[0].ids, id('003', 3)] }, plan[1]],
+      options(),
+    );
+
+    // 003-2 was gone already, 003-3 deleted; 003-1 changed since, and the
+    // account it hangs from, stay.
+    expect(outcome.gone).toEqual([id('003', 2), id('003', 3)]);
+  });
+
   it('removes records modified since the run too when asked to', async () => {
     const { org, plan } = accountWithContacts();
     (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;

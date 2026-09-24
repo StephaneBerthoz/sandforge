@@ -2,7 +2,6 @@ import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
-  ForgeRunObjectRecords,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoResult,
@@ -11,12 +10,33 @@ import type {
 import { cn } from '../../theme';
 import { formatNumber } from '../../utils/formatters';
 
-/** What a removal's result says first, by how it ended. */
-const RESULT_TITLE_KEYS: Record<ForgeUndoStatus, string> = {
-  success: 'forge.history.resultSuccess',
-  partial: 'forge.history.resultPartial',
-  failure: 'forge.history.resultFailure',
-  cancelled: 'forge.history.resultCancelled',
+/**
+ * What a removal takes back — a Forge run, or a Frozen load — which is all
+ * its result's words change with: the removal is the same.
+ */
+export type RemovalSubject = 'run' | 'load';
+
+/** What a removal's result says first, by what it took back and how it ended. */
+const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>> = {
+  run: {
+    success: 'forge.history.resultSuccess',
+    partial: 'forge.history.resultPartial',
+    failure: 'forge.history.resultFailure',
+    cancelled: 'forge.history.resultCancelled',
+  },
+  load: {
+    success: 'frozen.removal.resultSuccess',
+    partial: 'frozen.removal.resultPartial',
+    failure: 'frozen.removal.resultFailure',
+    // Says nothing of what was taken back.
+    cancelled: 'forge.history.resultCancelled',
+  },
+};
+
+/** What a record kept for a change since is said to have changed since. */
+const CHANGED_KEYS: Record<RemovalSubject, string> = {
+  run: 'forge.history.resultChanged',
+  load: 'frozen.removal.resultChanged',
 };
 
 /** The colour of that first line. */
@@ -38,14 +58,18 @@ function counted(
 }
 
 /** What became of one object's records, the counts that are not zero, in reading order. */
-function outcomeParts(t: TFunction, object: ForgeUndoObjectResult): string[] {
+function outcomeParts(
+  t: TFunction,
+  object: ForgeUndoObjectResult,
+  subject: RemovalSubject,
+): string[] {
   const parts: string[] = [];
   if (object.deleted > 0) parts.push(counted(t, 'forge.history.resultDeleted', object.deleted));
   if (object.alreadyGone > 0) {
     parts.push(counted(t, 'forge.history.resultGone', object.alreadyGone));
   }
   if (object.keptChanged > 0) {
-    parts.push(counted(t, 'forge.history.resultChanged', object.keptChanged));
+    parts.push(counted(t, CHANGED_KEYS[subject], object.keptChanged));
   }
   if (object.keptDependents > 0) {
     parts.push(
@@ -62,9 +86,9 @@ function outcomeParts(t: TFunction, object: ForgeUndoObjectResult): string[] {
 
 /** Props for {@link ForgeRunRemovalPlan}. */
 export interface ForgeRunRemovalPlanProps {
-  /** The run's records, per object, in the order the removal takes them. */
-  plan: ForgeRunObjectRecords[];
-  /** Records the run linked to, which the removal leaves where they are. */
+  /** How many records of each object the removal takes, in the order it takes them. */
+  plan: ReadonlyArray<{ objectApiName: string; count: number }>;
+  /** Records the run or load linked to, which the removal leaves where they are. */
   linked: number;
 }
 
@@ -83,7 +107,7 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({ plan, 
             data-testid={`forge-removal-plan-${object.objectApiName}`}
             className="font-mono"
           >
-            {counted(t, 'forge.history.removeObject', object.ids.length, {
+            {counted(t, 'forge.history.removeObject', object.count, {
               object: object.objectApiName,
             })}
           </li>
@@ -99,9 +123,11 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({ plan, 
 /** Props for {@link ForgeRunRemovalResult}. */
 export interface ForgeRunRemovalResultProps {
   /** What the removal did. */
-  result: ForgeUndoResult;
+  result: Pick<ForgeUndoResult, 'status' | 'objects'>;
   /** The org it removed from, as the user knows it. */
   org: string;
+  /** What it took back: a Forge run unless said. */
+  subject?: RemovalSubject;
 }
 
 /**
@@ -109,7 +135,11 @@ export interface ForgeRunRemovalResultProps {
  * changed since the run or because records that stay depend on them, refused
  * — with what the org said about the refusals.
  */
-export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({ result, org }) => {
+export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
+  result,
+  org,
+  subject = 'run',
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
   // Said once for the removal: the same objects go unchecked under every
@@ -125,7 +155,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({ re
         id={headingId}
         className={cn('text-[11px] font-semibold', RESULT_TITLE_CLASSES[result.status])}
       >
-        {t(RESULT_TITLE_KEYS[result.status], { org })}
+        {t(RESULT_TITLE_KEYS[subject][result.status], { org })}
       </h4>
       <ul className="flex flex-col gap-1">
         {result.objects.map((object) => (
@@ -136,7 +166,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({ re
           >
             <span className="font-mono text-text-primary">{object.objectApiName}</span>
             {': '}
-            {outcomeParts(t, object).join(' · ')}
+            {outcomeParts(t, object, subject).join(' · ')}
             {object.reasons.length > 0 && (
               <ul className="ml-3 mt-0.5 list-disc list-inside break-words">
                 {object.reasons.map((reason) => (

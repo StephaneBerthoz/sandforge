@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Snowflake } from 'lucide-react';
 import type { FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
@@ -44,6 +44,17 @@ export const FrozenPage: React.FC = () => {
   useEffect(() => {
     if (manifestQuery.data) setManifest(manifestQuery.data.manifest);
   }, [manifestQuery.data, setManifest]);
+
+  // The tabs ask for these once per answer they get. Made anew on every
+  // render, a callback changed with every status the page read, and the tab
+  // asked again: one load's answer set the page asking for the status for as
+  // long as it was open.
+  const { refetch: refetchStatus } = statusQuery;
+  const { refetch: refetchManifest } = manifestQuery;
+  const refetchStatusAndManifest = useCallback(() => {
+    refetchStatus();
+    refetchManifest();
+  }, [refetchStatus, refetchManifest]);
 
   if (!selectedOrgId || orgs.length === 0) {
     return (
@@ -145,15 +156,8 @@ export const FrozenPage: React.FC = () => {
         onTabChange={(id) => setTab(id as 'extract' | 'load')}
       />
 
-      {tab === 'extract' && (
-        <FrozenExtractTab
-          onRefetchStatus={() => {
-            statusQuery.refetch();
-            manifestQuery.refetch();
-          }}
-        />
-      )}
-      {tab === 'load' && <FrozenLoadTab onRefetchStatus={() => statusQuery.refetch()} />}
+      {tab === 'extract' && <FrozenExtractTab onRefetchStatus={refetchStatusAndManifest} />}
+      {tab === 'load' && <FrozenLoadTab onRefetchStatus={refetchStatus} />}
       {manifest && tab === 'extract' && (
         <p className="text-[10px] text-text-secondary" data-testid="frozen-manifest-footnote">
           {t('frozen.manifest.version', { version: manifest.version })} — {manifest.frozenAt}

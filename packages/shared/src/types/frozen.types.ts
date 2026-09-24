@@ -17,6 +17,8 @@
  * per-project configuration.
  */
 
+import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
+
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
   /** Stable axis name (used in combination keys). */
@@ -411,6 +413,52 @@ export interface FrozenVerifyVerdict {
   manifestPath?: string;
 }
 
+/**
+ * What the sas mapping says of the records of the load that wrote it, for
+ * their removal: counts only — the ids stay in the sas.
+ */
+export interface FrozenLoadRecordsInfo {
+  /** The registered org the load wrote to. */
+  orgId: string;
+  /** When the load wrote its last record, ISO 8601: which load this is. */
+  loadedAt: string;
+  /**
+   * Per object, the records the load created — inserted, or a technical
+   * placeholder — the object it wrote last first. Empty when it created none,
+   * or when the mapping does not say.
+   */
+  created: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Records the load linked to or reused — the standard price book, a selling
+   * model the target held, a record a reload found by its identity keys —
+   * which a removal leaves where they are.
+   */
+  linked: number;
+  /**
+   * Whether the mapping says which records the load created. One written
+   * before loads kept it cannot tell them from the records the load linked,
+   * and its records cannot be removed from here.
+   */
+  recorded: boolean;
+  /** Set once the records the load created were removed. */
+  removed?: ForgeUndoMark;
+}
+
+/**
+ * What removing the records a load created did, object by object — Forge's
+ * removal, run on the records the load's mapping names.
+ */
+export interface FrozenRemovalResult {
+  /** How the removal ended. */
+  status: ForgeUndoStatus;
+  /** Whether records modified since the load, and what was added to them since, went too. */
+  includeChanged: boolean;
+  /** Per object, in the order they were removed: children before their parents. */
+  objects: ForgeUndoObjectResult[];
+  /** ISO 8601 timestamp of when the removal ended. */
+  finishedAt: string;
+}
+
 /** Module status snapshot returned by `frozen:status`. */
 export interface FrozenStatusInfo {
   /** True when a project config is persisted. */
@@ -436,4 +484,9 @@ export interface FrozenStatusInfo {
   lastLoad: { status: string; orgId: string; at: string } | null;
   /** Last verification verdict, when one ran. */
   lastVerify: { status: string; measuredAt: string } | null;
+  /**
+   * The records of the load whose mapping the sas holds — from this window or
+   * from the command line — for their removal. Absent when no load wrote one.
+   */
+  lastLoadRecords?: FrozenLoadRecordsInfo;
 }

@@ -116,7 +116,11 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     [entries],
   );
   const confirmingPlan = useMemo(
-    () => (confirming ? forgeRunCreatedRecords(confirming) : []),
+    () =>
+      (confirming ? forgeRunCreatedRecords(confirming) : []).map(({ objectApiName, ids }) => ({
+        objectApiName,
+        count: ids.length,
+      })),
     [confirming],
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';

@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * sandforge-frozen — headless Frozen Dataset runner: select, extract, load
- * and verify, through the panel's own handler.
+ * sandforge-frozen — headless Frozen Dataset runner: select, extract, load,
+ * verify and remove, through the panel's own handler.
  *
  * The sixth of these. The five before it found twenty-five defects between
  * them, every one against a real org and none against any gate.
@@ -15,8 +15,9 @@
  * Each step is one message the panel sends:
  *   select   pick one root record per combination of the coverage matrix
  *   extract  read those roots' graphs, pseudonymize, check, freeze
- *   load     replay the frozen dataset into a sandbox — the one step that writes
+ *   load     replay the frozen dataset into a sandbox — writes
  *   verify   check the last load against the dataset, read-only
+ *   remove   delete from the sandbox the records the last load created — deletes
  *   status   what the store knows so far
  *
  * The configuration is the panel's own (`FrozenProjectConfig`, as JSON) and
@@ -27,6 +28,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts select  --config frozen.json --source SRC
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts extract --config frozen.json --source SRC
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load    --config frozen.json --target TGT
+ *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove  --config frozen.json --target TGT
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -51,6 +53,7 @@ Steps:
   extract    read, pseudonymize, check and freeze those roots        (needs --source)
   load       replay the frozen dataset into a sandbox — WRITES       (needs --target)
   verify     check the last load against the dataset                 (needs --target)
+  remove     delete the records the last load created — DELETES     (needs --target)
   status     what the store knows so far
 
 Required:
@@ -63,7 +66,9 @@ Options:
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
   --reload               purge what a previous load wrote, then load again
-  --yes                  do not ask before a load writes
+  --include-changed      remove also the records changed since the load, and what
+                         was added to them since (kept otherwise)
+  --yes                  do not ask before a load writes or a removal deletes
   --json                 emit what the panel would receive
   --help                 this text
 
@@ -73,7 +78,7 @@ and only from there.
 Exit codes: 0 the step finished, 1 it failed or could not start, 2 a bad command line.
 `;
 
-const STEPS = ['select', 'extract', 'load', 'verify', 'status'] as const;
+const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
 type Step = (typeof STEPS)[number];
 
 /** Everything the command line settled. */
@@ -86,6 +91,7 @@ interface CliArgs {
   storePath?: string;
   pilot: boolean;
   reload: boolean;
+  includeChanged: boolean;
   yes: boolean;
   json: boolean;
 }
@@ -118,7 +124,7 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write(`${step} reads the source org: give --source.\n`);
     process.exit(2);
   }
-  if ((step === 'load' || step === 'verify') && !target) {
+  if ((step === 'load' || step === 'verify' || step === 'remove') && !target) {
     process.stderr.write(`${step} works on the target org: give --target.\n`);
     process.exit(2);
   }
@@ -132,6 +138,7 @@ export function parseArgs(argv: string[]): CliArgs {
     storePath: get('--store'),
     pilot: args.includes('--pilot'),
     reload: args.includes('--reload'),
+    includeChanged: args.includes('--include-changed'),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -182,7 +189,66 @@ async function confirm(question: string): Promise<boolean> {
   });
 }
 
+/** Ask on the terminal for a word to be typed, and hand back what was. */
+async function typed(question: string): Promise<string> {
+  process.stdout.write(`${question} `);
+  return new Promise((resolve) => {
+    process.stdin.once('data', (chunk) => {
+      resolve(String(chunk).trim());
+      process.stdin.pause();
+    });
+    process.stdin.resume();
+  });
+}
+
 type Posted = { type?: unknown; payload?: Record<string, unknown> } & Record<string, unknown>;
+
+/** The records of the last load, as `frozen:status` counts them. */
+interface LoadRecords {
+  orgId: string;
+  loadedAt: string;
+  created: Array<{ objectApiName: string; count: number }>;
+  linked: number;
+  recorded: boolean;
+  removed?: { removedAt: string };
+}
+
+/**
+ * What a removal of the last load would take, for the person asked to confirm
+ * it: the org, the records per object in the order they go, and what stays.
+ * Exported so it can be tested.
+ */
+export function removalPlanLines(records: LoadRecords, org: string): string[] {
+  const total = records.created.reduce((sum, object) => sum + object.count, 0);
+  return [
+    `the last load wrote to ${org} at ${records.loadedAt}; a removal deletes the ${total} record(s) it created, children first:`,
+    ...records.created.map((object) => `  ${object.objectApiName}: ${object.count}`),
+    `${records.linked} record(s) it linked to or reused stay`,
+  ];
+}
+
+/** What became of one object's records in a removal, the counts that are not zero. */
+function removalCounts(object: {
+  deleted: number;
+  alreadyGone: number;
+  keptChanged: number;
+  keptDependents: number;
+  refused: number;
+  heldBy: string[];
+}): string {
+  return [
+    object.deleted > 0 ? `${object.deleted} deleted` : '',
+    object.alreadyGone > 0 ? `${object.alreadyGone} already gone` : '',
+    object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the load` : '',
+    object.keptDependents > 0
+      ? `${object.keptDependents} kept for records that stay` +
+        (object.heldBy.length > 0 ? ` (${object.heldBy.join(', ')})` : '')
+      : '',
+    object.refused > 0 ? `${object.refused} refused` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
 
 /** How far discovery reached, and whether it stopped short. */
 function graphLine(graph: { objects: number; truncated: boolean; maxNodes: number }): string {
@@ -338,6 +404,34 @@ export function messageLines(message: Posted): string[] {
         ...v.checks.map((c) => `  ${c.passed ? 'ok  ' : 'FAIL'} ${c.name}: ${c.detail}`),
       ];
     }
+    case 'frozen:remove:response': {
+      const r = p.result as {
+        status: string;
+        objects: Array<{
+          objectApiName: string;
+          planned: number;
+          deleted: number;
+          alreadyGone: number;
+          keptChanged: number;
+          keptDependents: number;
+          refused: number;
+          heldBy: string[];
+          unchecked: string[];
+          reasons: string[];
+        }>;
+      };
+      const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
+      return [
+        `removal: ${r.status.toUpperCase()}`,
+        ...r.objects.flatMap((o) => [
+          `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
+          ...o.reasons.map((reason) => `      ${reason}`),
+        ]),
+        ...(unchecked.length > 0
+          ? [`not checked, deleted with their parent: ${unchecked.join(', ')}`]
+          : []),
+      ];
+    }
     case 'frozen:status:response':
       return [JSON.stringify(p.status, null, 2)];
     default:
@@ -363,9 +457,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const sourceOrgId = args.source ? await registerOrg(args.source, orgs) : undefined;
   const targetOrgId = args.target ? await registerOrg(args.target, orgs) : undefined;
 
-  // What the panel would have received, printed instead of posted.
+  // What the panel would have received, printed instead of posted — but for
+  // what a step reads for itself.
   const posted: Posted[] = [];
   let failed = false;
+  let quiet = false;
   const handler = new FrozenDatasetHandler({
     log: () => undefined,
     broker: {
@@ -373,6 +469,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         if (message.type === 'frozen:load:progress') return;
         posted.push(message);
         if (String(message.type ?? '').endsWith(':error')) failed = true;
+        if (quiet) return;
         for (const line of messageLines(message)) log(line);
       },
     },
@@ -428,6 +525,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(`verifying ${args.target}…`);
       await send('frozen:verify', { targetOrgId });
       break;
+    case 'remove': {
+      // What the page reads before it offers the removal, read the same way.
+      quiet = true;
+      await send('frozen:status', {});
+      quiet = false;
+      const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
+        ?.status as { lastLoadRecords?: LoadRecords } | undefined;
+      const records = status?.lastLoadRecords;
+      if (!records || records.orgId !== targetOrgId) {
+        log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
+        process.exitCode = 1;
+        return;
+      }
+      for (const line of removalPlanLines(records, args.target ?? '')) log(line);
+      if (!args.yes && records.recorded && !records.removed) {
+        // Typed, as the panel asks it: the name of the org the records leave.
+        const answer = await typed(`Type ${args.target} to delete them:`);
+        if (answer !== args.target) {
+          log('Nothing deleted.');
+          return;
+        }
+      }
+      log(`removing from ${args.target}…`);
+      await send('frozen:remove', {
+        targetOrgId,
+        loadedAt: records.loadedAt,
+        ...(args.includeChanged ? { includeChanged: true } : {}),
+      });
+      break;
+    }
     case 'status':
       await send('frozen:status', {});
       break;

@@ -11,19 +11,33 @@ import type {
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenRemovalResult,
   FrozenSelectionSummary,
   FrozenStatusInfo,
+  ForgeRunObjectRecords,
   GuardDecision,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
-import { strongerDecision } from '../../core/precheck/consultProductionGuard.js';
+import {
+  consultProductionGuard,
+  strongerDecision,
+} from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  removalAuditObjects,
+  removalAuditOutcome,
+  removalMark,
+  removalMarks,
+  removalStatus,
+} from '../../modules/forge/removalOutcome.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
   sendHandlerError,
   sendOperationStarted,
+  sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
   robustnessConfigOf,
@@ -36,6 +50,7 @@ import {
   frozenSelectPayloadSchema,
   frozenExtractPayloadSchema,
   frozenLoadPayloadSchema,
+  frozenRemovePayloadSchema,
   frozenVerifyPayloadSchema,
 } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -79,6 +94,8 @@ import {
   createBulkDmlWriter,
   datasetRecordCount,
   leftToThePlatformCoverage,
+  loadCreatedRecords,
+  loadRecordsInfo,
   loadTokensFromSas,
   parseManifest,
   parsePseudonymRules,
@@ -95,6 +112,7 @@ import {
   type FrozenRecordTypeRef,
   type NonReidentificationReport,
   type PersonContactLink,
+  type RecordedLoad,
   type TargetOrgAccess,
 } from '../../modules/frozendataset/index.js';
 
@@ -107,6 +125,7 @@ const FROZEN_TYPES = new Set([
   'frozen:manifest:get',
   'frozen:load',
   'frozen:verify',
+  'frozen:remove',
   'frozen:status',
 ]);
 
@@ -429,6 +448,9 @@ export class FrozenDatasetHandler implements DomainHandler {
   /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
   private liveTracker?: LiveOperationTracker;
 
+  /** The mappings whose load is being removed, by file: one removal at a time each. */
+  private readonly removing = new Set<string>();
+
   /**
    * Describe caches shared by every discovery this handler builds.
    *
@@ -515,6 +537,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         return true;
       case 'frozen:verify':
         await this.handleVerify(msg);
+        return true;
+      case 'frozen:remove':
+        await this.handleRemove(msg);
         return true;
       case 'frozen:status':
         await this.handleStatus(msg);
@@ -1493,6 +1518,22 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return;
       }
+      // Its records went: every one would read as missing, and the verdict
+      // would blame the load.
+      const removed = (await mappingStore.recorded())?.removal;
+      if (removed) {
+        sendHandlerError(
+          this.deps,
+          'frozen:verify',
+          'frozen:verify:error',
+          msg,
+          new Error(
+            `The records the last load created were removed on ${removed.removedAt}. Load the dataset again, then verify.`,
+          ),
+          { code: 'LOAD_REMOVED' },
+        );
+        return;
+      }
       const { dataset } = await this.readFrozenDataset(lastRun.datasetDir, guard);
       await this.runVerification(msg, {
         orgId: parsed.targetOrgId,
@@ -1556,6 +1597,338 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
   }
 
+  // ── frozen:remove ──────────────────────────────────────────────────────
+
+  /**
+   * Remove from its target org the records the last load created, as the sas
+   * mapping names them — never what the request names: the request says which
+   * load, the mapping says what it created, and nothing it linked or reused
+   * goes.
+   *
+   * Refused before anything is read from the org when no load wrote a mapping,
+   * when the mapping holds another load than the one confirmed, predates loads
+   * keeping what they created, was removed already, holds nothing created, or
+   * is being removed now. Then Production Guard judges the delete — a
+   * production org is refused, a missing guard refuses too — the target is
+   * asked whether it is still the org the load wrote to, and Forge's removal
+   * runs: children before their parents, what records staying in the org
+   * depend on kept, what changed since the load kept unless included. It runs
+   * on the registry and in Live Operations, where Cancel stops it before its
+   * next call to the org. The audit trail records it whatever the outcome; the
+   * mapping forgets the records that went, keeps what the removal left on the
+   * others for the next one, and is marked once records went, so the removal
+   * is not offered twice.
+   */
+  private async handleRemove(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenRemovePayloadSchema,
+      msg,
+      'frozen:remove:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:remove:error');
+    if (!config) return;
+    const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
+
+    let store: SasReferenceIdMappingStore;
+    let load: RecordedLoad | undefined;
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      load = await store.recorded();
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, err, {
+        code: this.errorCodeFor(err, 'REMOVE_ERROR'),
+      });
+      return;
+    }
+    if (!load) {
+      refuse('No load was recorded in this sas: there is nothing to remove.', 'NO_LOAD');
+      return;
+    }
+    if (load.orgId !== parsed.targetOrgId || load.endedAt !== parsed.loadedAt) {
+      refuse(
+        'Another load was recorded since this one was shown: open the Load tab again to see what a removal would take.',
+        'LOAD_CHANGED',
+      );
+      return;
+    }
+    if (!load.created) {
+      refuse(
+        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them.',
+        'NOT_RECORDED',
+      );
+      return;
+    }
+    if (load.removal) {
+      refuse(
+        `The records this load created were already removed, on ${load.removal.removedAt}.`,
+        'ALREADY_REMOVED',
+      );
+      return;
+    }
+    const plan = loadCreatedRecords(load);
+    if (plan.length === 0) {
+      refuse('This load created no record to remove.', 'NOTHING_TO_REMOVE');
+      return;
+    }
+    const claim = store.filePath;
+    if (this.removing.has(claim)) {
+      refuse('The records of this load are being removed already.', 'DUPLICATE');
+      return;
+    }
+    // Claimed before Production Guard is consulted: its confirmation waits on
+    // a person, and a second click meanwhile would ask, and remove, twice.
+    this.removing.add(claim);
+    try {
+      await this.removeLoad(msg, {
+        store,
+        load,
+        plan,
+        includeChanged: parsed.includeChanged === true,
+      });
+    } finally {
+      this.removing.delete(claim);
+    }
+  }
+
+  /** Answer a `frozen:remove` that removes nothing, on its error channel. */
+  private refuseRemove(msg: InboundRequest, message: string, code: string): void {
+    sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, new Error(message), {
+      code,
+    });
+  }
+
+  /**
+   * The removal of {@link handleRemove} once the request is known to name a
+   * load whose records can be removed: Production Guard, the target's
+   * identity, then the removal itself.
+   */
+  private async removeLoad(
+    msg: InboundRequest,
+    args: {
+      store: SasReferenceIdMappingStore;
+      load: RecordedLoad;
+      plan: ForgeRunObjectRecords[];
+      includeChanged: boolean;
+    },
+  ): Promise<void> {
+    const { store, load, plan, includeChanged } = args;
+    const orgId = load.orgId;
+    const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
+    const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
+
+    // Production Guard judges the delete before anything is read, as on every
+    // write path; without it nothing is deleted.
+    const productionGuard = this.deps.infraServices?.productionGuard;
+    if (!productionGuard) {
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
+      refuse(PRODUCTION_GUARD_MISSING.message, PRODUCTION_GUARD_MISSING.code);
+      return;
+    }
+    const targetOrg = this.deps.orgManager.getOrg(orgId);
+    const { check, decision } = await consultProductionGuard(productionGuard, {
+      orgId,
+      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      operation: 'delete',
+      objectName: plan.map((o) => o.objectApiName).join(', '),
+      recordCount: total,
+      module: 'frozen',
+    });
+    if (decision === 'refused' || decision === 'declined') {
+      // No removal started, so no operation id was minted: the request's stands in.
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId,
+        outcome: 'stopped',
+        guard: decision,
+      });
+      if (decision === 'refused') {
+        refuse(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          'GUARD_BLOCKED',
+        );
+      } else {
+        sendHandlerError(
+          this.deps,
+          'frozen:remove',
+          'frozen:remove:error',
+          msg,
+          new Error('Operation cancelled by user (production confirmation declined).'),
+          { code: 'GUARD_DECLINED', retryable: true },
+        );
+      }
+      return;
+    }
+
+    // Asked once the guard let the delete go: a production org it refused
+    // must not have been read. A refreshed sandbox took the load's records
+    // with it.
+    let stale: boolean;
+    try {
+      stale = await store.isStale();
+    } catch (err: unknown) {
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId,
+        outcome: 'failure',
+        guard: decision,
+      });
+      sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, err, {
+        code: this.errorCodeFor(err, 'REMOVE_ERROR'),
+        retryable: true,
+      });
+      return;
+    }
+    if (stale) {
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId,
+        outcome: 'stopped',
+        guard: decision,
+        code: 'TARGET_REFRESHED',
+      });
+      refuse(
+        'The target org was refreshed after the load: the records it created went with the refresh, and nothing is removed.',
+        'TARGET_REFRESHED',
+      );
+      return;
+    }
+
+    const operationId = `frozen-remove-${this.deps.nextId()}`;
+    const description = `Removing ${total} record(s) a Frozen load created`;
+    const abortController = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this only prevents an unhandled
+    // rejection when no registry has been injected.
+    tracked.catch(() => {});
+    sendOperationStarted(this.deps, operationId, 'frozen', description);
+    this.registry?.register(operationId, 'frozen', description, tracked, abortController);
+    this.liveTracker?.register(operationId, 'frozen', description, total);
+    /** What the removal failed on, so the registry lists it as failed. */
+    let runError: unknown;
+
+    try {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      // The load is dated by this machine's clock, as it began and as it
+      // wrote its last record; the removal reads that on the org's clock.
+      const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
+      const ended = Date.parse(load.endedAt);
+      const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
+        ...(Number.isFinite(began) && Number.isFinite(ended)
+          ? { runDurationMs: Math.max(0, ended - began) }
+          : {}),
+        ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
+        removalStamps: load.removalStamps,
+        removalSpans: load.removalSpans,
+        includeChanged,
+        signal: abortController.signal,
+        onProgress: (settled, of, objectApiName) => {
+          const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
+          sendOperationProgress(this.deps, operationId, percent, settled, of, objectApiName);
+          // A removal cancelled from Live Operations finishes its call to the
+          // org; the registry has recorded the stop and hears no more of it.
+          if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
+          this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
+        },
+      });
+      const result: FrozenRemovalResult = {
+        status: removalStatus(outcome.objects, outcome.cancelled),
+        includeChanged,
+        objects: outcome.objects,
+        finishedAt: new Date().toISOString(),
+      };
+
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId,
+        orgId,
+        outcome: removalAuditOutcome(result),
+        guard: decision,
+        objects: removalAuditObjects(result.objects),
+      });
+
+      // The mapping forgets what went, keeps what the removal left on the
+      // rest and when it ran, which the next removal reads as its doing, and
+      // is marked once records went, or none was left to go. A removal
+      // stopped part way, or one that deleted nothing, is offered again.
+      const mark = removalMarks(result.status) ? removalMark(result) : undefined;
+      if (
+        outcome.gone.length > 0 ||
+        Object.keys(outcome.stamps).length > 0 ||
+        outcome.span ||
+        mark
+      ) {
+        const kept = await store.recordRemoval(load.endedAt, {
+          gone: outcome.gone,
+          stamps: outcome.stamps,
+          ...(outcome.span ? { span: outcome.span } : {}),
+          ...(mark ? { mark } : {}),
+        });
+        if (!kept) {
+          this.deps.log(
+            '[WARN] frozen:remove: a load wrote its own mapping during the removal; the removal is not recorded in it',
+          );
+        }
+      }
+
+      const response = buildResponse(this.deps, msg, 'frozen:remove:response', {
+        result,
+        operationId,
+      });
+      this.deps.broker.postToWebview(response);
+      if (result.status === 'cancelled') {
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.liveTracker?.cancel(operationId);
+      } else {
+        sendOperationCompleted(this.deps, operationId, { status: result.status });
+        if (result.status === 'failure') {
+          runError = new Error('No record this load created could be removed.');
+          this.liveTracker?.fail(operationId, 'No record this load created could be removed.');
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
+      }
+    } catch (error: unknown) {
+      runError = error;
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId,
+        orgId,
+        outcome: 'failure',
+        guard: decision,
+      });
+      sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, error, {
+        code: 'REMOVE_ERROR',
+        retryable: true,
+      });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+      this.liveTracker?.fail(operationId, extractErrorMessage(error));
+    } finally {
+      settle(runError);
+    }
+  }
+
   // ── frozen:status ──────────────────────────────────────────────────────
 
   private async handleStatus(msg: InboundRequest): Promise<void> {
@@ -1604,6 +1977,18 @@ export class FrozenDatasetHandler implements DomainHandler {
       LAST_VERIFY_KEY,
     );
 
+    // Read as written: the page is told what a removal would take without
+    // anything being asked of the org.
+    let lastLoad: RecordedLoad | undefined;
+    try {
+      const guard = new SasPathGuard();
+      lastLoad = await new SasReferenceIdMappingStore(guard.assertOutsideRepo(sasDir), {
+        guard,
+      }).recorded();
+    } catch {
+      lastLoad = undefined;
+    }
+
     const status: FrozenStatusInfo = {
       configured: config !== null,
       sasDir,
@@ -1616,6 +2001,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ? { status: lastRun.status, orgId: lastRun.targetOrgId, at: lastRun.at }
         : null,
       lastVerify: lastVerify ?? null,
+      ...(lastLoad ? { lastLoadRecords: loadRecordsInfo(lastLoad) } : {}),
     };
     const response = buildResponse(this.deps, msg, 'frozen:status:response', { status });
     this.deps.broker.postToWebview(response);

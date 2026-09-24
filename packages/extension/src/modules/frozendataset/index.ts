@@ -30,6 +30,7 @@ export * from './loadTypes.js';
 export * from './LoadGuards.js';
 export * from './TargetRecordTypeIdResolver.js';
 export * from './SasReferenceIdMappingStore.js';
+export * from './loadRecords.js';
 export * from './CountingContract.js';
 export * from './SchemaAligner.js';
 export * from './FrozenDatasetLoader.js';

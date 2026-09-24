@@ -2936,6 +2936,23 @@
       "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}",
       "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}"
     },
+    "removal": {
+      "title": "Última carga",
+      "loadedInto": "Cargado en {{org}} el {{date}}",
+      "remove": "Eliminar los registros que creó esta carga",
+      "removeTitle": "Eliminar de {{org}} los registros de esta carga",
+      "removeDescription": "Elimina de {{org}} los registros que creó esta carga, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la carga o que reutilizó, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la carga, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
+      "includeChanged": "Eliminar también los registros modificados desde la carga, y lo que se les añadió desde entonces",
+      "removing": "Eliminando los registros que creó esta carga…",
+      "notRecorded": "Cargado antes de que las cargas guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Una recarga los purga.",
+      "orgGone": "La org en la que escribió esta carga ya no está registrada: sus registros no se pueden eliminar desde aquí.",
+      "nothingCreated": "Esta carga no creó ningún registro: no hay nada que eliminar.",
+      "resultSuccess": "No queda en {{org}} ningún registro creado por esta carga.",
+      "resultPartial": "Se eliminaron de {{org}} registros creados por esta carga; los demás se quedan, como se indica.",
+      "resultFailure": "No se eliminó de {{org}} ningún registro creado por esta carga.",
+      "resultChanged_one": "{{formatted}} conservado, modificado desde la carga",
+      "resultChanged_other": "{{formatted}} conservados, modificados desde la carga"
+    },
     "coverage": {
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
