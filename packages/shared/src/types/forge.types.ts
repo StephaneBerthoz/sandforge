@@ -578,6 +578,14 @@ export interface ForgeExecutionResult {
    */
   readByObject?: ForgeReadRecords[];
   /**
+   * Objects whose read from the source failed, in the order they failed:
+   * nothing of them was cloned, and `readByObject` leaves them out, so what
+   * it adds up to is not all the run set out to clone. A record-scoped run
+   * never learned how many rows its scope held of them; each is a failure of
+   * the run all the same. Optional for runs recorded before it.
+   */
+  failedReads?: string[];
+  /**
    * The org the run wrote to, by its id in this machine's org registry.
    *
    * Kept beside `config`, which stays free of orgs so a re-run never replays

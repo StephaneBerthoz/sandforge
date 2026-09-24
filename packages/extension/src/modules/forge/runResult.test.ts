@@ -119,9 +119,23 @@ describe('forgeRunResult', () => {
       idRemapByObject: summary().remapByObject,
       idRemapCreated: summary().createdByObject,
       readByObject: summary().readByObject,
+      failedReads: [],
       errors: [],
       truncatedObjects: [],
     });
+  });
+
+  it('names the objects whose read failed, which what it read leaves out', () => {
+    // A record-scoped clone whose read of Opportunity failed: it read the
+    // account and the contact, and never learned how many opportunities its
+    // scope held, so the records it read are not the whole clone.
+    const result = forgeRunResult(summary({ failedReads: ['Opportunity'] }), GRAPH, {
+      startedAt: Date.now(),
+      status: 'partial',
+    });
+
+    expect(result.failedReads).toEqual(['Opportunity']);
+    expect(result.readByObject?.map((r) => r.objectApiName)).toEqual(['Account', 'Contact']);
   });
 
   it('says per object what the run read, which the counts of the graph it ran do not', () => {

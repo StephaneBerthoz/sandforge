@@ -2588,6 +2588,7 @@
     "soqlObjectNameInvalid": "«{{object}}» no es un nombre de API de SObject, así que la cláusula WHERE no puede enviarse con él. Debe empezar por una letra y tener como máximo 80 letras, dígitos o guiones bajos.",
     "hintSoqlObjectNameInvalid": "Corrija el nombre del objeto después de FROM para descubrir el grafo",
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
+    "readFailed": "No se pudo leer y, por tanto, no se clonó: {{objects}}. La tasa de éxito solo cuenta los registros leídos.",
     "fileContentLeftOut": "Dejados vacíos en el clon: estos campos contienen el contenido de un archivo, que una lectura solo devuelve como la dirección del archivo.",
     "existingRecords": {
       "title": "Ya en la org de destino",

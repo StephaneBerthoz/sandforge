@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type {
   BaseMessage,
   ForgeExecutionResult,
+  ForgeGraphNode,
   SalesforceOrg,
   SyncHistoryEntry,
 } from '@sandforge/shared';
@@ -38,7 +39,12 @@ const forgeRun = (over: Partial<ForgeExecutionResult> = {}): ForgeExecutionResul
     duration: 4_000,
     timestamp: '2026-09-02T10:00:00.000Z',
     idRemapCount: 12,
-    graph: { nodes: [{ recordCount: 30 }, { recordCount: 12 }] },
+    graph: {
+      nodes: [
+        { objectApiName: 'Account', recordCount: 30 },
+        { objectApiName: 'Contact', recordCount: 12 },
+      ],
+    },
     ...over,
   }) as unknown as ForgeExecutionResult;
 
@@ -124,6 +130,102 @@ describe('ReportsHandler', () => {
     const [report] = new ReportsHandler(deps).build().reports;
 
     expect(report.metadata.recordCount).toBe(42);
+  });
+
+  describe('the objects of a Forge run', () => {
+    /** A node as discovery gives it: included, unless `over` leaves it out. */
+    const node = (objectApiName: string, over: Partial<ForgeGraphNode> = {}) => ({
+      objectApiName,
+      recordCount: 1,
+      included: true,
+      status: 'idle',
+      errors: [],
+      ...over,
+    });
+
+    /**
+     * The clone of one opportunity: it read the opportunity and its account.
+     * Discovery found leads and assets empty and left them out, could not
+     * count email statuses, and left cases out by choice; nothing read points
+     * at the campaigns.
+     */
+    const cloneOfOneOpportunity = (over: Partial<ForgeExecutionResult> = {}) =>
+      forgeRun({
+        graph: {
+          nodes: [
+            node('Opportunity'),
+            node('Account', { recordCount: 5 }),
+            node('Lead', { included: false, recordCount: 0 }),
+            node('Asset', { included: false, recordCount: 0 }),
+            node('EmailStatus', {
+              included: false,
+              recordCount: 0,
+              status: 'error',
+              errors: ['Record count unavailable: INVALID_TYPE_FOR_OPERATION'],
+            }),
+            node('Case', { included: false, recordCount: 9 }),
+            node('Campaign', { recordCount: 40 }),
+          ],
+        } as unknown as ForgeExecutionResult['graph'],
+        readByObject: [
+          { objectApiName: 'Opportunity', read: 1 },
+          { objectApiName: 'Account', read: 1 },
+        ],
+        ...over,
+      });
+
+    it('counts the objects the run dealt with, not the empty tables discovery left out', () => {
+      // Counted from the graph, a clone of one opportunity between two
+      // sandboxes was reported as 400 objects, 315 of them empty tables.
+      const { deps } = makeDeps({ 'forge:history': [cloneOfOneOpportunity()] });
+
+      const [report] = new ReportsHandler(deps).build().reports;
+
+      expect(report.title).toBe('Forge clone — 5 object(s)');
+      expect(report.summary).toContain('2 record(s) across 5 object(s)');
+      expect(report.sections[0].content).toMatchObject({ objects: 5, records: 2 });
+    });
+
+    it('counts, once each, the objects the run read or wrote from outside its graph', () => {
+      // The run adds the selling model options of the products it reads
+      // itself, and clones on the way the parent a record needed that
+      // discovery never reached (`expandOrphanParents`): neither is a node of
+      // the graph the history keeps.
+      const { deps } = makeDeps({
+        'forge:history': [
+          cloneOfOneOpportunity({
+            readByObject: [
+              { objectApiName: 'Opportunity', read: 1 },
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'ProductSellingModelOption', read: 2 },
+            ],
+            idRemapByObject: [
+              { objectApiName: 'Account', created: 1, linked: 0 },
+              { objectApiName: 'Region__c', created: 1, linked: 0 },
+              { objectApiName: 'Territory__c', created: 1, linked: 0 },
+              { objectApiName: 'ProductSellingModelOption', created: 2, linked: 0 },
+              { objectApiName: 'Opportunity', created: 1, linked: 0 },
+            ],
+          }),
+        ],
+      });
+
+      const [report] = new ReportsHandler(deps).build().reports;
+
+      // The five it dealt with in its graph, and three from outside it.
+      expect(report.title).toBe('Forge clone — 8 object(s)');
+      expect(report.sections[0].content).toMatchObject({ objects: 8, records: 4 });
+    });
+
+    it('counts an object outside its graph whose read failed', () => {
+      const { deps } = makeDeps({
+        'forge:history': [cloneOfOneOpportunity({ failedReads: ['ProductSellingModelOption'] })],
+      });
+
+      const [report] = new ReportsHandler(deps).build().reports;
+
+      expect(report.title).toBe('Forge clone — 6 object(s)');
+    });
   });
 
   it('answers with an empty list — not an error — when nothing has run', async () => {

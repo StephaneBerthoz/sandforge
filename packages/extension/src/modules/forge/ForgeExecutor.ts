@@ -862,6 +862,19 @@ function tableRowsToRead(node: ForgeGraphNode, maxRecordsPerObject: number | und
 }
 
 /**
+ * What the skip of a node left out of the run says: excluded, and the error
+ * discovery left it out for — its describe or its count failed — on one line.
+ * Run between two sandboxes, fourteen objects were left out because the org
+ * would not count them ("does not support query", NOACCESS), and each said
+ * "(excluded)" only, as an object left out by choice or for an empty table
+ * does.
+ */
+function excludedReason(node: ForgeGraphNode): string {
+  if (node.errors.length === 0) return 'excluded';
+  return `excluded: ${node.errors.join('; ').replace(/\s+/g, ' ').trim()}`;
+}
+
+/**
  * The objects a record of `objectApiName` cannot be written without: those
  * behind a required or master-detail edge of the graph, and those behind a
  * lookup its fields say it may not leave empty. Discovery marks the edges of
@@ -1557,7 +1570,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'skipped',
           progress: 100,
-          message: `Skipped ${node.objectApiName} (excluded)`,
+          message: `Skipped ${node.objectApiName} (${excludedReason(node)})`,
         });
         continue;
       }

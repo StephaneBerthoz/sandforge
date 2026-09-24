@@ -697,6 +697,55 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Forge results naming the objects the run could not read', async ({ page }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_RUN_GRAPH,
+      });
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-unread',
+          status: 'partial',
+          graph: FORGE_RUN_GRAPH,
+          duration: 2_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 1,
+          createdCount: 1,
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
+          failedReads: ['Contact'],
+          errors: [
+            {
+              objectApiName: 'Contact',
+              stage: 'query',
+              failedCount: 0,
+              attemptedCount: 0,
+              samples: [
+                {
+                  recordSummary: '(stage failed before insert)',
+                  messages: ["No such column 'Region__c' on entity 'Contact'."],
+                },
+              ],
+            },
+          ],
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results-read-failed"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-read-failed"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
       page,
     }) => {

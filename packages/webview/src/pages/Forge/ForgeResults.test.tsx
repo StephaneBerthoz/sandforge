@@ -469,6 +469,92 @@ describe('ForgeResults', () => {
       expect(within(rate).getByTestId('kpi-value').textContent).toBe('100%');
     });
 
+    describe('when the read of an object failed', () => {
+      /**
+       * The clone of one account and three contacts, all written, whose read
+       * of the account's opportunities failed: the run never learned how many
+       * its scope held, and ended partial.
+       */
+      function opportunitiesUnread(): void {
+        clonedFromLargeTables();
+        mockResult = Object.assign(mockResult, {
+          status: 'partial' as const,
+          createdCount: 4,
+          failedReads: ['Opportunity'],
+        });
+      }
+
+      /** The note the page gives of the objects it could not read. */
+      const NOTE =
+        'Could not be read, so not cloned: Opportunity. The success rate counts only the records that were read.';
+
+      it('names them next to the rate, which counts only the records it read', () => {
+        opportunitiesUnread();
+        render(<ForgeResults />);
+
+        const rate = screen.getAllByTestId('kpi-card')[3];
+        expect(within(rate).getByTestId('kpi-value').textContent).toBe('100%');
+        const note = screen.getByTestId('forge-results-read-failed');
+        expect(note.textContent).toBe(NOTE);
+        // Right under the row of figures the rate is one of.
+        expect(note.previousElementSibling?.contains(rate)).toBe(true);
+      });
+
+      it('never shows the rate as a success', () => {
+        opportunitiesUnread();
+        render(<ForgeResults />);
+
+        const rate = screen.getAllByTestId('kpi-card')[3];
+        const icon = rate.querySelector('.text-status-warning, .text-status-success');
+        expect(icon?.className).toContain('text-status-warning');
+      });
+
+      it('says so after what it wrote when the run finishes', () => {
+        opportunitiesUnread();
+        render(<ForgeResults />);
+
+        expect(screen.getByTestId('forge-results-status').textContent).toBe(
+          `Forge finished. Written: 4 of 4. ${NOTE}`,
+        );
+      });
+
+      it('names them next to the rate in the copied report', async () => {
+        opportunitiesUnread();
+        const writeText = vi.fn((_text: string) => Promise.resolve());
+        Object.defineProperty(navigator, 'clipboard', {
+          value: { writeText },
+          configurable: true,
+          writable: true,
+        });
+        try {
+          render(<ForgeResults />);
+          await act(async () => {
+            fireEvent.click(screen.getByTestId('forge-copy-report'));
+          });
+
+          const report = writeText.mock.calls[0]?.[0] ?? '';
+          expect(report).toContain(
+            '- Success Rate: 100%\n- Could not be read (not in the rate): Opportunity\n',
+          );
+        } finally {
+          Reflect.deleteProperty(navigator, 'clipboard');
+        }
+      });
+
+      it('says nothing of it for a run that read every object it tried', () => {
+        clonedFromLargeTables();
+        mockResult = Object.assign(mockResult, { createdCount: 4, failedReads: [] });
+        render(<ForgeResults />);
+
+        expect(screen.queryByTestId('forge-results-read-failed')).toBeNull();
+        const rate = screen.getAllByTestId('kpi-card')[3];
+        expect(rate.querySelector('.text-status-success')).not.toBeNull();
+        expect(screen.getByTestId('forge-results-status').textContent).toBe(
+          'Forge finished. Written: 4 of 4.',
+        );
+      });
+    });
+
     it('keeps the counts of the graph for a result recorded before the run said what it read', () => {
       render(<ForgeResults />);
 

@@ -4,6 +4,7 @@ import type {
   GeneratedReport,
   SyncHistoryEntry,
 } from '@sandforge/shared';
+import { leftOutAsEmptyTable } from '@sandforge/shared';
 
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
@@ -47,6 +48,27 @@ function forgeRecordCount(run: ForgeExecutionResult): number {
   if (run.readByObject) return run.readByObject.reduce((total, r) => total + r.read, 0);
   const nodes = run.graph?.nodes ?? [];
   return nodes.reduce((total, node) => total + (node.recordCount ?? 0), 0);
+}
+
+/**
+ * The objects a Forge run dealt with — read, wrote, or skipped for a reason:
+ * every object of its graph but the empty tables discovery left out, and
+ * those it read or wrote from outside the graph — the selling model options
+ * it adds itself, the parent an orphan needed. Counted from the graph, the
+ * clone of one opportunity between two sandboxes was reported as 400 objects,
+ * 315 of them tables the source held no row of.
+ */
+function forgeObjectCount(run: ForgeExecutionResult): number {
+  const nodes = run.graph?.nodes ?? [];
+  const inGraph = new Set(nodes.map((node) => node.objectApiName));
+  const outside = new Set(
+    [
+      ...(run.readByObject ?? []).map((read) => read.objectApiName),
+      ...(run.failedReads ?? []),
+      ...(run.idRemapByObject ?? []).map((written) => written.objectApiName),
+    ].filter((objectApiName) => !inGraph.has(objectApiName)),
+  );
+  return nodes.filter((node) => !leftOutAsEmptyTable(node)).length + outside.size;
 }
 
 /**
@@ -161,7 +183,7 @@ export class ReportsHandler implements DomainHandler {
   }
 
   private forgeReport(run: ForgeExecutionResult): GeneratedReport {
-    const objects = run.graph?.nodes?.length ?? 0;
+    const objects = forgeObjectCount(run);
     const records = forgeRecordCount(run);
     return {
       id: `forge-${run.forgeId}`,

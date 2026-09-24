@@ -140,6 +140,7 @@ export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export { forgeRunCreatedRecords, type ForgeRunObjectRecords } from './utils/forge-run-records.js';
+export { leftOutAsEmptyTable } from './utils/forge-graph-nodes.js';
 export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
 
 // Barrel exports — Templates

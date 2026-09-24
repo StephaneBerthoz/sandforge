@@ -163,6 +163,26 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     return Math.round(((inserted + linked) / plannedRecords) * 100);
   }, [plannedRecords, inserted, linked, result?.status]);
 
+  // Objects whose read failed, which the records read leave out: the rate and
+  // the written count are measured without them, and a record-scoped run never
+  // learned how many rows its scope held of them. Said nowhere, a run that
+  // wrote every record it read and could not read its contacts ended partial
+  // and read "100%". Empty for a run recorded before it said which reads failed.
+  const failedReads = useMemo(() => result?.failedReads ?? [], [result?.failedReads]);
+
+  /** What the page says of the reads that failed, next to the rate; empty when none did. */
+  const readFailedNote =
+    failedReads.length > 0 ? t('forge.readFailed', { objects: failedReads.join(', ') }) : '';
+
+  // An object the run could not read makes no rate a success: the rate counts
+  // the records read, and the clone is short of that object's.
+  const successRateVariant =
+    successRate >= 90 && failedReads.length === 0
+      ? 'success'
+      : successRate >= 50
+        ? 'warning'
+        : 'error';
+
   const anonymizedFieldCount = useMemo(
     () => nodes.reduce((sum, n) => sum + n.anonymizeFields.length, 0),
     [nodes],
@@ -220,6 +240,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       `- Objects skipped: ${String(skippedObjects)}`,
       `- ID Remaps: ${String(idRemaps)}`,
       `- Success Rate: ${String(successRate)}%`,
+      // Next to the rate, as on the page: it counts the records read.
+      ...(failedReads.length > 0
+        ? [`- Could not be read (not in the rate): ${failedReads.join(', ')}`]
+        : []),
       '',
       '## Per-Object Results',
       '',
@@ -243,7 +267,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     }
 
     return lines.join('\n');
-  }, [inserted, linked, skippedObjects, idRemaps, successRate, nodes, recordsOf, existingRecords]);
+  }, [
+    inserted,
+    linked,
+    skippedObjects,
+    idRemaps,
+    successRate,
+    failedReads,
+    nodes,
+    recordsOf,
+    existingRecords,
+  ]);
 
   /** Copy a markdown report summary to the clipboard. */
   const handleCopyReport = useCallback(async () => {
@@ -361,11 +395,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {/* The execution screen's announcer unmounts in the pass that shows this
           one, so the finished run is spoken from here. */}
       <ProgressAnnouncer
-        message={t('a11y.runFinished', {
-          name: t('nav.forge'),
-          written: inserted,
-          total: plannedRecords,
-        })}
+        message={[
+          t('a11y.runFinished', {
+            name: t('nav.forge'),
+            written: inserted,
+            total: plannedRecords,
+          }),
+          // "Written: N of N" is of the records read: said alone, a run short
+          // of an object it could not read was heard as complete.
+          readFailedNote,
+        ]
+          .filter(Boolean)
+          .join(' ')}
         immediate
         testId="forge-results-status"
       />
@@ -396,7 +437,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           icon="trophy"
           label={t('forge.successRate')}
           value={`${String(successRate)}%`}
-          variant={successRate >= 90 ? 'success' : successRate >= 50 ? 'warning' : 'error'}
+          variant={successRateVariant}
         />
         <KPICard
           icon="shield"
@@ -411,6 +452,19 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           variant="default"
         />
       </m.div>
+
+      {/* Under the rate, which is of the records read: an object whose read
+          failed is in none of the figures above, and without this a partial
+          run read as a complete one. */}
+      {readFailedNote && (
+        <div
+          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
+          role="status"
+          data-testid="forge-results-read-failed"
+        >
+          {readFailedNote}
+        </div>
+      )}
 
       {/* Duration + timestamp */}
       {result && (

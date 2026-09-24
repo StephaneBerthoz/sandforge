@@ -26,7 +26,7 @@
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig, ForgeFilesReport, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
+import type { ForgeConfig, ForgeFilesReport, ForgeGraph } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
   FILE_COPY_CEILING_MB,
@@ -35,6 +35,7 @@ import {
   forgeConfigSchemaStrict,
   duplicateRuleHeaders,
   formatFileSize,
+  leftOutAsEmptyTable,
 } from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
@@ -673,15 +674,6 @@ export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined
 }
 
 /**
- * Whether discovery left a node out because its table is empty: counted, and
- * none there. A node whose describe or count failed is left out as well, for
- * a reason worth its own line.
- */
-function emptyTableLeftOut(node: ForgeGraphNode): boolean {
-  return !node.included && node.recordCount === 0 && node.status !== 'error';
-}
-
-/**
  * What prints each object's end of run: {@link objectOutcomeLine}, with the
  * objects discovery left out for an empty table said in one line — how many —
  * where the first of them comes. They are most of a graph: a clone of one
@@ -695,8 +687,10 @@ function emptyTableLeftOut(node: ForgeGraphNode): boolean {
 export function objectOutcomePrinter(
   graph: ForgeGraph,
 ): (event: ForgeProgressEvent) => string | undefined {
+  // The empty tables only: a node left out because its describe or its count
+  // failed keeps its own line, which says the error.
   const emptyTables = new Set(
-    graph.nodes.filter(emptyTableLeftOut).map((node) => node.objectApiName),
+    graph.nodes.filter(leftOutAsEmptyTable).map((node) => node.objectApiName),
   );
   let folded = false;
   return (event) => {

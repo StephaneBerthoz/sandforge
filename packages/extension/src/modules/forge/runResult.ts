@@ -74,6 +74,10 @@ export function forgeRunResult(
     // discovery's, of whole tables, and a record-scoped clone is a few rows
     // of each.
     readByObject: summary.readByObject,
+    // The objects whose read failed, which `readByObject` leaves out: the
+    // records it counts are not the whole clone, and the results say which
+    // objects are missing from it.
+    failedReads: summary.failedReads,
     errors: summary.errors,
     // A read cut short by a bound is not an error and not a success: the
     // clone is short by an unknown number of rows, and only the summary

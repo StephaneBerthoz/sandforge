@@ -280,6 +280,59 @@ describe('ForgeExecutor', () => {
       expect(progressEvents).toHaveLength(1);
       expect(progressEvents[0].status).toBe('skipped');
     });
+
+    /** The message the skip of `objectName` gave. */
+    const skipOf = (objectName: string): string | undefined =>
+      progressEvents.find((e) => e.objectName === objectName && e.status === 'skipped')?.message;
+
+    it('says the error discovery left an object out for, and nothing more for one left out without', async () => {
+      // Discovery keeps an object it could not count in the graph, excluded,
+      // with the error the org gave. Its skip said "(excluded)" only, as the
+      // skip of an empty table does: run between two sandboxes, fourteen such
+      // lines named no reason.
+      const graph = makeGraph([
+        makeNode('Account', { included: false, recordCount: 0 }),
+        makeNode('EmailStatus', {
+          included: false,
+          recordCount: 0,
+          status: 'error',
+          errors: [
+            'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type EmailStatus does not support query',
+          ],
+        }),
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(skipOf('EmailStatus')).toBe(
+        'Skipped EmailStatus (excluded: Record count unavailable: INVALID_TYPE_FOR_OPERATION: ' +
+          'entity type EmailStatus does not support query)',
+      );
+      expect(skipOf('Account')).toBe('Skipped Account (excluded)');
+    });
+
+    it('says the error of an object left out on the one line of its skip', async () => {
+      // An error from Salesforce can run over several lines — the statement,
+      // a caret under the column — and the clone command prints one per object.
+      const graph = makeGraph([
+        makeNode('Contact', {
+          included: false,
+          recordCount: 0,
+          status: 'error',
+          errors: [
+            "Record count unavailable: INVALID_FIELD: \nSELECT COUNT() FROM Contact WHERE (Bogus__c = 'x')\n" +
+              "                                   ^\nERROR at Row:1:Column:36\nNo such column 'Bogus__c' on entity 'Contact'.",
+          ],
+        }),
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(skipOf('Contact')).toBe(
+        "Skipped Contact (excluded: Record count unavailable: INVALID_FIELD: SELECT COUNT() FROM Contact WHERE (Bogus__c = 'x') " +
+          "^ ERROR at Row:1:Column:36 No such column 'Bogus__c' on entity 'Contact'.)",
+      );
+    });
   });
 
   describe('error handling', () => {

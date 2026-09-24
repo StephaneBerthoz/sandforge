@@ -96,7 +96,9 @@ learned how many rows its scope held of them, so their `query` error counts
 none and `failedCount` leaves them out; a run of whole tables counts the table
 it meant to read, no more than `maxRecordsPerObject`. Either way a failed read
 is a failure of the run: it ends partial when it settled other records, and
-failed when it settled none.
+failed when it settled none. The run's history entry keeps them under the same
+name, and its results name them next to the success rate, which counts the
+records read and so leaves them out.
 
 A run asked to copy files reads every object before it writes one, whatever
 its input mode: the files are measured against the target before anything is

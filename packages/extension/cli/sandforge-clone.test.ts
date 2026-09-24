@@ -636,6 +636,8 @@ describe('sandforge-clone object outcomes', () => {
       progress: 100,
       message,
     });
+    /** What the executor says of Survey's skip: left out, and the error discovery gave. */
+    const SURVEY_SKIP = 'Skipped Survey (excluded: Record count unavailable: INSUFFICIENT_ACCESS)';
     /** What the run prints of `events`, line by line. */
     const printed = (run: ForgeGraph, events: ForgeProgressEvent[]): string[] => {
       const line = objectOutcomePrinter(run);
@@ -647,7 +649,7 @@ describe('sandforge-clone object outcomes', () => {
         of('Opportunity', 'done', '[dry-run] Opportunity: 1 record(s) would be inserted'),
         of('Lead', 'skipped', 'Skipped Lead (excluded)'),
         of('Asset', 'skipped', 'Skipped Asset (excluded)'),
-        of('Survey', 'skipped', 'Skipped Survey (excluded)'),
+        of('Survey', 'skipped', SURVEY_SKIP),
         of('Contract', 'skipped', 'Skipped Contract (excluded)'),
         of('Campaign', 'skipped', 'Skipped Campaign (out of scope: no parent in cache)'),
       ]);
@@ -655,7 +657,7 @@ describe('sandforge-clone object outcomes', () => {
       expect(lines).toEqual([
         '  [dry-run] Opportunity: 1 record(s) would be inserted',
         '  Skipped 3 objects (excluded: empty tables; --list-objects names them)',
-        '  Skipped Survey (excluded)',
+        `  ${SURVEY_SKIP}`,
         '  Skipped Campaign (out of scope: no parent in cache)',
       ]);
     });
@@ -664,9 +666,9 @@ describe('sandforge-clone object outcomes', () => {
       expect(
         printed(graph(['Lead']), [
           of('Lead', 'skipped', 'Skipped Lead (excluded)'),
-          of('Survey', 'skipped', 'Skipped Survey (excluded)'),
+          of('Survey', 'skipped', SURVEY_SKIP),
         ]),
-      ).toEqual(['  Skipped Lead (excluded)', '  Skipped Survey (excluded)']);
+      ).toEqual(['  Skipped Lead (excluded)', `  ${SURVEY_SKIP}`]);
     });
   });
 });
