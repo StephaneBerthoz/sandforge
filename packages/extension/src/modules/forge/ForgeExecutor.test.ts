@@ -5537,6 +5537,292 @@ describe('ForgeExecutor', () => {
       });
     });
 
+    describe('an email, its task and their relations', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const EMAIL = '02s000000000001AAA';
+      const EMAIL_TASK = '00T000000000001AAA';
+      /** What a task and an email are related to: nearly any object. */
+      const what = (name: string, required = false): FieldInfo => ({
+        ...lookup(name, 'Opportunity', required),
+        referenceTo: ['Opportunity', 'Quote', 'Contact'],
+      });
+      const fields: Record<string, FieldInfo[]> = {
+        Opportunity: [idField, text('Name')],
+        Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+        Task: [idField, text('Subject'), text('TaskSubtype'), what('WhatId')],
+        EmailMessage: [
+          idField,
+          text('Subject'),
+          text('Status'),
+          what('RelatedToId'),
+          lookup('ActivityId', 'Task'),
+        ],
+        TaskRelation: [
+          idField,
+          lookup('TaskId', 'Task', true),
+          what('RelationId', true),
+          text('IsWhat'),
+        ],
+        EmailMessageRelation: [
+          idField,
+          lookup('EmailMessageId', 'EmailMessage', true),
+          text('RelationType'),
+          text('RelationAddress'),
+        ],
+      };
+      /** The source as a real one held it: an email sent from a quote, with what the platform wrote of it. */
+      const tables = (): Record<string, FakeRow[]> => ({
+        Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+        Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+        Task: [
+          { Id: EMAIL_TASK, Subject: 'Email: The offer', TaskSubtype: 'Email', WhatId: QUOTE },
+        ],
+        EmailMessage: [
+          {
+            Id: EMAIL,
+            Subject: 'The offer',
+            Status: '3',
+            RelatedToId: QUOTE,
+            ActivityId: EMAIL_TASK,
+          },
+        ],
+        TaskRelation: [
+          { Id: '0RT000000000001AAA', TaskId: EMAIL_TASK, RelationId: QUOTE, IsWhat: true },
+        ],
+        EmailMessageRelation: [
+          {
+            Id: '0CZ000000000001AAA',
+            EmailMessageId: EMAIL,
+            RelationType: 'FromAddress',
+            RelationAddress: 'sender@example.com',
+          },
+          {
+            Id: '0CZ000000000002AAA',
+            EmailMessageId: EMAIL,
+            RelationType: 'ToAddress',
+            RelationAddress: 'buyer@example.com',
+          },
+        ],
+      });
+      /** The graph discovery draws around the opportunity. */
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Quote'),
+            makeNode('Task'),
+            makeNode('EmailMessage'),
+            makeNode('TaskRelation'),
+            makeNode('EmailMessageRelation'),
+          ],
+          [
+            edge('Opportunity', 'Quote'),
+            edge('Quote', 'Task'),
+            edge('Quote', 'EmailMessage'),
+            edge('Task', 'EmailMessage'),
+            { ...edge('Task', 'TaskRelation'), required: true },
+            edge('Quote', 'TaskRelation'),
+            { ...edge('EmailMessage', 'EmailMessageRelation'), required: true },
+          ],
+        );
+      const scoped = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+      /**
+       * The fake orgs, whose target answers as the platform does: it refuses
+       * an email naming its task unless the email is on a case, and writes the
+       * task of an email related to a record itself as it takes the email; it
+       * refuses a task's relation to its what, which it writes with the task,
+       * and an email's relation, which it writes from the email's addresses.
+       *
+       * @param platformWritesTasks - Whether the target writes an email's task.
+       */
+      function orgs(platformWritesTasks = true) {
+        const run = fakeOrgs(tables(), fields);
+        const target: Record<string, FakeRow[]> = { EmailMessage: [], TaskRelation: [] };
+        const order: string[] = [];
+        const insert = run.orgDeps.insertRecords;
+        run.orgDeps.insertRecords = async (org, object, records) => {
+          if (records.length > 0) order.push(object);
+          const refusal = (record: Record<string, unknown>): string | undefined => {
+            if (object === 'EmailMessage' && record['ActivityId'] && !record['ParentId']) {
+              return 'INSUFFICIENT_ACCESS_OR_READONLY: you cannot modify this field';
+            }
+            if (object === 'TaskRelation' && record['IsWhat'] !== true) {
+              return 'FIELD_INTEGRITY_EXCEPTION: RelationId must be a contact or lead when isWhat is false.';
+            }
+            if (object === 'EmailMessageRelation') {
+              return 'INVALID_OPERATION: operation not allowed';
+            }
+            return undefined;
+          };
+          const results = await insert(org, object, records);
+          return results.map((result, i) => {
+            const refused = refusal(records[i]);
+            if (refused) return { id: '', success: false, errors: [refused] };
+            if (object === 'EmailMessage') {
+              target['EmailMessage'].push({
+                Id: result.id,
+                ActivityId:
+                  platformWritesTasks && records[i]['RelatedToId'] ? '00TPLATFORM0001AAA' : null,
+              });
+            }
+            return result;
+          });
+        };
+        const query = run.orgDeps.queryRecords;
+        run.orgDeps.queryRecords = async (org, soql, onTruncated) =>
+          org === 'tgt' ? selectRows(target, soql) : query(org, soql, onTruncated);
+        return { ...run, order };
+      }
+
+      it('sends the email without its task, before it, and links the task the platform wrote with it', async () => {
+        // Run for real, the one email of an opportunity went with the task it
+        // names and the target refused it: "you cannot modify this field".
+        const { orgDeps, inserted, order } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['EmailMessage']).toEqual([
+          { Subject: 'The offer', Status: '3', RelatedToId: 'Quote:Offer' },
+        ]);
+        expect(inserted['Task'] ?? []).toEqual([]);
+        expect(order).toEqual(['Opportunity', 'Quote', 'EmailMessage']);
+        expect(summary.remapTable[EMAIL_TASK]).toBe('00TPLATFORM0001AAA');
+        expect(summary.existingSourceIds).toContain(EMAIL_TASK);
+        expect(summary.createdByObject.map((o) => o.objectApiName)).not.toContain('Task');
+        expect(summary.failedCount).toBe(0);
+        expect(progressEvents.filter((e) => e.objectName === 'Task').pop()).toMatchObject({
+          status: 'done',
+          message:
+            'Completed Task: 0 succeeded, 1 written by the platform with their email, 0 failed',
+        });
+      });
+
+      it('writes the task itself, after the email, when the platform wrote none with it', async () => {
+        // Each email a clone wrote into a sandbox whose quote it could not
+        // write went in related to nothing, and the target gave it no task.
+        const { orgDeps, inserted, order } = orgs(false);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['EmailMessage']).toEqual([
+          { Subject: 'The offer', Status: '3', RelatedToId: 'Quote:Offer' },
+        ]);
+        expect(inserted['Task']).toEqual([
+          { Subject: 'Email: The offer', TaskSubtype: 'Email', WhatId: 'Quote:Offer' },
+        ]);
+        expect(order).toEqual(['Opportunity', 'Quote', 'EmailMessage', 'Task']);
+        expect(summary.existingSourceIds).not.toContain(EMAIL_TASK);
+        expect(summary.failedCount).toBe(0);
+      });
+
+      it("leaves the task's relation to its what and the email's relations to the platform, and says why", async () => {
+        const { orgDeps, inserted } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['TaskRelation'] ?? []).toEqual([]);
+        expect(inserted['EmailMessageRelation'] ?? []).toEqual([]);
+        expect(summary.failedCount).toBe(0);
+        expect(summary.errors).toEqual([
+          {
+            objectApiName: 'TaskRelation',
+            stage: 'scope',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'IsWhat=true (1 record)',
+                messages: [
+                  "Not written: the platform writes each what relation itself, from the task's WhatId.",
+                ],
+              },
+            ],
+          },
+          {
+            objectApiName: 'EmailMessageRelation',
+            stage: 'scope',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'every email relation (2 records)',
+                messages: [
+                  "Not written: the platform writes each email relation itself, from the email's addresses.",
+                ],
+              },
+            ],
+          },
+        ]);
+        expect(
+          progressEvents.filter((e) => e.objectName === 'EmailMessageRelation').pop()?.message,
+        ).toBe(
+          "Completed EmailMessageRelation: 0 succeeded, 0 failed, 2 email relations left out: the platform writes them itself, from the email's addresses",
+        );
+      });
+
+      it('keeps the task first and its id on an email on a case, which may name it', async () => {
+        const CASE = '500000000000001AAA';
+        const caseFields: Record<string, FieldInfo[]> = {
+          Case: [idField, text('Subject')],
+          Task: [idField, text('Subject'), { ...what('WhatId'), referenceTo: ['Case'] }],
+          EmailMessage: [
+            idField,
+            text('Subject'),
+            lookup('ParentId', 'Case'),
+            lookup('ActivityId', 'Task'),
+          ],
+        };
+        const run = fakeOrgs(
+          {
+            Case: [{ Id: CASE, Subject: 'Broken' }],
+            Task: [{ Id: EMAIL_TASK, Subject: 'Unread email', WhatId: CASE }],
+            EmailMessage: [
+              { Id: EMAIL, Subject: 'It is broken', ParentId: CASE, ActivityId: EMAIL_TASK },
+            ],
+          },
+          caseFields,
+        );
+        const caseGraph = makeGraph(
+          [makeNode('Case'), makeNode('Task'), makeNode('EmailMessage')],
+          [edge('Case', 'Task'), edge('Case', 'EmailMessage'), edge('Task', 'EmailMessage')],
+        );
+
+        const summary = await new ForgeExecutor(run.orgDeps).execute(
+          caseGraph,
+          'src',
+          'tgt',
+          onProgress,
+          { rootRecordId: CASE, rootObjectApiName: 'Case' },
+        );
+
+        expect(Object.keys(run.inserted)).toEqual(['Case', 'Task', 'EmailMessage']);
+        expect(run.inserted['EmailMessage']).toEqual([
+          { Subject: 'It is broken', ParentId: 'Case:1', ActivityId: 'Task:2' },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+    });
+
     describe('what the run read of each object', () => {
       /**
        * The graph discovery builds around an account: the count of each node

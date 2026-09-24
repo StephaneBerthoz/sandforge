@@ -166,6 +166,80 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned).toEqual({ Quantity: 2, UnitPrice: 7.85 });
   });
 
+  describe("an email's task", () => {
+    const EMAIL_FIELDS: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Subject', queryable: true, createable: true, isReference: false },
+      {
+        name: 'ActivityId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Task'],
+      },
+      {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Case'],
+      },
+      {
+        name: 'RelatedToId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Quote', 'Opportunity'],
+      },
+    ];
+    const emailInput = (
+      records: Record<string, unknown>[],
+      remapper: IdRemapper,
+    ): CleanNodeRecordsInput =>
+      makeInput({
+        objectApiName: 'EmailMessage',
+        records,
+        fieldInfos: EMAIL_FIELDS,
+        remapper,
+        creatableFields: new Set(['Subject', 'ActivityId', 'ParentId', 'RelatedToId']),
+      });
+
+    it('is never sent with an email that is not on a case, nor left for the second pass', () => {
+      // Run for real, the one email of an opportunity went with the task it
+      // names and the target refused it: "you cannot modify this field".
+      const remapper = new IdRemapper();
+      remapper.add('00TWRITTEN', '00TNEW');
+      remapper.add('0Q0QUOTE', '0Q0NEW');
+      const [written, waiting] = cleanNodeRecords(
+        emailInput(
+          [
+            { Id: '02sA', Subject: 'Offer', ActivityId: '00TWRITTEN', RelatedToId: '0Q0QUOTE' },
+            { Id: '02sB', Subject: 'Offer', ActivityId: '00TLATER', RelatedToId: '0Q0QUOTE' },
+          ],
+          remapper,
+        ),
+      );
+
+      expect(written.cleaned).toEqual({ Subject: 'Offer', RelatedToId: '0Q0NEW' });
+      expect(waiting.cleaned).toEqual({ Subject: 'Offer', RelatedToId: '0Q0NEW' });
+      expect(waiting.nullifiedFks).toEqual([]);
+    });
+
+    it('goes with an email on a case, which may name it', () => {
+      const remapper = new IdRemapper();
+      remapper.add('00TWRITTEN', '00TNEW');
+      remapper.add('500CASE', '500NEW');
+      const [out] = cleanNodeRecords(
+        emailInput(
+          [{ Id: '02sA', Subject: 'Reply', ActivityId: '00TWRITTEN', ParentId: '500CASE' }],
+          remapper,
+        ),
+      );
+
+      expect(out.cleaned).toEqual({ Subject: 'Reply', ActivityId: '00TNEW', ParentId: '500NEW' });
+    });
+  });
+
   it('keeps a lone total price when no unit price travels with it', () => {
     const fields: FieldInfo[] = [
       { name: 'TotalPrice', queryable: true, createable: true, isReference: false },

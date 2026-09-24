@@ -54,14 +54,19 @@ import {
   type PendingFkUpdate,
 } from './stages/BatchWriter.js';
 import {
+  EMAIL_MESSAGE,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   STATUS_NEEDS_CHILDREN,
+  TASK,
   draftStartOf,
+  emailOnACase,
+  emailWriteEdges,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
   statusCategories,
+  tasksWrittenWithEmails,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
@@ -1023,6 +1028,14 @@ function requiredLookupsOf(objectApiName: string, fieldInfos: readonly FieldInfo
   return fieldInfos
     .filter((f) => f.isReference && isRequiredLookup(objectApiName, f.name, f.nillable))
     .map((f) => f.name);
+}
+
+/**
+ * Whether the run writes cases: only then can an email it writes go in on a
+ * case, the one kind whose task a copy names (`emailWriteEdges`).
+ */
+function casesWritten(state: ExecutionState): boolean {
+  return state.graph.nodes.some((n) => n.included && n.objectApiName === 'Case');
 }
 
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
@@ -2153,6 +2166,8 @@ export class ForgeExecutor {
     return this.orderByFields(
       state,
       new Map([...state.preread].map(([objectApiName, read]) => [objectApiName, read.fieldInfos])),
+      casesWritten(state) &&
+        (state.preread.get(EMAIL_MESSAGE)?.records.some(emailOnACase) ?? false),
     );
   }
 
@@ -2171,11 +2186,16 @@ export class ForgeExecutor {
    * the lookups of an object at the edge of the graph, of a starter
    * template's objects, of the selling model options the run adds.
    *
+   * And an email before the task it names, unless an email of the run is on a
+   * case: see `emailWriteEdges`.
+   *
    * @param fieldsByObject - The source fields of each object the run writes.
+   * @param anEmailOnACase - Whether an email the run writes is, or may be, on a case.
    */
   private orderByFields(
     state: ExecutionState,
     fieldsByObject: ReadonlyMap<string, readonly FieldInfo[]>,
+    anEmailOnACase: boolean,
   ): ForgeGraphNode[] {
     const objects = new Set(
       state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
@@ -2198,7 +2218,11 @@ export class ForgeExecutor {
         }
       }
     }
-    return sortNodesForWriting(state.graph, [...required, ...catalogWriteEdges(objects, lines)]);
+    return sortNodesForWriting(state.graph, [
+      ...required,
+      ...catalogWriteEdges(objects, lines),
+      ...emailWriteEdges(objects, anEmailOnACase),
+    ]);
   }
 
   /**
@@ -2219,11 +2243,17 @@ export class ForgeExecutor {
    * order a cycle: a quote met before the opportunity it cannot be written
    * without, which points back at it, went first, and the platform refuses
    * it there. The plan reads its cycles in this order too.
+   *
+   * The emails it writes are read at their turn, after the order is settled:
+   * a run that writes cases may hold an email on one, whose task goes first.
    */
   private async singlePassOrder(state: ExecutionState): Promise<ForgeGraphNode[]> {
     const included = state.graph.nodes.filter((n) => n.included);
     if (!included.some((n) => isPricebookEntry(n.objectApiName))) {
-      return sortNodesForWriting(state.graph);
+      return sortNodesForWriting(
+        state.graph,
+        emailWriteEdges(new Set(included.map((n) => n.objectApiName)), casesWritten(state)),
+      );
     }
     const fieldsByObject = new Map<string, readonly FieldInfo[]>();
     for (let i = 0; i < included.length; i += CONCURRENT_DESCRIBE_LIMIT) {
@@ -2238,7 +2268,7 @@ export class ForgeExecutor {
         }
       });
     }
-    return this.orderByFields(state, fieldsByObject);
+    return this.orderByFields(state, fieldsByObject, casesWritten(state));
   }
 
   /**
@@ -3022,6 +3052,75 @@ export class ForgeExecutor {
   }
 
   /**
+   * The rows of the task node still to be written once those the platform
+   * wrote with the run's emails are linked to what it wrote.
+   *
+   * The platform writes an email's task itself as it takes the email, and
+   * refuses the task's id from a copy: the emails go first (`emailWriteEdges`)
+   * and without it. A task a written email names is then asked of the target
+   * by that email: the one it has there is the task read from the source,
+   * linked and never sent — sent, it would stand beside the platform's, two
+   * for one email. A task the platform did not write — its email related to
+   * no record of the target, or not written — goes as any other row.
+   *
+   * @returns The rows still to write, and how many were linked.
+   */
+  private async linkTasksWrittenWithEmails(
+    state: ExecutionState,
+    rows: Record<string, unknown>[],
+  ): Promise<{ rows: Record<string, unknown>[]; linked: number }> {
+    /** The email each task was written with, by the task's source id. */
+    const emailOfTask = new Map<string, string>();
+    for (const email of state.preread.get(EMAIL_MESSAGE)?.records ?? []) {
+      const task = email['ActivityId'];
+      const id = email['Id'];
+      if (typeof task !== 'string' || task === '' || typeof id !== 'string') continue;
+      if (!state.remapper.isCreated(id)) continue;
+      const written = state.remapper.get(id);
+      if (written) emailOfTask.set(task, written);
+    }
+    const emails = [...new Set(rows.flatMap((row) => emailOfTask.get(String(row['Id'])) ?? []))];
+    if (emails.length === 0) return { rows, linked: 0 };
+    let written: Map<string, string>;
+    try {
+      written = await tasksWrittenWithEmails(
+        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        emails,
+      );
+    } catch (err) {
+      // Not looked up, the tasks go as any others, and the report says why a
+      // task may then stand twice.
+      state.errors.push({
+        objectApiName: TASK,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(tasks the platform wrote with the emails)',
+            messages: [`Not looked up, so written as read: ${extractErrorMessage(err)}`],
+          },
+        ],
+      });
+      return { rows, linked: 0 };
+    }
+    const kept = rows.filter((row) => {
+      const source = String(row['Id']);
+      const email = emailOfTask.get(source);
+      const task = email === undefined ? undefined : written.get(email);
+      if (task === undefined) return true;
+      state.remapper.addExisting(source, task, TASK);
+      return false;
+    });
+    const linked = rows.length - kept.length;
+    if (linked > 0) {
+      state.linkedCount += linked;
+      state.existingRecords.push({ objectApiName: TASK, linked, unidentified: 0 });
+    }
+    return { rows: kept, linked };
+  }
+
+  /**
    * Say that a node the target refuses inserts on was skipped: as an error
    * when the clone holds records of it, or may — its read failed.
    *
@@ -3373,6 +3472,15 @@ export class ForgeExecutor {
       // is not held back below as a row whose parent failed.
       toWrite = this.leaveWhatHangsFromThePlatform(state, node, fieldInfos, toWrite);
 
+      // The task the platform wrote with one of the run's emails is the one
+      // read from the source: linked to, never sent a second time.
+      let withTheirEmail = 0;
+      if (node.objectApiName === TASK) {
+        const tasks = await this.linkTasksWrittenWithEmails(state, toWrite);
+        toWrite = tasks.rows;
+        withTheirEmail = tasks.linked;
+      }
+
       // A lookup the rows may not leave empty and that can name several
       // objects decides row by row: see `rowsWithoutTheirParent`. Counted as
       // failed, as the rows of a record type held back are — the run read
@@ -3602,11 +3710,13 @@ export class ForgeExecutor {
           withoutParent.size > 0
             ? `, ${withoutParent.size} not written for want of their parent`
             : '';
+        const writtenWithTheirEmail =
+          withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
         });
       }
     } catch (err) {

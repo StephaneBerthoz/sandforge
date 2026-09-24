@@ -26,8 +26,10 @@ import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js
 import {
   ACCOUNT_CONTACT_RELATION,
   NATURAL_KEYS,
+  TASK_RELATION,
   directAccountContactRelations,
   existingSellingModelOptions,
+  existingTaskRelations,
   recordsByNaturalKey,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
@@ -245,8 +247,9 @@ export class BatchWriter {
     // platform, and the relation read from the source is that one: inserted
     // again it is refused — "the contact already has a relationship with
     // this account" — and the refusal names no record to link to. The one
-    // the platform made is found instead, and linked. A selling model option
-    // of a product the target already held is found and linked the same way.
+    // the platform made is found instead, and linked. So is the relation it
+    // wrote for a task's who as it took the task, and a selling model option
+    // of a product the target already held.
     const direct = await this.heldBeforeInsert(node.objectApiName, targetOrgId, input.records);
     for (const [index, id] of direct) {
       const oldId = input.cleanedRecords[index]?.source['Id'];
@@ -539,8 +542,9 @@ export class BatchWriter {
   /**
    * The records the target already holds for these payloads, found before
    * the insert, by the index of the payload that describes each: the direct
-   * relations the platform created for the contacts this run inserted, and
-   * the selling model options of products the target already held.
+   * relations the platform created for the contacts this run inserted, the
+   * relations it wrote for the tasks this run inserted, and the selling model
+   * options of products the target already held.
    */
   private async heldBeforeInsert(
     objectApiName: string,
@@ -552,6 +556,9 @@ export class BatchWriter {
     const target = (soql: string): Promise<Record<string, unknown>[]> => query(targetOrgId, soql);
     if (objectApiName === ACCOUNT_CONTACT_RELATION) {
       return directAccountContactRelations(target, records);
+    }
+    if (objectApiName === TASK_RELATION) {
+      return existingTaskRelations(target, records);
     }
     if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
       return existingSellingModelOptions(target, records);

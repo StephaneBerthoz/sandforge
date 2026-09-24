@@ -10,6 +10,7 @@
  */
 
 import { SELLING_MODEL_OPTION_OBJECT } from '@sandforge/shared';
+import type { ForgeGraphEdge } from '@sandforge/shared';
 import { assertSoqlIdentifier, assertSoqlWhere, sanitizeSoqlValue } from './soqlValidator.js';
 
 /** A SOQL query against the target org, answering the rows it read. */
@@ -17,6 +18,15 @@ export type SoqlQuery = (soql: string) => Promise<ReadonlyArray<Record<string, u
 
 /** The join Salesforce creates for a contact inserted with an account. */
 export const ACCOUNT_CONTACT_RELATION = 'AccountContactRelation';
+
+/** An email, which the platform gives a task of its own as it takes it. */
+export const EMAIL_MESSAGE = 'EmailMessage';
+
+/** The object of an email's task. */
+export const TASK = 'Task';
+
+/** A task's relation to its who and to its what. */
+export const TASK_RELATION = 'TaskRelation';
 
 /** Contacts per `IN` list when the direct relations are looked up. */
 const DIRECT_RELATION_CHUNK = 200;
@@ -32,14 +42,23 @@ export const NATURAL_KEYS: Readonly<Record<string, readonly string[]>> = {
   ProductSellingModel: ['SellingModelType', 'PricingTerm', 'PricingTermUnit'],
 };
 
-/** Rows of an object the platform writes itself, told by the value one of their fields holds. */
+/**
+ * Rows of an object the platform writes itself: those whose field holds a
+ * value, or every row of the object.
+ */
 export interface PlatformWrittenRows {
-  /** The field that tells them. */
-  readonly field: string;
+  /** The field that tells them; none when every row of the object is one. */
+  readonly field?: string;
   /** Its value on them. */
-  readonly value: string;
+  readonly value?: string | boolean;
   /** One of them, in words. */
   readonly noun: string;
+  /**
+   * What the platform writes them from, in words — `the task's WhatId` — when
+   * it writes them from a record a copy sends. None for a row it makes of
+   * nothing a copy sends.
+   */
+  readonly from?: string;
 }
 
 /**
@@ -53,17 +72,47 @@ export interface PlatformWrittenRows {
  * publisher — are ones the API reference asks a copy not to create, not ones
  * it says are refused: a Chatter migration may carry them, so they are left
  * to the insert.
+ *
+ * A task's what relation is the platform's own record of the task's WhatId,
+ * written with the task: in a real source org every one was created the
+ * second its task was, by the task's author. Run for real, a frozen load sent
+ * the one of an email's task — its `IsWhat` cleared by the dataset's rules —
+ * and the target refused it: "RelationId must be a contact or lead when
+ * isWhat is false". A task has one what relation, and that one is its
+ * WhatId's.
+ *
+ * An email's relations are the platform's own record of the addresses the
+ * email carries. Salesforce generates one for each address of an email
+ * inserted with them, and once the email is sent it takes none that differs
+ * from them (Salesforce Help: "Operation Is Not Allowed" on insert of
+ * EmailMessageRelation). Each email a clone wrote into a sandbox came with the
+ * three its addresses make, written the second the email was, by no call of
+ * the clone's; a frozen load that sent the email's three from the dataset,
+ * their addresses cleared by its rules, had all three refused for want of a
+ * RelationId or a RelationAddress.
  */
 export const PLATFORM_WRITTEN_ROWS: Readonly<Record<string, readonly PlatformWrittenRows[]>> = {
   FeedItem: [{ field: 'Type', value: 'TrackedChange', noun: 'tracked change' }],
+  [TASK_RELATION]: [
+    { field: 'IsWhat', value: true, noun: 'what relation', from: "the task's WhatId" },
+  ],
+  EmailMessageRelation: [{ noun: 'email relation', from: "the email's addresses" }],
 };
 
-/** Which rows the platform writes itself `row` is one of, or nothing when a copy may write it. */
+/**
+ * Which rows the platform writes itself `row` is one of, or nothing when a
+ * copy may write it. A value is compared as its text: a boolean the API
+ * answers as `'true'` is the same value as `true`.
+ */
 export function writtenByThePlatform(
   objectApiName: string,
   row: Record<string, unknown>,
 ): PlatformWrittenRows | undefined {
-  return PLATFORM_WRITTEN_ROWS[objectApiName]?.find((rows) => row[rows.field] === rows.value);
+  return PLATFORM_WRITTEN_ROWS[objectApiName]?.find(
+    (rows) =>
+      rows.field === undefined ||
+      (rows.value !== undefined && String(row[rows.field]) === String(rows.value)),
+  );
 }
 
 /**
@@ -205,29 +254,40 @@ export class RowsLeftToThePlatform {
 /**
  * What an object's last word says of `count` of its rows left to the
  * platform: `1 tracked change left out: the platform writes them itself`, or
- * for rows that hang from one, `1 left out: FeedItemId names a tracked
- * change, which the platform writes itself`.
+ * `3 email relations left out: the platform writes them itself, from the
+ * email's addresses`, or for rows that hang from one, `1 left out: FeedItemId
+ * names a tracked change, which the platform writes itself`.
  */
 export function leftToThePlatformNote(count: number, why: LeftToThePlatform): string {
   if (why.through) {
     return `${count} left out: ${why.through} names a ${why.rows.noun}, which the platform writes itself`;
   }
-  return `${count} ${why.rows.noun}${count === 1 ? '' : 's'} left out: the platform writes them itself`;
+  const from = why.rows.from ? `, from ${why.rows.from}` : '';
+  return `${count} ${why.rows.noun}${count === 1 ? '' : 's'} left out: the platform writes them itself${from}`;
 }
 
-/** The rows a report says `count` rows left to the platform are: `Type=TrackedChange (1 record)`. */
+/**
+ * The rows a report says `count` rows left to the platform are:
+ * `Type=TrackedChange (1 record)`, or `every email relation (3 records)`.
+ */
 export function leftToThePlatformSummary(count: number, why: LeftToThePlatform): string {
   const records = `${count} record${count === 1 ? '' : 's'}`;
-  return why.through
-    ? `${why.through} → ${why.rows.noun} (${records})`
-    : `${why.rows.field}=${why.rows.value} (${records})`;
+  if (why.through) return `${why.through} → ${why.rows.noun} (${records})`;
+  return why.rows.field === undefined
+    ? `every ${why.rows.noun} (${records})`
+    : `${why.rows.field}=${String(why.rows.value)} (${records})`;
 }
 
 /** Why a report says rows left to the platform were not written. */
 export function leftToThePlatformReason(why: LeftToThePlatform): string {
-  return why.through
-    ? `Not written: ${why.through} may not be left empty, and the ${why.rows.noun} it names ` +
-        'is one the platform writes itself, which no copy sends.'
+  if (why.through) {
+    return (
+      `Not written: ${why.through} may not be left empty, and the ${why.rows.noun} it names ` +
+      'is one the platform writes itself, which no copy sends.'
+    );
+  }
+  return why.rows.from
+    ? `Not written: the platform writes each ${why.rows.noun} itself, from ${why.rows.from}.`
     : `Not written: the platform writes each ${why.rows.noun} itself, and refuses one a copy sends.`;
 }
 
@@ -235,6 +295,18 @@ export function leftToThePlatformReason(why: LeftToThePlatform): string {
 export interface RequiredLookup {
   readonly name: string;
   readonly referenceTo: readonly string[];
+}
+
+/**
+ * A rule of {@link PLATFORM_WRITTEN_ROWS} as a SOQL condition: `=` holds for
+ * its rows, `!=` for the others. A rule with no field covers every row of the
+ * object, and a boolean is a SOQL literal, not a quoted string.
+ */
+function ruleCondition({ field, value }: PlatformWrittenRows, operator: '=' | '!='): string {
+  if (field === undefined) return operator === '=' ? 'Id != null' : 'Id = null';
+  const literal =
+    typeof value === 'boolean' ? String(value) : `'${sanitizeSoqlValue(value ?? '')}'`;
+  return `${assertSoqlIdentifier(field)} ${operator} ${literal}`;
 }
 
 /**
@@ -261,14 +333,10 @@ export function rowsACopySends(
   copied: ReadonlyMap<string, string | undefined>,
 ): string[] {
   const isOneOf = (rows: readonly PlatformWrittenRows[]): string =>
-    rows
-      .map(({ field, value }) => `${assertSoqlIdentifier(field)} = '${sanitizeSoqlValue(value)}'`)
-      .join(' OR ');
+    rows.map((rule) => ruleCondition(rule, '=')).join(' OR ');
   // A field SOQL compares with != includes the rows where it is null, as the
   // copy keeps them.
-  const own = (PLATFORM_WRITTEN_ROWS[objectApiName] ?? []).map(
-    ({ field, value }) => `${assertSoqlIdentifier(field)} != '${sanitizeSoqlValue(value)}'`,
-  );
+  const own = (PLATFORM_WRITTEN_ROWS[objectApiName] ?? []).map((rule) => ruleCondition(rule, '!='));
   const hanging = requiredLookups.flatMap((lookup) =>
     lookup.referenceTo.flatMap((parent) => {
       const rows = PLATFORM_WRITTEN_ROWS[parent];
@@ -284,6 +352,175 @@ export function rowsACopySends(
     }),
   );
   return [...own, ...hanging];
+}
+
+/** What a task's who can be: a relation to anything else is to its what. */
+const TASK_WHO_OBJECTS: ReadonlySet<string> = new Set(['Contact', 'Lead']);
+
+/**
+ * A task relation's row, with `IsWhat` said when the row no longer says it
+ * and the record it names does.
+ *
+ * A frozen dataset's rules clear every field they keep no value of, and a
+ * real dataset carried its one task relation with `IsWhat` cleared: sent, it
+ * was taken for a relation to a who — "RelationId must be a contact or lead
+ * when isWhat is false" — though it named a quote. A relation to anything but
+ * a contact or a lead is a relation to the task's what.
+ *
+ * @param relationObject - The object of the record `RelationId` names, when known.
+ */
+export function withTheRelationItIs(
+  objectApiName: string,
+  row: Record<string, unknown>,
+  relationObject: string | undefined,
+): Record<string, unknown> {
+  if (objectApiName !== TASK_RELATION) return row;
+  const said = row['IsWhat'];
+  if (said !== '' && said !== null && said !== undefined) return row;
+  if (relationObject === undefined || TASK_WHO_OBJECTS.has(relationObject)) return row;
+  return { ...row, IsWhat: true };
+}
+
+/**
+ * Whether an email is on a case — the one kind whose task a copy may name.
+ * `ParentId` names nothing but a case.
+ */
+export function emailOnACase(row: Record<string, unknown>): boolean {
+  const parent = row['ParentId'];
+  return typeof parent === 'string' && parent !== '';
+}
+
+/**
+ * The lookups of a row, as it is to be sent, that the platform fills in
+ * itself and refuses from a copy: an email's task, unless the email is on a
+ * case.
+ *
+ * "ActivityId can only be specified for emails on cases. It's auto-created
+ * for other entities" (Object Reference, EmailMessage). Run for real, the
+ * clone of an opportunity sent its one email, related to a quote, with the
+ * task it names, and the target refused it — INSUFFICIENT_ACCESS_OR_READONLY,
+ * "you cannot modify this field" — as it refused the same email from a frozen
+ * load; cloned at a cap that left the task out, the email went in.
+ */
+export function lookupsThePlatformFills(
+  objectApiName: string,
+  row: Record<string, unknown>,
+): string[] {
+  return objectApiName === EMAIL_MESSAGE && !emailOnACase(row) ? ['ActivityId'] : [];
+}
+
+/**
+ * The order an email and the task it names are written in, as an edge between
+ * the objects a run writes: the email first, unless an email of the run is on
+ * a case.
+ *
+ * The platform writes an email's task itself as it takes the email, when the
+ * email is related to a record — none, run for real, for the emails whose
+ * related quote the target never got — and refuses the task's id from a copy
+ * (`lookupsThePlatformFills`). Written first, the task read from the source
+ * would stand beside the platform's: two for one email. Written after, it is
+ * found in the target by its email when the platform wrote one
+ * ({@link tasksWrittenWithEmails}), and written when it did not. An email on a
+ * case names its task from the copy, as a parent: a run that holds one writes
+ * the tasks first. Either way the order is set here, not left to how the rest
+ * of the graph happens to break the tie.
+ *
+ * @param objects - The objects the run writes; the edge joins two of them only.
+ * @param anEmailOnACase - Whether an email the run writes is on a case.
+ */
+export function emailWriteEdges(
+  objects: ReadonlySet<string>,
+  anEmailOnACase: boolean,
+): ForgeGraphEdge[] {
+  if (!objects.has(EMAIL_MESSAGE) || !objects.has(TASK)) return [];
+  const [before, after] = anEmailOnACase ? [TASK, EMAIL_MESSAGE] : [EMAIL_MESSAGE, TASK];
+  return [
+    {
+      sourceObject: before,
+      targetObject: after,
+      relationshipName: `${before}Before${after}`,
+      type: 'lookup',
+      required: true,
+    },
+  ];
+}
+
+/** Ids per `IN` list when the target is asked about the records a run wrote. */
+const WRITTEN_CHUNK = 200;
+
+/**
+ * The task the platform wrote with each of the emails `ids`, by the email's
+ * id: the task each names, read from the target once the emails are in. An
+ * email the platform gave no task is not listed.
+ */
+export async function tasksWrittenWithEmails(
+  query: SoqlQuery,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += WRITTEN_CHUNK) {
+    const inList = ids
+      .slice(i, i + WRITTEN_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    const rows = await query(`SELECT Id, ActivityId FROM ${EMAIL_MESSAGE} WHERE Id IN (${inList})`);
+    for (const row of rows) {
+      const task = row['ActivityId'];
+      if (typeof row['Id'] === 'string' && typeof task === 'string' && task !== '') {
+        found.set(row['Id'], task);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * The task relations the target already holds for the task and the record
+ * each payload names, by the index of the payload.
+ *
+ * The platform writes a task's relations to its WhoId and its WhatId as it
+ * writes the task — in a real source org, every relation was created the
+ * second its task was, by the task's author, and named the task's who or
+ * what — and the relations of an email's task as it writes that task with its
+ * email. The what relation never goes (`PLATFORM_WRITTEN_ROWS`); a relation
+ * to a contact or a lead read from the source is the one the platform wrote
+ * when the target holds it, linked to rather than sent twice, and sent when it
+ * does not: a task shared with several contacts has a relation to each. The
+ * payloads carry target ids already.
+ */
+export async function existingTaskRelations(
+  query: SoqlQuery,
+  records: readonly Record<string, unknown>[],
+): Promise<Map<number, string>> {
+  const found = new Map<number, string>();
+  const tasks = [
+    ...new Set(
+      records
+        .map((r) => r['TaskId'])
+        .filter((id): id is string => typeof id === 'string' && id !== ''),
+    ),
+  ];
+  if (tasks.length === 0) return found;
+  const byPair = new Map<string, string>();
+  for (let i = 0; i < tasks.length; i += WRITTEN_CHUNK) {
+    const inList = tasks
+      .slice(i, i + WRITTEN_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    const rows = await query(
+      `SELECT Id, TaskId, RelationId FROM ${TASK_RELATION} WHERE TaskId IN (${inList})`,
+    );
+    for (const row of rows) {
+      if (typeof row['Id'] === 'string') {
+        byPair.set(`${String(row['TaskId'])}|${String(row['RelationId'])}`, row['Id']);
+      }
+    }
+  }
+  records.forEach((r, i) => {
+    const id = byPair.get(`${String(r['TaskId'])}|${String(r['RelationId'])}`);
+    if (id) found.set(i, id);
+  });
+  return found;
 }
 
 /**

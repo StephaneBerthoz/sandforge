@@ -18,6 +18,7 @@ import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import { lookupsAtObjectsLeftOut } from '../excludedObjects.js';
+import { lookupsThePlatformFills } from '../../../core/common/platformRecords.js';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -293,6 +294,15 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     for (const field of exclusiveFieldsToDrop(objectApiName, cleaned)) {
       delete cleaned[field];
     }
-    return { source: r, cleaned, nullifiedFks };
+    // A lookup the platform fills in itself goes neither now nor in the
+    // second pass: an email's task, which it refuses from a copy and creates
+    // with the email. See `lookupsThePlatformFills`.
+    const filled = lookupsThePlatformFills(objectApiName, cleaned);
+    for (const field of filled) delete cleaned[field];
+    return {
+      source: r,
+      cleaned,
+      nullifiedFks: nullifiedFks.filter((nf) => !filled.includes(nf.field)),
+    };
   });
 }

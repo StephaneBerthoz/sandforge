@@ -5,14 +5,20 @@ import {
   STATUS_NEEDS_CHILDREN,
   directAccountContactRelations,
   draftStartOf,
+  emailOnACase,
+  emailWriteEdges,
   existingSellingModelOptions,
+  existingTaskRelations,
   leftToThePlatformNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
+  lookupsThePlatformFills,
   recordsByNaturalKey,
   rowsACopySends,
   standardPriceIds,
   statusCategories,
+  tasksWrittenWithEmails,
+  withTheRelationItIs,
   writtenByThePlatform,
   type SoqlQuery,
 } from './platformRecords.js';
@@ -56,6 +62,172 @@ describe('writtenByThePlatform', () => {
     expect(writtenByThePlatform('FeedItem', { Id: '0D5A', Type: 'CallLogPost' })).toBeUndefined();
     expect(writtenByThePlatform('FeedItem', { Id: '0D5A' })).toBeUndefined();
     expect(writtenByThePlatform('Task', { Id: '00TA', Type: 'TrackedChange' })).toBeUndefined();
+  });
+
+  it("names a task's relation to its what, however the API spells the flag, and leaves a relation to a who to the insert", () => {
+    const what = {
+      field: 'IsWhat',
+      value: true,
+      noun: 'what relation',
+      from: "the task's WhatId",
+    };
+
+    expect(writtenByThePlatform('TaskRelation', { Id: '0RTA', IsWhat: true })).toEqual(what);
+    expect(writtenByThePlatform('TaskRelation', { Id: '0RTA', IsWhat: 'true' })).toEqual(what);
+    expect(writtenByThePlatform('TaskRelation', { Id: '0RTB', IsWhat: false })).toBeUndefined();
+    expect(writtenByThePlatform('TaskRelation', { Id: '0RTC', IsWhat: '' })).toBeUndefined();
+    expect(writtenByThePlatform('TaskRelation', { Id: '0RTD' })).toBeUndefined();
+  });
+
+  it("names every relation of an email, whatever it carries, as one the platform writes from the email's addresses", () => {
+    const relation = { noun: 'email relation', from: "the email's addresses" };
+
+    expect(
+      writtenByThePlatform('EmailMessageRelation', {
+        Id: '0CZA',
+        RelationType: 'ToAddress',
+        RelationAddress: 'someone@example.com',
+      }),
+    ).toEqual(relation);
+    expect(writtenByThePlatform('EmailMessageRelation', { Id: '0CZB' })).toEqual(relation);
+    expect(writtenByThePlatform('EmailMessage', { Id: '02sA' })).toBeUndefined();
+  });
+});
+
+describe('withTheRelationItIs', () => {
+  it('says a task relation whose IsWhat was cleared is to its what when it names neither a contact nor a lead', () => {
+    expect(
+      withTheRelationItIs('TaskRelation', { RelationId: 'Quote-000014', IsWhat: '' }, 'Quote'),
+    ).toEqual({ RelationId: 'Quote-000014', IsWhat: true });
+    expect(
+      withTheRelationItIs('TaskRelation', { RelationId: 'Account-000001' }, 'Account'),
+    ).toEqual({ RelationId: 'Account-000001', IsWhat: true });
+  });
+
+  it('leaves a relation to a contact or a lead, one that says what it is, one naming an unknown record, and other objects as they are', () => {
+    const toContact = { RelationId: 'Contact-000001', IsWhat: '' };
+    const said = { RelationId: 'Quote-000001', IsWhat: false };
+    const unknown = { RelationId: '0Q0000000000001', IsWhat: '' };
+    const feedItem = { ParentId: 'Quote-000001', IsWhat: '' };
+
+    expect(withTheRelationItIs('TaskRelation', toContact, 'Contact')).toBe(toContact);
+    expect(withTheRelationItIs('TaskRelation', { ...toContact }, 'Lead')).toEqual(toContact);
+    expect(withTheRelationItIs('TaskRelation', said, 'Quote')).toBe(said);
+    expect(withTheRelationItIs('TaskRelation', unknown, undefined)).toBe(unknown);
+    expect(withTheRelationItIs('FeedItem', feedItem, 'Quote')).toBe(feedItem);
+  });
+});
+
+describe('lookupsThePlatformFills', () => {
+  it("names an email's task on an email that is not on a case, and nothing on one that is", () => {
+    expect(emailOnACase({ ParentId: '500T' })).toBe(true);
+    expect(emailOnACase({ ParentId: '' })).toBe(false);
+    expect(emailOnACase({ RelatedToId: '0Q0T' })).toBe(false);
+    expect(
+      lookupsThePlatformFills('EmailMessage', { ActivityId: '00TT', RelatedToId: '0Q0T' }),
+    ).toEqual(['ActivityId']);
+    expect(
+      lookupsThePlatformFills('EmailMessage', { ActivityId: '00TT', ParentId: '500T' }),
+    ).toEqual([]);
+  });
+
+  it('names nothing on other objects', () => {
+    expect(lookupsThePlatformFills('Task', { ActivityId: '00TT' })).toEqual([]);
+    expect(lookupsThePlatformFills('Case', { ParentId: '500T' })).toEqual([]);
+  });
+});
+
+describe('emailWriteEdges', () => {
+  it('writes an email before the task it names, unless an email of the run is on a case', () => {
+    const both = new Set(['EmailMessage', 'Task', 'Account']);
+
+    expect(emailWriteEdges(both, false)).toEqual([
+      {
+        sourceObject: 'EmailMessage',
+        targetObject: 'Task',
+        relationshipName: 'EmailMessageBeforeTask',
+        type: 'lookup',
+        required: true,
+      },
+    ]);
+    expect(emailWriteEdges(both, true)).toEqual([
+      {
+        sourceObject: 'Task',
+        targetObject: 'EmailMessage',
+        relationshipName: 'TaskBeforeEmailMessage',
+        type: 'lookup',
+        required: true,
+      },
+    ]);
+  });
+
+  it('orders nothing in a run that does not write both', () => {
+    expect(emailWriteEdges(new Set(['EmailMessage', 'Account']), false)).toEqual([]);
+    expect(emailWriteEdges(new Set(['Task', 'Account']), false)).toEqual([]);
+  });
+});
+
+describe('tasksWrittenWithEmails', () => {
+  it('names the task the target holds for each email that has one', async () => {
+    const query = vi.fn<SoqlQuery>(async () => [
+      { Id: '02sWITH', ActivityId: '00TPLATFORM' },
+      { Id: '02sWITHOUT', ActivityId: null },
+    ]);
+
+    const found = await tasksWrittenWithEmails(query, ['02sWITH', '02sWITHOUT']);
+
+    expect(query).toHaveBeenCalledWith(
+      "SELECT Id, ActivityId FROM EmailMessage WHERE Id IN ('02sWITH', '02sWITHOUT')",
+    );
+    expect([...found]).toEqual([['02sWITH', '00TPLATFORM']]);
+  });
+
+  it('asks nothing for no email, and two hundred at a time', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+
+    await tasksWrittenWithEmails(query, []);
+    expect(query).not.toHaveBeenCalled();
+    await tasksWrittenWithEmails(
+      query,
+      Array.from({ length: 201 }, (_, i) => `02s${String(i).padStart(3, '0')}`),
+    );
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('existingTaskRelations', () => {
+  it('finds the relation the target holds for each task and record, and no other', async () => {
+    const query = vi.fn<SoqlQuery>(async () => [
+      { Id: '0RTWHO', TaskId: '00TT', RelationId: '003WHO' },
+    ]);
+
+    const found = await existingTaskRelations(query, [
+      { TaskId: '00TT', RelationId: '003OTHER', IsWhat: false },
+      { TaskId: '00TT', RelationId: '003WHO', IsWhat: false },
+    ]);
+
+    expect(query).toHaveBeenCalledWith(
+      "SELECT Id, TaskId, RelationId FROM TaskRelation WHERE TaskId IN ('00TT')",
+    );
+    // The first names another contact of the task: a relation the platform
+    // never wrote, sent like any other record.
+    expect([...found]).toEqual([[1, '0RTWHO']]);
+  });
+
+  it('asks nothing when no payload names its task, and two hundred tasks at a time', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+
+    const none = await existingTaskRelations(query, [{ RelationId: '003WHO' }]);
+    expect(query).not.toHaveBeenCalled();
+    expect(none.size).toBe(0);
+    await existingTaskRelations(
+      query,
+      Array.from({ length: 201 }, (_, i) => ({
+        TaskId: `00T${String(i).padStart(3, '0')}`,
+        RelationId: '003WHO',
+      })),
+    );
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -184,6 +356,49 @@ describe('RowsLeftToThePlatform', () => {
       'Not written: FeedItemId may not be left empty, and the tracked change it names is one ' +
         'the platform writes itself, which no copy sends.',
     );
+  });
+
+  it('words the relations the platform writes from what a copy sends, and says what from', () => {
+    const what = {
+      rows: { field: 'IsWhat', value: true, noun: 'what relation', from: "the task's WhatId" },
+    };
+    const email = { rows: { noun: 'email relation', from: "the email's addresses" } };
+
+    expect(leftToThePlatformNote(1, what)).toBe(
+      "1 what relation left out: the platform writes them itself, from the task's WhatId",
+    );
+    expect(leftToThePlatformNote(3, email)).toBe(
+      "3 email relations left out: the platform writes them itself, from the email's addresses",
+    );
+    expect(leftToThePlatformSummary(1, what)).toBe('IsWhat=true (1 record)');
+    expect(leftToThePlatformSummary(3, email)).toBe('every email relation (3 records)');
+    expect(leftToThePlatformReason(what)).toBe(
+      "Not written: the platform writes each what relation itself, from the task's WhatId.",
+    );
+    expect(leftToThePlatformReason(email)).toBe(
+      "Not written: the platform writes each email relation itself, from the email's addresses.",
+    );
+  });
+
+  it('leaves out every email relation and the relation to a task’s what, and keeps a relation to a who', () => {
+    const left = new RowsLeftToThePlatform();
+
+    expect(
+      left.keep('EmailMessageRelation', [
+        { Id: '0CZFROM', RelationType: 'FromAddress' },
+        { Id: '0CZTO', RelationType: 'ToAddress' },
+      ]),
+    ).toEqual([]);
+    expect(
+      left.keep('TaskRelation', [
+        { Id: '0RTWHAT', IsWhat: true, RelationId: '0Q0Q' },
+        { Id: '0RTWHO', IsWhat: false, RelationId: '003C' },
+      ]),
+    ).toEqual([{ Id: '0RTWHO', IsWhat: false, RelationId: '003C' }]);
+    expect(left.counts().map(({ objectApiName, count }) => [objectApiName, count])).toEqual([
+      ['EmailMessageRelation', 2],
+      ['TaskRelation', 1],
+    ]);
   });
 });
 

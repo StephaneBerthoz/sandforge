@@ -46,17 +46,26 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  EMAIL_MESSAGE,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
+  TASK,
+  TASK_RELATION,
   draftStartOf,
+  emailOnACase,
+  emailWriteEdges,
   existingSellingModelOptions,
+  existingTaskRelations,
   leftToThePlatformNote,
+  lookupsThePlatformFills,
   recordsByNaturalKey,
   standardPriceIds,
   statusCategories,
   type LeftToThePlatform,
   type PlatformWrittenRows,
+  tasksWrittenWithEmails,
+  withTheRelationItIs,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { leftToThePlatformCoverage } from './manifest.js';
@@ -335,7 +344,8 @@ export class FrozenDatasetLoader {
     // platform refuses one from a copy — "Cannot directly insert FeedItem with
     // type TrackedChange". Its reference stays known, so a lookup that names
     // it is told apart from a value; what cannot go in without it goes with
-    // it once the target says which lookups a record may not leave empty.
+    // it once the target says which lookups a record may not leave empty. A
+    // task relation whose `IsWhat` the rules cleared is told by what it names.
     const leftToThePlatform = new RowsLeftToThePlatform();
     // Nor is a feed item whose type the dataset does not carry: see
     // `UNTYPED_FEED_ITEMS`. What hangs from one goes with it, the same way.
@@ -346,8 +356,17 @@ export class FrozenDatasetLoader {
         ...objectData,
         records: objectData.records.filter(
           (r) =>
-            !leftToThePlatform.leaveOut(objectData.objectApiName, r.referenceId, r.fields) &&
-            !untypedFeedItems.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
+            !leftToThePlatform.leaveOut(
+              objectData.objectApiName,
+              r.referenceId,
+              withTheRelationItIs(
+                objectData.objectApiName,
+                r.fields,
+                typeof r.fields.RelationId === 'string'
+                  ? refIndex.get(r.fields.RelationId)
+                  : undefined,
+              ),
+            ) && !untypedFeedItems.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
         ),
       })),
     };
@@ -609,6 +628,12 @@ export class FrozenDatasetLoader {
       });
       if (objectApiName === ACCOUNT_CONTACT_RELATION) {
         await this.matchDirectRelations(orgId, working, aligned, mapping, reused);
+      }
+      if (objectApiName === TASK) {
+        await this.matchTasksWrittenWithEmails(orgId, working, aligned, mapping, reused);
+      }
+      if (objectApiName === TASK_RELATION) {
+        await this.matchTaskRelations(orgId, aligned, mapping, reused);
       }
       const fromFiles =
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
@@ -1391,6 +1416,7 @@ export class FrozenDatasetLoader {
     }
     const payloads = toInsert.map((record) => {
       const payload: Record<string, unknown> = {};
+      const pending: PendingFk[] = [];
       for (const [field, value] of Object.entries(record.fields)) {
         // No value is left out, and the platform decides: its default, the
         // running user as owner. The `clear` generator marks what it removed
@@ -1405,7 +1431,7 @@ export class FrozenDatasetLoader {
           } else {
             // Cycle (target inserted later) or a parent skipped/failed:
             // left empty now, pass 2 resolves or lists it — never opaque.
-            pendingFk.push({
+            pending.push({
               objectApiName,
               referenceId: record.referenceId,
               field,
@@ -1416,6 +1442,12 @@ export class FrozenDatasetLoader {
           payload[field] = value;
         }
       }
+      // A lookup the platform fills in itself goes neither now nor in pass 2:
+      // an email's task, which it refuses from a copy and writes with the
+      // email. See `lookupsThePlatformFills`.
+      const filled = lookupsThePlatformFills(objectApiName, payload);
+      for (const field of filled) delete payload[field];
+      pendingFk.push(...pending.filter((p) => !filled.includes(p.field)));
       return payload;
     });
     await this.checkGuard(options, 'insert', objectApiName, payloads.length);
@@ -1486,6 +1518,74 @@ export class FrozenDatasetLoader {
         mapping.set(relation.referenceId, id);
         reused.add(relation.referenceId);
       }
+    }
+  }
+
+  /**
+   * Link each task of the dataset the platform wrote with an email this load
+   * wrote to the task it wrote.
+   *
+   * The emails go first, without the id of their task (`emailWriteEdges`),
+   * and the platform writes the task of each that is related to a record as
+   * it takes it. The task read from the source is that one: mapped to it and
+   * counted as reused, never inserted a second time beside it. A task the
+   * platform did not write — its email related to no record, or not loaded —
+   * is inserted as any other.
+   */
+  private async matchTasksWrittenWithEmails(
+    orgId: string,
+    working: FrozenDataset,
+    aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<void> {
+    const tasks = new Set(aligned.map((r) => r.referenceId));
+    /** The target id of the email each task went with, by the task's referenceId. */
+    const emailOfTask = new Map<string, string>();
+    for (const email of working.objects.find((o) => o.objectApiName === EMAIL_MESSAGE)?.records ??
+      []) {
+      const task = email.fields.ActivityId;
+      if (typeof task !== 'string' || !tasks.has(task) || reused.has(email.referenceId)) continue;
+      const id = mapping.get(email.referenceId);
+      if (id) emailOfTask.set(task, id);
+    }
+    if (emailOfTask.size === 0) return;
+    const written = await tasksWrittenWithEmails(
+      (soql) => this.deps.orgAccess.query(orgId, soql),
+      [...new Set(emailOfTask.values())],
+    );
+    for (const [task, email] of emailOfTask) {
+      const id = written.get(email);
+      if (id === undefined) continue;
+      mapping.set(task, id);
+      reused.add(task);
+    }
+  }
+
+  /**
+   * Link each task relation the target already holds — the ones the platform
+   * wrote for its task's who as it took the task — to the one it holds. See
+   * `existingTaskRelations`; a relation to the task's what never comes this
+   * far (`PLATFORM_WRITTEN_ROWS`).
+   */
+  private async matchTaskRelations(
+    orgId: string,
+    aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<void> {
+    const idOf = (value: unknown): string | undefined =>
+      typeof value === 'string' ? mapping.get(value) : undefined;
+    const held = await existingTaskRelations(
+      (soql) => this.deps.orgAccess.query(orgId, soql),
+      aligned.map((r) => ({
+        TaskId: idOf(r.fields.TaskId),
+        RelationId: idOf(r.fields.RelationId),
+      })),
+    );
+    for (const [index, id] of held) {
+      mapping.set(aligned[index].referenceId, id);
+      reused.add(aligned[index].referenceId);
     }
   }
 
@@ -1815,7 +1915,7 @@ function untypedFeedItem(
   row: Record<string, unknown>,
 ): PlatformWrittenRows | undefined {
   if (objectApiName !== 'FeedItem') return undefined;
-  const type = row[UNTYPED_FEED_ITEMS.field];
+  const type = row['Type'];
   return typeof type === 'string' && type !== '' ? undefined : UNTYPED_FEED_ITEMS;
 }
 
@@ -1875,6 +1975,16 @@ function buildObjectDependencies(
   // went in by name, the prices first. Forge's catalog order says which goes
   // first where no lookup does.
   for (const { sourceObject, targetObject } of catalogWriteEdges(new Set(deps.keys()), [])) {
+    deps.get(targetObject)?.add(sourceObject);
+  }
+  // An email names its task, and the platform writes that task with the
+  // email unless it is on a case: the email then goes first, the lookup it
+  // names the task by ordering nothing. See `emailWriteEdges`.
+  const onACase = (
+    dataset.objects.find((o) => o.objectApiName === EMAIL_MESSAGE)?.records ?? []
+  ).some((r) => emailOnACase(r.fields) && refIndex.get(String(r.fields.ParentId)) === 'Case');
+  for (const { sourceObject, targetObject } of emailWriteEdges(new Set(deps.keys()), onACase)) {
+    deps.get(sourceObject)?.delete(targetObject);
     deps.get(targetObject)?.add(sourceObject);
   }
   return deps;

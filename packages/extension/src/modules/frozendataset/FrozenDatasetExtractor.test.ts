@@ -1908,3 +1908,86 @@ describe('FrozenDatasetExtractor — a feed item the platform writes itself', ()
     ]);
   });
 });
+
+describe('FrozenDatasetExtractor — an email, its task and their relations', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const TASK = to18('00TA00000000tsk');
+  const EMAIL = to18('02sA00000000eml');
+  const TO_WHAT = to18('0RTA00000000wht');
+  const FROM = to18('0CZA00000000frm');
+  const TO = to18('0CZA00000000too');
+  const tables = (): Record<string, FakeRow[]> => ({
+    Opportunity: [{ Id: OPPORTUNITY }],
+    Task: [{ Id: TASK, TaskSubtype: 'Email', WhatId: OPPORTUNITY }],
+    EmailMessage: [{ Id: EMAIL, RelatedToId: OPPORTUNITY, ActivityId: TASK }],
+    TaskRelation: [{ Id: TO_WHAT, TaskId: TASK, RelationId: OPPORTUNITY, IsWhat: true }],
+    EmailMessageRelation: [
+      { Id: FROM, EmailMessageId: EMAIL, RelationType: 'FromAddress' },
+      { Id: TO, EmailMessageId: EMAIL, RelationType: 'ToAddress' },
+    ],
+  });
+  const fields: Record<string, ScopableField[]> = {
+    Task: [
+      id,
+      { name: 'TaskSubtype', type: 'picklist', referenceTo: [] },
+      lookup('WhatId', ['Opportunity', 'Quote']),
+    ],
+    EmailMessage: [
+      id,
+      lookup('RelatedToId', ['Opportunity', 'Quote']),
+      lookup('ActivityId', ['Task']),
+    ],
+    TaskRelation: [
+      id,
+      lookup('TaskId', ['Task'], false),
+      lookup('RelationId', ['Opportunity', 'Contact'], false),
+      { name: 'IsWhat', type: 'boolean', referenceTo: [] },
+    ],
+    EmailMessageRelation: [
+      id,
+      lookup('EmailMessageId', ['EmailMessage'], false),
+      { name: 'RelationType', type: 'picklist', referenceTo: [] },
+    ],
+  };
+
+  it('keeps the email and its task, and leaves their relations to the platform, and says so', async () => {
+    // Loaded, a relation to the task's what without IsWhat, and the email's
+    // relations without their addresses, were refused: the platform writes
+    // both itself, from the task's WhatId and from the email's addresses.
+    const dataset = await extractorOver(tables(), fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [
+          makeNode('Opportunity', 0),
+          makeNode('Task', 1),
+          makeNode('EmailMessage', 1),
+          makeNode('TaskRelation', 2),
+          makeNode('EmailMessageRelation', 2),
+        ],
+        [
+          edge('Opportunity', 'Task', 'Tasks'),
+          edge('Opportunity', 'EmailMessage', 'Emails'),
+          edge('Task', 'TaskRelation', 'TaskRelations'),
+          edge('EmailMessage', 'EmailMessageRelation', 'EmailMessageRelations'),
+        ],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'Task')).toEqual([TASK]);
+    expect(sourceIdsOf(dataset, 'EmailMessage')).toEqual([EMAIL]);
+    expect(sourceIdsOf(dataset, 'TaskRelation')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'EmailMessageRelation')).toEqual([]);
+    expect(
+      dataset.leftToThePlatform?.map(({ objectApiName, why, count }) => [
+        objectApiName,
+        why.rows.noun,
+        count,
+      ]),
+    ).toEqual([
+      ['TaskRelation', 'what relation', 1],
+      ['EmailMessageRelation', 'email relation', 2],
+    ]);
+  });
+});
