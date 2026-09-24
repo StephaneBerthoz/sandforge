@@ -1921,6 +1921,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1381": "Forge : corrections des clonages et des retraits",
+      "fixRound1381Desc": "Un clonage d'opportunité écrit les produits que nomment ses lignes, et chaque devise garde son propre prix ; une exécution dont les fichiers n'ont pas pu être recherchés est refusée avant d'écrire ; le retrait d'une exécution laisse ce qu'un collègue ajoute entre-temps, et rend son statut à une commande qu'il a passée en Brouillon quand elle reste.",
       "forgeFiles": "Forge copie les fichiers de ce qu'il clone",
       "forgeFilesDesc": "À la demande : les fichiers Salesforce et les pièces jointes des enregistrements qu'une exécution clone, plafonnés par fichier et comparés au stockage de la cible — refusés pendant une anonymisation, sauf si vous acceptez que les fichiers soient copiés tels quels.",
       "forgeCatalog": "Un clonage d'opportunité apporte son propre catalogue",

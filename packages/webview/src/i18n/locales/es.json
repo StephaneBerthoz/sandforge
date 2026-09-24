@@ -1921,6 +1921,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1381": "Forge: correcciones en clonaciones y eliminaciones",
+      "fixRound1381Desc": "Una clonación de oportunidad escribe los productos que nombran sus líneas, y cada moneda conserva su propio precio; una ejecución cuyos archivos no se pudieron buscar se rechaza antes de escribir; la eliminación de una ejecución deja lo que un compañero añade mientras tanto, y devuelve su estado a un pedido que pasó a Borrador cuando el pedido se queda.",
       "forgeFiles": "Forge copia los archivos de lo que clona",
       "forgeFilesDesc": "A petición: los archivos de Salesforce y los adjuntos de los registros que una ejecución clona, con un límite por archivo y comprobados frente al almacenamiento del destino — rechazados mientras la ejecución anonimiza, salvo que acepte que los archivos se copian tal cual.",
       "forgeCatalog": "Una clonación de oportunidad trae su propio catálogo",

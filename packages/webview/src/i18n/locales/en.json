@@ -1921,6 +1921,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1381": "Forge: fixes to clones and removals",
+      "fixRound1381Desc": "An opportunity clone writes the products its lines name, and each currency keeps its own price; a run whose files could not be looked up is refused before it writes; removing a run leaves what a colleague adds meanwhile, and gives an order it set to Draft its status back when the order stays.",
       "forgeFiles": "Forge copies the files of what it clones",
       "forgeFilesDesc": "On request: the Salesforce Files and attachments of the records a run clones, capped per file and checked against the target's storage — refused while the run anonymizes unless you accept that files are copied as they are.",
       "forgeCatalog": "An opportunity clone brings its own catalog",

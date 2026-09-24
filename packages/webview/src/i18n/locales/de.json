@@ -1921,6 +1921,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1381": "Forge: Korrekturen an Klonen und Entfernungen",
+      "fixRound1381Desc": "Ein Opportunity-Klon schreibt die Produkte, die seine Positionen nennen, und jede Währung behält ihren eigenen Preis; ein Lauf, dessen Dateien nicht nachgeschlagen werden konnten, wird vor dem Schreiben abgelehnt; das Entfernen eines Laufs lässt stehen, was ein Kollege währenddessen hinzufügt, und gibt einem Auftrag, den es auf Entwurf gesetzt hat, seinen Status zurück, wenn der Auftrag bleibt.",
       "forgeFiles": "Forge kopiert die Dateien dessen, was es klont",
       "forgeFilesDesc": "Auf Wunsch: die Salesforce-Dateien und Anhänge der Datensätze, die ein Lauf klont, mit einer Obergrenze pro Datei und geprüft gegen den Dateispeicher des Ziels – während einer Anonymisierung verweigert, außer Sie akzeptieren, dass Dateien unverändert kopiert werden.",
       "forgeCatalog": "Ein Opportunity-Klon bringt seinen eigenen Katalog mit",

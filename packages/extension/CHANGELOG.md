@@ -5,6 +5,73 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.1] - 2026-09-24
+
+The paths 1.38.0 built — a scoped clone's catalog, activated orders, file
+copying and a run's removal — each still had a way to lose records or to
+misreport them. Run again between the same pair of sandboxes, the opportunity
+clone that met them wrote 188 records, every price among them, and activated
+its orders again; a removal cancelled once they were drafts gave them their
+status back, and the next one deleted all 188 in one pass.
+
+### Fixed
+
+- **An opportunity clone writes the products its lines name.** A catalog
+  object read before the order and quote lines that name its records was not
+  read again for them: depending on the order the objects were read in, a
+  clone wrote its prices without their products — a real one had all 27
+  refused, and its orders could not be activated, as an order needs a product.
+  The catalog is now read again for what later rows name: that clone brings 33
+  products, their selling-model options and 69 prices.
+- **Standard prices are read in statements that fit.** Those of several
+  hundred products went in one statement longer than a request can carry.
+- **In an org with several currencies, each currency keeps its own price.** A
+  price book holds a product's price once per currency, and the clone kept one
+  of them.
+- **Discovery keeps a relationship's required flag, whichever side it met
+  first.** A parent's list of its children cannot say whether a child's lookup
+  may be empty; met first, it hid the flag the child's own field carries — on
+  opportunity, quote and order lines among others.
+- **A run that reads whole tables writes a child past a parent that failed,
+  when the child can do without it.** Any failed parent skipped the child; now
+  only a parent it cannot be written without does, and a lookup at a parent
+  that failed in the run is left empty and reported, even where the run keeps
+  other source ids as they are.
+- **What an object wrote before one of its calls failed is kept.** Those
+  records were counted as failed, and the lookups they owed were never filled
+  in.
+- **Orders get their status back in every case.** One an upsert wrote over,
+  one written before a later call of its object failed, and an activated
+  parent fetched from outside the graph are written as drafts and get their
+  status back; the orders a cancel or a failure leaves as drafts are named in
+  the result.
+- **The second pass counts lookups, not records.** A refused update counted
+  one lookup left empty however many it carried, and an answer that left rows
+  out counted them as filled.
+- **A run whose files could not all be looked up is refused before it
+  writes**, and says why: it went on without them. A dry run lists the lookup
+  that failed beside the files it found. The file size field saves only the
+  size you finished typing, and the file errors count every attempt.
+- **A run's results open one report at a time** where an object has two at
+  the same stage.
+- **Removing a run leaves what someone else adds while it works.** What the
+  org created once the removal was under way was taken for the removal's
+  doing and deleted with its parent — a colleague's task, an integration's
+  contact. Only what the removal's own user creates is now taken that way.
+- **An order the removal set to Draft gets its status back when it stays** —
+  kept, refused, or not reached because the removal was cancelled — and the
+  result names any it could not give back; a cancelled removal left it a draft
+  without a word. What the removal wrote to it does not count, on the next
+  removal, as a change since the run.
+- **A run is dated by the org's clock, however it was recorded.** Where the
+  run's user may set audit fields, the clone copies the source's creation
+  dates, years before the run, so its span is read from the system stamps. A
+  run whose dates could not all be read back is left undated, rather than
+  dated by part of its objects; an undated run, like one recorded before runs
+  kept their dates, ends when it was recorded, read on the org's clock, give
+  or take ten seconds. Timed from its first record for as long as it took, its
+  end fell after its last write by the whole of its reading of the source.
+
 ## [1.38.0] - 2026-09-23
 
 Forge can copy the files of what it clones, when you ask for it, and an

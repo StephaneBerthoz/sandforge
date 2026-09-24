@@ -1921,6 +1921,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1381": "Forge: correções em clonagens e remoções",
+      "fixRound1381Desc": "Uma clonagem de oportunidade grava os produtos que suas linhas nomeiam, e cada moeda mantém seu próprio preço; uma execução cujos arquivos não puderam ser consultados é recusada antes de gravar; a remoção de uma execução deixa o que um colega adiciona nesse meio-tempo, e devolve o status a um pedido que ela passou para Rascunho quando o pedido permanece.",
       "forgeFiles": "O Forge copia os arquivos do que clona",
       "forgeFilesDesc": "Sob demanda: os arquivos do Salesforce e os anexos dos registros que uma execução clona, com limite por arquivo e verificados contra o armazenamento do destino — recusados enquanto a execução anonimiza, a menos que você aceite que os arquivos sejam copiados como estão.",
       "forgeCatalog": "Uma clonagem de oportunidade traz seu próprio catálogo",
