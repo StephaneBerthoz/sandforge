@@ -17,7 +17,8 @@
  *   extract  read those roots' graphs, pseudonymize, check, freeze
  *   load     replay the frozen dataset into a sandbox — writes
  *   verify   check the last load against the dataset, read-only
- *   remove   delete from the sandbox the records the last load created — deletes
+ *   remove   delete from the sandbox the records the last load created — or,
+ *            once they went, those of the load before it — deletes
  *   status   what the store knows so far
  *
  * The configuration is the panel's own (`FrozenProjectConfig`, as JSON) and
@@ -53,7 +54,7 @@ Steps:
   extract    read, pseudonymize, check and freeze those roots        (needs --source)
   load       replay the frozen dataset into a sandbox — WRITES       (needs --target)
   verify     check the last load against the dataset                 (needs --target)
-  remove     delete the records the last load created — DELETES     (needs --target)
+  remove     delete the records a load created, the last first — DELETES (needs --target)
   status     what the store knows so far
 
 Required:
@@ -65,7 +66,7 @@ Options:
   --author <name>        who froze the dataset, for the manifest   (default: sandforge)
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
-  --reload               purge what a previous load wrote, then load again
+  --reload               purge what earlier loads created, then load again
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --yes                  do not ask before a load writes or a removal deletes
@@ -203,7 +204,7 @@ async function typed(question: string): Promise<string> {
 
 type Posted = { type?: unknown; payload?: Record<string, unknown> } & Record<string, unknown>;
 
-/** The records of the last load, as `frozen:status` counts them. */
+/** The records of the load a removal takes next, as `frozen:status` counts them. */
 interface LoadRecords {
   orgId: string;
   loadedAt: string;
@@ -211,17 +212,22 @@ interface LoadRecords {
   linked: number;
   recorded: boolean;
   removed?: { removedAt: string };
+  /** A load before the last one, whose records the loads after it left in the org. */
+  earlier?: boolean;
 }
 
 /**
- * What a removal of the last load would take, for the person asked to confirm
- * it: the org, the records per object in the order they go, and what stays.
- * Exported so it can be tested.
+ * What a removal of the load would take, for the person asked to confirm it:
+ * which load, the org, the records per object in the order they go, and what
+ * stays. Exported so it can be tested.
  */
 export function removalPlanLines(records: LoadRecords, org: string): string[] {
   const total = records.created.reduce((sum, object) => sum + object.count, 0);
+  const which = records.earlier
+    ? 'a load before the last one, whose records the loads after it left in place,'
+    : 'the last load';
   return [
-    `the last load wrote to ${org} at ${records.loadedAt}; a removal deletes the ${total} record(s) it created, children first:`,
+    `${which} wrote to ${org} at ${records.loadedAt}; a removal deletes the ${total} record(s) it created, children first:`,
     ...records.created.map((object) => `  ${object.objectApiName}: ${object.count}`),
     `${records.linked} record(s) it linked to or reused stay`,
   ];
@@ -356,6 +362,7 @@ export function messageLines(message: Posted): string[] {
         purge: {
           deleted: Record<string, number>;
           failures: Array<{ objectApiName: string; errors: string[] }>;
+          leftUnrecorded?: Record<string, number>;
         };
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
@@ -398,10 +405,19 @@ export function messageLines(message: Posted): string[] {
       }
       const purged = Object.values(r.purge.deleted).reduce((a, b) => a + b, 0);
       if (purged + r.purge.failures.length > 0) {
-        lines.push(`purge of the last load: ${purged} deleted, ${r.purge.failures.length} failed`);
+        lines.push(`purge of earlier loads: ${purged} deleted, ${r.purge.failures.length} failed`);
         for (const f of r.purge.failures.slice(0, 5)) {
           lines.push(`  ${f.objectApiName}: ${f.errors[0] ?? '?'}`);
         }
+      }
+      // A load recorded before loads kept what they created cannot say which
+      // of its records it linked: what it may have linked stays, and is named.
+      const left = Object.entries(r.purge.leftUnrecorded ?? {});
+      if (left.length > 0) {
+        lines.push(
+          'left in place, of a load recorded before loads kept what they created — it may have linked them:',
+        );
+        for (const [objectApiName, count] of left) lines.push(`  ${objectApiName}: ${count}`);
       }
       return lines;
     }
@@ -517,7 +533,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     case 'load': {
       if (!args.yes) {
         const ok = await confirm(
-          `Load the frozen dataset into ${args.target}${args.reload ? ', purging the last load first' : ''}?`,
+          `Load the frozen dataset into ${args.target}${args.reload ? ', purging first what earlier loads created' : ''}?`,
         );
         if (!ok) {
           log('Nothing written.');

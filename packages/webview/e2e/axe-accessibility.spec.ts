@@ -2152,6 +2152,19 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Frozen load before the last one, offered once the last one was removed', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_AFTER_LOAD,
+        lastLoadRecords: { ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords, earlier: true },
+      });
+      await expect(page.getByTestId('frozen-removal-earlier')).toBeVisible();
+      await expect(page.getByTestId('frozen-removal-remove')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Forge recent runs with a run that failed and one a cancel stopped, each removable', async ({
       page,
     }) => {

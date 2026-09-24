@@ -1,7 +1,8 @@
 /**
  * Frozen dataset loader: replays a frozen dataset into a fresh
  * sandbox, REPLAYABLY — reload without refresh reuses the reference data
- * by identity keys and purges residuals children-before-parents.
+ * by identity keys and purges, children-before-parents, what earlier loads
+ * created and it does not reuse.
  *
  * Pipeline (every divergence is listed in the report, nothing is silent):
  *   1. entry guards (LoadGuards.ts) — sandbox-only, protected envs,
@@ -9,8 +10,9 @@
  *   2. what the target already holds is matched: the standard price book,
  *      a selling model by its natural key, the option joining a product and
  *      a model both matched — and on a reload the records its identity keys
- *      find; a reload then purges residuals children-before-parents
- *      (undeletable objects are DEACTIVATED);
+ *      find; a reload then purges what earlier loads created and it did not
+ *      match, children-before-parents (undeletable objects are DEACTIVATED),
+ *      and never a record they only linked;
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks; an object the
  *      target lacks, or takes no insert of, is left out and listed;
@@ -22,8 +24,9 @@
  *      are resolved through the persisted mapping and posted as targeted
  *      Account.PersonContactId updates;
  *   7. the referenceId→real-ID mapping is persisted in
- *      the sas, and the counting contract (files minus exclusions) is
- *      written for the PostLoadVerifier.
+ *      the sas — with what the load created, the target's dates of it, and
+ *      the loads before it that it did not purge — and the counting contract
+ *      (files minus exclusions) is written for the PostLoadVerifier.
  *
  * Native anti-duplicate rejections of the target are an EXPLICIT degraded
  * mode: the record is skipped and listed, never an opaque error.
@@ -39,7 +42,7 @@ import {
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
 } from '@sandforge/shared';
-import type { GuardDecision } from '@sandforge/shared';
+import type { ForgeWrittenBetween, GuardDecision } from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
@@ -84,6 +87,7 @@ import type {
   FrozenDataset,
   FrozenRecord,
   LoadCreatedRecords,
+  PreviousLoad,
   RecordTypeIdResolver,
   ReferenceIdMappingStore,
 } from './types.js';
@@ -109,9 +113,8 @@ import {
 
 /** Mapping store access required by the loader (engine interface + read). */
 export interface LoadMappingStore extends ReferenceIdMappingStore {
-  load(): Promise<Map<string, string>>;
-  /** The keys of the stored mapping whose records a load created, per object. */
-  loadCreated(): Promise<LoadCreatedRecords[]>;
+  /** The loads the stored mapping records, newest first: what a reload purges. */
+  previousLoads(): Promise<PreviousLoad[]>;
   readonly filePath: string;
 }
 
@@ -145,8 +148,9 @@ export interface FrozenLoadOptions {
   /** Sas directory (mapping + counting contract). Must be outside the repo. */
   sasDir: string;
   /**
-   * Reload without refresh: reuse by identity keys and purge residuals
-   * children-before-parents. Ignored for the purge in pilot mode (a pilot
+   * Reload without refresh: reuse by identity keys and purge, children
+   * before parents, what earlier loads created and this one does not reuse —
+   * never a record they linked. Ignored for the purge in pilot mode (a pilot
    * smoke test never reconciles the whole org).
    */
   reload?: boolean;
@@ -214,17 +218,31 @@ const PLACEHOLDER_KEY_PREFIX = 'placeholder:';
  */
 class CreatedKeys {
   private readonly byObject = new Map<string, string[]>();
+  /** Objects whose records the load sent audit dates for: see `readWrittenBetween`. */
+  private readonly auditDated = new Set<string>();
 
-  /** Note a record the load created. */
-  add(objectApiName: string, key: string): void {
+  /**
+   * Note a record the load created.
+   *
+   * @param auditDates - Whether its insert carried a creation or modification
+   *   date: the target then dates the record by that one, not by the load.
+   */
+  add(objectApiName: string, key: string, auditDates = false): void {
     const keys = this.byObject.get(objectApiName) ?? [];
     keys.push(key);
     this.byObject.set(objectApiName, keys);
+    if (auditDates) this.auditDated.add(objectApiName);
+  }
+
+  /** Whether the load sent audit dates for some record of the object. */
+  sentAuditDates(objectApiName: string): boolean {
+    return this.auditDated.has(objectApiName);
   }
 
   /**
-   * As the mapping keeps them: the ones `carried` from a mapping kept with
-   * this load's, then the ones this load wrote, one entry per object.
+   * As the mapping keeps them: the ones `carried` from the loads before this
+   * one — records they created that this load reuses — then the ones this
+   * load wrote, one entry per object.
    */
   list(carried: readonly LoadCreatedRecords[] = []): LoadCreatedRecords[] {
     const merged = new Map<string, string[]>();
@@ -260,6 +278,44 @@ function soqlLiteral(value: unknown): string {
 
 /** Ids per `IN` list in the load's own reads of the target. */
 const ID_IN_CHUNK = 200;
+
+/** A record by its first fifteen characters: the same record, whichever length its id is written in. */
+function recordKey(id: string): string {
+  return id.slice(0, 15);
+}
+
+/** The audit dates a target may let the running user set on the records it creates. */
+const AUDIT_DATE_FIELDS = ['CreatedDate', 'LastModifiedDate'] as const;
+
+/**
+ * The columns the dates of the load's records are read back by, tried in
+ * turn, as a Forge run reads its own: when each was created and last
+ * modified, and its system stamp; or, for an object that keeps no
+ * `LastModifiedDate`, the system stamp alone.
+ */
+const WRITTEN_DATE_COLUMNS: readonly (readonly string[])[] = [
+  ['CreatedDate', 'LastModifiedDate', 'SystemModstamp'],
+  ['SystemModstamp'],
+];
+
+/** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
+function epochOf(value: unknown): number {
+  return typeof value === 'string' ? Date.parse(value) : Number.NaN;
+}
+
+/**
+ * What a reload does with the records the loads before it created: purges
+ * the ones it does not reuse, and keeps as created by its own chain the ones
+ * it does.
+ */
+interface PurgePlan {
+  /** Per object, the ids to purge. */
+  residuals: Map<string, string[]>;
+  /** The keys of this load's mapping that name a record an earlier load created. */
+  carried: LoadCreatedRecords[];
+  /** Per object, records of a mapping that does not say what its load created, left in place. */
+  leftUnrecorded: Record<string, number>;
+}
 
 /** A status set aside at insert, to apply once the record is in. */
 interface DeferredStatus {
@@ -325,8 +381,7 @@ export class FrozenDatasetLoader {
     });
     emit({ phase: 'guards', status: 'done', progress: 2, message: 'Entry guards passed' });
 
-    const previousMapping = await this.deps.mappingStore.load();
-    const previousCreated = await this.deps.mappingStore.loadCreated();
+    const previousLoads = await this.deps.mappingStore.previousLoads();
 
     // 2. Pilot scope — one root folder: its descendants plus the reference
     //    records it (transitively) points at.
@@ -371,8 +426,9 @@ export class FrozenDatasetLoader {
       })),
     };
 
-    // 3. Reload: reuse by identity keys, then purge residuals (children
-    //    before parents — reverse insertion order; unknown objects last).
+    // 3. Reload: reuse by identity keys, then purge what earlier loads
+    //    created and this one does not reuse (children before parents —
+    //    reverse insertion order; unknown objects last).
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
     // The standard price book is matched, never inserted: every org has
@@ -389,27 +445,42 @@ export class FrozenDatasetLoader {
     const placeholders: PlaceholderCreation[] = [];
     const perObject: PerObjectLoadResult[] = [];
     const created = new CreatedKeys();
+    /** Records earlier loads created that this load reuses, by the keys it maps them under. */
+    let carried: LoadCreatedRecords[] = [];
+    /**
+     * Records of the earlier loads that are no longer theirs, by id: the ones
+     * this load purged, and the ones it reuses and keeps as its own. What is
+     * left of those loads is kept with this one's mapping, so a removal still
+     * takes it and the next reload still purges it.
+     */
+    const settled = new Set<string>();
+
+    /*
+     * Keep the mapping of what this load wrote — with what it created, the
+     * target's dates of it, and the loads before it with what they still have
+     * in the org — at its end, and at a cancel.
+     */
+    const persistMapping = async (): Promise<void> => {
+      const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
+      await this.deps.mappingStore.persist(mapping, {
+        created: created.list(carried),
+        startedAt,
+        ...(writtenBetween ? { writtenBetween } : {}),
+        earlier: { settled: [...settled] },
+      });
+    };
 
     /*
      * Stop at a cancel, before the next write. A load read no cancel: once
      * started it purged, inserted and patched to its end. The mapping is kept
-     * first, with the entries of the previous one this load has not replaced:
-     * a reload then finds and purges what this load wrote, and the residuals
-     * it had not purged yet. Kept as this load's alone, it would lose them.
+     * first, with the loads before it and what they still have in the org: a
+     * reload then finds and purges what this load wrote, and the records of
+     * those loads it had not purged yet; a removal takes either. Kept as this
+     * load's alone, the mapping would lose them.
      */
     const checkpoint = async (): Promise<void> => {
       if (!options.signal?.aborted) return;
-      // What the previous mapping said its load created stays so for the
-      // entries this load has not replaced: removing the load then takes
-      // them, as a reload would purge them.
-      const carried = previousCreated.map(({ objectApiName, referenceIds }) => ({
-        objectApiName,
-        referenceIds: referenceIds.filter((key) => !mapping.has(key)),
-      }));
-      await this.deps.mappingStore.persist(new Map([...previousMapping, ...mapping]), {
-        created: created.list(carried),
-        startedAt,
-      });
+      await persistMapping();
       throw new FrozenLoadCancelledError({ perObject, placeholders, purge });
     };
 
@@ -418,23 +489,44 @@ export class FrozenDatasetLoader {
       await this.reuseByIdentityKeys(options, loading, mapping, reused);
     }
     // What the target already holds and keeps one of is linked on every load,
-    // and before a reload purges, as the standard book is: the purge takes
-    // whatever the last load mapped and this one has not, and a model linked
-    // last time would otherwise go as a record the last load wrote.
+    // and before a reload purges, as the standard book is: a model an earlier
+    // load created and this one finds again is kept, as its own.
     await this.matchByNaturalKey(orgId, loading, mapping, reused);
     await this.matchSellingModelOptions(orgId, loading, mapping, reused);
     if (options.reload) {
+      let reloadDone = 'Reload pass done';
       if (!options.pilot) {
+        const plan = await this.planPurge(orgId, previousLoads, mapping);
+        carried = plan.carried;
+        for (const key of carried.flatMap((object) => object.referenceIds)) {
+          const id = mapping.get(key);
+          if (id) settled.add(recordKey(id));
+        }
+        const left = Object.values(plan.leftUnrecorded).reduce((sum, n) => sum + n, 0);
+        if (left > 0) {
+          purge.leftUnrecorded = plan.leftUnrecorded;
+          reloadDone +=
+            ` — ${left} record(s) left in place of a load recorded before loads kept what ` +
+            'they created: it may have linked them';
+        }
         await this.purgeResiduals(
           options,
-          previousMapping,
-          mapping,
+          plan.residuals,
           [...groupOrder].reverse(),
           purge,
           checkpoint,
+          settled,
         );
+        // Through its purge, the reload has judged every record of a load
+        // that does not say what it created: purged, reused or left as one
+        // it may have linked. Kept, the load would be judged again at every
+        // reload, and its linked records reported as left each time.
+        for (const previous of previousLoads) {
+          if (previous.created) continue;
+          for (const id of previous.mapping.values()) settled.add(recordKey(id));
+        }
       }
-      emit({ phase: 'reload', status: 'done', progress: 10, message: 'Reload pass done' });
+      emit({ phase: 'reload', status: 'done', progress: 10, message: reloadDone });
     }
 
     // 4. RecordType resolution by DeveloperName + PersonContactId strip
@@ -753,7 +845,7 @@ export class FrozenDatasetLoader {
       progress: 96,
       message: 'Persisting mapping and contract',
     });
-    await this.deps.mappingStore.persist(mapping, { created: created.list(), startedAt });
+    await persistMapping();
     const leftOut = leftToThePlatform.counts();
     const untyped = untypedFeedItems.counts();
     const contractPath = this.writeContract(options, working, perObject, placeholders, now, [
@@ -1066,29 +1158,153 @@ export class FrozenDatasetLoader {
   }
 
   /**
-   * Purge residuals: records of the PREVIOUS mapping not reused by this
-   * run. Deletion runs children-before-parents (reverse insertion order;
-   * objects unknown to the current graph last). Undeletable objects are
-   * deactivated instead.
+   * What a reload purges of the loads before it, and what it keeps of them as
+   * its own.
+   *
+   * Only what a load created goes: a record it inserted, or a technical
+   * placeholder. A record it linked — found by identity keys, a selling model
+   * or option the target held, the standard price book, a direct relation the
+   * platform made — was in the target before it, or is the platform's, and
+   * stays: a reload whose rules or dataset changed since would otherwise
+   * delete it, the moment this load did not match it again. A record any
+   * other key of the same load names is linked, whichever key lists it as
+   * created, as its removal reads it.
+   *
+   * A created record this load matched again — by identity keys, by a natural
+   * key — is not purged: it is kept as created, under the key this load maps
+   * it by, so that its removal, and the next reload, still take it. Matched
+   * again means the same record, whatever key names it: a key matched to
+   * another record leaves the one the earlier load created to the purge.
+   *
+   * A mapping written before loads kept what they created cannot say which
+   * of its records the load linked. Of it, the purge takes only what no load
+   * links: never a record of an object the configuration gives identity keys
+   * to, a selling model or option, the standard price book, a record whose
+   * key names no object, or one a later load says it linked; each of those
+   * not matched again is left in place and counted. A load that ran with
+   * identity keys the configuration no longer gives could have linked a
+   * record of another object; nothing records it.
+   */
+  private async planPurge(
+    orgId: string,
+    previousLoads: readonly PreviousLoad[],
+    mapping: ReadonlyMap<string, string>,
+  ): Promise<PurgePlan> {
+    const plan: PurgePlan = { residuals: new Map(), carried: [], leftUnrecorded: {} };
+    const namedNow = new Map<string, string>();
+    for (const [key, id] of mapping) {
+      if (!namedNow.has(recordKey(id))) namedNow.set(recordKey(id), key);
+    }
+    const seen = new Set<string>();
+    const purgeOne = (objectApiName: string, id: string): void => {
+      plan.residuals.set(objectApiName, [...(plan.residuals.get(objectApiName) ?? []), id]);
+    };
+    const carry = (objectApiName: string, key: string): void => {
+      const last = plan.carried.at(-1);
+      if (last?.objectApiName === objectApiName) last.referenceIds.push(key);
+      else plan.carried.push({ objectApiName, referenceIds: [key] });
+    };
+    const leave = (objectApiName: string): void => {
+      plan.leftUnrecorded[objectApiName] = (plan.leftUnrecorded[objectApiName] ?? 0) + 1;
+    };
+    /** Unrecorded records that may be the standard price book, asked about once. */
+    const maybeStandardBook: string[] = [];
+
+    // What a load that says what it created linked, per load; and every
+    // record any of them linked, which a load that does not say what it
+    // created never has purged on its word.
+    const linkedBy = previousLoads.map((previous) => {
+      const linked = new Set<string>();
+      if (!previous.created) return linked;
+      const createdKeys = new Set(previous.created.flatMap((object) => object.referenceIds));
+      for (const [key, id] of previous.mapping) {
+        if (!createdKeys.has(key)) linked.add(recordKey(id));
+      }
+      return linked;
+    });
+    const linkedByAny = new Set(linkedBy.flatMap((linked) => [...linked]));
+
+    previousLoads.forEach((previous, index) => {
+      if (!previous.created) {
+        for (const [key, id] of previous.mapping) {
+          const record = recordKey(id);
+          if (namedNow.has(record) || seen.has(record)) continue;
+          seen.add(record);
+          const objectApiName = objectFromMappingKey(key);
+          if (this.mayHaveLinked(objectApiName, key) || linkedByAny.has(record)) {
+            leave(objectApiName);
+          } else if (objectApiName === 'Pricebook2' && !key.startsWith(PLACEHOLDER_KEY_PREFIX)) {
+            maybeStandardBook.push(id);
+          } else {
+            purgeOne(objectApiName, id);
+          }
+        }
+        return;
+      }
+      for (const { objectApiName, referenceIds } of previous.created) {
+        for (const key of referenceIds) {
+          const id = previous.mapping.get(key);
+          if (id === undefined) continue;
+          const record = recordKey(id);
+          if (linkedBy[index].has(record) || seen.has(record)) continue;
+          seen.add(record);
+          const ownKey = namedNow.get(record);
+          if (ownKey !== undefined) carry(objectApiName, ownKey);
+          else purgeOne(objectApiName, id);
+        }
+      }
+    });
+
+    // A price book a mapping that does not say what its load created names
+    // may be the standard one, which every load links and none can delete.
+    // A target that cannot say which is the standard one has none purged.
+    if (maybeStandardBook.length > 0) {
+      let standard: string | undefined;
+      try {
+        const [book] = await this.deps.orgAccess.query(orgId, STANDARD_PRICEBOOK_SOQL);
+        standard = typeof book?.Id === 'string' ? recordKey(book.Id) : '';
+      } catch {
+        standard = undefined;
+      }
+      for (const id of maybeStandardBook) {
+        if (standard === undefined || recordKey(id) === standard) leave('Pricebook2');
+        else purgeOne('Pricebook2', id);
+      }
+    }
+    return plan;
+  }
+
+  /**
+   * Whether a load could have linked, rather than written, a record of an
+   * object: one the configuration gives identity keys to, one the target
+   * keeps one of per natural key, a selling model option, or one no key
+   * names. A technical placeholder is always written.
+   */
+  private mayHaveLinked(objectApiName: string, key: string): boolean {
+    if (key.startsWith(PLACEHOLDER_KEY_PREFIX)) return false;
+    return (
+      objectApiName === 'Unknown' ||
+      objectApiName === SELLING_MODEL_OPTION_OBJECT ||
+      Object.prototype.hasOwnProperty.call(NATURAL_KEYS, objectApiName) ||
+      Object.prototype.hasOwnProperty.call(this.config.identityKeys ?? {}, objectApiName)
+    );
+  }
+
+  /**
+   * Purge what earlier loads created and this one does not reuse
+   * ({@link planPurge}). Deletion runs children-before-parents (reverse
+   * insertion order; objects unknown to the current graph last). Undeletable
+   * objects are deactivated instead. Each record deleted, found deleted or
+   * deactivated is noted in `settled`: no longer the earlier load's.
    */
   private async purgeResiduals(
     options: FrozenLoadOptions,
-    previousMapping: Map<string, string>,
-    mapping: Map<string, string>,
+    residualsByObject: ReadonlyMap<string, string[]>,
     reverseOrder: string[],
     purge: PurgeReport,
     checkpoint: () => Promise<void>,
+    settled: Set<string>,
   ): Promise<void> {
-    const residualsByObject = new Map<string, string[]>();
-    for (const [referenceId, realId] of previousMapping) {
-      if (mapping.has(referenceId)) {
-        continue; // reused — kept
-      }
-      const objectApiName = objectFromMappingKey(referenceId);
-      const bucket = residualsByObject.get(objectApiName) ?? [];
-      bucket.push(realId);
-      residualsByObject.set(objectApiName, bucket);
-    }
     // An activated order keeps its products and itself from being deleted —
     // "unable to modify activated order" — and the last load activated them.
     // Back to a draft first, and the deletes below can do their work.
@@ -1122,6 +1338,7 @@ export class FrozenDatasetLoader {
         outcomes.forEach((outcome, i) => {
           if (outcome.success) {
             purge.deactivated[objectApiName] = (purge.deactivated[objectApiName] ?? 0) + 1;
+            settled.add(recordKey(ids[i]));
           } else {
             purge.failures.push({ objectApiName, recordId: ids[i], errors: outcome.errors });
           }
@@ -1147,6 +1364,7 @@ export class FrozenDatasetLoader {
           outcomes.forEach((outcome, i) => {
             if (outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'))) {
               purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
+              settled.add(recordKey(round[i]));
             } else {
               purge.failures.push({ objectApiName, recordId: round[i], errors: outcome.errors });
             }
@@ -1456,7 +1674,11 @@ export class FrozenDatasetLoader {
       const referenceId = toInsert[i].referenceId;
       if (outcome.success && outcome.id) {
         mapping.set(referenceId, outcome.id);
-        created.add(objectApiName, referenceId);
+        created.add(
+          objectApiName,
+          referenceId,
+          AUDIT_DATE_FIELDS.some((f) => f in payloads[i]),
+        );
         result.inserted++;
       } else if (isDuplicateRejection(outcome.errors, duplicatePatterns)) {
         result.skippedDuplicates.push({ objectApiName, referenceId, errors: outcome.errors });
@@ -1644,6 +1866,96 @@ export class FrozenDatasetLoader {
   private async customPricesFirst(orgId: string, ids: readonly string[]): Promise<string[][]> {
     const standard = await standardPriceIds((soql) => this.deps.orgAccess.query(orgId, soql), ids);
     return [ids.filter((id) => !standard.has(id)), ids.filter((id) => standard.has(id))];
+  }
+
+  /**
+   * Read back when the target dated the records this load created: the
+   * earliest `CreatedDate` among them and the latest `LastModifiedDate` it
+   * left on them, by the org's own clock — as a Forge run reads its own
+   * (`ForgeExecutor.readWrittenBetween`). Read as the load ends, after the
+   * passes that patch its records: their last stamp is the load's.
+   *
+   * Removing the load goes by these, not by this machine's clock: a record the
+   * org stamped after the load ended is one changed since, and dated by a
+   * clock a second behind the org's, the records the load wrote last read
+   * that way. A record whose insert carried a creation or modification date —
+   * the rules kept the source's, and the target lets the running user set
+   * audit fields — keeps the source's, years before the load: its object is
+   * dated by the system stamp, which no one sets. What an earlier load
+   * created and this one reuses is not read: it was written before this load
+   * began.
+   *
+   * Best effort: an object whose dates cannot be read leaves the load
+   * undated, and its removal then dates it from the records and from this
+   * machine's clock. Dated by the objects it could read, the load would end
+   * before the writes it could not, and a removal would read those as
+   * changes made since.
+   */
+  private async readWrittenBetween(
+    orgId: string,
+    created: CreatedKeys,
+    mapping: ReadonlyMap<string, string>,
+  ): Promise<ForgeWrittenBetween | undefined> {
+    let first = Number.POSITIVE_INFINITY;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const { objectApiName, referenceIds } of created.list()) {
+      const ids = [
+        ...new Set(
+          referenceIds.flatMap((key) => {
+            const id = mapping.get(key);
+            return id ? [id] : [];
+          }),
+        ),
+      ];
+      const stampOnly = created.sentAuditDates(objectApiName);
+      for (let i = 0; i < ids.length; i += ID_IN_CHUNK) {
+        const rows = await this.writtenDatesOf(orgId, objectApiName, ids.slice(i, i + ID_IN_CHUNK));
+        if (!rows) return undefined;
+        for (const row of rows) {
+          // A record whose own date is not the org's, or that keeps none, is
+          // dated by its system stamp.
+          const stamp = epochOf(row.SystemModstamp);
+          const dated = (field: string): number => {
+            const date = stampOnly ? Number.NaN : epochOf(row[field]);
+            return Number.isFinite(date) ? date : stamp;
+          };
+          const createdAt = dated('CreatedDate');
+          const modifiedAt = dated('LastModifiedDate');
+          if (Number.isFinite(createdAt)) first = Math.min(first, createdAt);
+          if (Number.isFinite(modifiedAt)) last = Math.max(last, modifiedAt);
+        }
+      }
+    }
+    if (!Number.isFinite(first) || !Number.isFinite(last)) return undefined;
+    return {
+      first: new Date(first).toISOString(),
+      last: new Date(Math.max(first, last)).toISOString(),
+    };
+  }
+
+  /**
+   * The dates of some records the load created, read by the first set of
+   * {@link WRITTEN_DATE_COLUMNS} their object keeps; undefined when none
+   * could be read.
+   */
+  private async writtenDatesOf(
+    orgId: string,
+    objectApiName: string,
+    ids: readonly string[],
+  ): Promise<Array<Record<string, unknown>> | undefined> {
+    const inList = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+    for (const columns of WRITTEN_DATE_COLUMNS) {
+      try {
+        return await this.deps.orgAccess.query(
+          orgId,
+          `SELECT Id, ${columns.join(', ')} FROM ${assertSoqlIdentifier(objectApiName)} ` +
+            `WHERE Id IN (${inList})`,
+        );
+      } catch {
+        // The next set of columns, or none.
+      }
+    }
+    return undefined;
   }
 
   /**

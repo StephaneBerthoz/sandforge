@@ -247,8 +247,29 @@ describe('FrozenLoadRemoval', () => {
 
     expect(screen.queryByTestId('frozen-removal-remove')).toBeNull();
     expect(screen.getByTestId('frozen-removal-not-recorded').textContent).toContain(
-      'A reload purges them.',
+      'A reload purges them, except those the load may have linked to.',
     );
+  });
+
+  it('names a load before the last one as such, and offers to remove what it created', () => {
+    render(<FrozenLoadRemoval records={{ ...LOADED, earlier: true }} onRemoved={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Earlier load');
+    expect(screen.getByTestId('frozen-removal-earlier').textContent).toBe(
+      'A load before the last one: the loads after it left its records in DEV-SANDBOX.',
+    );
+    confirmRemoval();
+    expect(sent('frozen:remove')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+    });
+  });
+
+  it('names the last load as the last one', () => {
+    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Last load');
+    expect(screen.queryByTestId('frozen-removal-earlier')).toBeNull();
   });
 
   it('says so when the org the load wrote to is no longer registered', () => {

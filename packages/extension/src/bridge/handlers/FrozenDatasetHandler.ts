@@ -96,6 +96,7 @@ import {
   leftToThePlatformCoverage,
   loadCreatedRecords,
   loadRecordsInfo,
+  loadToRemove,
   loadTokensFromSas,
   parseManifest,
   parsePseudonymRules,
@@ -1607,7 +1608,9 @@ export class FrozenDatasetHandler implements DomainHandler {
    * Remove from its target org the records the last load created, as the sas
    * mapping names them — never what the request names: the request says which
    * load, the mapping says what it created, and nothing it linked or reused
-   * goes.
+   * goes. Once the last load's records went, or when it created none, the
+   * load removed is the newest one before it whose records the loads after it
+   * left in the org: see {@link loadToRemove}.
    *
    * Refused before anything is read from the org when no load wrote a mapping,
    * when the mapping holds another load than the one confirmed, predates loads
@@ -1641,7 +1644,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
-      load = await store.recorded();
+      load = loadToRemove(await store.recordedLoads());
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, err, {
         code: this.errorCodeFor(err, 'REMOVE_ERROR'),
@@ -1661,7 +1664,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
     if (!load.created) {
       refuse(
-        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them.',
+        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them, except those the load may have linked to.',
         'NOT_RECORDED',
       );
       return;
@@ -1832,15 +1835,24 @@ export class FrozenDatasetHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      // The load is dated by this machine's clock, as it began and as it
-      // wrote its last record; the removal reads that on the org's clock.
+      // The load's span as the target dated its writes, read back as it
+      // ended; this machine's clock is never compared with the org's. A load
+      // the target did not date — recorded before loads kept it, or whose
+      // dates could not all be read back — is dated by this machine's clock,
+      // as it began and as it wrote its last record, read on the org's clock
+      // as the removal starts.
+      const span = load.writtenBetween;
       const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
       const ended = Date.parse(load.endedAt);
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
-        ...(Number.isFinite(began) && Number.isFinite(ended)
-          ? { runDurationMs: Math.max(0, ended - began) }
-          : {}),
-        ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
+        ...(span
+          ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+          : {
+              ...(Number.isFinite(began) && Number.isFinite(ended)
+                ? { runDurationMs: Math.max(0, ended - began) }
+                : {}),
+              ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
+            }),
         removalStamps: load.removalStamps,
         removalSpans: load.removalSpans,
         includeChanged,
@@ -1982,13 +1994,15 @@ export class FrozenDatasetHandler implements DomainHandler {
     );
 
     // Read as written: the page is told what a removal would take without
-    // anything being asked of the org.
+    // anything being asked of the org — of the load a removal takes next.
     let lastLoad: RecordedLoad | undefined;
     try {
       const guard = new SasPathGuard();
-      lastLoad = await new SasReferenceIdMappingStore(guard.assertOutsideRepo(sasDir), {
-        guard,
-      }).recorded();
+      lastLoad = loadToRemove(
+        await new SasReferenceIdMappingStore(guard.assertOutsideRepo(sasDir), {
+          guard,
+        }).recordedLoads(),
+      );
     } catch {
       lastLoad = undefined;
     }

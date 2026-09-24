@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadCreatedRecords, loadRecordsInfo } from './loadRecords.js';
+import { loadCreatedRecords, loadRecordsInfo, loadToRemove } from './loadRecords.js';
 import type { RecordedLoad } from './SasReferenceIdMappingStore.js';
 
 /** A fake record id: the object's prefix, then a counter. */
@@ -118,5 +118,39 @@ describe('loadRecordsInfo', () => {
     };
 
     expect(loadRecordsInfo(recordedLoad({ removal })).removed).toEqual(removal);
+  });
+
+  it('says a load is one before the last', () => {
+    expect(loadRecordsInfo(recordedLoad({ earlier: true })).earlier).toBe(true);
+    expect(loadRecordsInfo(recordedLoad())).not.toHaveProperty('earlier');
+  });
+});
+
+describe('loadToRemove', () => {
+  const removal = {
+    removedAt: '2026-09-24T11:00:00.000Z',
+    deleted: 5,
+    alreadyGone: 0,
+    kept: 0,
+    refused: 0,
+  };
+  const earlierLoad = recordedLoad({ endedAt: '2026-09-23T10:02:00.000Z', earlier: true });
+
+  it('takes the last load while its records are still to take', () => {
+    expect(loadToRemove([recordedLoad(), earlierLoad])?.endedAt).toBe('2026-09-24T10:02:00.000Z');
+  });
+
+  it('takes the load before it once the last one was removed, or created nothing', () => {
+    expect(loadToRemove([recordedLoad({ removal }), earlierLoad])).toBe(earlierLoad);
+    expect(loadToRemove([recordedLoad({ created: [] }), earlierLoad])).toBe(earlierLoad);
+  });
+
+  it('never offers a load that does not say what it created, and falls back to the last one', () => {
+    const last = recordedLoad({ removal });
+    expect(loadToRemove([last, recordedLoad({ created: undefined, earlier: true })])).toBe(last);
+  });
+
+  it('has no load before the first one', () => {
+    expect(loadToRemove([])).toBeUndefined();
   });
 });

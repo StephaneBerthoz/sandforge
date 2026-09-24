@@ -1,6 +1,7 @@
 /**
  * The records of a Frozen load, read from its mapping: what removing the load
- * takes from its target, and what it leaves there.
+ * takes from its target, and what it leaves there — and which of the loads
+ * the mapping records a removal takes next.
  *
  * The removal is Forge's (`removeRunRecords`), and so is the shape of its
  * plan. A clone keeps its records in its history entry; a load keeps them in
@@ -49,12 +50,14 @@ function linkedRecords(load: Pick<RecordedLoad, 'mapping' | 'created'>): Set<str
  * within an object the last record written first.
  *
  * Created means a key the mapping lists among the load's creations: a record
- * it inserted, or a technical placeholder. A record any other key names — the
- * standard price book, a selling model the target held, a record a reload
- * found by its identity keys — is never the load's to remove, whichever key
- * names it. A key the mapping no longer holds, an id that is not a record id
- * and an object whose name could not be queried are left out: the file comes
- * back from disk. An object named twice is taken once, its records together.
+ * it inserted, a technical placeholder, or — for a reload — a record an
+ * earlier load created that the reload found again and kept. A record any
+ * other key names — the standard price book, a selling model the target held,
+ * a record a reload found by its identity keys that no load created — is
+ * never the load's to remove, whichever key names it. A key the mapping no
+ * longer holds, an id that is not a record id and an object whose name could
+ * not be queried are left out: the file comes back from disk. An object named
+ * twice is taken once, its records together.
  *
  * @returns Nothing for a mapping written before loads kept what they created.
  */
@@ -86,6 +89,19 @@ export function loadCreatedRecords(
 }
 
 /**
+ * The load a removal takes next, of the loads a mapping records, the last one
+ * first: the newest whose created records are still to take and that no
+ * removal marked. A load's records can only depend on those of the loads
+ * before it, so the newest goes first. With none left to take, the last load,
+ * for the page to say why.
+ *
+ * @returns Undefined when no load wrote a mapping yet.
+ */
+export function loadToRemove(loads: readonly RecordedLoad[]): RecordedLoad | undefined {
+  return loads.find((load) => !load.removal && loadCreatedRecords(load).length > 0) ?? loads[0];
+}
+
+/**
  * What the page says of a load's records: counts only, the ids staying in
  * the sas.
  */
@@ -102,5 +118,6 @@ export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
     linked: recorded ? linkedRecords(load).size : 0,
     recorded,
     ...(load.removal ? { removed: load.removal } : {}),
+    ...(load.earlier ? { earlier: true as const } : {}),
   };
 }

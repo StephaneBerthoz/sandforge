@@ -19,6 +19,7 @@ import type { FrozenDataset } from './types.js';
 import type {
   FrozenDmlWriter,
   FrozenLoadConfig,
+  FrozenLoadProgressEvent,
   TargetFieldDescribe,
   TargetObjectDescribe,
 } from './loadTypes.js';
@@ -1107,7 +1108,39 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
     ]);
   });
 
-  it('keeps as linked, not created, what a reload reused by its identity keys', async () => {
+  it('keeps as linked what a reload found by its identity keys and no load created', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    // The last load linked the account the target held, and created a contact.
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000001', '001TARGETS-OWN'],
+        ['Contact-000001', '003OLD-CONTACT'],
+      ]),
+      {
+        created: [{ objectApiName: 'Contact', referenceIds: ['Contact-000001'] }],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      config: { identityKeys: { Account: ['ExternalId__c'] } },
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM Account') ? [{ Id: '001TARGETS-OWN', ExternalId__c: 'ACC-1' }] : [],
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
+
+    const load = await recorded(sasDir);
+    expect(load?.mapping.get('Account-000001')).toBe('001TARGETS-OWN');
+    expect(load?.created).toEqual([{ objectApiName: 'Contact', referenceIds: ['Contact-000001'] }]);
+  });
+
+  it('keeps as created what a reload found again of the records the load before it created', async () => {
+    // Kept as linked, the account would never go: neither with the removal
+    // of this load, nor with the purge of the next reload, which takes only
+    // what a load created.
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
     await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
@@ -1117,9 +1150,11 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
         startedAt: new Date('2026-09-23T10:00:00.000Z'),
       },
     );
+    const calls: DmlCall[] = [];
     const deps = makeDeps({
       dataset,
       sasDir,
+      writer: makeWriter(calls),
       config: { identityKeys: { Account: ['ExternalId__c'] } },
       queryImpl: async (_org, soql) =>
         soql.includes('FROM Account') ? [{ Id: '001OLD-ACCOUNT', ExternalId__c: 'ACC-1' }] : [],
@@ -1127,15 +1162,27 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
 
     await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
 
-    const load = await recorded(sasDir);
-    expect(load?.mapping.get('Account-000001')).toBe('001OLD-ACCOUNT');
-    expect(load?.created).toEqual([{ objectApiName: 'Contact', referenceIds: ['Contact-000001'] }]);
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([]);
+    const loads = await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recordedLoads();
+    // One load: the reload took the account over, and nothing of the load
+    // before it is left to remove.
+    expect(loads).toHaveLength(1);
+    expect(loads[0].mapping.get('Account-000001')).toBe('001OLD-ACCOUNT');
+    expect(loads[0].created).toEqual([
+      { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+      { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+    ]);
   });
 
-  it('keeps as created, after a cancel, what the load before it created and it had not replaced', async () => {
+  it('keeps, after a cancel, the load before it with what the purge had not reached', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
-    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+    await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+      now: () => new Date('2026-09-23T10:05:00.000Z'),
+    }).persist(
       new Map([
         ['Account-000001', '001OLD-ACCOUNT'],
         ['Contact-000001', '003OLD-CONTACT'],
@@ -1150,7 +1197,8 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
       },
     );
     const stop = new AbortController();
-    const writer = makeWriter([]);
+    const calls: DmlCall[] = [];
+    const writer = makeWriter(calls);
     const remove = writer.delete;
     writer.delete = vi.fn(async (...args: Parameters<FrozenDmlWriter['delete']>) => {
       stop.abort();
@@ -1164,11 +1212,181 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
       ),
     ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
 
-    // Removing the load after the cancel takes them, as a reload would purge them.
-    expect((await recorded(sasDir))?.created).toEqual([
-      { objectApiName: 'Account', referenceIds: ['Account-000001'] },
-      { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
-    ]);
+    // The contact went before the cancel; the price book it linked never was the purge's.
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['delete:Contact']);
+    const loads = await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recordedLoads();
+    expect(loads.map((load) => load.earlier === true)).toEqual([false, true]);
+    // Removing the load before it takes the account, as the next reload would purge it.
+    expect(loads[1]).toMatchObject({
+      endedAt: '2026-09-23T10:05:00.000Z',
+      created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+    });
+    expect(loads[1].mapping).toEqual(
+      new Map([
+        ['Account-000001', '001OLD-ACCOUNT'],
+        ['Pricebook2-000001', '01sTARGETSTANDARD'],
+      ]),
+    );
+  });
+});
+
+describe("FrozenDatasetLoader — the target's dates of what it wrote", () => {
+  /** What the load's mapping says of it, read as the removal reads it. */
+  const recorded = (sasDir: string) =>
+    new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recorded();
+
+  /** The target answering the read of its records' dates, and recording each one. */
+  function targetDates(dates: Record<string, Record<string, string>>, reads: string[] = []) {
+    return async (_org: string, soql: string): Promise<Array<Record<string, unknown>>> => {
+      const match = /^SELECT Id, .+ FROM \w+ WHERE Id IN \((.*)\)$/.exec(soql);
+      if (!match) return [];
+      reads.push(soql);
+      return match[1]
+        .split(', ')
+        .map((quoted) => quoted.slice(1, -1))
+        .flatMap((id) => (dates[id] ? [{ Id: id, ...dates[id] }] : []));
+    };
+  }
+
+  const at = (time: string) => ({
+    CreatedDate: `2026-09-24T${time}.000+0000`,
+    LastModifiedDate: `2026-09-24T${time}.000+0000`,
+    SystemModstamp: `2026-09-24T${time}.000+0000`,
+  });
+
+  it('keeps the earliest creation and the latest modification the target gave what it created', async () => {
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({
+      dataset,
+      queryImpl: targetDates({
+        'REAL-Account-1': { ...at('10:00:01'), LastModifiedDate: '2026-09-24T10:00:07.000+0000' },
+        'REAL-Contact-2': at('10:00:02'),
+      }),
+    });
+
+    // This machine's clock runs an hour behind the org's: never compared.
+    await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { now: () => new Date('2026-09-24T09:00:00.000Z') }),
+    );
+
+    expect((await recorded(deps.sasDir))?.writtenBetween).toEqual({
+      first: '2026-09-24T10:00:01.000Z',
+      last: '2026-09-24T10:00:07.000Z',
+    });
+  });
+
+  it('dates by their system stamp the records it sent the audit dates of the source for', async () => {
+    // The rules kept the source's creation date, and the target lets the
+    // running user set it: the account says it was created years ago.
+    const dataset = makeAccountContactDataset();
+    dataset.objects[0].records[0].fields.CreatedDate = '2019-05-01T08:00:00.000Z';
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      queryImpl: targetDates({
+        'REAL-Account-1': {
+          CreatedDate: '2019-05-01T08:00:00.000+0000',
+          LastModifiedDate: '2019-05-01T08:00:00.000+0000',
+          SystemModstamp: '2026-09-24T10:00:03.000+0000',
+        },
+        'REAL-Contact-2': at('10:00:02'),
+      }),
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    const sent = calls.find((c) => c.op === 'insert' && c.objectApiName === 'Account');
+    expect((sent?.payload as Array<Record<string, unknown>>)[0].CreatedDate).toBe(
+      '2019-05-01T08:00:00.000Z',
+    );
+    expect((await recorded(deps.sasDir))?.writtenBetween).toEqual({
+      first: '2026-09-24T10:00:02.000Z',
+      last: '2026-09-24T10:00:03.000Z',
+    });
+  });
+
+  it('leaves the load undated when the target does not give every date', async () => {
+    const dataset = makeAccountContactDataset();
+    const answer = targetDates({ 'REAL-Account-1': at('10:00:01') });
+    const deps = makeDeps({
+      dataset,
+      queryImpl: async (org, soql) => {
+        if (soql.includes('FROM Contact WHERE Id IN')) throw new Error('INVALID_TYPE');
+        return answer(org, soql);
+      },
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    const load = await recorded(deps.sasDir);
+    expect(load?.writtenBetween).toBeUndefined();
+    // Dated by this machine's clock instead, as the removal falls back to.
+    expect(load?.startedAt).toBeDefined();
+  });
+
+  it('reads no date of what an earlier load created and it reuses: written before it began', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([['Account-000001', '001OLD-ACCOUNT']]),
+      {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: new Date('2026-09-20T10:00:00.000Z'),
+      },
+    );
+    const reads: string[] = [];
+    const dates = targetDates(
+      {
+        '001OLD-ACCOUNT': at('08:00:00'),
+        'REAL-Contact-1': at('10:00:02'),
+      },
+      reads,
+    );
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      config: { identityKeys: { Account: ['ExternalId__c'] } },
+      queryImpl: async (org, soql) =>
+        soql.includes('ExternalId__c')
+          ? [{ Id: '001OLD-ACCOUNT', ExternalId__c: 'ACC-1' }]
+          : dates(org, soql),
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
+
+    expect(reads.some((soql) => soql.includes('001OLD-ACCOUNT'))).toBe(false);
+    expect((await recorded(sasDir))?.writtenBetween).toEqual({
+      first: '2026-09-24T10:00:02.000Z',
+      last: '2026-09-24T10:00:02.000Z',
+    });
+  });
+
+  it('dates what it wrote before a cancel', async () => {
+    const dataset = makeAccountContactDataset();
+    const stop = new AbortController();
+    const writer = makeWriter([]);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      stop.abort();
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: targetDates({ 'REAL-Account-1': at('10:00:01') }),
+    });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { signal: stop.signal })),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    expect((await recorded(deps.sasDir))?.writtenBetween).toEqual({
+      first: '2026-09-24T10:00:01.000Z',
+      last: '2026-09-24T10:00:01.000Z',
+    });
   });
 });
 
@@ -1595,14 +1813,297 @@ describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
 });
 
 describe('FrozenDatasetLoader — reload without refresh', () => {
+  /** The mapping of a load that created every record it names. */
   async function seedPreviousMapping(
     sasDir: string,
     entries: Record<string, string>,
   ): Promise<void> {
+    const created = new Map<string, string[]>();
+    for (const key of Object.keys(entries)) {
+      const objectApiName = key.slice(0, key.lastIndexOf('-'));
+      created.set(objectApiName, [...(created.get(objectApiName) ?? []), key]);
+    }
     await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
       new Map(Object.entries(entries)),
+      {
+        created: [...created].map(([objectApiName, referenceIds]) => ({
+          objectApiName,
+          referenceIds,
+        })),
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
     );
   }
+
+  it('never purges a record the last load linked: the target held it before any load', async () => {
+    // The last load found an account the target held by its identity keys,
+    // and wrote a contact under it. The dataset has changed since: the
+    // account is no longer in it, and nothing matches it again.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000009', '001TARGETS-OWN'],
+        ['Contact-000009', '003OLD-CONTACT'],
+      ]),
+      {
+        created: [{ objectApiName: 'Contact', referenceIds: ['Contact-000009'] }],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true }),
+    );
+
+    const deleted = calls.filter((c) => c.op === 'delete').flatMap((c) => c.payload as string[]);
+    expect(deleted).toEqual(['003OLD-CONTACT']);
+    expect(report.purge.deleted).toEqual({ Contact: 1 });
+  });
+
+  it('purges the record the last load created when its key now names another one', async () => {
+    // The identity keys find another account under the key: the one the last
+    // load created is a leftover, whichever key named it.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, { 'Account-000001': '001OLD-ACCOUNT' });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: makeWriter(calls),
+      config: { identityKeys: { Account: ['ExternalId__c'] } },
+      queryImpl: async (_org, soql) =>
+        soql.includes('ExternalId__c') ? [{ Id: '001TARGETS-OWN', ExternalId__c: 'ACC-1' }] : [],
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
+
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([
+      { op: 'delete', objectApiName: 'Account', payload: ['001OLD-ACCOUNT'] },
+    ]);
+  });
+
+  it('purges what the loads before the last one created, which no reload purged', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    const calls: DmlCall[] = [];
+    // One writer: each load's records get ids of their own.
+    const writer = makeWriter(calls);
+    const deps = makeDeps({ dataset, sasDir, writer });
+    const loader = new FrozenDatasetLoader(deps);
+    await loader.load(makeOptions(deps, dataset));
+    await loader.load(makeOptions(deps, dataset));
+    calls.length = 0;
+
+    const report = await loader.load(makeOptions(deps, dataset, { reload: true }));
+
+    // Both loads' records, children first.
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([
+      { op: 'delete', objectApiName: 'Contact', payload: ['REAL-Contact-4', 'REAL-Contact-2'] },
+      { op: 'delete', objectApiName: 'Account', payload: ['REAL-Account-3', 'REAL-Account-1'] },
+    ]);
+    expect(report.purge.deleted).toEqual({ Contact: 2, Account: 2 });
+    // Reloaded over, neither is kept.
+    await expect(
+      new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recordedLoads(),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('keeps what the target refused to purge, for the next reload and for a removal', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, {
+      'Account-000001': '001OLD-ACCOUNT',
+      'Contact-000001': '003OLD-CONTACT',
+    });
+    const writer = makeWriter([]);
+    writer.delete = vi.fn(async (_org: string, objectApiName: string, ids: string[]) =>
+      ids.map((id) =>
+        objectApiName === 'Account'
+          ? { id, success: false, errors: ['DELETE_FAILED: it has opportunities'] }
+          : { id, success: true, errors: [] },
+      ),
+    );
+    const deps = makeDeps({ dataset, sasDir, writer });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true }),
+    );
+
+    expect(report.purge.failures).toEqual([
+      {
+        objectApiName: 'Account',
+        recordId: '001OLD-ACCOUNT',
+        errors: ['DELETE_FAILED: it has opportunities'],
+      },
+    ]);
+    const loads = await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recordedLoads();
+    expect(loads).toHaveLength(2);
+    expect(loads[1]).toMatchObject({
+      earlier: true,
+      mapping: new Map([['Account-000001', '001OLD-ACCOUNT']]),
+      created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+    });
+  });
+
+  it('keeps the loads before a pilot, whose reload purges nothing', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, {
+      'Account-000001': '001OLD-ACCOUNT',
+      'Contact-000001': '003OLD-CONTACT',
+    });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: makeWriter(calls),
+      config: { rootObjectApiName: 'Account' },
+    });
+
+    await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, pilot: {} }),
+    );
+
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([]);
+    const loads = await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recordedLoads();
+    expect(loads[1]).toMatchObject({
+      earlier: true,
+      created: [
+        { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+        { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+      ],
+    });
+  });
+
+  describe('after a load recorded before loads kept what they created', () => {
+    /** The mapping such a load wrote: which records it created, it does not say. */
+    async function seedUnrecordedMapping(
+      sasDir: string,
+      entries: Record<string, string>,
+    ): Promise<void> {
+      await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+        new Map(Object.entries(entries)),
+      );
+    }
+
+    const UNRECORDED = {
+      'Account-000001': '001LOADED-OR-OWN',
+      'Contact-000001': '003LOADED',
+      'Pricebook2-000001': '01sSTANDARD',
+      'Pricebook2-000002': '01sLOADED',
+      'ProductSellingModel-000001': '0jPLOADED-OR-OWN',
+      'ProductSellingModelOption-000001': '0iOLOADED-OR-OWN',
+      'placeholder:Account:Contact.Mandatory_Lookup__c': '001PLACEHOLDER',
+    };
+
+    function depsFor(sasDir: string, calls: DmlCall[]) {
+      return makeDeps({
+        dataset: makeAccountContactDataset(),
+        sasDir,
+        writer: makeWriter(calls),
+        config: { identityKeys: { Account: ['ExternalId__c'] } },
+        queryImpl: async (_org, soql) =>
+          soql.includes('IsStandard = true') ? [{ Id: '01sSTANDARD' }] : [],
+      });
+    }
+
+    it('purges only what no load links, and says what it left in place', async () => {
+      const sasDir = makeTmpDir();
+      await seedUnrecordedMapping(sasDir, UNRECORDED);
+      const calls: DmlCall[] = [];
+      const deps = depsFor(sasDir, calls);
+      const events: FrozenLoadProgressEvent[] = [];
+
+      const report = await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, makeAccountContactDataset(), {
+          reload: true,
+          onProgress: (event) => events.push(event),
+        }),
+      );
+
+      // Never an account — the configuration gives accounts identity keys, so
+      // a load may have found it in the target — nor a selling model, an
+      // option or the standard price book. What no load links goes: a
+      // contact, a price book, a placeholder.
+      const deleted = calls.filter((c) => c.op === 'delete').flatMap((c) => c.payload as string[]);
+      expect(deleted.sort()).toEqual(['001PLACEHOLDER', '003LOADED', '01sLOADED']);
+      expect(report.purge.leftUnrecorded).toEqual({
+        Account: 1,
+        Pricebook2: 1,
+        ProductSellingModel: 1,
+        ProductSellingModelOption: 1,
+      });
+      expect(events.find((e) => e.phase === 'reload' && e.status === 'done')?.message).toContain(
+        '4 record(s) left in place',
+      );
+    });
+
+    it('judges its records once: the next reload finds none of them', async () => {
+      const sasDir = makeTmpDir();
+      await seedUnrecordedMapping(sasDir, UNRECORDED);
+      const calls: DmlCall[] = [];
+      const deps = depsFor(sasDir, calls);
+      const loader = new FrozenDatasetLoader(deps);
+      await loader.load(makeOptions(deps, makeAccountContactDataset(), { reload: true }));
+      calls.length = 0;
+
+      const report = await loader.load(
+        makeOptions(deps, makeAccountContactDataset(), { reload: true }),
+      );
+
+      expect(report.purge.leftUnrecorded).toBeUndefined();
+      // What the reload before it wrote, and nothing of the old load.
+      expect(
+        calls.filter((c) => c.op === 'delete').flatMap((c) => c.payload as string[]),
+      ).not.toContain('003LOADED');
+    });
+
+    it('never purges on its word a record a later load says it linked', async () => {
+      // The old load names a contact; the load after it — one that says what
+      // it created — found that contact in the target and linked it.
+      const sasDir = makeTmpDir();
+      await seedUnrecordedMapping(sasDir, { 'Contact-000001': '003TARGETS-OWN' });
+      const store = new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) });
+      await store.persist(new Map([['Contact-000007', '003TARGETS-OWN']]), {
+        created: [],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+        earlier: { settled: [] },
+      });
+      const calls: DmlCall[] = [];
+      const deps = depsFor(sasDir, calls);
+
+      const report = await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, makeAccountContactDataset(), { reload: true }),
+      );
+
+      expect(calls.filter((c) => c.op === 'delete')).toEqual([]);
+      expect(report.purge.leftUnrecorded).toEqual({ Contact: 1 });
+    });
+
+    it('is kept by a load without Reload, for the next reload to purge', async () => {
+      const sasDir = makeTmpDir();
+      await seedUnrecordedMapping(sasDir, { 'Contact-000001': '003LOADED' });
+      const calls: DmlCall[] = [];
+      const deps = depsFor(sasDir, calls);
+      const loader = new FrozenDatasetLoader(deps);
+      await loader.load(makeOptions(deps, makeAccountContactDataset()));
+      calls.length = 0;
+
+      await loader.load(makeOptions(deps, makeAccountContactDataset(), { reload: true }));
+
+      expect(
+        calls.filter((c) => c.op === 'delete').flatMap((c) => c.payload as string[]),
+      ).toContain('003LOADED');
+    });
+  });
 
   it('reuses reference records matched by identity keys instead of re-inserting', async () => {
     const dataset = makeAccountContactDataset();
@@ -2183,8 +2684,14 @@ describe('FrozenDatasetLoader — a cancel', () => {
     // Contact purged, then the cancel: Account is neither purged nor inserted.
     expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['delete:Contact']);
     // Kept as the load's own mapping alone, the Account the purge had not
-    // reached would be known to no later reload.
-    expect((await keptMapping(sasDir)).get('Account-000001')).toBe('001OLD-ACCOUNT');
+    // reached would be known to no later reload. The next one purges it, and
+    // not the contact again.
+    calls.length = 0;
+    const next = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+    await new FrozenDatasetLoader(next).load(makeOptions(next, dataset, { reload: true }));
+    expect(calls.filter((c) => c.op === 'delete')).toEqual([
+      { op: 'delete', objectApiName: 'Account', payload: ['001OLD-ACCOUNT'] },
+    ]);
   });
 
   it('writes no custom price after a cancel that came during the standard prices', async () => {

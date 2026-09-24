@@ -106,6 +106,24 @@ describe('removalPlanLines', () => {
       '4 record(s) it linked to or reused stay',
     ]);
   });
+
+  it('says when the load it takes is one before the last', () => {
+    expect(
+      removalPlanLines(
+        {
+          orgId: '00D000000000001AAA',
+          loadedAt: '2026-09-23T10:05:00.000Z',
+          created: [{ objectApiName: 'Account', count: 1 }],
+          linked: 0,
+          recorded: true,
+          earlier: true,
+        },
+        'TGT',
+      )[0],
+    ).toBe(
+      'a load before the last one, whose records the loads after it left in place, wrote to TGT at 2026-09-23T10:05:00.000Z; a removal deletes the 1 record(s) it created, children first:',
+    );
+  });
 });
 
 describe('messageLines', () => {
@@ -236,6 +254,34 @@ describe('messageLines', () => {
       '  RevenueTransactionErrorLog: not loaded — Not createable in target org: 1 record of the dataset not loaded',
       '  FeedItem: 1 feed item left out: the dataset does not carry its type',
       'pass 2: 0 resolved, 0 unresolved',
+    ]);
+  });
+
+  it('says what a reload purged, and what it left of a load that did not say what it created', () => {
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: {
+            deleted: { Contact: 2, Account: 1 },
+            failures: [],
+            leftUnrecorded: { Product2: 3, ProductSellingModel: 1 },
+          },
+        },
+      },
+    });
+
+    expect(lines.slice(-4)).toEqual([
+      'purge of earlier loads: 3 deleted, 0 failed',
+      'left in place, of a load recorded before loads kept what they created — it may have linked them:',
+      '  Product2: 3',
+      '  ProductSellingModel: 1',
     ]);
   });
 

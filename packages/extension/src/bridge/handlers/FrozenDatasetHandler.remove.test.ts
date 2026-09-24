@@ -388,6 +388,111 @@ describe('frozen:remove', () => {
     });
   });
 
+  it("dates the load by the target's own dates of its writes, not by this machine's clock", async () => {
+    // During the load the org's clock ran minutes ahead of this machine's;
+    // since, the two agree. Read on this machine's clock, the load ended at
+    // 10:05 and the contacts the org stamped at 10:07 read as changed since.
+    const stamped = '2026-09-20T10:07:30.000+0000';
+    for (const row of [...(org.rows.get('Account') ?? []), ...(org.rows.get('Contact') ?? [])]) {
+      row.CreatedDate = '2026-09-20T10:04:00.000+0000';
+      row.LastModifiedDate = stamped;
+    }
+    const mapping = await new SasReferenceIdMappingStore(sasDir, { orgId: TARGET_ORG }).recorded();
+    await new SasReferenceIdMappingStore(sasDir, {
+      orgId: TARGET_ORG,
+      organizationId: ORGANIZATION,
+      now: () => new Date(LOAD_ENDED),
+    }).persist(mapping?.mapping ?? new Map(), {
+      created: mapping?.created ?? [],
+      startedAt: new Date(LOAD_STARTED),
+      writtenBetween: { first: '2026-09-20T10:04:00.000Z', last: '2026-09-20T10:07:30.000Z' },
+    });
+
+    await remove();
+
+    expect(answer()).toMatchObject({
+      status: 'success',
+      objects: [
+        { objectApiName: 'Contact', deleted: 2, keptChanged: 0 },
+        { objectApiName: 'Account', deleted: 1, keptDependents: 0 },
+      ],
+    });
+  });
+
+  describe('a load before the last one', () => {
+    const SECOND_ENDED = '2026-09-21T09:05:00.000Z';
+    const SECOND_ACCOUNT = id('001', 2);
+
+    /** A second load, without Reload: it created an account, and kept the load before it. */
+    async function loadedAgain(): Promise<void> {
+      org.rows.get('Account')?.push({
+        Id: SECOND_ACCOUNT,
+        CreatedDate: '2026-09-21T09:02:00.000+0000',
+        LastModifiedDate: '2026-09-21T09:02:00.000+0000',
+      });
+      await new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+        now: () => new Date(SECOND_ENDED),
+      }).persist(new Map([['Account-000001', SECOND_ACCOUNT]]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: new Date('2026-09-21T09:00:00.000Z'),
+        earlier: { settled: [] },
+      });
+    }
+
+    const status = async (): Promise<FrozenStatusInfo> => {
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('frozen:status'));
+      return posted<BaseMessage & { payload: { status: FrozenStatusInfo } }>(
+        'frozen:status:response',
+      )[0].payload.status;
+    };
+
+    it('is offered, and removed, once the last load was', async () => {
+      await loadedAgain();
+      expect((await status()).lastLoadRecords).toMatchObject({
+        loadedAt: SECOND_ENDED,
+        created: [{ objectApiName: 'Account', count: 1 }],
+      });
+
+      await remove({ loadedAt: SECOND_ENDED });
+      expect(org.deletes).toEqual([{ object: 'Account', ids: [SECOND_ACCOUNT] }]);
+
+      expect((await status()).lastLoadRecords).toEqual({
+        orgId: TARGET_ORG,
+        loadedAt: LOAD_ENDED,
+        created: [
+          { objectApiName: 'Contact', count: 2 },
+          { objectApiName: 'Account', count: 1 },
+        ],
+        linked: 1,
+        recorded: true,
+        earlier: true,
+      });
+      org.deletes.length = 0;
+      await remove();
+
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [CONTACTS[1], CONTACTS[0]] },
+        { object: 'Account', ids: [ACCOUNT] },
+      ]);
+      const loads = await new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+      }).recordedLoads();
+      expect(loads.map((load) => load.removal?.deleted)).toEqual([1, 3]);
+    });
+
+    it('is not offered while the last load still has its records', async () => {
+      await loadedAgain();
+
+      await remove();
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['LOAD_CHANGED']);
+      expect(org.deletes).toEqual([]);
+    });
+  });
+
   it('lists a finished removal as completed in the registry and in Live Operations', async () => {
     const events: string[] = [];
     registry.onEvent((_, type) => events.push(type));

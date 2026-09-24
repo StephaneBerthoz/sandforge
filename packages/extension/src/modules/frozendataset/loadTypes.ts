@@ -300,6 +300,13 @@ export interface PurgeReport {
   /** Deactivated record count per undeletable object. */
   deactivated: Record<string, number>;
   failures: Array<{ objectApiName: string; recordId: string; errors: string[] }>;
+  /**
+   * Per object, records a mapping written before loads kept what they created
+   * names — the last load's, or one it kept — that the reload neither reused
+   * nor purged: that load may have linked them rather than written them.
+   * Absent when none was left.
+   */
+  leftUnrecorded?: Record<string, number>;
 }
 
 /** Final load report — every exclusion/adjustment is listed here. */

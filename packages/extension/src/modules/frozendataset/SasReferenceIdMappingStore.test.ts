@@ -235,7 +235,7 @@ describe('SasReferenceIdMappingStore', () => {
         removalStamps: {},
         removalSpans: [],
       });
-      await expect(store.loadCreated()).resolves.toHaveLength(2);
+      expect((await store.previousLoads())[0]?.created).toHaveLength(2);
     });
 
     it('says nothing of what a load created in a file written before it was kept', async () => {
@@ -251,7 +251,9 @@ describe('SasReferenceIdMappingStore', () => {
       expect(recorded?.created).toBeUndefined();
       // The load is named by when its mapping was written.
       expect(recorded?.endedAt).toBe(ENDED);
-      await expect(store.loadCreated()).resolves.toEqual([]);
+      const [previous] = await store.previousLoads();
+      expect(previous?.mapping).toEqual(new Map([['Account-000001', ACCOUNT]]));
+      expect(previous?.created).toBeUndefined();
     });
 
     it('has no load to tell of before the first one', async () => {
@@ -355,6 +357,180 @@ describe('SasReferenceIdMappingStore', () => {
       expect(recorded?.removal).toBeUndefined();
       expect(recorded?.removalStamps).toEqual({});
     });
+  });
+
+  describe('the loads before the last one', () => {
+    const FIRST_ACCOUNT = '001XX00000FirStAAA';
+    const FIRST_CONTACT = '003XX00000FirStAAA';
+    const SECOND_ACCOUNT = '001XX00000SecNdAAA';
+    const BOOK = '01sXX00000AbCdEAAA';
+    const ORGANIZATION = '00DXX00000AbCdE2A1';
+
+    function storeAt(dir: string, ended: string, organizationId = ORGANIZATION) {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        organizationId,
+        now: () => new Date(ended),
+      });
+    }
+
+    /** The first load: it matched the standard book, and created an account and a contact. */
+    async function firstLoad(dir: string): Promise<void> {
+      await storeAt(dir, '2026-09-24T10:05:00.000Z').persist(
+        new Map([
+          ['Pricebook2-000001', BOOK],
+          ['Account-000001', FIRST_ACCOUNT],
+          ['Contact-000001', FIRST_CONTACT],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+            { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+          ],
+          startedAt: new Date('2026-09-24T10:00:00.000Z'),
+          writtenBetween: {
+            first: '2026-09-24T10:00:02.000Z',
+            last: '2026-09-24T10:04:58.000Z',
+          },
+        },
+      );
+    }
+
+    /** A second load, of an account, keeping the loads before it without `settled`. */
+    async function secondLoad(dir: string, settled: string[], organizationId?: string) {
+      await storeAt(dir, '2026-09-24T11:05:00.000Z', organizationId).persist(
+        new Map([['Account-000001', SECOND_ACCOUNT]]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: new Date('2026-09-24T11:00:00.000Z'),
+          earlier: { settled },
+        },
+      );
+    }
+
+    it('keeps the load before, with its records and its dates, behind the last one', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+
+      await secondLoad(dir, []);
+
+      const loads = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(loads.map((load) => [load.endedAt, load.earlier === true])).toEqual([
+        ['2026-09-24T11:05:00.000Z', false],
+        ['2026-09-24T10:05:00.000Z', true],
+      ]);
+      expect(loads[1]).toMatchObject({
+        orgId: 'org-dev',
+        mapping: new Map([
+          ['Account-000001', FIRST_ACCOUNT],
+          ['Contact-000001', FIRST_CONTACT],
+          ['Pricebook2-000001', BOOK],
+        ]),
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+        ],
+        startedAt: '2026-09-24T10:00:00.000Z',
+        writtenBetween: { first: '2026-09-24T10:00:02.000Z', last: '2026-09-24T10:04:58.000Z' },
+      });
+      // The last load is still the one the mapping, and its verification, read.
+      await expect(storeAt(dir, '2026-09-24T12:00:00.000Z').load()).resolves.toEqual(
+        new Map([['Account-000001', SECOND_ACCOUNT]]),
+      );
+      // And a reload reads both, the last one first.
+      const previous = await storeAt(dir, '2026-09-24T12:00:00.000Z').previousLoads();
+      expect(previous.map((load) => [...load.mapping.values()])).toEqual([
+        [SECOND_ACCOUNT],
+        [FIRST_ACCOUNT, FIRST_CONTACT, BOOK],
+      ]);
+    });
+
+    it('keeps of the load before only what the last one did not settle, and drops it once nothing is left', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+
+      // Settled by 15 characters: the same record.
+      await secondLoad(dir, [FIRST_CONTACT.slice(0, 15)]);
+
+      const [, first] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(first.created).toEqual([
+        { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+      ]);
+      expect(first.mapping.has('Contact-000001')).toBe(false);
+
+      // A reload over both: each record they created settled.
+      await secondLoad(dir, [FIRST_ACCOUNT, SECOND_ACCOUNT]);
+      await expect(storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads()).resolves.toHaveLength(
+        1,
+      );
+    });
+
+    it('keeps nothing of a load written to another org than the target is', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+
+      // The sandbox was refreshed: the first load's records went with it.
+      await secondLoad(dir, [], '00Dxx00000FgHiJ3B2');
+
+      await expect(
+        storeAt(dir, '2026-09-24T12:00:00.000Z', '00Dxx00000FgHiJ3B2').recordedLoads(),
+      ).resolves.toHaveLength(1);
+    });
+
+    it('keeps a load that does not say what it created whole, for the next reload to judge', async () => {
+      const dir = makeTmpDir();
+      await storeAt(dir, '2026-09-24T10:05:00.000Z').persist(
+        new Map([['Account-000001', FIRST_ACCOUNT]]),
+      );
+
+      await secondLoad(dir, []);
+
+      const previous = await storeAt(dir, '2026-09-24T12:00:00.000Z').previousLoads();
+      expect(previous[1]).toEqual({ mapping: new Map([['Account-000001', FIRST_ACCOUNT]]) });
+    });
+
+    it('records the removal of the load before in its own entry, and forgets what went everywhere', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+      await secondLoad(dir, []);
+      const mark = {
+        removedAt: '2026-09-24T12:00:00.000Z',
+        deleted: 2,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      };
+
+      const written = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordRemoval(
+        '2026-09-24T10:05:00.000Z',
+        { gone: [FIRST_ACCOUNT, FIRST_CONTACT], stamps: {}, mark },
+      );
+
+      expect(written).toBe(true);
+      const [last, first] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(first.removal).toEqual(mark);
+      expect(first.created).toEqual([]);
+      expect(first.mapping).toEqual(new Map([['Pricebook2-000001', BOOK]]));
+      // The last load is as it was: its own record, unmarked.
+      expect(last.removal).toBeUndefined();
+      expect(last.mapping).toEqual(new Map([['Account-000001', SECOND_ACCOUNT]]));
+      expect(last.endedAt).toBe('2026-09-24T11:05:00.000Z');
+    });
+  });
+
+  it('keeps the dates the target gave the records a load created', async () => {
+    const dir = makeTmpDir();
+    const store = new SasReferenceIdMappingStore(dir, { guard: new SasPathGuard(repoRoot) });
+    const writtenBetween = { first: '2026-09-24T10:00:02.000Z', last: '2026-09-24T10:04:58.000Z' };
+
+    await store.persist(new Map([['Account-000001', '001XX00000AbCdEAAA']]), {
+      created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+      startedAt: new Date('2026-09-24T10:00:00.000Z'),
+      writtenBetween,
+    });
+
+    await expect(store.recorded()).resolves.toMatchObject({ writtenBetween });
   });
 
   it('refuses a sas directory inside the repository', async () => {

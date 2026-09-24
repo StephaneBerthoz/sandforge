@@ -17,6 +17,7 @@
  * the referenceId mapping in the sas. FrozenDatasetHandler wires both.
  */
 
+import type { ForgeWrittenBetween } from '@sandforge/shared';
 import type { RowsLeftOut } from '../../core/common/platformRecords.js';
 
 /** A raw record as extracted from the source org, keyed by referenceId. */
@@ -179,7 +180,9 @@ export interface UnavailableRecordType {
 
 /**
  * The records of one object a load created — inserted, or a technical
- * placeholder — by their keys in the mapping, in the order it wrote them.
+ * placeholder — by their keys in the mapping, in the order it wrote them. A
+ * reload lists there too, first, the records an earlier load created that it
+ * found again: still a load's to remove, and to purge.
  */
 export interface LoadCreatedRecords {
   objectApiName: string;
@@ -196,6 +199,36 @@ export interface PersistedLoad {
   created: readonly LoadCreatedRecords[];
   /** When the load began, on this machine's clock. */
   startedAt: Date;
+  /**
+   * When the target dated the records the load wrote, read back from it as the
+   * load ended: what removing them tells a change made since the load by.
+   * Absent when the load wrote nothing, or not every date could be read.
+   */
+  writtenBetween?: ForgeWrittenBetween;
+  /**
+   * Keep the loads the mapping recorded before this one, to the same org, with
+   * the records they created that are still theirs: a load that did not purge
+   * them leaves them in the org, and their removal, or the next reload, still
+   * has to find them. `settled` names, by record id, what this load took from
+   * them — purged, reused as its own, or, of a load that does not say what it
+   * created, judged by the purge. Absent, the mapping holds this load alone.
+   */
+  earlier?: { settled: readonly string[] };
+}
+
+/**
+ * A load the mapping recorded before the one about to run, as the reload
+ * reads it: newest first, the last load then the ones it kept.
+ */
+export interface PreviousLoad {
+  /** referenceId → real target ID. */
+  mapping: ReadonlyMap<string, string>;
+  /**
+   * Per object, the keys whose records the load created. Undefined for a
+   * mapping written before loads kept it: its created records cannot be told
+   * from the ones it linked.
+   */
+  created?: readonly LoadCreatedRecords[];
 }
 
 /**

@@ -44,7 +44,9 @@ export interface FrozenLoadRemovalProps {
  * load wrote only to write the dataset again. This removes what the load
  * created and nothing else — the extension reads which records from the sas
  * mapping — with Forge's removal: the confirmation names the org, typed, and
- * the records per object; what the load linked to or reused stays.
+ * the records per object; what the load linked to or reused stays. Once the
+ * last load's records went, the card offers the load before it whose records
+ * the loads after it left in the org, and says so.
  */
 export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
@@ -140,10 +142,17 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     <Card className="border border-subtle bg-surface-1">
       <CardBody>
         <div className="flex flex-col gap-2" data-testid="frozen-removal">
-          <h2 className="text-sm font-semibold text-text-primary">{t('frozen.removal.title')}</h2>
+          <h2 className="text-sm font-semibold text-text-primary">
+            {records.earlier ? t('frozen.removal.titleEarlier') : t('frozen.removal.title')}
+          </h2>
           <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-loaded">
             {t('frozen.removal.loadedInto', { org: org ?? records.orgId, date })}
           </p>
+          {records.earlier && (
+            <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-earlier">
+              {t('frozen.removal.earlierNote', { org: org ?? records.orgId })}
+            </p>
+          )}
           {action}
           {removal.loading && (
             <p role="status" className="text-[11px] text-text-secondary">

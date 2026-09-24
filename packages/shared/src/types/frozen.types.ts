@@ -363,6 +363,12 @@ export interface FrozenLoadReportInfo {
     deleted: Record<string, number>;
     deactivated: Record<string, number>;
     failures: Array<{ objectApiName: string; recordId: string; errors: string[] }>;
+    /**
+     * Per object, records of a load whose mapping does not say what it
+     * created, which the reload left in place: that load may have linked
+     * them. Absent when none was left.
+     */
+    leftUnrecorded?: Record<string, number>;
   };
   /**
    * Records the dataset carries and the load left out, by object: the
@@ -449,6 +455,13 @@ export interface FrozenLoadRecordsInfo {
   recorded: boolean;
   /** Set once the records the load created were removed. */
   removed?: ForgeUndoMark;
+  /**
+   * Set when this is a load before the last one, whose records the loads
+   * after it left in the org — a load without Reload purges nothing, and the
+   * target can refuse part of a purge — once the last load's records went,
+   * or when it created none: its removal comes next.
+   */
+  earlier?: true;
 }
 
 /**
@@ -493,7 +506,9 @@ export interface FrozenStatusInfo {
   lastVerify: { status: string; measuredAt: string } | null;
   /**
    * The records of the load whose mapping the sas holds — from this window or
-   * from the command line — for their removal. Absent when no load wrote one.
+   * from the command line — for their removal: the last load, or, once its
+   * records went, the newest load before it whose records are still there.
+   * Absent when no load wrote one.
    */
   lastLoadRecords?: FrozenLoadRecordsInfo;
 }

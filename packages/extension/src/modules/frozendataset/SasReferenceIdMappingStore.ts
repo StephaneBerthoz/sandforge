@@ -10,40 +10,39 @@
  * referenceIds to real IDs.
  *
  * It also keeps what the removal of a load needs and nothing else holds: which
- * of the mapped records the load created rather than linked, when it ran, and
- * what earlier removals of it did. Record ids stay in the sas with the rest.
+ * of the mapped records the load created rather than linked, when it ran —
+ * by this machine's clock, and by the target's — and what earlier removals of
+ * it did; and the same of the loads before it that no reload purged, whose
+ * records are still in the org. Record ids stay in the sas with the rest.
  */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
-import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
+import type { ForgeRemovalSpan, ForgeUndoMark, ForgeWrittenBetween } from '@sandforge/shared';
 import { SasPathGuard } from './SasPathGuard.js';
-import type { LoadCreatedRecords, PersistedLoad, ReferenceIdMappingStore } from './types.js';
+import type {
+  LoadCreatedRecords,
+  PersistedLoad,
+  PreviousLoad,
+  ReferenceIdMappingStore,
+} from './types.js';
 
 /** File name of the persisted mapping inside the sas directory. */
 export const REFERENCEID_MAPPING_FILENAME = 'referenceid-mapping.json';
 
-/** On-disk shape of the persisted mapping. */
-interface MappingFilePayload {
-  version: 1;
-  /** Target org the mapping belongs to (informational guard rail). */
-  orgId: string;
-  /**
-   * The id the target org answered with when the mapping was written. A
-   * refreshed sandbox keeps its registered id and answers with a new one, so
-   * this is what tells the records of the org it was from those of the org it
-   * is. Absent from files written before it was recorded.
-   */
-  organizationId?: string;
+/** What the file keeps of one load: the last one, or one before it. */
+interface LoadPayload {
+  /** When the load's mapping was last written. */
   updatedAt: string;
   /** referenceId → real target ID. */
   mapping: Record<string, string>;
   /**
    * Per object, the keys of the mapping whose records the load created —
-   * inserted, or a technical placeholder — in the order it wrote them. Every
-   * other key names a record it linked or reused. Absent from files written
-   * before it was recorded.
+   * inserted, or a technical placeholder — in the order it wrote them; for a
+   * reload, first the records an earlier load created that it found again.
+   * Every other key names a record it linked or reused. Absent from files
+   * written before it was recorded.
    */
   created?: LoadCreatedRecords[];
   /**
@@ -52,6 +51,12 @@ interface MappingFilePayload {
    * recorded.
    */
   load?: { startedAt: string; endedAt: string };
+  /**
+   * When the target dated the records the load created, read back as it
+   * ended. Absent when it created none, when not every date could be read,
+   * and from files written before it was recorded.
+   */
+  writtenBetween?: ForgeWrittenBetween;
   /** Once the records the load created were removed: when, and how many went each way. */
   removal?: ForgeUndoMark;
   /**
@@ -63,11 +68,36 @@ interface MappingFilePayload {
   removalSpans?: ForgeRemovalSpan[];
 }
 
+/** On-disk shape of the persisted mapping: the last load, and the ones it kept. */
+interface MappingFilePayload extends LoadPayload {
+  version: 1;
+  /** Target org the mapping belongs to (informational guard rail). */
+  orgId: string;
+  /**
+   * The id the target org answered with when the mapping was written. A
+   * refreshed sandbox keeps its registered id and answers with a new one, so
+   * this is what tells the records of the org it was from those of the org it
+   * is. Absent from files written before it was recorded.
+   */
+  organizationId?: string;
+  /**
+   * The loads before the last one, newest first, whose created records no
+   * reload purged or took over: the last load was not a reload, a pilot's
+   * reload purges nothing, a reload stopped part way left the rest, and a
+   * purge the target refused leaves what it refused. Each keeps what it
+   * created and still has in the org, and its dates — or, for a load that
+   * does not say what it created, its whole mapping, for the next reload to
+   * judge. Absent when there is none.
+   */
+  earlier?: LoadPayload[];
+}
+
 /** The parts of a file the removal reads, each checked: the file comes back from disk. */
 const createdSchema = z.array(
   z.object({ objectApiName: z.string(), referenceIds: z.array(z.string()) }),
 );
 const loadSpanSchema = z.object({ startedAt: z.string(), endedAt: z.string() });
+const writtenBetweenSchema = z.object({ first: z.string(), last: z.string() });
 const removalMarkSchema = z.object({
   removedAt: z.string(),
   deleted: z.number(),
@@ -84,6 +114,51 @@ const removalSpansSchema = z.array(
 function readAs<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
   const parsed = schema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * One load as the file keeps it, each part read as its schema reads it: a
+ * part that does not read is left out, a mapping entry that is no string too.
+ */
+function loadPartsOf(value: unknown): LoadPayload | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const mapping =
+    typeof raw.mapping === 'object' && raw.mapping !== null
+      ? Object.fromEntries(
+          Object.entries(raw.mapping).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string',
+          ),
+        )
+      : {};
+  const created = readAs(createdSchema, raw.created);
+  const load = readAs(loadSpanSchema, raw.load);
+  const writtenBetween = readAs(writtenBetweenSchema, raw.writtenBetween);
+  const removal = readAs(removalMarkSchema, raw.removal);
+  const removalStamps = readAs(removalStampsSchema, raw.removalStamps);
+  const removalSpans = readAs(removalSpansSchema, raw.removalSpans);
+  return {
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+    mapping,
+    ...(created ? { created } : {}),
+    ...(load ? { load } : {}),
+    ...(writtenBetween ? { writtenBetween } : {}),
+    ...(removal ? { removal } : {}),
+    ...(removalStamps ? { removalStamps } : {}),
+    ...(removalSpans ? { removalSpans } : {}),
+  };
+}
+
+/** The loads the file keeps before the last one, each that reads. */
+function earlierOf(payload: MappingFilePayload): LoadPayload[] {
+  return Array.isArray(payload.earlier)
+    ? payload.earlier.flatMap((entry) => loadPartsOf(entry) ?? [])
+    : [];
+}
+
+/** Which load a payload holds: when it wrote its last record, or when its mapping was written. */
+function endedAtOf(load: LoadPayload): string {
+  return load.load?.endedAt ?? load.updatedAt;
 }
 
 /**
@@ -108,12 +183,19 @@ export interface RecordedLoad {
    * file that does not say, when the mapping was written. Names the load.
    */
   endedAt: string;
+  /**
+   * When the target dated the records the load created: what its removal
+   * reads the load's span by. Undefined when the file does not say.
+   */
+  writtenBetween?: ForgeWrittenBetween;
   /** Set once the records the load created were removed. */
   removal?: ForgeUndoMark;
   /** What earlier removals of the load left on the records they did not delete. */
   removalStamps: Record<string, string>;
   /** When earlier removals of the load that wrote to the org ran, and as which user. */
   removalSpans: ForgeRemovalSpan[];
+  /** Set for a load before the last one, which the last load kept. */
+  earlier?: true;
 }
 
 /** What a removal of the load did, for the mapping to keep. */
@@ -156,6 +238,49 @@ function recordKey(id: string): string {
 }
 
 /**
+ * A load without the records `keys` names: forgotten by its mapping, by what
+ * it created and by what removals left on them. What a removal took, what a
+ * reload purged or took over as its own, is no longer this load's.
+ */
+function withoutRecords(load: LoadPayload, keys: ReadonlySet<string>): LoadPayload {
+  if (keys.size === 0) return load;
+  const mapping = Object.fromEntries(
+    Object.entries(load.mapping).filter(([, id]) => !keys.has(recordKey(id))),
+  );
+  const created = load.created
+    ?.map(({ objectApiName, referenceIds }) => ({
+      objectApiName,
+      referenceIds: referenceIds.filter((key) =>
+        Object.prototype.hasOwnProperty.call(mapping, key),
+      ),
+    }))
+    .filter((object) => object.referenceIds.length > 0);
+  const stamps = Object.fromEntries(
+    Object.entries(load.removalStamps ?? {}).filter(([id]) => !keys.has(recordKey(id))),
+  );
+  // Copied, then the parts set afresh: a stamp of a record that went, spread
+  // from the file as it was, would outlive the record.
+  const next: LoadPayload = { ...load, mapping };
+  delete next.removalStamps;
+  return {
+    ...next,
+    ...(created ? { created } : {}),
+    ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
+  };
+}
+
+/**
+ * Whether a load still has something a reload or a removal would look for:
+ * a record it created — or, for one that does not say what it created, any
+ * record at all, which the next reload judges.
+ */
+function stillNamesSome(load: LoadPayload): boolean {
+  return load.created
+    ? load.created.some((object) => object.referenceIds.length > 0)
+    : Object.keys(load.mapping).length > 0;
+}
+
+/**
  * Reads and writes the referenceId→real-ID mapping in the sas.
  * `load()` tolerates a missing file (first load → empty mapping).
  */
@@ -184,8 +309,9 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 
   /**
-   * Read the persisted mapping; empty when the file does not exist yet, and
-   * empty when it was written to an org the target no longer is.
+   * Read the persisted mapping of the last load; empty when the file does not
+   * exist yet, and empty when it was written to an org the target no longer
+   * is.
    *
    * A sandbox refresh replaces every record a load wrote. Handed to a reload,
    * their ids would be purged one by one from an org that never held them,
@@ -198,14 +324,18 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 
   /**
-   * The keys of the persisted mapping whose records a load created, per
-   * object — none when there is no file, when it was written to an org the
-   * target no longer is, or before loads kept them.
+   * The loads the file records, as a reload purges them: the last one, then
+   * the ones it kept, newest first — none when there is no file, or when it
+   * was written to an org the target no longer is.
    */
-  async loadCreated(): Promise<LoadCreatedRecords[]> {
+  async previousLoads(): Promise<PreviousLoad[]> {
     const payload = await this.read();
     if (payload === undefined || (await this.writtenToAnotherOrg(payload))) return [];
-    return readAs(createdSchema, payload.created) ?? [];
+    const last = loadPartsOf(payload);
+    return [...(last ? [last] : []), ...earlierOf(payload)].map((load) => ({
+      mapping: new Map(Object.entries(load.mapping)),
+      ...(load.created ? { created: load.created } : {}),
+    }));
   }
 
   /**
@@ -217,24 +347,40 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * @returns Undefined when no load wrote a mapping yet.
    */
   async recorded(): Promise<RecordedLoad | undefined> {
+    return (await this.recordedLoads())[0];
+  }
+
+  /**
+   * Every load the file records, read as {@link recorded} reads the last one:
+   * the last load first, then the ones before it that it kept, newest first.
+   *
+   * @returns Empty when no load wrote a mapping yet.
+   */
+  async recordedLoads(): Promise<RecordedLoad[]> {
     const payload = await this.read();
-    if (payload === undefined) return undefined;
-    const created = readAs(createdSchema, payload.created);
-    const load = readAs(loadSpanSchema, payload.load);
-    const removal = readAs(removalMarkSchema, payload.removal);
+    if (payload === undefined) return [];
+    const orgId = typeof payload.orgId === 'string' ? payload.orgId : '';
+    const last = loadPartsOf(payload);
+    return [
+      ...(last ? [this.recordedOf(last, orgId)] : []),
+      ...earlierOf(payload).map((load) => ({
+        ...this.recordedOf(load, orgId),
+        earlier: true as const,
+      })),
+    ];
+  }
+
+  private recordedOf(load: LoadPayload, orgId: string): RecordedLoad {
     return {
-      orgId: typeof payload.orgId === 'string' ? payload.orgId : '',
-      mapping: new Map(
-        Object.entries(payload.mapping ?? {}).filter(
-          (entry): entry is [string, string] => typeof entry[1] === 'string',
-        ),
-      ),
-      ...(created ? { created } : {}),
-      ...(load ? { startedAt: load.startedAt } : {}),
-      endedAt: load?.endedAt ?? String(payload.updatedAt ?? ''),
-      ...(removal ? { removal } : {}),
-      removalStamps: readAs(removalStampsSchema, payload.removalStamps) ?? {},
-      removalSpans: readAs(removalSpansSchema, payload.removalSpans) ?? [],
+      orgId,
+      mapping: new Map(Object.entries(load.mapping)),
+      ...(load.created ? { created: load.created } : {}),
+      ...(load.load ? { startedAt: load.load.startedAt } : {}),
+      endedAt: endedAtOf(load),
+      ...(load.writtenBetween ? { writtenBetween: load.writtenBetween } : {}),
+      ...(load.removal ? { removal: load.removal } : {}),
+      removalStamps: load.removalStamps ?? {},
+      removalSpans: load.removalSpans ?? [],
     };
   }
 
@@ -287,15 +433,35 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 
   /**
-   * Persist the mapping captured at insert time. REPLACES the file: the
-   * loader passes the full post-load mapping (reused + inserted, purged
-   * entries removed), with what it created and when it ran — and what an
-   * earlier removal left there belonged to the load before.
+   * The loads the file records that a load keeping them carries on, newest
+   * first, each without what the load settled: none when the file was written
+   * to another org, a registered one or the one a refresh left, and none of a
+   * load left with nothing a reload or a removal would look for.
+   */
+  private async keptLoads(settled: readonly string[]): Promise<LoadPayload[]> {
+    const payload = await this.read();
+    if (payload === undefined || payload.orgId !== this.orgId) return [];
+    if (await this.writtenToAnotherOrg(payload)) return [];
+    const keys = new Set(settled.map(recordKey));
+    const last = loadPartsOf(payload);
+    return [...(last ? [last] : []), ...earlierOf(payload)]
+      .map((load) => withoutRecords(load, keys))
+      .filter(stillNamesSome);
+  }
+
+  /**
+   * Persist the mapping captured at insert time. REPLACES the mapping of the
+   * last load: the loader passes the full post-load mapping (reused +
+   * inserted), with what it created and when it ran — and what an earlier
+   * removal left there belonged to the load before.
    *
-   * @param load - Which keys the load created, and when it began. Absent, the
-   *   file says neither, and the load's records cannot be removed from it.
+   * @param load - Which keys the load created, when it began, when the
+   *   target dated its writes, and whether the loads before it are kept.
+   *   Absent, the file says none of it, and the load's records cannot be
+   *   removed from it.
    */
   async persist(mapping: ReadonlyMap<string, string>, load?: PersistedLoad): Promise<void> {
+    const kept = load?.earlier ? await this.keptLoads(load.earlier.settled) : [];
     const organizationId = await this.currentOrganizationId();
     const endedAt = this.now().toISOString();
     await this.write({
@@ -313,20 +479,23 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
               }))
               .filter((object) => object.referenceIds.length > 0),
             load: { startedAt: load.startedAt.toISOString(), endedAt },
+            ...(load.writtenBetween ? { writtenBetween: { ...load.writtenBetween } } : {}),
           }
         : {}),
+      ...(kept.length > 0 ? { earlier: kept } : {}),
     });
   }
 
   /**
-   * Keep what a removal of the load did: forget the records that went, from
-   * the mapping and from what the load created, keep what the removal left on
+   * Keep what a removal of a load did: forget the records that went, from its
+   * mapping and from what it created — and from every other load the file
+   * records, none of which has them any more — keep what the removal left on
    * the others and when it ran, for the next one, and mark the load once its
    * records went.
    *
-   * Written only while the file still records the load removed: a load that
-   * ran meanwhile wrote a mapping of its own, and nothing of this removal
-   * belongs in it.
+   * Written only while the file still records the load removed, as the last
+   * load or one before it: a load that replaced it meanwhile wrote a mapping
+   * of its own, and nothing of this removal belongs in it.
    *
    * @param endedAt - When the load removed wrote its last record, as
    *   {@link recorded} named it.
@@ -334,49 +503,39 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    */
   async recordRemoval(endedAt: string, removal: RecordedRemoval): Promise<boolean> {
     const payload = await this.read();
-    if (payload === undefined) return false;
-    const load = readAs(loadSpanSchema, payload.load);
-    if ((load?.endedAt ?? payload.updatedAt) !== endedAt) return false;
+    const last = loadPartsOf(payload);
+    if (payload === undefined || last === undefined) return false;
+    const loads = [last, ...earlierOf(payload)];
+    const removed = loads.findIndex((load) => endedAtOf(load) === endedAt);
+    if (removed < 0) return false;
 
     const gone = new Set(removal.gone.map(recordKey));
-    const mapping = Object.fromEntries(
-      Object.entries(payload.mapping ?? {}).filter(
-        ([, id]) => typeof id !== 'string' || !gone.has(recordKey(id)),
-      ),
+    const [nextLast, ...nextEarlier] = loads.map((load, index) =>
+      withoutRecords(index === removed ? withRemoval(load, removal) : load, gone),
     );
-    const created = readAs(createdSchema, payload.created)
-      ?.map(({ objectApiName, referenceIds }) => ({
-        objectApiName,
-        referenceIds: referenceIds.filter((key) =>
-          Object.prototype.hasOwnProperty.call(mapping, key),
-        ),
-      }))
-      .filter((object) => object.referenceIds.length > 0);
-    const stamps = Object.fromEntries(
-      Object.entries({
-        ...readAs(removalStampsSchema, payload.removalStamps),
-        ...removal.stamps,
-      }).filter(([id]) => !gone.has(recordKey(id))),
-    );
-    const spans = [
-      ...(readAs(removalSpansSchema, payload.removalSpans) ?? []),
-      ...(removal.span ? [removal.span] : []),
-    ];
-    const mark = removal.mark ?? readAs(removalMarkSchema, payload.removal);
-
-    // Copied, then the removal's parts set afresh: a stamp of a record that
-    // went, spread from the file as it was, would outlive the record.
-    const next: MappingFilePayload = { ...payload, updatedAt: this.now().toISOString(), mapping };
-    delete next.removal;
-    delete next.removalStamps;
-    delete next.removalSpans;
+    // Written from its parts: a part a record that went took with it — a
+    // stamp of that record — does not survive from the file as it was.
     await this.write({
-      ...next,
-      ...(created ? { created } : {}),
-      ...(mark ? { removal: mark } : {}),
-      ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
-      ...(spans.length > 0 ? { removalSpans: spans } : {}),
+      version: 1,
+      orgId: typeof payload.orgId === 'string' ? payload.orgId : '',
+      ...(payload.organizationId !== undefined ? { organizationId: payload.organizationId } : {}),
+      ...nextLast,
+      updatedAt: this.now().toISOString(),
+      ...(nextEarlier.length > 0 ? { earlier: nextEarlier } : {}),
     });
     return true;
   }
+}
+
+/** A load as a removal of it leaves it: what it left on records, when it ran, and its mark. */
+function withRemoval(load: LoadPayload, removal: RecordedRemoval): LoadPayload {
+  const stamps = { ...load.removalStamps, ...removal.stamps };
+  const spans = [...(load.removalSpans ?? []), ...(removal.span ? [removal.span] : [])];
+  const mark = removal.mark ?? load.removal;
+  return {
+    ...load,
+    ...(mark ? { removal: mark } : {}),
+    ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
+    ...(spans.length > 0 ? { removalSpans: spans } : {}),
+  };
 }
