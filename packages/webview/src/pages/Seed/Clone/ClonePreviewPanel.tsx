@@ -97,6 +97,15 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                   <span className="text-[var(--sf-text-primary)]">
                     {t('common.recordCount', { count: obj.recordCount })}
                   </span>
+                  {/* Found and never sent: counted apart, as the results count them. */}
+                  {(obj.leftToThePlatform ?? 0) > 0 && (
+                    <span
+                      className="text-[var(--sf-text-secondary)]"
+                      data-testid="clone-preview-left-to-the-platform"
+                    >
+                      {t('seed.clone.preview.leftToThePlatform')}: {obj.leftToThePlatform}
+                    </span>
+                  )}
                   {obj.relationships.length > 0 && (
                     <Badge variant="info">
                       {t('common.dependencyCount', { count: obj.relationships.length })}

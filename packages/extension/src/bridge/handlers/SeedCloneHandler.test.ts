@@ -184,6 +184,94 @@ describe('SeedCloneHandler', () => {
     });
   });
 
+  describe('seed:clone:preview', () => {
+    /** A feed's describes as the org gives them: a comment may not leave its feed item empty. */
+    function sourceWithFeeds(): void {
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn(async (name: string) => ({
+          fields:
+            name === 'FeedComment'
+              ? [
+                  {
+                    name: 'FeedItemId',
+                    type: 'reference',
+                    referenceTo: ['FeedItem', 'OpportunityFeed'],
+                    nillable: false,
+                  },
+                ]
+              : [{ name: 'Type', type: 'picklist', nillable: true }],
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+    }
+
+    it('counts and samples what the clone will send, and says how many rows it leaves to the platform', async () => {
+      // Forty of the forty-four feed items a sandbox held were tracked
+      // changes, which the clone never sends; neither does it send the comment
+      // on one. The preview counted and sampled them all.
+      sourceWithFeeds();
+      linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+      fetcher.countRecords.mockImplementation(
+        async (_conn: unknown, name: string, _where?: string, sends: string[] = []) =>
+          name === 'FeedItem' ? (sends.length > 0 ? 4 : 44) : sends.length > 0 ? 1 : 2,
+      );
+      fetcher.fetchSample.mockResolvedValue([{ Id: '0D5Fk00000PoStAIAV', Type: 'TextPost' }]);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:preview',
+          clonePayload({
+            objects: [
+              { objectApiName: 'FeedItem', whereClause: "ParentId = '006Fk00000FaKeAIAV'" },
+              { objectApiName: 'FeedComment' },
+            ],
+          }),
+        ),
+      );
+
+      const NOT_TRACKED = ["Type != 'TrackedChange'"];
+      const NOT_ON_A_TRACKED_CHANGE = [
+        'FeedItemId NOT IN (SELECT Id FROM FeedItem WHERE ' +
+          "(ParentId = '006Fk00000FaKeAIAV') AND (Type = 'TrackedChange'))",
+      ];
+      expect(fetcher.fetchSample).toHaveBeenCalledWith(
+        expect.anything(),
+        'FeedItem',
+        5,
+        "ParentId = '006Fk00000FaKeAIAV'",
+        NOT_TRACKED,
+      );
+      expect(fetcher.fetchSample).toHaveBeenCalledWith(
+        expect.anything(),
+        'FeedComment',
+        5,
+        undefined,
+        NOT_ON_A_TRACKED_CHANGE,
+      );
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        objects: [
+          { objectApiName: 'FeedItem', recordCount: 4, leftToThePlatform: 40 },
+          { objectApiName: 'FeedComment', recordCount: 1, leftToThePlatform: 1 },
+        ],
+        insertOrder: ['FeedItem', 'FeedComment'],
+      });
+    });
+
+    it('counts once an object the clone leaves nothing of, and says nothing left out', async () => {
+      fetcher.countRecords.mockResolvedValue(12);
+      fetcher.fetchSample.mockResolvedValue([]);
+
+      await handler.handle(buildMsg('seed:clone:preview', clonePayload()));
+
+      expect(fetcher.countRecords).toHaveBeenCalledTimes(1);
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      const [account] = (response.payload as { objects: Array<Record<string, unknown>> }).objects;
+      expect(account).toMatchObject({ objectApiName: 'Account', recordCount: 12 });
+      expect(account).not.toHaveProperty('leftToThePlatform');
+    });
+  });
+
   describe('seed:clone:execute', () => {
     it('writes through BulkDataWriter and reports a successful clone', async () => {
       await handler.handle(buildMsg('seed:clone:execute', clonePayload()));

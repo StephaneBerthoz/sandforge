@@ -23,9 +23,6 @@ export const forgeNodeStatusSchema = z.enum([
 /** Zod schema for ForgeGraphEdge relationship type */
 export const forgeEdgeTypeSchema = z.enum(['master-detail', 'lookup']);
 
-/** Zod schema for ForgeExecutionResult status */
-export const forgeExecutionStatusSchema = z.enum(['success', 'partial', 'failure']);
-
 /** Zod schema for ForgeBatchStrategy */
 export const forgeBatchStrategySchema = z.enum(['rest', 'bulk', 'auto']);
 
@@ -225,44 +222,14 @@ export const forgeGraphSchema = z.object({
   truncated: z.boolean().optional(),
 });
 
-// ─── Execution Result Schema ────────────────────────────────────────────────
-
-/** Zod schema for ForgeExecutionErrorSample */
-export const forgeExecutionErrorSampleSchema = z.object({
-  recordSummary: z.string(),
-  messages: z.array(z.string()),
-});
-
-/** Zod schema for ForgeExecutionError */
-export const forgeExecutionErrorSchema = z.object({
-  objectApiName: z.string().min(1),
-  stage: z.enum(['query', 'insert', 'scope']),
-  failedCount: z.number().int().nonnegative(),
-  attemptedCount: z.number().int().nonnegative(),
-  samples: z.array(forgeExecutionErrorSampleSchema),
-});
-
-/** Zod schema for ForgeExistingRecords */
-export const forgeExistingRecordsSchema = z.object({
-  objectApiName: z.string().min(1),
-  linked: z.number().int().nonnegative(),
-  unidentified: z.number().int().nonnegative(),
-});
-
-/** Zod schema for ForgeExecutionResult */
-export const forgeExecutionResultSchema = z.object({
-  forgeId: z.string().min(1),
-  status: forgeExecutionStatusSchema,
-  graph: forgeGraphSchema,
-  duration: z.number().nonnegative(),
-  timestamp: z.string().min(1),
-  idRemapCount: z.number().int().nonnegative(),
-  errors: z.array(forgeExecutionErrorSchema).optional(),
-  truncatedObjects: z.array(z.string()).optional(),
-  createdCount: z.number().int().nonnegative().optional(),
-  linkedExistingCount: z.number().int().nonnegative().optional(),
-  existingRecords: z.array(forgeExistingRecordsSchema).optional(),
-});
+// A run's result has no schema, on purpose. Nothing parses one: the extension
+// builds it (`forgeRunResult`), posts it to the webview and keeps it in its own
+// history, which it reads back itself, and no message from the webview carries
+// one — a removal names the run's history entry, never records. The schema
+// that stood here was parsed by its own tests alone and had fallen sixteen
+// fields behind the type; parsing drops what it does not name, so a history
+// entry read through it would have lost `idRemapCreated`, and with it the
+// removal of the run's records.
 
 // ─── Template Schema ────────────────────────────────────────────────────────
 
@@ -363,9 +330,6 @@ export type ForgeGraphEdgeInput = z.infer<typeof forgeGraphEdgeSchema>;
 
 /** Inferred type for ForgeGraph input */
 export type ForgeGraphInput = z.infer<typeof forgeGraphSchema>;
-
-/** Inferred type for ForgeExecutionResult input */
-export type ForgeExecutionResultInput = z.infer<typeof forgeExecutionResultSchema>;
 
 /** Inferred type for ForgeTemplate input */
 export type ForgeTemplateInput = z.infer<typeof forgeTemplateSchema>;

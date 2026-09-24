@@ -72,6 +72,34 @@ describe('ClonePreviewPanel', () => {
     expect(totalEl.textContent).toContain('200');
   });
 
+  it('counts apart the rows the clone leaves to the platform, and not in the total', () => {
+    // Forty of forty-four feed items were tracked changes, which the clone
+    // never sends: the preview counted them among the records to clone.
+    const feed: ClonePreviewResult = {
+      insertOrder: ['FeedItem'],
+      objects: [
+        {
+          objectApiName: 'FeedItem',
+          recordCount: 4,
+          leftToThePlatform: 40,
+          sampleRecords: [],
+          relationships: [],
+        },
+      ],
+    };
+    render(<ClonePreviewPanel previewResult={feed} onExecute={vi.fn()} onBack={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-preview-left-to-the-platform').textContent).toBe(
+      'Not sent (the platform writes them, or what they depend on, itself): 40',
+    );
+    expect(screen.getByTestId('clone-total-records').textContent).toContain('4 records');
+  });
+
+  it('says nothing left out for a clone that sends every row its filters match', () => {
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByTestId('clone-preview-left-to-the-platform')).toBeNull();
+  });
+
   it('should show large clone warning when records exceed threshold', () => {
     render(
       <ClonePreviewPanel previewResult={largeMockPreview} onExecute={vi.fn()} onBack={vi.fn()} />,

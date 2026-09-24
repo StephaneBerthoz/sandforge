@@ -217,6 +217,8 @@ const makeMockGraphWithError = () => {
 
 let mockGraph = makeMockGraph();
 let mockResult = makeMockResult();
+/** What the run reported of the objects it adds beyond the graph, by name. */
+let mockStatusesBeyondGraph: Record<string, string> = {};
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -227,6 +229,9 @@ vi.mock('../../stores/useForgeStore', () => {
         },
         get result() {
           return mockResult;
+        },
+        get statusesBeyondGraph() {
+          return mockStatusesBeyondGraph;
         },
         reset: (...args: unknown[]) => mockReset(...args),
         forgeAgain: (...args: unknown[]) => mockForgeAgain(...args),
@@ -260,6 +265,7 @@ describe('ForgeResults', () => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
     mockResult = makeMockResult();
+    mockStatusesBeyondGraph = {};
   });
 
   it('should render with forge-results test id', () => {
@@ -566,6 +572,184 @@ describe('ForgeResults', () => {
       expect(screen.getByTestId('forge-results-status').textContent).toBe(
         'Forge finished. Written: 28 of 35.',
       );
+    });
+  });
+
+  describe('the objects the table lists', () => {
+    /** A node discovery left out: an empty table, unless `errors` says why else. */
+    const leftOut = (objectApiName: string, errors: string[] = []): ForgeGraphNode => ({
+      ...makeMockGraph().nodes[2],
+      objectApiName,
+      recordCount: 0,
+      // The run reports every node it leaves out as skipped, and the page
+      // takes that status: the error is what still tells a failed count.
+      status: 'skipped',
+      included: false,
+      errors,
+    });
+
+    /**
+     * The clone of one account and its contacts, cases left out: discovery
+     * found leads and assets empty, and could not count email statuses. At
+     * its cap, it never reached the price book entries the run then added,
+     * nor the selling model options; the products could not be read.
+     */
+    function cloneBeyondItsGraph(): void {
+      mockGraph = {
+        ...makeMockGraph(),
+        nodes: [
+          ...makeMockGraph().nodes,
+          leftOut('Lead'),
+          leftOut('Asset'),
+          leftOut('EmailStatus', [
+            'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type EmailStatus does not support query',
+          ]),
+        ],
+      };
+      mockResult = Object.assign(makeMockResult(), {
+        graph: mockGraph,
+        createdCount: 8,
+        readByObject: [
+          { objectApiName: 'Account', read: 1 },
+          { objectApiName: 'Contact', read: 3 },
+          { objectApiName: 'PricebookEntry', read: 2 },
+          { objectApiName: 'ProductSellingModelOption', read: 2 },
+        ],
+        failedReads: ['Product2'],
+      });
+      mockStatusesBeyondGraph = { PricebookEntry: 'done', ProductSellingModelOption: 'error' };
+    }
+
+    /** Each row as the table shows it: object, records, status, errors. */
+    function tableRows(): string[][] {
+      return screen
+        .getAllByTestId('forge-results-row')
+        .map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent ?? ''));
+    }
+
+    it('gives a row to each object the run read or wrote beyond its graph', () => {
+      // The catalog beyond the cap and the selling model options are in the
+      // run's counts, its log and its removal: the table had no row for them.
+      cloneBeyondItsGraph();
+      render(<ForgeResults />);
+
+      expect(tableRows()).toEqual([
+        ['Account', '1', 'done', '-'],
+        ['Case', '-', 'skipped', '-'],
+        ['Contact', '3', 'done', 'FIELD_INTEGRITY_EXCEPTION'],
+        [
+          'EmailStatus',
+          '-',
+          'skipped',
+          'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type EmailStatus does not support query',
+        ],
+        ['PricebookEntry', '2', 'done', '-'],
+        ['Product2', '-', 'error', '-'],
+        ['ProductSellingModelOption', '2', 'error', '-'],
+      ]);
+    });
+
+    it('sorts and filters those rows with the others', () => {
+      cloneBeyondItsGraph();
+      render(<ForgeResults />);
+
+      fireEvent.change(screen.getByTestId('forge-results-status-filter'), {
+        target: { value: 'error' },
+      });
+      expect(tableRows().map(([object]) => object)).toEqual([
+        'Product2',
+        'ProductSellingModelOption',
+      ]);
+
+      fireEvent.change(screen.getByTestId('forge-results-status-filter'), {
+        target: { value: 'all' },
+      });
+      fireEvent.click(screen.getByTestId('forge-results-sort-records'));
+      expect(tableRows().map(([object, records]) => `${object} ${records}`)).toEqual([
+        'Case -',
+        'EmailStatus -',
+        'Product2 -',
+        'Account 1',
+        'PricebookEntry 2',
+        'ProductSellingModelOption 2',
+        'Contact 3',
+      ]);
+    });
+
+    it('lists none of the empty tables discovery left out, and says how many there were', () => {
+      cloneBeyondItsGraph();
+      render(<ForgeResults />);
+
+      const listed = tableRows().map(([object]) => object);
+      expect(listed).not.toContain('Lead');
+      expect(listed).not.toContain('Asset');
+      expect(screen.getByTestId('forge-results-empty-tables').textContent).toBe(
+        'Not listed: 2 objects discovery left out because their table is empty in the source.',
+      );
+    });
+
+    it('counts among the skipped objects those left out for a reason, not the empty tables', () => {
+      cloneBeyondItsGraph();
+      render(<ForgeResults />);
+
+      // Cases, left out by choice, and email statuses, which could not be counted.
+      const card = screen.getAllByTestId('kpi-card')[1];
+      expect(card.textContent).toContain('Objects skipped');
+      expect(within(card).getByTestId('kpi-value').textContent).toBe('2');
+    });
+
+    it('copies the same rows into the report, and the empty tables in one line', async () => {
+      cloneBeyondItsGraph();
+      const writeText = vi.fn((_text: string) => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      try {
+        render(<ForgeResults />);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('forge-copy-report'));
+        });
+
+        const report = writeText.mock.calls[0]?.[0] ?? '';
+        expect(report).toContain('- Objects skipped: 2\n');
+        expect(report).toContain('| PricebookEntry | 2 | done | - |');
+        expect(report).toContain('| Product2 | - | error | - |');
+        expect(report).toContain('| ProductSellingModelOption | 2 | error | - |');
+        expect(report).toContain(
+          '| EmailStatus | - | skipped | Record count unavailable: INVALID_TYPE_FOR_OPERATION',
+        );
+        expect(report).not.toContain('| Lead |');
+        expect(report).not.toContain('| Asset |');
+        // Right under the table.
+        expect(report).toContain(
+          '| Product2 | - | error | - |\n\nNot listed: 2 objects discovery left out because their table is empty in the source.',
+        );
+      } finally {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    });
+
+    it('shows an object beyond the graph as done when the run said nothing of it', () => {
+      // A result the page holds without the run's reports of that object.
+      cloneBeyondItsGraph();
+      mockStatusesBeyondGraph = {};
+      render(<ForgeResults />);
+
+      const beyond = tableRows().filter(([object]) =>
+        ['PricebookEntry', 'Product2', 'ProductSellingModelOption'].includes(object),
+      );
+      expect(beyond.map(([object, , status]) => `${object} ${status}`)).toEqual([
+        'PricebookEntry done',
+        'Product2 error',
+        'ProductSellingModelOption done',
+      ]);
+    });
+
+    it('says nothing of empty tables for a run whose discovery left none out', () => {
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-empty-tables')).toBeNull();
     });
   });
 

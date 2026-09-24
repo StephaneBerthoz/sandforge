@@ -95,9 +95,16 @@ export interface ClonePreviewResult {
   objects: Array<{
     /** Salesforce object API name */
     objectApiName: string;
-    /** Number of records matching the filter */
+    /** Number of records matching the filter that the clone will send */
     recordCount: number;
-    /** Sample records from the source org */
+    /**
+     * Records matching the filter the clone will leave to the platform, never
+     * sending them: the platform writes them itself — a tracked change — or
+     * they cannot go in without one it does. Counted in neither `recordCount`
+     * nor the samples. Absent when there are none.
+     */
+    leftToThePlatform?: number;
+    /** Sample records from the source org, of those the clone will send */
     sampleRecords: Record<string, unknown>[];
     /** Lookup relationships to other objects in the clone set */
     relationships: Array<{ field: string; referenceTo: string }>;

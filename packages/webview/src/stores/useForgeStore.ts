@@ -102,6 +102,7 @@ const INITIAL_STATE = {
   phase: 'input' as ForgePhase,
   config: null as ForgeConfig | null,
   graph: null as ForgeGraph | null,
+  statusesBeyondGraph: {} as Record<string, ForgeNodeStatus>,
   result: null as ForgeExecutionResult | null,
   templates: [] as ForgeTemplate[],
   history: [] as ForgeExecutionResult[],
@@ -124,6 +125,14 @@ export interface ForgeState {
   config: ForgeConfig | null;
   /** Dependency graph built from metadata scan. */
   graph: ForgeGraph | null;
+  /**
+   * The status the run on screen last reported of each object the graph holds
+   * no node of, by API name: the catalog beyond the cap and the selling model
+   * options a run adds to discovery's graph, a parent an orphan needed. The
+   * results give such an object a row from what the run's result carries, and
+   * this is the status it shows. Emptied as a run starts.
+   */
+  statusesBeyondGraph: Record<string, ForgeNodeStatus>;
   /** Result of the last execution. */
   result: ForgeExecutionResult | null;
   /** Available forge templates. */
@@ -181,9 +190,15 @@ export interface ForgeState {
   setGraph: (graph: ForgeGraph) => void;
   /** Transition to a new wizard phase. */
   setPhase: (phase: ForgePhase) => void;
-  /** Update a node's status and optionally its progress. */
+  /**
+   * Update a node's status and optionally its progress; for an object the
+   * graph holds no node of, keep its status in `statusesBeyondGraph`.
+   */
   updateNodeStatus: (objectName: string, status: ForgeNodeStatus, progress?: number) => void;
-  /** Put every node back to idle, so a new run does not inherit the last one's statuses. */
+  /**
+   * Put every node back to idle, so a new run does not inherit the last one's
+   * statuses, keeping what discovery said went wrong with each.
+   */
   resetNodeStatuses: () => void;
   /** Record what a node turned out to hold, once the run has read it. */
   updateNodeCounts: (
@@ -288,6 +303,11 @@ export const useForgeStore = create<ForgeState>((set) => ({
   updateNodeStatus(objectName: string, status: ForgeNodeStatus, progress?: number): void {
     set((state) => {
       if (!state.graph) return state;
+      // An object the run adds to the graph reports as the others do, and its
+      // status used to go nowhere: its row on the results had none to show.
+      if (!state.graph.nodes.some((n: ForgeGraphNode) => n.objectApiName === objectName)) {
+        return { statusesBeyondGraph: { ...state.statusesBeyondGraph, [objectName]: status } };
+      }
       return {
         graph: {
           ...state.graph,
@@ -305,6 +325,11 @@ export const useForgeStore = create<ForgeState>((set) => ({
    * through the whole opening phase, which emits no event. The elapsed clock
    * ran while the counters sat still, which is also why the remaining-time
    * estimate (elapsed x remaining / done) read exactly the elapsed time.
+   *
+   * A node's errors are discovery's — its describe or its count failed — and
+   * stay: a run reports its own in its result, never on the nodes. Wiped here,
+   * the results listed every object the org would not count (NOACCESS, "does
+   * not support query") with no error at all.
    */
   resetNodeStatuses(): void {
     set((state) => {
@@ -318,9 +343,9 @@ export const useForgeStore = create<ForgeState>((set) => ({
             progress: 0,
             successCount: 0,
             failureCount: 0,
-            errors: [],
           })),
         },
+        statusesBeyondGraph: {},
       };
     });
   },
@@ -537,6 +562,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
     set({
       phase: 'input' as ForgePhase,
       graph: null,
+      statusesBeyondGraph: {},
       result: null,
       plan: null,
       complianceReport: null,

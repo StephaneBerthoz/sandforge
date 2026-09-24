@@ -10,7 +10,7 @@
  */
 
 import { SELLING_MODEL_OPTION_OBJECT } from '@sandforge/shared';
-import { assertSoqlIdentifier, sanitizeSoqlValue } from './soqlValidator.js';
+import { assertSoqlIdentifier, assertSoqlWhere, sanitizeSoqlValue } from './soqlValidator.js';
 
 /** A SOQL query against the target org, answering the rows it read. */
 export type SoqlQuery = (soql: string) => Promise<ReadonlyArray<Record<string, unknown>>>;
@@ -216,6 +216,61 @@ export function leftToThePlatformReason(why: LeftToThePlatform): string {
     ? `Not written: ${why.through} may not be left empty, and the ${why.rows.noun} it names ` +
         'is one the platform writes itself, which no copy sends.'
     : `Not written: the platform writes each ${why.rows.noun} itself, and refuses one a copy sends.`;
+}
+
+/** A lookup the rows of an object may not leave empty, and the objects it can name. */
+export interface RequiredLookup {
+  readonly name: string;
+  readonly referenceTo: readonly string[];
+}
+
+/**
+ * What a copy sends of an object, as SOQL conditions its filter is joined to
+ * with AND: none of the rows the platform writes itself, and none that hang,
+ * through a lookup they may not leave empty, from one of those the copy reads
+ * of another of its objects. `RowsLeftToThePlatform` leaves them out as the
+ * copy reads; these say it before a row is read, so a count or a sample taken
+ * with them is of what the copy will send. A Seed Clone's preview counted and
+ * sampled every row its filter matched: the tracked changes the clone leaves
+ * to the platform, and the comments on them, among the records it said it
+ * would clone.
+ *
+ * One level only: SOQL nests no semi-join in another, so a row that hangs from
+ * a row that itself hangs from one the platform writes is left out by the copy
+ * and still counted here.
+ *
+ * @param requiredLookups - The lookups the object's rows may not leave empty.
+ * @param copied - Every object of the copy, with the filter it is read by.
+ */
+export function rowsACopySends(
+  objectApiName: string,
+  requiredLookups: readonly RequiredLookup[],
+  copied: ReadonlyMap<string, string | undefined>,
+): string[] {
+  const isOneOf = (rows: readonly PlatformWrittenRows[]): string =>
+    rows
+      .map(({ field, value }) => `${assertSoqlIdentifier(field)} = '${sanitizeSoqlValue(value)}'`)
+      .join(' OR ');
+  // A field SOQL compares with != includes the rows where it is null, as the
+  // copy keeps them.
+  const own = (PLATFORM_WRITTEN_ROWS[objectApiName] ?? []).map(
+    ({ field, value }) => `${assertSoqlIdentifier(field)} != '${sanitizeSoqlValue(value)}'`,
+  );
+  const hanging = requiredLookups.flatMap((lookup) =>
+    lookup.referenceTo.flatMap((parent) => {
+      const rows = PLATFORM_WRITTEN_ROWS[parent];
+      if (parent === objectApiName || !copied.has(parent) || !rows || rows.length === 0) return [];
+      const filter = copied.get(parent);
+      const where = filter
+        ? `(${assertSoqlWhere(filter)}) AND (${isOneOf(rows)})`
+        : `(${isOneOf(rows)})`;
+      return [
+        `${assertSoqlIdentifier(lookup.name)} NOT IN ` +
+          `(SELECT Id FROM ${assertSoqlIdentifier(parent)} WHERE ${where})`,
+      ];
+    }),
+  );
+  return [...own, ...hanging];
 }
 
 /**

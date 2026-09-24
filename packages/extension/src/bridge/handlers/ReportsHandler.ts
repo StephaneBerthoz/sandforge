@@ -4,7 +4,7 @@ import type {
   GeneratedReport,
   SyncHistoryEntry,
 } from '@sandforge/shared';
-import { leftOutAsEmptyTable } from '@sandforge/shared';
+import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
@@ -60,15 +60,10 @@ function forgeRecordCount(run: ForgeExecutionResult): number {
  */
 function forgeObjectCount(run: ForgeExecutionResult): number {
   const nodes = run.graph?.nodes ?? [];
-  const inGraph = new Set(nodes.map((node) => node.objectApiName));
-  const outside = new Set(
-    [
-      ...(run.readByObject ?? []).map((read) => read.objectApiName),
-      ...(run.failedReads ?? []),
-      ...(run.idRemapByObject ?? []).map((written) => written.objectApiName),
-    ].filter((objectApiName) => !inGraph.has(objectApiName)),
+  return (
+    nodes.filter((node) => !leftOutAsEmptyTable(node)).length +
+    objectsBeyondTheGraph(run, nodes).length
   );
-  return nodes.filter((node) => !leftOutAsEmptyTable(node)).length + outside.size;
 }
 
 /**

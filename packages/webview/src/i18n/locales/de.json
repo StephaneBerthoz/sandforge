@@ -785,6 +785,7 @@
         "recordCounts": "Datensatzanzahl",
         "sampleRecords": "Beispieldatensätze",
         "largeWarning": "Dieser Klon umfasst über 10.000 Datensätze. Es kann mehrere Minuten dauern.",
+        "leftToThePlatform": "Nicht gesendet (die Plattform schreibt sie oder das, wovon sie abhängen, selbst)",
         "execute": "Klonen ausführen"
       },
       "results": {
@@ -2592,6 +2593,8 @@
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
     "readFailed": "Nicht lesbar und daher nicht geklont: {{objects}}. Die Erfolgsrate zählt nur die gelesenen Datensätze.",
+    "emptyTablesLeftOut_one": "Nicht aufgeführt: {{count}} Objekt, das die Ermittlung ausgelassen hat, weil seine Tabelle in der Quelle leer ist.",
+    "emptyTablesLeftOut_other": "Nicht aufgeführt: {{count}} Objekte, die die Ermittlung ausgelassen hat, weil ihre Tabelle in der Quelle leer ist.",
     "fileContentLeftOut": "Im Klon leer gelassen: Diese Felder enthalten den Inhalt einer Datei, den ein Lesevorgang nur als Adresse der Datei liefert.",
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",

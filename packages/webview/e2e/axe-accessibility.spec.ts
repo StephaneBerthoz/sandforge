@@ -746,6 +746,67 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge results listing an object the run added, and the empty tables in one line', async ({
+      page,
+    }) => {
+      /** A node discovery left out: an empty table, unless it could not count it. */
+      const leftOut = (objectApiName: string, errors: string[] = []) => ({
+        ...FORGE_RUN_GRAPH.nodes[0],
+        objectApiName,
+        recordCount: 0,
+        status: errors.length > 0 ? 'error' : 'idle',
+        included: false,
+        errors,
+      });
+      const graph = {
+        ...FORGE_RUN_GRAPH,
+        nodes: [
+          ...FORGE_RUN_GRAPH.nodes,
+          leftOut('Lead'),
+          leftOut('Asset'),
+          leftOut('EmailStatus', [
+            'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type EmailStatus does not support query',
+          ]),
+        ],
+      };
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', { graph });
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-beyond',
+          status: 'success',
+          graph,
+          duration: 2_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 3,
+          createdCount: 3,
+          readByObject: [
+            { objectApiName: 'Account', read: 1 },
+            { objectApiName: 'ProductSellingModelOption', read: 2 },
+          ],
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results-empty-tables"]', { timeout: 10_000 });
+      const table = page.getByTestId('forge-results-table');
+      await expect(table).toContainText('ProductSellingModelOption');
+      await expect(table).toContainText('Record count unavailable');
+      await expect(table).not.toContainText('Lead');
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-empty-tables"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
       page,
     }) => {
@@ -862,6 +923,45 @@ for (const theme of SCANNED_THEMES) {
       });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Seed Clone preview saying what the clone leaves to the platform', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await page.getByTestId('mode-card-clone').click();
+      // The first connected org is the target: the other is the source.
+      await page.getByTestId('clone-source-select').selectOption(QA_SANDBOX.id);
+      await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+        objects: [{ apiName: 'FeedItem', label: 'Feed Item', recordCount: -1 }],
+      });
+      await page.getByTestId('clone-wizard-next').click();
+      await page.getByTestId('clone-obj-check-FeedItem').check();
+      await page.getByTestId('clone-wizard-next').click();
+      await bridge.waitForMessage('seed:clone:preview', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:preview', 'seed:clone:preview:response', {
+        objects: [
+          {
+            objectApiName: 'FeedItem',
+            recordCount: 4,
+            leftToThePlatform: 40,
+            sampleRecords: [{ Type: 'CreateRecordEvent' }, { Type: 'CallLogPost' }],
+            relationships: [],
+          },
+        ],
+        insertOrder: ['FeedItem'],
+      });
+      await page.waitForSelector('[data-testid="clone-preview-left-to-the-platform"]', {
+        timeout: 10_000,
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="clone-preview-left-to-the-platform"]',
+        ),
+      ).toBeGreaterThan(0);
     });
 
     test('Sync page', async ({ page }) => {

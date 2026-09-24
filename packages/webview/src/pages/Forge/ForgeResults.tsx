@@ -15,7 +15,8 @@ import {
   AlertTriangle,
   Lightbulb,
 } from 'lucide-react';
-import type { ForgeExecutionError, ForgeGraphNode } from '@sandforge/shared';
+import type { ForgeExecutionError, ForgeGraphNode, ForgeNodeStatus } from '@sandforge/shared';
+import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
@@ -57,6 +58,21 @@ export interface ForgeResultsProps {
 }
 
 /**
+ * One row of the per-object table: an object of the graph, or one the run
+ * read or wrote beyond it.
+ */
+interface ObjectRow {
+  /** API name of the object. */
+  objectApiName: string;
+  /** What the run read of it; nothing for an object it did not read. */
+  records: number | undefined;
+  /** How the run left it. */
+  status: ForgeNodeStatus;
+  /** What went wrong with it as discovery described or counted it. */
+  errors: readonly string[];
+}
+
+/**
  * Forge results summary view.
  *
  * Displays KPI cards with inserted/skipped/remapped counts,
@@ -68,6 +84,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const { t } = useTranslation();
   const result = useForgeStore((s) => s.result);
   const graph = useForgeStore((s) => s.graph);
+  const statusesBeyondGraph = useForgeStore((s) => s.statusesBeyondGraph);
   const forgeAgain = useForgeStore((s) => s.forgeAgain);
   const setPhase = useForgeStore((s) => s.setPhase);
   const setGraph = useForgeStore((s) => s.setGraph);
@@ -98,12 +115,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** Records the target already held and named: linked to, neither created nor failed. */
   const linked = result?.linkedExistingCount ?? 0;
-
-  // Objects, not records: the run keeps no count of the records of an object
-  // it skips, and the count a node carries is discovery's, of its whole table.
-  // The card added those up, and a clone of one record read as having skipped
-  // every row of each table it left out.
-  const skippedObjects = useMemo(() => nodes.filter((n) => n.status === 'skipped').length, [nodes]);
 
   const idRemaps = result?.idRemapCount ?? 0;
 
@@ -195,16 +206,57 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   const failedNodes = useMemo(() => nodes.filter((n) => n.status === 'error'), [nodes]);
 
-  /** Sorted and filtered nodes for the results table. */
-  const sortedFilteredNodes = useMemo(() => {
-    let filtered = nodes;
+  // Discovery's empty tables are most of a graph — 315 of the 400 objects a
+  // clone of one opportunity between two sandboxes reached — and the table
+  // listed each, the "Objects skipped" card and the copied report counted
+  // them, and the objects left out for a reason worth reading were lost among
+  // them. Said in one line, how many, as the clone command says them.
+  const emptyTables = useMemo(() => nodes.filter(leftOutAsEmptyTable).length, [nodes]);
+
+  // The objects the table lists: the graph's but its empty tables, and those
+  // the run read or wrote beyond it — the catalog beyond the cap, the selling
+  // model options, the parent an orphan needed — which are in its counts, its
+  // log and its removal and had no row. A run reports their status as it
+  // reports a node's; the result says which it could not read.
+  const rows = useMemo((): ObjectRow[] => {
+    const ofGraph = nodes
+      .filter((node) => !leftOutAsEmptyTable(node))
+      .map((node) => ({
+        objectApiName: node.objectApiName,
+        records: recordsOf(node),
+        status: node.status,
+        errors: node.errors,
+      }));
+    if (!result) return ofGraph;
+    const unread = new Set(result.failedReads ?? []);
+    const beyond = objectsBeyondTheGraph(result, nodes).map(
+      (objectApiName): ObjectRow => ({
+        objectApiName,
+        records: readByObject?.get(objectApiName),
+        status:
+          statusesBeyondGraph[objectApiName] ?? (unread.has(objectApiName) ? 'error' : 'done'),
+        errors: [],
+      }),
+    );
+    return [...ofGraph, ...beyond];
+  }, [nodes, result, readByObject, recordsOf, statusesBeyondGraph]);
+
+  // Objects, not records: the run keeps no count of the records of an object
+  // it skips, and the count a node carries is discovery's, of its whole table.
+  // The card added those up, and a clone of one record read as having skipped
+  // every row of each table it left out.
+  const skippedObjects = useMemo(() => rows.filter((r) => r.status === 'skipped').length, [rows]);
+
+  /** Sorted and filtered rows for the results table. */
+  const sortedFilteredRows = useMemo(() => {
+    let filtered = rows;
     if (statusFilter !== 'all') {
-      filtered = filtered.filter((n) => n.status === statusFilter);
+      filtered = filtered.filter((r) => r.status === statusFilter);
     }
     // Records sort as the column shows them; an object the run did not read
     // sorts below one it read none of.
-    const valueOf = (node: ForgeGraphNode): string | number =>
-      sortField === 'recordCount' ? (recordsOf(node) ?? -1) : node[sortField];
+    const valueOf = (row: ObjectRow): string | number =>
+      sortField === 'recordCount' ? (row.records ?? -1) : row[sortField];
     return [...filtered].sort((a, b) => {
       const aVal = valueOf(a);
       const bVal = valueOf(b);
@@ -216,7 +268,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }
       return 0;
     });
-  }, [nodes, statusFilter, sortField, sortDir, recordsOf]);
+  }, [rows, statusFilter, sortField, sortDir]);
+
+  /** What the page says of the empty tables it does not list; empty when there were none. */
+  const emptyTablesNote =
+    emptyTables > 0 ? t('forge.emptyTablesLeftOut', { count: emptyTables }) : '';
 
   /** Handle sort column click. */
   const handleSort = useCallback((field: SortField) => {
@@ -251,10 +307,19 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       '|--------|---------|--------|--------|',
     ];
 
-    for (const node of nodes) {
-      const errorText = node.errors.length > 0 ? node.errors.join(', ') : '-';
+    for (const row of rows) {
+      const errorText = row.errors.length > 0 ? row.errors.join(', ') : '-';
       lines.push(
-        `| ${node.objectApiName} | ${String(recordsOf(node) ?? '-')} | ${node.status} | ${errorText} |`,
+        `| ${row.objectApiName} | ${String(row.records ?? '-')} | ${row.status} | ${errorText} |`,
+      );
+    }
+    // Under the table, as on the page: the objects it does not list.
+    if (emptyTables > 0) {
+      lines.push(
+        '',
+        emptyTables === 1
+          ? 'Not listed: 1 object discovery left out because its table is empty in the source.'
+          : `Not listed: ${String(emptyTables)} objects discovery left out because their table is empty in the source.`,
       );
     }
 
@@ -274,8 +339,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     idRemaps,
     successRate,
     failedReads,
-    nodes,
-    recordsOf,
+    rows,
+    emptyTables,
     existingRecords,
   ]);
 
@@ -581,34 +646,37 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               </tr>
             </thead>
             <tbody>
-              {sortedFilteredNodes.map((node) => (
+              {sortedFilteredRows.map((row) => (
                 <tr
-                  key={node.objectApiName}
+                  key={row.objectApiName}
                   data-testid="forge-results-row"
                   className="border-b border-subtle last:border-b-0"
                 >
-                  <td className="px-4 py-2 font-mono text-text-primary">{node.objectApiName}</td>
-                  <td className="px-4 py-2 tabular-nums text-text-primary">
-                    {recordsOf(node) ?? '-'}
-                  </td>
+                  <td className="px-4 py-2 font-mono text-text-primary">{row.objectApiName}</td>
+                  <td className="px-4 py-2 tabular-nums text-text-primary">{row.records ?? '-'}</td>
                   <td className="px-4 py-2">
                     <span
                       className={cn(
                         'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                        statusBadgeStyles[node.status] ?? 'bg-surface-2 text-text-secondary',
+                        statusBadgeStyles[row.status] ?? 'bg-surface-2 text-text-secondary',
                       )}
                     >
-                      {node.status}
+                      {row.status}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-text-secondary">
-                    {node.errors.length > 0 ? node.errors.join(', ') : '-'}
+                    {row.errors.length > 0 ? row.errors.join(', ') : '-'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {emptyTablesNote && (
+          <p className="mt-2 text-xs text-text-secondary" data-testid="forge-results-empty-tables">
+            {emptyTablesNote}
+          </p>
+        )}
       </m.div>
 
       {/* Source -> target Id map. The executor has always returned this table;

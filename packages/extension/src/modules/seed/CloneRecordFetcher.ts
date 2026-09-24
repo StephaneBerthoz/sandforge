@@ -77,17 +77,17 @@ export class CloneRecordFetcher {
    * @param conn - jsforce Connection to the source org.
    * @param objectApiName - The Salesforce object API name.
    * @param whereClause - Optional SOQL WHERE clause.
+   * @param sends - Conditions that keep only the rows a copy sends
+   *   (`rowsACopySends`), built from checked names, never text from the user.
    * @returns Number of matching records.
    */
   async countRecords(
     conn: Connection,
     objectApiName: string,
     whereClause?: string,
+    sends: readonly string[] = [],
   ): Promise<number> {
-    let soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}`;
-    if (whereClause) {
-      soql += ` WHERE ${assertSafeWhereClause(whereClause)}`;
-    }
+    const soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}${this.whereOf(whereClause, sends)}`;
     const result = await conn.query<Record<string, unknown>>(soql);
     return result.totalSize;
   }
@@ -100,6 +100,8 @@ export class CloneRecordFetcher {
    * @param objectApiName - The Salesforce object API name.
    * @param limit - Maximum number of sample records to return.
    * @param whereClause - Optional SOQL WHERE clause.
+   * @param sends - Conditions that keep only the rows a copy sends, as for
+   *   {@link countRecords}.
    * @returns Array of sample records.
    */
   async fetchSample(
@@ -107,9 +109,10 @@ export class CloneRecordFetcher {
     objectApiName: string,
     limit: number,
     whereClause?: string,
+    sends: readonly string[] = [],
   ): Promise<Record<string, unknown>[]> {
     const fields = await this.getQueryFields(conn, objectApiName);
-    let soql = this.buildSoql(fields, objectApiName, whereClause);
+    let soql = this.buildSoql(fields, objectApiName, whereClause, sends);
     soql += ` LIMIT ${limit}`;
 
     const result = await conn.query<Record<string, unknown>>(soql);
@@ -134,14 +137,26 @@ export class CloneRecordFetcher {
   }
 
   /** Build SOQL query string. */
-  private buildSoql(fields: string[], objectApiName: string, whereClause?: string): string {
+  private buildSoql(
+    fields: string[],
+    objectApiName: string,
+    whereClause?: string,
+    sends: readonly string[] = [],
+  ): string {
     // Validate object name and where clause before interpolation to block
     // SOQL injection through caller-controlled inputs (Clone wizard / CLI).
-    let soql = `SELECT ${fields.join(', ')} FROM ${assertSoqlIdentifier(objectApiName)}`;
-    if (whereClause) {
-      soql += ` WHERE ${assertSafeWhereClause(whereClause)}`;
-    }
-    return soql;
+    return `SELECT ${fields.join(', ')} FROM ${assertSoqlIdentifier(objectApiName)}${this.whereOf(whereClause, sends)}`;
+  }
+
+  /**
+   * The WHERE of a query, or nothing: the caller's filter, checked, and the
+   * conditions that keep only what a copy sends. The filter is bracketed when
+   * they follow it, or an OR in it would reach past them.
+   */
+  private whereOf(whereClause: string | undefined, sends: readonly string[]): string {
+    const filter = whereClause ? assertSafeWhereClause(whereClause) : undefined;
+    if (sends.length === 0) return filter ? ` WHERE ${filter}` : '';
+    return ` WHERE ${[...(filter ? [`(${filter})`] : []), ...sends].join(' AND ')}`;
   }
 
   /** Remove jsforce metadata attributes from records. */

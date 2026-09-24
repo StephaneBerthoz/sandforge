@@ -205,6 +205,58 @@ describe('useForgeStore', () => {
     expect(getState().graph).toBeNull();
   });
 
+  describe('a run starting where the last one left the graph', () => {
+    /** Discovery's graph: the org would not count email statuses. */
+    function discovered(): ForgeGraph {
+      return createMockGraph([
+        createMockNode({ objectApiName: 'Account' }),
+        createMockNode({
+          objectApiName: 'EmailStatus',
+          recordCount: 0,
+          status: 'error',
+          included: false,
+          errors: ['Record count unavailable: INVALID_TYPE_FOR_OPERATION'],
+        }),
+      ]);
+    }
+
+    it("puts every node back to idle and keeps discovery's errors", () => {
+      getState().setGraph(discovered());
+      getState().updateNodeStatus('Account', 'done', 100);
+
+      getState().resetNodeStatuses();
+
+      expect(getState().graph?.nodes).toEqual([
+        expect.objectContaining({ objectApiName: 'Account', status: 'idle', progress: 0 }),
+        expect.objectContaining({
+          objectApiName: 'EmailStatus',
+          status: 'idle',
+          errors: ['Record count unavailable: INVALID_TYPE_FOR_OPERATION'],
+        }),
+      ]);
+    });
+
+    it('keeps the status of an object the run adds apart from the graph, until the next run', () => {
+      getState().setGraph(discovered());
+
+      getState().updateNodeStatus('ProductSellingModelOption', 'running', 0);
+      getState().updateNodeStatus('ProductSellingModelOption', 'done', 100);
+
+      expect(getState().statusesBeyondGraph).toEqual({ ProductSellingModelOption: 'done' });
+      expect(getState().graph?.nodes.map((n) => n.objectApiName)).toEqual([
+        'Account',
+        'EmailStatus',
+      ]);
+
+      getState().resetNodeStatuses();
+      expect(getState().statusesBeyondGraph).toEqual({});
+
+      getState().updateNodeStatus('ProductSellingModelOption', 'error', 100);
+      getState().forgeAgain();
+      expect(getState().statusesBeyondGraph).toEqual({});
+    });
+  });
+
   it('should toggle node included flag via toggleNodeIncluded', () => {
     getState().setGraph(createMockGraph());
 

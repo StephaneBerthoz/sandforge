@@ -785,6 +785,7 @@
         "recordCounts": "Quantidade de registros",
         "sampleRecords": "Registros de amostra",
         "largeWarning": "Esta clonagem envolve mais de 10.000 registros. Pode levar vários minutos para concluir.",
+        "leftToThePlatform": "Não enviados (a própria plataforma os grava, ou aquilo de que dependem)",
         "execute": "Executar clonagem"
       },
       "results": {
@@ -2592,6 +2593,8 @@
     "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
     "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
     "readFailed": "Não foi possível ler e, portanto, nada foi clonado: {{objects}}. A taxa de sucesso conta apenas os registros lidos.",
+    "emptyTablesLeftOut_one": "Não listado: {{count}} objeto que a descoberta deixou de fora porque sua tabela está vazia na origem.",
+    "emptyTablesLeftOut_other": "Não listados: {{count}} objetos que a descoberta deixou de fora porque sua tabela está vazia na origem.",
     "fileContentLeftOut": "Deixados vazios no clone: estes campos contêm o conteúdo de um arquivo, que uma leitura só devolve como o endereço do arquivo.",
     "existingRecords": {
       "title": "Já na org de destino",

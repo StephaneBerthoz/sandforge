@@ -8,6 +8,7 @@ import {
   leftToThePlatformReason,
   leftToThePlatformSummary,
   recordsByNaturalKey,
+  rowsACopySends,
   standardPriceIds,
   statusCategories,
   writtenByThePlatform,
@@ -153,6 +154,56 @@ describe('RowsLeftToThePlatform', () => {
     expect(leftToThePlatformReason(hanging)).toBe(
       'Not written: FeedItemId may not be left empty, and the tracked change it names is one ' +
         'the platform writes itself, which no copy sends.',
+    );
+  });
+});
+
+describe('rowsACopySends', () => {
+  /** A comment's lookup at the feed item it answers, which it may not leave empty. */
+  const FEED_ITEM = { name: 'FeedItemId', referenceTo: ['FeedItem', 'OpportunityFeed'] };
+
+  it('keeps the feed items that are not tracked changes, those with no type among them', () => {
+    // SOQL's != keeps the rows where the field is null, as the copy does.
+    expect(rowsACopySends('FeedItem', [], new Map([['FeedItem', undefined]]))).toEqual([
+      "Type != 'TrackedChange'",
+    ]);
+  });
+
+  it('keeps the comments that do not answer a tracked change the copy reads, under its filter', () => {
+    const copied = new Map([
+      ['FeedItem', "ParentId = '006FAKE000000001'"],
+      ['FeedComment', undefined],
+    ]);
+
+    expect(rowsACopySends('FeedComment', [FEED_ITEM], copied)).toEqual([
+      'FeedItemId NOT IN (SELECT Id FROM FeedItem WHERE ' +
+        "(ParentId = '006FAKE000000001') AND (Type = 'TrackedChange'))",
+    ]);
+    expect(rowsACopySends('FeedComment', [FEED_ITEM], new Map([['FeedItem', undefined]]))).toEqual([
+      "FeedItemId NOT IN (SELECT Id FROM FeedItem WHERE (Type = 'TrackedChange'))",
+    ]);
+  });
+
+  it('keeps every comment when the copy reads no feed item: it leaves none of their feed items out', () => {
+    expect(
+      rowsACopySends('FeedComment', [FEED_ITEM], new Map([['FeedComment', undefined]])),
+    ).toEqual([]);
+  });
+
+  it('keeps every row of an object that neither is nor hangs from one the platform writes', () => {
+    const copied = new Map([
+      ['Account', undefined],
+      ['Contact', undefined],
+    ]);
+    expect(
+      rowsACopySends('Contact', [{ name: 'AccountId', referenceTo: ['Account'] }], copied),
+    ).toEqual([]);
+  });
+
+  it('refuses a filter of the copy that does more than filter, rather than send it', () => {
+    const copied = new Map([['FeedItem', 'Id IN (SELECT ParentId FROM Opportunity)']]);
+    expect(() => rowsACopySends('FeedComment', [FEED_ITEM], copied)).toThrow(
+      /Invalid SOQL WHERE clause/,
     );
   });
 });

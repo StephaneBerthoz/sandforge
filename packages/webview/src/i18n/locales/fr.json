@@ -785,6 +785,7 @@
         "recordCounts": "Nombre d'enregistrements",
         "sampleRecords": "Exemples d'enregistrements",
         "largeWarning": "Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.",
+        "leftToThePlatform": "Non envoyés (la plateforme les écrit elle-même, ou ce dont ils dépendent)",
         "execute": "Exécuter le clonage"
       },
       "results": {
@@ -2592,6 +2593,8 @@
     "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
     "readFailed": "Lecture impossible, donc rien de cloné : {{objects}}. Le taux de réussite ne compte que les enregistrements lus.",
+    "emptyTablesLeftOut_one": "Non listé : {{count}} objet écarté par la découverte, car sa table est vide dans la source.",
+    "emptyTablesLeftOut_other": "Non listés : {{count}} objets écartés par la découverte, car leur table est vide dans la source.",
     "fileContentLeftOut": "Laissés vides dans le clone : ces champs contiennent le contenu d'un fichier, qu'une lecture ne donne que sous la forme de l'adresse du fichier.",
     "existingRecords": {
       "title": "Déjà dans l'org cible",

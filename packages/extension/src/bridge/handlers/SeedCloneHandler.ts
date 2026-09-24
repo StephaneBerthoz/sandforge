@@ -39,7 +39,11 @@ import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
-import { RowsLeftToThePlatform } from '../../core/common/platformRecords.js';
+import {
+  RowsLeftToThePlatform,
+  rowsACopySends,
+  type RequiredLookup,
+} from '../../core/common/platformRecords.js';
 import {
   carriesRecordType,
   findUnavailableRecordTypes,
@@ -212,6 +216,8 @@ export class SeedCloneHandler implements DomainHandler {
       const linker = new CloneReferenceLinker();
       const objectNames = parsed.objects.map((o) => o.objectApiName);
       const objectSet = new Set(objectNames);
+      /** Every object of the clone, with the filter it is read by. */
+      const copied = new Map(parsed.objects.map((o) => [o.objectApiName, o.whereClause]));
 
       const describeMap = new Map<string, DescribeSObjectResultLike>();
       const previewObjects: ClonePreviewResult['objects'] = [];
@@ -221,15 +227,35 @@ export class SeedCloneHandler implements DomainHandler {
         checkApiLimits(conn.limitInfo, `seed:clone:preview describe ${objectConfig.objectApiName}`);
         describeMap.set(objectConfig.objectApiName, describe as DescribeSObjectResultLike);
 
-        const [recordCount, sampleRecords] = await Promise.all([
-          fetcher.countRecords(conn, objectConfig.objectApiName, objectConfig.whereClause),
+        // What the clone will send: it leaves to the platform the rows the
+        // platform writes itself and what cannot go in without one of them
+        // (see the execute below). Counted and sampled with the rest, the
+        // feed items of a sandbox whose forty-four held forty tracked changes
+        // were all forty-four records to clone.
+        const sends = rowsACopySends(
+          objectConfig.objectApiName,
+          requiredLookupsOf(
+            objectConfig.objectApiName,
+            describeMap.get(objectConfig.objectApiName),
+          ),
+          copied,
+        );
+        const [recordCount, sampleRecords, matched] = await Promise.all([
+          fetcher.countRecords(conn, objectConfig.objectApiName, objectConfig.whereClause, sends),
           fetcher.fetchSample(
             conn,
             objectConfig.objectApiName,
             PREVIEW_SAMPLE_SIZE,
             objectConfig.whereClause,
+            sends,
           ),
+          // Every row the filter matches, for how many the clone leaves out;
+          // asked only of an object it leaves any of.
+          sends.length > 0
+            ? fetcher.countRecords(conn, objectConfig.objectApiName, objectConfig.whereClause)
+            : undefined,
         ]);
+        const leftToThePlatform = matched === undefined ? 0 : matched - recordCount;
 
         const relationships: Array<{ field: string; referenceTo: string }> = [];
         for (const field of describe.fields) {
@@ -243,6 +269,7 @@ export class SeedCloneHandler implements DomainHandler {
         previewObjects.push({
           objectApiName: objectConfig.objectApiName,
           recordCount,
+          ...(leftToThePlatform > 0 ? { leftToThePlatform } : {}),
           sampleRecords: sampleRecords.map((r) => trimSampleRecord(r, PREVIEW_SAMPLE_MAX_FIELDS)),
           relationships,
         });
@@ -534,13 +561,7 @@ export class SeedCloneHandler implements DomainHandler {
         const sourceRecords = leftToThePlatform.keep(
           objectApiName,
           read,
-          (describeMap.get(objectApiName)?.fields ?? [])
-            .filter(
-              (field) =>
-                field.type === 'reference' &&
-                isRequiredLookup(objectApiName, field.name, field.nillable),
-            )
-            .map((field) => field.name),
+          requiredLookupsOf(objectApiName, describeMap.get(objectApiName)).map(({ name }) => name),
         );
         const leftOut = read.length - sourceRecords.length;
 
@@ -765,6 +786,23 @@ function cloneRun(
       objectResults.map((result) => [result.objectApiName, result.idMappings.length]),
     ),
   };
+}
+
+/**
+ * The lookups the rows of an object may not leave empty, as its describe gives
+ * them: what ties a row to one it cannot go in without. One reading for the
+ * preview and the clone, so the preview counts what the clone sends.
+ */
+function requiredLookupsOf(
+  objectApiName: string,
+  describe: DescribeSObjectResultLike | undefined,
+): RequiredLookup[] {
+  return (describe?.fields ?? [])
+    .filter(
+      (field) =>
+        field.type === 'reference' && isRequiredLookup(objectApiName, field.name, field.nillable),
+    )
+    .map((field) => ({ name: field.name, referenceTo: field.referenceTo ?? [] }));
 }
 
 /** Keep only the first `maxFields` non-null fields of a sample record. */

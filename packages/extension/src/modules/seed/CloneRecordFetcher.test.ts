@@ -107,6 +107,41 @@ describe('CloneRecordFetcher', () => {
     expect(soql).toContain('LIMIT 5');
   });
 
+  describe('the rows a copy sends', () => {
+    /** What `rowsACopySends` gives a feed item. */
+    const NOT_TRACKED = "Type != 'TrackedChange'";
+
+    beforeEach(() => {
+      vi.mocked(conn.query).mockResolvedValue({
+        done: true,
+        totalSize: 4,
+        records: [],
+      } as unknown as Awaited<ReturnType<typeof conn.query>>);
+    });
+
+    it('counts under the filter only the rows the copy sends, the filter bracketed', async () => {
+      // Unbracketed, the OR of the filter would reach past the condition.
+      const count = await fetcher.countRecords(
+        conn,
+        'FeedItem',
+        "Type = 'TextPost' OR Title = null",
+        [NOT_TRACKED],
+      );
+
+      expect(count).toBe(4);
+      expect(conn.query).toHaveBeenCalledWith(
+        "SELECT COUNT() FROM FeedItem WHERE (Type = 'TextPost' OR Title = null) AND Type != 'TrackedChange'",
+      );
+    });
+
+    it('samples only the rows the copy sends, with or without a filter', async () => {
+      await fetcher.fetchSample(conn, 'FeedItem', 5, undefined, [NOT_TRACKED]);
+
+      const soql = vi.mocked(conn.query).mock.calls[0][0] as string;
+      expect(soql).toMatch(/ FROM FeedItem WHERE Type != 'TrackedChange' LIMIT 5$/);
+    });
+  });
+
   describe('a WHERE clause that does more than filter is refused before any query', () => {
     it.each(['Id != null LIMIT 1', "Name = 'x' FOR UPDATE"])(
       'fetchRecords refuses %j',

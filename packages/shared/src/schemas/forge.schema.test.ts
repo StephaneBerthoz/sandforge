@@ -5,7 +5,6 @@ import {
   forgeDepthSchema,
   forgeNodeStatusSchema,
   forgeEdgeTypeSchema,
-  forgeExecutionStatusSchema,
   forgeBatchStrategySchema,
   forgeAnonymizationCategorySchema,
   forgeAnonymizationRulesSchema,
@@ -14,7 +13,6 @@ import {
   forgeGraphNodeSchema,
   forgeGraphEdgeSchema,
   forgeGraphSchema,
-  forgeExecutionResultSchema,
   forgeTemplateSchema,
   forgeWaveSchema,
   forgeCycleResolutionSchema,
@@ -75,17 +73,6 @@ function createValidForgeGraph(): Record<string, unknown> {
     totalRecords: 100,
     estimatedSizeMB: 1.5,
     estimatedDurationSeconds: 60,
-  };
-}
-
-function createValidForgeExecutionResult(): Record<string, unknown> {
-  return {
-    forgeId: 'forge-001',
-    status: 'success',
-    graph: createValidForgeGraph(),
-    duration: 58000,
-    timestamp: '2026-03-07T10:00:00.000Z',
-    idRemapCount: 100,
   };
 }
 
@@ -159,19 +146,6 @@ describe('forgeEdgeTypeSchema', () => {
 
   it('should reject invalid edge type', () => {
     expect(() => forgeEdgeTypeSchema.parse('hierarchical')).toThrow();
-  });
-});
-
-describe('forgeExecutionStatusSchema', () => {
-  it('should accept all valid execution statuses', () => {
-    const statuses = ['success', 'partial', 'failure'];
-    for (const s of statuses) {
-      expect(forgeExecutionStatusSchema.parse(s)).toBe(s);
-    }
-  });
-
-  it('should reject invalid execution status', () => {
-    expect(() => forgeExecutionStatusSchema.parse('timeout')).toThrow();
   });
 });
 
@@ -383,94 +357,6 @@ describe('forgeGraphSchema', () => {
       estimatedDurationSeconds: 0,
     };
     expect(() => forgeGraphSchema.parse(graph)).toThrow();
-  });
-});
-
-// ─── Execution Result Schema Tests ───────────────────────────────────────────
-
-describe('forgeExecutionResultSchema', () => {
-  it('keeps the objects whose source read was cut short', () => {
-    const result = forgeExecutionResultSchema.parse({
-      ...createValidForgeExecutionResult(),
-      truncatedObjects: ['Account'],
-    });
-    expect(result.truncatedObjects).toEqual(['Account']);
-  });
-
-  it('keeps the rows the target already held, linked apart from the ones it could not name', () => {
-    const result = forgeExecutionResultSchema.parse({
-      ...createValidForgeExecutionResult(),
-      createdCount: 5,
-      linkedExistingCount: 3,
-      existingRecords: [{ objectApiName: 'Account', linked: 3, unidentified: 1 }],
-    });
-    expect(result.createdCount).toBe(5);
-    expect(result.linkedExistingCount).toBe(3);
-    expect(result.existingRecords).toEqual([
-      { objectApiName: 'Account', linked: 3, unidentified: 1 },
-    ]);
-  });
-
-  it('rejects a negative count of rows the target already held', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({
-        ...createValidForgeExecutionResult(),
-        existingRecords: [{ objectApiName: 'Account', linked: -1, unidentified: 0 }],
-      }),
-    ).toThrow();
-  });
-
-  it('should parse valid execution result', () => {
-    const result = forgeExecutionResultSchema.parse(createValidForgeExecutionResult());
-    expect(result.forgeId).toBe('forge-001');
-    expect(result.status).toBe('success');
-    expect(result.idRemapCount).toBe(100);
-  });
-
-  it('should accept partial status', () => {
-    const result = forgeExecutionResultSchema.parse({
-      ...createValidForgeExecutionResult(),
-      status: 'partial',
-    });
-    expect(result.status).toBe('partial');
-  });
-
-  it('should accept failure status', () => {
-    const result = forgeExecutionResultSchema.parse({
-      ...createValidForgeExecutionResult(),
-      status: 'failure',
-    });
-    expect(result.status).toBe('failure');
-  });
-
-  it('should reject empty forgeId', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({ ...createValidForgeExecutionResult(), forgeId: '' }),
-    ).toThrow();
-  });
-
-  it('should reject invalid status', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({ ...createValidForgeExecutionResult(), status: 'timeout' }),
-    ).toThrow();
-  });
-
-  it('should reject negative duration', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({ ...createValidForgeExecutionResult(), duration: -100 }),
-    ).toThrow();
-  });
-
-  it('should reject negative idRemapCount', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({ ...createValidForgeExecutionResult(), idRemapCount: -1 }),
-    ).toThrow();
-  });
-
-  it('should reject empty timestamp', () => {
-    expect(() =>
-      forgeExecutionResultSchema.parse({ ...createValidForgeExecutionResult(), timestamp: '' }),
-    ).toThrow();
   });
 });
 
