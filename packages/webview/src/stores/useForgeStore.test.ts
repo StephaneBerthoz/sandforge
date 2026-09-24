@@ -135,7 +135,7 @@ describe('useForgeStore', () => {
         details: '',
       },
     ]);
-    getState().setResult(createMockResult());
+    useForgeStore.setState({ result: createMockResult() });
     getState().setGraph(createMockGraph());
 
     // Now set a new config
@@ -447,41 +447,27 @@ describe('useForgeStore', () => {
     expect(getState().graph).toBeNull();
   });
 
-  it('should set result and prepend to history via setResult', () => {
-    const result = createMockResult();
-    getState().setResult(result);
-
-    expect(getState().result).toEqual(result);
-    expect(getState().history).toHaveLength(1);
-    expect(getState().history[0]).toEqual(result);
-  });
-
-  it('should prepend newer results to history', () => {
-    const result1 = createMockResult({ forgeId: 'exec-001' });
-    const result2 = createMockResult({ forgeId: 'exec-002' });
-
-    getState().setResult(result1);
-    getState().setResult(result2);
-
-    expect(getState().history).toHaveLength(2);
-    expect(getState().history[0].forgeId).toBe('exec-002');
-    expect(getState().history[1].forgeId).toBe('exec-001');
-  });
-
-  it('should cap history at 50 entries', () => {
+  it('keeps the 50 latest runs answered in its history, newest first', () => {
     for (let i = 0; i < 55; i++) {
-      getState().setResult(createMockResult({ forgeId: `exec-${String(i).padStart(3, '0')}` }));
+      const requestId = `wv-run-${String(i)}`;
+      getState().setExecutionRequestId(requestId);
+      getState().setPhase('execution');
+      getState().finishRun(
+        requestId,
+        createMockResult({ forgeId: `exec-${String(i).padStart(3, '0')}` }),
+      );
     }
 
     expect(getState().history).toHaveLength(50);
     expect(getState().history[0].forgeId).toBe('exec-054');
+    expect(getState().history[1].forgeId).toBe('exec-053');
   });
 
   it('should reset config, graph, result, and phase to initial values', () => {
     getState().setConfig(createMockConfig());
     getState().setGraph(createMockGraph());
     getState().setPhase('execution');
-    getState().setResult(createMockResult());
+    useForgeStore.setState({ result: createMockResult() });
 
     getState().reset();
 
@@ -650,20 +636,12 @@ describe('useForgeStore', () => {
     });
   });
 
-  describe('addLog / clearLogs', () => {
+  describe('addLog', () => {
     it('should add a log entry', () => {
       const { addLog } = useForgeStore.getState();
       addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test log' });
       expect(useForgeStore.getState().logs).toHaveLength(1);
       expect(useForgeStore.getState().logs[0].message).toBe('Test log');
-    });
-
-    it('should clear all log entries', () => {
-      const { addLog, clearLogs } = useForgeStore.getState();
-      addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test' });
-      addLog({ id: 'log-2', timestamp: Date.now(), level: 'error', message: 'Error' });
-      clearLogs();
-      expect(useForgeStore.getState().logs).toHaveLength(0);
     });
   });
 
@@ -688,19 +666,21 @@ describe('useForgeStore', () => {
         estimatedSizeMB: 0,
         estimatedDurationSeconds: 0,
       });
-      store.setResult({
-        forgeId: 'f1',
-        status: 'success',
-        graph: {
-          nodes: [],
-          edges: [],
-          totalRecords: 0,
-          estimatedSizeMB: 0,
-          estimatedDurationSeconds: 0,
+      useForgeStore.setState({
+        result: {
+          forgeId: 'f1',
+          status: 'success',
+          graph: {
+            nodes: [],
+            edges: [],
+            totalRecords: 0,
+            estimatedSizeMB: 0,
+            estimatedDurationSeconds: 0,
+          },
+          duration: 1000,
+          timestamp: '2026-01-01',
+          idRemapCount: 5,
         },
-        duration: 1000,
-        timestamp: '2026-01-01',
-        idRemapCount: 5,
       });
       store.addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'test' });
 
@@ -763,7 +743,7 @@ describe('useForgeStore', () => {
     });
 
     it("never leaves the retried run's result on screen for a retry's answer", () => {
-      getState().setResult(createMockResult({ forgeId: 'forge-retried' }));
+      useForgeStore.setState({ result: createMockResult({ forgeId: 'forge-retried' }) });
       runOnScreen();
       answer('wv-run-1');
       expect(getState().result).toBeNull();
@@ -1090,13 +1070,13 @@ describe('useForgeStore', () => {
       // answer that said what the run had written came to none.
       runOnScreen();
       getState().requestStop();
-      expect(getState().stopRequested).toBe(true);
+      expect(getState().stopRequestedAt).not.toBeNull();
       expect(getState().phase).toBe('execution');
 
       const kept = cancelled();
       stopped('Forge execution was aborted by user request.', kept);
 
-      expect(getState().stopRequested).toBe(false);
+      expect(getState().stopRequestedAt).toBeNull();
       expect(getState().runError?.stoppedRun).toEqual(kept);
       expect(getState().phase).toBe('execution');
     });
@@ -1106,26 +1086,88 @@ describe('useForgeStore', () => {
       getState().requestStop();
       post('forge:execute:response', 'wv-run-1', { result: createMockResult() });
       expect(getState().phase).toBe('results');
-      expect(getState().stopRequested).toBe(false);
+      expect(getState().stopRequestedAt).toBeNull();
     });
 
     it('is asked of nothing once the run has ended, or when no run is on screen', () => {
       runOnScreen();
       stopped('INVALID_SESSION_ID');
       getState().requestStop();
-      expect(getState().stopRequested).toBe(false);
+      expect(getState().stopRequestedAt).toBeNull();
 
       getState().reset();
       getState().setPhase('execution');
       getState().requestStop();
-      expect(getState().stopRequested).toBe(false);
+      expect(getState().stopRequestedAt).toBeNull();
     });
 
     it('is forgotten by the next run', () => {
       runOnScreen();
       getState().requestStop();
       getState().setExecutionRequestId('wv-run-2');
-      expect(getState().stopRequested).toBe(false);
+      expect(getState().stopRequestedAt).toBeNull();
+    });
+
+    it('keeps when it was first asked: its answer is waited for from then', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-09-24T10:00:00.000Z'));
+        runOnScreen();
+        getState().requestStop();
+        vi.setSystemTime(new Date('2026-09-24T10:00:30.000Z'));
+        getState().requestStop();
+        expect(getState().stopRequestedAt).toBe(Date.parse('2026-09-24T10:00:00.000Z'));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    describe('left while it has not answered', () => {
+      it('goes to the input screen with nothing of the run left on it', () => {
+        // STOPPING... had no way out: a run whose answer never came held the
+        // page on it until the panel was closed.
+        getState().setConfig(createMockConfig());
+        runOnScreen();
+        post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+        getState().requestStop();
+
+        getState().leaveStoppingRun();
+
+        const state = getState();
+        expect(state.phase).toBe('input');
+        expect(state.stopRequestedAt).toBeNull();
+        expect(state.runClock).toBeNull();
+        expect(state.logs).toEqual([]);
+        expect(state.graph).toBeNull();
+        expect(state.config).toEqual(createMockConfig());
+      });
+
+      it('takes its answer, should it come, as the end of a run only: the recent runs are read again', () => {
+        runOnScreen();
+        getState().requestStop();
+        getState().leaveStoppingRun();
+
+        stopped('Forge execution was aborted by user request.', cancelled());
+
+        expect(getState().phase).toBe('input');
+        expect(getState().runError).toBeNull();
+        expect(getState().stoppedAt).toBeNull();
+        expect(getState().runsEnded).toBe(1);
+      });
+
+      it('leaves no run that was not asked to stop, nor one that answered', () => {
+        // One under way has no other screen to be stopped from; one that
+        // answered has its own way on, with what it wrote.
+        runOnScreen();
+        getState().leaveStoppingRun();
+        expect(getState().phase).toBe('execution');
+
+        getState().requestStop();
+        stopped('Forge execution was aborted by user request.', cancelled());
+        getState().leaveStoppingRun();
+        expect(getState().phase).toBe('execution');
+        expect(getState().runError).not.toBeNull();
+      });
     });
   });
 

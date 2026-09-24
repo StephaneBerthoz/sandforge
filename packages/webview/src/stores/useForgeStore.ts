@@ -246,7 +246,7 @@ const INITIAL_STATE = {
   stoppedAt: null as number | null,
   runError: null as ForgeRunError | null,
   runClock: null as ForgeRunClock | null,
-  stopRequested: false,
+  stopRequestedAt: null as number | null,
   runsEnded: 0,
 };
 
@@ -361,16 +361,26 @@ export interface ForgeState {
   /** Let the run on screen go on: its clock goes on from where it stood. */
   resumeRun: () => void;
   /**
-   * Whether the user asked the run on screen to stop, and it has not answered.
+   * When the user asked the run on screen to stop, by this machine's clock, or
+   * null while no stop is asked of it or it has answered.
    *
    * A run stops once the step under way is done, then says what it wrote. The
    * screen used to leave for the input screen as the abort was sent: the
    * answer that said what the run had written came to no screen, and the
    * recent runs, read as that screen came, were read before the run was kept.
+   * Kept as a time, not a flag: a stop that goes unanswered has a way out
+   * once it has waited long enough, however often the screen was left and
+   * came back meanwhile.
    */
-  stopRequested: boolean;
+  stopRequestedAt: number | null;
   /** Ask the run on screen to stop, while it goes on; nothing once it has ended. */
   requestStop: () => void;
+  /**
+   * Leave a run asked to stop that has not answered, for the input screen.
+   * Its answer, should it come, changes nothing on screen: the run is in the
+   * recent runs by then, which are read again as it ends.
+   */
+  leaveStoppingRun: () => void;
   /**
    * How many runs this panel has heard end — its own or another panel's,
    * answered or stopped by an error. Each is in the extension's history by
@@ -428,8 +438,6 @@ export interface ForgeState {
   applyAnonymizationPreset: (
     rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>,
   ) => void;
-  /** Set the execution result and append to history. */
-  setResult: (result: ForgeExecutionResult) => void;
   /**
    * Take the extension's answer to a `forge:execute` request: when it answers
    * the run on screen, keep its result and show the results. An answer to
@@ -465,8 +473,6 @@ export interface ForgeState {
   logs: ForgeLogEntry[];
   /** Append a log entry. */
   addLog: (entry: ForgeLogEntry) => void;
-  /** Clear all log entries. */
-  clearLogs: () => void;
   /** Soft reset: clear result/graph/plan/compliance/diffs but keep config/templates/history/rules. Go to input phase. */
   forgeAgain: () => void;
   /** Reset the store to its initial state. */
@@ -531,7 +537,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       logs: [],
       runError: null,
       stoppedAt: null,
-      stopRequested: false,
+      stopRequestedAt: null,
       runClock:
         executionRequestId === null
           ? null
@@ -543,7 +549,9 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set((state) => {
       const clock = state.runClock;
       if (!clock || clock.pausedSince !== null || clock.endedAt !== null) return state;
-      if (state.phase !== 'execution' || state.runError || state.stopRequested) return state;
+      if (state.phase !== 'execution' || state.runError || state.stopRequestedAt !== null) {
+        return state;
+      }
       return { runClock: { ...clock, pausedSince: Date.now() } };
     });
   },
@@ -568,8 +576,22 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       if (state.runError || (state.runClock !== null && state.runClock.endedAt !== null)) {
         return state;
       }
-      return { stopRequested: true };
+      // Asked once: asked again, the wait for its answer would start over.
+      if (state.stopRequestedAt !== null) return state;
+      return { stopRequestedAt: Date.now() };
     });
+  },
+
+  /*
+   * Only from a run asked to stop that has not answered. STOPPING... used to
+   * have no way out: a run whose answer never came held the page on it until
+   * the panel was closed. A run under way has no other screen to be stopped
+   * from, and one that answered has its own way on.
+   */
+  leaveStoppingRun(): void {
+    const state = get();
+    if (state.phase !== 'execution' || state.stopRequestedAt === null || state.runError) return;
+    state.forgeAgain();
   },
 
   /*
@@ -608,7 +630,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         stoppedAt: settledPercent(state.graph?.nodes ?? []),
         logs: withLogLine(state.logs, forgeLogEntry('error', message)),
         // An abort asked for is answered here, with what the run wrote.
-        stopRequested: false,
+        stopRequestedAt: null,
         runClock: endedClock(state.runClock),
       };
     });
@@ -810,13 +832,6 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     });
   },
 
-  setResult(result: ForgeExecutionResult): void {
-    set((state) => ({
-      result,
-      history: [result, ...state.history].slice(0, MAX_HISTORY),
-    }));
-  },
-
   finishRun(requestId: unknown, result: ForgeExecutionResult | undefined): void {
     set((state) => {
       if (!ofRunOnScreen(state, requestId)) return state;
@@ -826,7 +841,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       return {
         phase: 'results' as ForgePhase,
         result: result ?? null,
-        stopRequested: false,
+        stopRequestedAt: null,
         runClock: endedClock(state.runClock),
         ...(result ? { history: [result, ...state.history].slice(0, MAX_HISTORY) } : {}),
       };
@@ -904,10 +919,6 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set((state) => ({ logs: withLogLine(state.logs, entry) }));
   },
 
-  clearLogs(): void {
-    set({ logs: [] });
-  },
-
   forgeAgain(): void {
     set({
       phase: 'input' as ForgePhase,
@@ -921,7 +932,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       stoppedAt: null,
       runError: null,
       runClock: null,
-      stopRequested: false,
+      stopRequestedAt: null,
       fileCopy: { ...NO_FILE_COPY },
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });

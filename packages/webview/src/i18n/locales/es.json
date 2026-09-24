@@ -2252,6 +2252,8 @@
     "aborted": "CANCELADO",
     "stopping": "DETENIENDO...",
     "stoppingNote": "Cancelación solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
+    "stopUnanswered": "La ejecución aún no ha respondido a la cancelación. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Ejecuciones recientes» en cuanto la ejecución responda.",
+    "backToStart": "Volver al inicio",
     "stopped": "DETENIDO",
     "done": "Hecho",
     "running": "En ejecución",

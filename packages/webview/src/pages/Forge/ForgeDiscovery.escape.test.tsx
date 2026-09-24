@@ -35,7 +35,6 @@ vi.mock('../../stores/useForgeStore', () => {
     toggleNodeIncluded: vi.fn(),
     toggleAnonymizeField: vi.fn(),
     setNodesIncluded: vi.fn(),
-    setResult: vi.fn(),
     reset: vi.fn(),
   };
 

@@ -3,6 +3,7 @@ import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import type { ForgeExecutionResult, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import '../../i18n';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { STOP_ANSWER_WAIT_MS } from './ForgeExecution';
 import { ForgePage } from './ForgePage';
 
 /*
@@ -331,6 +332,34 @@ describe('ForgePage — a run the user aborts', () => {
     expect(screen.queryByTestId('forge-execution-see-stopped')).toBeNull();
     fireEvent.click(screen.getByTestId('forge-execution-back-to-review'));
     await screen.findByTestId('forge-review');
+  });
+
+  it('goes back to the start once the abort has waited its time, and reads the recent runs again when the run answers', async () => {
+    // STOPPING... had no way out: a run whose answer never came held the
+    // page on it until the panel was closed.
+    render(<ForgePage />);
+    host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+    abort();
+    expect(screen.queryByTestId('forge-execution-leave')).toBeNull();
+    // The abort asked as long ago as the screen waits for its answer.
+    act(() => {
+      useForgeStore.setState((state) => ({
+        stopRequestedAt: (state.stopRequestedAt ?? Date.now()) - STOP_ANSWER_WAIT_MS,
+      }));
+    });
+
+    fireEvent.click(await screen.findByTestId('forge-execution-leave'));
+
+    await screen.findByTestId('forge-input');
+    const historyReads = (): number => posted().filter((t) => t === 'forge:history:list').length;
+    const readsBefore = historyReads();
+    stopped(ABORTED, CANCELLED_RUN);
+
+    // The answer takes the page nowhere: the run is in the extension's history
+    // by then, and the recent runs are read again to show it.
+    expect(screen.getByTestId('forge-input')).toBeTruthy();
+    expect(screen.queryByTestId('forge-execution-error')).toBeNull();
+    expect(historyReads()).toBe(readsBefore + 1);
   });
 });
 

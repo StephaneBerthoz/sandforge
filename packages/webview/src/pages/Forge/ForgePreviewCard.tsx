@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Database, Link2, EyeOff, AlertTriangle, Clock, Zap } from 'lucide-react';
+import { leftOutAsEmptyTable } from '@sandforge/shared';
 import type { ForgeGraph, ForgePlan } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { uiLocale } from '../../utils/formatters';
@@ -28,8 +29,11 @@ function categorize(graph: ForgeGraph): Bucket {
       mappedObjects.push(node.objectApiName);
       continue;
     }
+    // An empty table discovery left out ("Skip empty objects") is empty, not
+    // excluded: counted as excluded, the tables of a clone read as hundreds of
+    // objects nobody had unchecked.
     if (!node.included) {
-      skippedExcluded.push(node.objectApiName);
+      (leftOutAsEmptyTable(node) ? skippedOutOfScope : skippedExcluded).push(node.objectApiName);
       continue;
     }
     if (node.recordCount === 0) {

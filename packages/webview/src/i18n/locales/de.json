@@ -2252,6 +2252,8 @@
     "aborted": "ABGEBROCHEN",
     "stopping": "WIRD ANGEHALTEN...",
     "stoppingNote": "Abbruch angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
+    "stopUnanswered": "Der Lauf hat auf den Abbruch noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Letzte Durchläufe“, sobald er antwortet.",
+    "backToStart": "Zurück zum Anfang",
     "stopped": "ANGEHALTEN",
     "done": "Fertig",
     "running": "Läuft",

@@ -41,6 +41,13 @@ const STATUS_KEYS: Record<ShownStatus, string> = {
 };
 
 /**
+ * How long an abort waits for the run's answer before the screen says it has
+ * not come and offers the way back to the start. A run stops once the step
+ * under way is done — a batch, a query — which usually takes seconds.
+ */
+export const STOP_ANSWER_WAIT_MS = 60_000;
+
+/**
  * Forge execution mission-control view.
  *
  * Displays real-time graph progress, log stream, KPI counters,
@@ -57,22 +64,46 @@ export const ForgeExecution: React.FC = () => {
   const logs = useForgeStore((s) => s.logs);
   const runError = useForgeStore((s) => s.runError);
   const runClock = useForgeStore((s) => s.runClock);
-  const stopRequested = useForgeStore((s) => s.stopRequested);
+  const stopRequestedAt = useForgeStore((s) => s.stopRequestedAt);
   const addLog = useForgeStore((s) => s.addLog);
   const pauseRun = useForgeStore((s) => s.pauseRun);
   const resumeRun = useForgeStore((s) => s.resumeRun);
   const requestStop = useForgeStore((s) => s.requestStop);
   const showStoppedRun = useForgeStore((s) => s.showStoppedRun);
   const reviewAgain = useForgeStore((s) => s.reviewAgain);
+  const leaveStoppingRun = useForgeStore((s) => s.leaveStoppingRun);
   /** Whether an error ended the run: nothing is left to pause or abort. */
   const stopped = Boolean(runError);
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
-  const stopping = !stopped && stopRequested;
+  const stopping = !stopped && stopRequestedAt !== null;
   /** Whether the run is held paused: its clock stands still until it is resumed. */
   const isPaused = runClock !== null && runClock.pausedSince !== null && runClock.endedAt === null;
 
   const [logFilter, setLogFilter] = useState<LogFilter>('all');
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
+
+  // ---- An abort the run does not answer ----
+  // STOPPING... had no way out: a run whose answer never came held the screen
+  // until the panel was closed. Once the wait is over, the screen says so and
+  // offers the way back to the start. Measured from when the abort was asked,
+  // which the store keeps, so the screen left and come back to does not wait
+  // again; and apart from the run's clock, which stands still on a run
+  // aborted while paused.
+  const [stopWaitedOut, setStopWaitedOut] = useState<number | null>(() =>
+    stopRequestedAt !== null && Date.now() - stopRequestedAt >= STOP_ANSWER_WAIT_MS
+      ? stopRequestedAt
+      : null,
+  );
+  useEffect(() => {
+    if (stopRequestedAt === null) return;
+    const timer = setTimeout(
+      () => setStopWaitedOut(stopRequestedAt),
+      Math.max(0, stopRequestedAt + STOP_ANSWER_WAIT_MS - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [stopRequestedAt]);
+  /** Whether the abort has waited its time for an answer that has not come. */
+  const stopUnanswered = stopping && stopWaitedOut === stopRequestedAt;
 
   // ---- Timer ----
   // Read off the run's clock at each tick: counted by the screen, it started
@@ -254,23 +285,45 @@ export const ForgeExecution: React.FC = () => {
             {t('forge.finishingNote')}
           </p>
         )}
-        {stopping && (
+        {stopping && !stopUnanswered && (
           <p className="text-xs text-text-secondary" data-testid="forge-execution-stopping">
             {t('forge.stoppingNote')}
           </p>
+        )}
+        {/* The run lands in the recent runs if it answers later: the input
+            screen reads them again whenever a run ends. */}
+        {stopUnanswered && (
+          <div
+            data-testid="forge-execution-stop-unanswered"
+            className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-warning" />
+            <p className="flex-1">{t('forge.stopUnanswered')}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-execution-leave"
+              onClick={leaveStoppingRun}
+              icon={<ArrowLeft size={12} />}
+            >
+              {t('forge.backToStart')}
+            </Button>
+          </div>
         )}
         <ProgressAnnouncer
           message={
             stopped
               ? ''
-              : stopping
-                ? t('forge.stoppingNote')
-                : finishing
-                  ? t('forge.finishingNote')
-                  : t('a11y.progressAnnouncement', {
-                      name: t('nav.forge'),
-                      percent: kpis.progress,
-                    })
+              : stopUnanswered
+                ? t('forge.stopUnanswered')
+                : stopping
+                  ? t('forge.stoppingNote')
+                  : finishing
+                    ? t('forge.finishingNote')
+                    : t('a11y.progressAnnouncement', {
+                        name: t('nav.forge'),
+                        percent: kpis.progress,
+                      })
           }
           // Said at once: at 100% the bar would otherwise be heard as the end,
           // and an abort as nothing at all. A stopped run is said by the page,

@@ -2252,6 +2252,8 @@
     "aborted": "ANNULÉ",
     "stopping": "ARRÊT EN COURS...",
     "stoppingNote": "Annulation demandée : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
+    "stopUnanswered": "L'exécution n'a pas encore répondu à l'annulation. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Exécutions récentes » dès qu'elle répond.",
+    "backToStart": "Revenir au début",
     "stopped": "ARRÊTÉ",
     "done": "Terminés",
     "running": "En cours",

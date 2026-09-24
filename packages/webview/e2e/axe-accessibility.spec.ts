@@ -1269,6 +1269,85 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge run whose abort goes unanswered, then the way back to the start and the run in Recent runs', async ({
+      page,
+    }) => {
+      // A clock the test can set: the screen waits a minute for the answer.
+      await page.clock.install();
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await page.getByTestId('forge-abort-button').click();
+      await page.getByTestId('danger-input').fill('Abort');
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
+      await page.getByTestId('forge-execution-stopping').waitFor({ timeout: 10_000 });
+
+      // No answer comes, and the page is left and come back to a minute on:
+      // STOPPING... had no way out until the panel was closed. The date moves
+      // on alone. Moved with it, `performance.now` runs ahead of the timeline
+      // the page's animations are timed on, and a screen's exit never ends.
+      await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 61_000);
+      await page.keyboard.press('g');
+      await page.keyboard.press('e');
+      await page.getByTestId('settings-page').waitFor({ timeout: 10_000 });
+      await page.keyboard.press('g');
+      await page.keyboard.press('f');
+      await page.getByTestId('forge-execution-stop-unanswered').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('STOPPING...');
+      const unanswered = await checkAccessibility(page);
+      expectNoViolations(unanswered);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          unanswered,
+          '[data-testid="forge-execution-stop-unanswered"]',
+        ),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-execution-leave').click();
+      await page.getByTestId('forge-input').waitFor({ timeout: 10_000 });
+
+      // The run answers after all: the page stays where it is, and reads the
+      // recent runs again, where the run is now kept.
+      const historyReads = (await bridge.getMessages('forge:history:list')).length;
+      const lateRun = {
+        forgeId: 'forge-run-late',
+        status: 'partial',
+        cancelled: true,
+        graph: FORGE_TWO_NODE_GRAPH,
+        duration: 70_000,
+        timestamp: '2026-09-01T08:01:10.000Z',
+        idRemapCount: 1,
+        createdCount: 1,
+        idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] }],
+        readByObject: [{ objectApiName: 'Account', read: 1 }],
+        failedReads: [],
+      };
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-late',
+        correlationId: request,
+        payload: {
+          message:
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          code: 'EXECUTE_ERROR',
+          retryable: true,
+          result: lateRun,
+        },
+      });
+      await expect
+        .poll(async () => (await bridge.getMessages('forge:history:list')).length)
+        .toBeGreaterThan(historyReads);
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [{ ...lateRun, targetOrgId: QA_SANDBOX.id, config: FORGE_REMOVABLE_RUN.config }],
+      });
+      await page.getByTestId('forge-history-entry-forge-run-late').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-execution')).toHaveCount(0);
+      const back = await checkAccessibility(page);
+      expectNoViolations(back);
+    });
+
     test('Forge Review saying what an object left out costs, and the run marking it the user’s', async ({
       page,
     }) => {

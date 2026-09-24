@@ -2252,6 +2252,8 @@
     "aborted": "ABORTED",
     "stopping": "STOPPING...",
     "stoppingNote": "Abort asked: the run stops once the step under way is done, then says what it wrote.",
+    "stopUnanswered": "The run has not answered the abort yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.",
+    "backToStart": "Back to the start",
     "stopped": "STOPPED",
     "done": "Done",
     "running": "Running",

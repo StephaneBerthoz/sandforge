@@ -105,6 +105,16 @@ const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 /** Why a retry was stopped before it started: what the run it retries wrote is not known. */
 const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
 
+/** Why a run the user aborted before the executor had it was stopped, as the audit trail records it. */
+const ABORTED_BEFORE_START = 'ABORTED_BEFORE_START';
+
+/** What the page is told of a run aborted before the executor had it. */
+const ABORTED_BEFORE_START_MESSAGE =
+  'Forge execution was aborted before it started. Nothing was written.';
+
+/** Why a run was stopped before it started: another one had the executor. */
+const FORGE_RUNNING = 'FORGE_RUNNING';
+
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
 // The entry is named, never its records: what is removed is what this
 // extension's own history says the run created.
@@ -339,6 +349,12 @@ function isForgeAbort(error: unknown): boolean {
 export class ForgeHandler implements DomainHandler {
   private discoverAbortController: AbortController | null = null;
   private abortController: AbortController | null = null;
+  /* The runs waiting on Production Guard, by the controller each is to run
+     under. Their confirmation waits on a person, and the run's controller was
+     set only once the guard had answered: an Abort sent meanwhile found no run
+     to stop, and the run went ahead once confirmed while the page read
+     STOPPING... until it answered. */
+  private readonly runsAwaitingGuard = new Set<AbortController>();
   /* The operations the registry is tracking for this handler. Stop has to
      reach the registry, not just the controllers: a run whose promise simply
      settles is recorded as completed, so a clone the user stopped was listed
@@ -976,7 +992,13 @@ export class ForgeHandler implements DomainHandler {
       recordCount: graph.totalRecords ?? 0,
       module: 'forge',
     };
-    const { check, decision } = await consultProductionGuard(guard, guardRequest);
+    // Made before the guard is asked, where forge:abort reaches it while the
+    // guard waits on a person.
+    const runController = new AbortController();
+    this.runsAwaitingGuard.add(runController);
+    const { check, decision } = await consultProductionGuard(guard, guardRequest).finally(() =>
+      this.runsAwaitingGuard.delete(runController),
+    );
     /** What the guard decided, recorded with the run it let through. */
     const guardDecision = decision;
     if (decision === 'refused' || decision === 'declined') {
@@ -1018,6 +1040,28 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
+    // Aborted while the guard waited on a person: the run never starts, and
+    // the page, stopping, is told it wrote nothing.
+    if (runController.signal.aborted) {
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: config.targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+        code: ABORTED_BEFORE_START,
+      });
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(ABORTED_BEFORE_START_MESSAGE),
+        { code: 'EXECUTE_ERROR', retryable: true },
+      );
+      return;
+    }
 
     // Build a deterministic ID from payload content to detect genuine duplicates.
     // A retry sends the payload of the run it retries: named apart, it is not
@@ -1049,6 +1093,33 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
+    // One run at a time: the executor holds one run's pause and abort, and a
+    // run started while another was still stopping cleared the abort the
+    // other was stopping on. The page offers its way out of an abort that
+    // goes unanswered, and a run started from there met the other still
+    // under way.
+    if (this.executeOperationId !== null) {
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: config.targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+        code: FORGE_RUNNING,
+      });
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(
+          'Another Forge run is still under way in this window: start this one once it has ended. A run asked to stop ends once the step under way is done.',
+        ),
+        { code: FORGE_RUNNING, retryable: true },
+      );
+      return;
+    }
 
     const totalRecords = graph.totalRecords ?? 0;
     if (tracked) {
@@ -1063,7 +1134,6 @@ export class ForgeHandler implements DomainHandler {
       this.dmlTracker.register(forgeOpId, 'forge', 'upsert', totalRecords);
     }
 
-    const runController = new AbortController();
     this.abortController = runController;
     const operationId = `forge-execute-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
@@ -1126,7 +1196,7 @@ export class ForgeHandler implements DomainHandler {
       // would go ahead and write. Honour it here instead.
       if (runController.signal.aborted) {
         stoppedBeforeStart = true;
-        throw new Error('Forge execution was aborted before it started. Nothing was written.');
+        throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
       startedAt = Date.now();
       const executed = await this.orchestrator.execute(graph, config, {
@@ -1405,6 +1475,8 @@ export class ForgeHandler implements DomainHandler {
     const registry = this.deps.infraServices?.backgroundRegistry;
     if (this.discoverOperationId) registry?.abort(this.discoverOperationId);
     if (this.executeOperationId) registry?.abort(this.executeOperationId);
+    // A run still waiting on Production Guard never starts once it answers.
+    for (const run of this.runsAwaitingGuard) run.abort();
     this.discoverAbortController?.abort();
     this.discoverAbortController = null;
     this.abortController?.abort();

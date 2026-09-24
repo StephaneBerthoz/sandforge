@@ -1562,6 +1562,65 @@ describe('ForgeHandler', () => {
       await first;
     });
 
+    it('refuses another run while one asked to stop is still under way, until it has ended', async () => {
+      // The executor holds one run's pause and abort. A run started while
+      // another was still stopping — the page offers its way out of an abort
+      // that goes unanswered — cleared the abort the other was stopping on,
+      // and the other wrote on once its step was done.
+      let release: (r: ForgeExecutionResult) => void = () => {};
+      vi.mocked(orchestrator.execute).mockReturnValueOnce(
+        new Promise<ForgeExecutionResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+      const first = handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      await handler.handle(buildMsg('forge:abort'));
+
+      /** A run of another record, so no duplicate of the first. */
+      const another = (): InboundRequest =>
+        buildMsg('forge:execute', {
+          graph: createMockGraph(),
+          config: createMockConfig({ recordId: '001000000000456' }),
+        });
+      const refused = another();
+      await handler.handle(refused);
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'forge:execute:error' && m.correlationId === refused.id);
+      expect(errors).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            message:
+              'Another Forge run is still under way in this window: start this one once it has ended. A run asked to stop ends once the step under way is done.',
+            code: 'FORGE_RUNNING',
+            retryable: true,
+          }),
+        }),
+      ]);
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          operationId: refused.id,
+          outcome: 'stopped',
+          details: { code: 'FORGE_RUNNING' },
+        }),
+      ]);
+
+      release(createMockResult());
+      await first;
+      await handler.handle(another());
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+    });
+
     it('lets the user re-run immediately after a failed run', async () => {
       const graph = createMockGraph();
       const config = createMockConfig();
@@ -2413,6 +2472,124 @@ describe('ForgeHandler', () => {
         .filter((m) => m.type === 'forge:execute:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload?.message).toContain('aborted before it started');
+    });
+
+    describe('sent while Production Guard waits on a person', () => {
+      /** Settles the confirmation the guard put to the user. */
+      let answer: (confirmed: boolean) => void = () => {};
+
+      beforeEach(() => {
+        answer = () => {};
+        // A lookup of the record types that never answers is the case above's
+        // alone: a run let through here reads them.
+        mockGetConn.mockReset();
+        deps.infraServices = {
+          productionGuard: {
+            check: vi.fn().mockReturnValue({
+              allowed: true,
+              requiresConfirmation: true,
+              requiresApproval: false,
+              warnings: [],
+              impactSummary:
+                'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
+            }),
+            confirmIfNeeded: vi.fn(
+              () =>
+                new Promise<boolean>((resolve) => {
+                  answer = resolve;
+                }),
+            ),
+            canAskForConfirmation: true,
+          },
+        } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      });
+
+      /** What the page was told, of the messages it reads a run's end from. */
+      function told(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+          .filter(
+            (m) =>
+              m.type === 'forge:execute:response' ||
+              m.type === 'forge:execute:error' ||
+              m.type === 'operation:started',
+          );
+      }
+
+      it('never starts the run the person then confirms, and tells the page nothing was written', async () => {
+        // The run's controller was set only once the guard had answered: the
+        // Abort found nothing to stop, the confirmation let the run through,
+        // and the screen read STOPPING... while it wrote.
+        const msg = buildMsg('forge:execute', {
+          graph: createMockGraph(),
+          config: createMockConfig(),
+        });
+        const run = handler.handle(msg);
+        await vi.waitFor(() =>
+          expect(deps.infraServices?.productionGuard?.confirmIfNeeded).toHaveBeenCalledTimes(1),
+        );
+
+        await handler.handle(buildMsg('forge:abort'));
+        answer(true);
+        await run;
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        const [error, ...more] = told();
+        expect(more).toEqual([]);
+        expect(error).toMatchObject({
+          type: 'forge:execute:error',
+          correlationId: msg.id,
+          payload: {
+            message: 'Forge execution was aborted before it started. Nothing was written.',
+            code: 'EXECUTE_ERROR',
+            retryable: true,
+          },
+        });
+        expect(error.payload).not.toHaveProperty('result');
+        // Stopped before it wrote, by the user and not by the guard, whose
+        // decision is kept beside why.
+        const trail = vi
+          .mocked(deps.configStore.set)
+          .mock.calls.filter(([key]) => key === 'audit:trail');
+        expect(trail.at(-1)?.[1]).toEqual([
+          expect.objectContaining({
+            action: 'forge_execute',
+            operationId: msg.id,
+            outcome: 'stopped',
+            guard: 'confirmed',
+            details: { code: 'ABORTED_BEFORE_START' },
+          }),
+        ]);
+      });
+
+      it('starts the next run as usual: the Abort was for the run it was sent to', async () => {
+        const run = handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+        await vi.waitFor(() =>
+          expect(deps.infraServices?.productionGuard?.confirmIfNeeded).toHaveBeenCalledTimes(1),
+        );
+        await handler.handle(buildMsg('forge:abort'));
+        answer(true);
+        await run;
+
+        const next = handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+        await vi.waitFor(() =>
+          expect(deps.infraServices?.productionGuard?.confirmIfNeeded).toHaveBeenCalledTimes(2),
+        );
+        answer(true);
+        await next;
+
+        expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+        expect(told().map((m) => m.type)).toEqual([
+          'forge:execute:error',
+          'operation:started',
+          'forge:execute:response',
+        ]);
+      });
     });
 
     it('aborts discovery when forge:abort is called during discover', async () => {

@@ -2252,6 +2252,8 @@
     "aborted": "CANCELADO",
     "stopping": "INTERROMPENDO...",
     "stoppingNote": "Cancelamento solicitado: a execução para assim que a etapa em andamento terminar e depois diz o que gravou.",
+    "stopUnanswered": "A execução ainda não respondeu ao cancelamento. Talvez ainda esteja terminando uma etapa: o que ela gravar fica na org de destino e aparece em “Execuções recentes” assim que a execução responder.",
+    "backToStart": "Voltar ao início",
     "stopped": "INTERROMPIDO",
     "done": "Concluído",
     "running": "Em execução",
