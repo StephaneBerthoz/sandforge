@@ -679,6 +679,188 @@ describe('SeedCloneHandler', () => {
       );
     });
 
+    describe("an email's task, which the platform fills in itself", () => {
+      /** Fake ids: an account outside the clone, a case, three emails and their tasks. */
+      const ACCOUNT = '001Fk00000AcCtAIAV';
+      const CASE = '500Fk00000CaSeAIAV';
+      const NEW_CASE = '500Fk00000NeWcAIAV';
+      const OFFER = '02sFk00000OfFeAIAV';
+      const OFFER_TASK = '00TFk00000OfFeAIAV';
+      const ON_THE_CASE = '02sFk00000OnCaAIAV';
+      const ON_THE_CASE_TASK = '00TFk00000OnCaAIAV';
+      const RELATED_TO_THE_CASE = '02sFk00000ReCaAIAV';
+      const RELATED_TO_THE_CASE_TASK = '00TFk00000ReCaAIAV';
+      const PLATFORM_TASK = '00TFk00000PlAtFIAV';
+      const lookup = (name: string, ...referenceTo: string[]) => ({
+        name,
+        type: 'reference',
+        referenceTo,
+      });
+
+      /**
+       * Target describes and a target that answers as the platform does: the
+       * task it wrote with the offer's email, the one email related to a
+       * record it took without its task.
+       */
+      function targetWithEmails(): { query: ReturnType<typeof vi.fn> } {
+        const OFFER_WRITTEN = '02sFk00000NeW1AIAV';
+        const query = vi.fn(async (soql: string) => ({
+          records:
+            soql.startsWith('SELECT Id, ActivityId FROM EmailMessage') &&
+            soql.includes(OFFER_WRITTEN)
+              ? [{ Id: OFFER_WRITTEN, ActivityId: PLATFORM_TASK }]
+              : [],
+        }));
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async (name: string) => ({
+            keyPrefix: { Case: '500', Task: '00T', EmailMessage: '02s' }[name] ?? null,
+            fields:
+              name === 'EmailMessage'
+                ? [
+                    lookup('ParentId', 'Case'),
+                    lookup('RelatedToId', 'Account', 'Case'),
+                    lookup('ActivityId', 'Task'),
+                  ]
+                : name === 'Task'
+                  ? [lookup('WhatId', 'Account', 'Case')]
+                  : [],
+            recordTypeInfos: [],
+          })),
+          query,
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        let emails = 0;
+        let tasks = 0;
+        writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+          records.map(() => ({
+            id:
+              name === 'Case'
+                ? NEW_CASE
+                : name === 'EmailMessage'
+                  ? `02sFk00000NeW${++emails}AIAV`
+                  : `00TFk00000NeW${++tasks}AIAV`,
+            success: true,
+            errors: [],
+          })),
+        );
+        return { query };
+      }
+
+      /** What each insert of an object sent, in order. */
+      const sentOf = (name: string): Array<Record<string, unknown>> =>
+        writer.insert.mock.calls
+          .filter((c) => c[0] === name)
+          .flatMap((c) => c[1] as Array<Record<string, unknown>>);
+
+      it('sends an email that is not on a case without the task it names', async () => {
+        // Sent with the id read from the source, the email is refused:
+        // INSUFFICIENT_ACCESS_OR_READONLY, "you cannot modify this field".
+        targetWithEmails();
+        linker.resolveInsertOrder.mockReturnValue(['EmailMessage']);
+        fetcher.fetchRecords.mockResolvedValue([
+          { Id: OFFER, Subject: 'The offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+        ]);
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({ objects: [{ objectApiName: 'EmailMessage' }] }),
+          ),
+        );
+
+        expect(sentOf('EmailMessage')).toEqual([{ Subject: 'The offer', RelatedToId: ACCOUNT }]);
+      });
+
+      it('writes an email on a case after the tasks, with its task, and links the task the platform wrote with any other', async () => {
+        // A clone that wrote the tasks first left the offer's task beside the
+        // one the platform wrote with its email: two for one email.
+        targetWithEmails();
+        linker.resolveInsertOrder.mockReturnValue(['Case', 'EmailMessage', 'Task']);
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'Case'
+            ? [{ Id: CASE, Subject: 'Broken' }]
+            : name === 'EmailMessage'
+              ? [
+                  { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+                  {
+                    Id: ON_THE_CASE,
+                    Subject: 'It is broken',
+                    ParentId: CASE,
+                    ActivityId: ON_THE_CASE_TASK,
+                  },
+                  {
+                    Id: RELATED_TO_THE_CASE,
+                    Subject: 'Still broken',
+                    RelatedToId: CASE,
+                    ActivityId: RELATED_TO_THE_CASE_TASK,
+                  },
+                ]
+              : [
+                  { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
+                  { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
+                  { Id: RELATED_TO_THE_CASE_TASK, Subject: 'Second email', WhatId: CASE },
+                ],
+        );
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({
+              objects: [
+                { objectApiName: 'Case' },
+                { objectApiName: 'EmailMessage' },
+                { objectApiName: 'Task' },
+              ],
+            }),
+          ),
+        );
+
+        expect(writer.insert.mock.calls.map((c) => c[0])).toEqual([
+          'Case',
+          'EmailMessage',
+          'Task',
+          'EmailMessage',
+        ]);
+        expect(sentOf('Task')).toEqual([
+          { Subject: 'Unread email', WhatId: NEW_CASE },
+          { Subject: 'Second email', WhatId: NEW_CASE },
+        ]);
+        expect(sentOf('EmailMessage')).toEqual([
+          { Subject: 'Offer', RelatedToId: ACCOUNT },
+          { Subject: 'It is broken', ParentId: NEW_CASE, ActivityId: '00TFk00000NeW1AIAV' },
+          { Subject: 'Still broken', RelatedToId: NEW_CASE, ActivityId: '00TFk00000NeW2AIAV' },
+        ]);
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(response.payload as unknown).toMatchObject({
+          status: 'success',
+          totalSourceRecords: 7,
+          totalInserted: 6,
+          totalLinked: 1,
+          totalFailed: 0,
+          objectResults: [
+            { objectApiName: 'Case', insertedCount: 1 },
+            { objectApiName: 'EmailMessage', sourceCount: 3, insertedCount: 3, failedCount: 0 },
+            {
+              objectApiName: 'Task',
+              sourceCount: 3,
+              insertedCount: 2,
+              linkedCount: 1,
+              failedCount: 0,
+            },
+          ],
+        });
+        const taskResult = (
+          response.payload as unknown as {
+            objectResults: Array<{ objectApiName: string; idMappings: unknown[] }>;
+          }
+        ).objectResults.find((r) => r.objectApiName === 'Task');
+        expect(taskResult?.idMappings).toContainEqual({
+          sourceId: OFFER_TASK,
+          targetId: PLATFORM_TASK,
+        });
+      });
+    });
+
     it('reports execute failures on operation:failed as retryable', async () => {
       writer.insert.mockRejectedValue(new Error('bulk write exploded'));
 

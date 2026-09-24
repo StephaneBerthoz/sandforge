@@ -646,6 +646,81 @@ describe('a cancel stops the run before what it has not reached', () => {
   });
 });
 
+describe("an email's task, which the platform fills in itself", () => {
+  const TO_A_QUOTE = {
+    Id: '02s000000000001AAA',
+    Subject: 'The offer',
+    RelatedToId: '0Q0000000000001AAA',
+    ActivityId: '00T000000000001AAA',
+  };
+  const ON_A_CASE = {
+    Id: '02s000000000002AAA',
+    Subject: 'It is broken',
+    ParentId: '500000000000001AAA',
+    ActivityId: '00T000000000002AAA',
+  };
+  const RELATED_TO_A_CASE = {
+    Id: '02s000000000003AAA',
+    Subject: 'Still broken',
+    RelatedToId: '500000000000001AAA',
+    ActivityId: '00T000000000003AAA',
+  };
+
+  /** A run of emails whose writer keeps what each call was sent. */
+  function emailRun(operation: SyncObjectConfig['operation']) {
+    const sent: Array<Record<string, unknown>> = [];
+    const write = vi.fn(async (_object: string, ...args: unknown[]) => {
+      const records = args.find(Array.isArray) as Array<Record<string, unknown>>;
+      sent.push(...records);
+      return records.map(() => ({ success: true, errors: [] }));
+    });
+    const deps: SyncOrchestratorDeps = {
+      ...createMockDeps(),
+      dataSync: new DataSync({ insert: write, upsert: write, update: write, delete: write }),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: vi
+        .fn()
+        .mockResolvedValue([TO_A_QUOTE, ON_A_CASE, RELATED_TO_A_CASE].map((row) => ({ ...row }))),
+    };
+    const config = createConfig({
+      objects: [createObjectConfig({ objectApiName: 'EmailMessage', operation })],
+    });
+    return { deps, config, sent };
+  }
+
+  it('creates an email that is not on a case without the task it names, and one on a case with it', async () => {
+    // Sent with the task id read from the source, the email related to a
+    // quote is refused: INSUFFICIENT_ACCESS_OR_READONLY, "you cannot modify
+    // this field". The platform writes its task as it takes it.
+    for (const operation of ['insert', 'upsert'] as const) {
+      const { deps, config, sent } = emailRun(operation);
+
+      const result = await new SyncOrchestrator(deps).execute(config);
+
+      expect(sent.map((row) => [row['Subject'], row['ActivityId']])).toEqual([
+        ['The offer', undefined],
+        ['It is broken', ON_A_CASE.ActivityId],
+        ['Still broken', RELATED_TO_A_CASE.ActivityId],
+      ]);
+      expect(result.status).toBe('success');
+    }
+  });
+
+  it('leaves an update of an email to the target', async () => {
+    // It creates no email, so the platform fills nothing in.
+    const { deps, config, sent } = emailRun('update');
+
+    await new SyncOrchestrator(deps).execute(config);
+
+    expect(sent.map((row) => row['ActivityId'])).toEqual([
+      TO_A_QUOTE.ActivityId,
+      ON_A_CASE.ActivityId,
+      RELATED_TO_A_CASE.ActivityId,
+    ]);
+  });
+});
+
 describe('a feed item the platform writes itself', () => {
   const POST = { Id: '0D5000000000001AAA', Type: 'TextPost', Body: 'Kick-off' };
   const CHANGE = { Id: '0D5000000000002AAA', Type: 'TrackedChange', Body: null };

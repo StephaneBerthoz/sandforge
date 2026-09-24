@@ -157,14 +157,20 @@ export interface CatalogNodeAskedAgain {
  * What the catalog's rows point at goes the other way — the classification
  * a product is based on, the proration policy of a selling model option: it
  * is read by the ids those rows name. So is whatever the graph reads under
- * one of those, which waits for its rows. What such a node names of the
- * catalog comes too late for its read, and is read by a second one
- * (`readCatalogAgain` in the executor).
+ * one of those, which waits for its rows, and whatever such a row names in
+ * turn, which the ids it names are all that bring into scope: the attribute
+ * definition an attribute of a classification cannot be written without,
+ * and the picklist of that definition. Read before the catalog, a definition
+ * nothing had named yet was left out of the clone, and the attribute went to
+ * the target without it: REQUIRED_FIELD_MISSING, AttributeDefinitionId. What
+ * such a node names of the catalog comes too late for its read, and is read
+ * by a second one (`readCatalogAgain` in the executor).
  *
  * The fields of a catalog node's turn say what its rows can name — any
  * object one of its lookups can point at — and the graph's edges what a node
- * is read under. The nodes put off keep the order the first pass met them
- * in, parents first.
+ * is read under, and what its rows can name. The nodes put off keep the order
+ * the first pass met them in, parents first, each read after the node that
+ * brings it into scope.
  *
  * @param putOff - The nodes put off, in the order the first pass met them.
  * @param catalog - The catalog nodes to read again, put off or read at their turn.
@@ -184,22 +190,33 @@ export function sortNodesAskedAgain(
     ),
   );
   const parentsOf = new Map<string, string[]>();
+  const childrenOf = new Map<string, string[]>();
+  const link = (map: Map<string, string[]>, from: string, to: string): void => {
+    const list = map.get(from);
+    if (list) list.push(to);
+    else map.set(from, [to]);
+  };
   for (const { sourceObject, targetObject } of edges) {
-    const parents = parentsOf.get(targetObject);
-    if (parents) parents.push(sourceObject);
-    else parentsOf.set(targetObject, [sourceObject]);
+    link(parentsOf, targetObject, sourceObject);
+    link(childrenOf, sourceObject, targetObject);
   }
-  const before: ForgeGraphNode[] = [];
   const after: ForgeGraphNode[] = [];
   const readAfter = new Set<string>();
-  for (const node of putOff) {
-    const name = node.objectApiName;
-    if (named.has(name) || (parentsOf.get(name) ?? []).some((p) => readAfter.has(p))) {
-      readAfter.add(name);
+  let before = [...putOff];
+  // Round by round, until none is added: those the catalog's rows name, then
+  // those read under one read after it, or named by one.
+  let round = before.filter((node) => named.has(node.objectApiName));
+  while (round.length > 0) {
+    for (const node of round) {
+      readAfter.add(node.objectApiName);
       after.push(node);
-    } else {
-      before.push(node);
     }
+    before = before.filter((node) => !readAfter.has(node.objectApiName));
+    round = before.filter(
+      ({ objectApiName }) =>
+        (parentsOf.get(objectApiName) ?? []).some((parent) => readAfter.has(parent)) ||
+        (childrenOf.get(objectApiName) ?? []).some((child) => readAfter.has(child)),
+    );
   }
   return [...before, ...inReadOrder.map(({ node }) => node), ...after];
 }

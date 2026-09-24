@@ -3625,7 +3625,8 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
 
   /**
    * A writer answering as the target does: it refuses an email naming its
-   * task unless the email is on a case — and an email's task given later, a
+   * task unless the email is on a case — its ParentId, or a case, whose id
+   * begins with 500, in its RelatedToId — and an email's task given later, a
    * field it takes at insert or never — a task's relation to anything but a
    * contact that does not say it is to the task's what, and an email's
    * relation that names no one; and it keeps the emails it took.
@@ -3657,7 +3658,9 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
         return outcomes.map((outcome, i) => {
           const record = records[i];
           const refused = (error: string) => ({ id: '', success: false, errors: [error] });
-          if (objectApiName === 'EmailMessage' && record.ActivityId && !record.ParentId) {
+          const onACase =
+            Boolean(record.ParentId) || String(record.RelatedToId ?? '').startsWith('500');
+          if (objectApiName === 'EmailMessage' && record.ActivityId && !onACase) {
             return refused('INSUFFICIENT_ACCESS_OR_READONLY: you cannot modify this field');
           }
           if (
@@ -3687,15 +3690,17 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
   }
 
   /**
-   * The target's answer to the load's reads: the task the platform wrote with
-   * each email it took related to a record, when it writes one.
+   * The target's answer to the load's reads: the task each email it took
+   * names — the one the load gave an email on a case, or the one the platform
+   * wrote with any other related to a record, when it writes one.
    */
   function platformReads(emails: Array<Record<string, unknown>>, writesTasks = true) {
     return async (_org: string, soql: string): Promise<Array<Record<string, unknown>>> =>
       soql.startsWith('SELECT Id, ActivityId FROM EmailMessage')
         ? emails.map((email) => ({
             Id: email.Id,
-            ActivityId: writesTasks && email.RelatedToId ? '00TPLATFORM' : null,
+            ActivityId:
+              email.ActivityId ?? (writesTasks && email.RelatedToId ? '00TPLATFORM' : null),
           }))
         : [];
   }
@@ -3867,5 +3872,110 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
       { Status: '3', ActivityId: real('Task', 2), ParentId: real('Case', 1) },
     ]);
     expect(report.perObject.flatMap((o) => o.failed)).toEqual([]);
+  });
+
+  describe('emails on a case and others in one dataset', () => {
+    /** A case's id in the target: it begins with 500, as in every org. */
+    const CASE_ID = '500NEW000000001AAA';
+
+    /**
+     * An email sent from a quote, one on a case and one related to the case
+     * alone, each with its task: what a dataset of an account's records held
+     * once it carried both.
+     */
+    function mixedDataset(): FrozenDataset {
+      const email = (n: number, fields: Record<string, unknown>) => ({
+        referenceId: ref('EmailMessage', n),
+        fields: { Subject: '', Status: '3', ActivityId: ref('Task', n), ...fields },
+      });
+      return {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Quote',
+            records: [{ referenceId: ref('Quote'), fields: { Name: 'Offer' } }],
+          },
+          {
+            objectApiName: 'Case',
+            records: [{ referenceId: ref('Case'), fields: { Subject: 'Broken' } }],
+          },
+          {
+            objectApiName: 'Task',
+            records: [
+              { referenceId: ref('Task', 1), fields: { Subject: 'Offer', WhatId: ref('Quote') } },
+              { referenceId: ref('Task', 2), fields: { Subject: 'Unread', WhatId: ref('Case') } },
+              { referenceId: ref('Task', 3), fields: { Subject: 'Second', WhatId: ref('Case') } },
+            ],
+          },
+          {
+            objectApiName: 'EmailMessage',
+            records: [
+              email(1, { RelatedToId: ref('Quote') }),
+              email(2, { ParentId: ref('Case') }),
+              email(3, { RelatedToId: ref('Case') }),
+            ],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      };
+    }
+
+    /** The platform's writer, giving each case it takes an id that begins with 500. */
+    function withCaseIds(writer: FrozenDmlWriter): FrozenDmlWriter {
+      const insert = writer.insert;
+      writer.insert = vi.fn(
+        async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+          const outcomes = await insert(org, objectApiName, records);
+          return objectApiName === 'Case'
+            ? outcomes.map((outcome) => ({ ...outcome, id: CASE_ID }))
+            : outcomes;
+        },
+      );
+      return writer;
+    }
+
+    it('inserts an email on a case after the task it names, with it, and the others before theirs', async () => {
+      // A load that held an email on a case inserted every task first, and
+      // the quote's email then went in with a task of its own from the
+      // platform, beside the one the dataset carried: two for one email.
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const deps = makeDeps({
+        dataset,
+        writer: withCaseIds(platformWriter(calls, emails)),
+        queryImpl: platformReads(emails),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      const inserts = calls.filter((c) => c.op === 'insert').map((c) => c.objectApiName);
+      expect(inserts.slice(-3)).toEqual(['EmailMessage', 'Task', 'EmailMessage']);
+      expect(insertedOf(calls, 'Task').map((t) => t.Subject)).toEqual(['Unread', 'Second']);
+      const [tasksWritten] = calls.filter((c) => c.op === 'insert' && c.objectApiName === 'Task');
+      expect(insertedOf(calls, 'EmailMessage')).toEqual([
+        { Status: '3', RelatedToId: real('Quote', 2) },
+        { Status: '3', ActivityId: real('Task', 4), ParentId: CASE_ID },
+        { Status: '3', ActivityId: real('Task', 5), RelatedToId: CASE_ID },
+      ]);
+      expect(tasksWritten.payload).toHaveLength(2);
+      expect(report.perObject.find((o) => o.objectApiName === 'Task')).toMatchObject({
+        fromFiles: 3,
+        inserted: 2,
+        reused: 1,
+        failed: [],
+      });
+      expect(report.perObject.find((o) => o.objectApiName === 'EmailMessage')).toMatchObject({
+        fromFiles: 3,
+        inserted: 3,
+        failed: [],
+      });
+      expect(report.status).toBe('completed');
+      const mapping = await new SasReferenceIdMappingStore(deps.sasDir, {
+        guard: new SasPathGuard(repoRoot),
+      }).load();
+      expect(mapping.get(ref('Task', 1))).toBe('00TPLATFORM');
+    });
   });
 });

@@ -409,6 +409,41 @@ describe('DependencyGraphBuilder', () => {
     expect(graph.edges).toHaveLength(0);
   });
 
+  it('puts the emails before the tasks, and keeps the lookup that names the task', () => {
+    // An email names its task, which put the tasks first: the platform then
+    // wrote a task of its own with each email related to a record, beside
+    // the one the run had written.
+    const describes = new Map<string, GraphObjectDescribe>([
+      ['Case', makeDescribe('Case')],
+      ['Task', makeDescribe('Task', [{ fieldName: 'WhatId', referenceTo: ['Case', 'Account'] }])],
+      [
+        'EmailMessage',
+        makeDescribe('EmailMessage', [
+          { fieldName: 'ParentId', referenceTo: ['Case'] },
+          { fieldName: 'ActivityId', referenceTo: ['Task'] },
+        ]),
+      ],
+    ]);
+
+    const graph = builder.build(describes, new Map());
+
+    const level = (name: string): number | undefined =>
+      graph.nodes.find((n) => n.objectApiName === name)?.level;
+    expect(level('Case')).toBe(0);
+    expect(level('EmailMessage')).toBe(1);
+    expect(level('Task')).toBe(2);
+    expect(graph.cycles).toEqual([]);
+    // Kept for the run, which remaps the task of an email on a case with it.
+    expect(graph.edges).toContainEqual({
+      from: 'Task',
+      to: 'EmailMessage',
+      fieldApiName: 'ActivityId',
+      relationshipType: 'lookup',
+      required: false,
+    });
+    expect(graph.stats.totalRelationships).toBe(3);
+  });
+
   it('should handle missing record count as 0', () => {
     const describes = new Map<string, GraphObjectDescribe>([['Account', makeDescribe('Account')]]);
     // No record count for Account

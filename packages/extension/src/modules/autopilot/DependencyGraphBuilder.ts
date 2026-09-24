@@ -12,6 +12,7 @@ import type {
   GraphStats,
   RelationshipType,
 } from '@sandforge/shared';
+import { EMAIL_MESSAGE, emailWriteEdges } from '../../core/common/platformRecords.js';
 
 /** Simplified describe field for graph building. */
 export interface GraphFieldDescribe {
@@ -70,9 +71,12 @@ export class DependencyGraphBuilder {
     batchSize: number = 200,
   ): AutopilotGraph {
     const edges = this.extractEdges(describes);
-    const sccs = this.tarjanSCC(Array.from(describes.keys()), edges);
-    const cycles = this.resolveCycles(sccs, edges);
-    const { order, levels } = this.topologicalSort(Array.from(describes.keys()), edges, sccs);
+    // The plan is ordered with the emails before the tasks; the graph keeps
+    // the lookup, by which an email on a case names its task.
+    const ordering = withTheEmailsFirst(edges, new Set(describes.keys()));
+    const sccs = this.tarjanSCC(Array.from(describes.keys()), ordering);
+    const cycles = this.resolveCycles(sccs, ordering);
+    const { order, levels } = this.topologicalSort(Array.from(describes.keys()), ordering, sccs);
     const nodes = this.buildNodes(describes, recordCounts, order, levels, batchSize);
     const stats = this.computeStats(nodes, edges, cycles);
     return { nodes, edges, cycles, stats };
@@ -481,4 +485,31 @@ export class DependencyGraphBuilder {
       totalEstimatedApiCalls: nodes.reduce((sum, n) => sum + n.estimatedApiCalls, 0),
     };
   }
+}
+
+/**
+ * The edges a plan is ordered by: the lookups, with the emails before the
+ * tasks, as `emailWriteEdges` gives it. The lookup an email names its task by
+ * orders nothing: the platform writes the task of an email that is not on a
+ * case as it takes the email, and refuses its id from a copy, and an email on
+ * a case waits for its task as the run writes it. Written after its task, as
+ * the lookup put it, every email related to a record went in beside a task of
+ * its own from the platform: two for one email.
+ */
+function withTheEmailsFirst(
+  edges: readonly AutopilotEdge[],
+  objects: ReadonlySet<string>,
+): AutopilotEdge[] {
+  const first = emailWriteEdges(objects);
+  if (first.length === 0) return [...edges];
+  return [
+    ...edges.filter((edge) => !(edge.to === EMAIL_MESSAGE && edge.fieldApiName === 'ActivityId')),
+    ...first.map((edge) => ({
+      from: edge.sourceObject,
+      to: edge.targetObject,
+      fieldApiName: edge.relationshipName,
+      relationshipType: 'lookup' as RelationshipType,
+      required: true,
+    })),
+  ];
 }

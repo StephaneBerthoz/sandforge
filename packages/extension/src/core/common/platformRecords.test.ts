@@ -18,6 +18,7 @@ import {
   standardPriceIds,
   statusCategories,
   tasksWrittenWithEmails,
+  waitsForItsTask,
   withTheRelationItIs,
   writtenByThePlatform,
   type SoqlQuery,
@@ -79,6 +80,24 @@ describe('writtenByThePlatform', () => {
     expect(writtenByThePlatform('TaskRelation', { Id: '0RTD' })).toBeUndefined();
   });
 
+  it("names an event's relation to its what, as a task's, and leaves one to a who or an invitee to the insert", () => {
+    const what = {
+      field: 'IsWhat',
+      value: true,
+      noun: 'what relation',
+      from: "the event's WhatId",
+    };
+
+    expect(writtenByThePlatform('EventRelation', { Id: '0REA', IsWhat: true })).toEqual(what);
+    expect(writtenByThePlatform('EventRelation', { Id: '0REA', IsWhat: 'true' })).toEqual(what);
+    expect(
+      writtenByThePlatform('EventRelation', { Id: '0REB', IsWhat: false, IsParent: true }),
+    ).toBeUndefined();
+    expect(
+      writtenByThePlatform('EventRelation', { Id: '0REC', IsWhat: false, IsInvitee: true }),
+    ).toBeUndefined();
+  });
+
   it("names every relation of an email, whatever it carries, as one the platform writes from the email's addresses", () => {
     const relation = { noun: 'email relation', from: "the email's addresses" };
 
@@ -116,18 +135,65 @@ describe('withTheRelationItIs', () => {
     expect(withTheRelationItIs('TaskRelation', unknown, undefined)).toBe(unknown);
     expect(withTheRelationItIs('FeedItem', feedItem, 'Quote')).toBe(feedItem);
   });
+
+  it('says an event relation whose IsWhat was cleared is to its what when it names no who and no invitee', () => {
+    const toOpportunity = { RelationId: 'Opportunity-000001', IsWhat: '' };
+    const toContact = { RelationId: 'Contact-000001', IsWhat: '' };
+    const toUser = { RelationId: '005000000000001AAA', IsWhat: '' };
+    const toRoom = { RelationId: '023000000000001AAA', IsWhat: '' };
+
+    expect(withTheRelationItIs('EventRelation', toOpportunity, 'Opportunity')).toEqual({
+      RelationId: 'Opportunity-000001',
+      IsWhat: true,
+    });
+    expect(withTheRelationItIs('EventRelation', toContact, 'Contact')).toBe(toContact);
+    expect(withTheRelationItIs('EventRelation', toUser, 'User')).toBe(toUser);
+    expect(withTheRelationItIs('EventRelation', toRoom, 'Calendar')).toBe(toRoom);
+  });
+});
+
+describe('emailOnACase', () => {
+  it('says an email is on a case when its ParentId holds one, or its RelatedToId names one', () => {
+    expect(emailOnACase({ ParentId: '500T' })).toBe(true);
+    expect(emailOnACase({ RelatedToId: '500000000000001AAA' })).toBe(true);
+    expect(emailOnACase({ ParentId: '', RelatedToId: '500000000000001AAA' })).toBe(true);
+  });
+
+  it('says an email related to anything else, or to nothing, is not', () => {
+    expect(emailOnACase({ ParentId: '' })).toBe(false);
+    expect(emailOnACase({ RelatedToId: '0Q0T' })).toBe(false);
+    expect(emailOnACase({ RelatedToId: '' })).toBe(false);
+    expect(emailOnACase({})).toBe(false);
+  });
+
+  it('tells the object of a reference id by the resolver it is given', () => {
+    const objectOf = (id: string): string | undefined =>
+      ({ 'Case-000001': 'Case', 'Quote-000001': 'Quote' })[id];
+
+    expect(emailOnACase({ RelatedToId: 'Case-000001' }, objectOf)).toBe(true);
+    expect(emailOnACase({ RelatedToId: 'Quote-000001' }, objectOf)).toBe(false);
+    expect(emailOnACase({ RelatedToId: 'Case-000001' })).toBe(false);
+  });
 });
 
 describe('lookupsThePlatformFills', () => {
   it("names an email's task on an email that is not on a case, and nothing on one that is", () => {
-    expect(emailOnACase({ ParentId: '500T' })).toBe(true);
-    expect(emailOnACase({ ParentId: '' })).toBe(false);
-    expect(emailOnACase({ RelatedToId: '0Q0T' })).toBe(false);
     expect(
       lookupsThePlatformFills('EmailMessage', { ActivityId: '00TT', RelatedToId: '0Q0T' }),
     ).toEqual(['ActivityId']);
     expect(
       lookupsThePlatformFills('EmailMessage', { ActivityId: '00TT', ParentId: '500T' }),
+    ).toEqual([]);
+  });
+
+  it('keeps the task of an email related to a case through RelatedToId alone', () => {
+    // The platform takes it: "ActivityId can only be specified for emails on
+    // cases", and an email whose RelatedToId is a case is one.
+    expect(
+      lookupsThePlatformFills('EmailMessage', {
+        ActivityId: '00TT',
+        RelatedToId: '500000000000001AAA',
+      }),
     ).toEqual([]);
   });
 
@@ -138,10 +204,8 @@ describe('lookupsThePlatformFills', () => {
 });
 
 describe('emailWriteEdges', () => {
-  it('writes an email before the task it names, unless an email of the run is on a case', () => {
-    const both = new Set(['EmailMessage', 'Task', 'Account']);
-
-    expect(emailWriteEdges(both, false)).toEqual([
+  it('writes the emails before the tasks', () => {
+    expect(emailWriteEdges(new Set(['EmailMessage', 'Task', 'Account']))).toEqual([
       {
         sourceObject: 'EmailMessage',
         targetObject: 'Task',
@@ -150,20 +214,28 @@ describe('emailWriteEdges', () => {
         required: true,
       },
     ]);
-    expect(emailWriteEdges(both, true)).toEqual([
-      {
-        sourceObject: 'Task',
-        targetObject: 'EmailMessage',
-        relationshipName: 'TaskBeforeEmailMessage',
-        type: 'lookup',
-        required: true,
-      },
-    ]);
   });
 
   it('orders nothing in a run that does not write both', () => {
-    expect(emailWriteEdges(new Set(['EmailMessage', 'Account']), false)).toEqual([]);
-    expect(emailWriteEdges(new Set(['Task', 'Account']), false)).toEqual([]);
+    expect(emailWriteEdges(new Set(['EmailMessage', 'Account']))).toEqual([]);
+    expect(emailWriteEdges(new Set(['Task', 'Account']))).toEqual([]);
+  });
+});
+
+describe('waitsForItsTask', () => {
+  it('holds back an email on a case that names its task', () => {
+    expect(waitsForItsTask({ ActivityId: '00TT', ParentId: '500T' })).toBe(true);
+    expect(waitsForItsTask({ ActivityId: '00TT', RelatedToId: '500000000000001AAA' })).toBe(true);
+    // A frozen dataset names its records by reference ids, which its index resolves.
+    const objectOf = (id: string): string | undefined => (id === 'ref-7' ? 'Case' : undefined);
+    expect(waitsForItsTask({ ActivityId: 'ref-3', RelatedToId: 'ref-7' }, objectOf)).toBe(true);
+    expect(waitsForItsTask({ ActivityId: 'ref-3', RelatedToId: 'ref-8' }, objectOf)).toBe(false);
+  });
+
+  it('lets through an email on a case that names no task, and every other email', () => {
+    expect(waitsForItsTask({ ActivityId: '', ParentId: '500T' })).toBe(false);
+    expect(waitsForItsTask({ ParentId: '500T' })).toBe(false);
+    expect(waitsForItsTask({ ActivityId: '00TT', RelatedToId: '0Q0T' })).toBe(false);
   });
 });
 

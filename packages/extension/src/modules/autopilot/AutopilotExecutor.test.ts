@@ -24,6 +24,7 @@ import { RECORD_TYPES_SOQL } from '../sync/RecordTypeMapper.js';
 import { logger } from '../../logger.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import { RecordIdRemapper } from './RecordIdRemapper.js';
+import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
@@ -1752,5 +1753,187 @@ describe('AutopilotExecutor — a feed item the platform writes itself', () => {
     expect(result.objectOutcomes?.['FeedItem']?.leftToThePlatform).toEqual([
       { objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 },
     ]);
+  });
+});
+
+describe("AutopilotExecutor — an email's task, which the platform fills in itself", () => {
+  const ACCOUNT = '001SRCACCOUNT00';
+  const CASE = '500SRCCASE00000';
+  const OFFER = '02sSRCOFFER0000';
+  const OFFER_TASK = '00TSRCOFFER0000';
+  const ON_THE_CASE = '02sSRCONCASE000';
+  const ON_THE_CASE_TASK = '00TSRCONCASE000';
+  const RELATED_TO_THE_CASE = '02sSRCRELATED00';
+  const RELATED_TO_THE_CASE_TASK = '00TSRCRELATED00';
+  const PLATFORM_TASK = '00TPLATFORM0000';
+  const rows = {
+    Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+    Case: [{ Id: CASE, Subject: 'Broken' }],
+    EmailMessage: [
+      { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+      { Id: ON_THE_CASE, Subject: 'It is broken', ParentId: CASE, ActivityId: ON_THE_CASE_TASK },
+      {
+        Id: RELATED_TO_THE_CASE,
+        Subject: 'Still broken',
+        RelatedToId: CASE,
+        ActivityId: RELATED_TO_THE_CASE_TASK,
+      },
+    ],
+    Task: [
+      { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
+      { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
+      { Id: RELATED_TO_THE_CASE_TASK, Subject: 'Second email', WhatId: CASE },
+    ],
+  };
+  // As the scan draws them: what an email or a task is related to may be
+  // one of several objects, and an email names its case and its task.
+  const edges = [
+    ...['Account', 'Case'].flatMap((parent) => [
+      makeEdge({
+        from: parent as ApiName,
+        to: 'EmailMessage' as ApiName,
+        fieldApiName: 'RelatedToId',
+        relationshipType: 'polymorphic',
+      }),
+      makeEdge({
+        from: parent as ApiName,
+        to: 'Task' as ApiName,
+        fieldApiName: 'WhatId',
+        relationshipType: 'polymorphic',
+      }),
+    ]),
+    makeEdge({ from: 'Case' as ApiName, to: 'EmailMessage' as ApiName, fieldApiName: 'ParentId' }),
+    makeEdge({
+      from: 'Task' as ApiName,
+      to: 'EmailMessage' as ApiName,
+      fieldApiName: 'ActivityId',
+    }),
+  ];
+
+  /**
+   * A target that answers as the platform does: it takes an email's task
+   * only when the email is on a case — its ParentId, or a case in its
+   * RelatedToId — and writes the task of every other email related to a
+   * record itself. Each record it takes gets the key prefix of its object.
+   */
+  function platform() {
+    const emails: FakeRow[] = [];
+    const counts = new Map<string, number>();
+    const prefixes: Record<string, string> = {
+      Account: '001',
+      Case: '500',
+      EmailMessage: '02s',
+      Task: '00T',
+    };
+    const insert: InsertFn = vi.fn(
+      async (objectApiName: string, records: Record<string, unknown>[]): Promise<SaveOutcome[]> =>
+        records.map((record) => {
+          const onACase =
+            Boolean(record['ParentId']) || String(record['RelatedToId'] ?? '').startsWith('500');
+          if (objectApiName === 'EmailMessage' && record['ActivityId'] && !onACase) {
+            return refused('INSUFFICIENT_ACCESS_OR_READONLY', 'you cannot modify this field');
+          }
+          const n = (counts.get(objectApiName) ?? 0) + 1;
+          counts.set(objectApiName, n);
+          const id = `${prefixes[objectApiName] ?? 'XXX'}TGT${n}`;
+          if (objectApiName === 'EmailMessage') {
+            emails.push({
+              Id: id,
+              ActivityId: record['ActivityId']
+                ? String(record['ActivityId'])
+                : record['RelatedToId']
+                  ? PLATFORM_TASK
+                  : null,
+            });
+          }
+          return { id, success: true, errors: [] };
+        }),
+    );
+    const queryTarget = vi.fn<SoqlQuery>(async (soql) =>
+      soql.startsWith('SELECT Id, ActivityId FROM EmailMessage')
+        ? selectRows({ EmailMessage: emails }, soql)
+        : [],
+    );
+    return { insert, queryTarget };
+  }
+
+  /** What each insert of an object sent, in order. */
+  function sentOf(deps: AutopilotExecutorDeps, objectApiName: string): Record<string, unknown>[] {
+    return vi
+      .mocked(deps.insert)
+      .mock.calls.filter(([name]) => name === objectApiName)
+      .flatMap(([, records]) => records.map(({ Id: _id, ...fields }) => fields));
+  }
+
+  it('sends an email that is not on a case without the task it names, whatever went first', async () => {
+    // Sent with the task the run had written, as a plan that put the tasks
+    // first remapped it, the email was refused:
+    // INSUFFICIENT_ACCESS_OR_READONLY, "you cannot modify this field".
+    const offer = {
+      Account: rows.Account,
+      Task: [rows.Task[0]],
+      EmailMessage: [rows.EmailMessage[0]],
+    };
+    const deps = makeDeps({
+      query: sourceOf(offer),
+      ...platform(),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Task', 'EmailMessage'),
+      edges,
+      [],
+      countsOf(offer),
+    );
+
+    expect(sentOf(deps, 'EmailMessage')).toEqual([{ Subject: 'Offer', RelatedToId: '001TGT1' }]);
+    expect(result.totalFailure).toBe(0);
+  });
+
+  it('writes an email on a case after the tasks, with its task, and links the task the platform wrote with any other', async () => {
+    // A plan that put the tasks first left the offer's task beside the one
+    // the platform wrote with its email: two for one email.
+    const remapper = new RecordIdRemapper();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      ...platform(),
+      remapper,
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+      edges,
+      [],
+      countsOf(rows),
+    );
+
+    expect(vi.mocked(deps.insert).mock.calls.map(([name]) => name)).toEqual([
+      'Account',
+      'Case',
+      'EmailMessage',
+      'Task',
+      'EmailMessage',
+    ]);
+    expect(sentOf(deps, 'Task')).toEqual([
+      { Subject: 'Unread email', WhatId: '500TGT1' },
+      { Subject: 'Second email', WhatId: '500TGT1' },
+    ]);
+    expect(sentOf(deps, 'EmailMessage')).toEqual([
+      { Subject: 'Offer', RelatedToId: '001TGT1' },
+      { Subject: 'It is broken', ParentId: '500TGT1', ActivityId: '00TTGT1' },
+      { Subject: 'Still broken', RelatedToId: '500TGT1', ActivityId: '00TTGT2' },
+    ]);
+    expect(remapper.getTargetId('Task' as ApiName, OFFER_TASK)).toBe(PLATFORM_TASK);
+    expect(result.objectOutcomes?.['EmailMessage']).toMatchObject({
+      written: 3,
+      linked: 0,
+      failed: 0,
+    });
+    expect(result.objectOutcomes?.['Task']).toMatchObject({ written: 2, linked: 1, failed: 0 });
+    expect(result).toMatchObject({ totalSuccess: 7, totalLinked: 1, totalFailure: 0 });
+    expect(result.completedObjects).toContain('EmailMessage');
   });
 });

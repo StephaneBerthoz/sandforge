@@ -229,7 +229,7 @@ describe('cleanNodeRecords', () => {
         queryable: true,
         createable: true,
         isReference: true,
-        referenceTo: ['Quote', 'Opportunity'],
+        referenceTo: ['Quote', 'Opportunity', 'Case'],
       },
     ];
     const emailInput = (
@@ -277,6 +277,27 @@ describe('cleanNodeRecords', () => {
       );
 
       expect(out.cleaned).toEqual({ Subject: 'Reply', ActivityId: '00TNEW', ParentId: '500NEW' });
+    });
+
+    it('goes with an email related to a case through RelatedToId alone, which is on it', () => {
+      // Told by ParentId alone, the email went without its task, though the
+      // platform takes the task of an email whose RelatedToId is a case.
+      const remapper = new IdRemapper();
+      remapper.add('00TWRITTEN', '00TNEW');
+      remapper.add('500CASE', '500NEW');
+      const [out] = cleanNodeRecords(
+        emailInput(
+          [{ Id: '02sA', Subject: 'Reply', ActivityId: '00TWRITTEN', RelatedToId: '500CASE' }],
+          remapper,
+        ),
+      );
+
+      expect(out.cleaned).toEqual({
+        Subject: 'Reply',
+        ActivityId: '00TNEW',
+        RelatedToId: '500NEW',
+      });
+      expect(out.nullifiedFks).toEqual([]);
     });
   });
 

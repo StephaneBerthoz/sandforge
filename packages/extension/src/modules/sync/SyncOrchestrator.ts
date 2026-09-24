@@ -14,7 +14,11 @@ import type { IncrementalTracker } from './IncrementalTracker';
 import type { CoreServices } from '../../services.js';
 import { SyncRunFailure } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
-import { RowsLeftToThePlatform, leftToThePlatformNote } from '../../core/common/platformRecords.js';
+import {
+  RowsLeftToThePlatform,
+  leftToThePlatformNote,
+  lookupsThePlatformFills,
+} from '../../core/common/platformRecords.js';
 
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
@@ -284,10 +288,8 @@ export class SyncOrchestrator {
     // update or a delete creates none, and the target says whether it takes
     // it. What hangs from one is left to the write: a sync copies ids as it
     // reads them, and the target may hold the change a comment answers.
-    const sourceRecords =
-      objectConfig.operation === 'insert' || objectConfig.operation === 'upsert'
-        ? leftOut.keep(objectConfig.objectApiName, read)
-        : read;
+    const creates = objectConfig.operation === 'insert' || objectConfig.operation === 'upsert';
+    const sourceRecords = creates ? leftOut.keep(objectConfig.objectApiName, read) : read;
 
     if (sourceRecords.length === 0) {
       return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
@@ -298,9 +300,16 @@ export class SyncOrchestrator {
       return this.deps.transformPipeline.transformRecord(mapped, objectConfig);
     });
 
-    const recordsWithAddOns = mappedRecords.map((record) =>
-      this.deps.fieldMapping.applyAddOns(record, objectConfig.addOnFields),
-    );
+    // Nor does a record it creates carry a lookup the platform fills in
+    // itself: an email's task, unless the email is on a case. Sent with the id
+    // read from the source, the email is refused, "you cannot modify this
+    // field". See `lookupsThePlatformFills`.
+    const recordsWithAddOns = mappedRecords.map((record) => {
+      const withAddOns = this.deps.fieldMapping.applyAddOns(record, objectConfig.addOnFields);
+      return creates
+        ? withoutWhatThePlatformFills(objectConfig.objectApiName, withAddOns)
+        : withAddOns;
+    });
 
     let finalRecords = recordsWithAddOns;
 
@@ -347,6 +356,18 @@ export class SyncOrchestrator {
       leftOut,
     );
   }
+}
+
+/** A record to create, without the lookups the platform fills in itself. */
+function withoutWhatThePlatformFills(
+  objectApiName: string,
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  const filled = lookupsThePlatformFills(objectApiName, record);
+  if (filled.length === 0) return record;
+  const kept = { ...record };
+  for (const field of filled) delete kept[field];
+  return kept;
 }
 
 /**

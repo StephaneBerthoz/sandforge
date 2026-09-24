@@ -57,7 +57,6 @@ import {
   TASK,
   TASK_RELATION,
   draftStartOf,
-  emailOnACase,
   emailWriteEdges,
   existingSellingModelOptions,
   existingTaskRelations,
@@ -69,6 +68,7 @@ import {
   type LeftToThePlatform,
   type PlatformWrittenRows,
   tasksWrittenWithEmails,
+  waitsForItsTask,
   withTheRelationItIs,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -851,7 +851,44 @@ export class FrozenDatasetLoader {
     const deferredStatuses: DeferredStatus[] = [];
     const duplicatePatterns =
       this.config.duplicateErrorPatterns ?? DEFAULT_DUPLICATE_ERROR_PATTERNS;
+    // An email on a case names its task, which the tasks inserted after the
+    // emails would leave without an id in the target: it waits for them, and
+    // goes in once the task object has had its turn. See `waitsForItsTask`.
+    const tasksToInsert = new Set(
+      insertOrder.includes(TASK) ? (alignedByObject.get(TASK) ?? []).map((r) => r.referenceId) : [],
+    );
+    const emailsAfterTheirTask: Array<{ referenceId: string; fields: Record<string, unknown> }> =
+      [];
     let objectIndex = 0;
+    let taskTurnOver = false;
+    const insertEmailsAfterTheirTask = async (): Promise<void> => {
+      taskTurnOver = true;
+      const emails = emailsAfterTheirTask.splice(0, emailsAfterTheirTask.length);
+      if (emails.length === 0) return;
+      await checkpoint();
+      const late = await this.insertObject(
+        options,
+        EMAIL_MESSAGE,
+        0,
+        emails,
+        refIndex,
+        mapping,
+        reused,
+        pendingFk,
+        duplicatePatterns,
+        created,
+      );
+      const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
+      if (at >= 0) perObject[at] = mergeResults(perObject[at], late);
+      else perObject.push(late);
+      emit({
+        phase: 'insert',
+        objectName: EMAIL_MESSAGE,
+        status: late.failed.length > 0 ? 'error' : 'done',
+        progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
+        message: `${EMAIL_MESSAGE} after their task: ${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed`,
+      });
+    };
     for (const objectApiName of insertOrder) {
       const aligned = alignedByObject.get(objectApiName);
       if (!aligned) {
@@ -879,9 +916,16 @@ export class FrozenDatasetLoader {
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
         aligned.length;
       const lifecycle = STATUS_LIFECYCLES[objectApiName];
-      const startingRecords = lifecycle
+      let startingRecords = lifecycle
         ? await this.startAsDrafts(orgId, objectApiName, lifecycle, aligned, deferredStatuses)
         : aligned;
+      if (objectApiName === EMAIL_MESSAGE && !taskTurnOver && tasksToInsert.size > 0) {
+        const waits = (fields: Record<string, unknown>): boolean =>
+          waitsForItsTask(fields, (id) => refIndex.get(id)) &&
+          tasksToInsert.has(String(fields.ActivityId));
+        emailsAfterTheirTask.push(...startingRecords.filter((r) => waits(r.fields)));
+        startingRecords = startingRecords.filter((r) => !waits(r.fields));
+      }
       const insert = (
         records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
         count: number,
@@ -936,14 +980,22 @@ export class FrozenDatasetLoader {
       ]
         .map((note) => `, ${note}`)
         .join('');
+      const waiting =
+        objectApiName === EMAIL_MESSAGE && emailsAfterTheirTask.length > 0
+          ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
+          : '';
       emit({
         phase: 'insert',
         objectName: objectApiName,
         status: objectResult.failed.length > 0 ? 'error' : 'done',
         progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-        message: `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${leftOutNote}`,
+        message: `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${leftOutNote}`,
       });
+      if (objectApiName === TASK) await insertEmailsAfterTheirTask();
     }
+    // Emails still waiting for their task — the task object never had its
+    // turn — go in with what the load could give them.
+    await insertEmailsAfterTheirTask();
 
     // 8. Pass 2: patch nullified cycle FKs (CycleFkPatcher pattern).
     await checkpoint();
@@ -2440,12 +2492,10 @@ function buildObjectDependencies(
     deps.get(targetObject)?.add(sourceObject);
   }
   // An email names its task, and the platform writes that task with the
-  // email unless it is on a case: the email then goes first, the lookup it
-  // names the task by ordering nothing. See `emailWriteEdges`.
-  const onACase = (
-    dataset.objects.find((o) => o.objectApiName === EMAIL_MESSAGE)?.records ?? []
-  ).some((r) => emailOnACase(r.fields) && refIndex.get(String(r.fields.ParentId)) === 'Case');
-  for (const { sourceObject, targetObject } of emailWriteEdges(new Set(deps.keys()), onACase)) {
+  // email unless it is on a case: the emails go first, the lookup they name
+  // their task by ordering nothing, and one on a case waits for the tasks as
+  // it is inserted. See `emailWriteEdges`.
+  for (const { sourceObject, targetObject } of emailWriteEdges(new Set(deps.keys()))) {
     deps.get(sourceObject)?.delete(targetObject);
     deps.get(targetObject)?.add(sourceObject);
   }

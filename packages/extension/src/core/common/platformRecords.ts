@@ -28,6 +28,9 @@ export const TASK = 'Task';
 /** A task's relation to its who and to its what. */
 export const TASK_RELATION = 'TaskRelation';
 
+/** An event's relation to its who, to its what, and to each of its invitees. */
+export const EVENT_RELATION = 'EventRelation';
+
 /** Contacts per `IN` list when the direct relations are looked up. */
 const DIRECT_RELATION_CHUNK = 200;
 
@@ -81,6 +84,14 @@ export interface PlatformWrittenRows {
  * isWhat is false". A task has one what relation, and that one is its
  * WhatId's.
  *
+ * An event's what relation is its WhatId's the same way. An event relation
+ * takes `IsWhat` at insert and never after, as a task relation does, and in a
+ * real sandbox each relation an event held was its who's, written the second
+ * the event was last saved, by the event's author, as each task's were: no
+ * call wrote them, and no event whose WhatId was empty held a what relation.
+ * An event related to an opportunity holds one to the opportunity among its
+ * relations, which nothing but its WhatId wrote.
+ *
  * An email's relations are the platform's own record of the addresses the
  * email carries. Salesforce generates one for each address of an email
  * inserted with them, and once the email is sent it takes none that differs
@@ -95,6 +106,9 @@ export const PLATFORM_WRITTEN_ROWS: Readonly<Record<string, readonly PlatformWri
   FeedItem: [{ field: 'Type', value: 'TrackedChange', noun: 'tracked change' }],
   [TASK_RELATION]: [
     { field: 'IsWhat', value: true, noun: 'what relation', from: "the task's WhatId" },
+  ],
+  [EVENT_RELATION]: [
+    { field: 'IsWhat', value: true, noun: 'what relation', from: "the event's WhatId" },
   ],
   EmailMessageRelation: [{ noun: 'email relation', from: "the email's addresses" }],
 };
@@ -354,18 +368,25 @@ export function rowsACopySends(
   return [...own, ...hanging];
 }
 
-/** What a task's who can be: a relation to anything else is to its what. */
-const TASK_WHO_OBJECTS: ReadonlySet<string> = new Set(['Contact', 'Lead']);
+/**
+ * Per relation object, what its who can be: a relation to anything else is to
+ * its activity's what. An event invites users and resources too.
+ */
+const WHO_OBJECTS: Readonly<Record<string, ReadonlySet<string>>> = {
+  [TASK_RELATION]: new Set(['Contact', 'Lead']),
+  [EVENT_RELATION]: new Set(['Contact', 'Lead', 'User', 'Calendar']),
+};
 
 /**
- * A task relation's row, with `IsWhat` said when the row no longer says it
- * and the record it names does.
+ * A task or event relation's row, with `IsWhat` said when the row no longer
+ * says it and the record it names does.
  *
  * A frozen dataset's rules clear every field they keep no value of, and a
  * real dataset carried its one task relation with `IsWhat` cleared: sent, it
  * was taken for a relation to a who — "RelationId must be a contact or lead
  * when isWhat is false" — though it named a quote. A relation to anything but
- * a contact or a lead is a relation to the task's what.
+ * a contact or a lead — or, for an event, a user or a resource it invites — is
+ * a relation to the activity's what.
  *
  * @param relationObject - The object of the record `RelationId` names, when known.
  */
@@ -374,20 +395,45 @@ export function withTheRelationItIs(
   row: Record<string, unknown>,
   relationObject: string | undefined,
 ): Record<string, unknown> {
-  if (objectApiName !== TASK_RELATION) return row;
+  const whoObjects = WHO_OBJECTS[objectApiName];
+  if (!whoObjects) return row;
   const said = row['IsWhat'];
   if (said !== '' && said !== null && said !== undefined) return row;
-  if (relationObject === undefined || TASK_WHO_OBJECTS.has(relationObject)) return row;
+  if (relationObject === undefined || whoObjects.has(relationObject)) return row;
   return { ...row, IsWhat: true };
 }
 
+/** The three characters every case id begins with, in every org. */
+const CASE_KEY_PREFIX = '500';
+
+/** `Case` for the id of a case, as the three characters it begins with tell. */
+function caseById(id: string): string | undefined {
+  return id.startsWith(CASE_KEY_PREFIX) ? 'Case' : undefined;
+}
+
 /**
- * Whether an email is on a case — the one kind whose task a copy may name.
- * `ParentId` names nothing but a case.
+ * Whether an email is on a case — the one kind whose task a copy may name:
+ * its `ParentId`, which names nothing but a case, holds one, or its
+ * `RelatedToId` names one.
+ *
+ * An email related to a case through `RelatedToId` alone is on it: inserted
+ * with a case there, no `ParentId`, and the task it names, an email goes in,
+ * where one related to an account is refused its task,
+ * INSUFFICIENT_ACCESS_OR_READONLY. Told by `ParentId` alone, such an email was
+ * sent without the task it names.
+ *
+ * @param objectOf - The object of the record `RelatedToId` holds: by default
+ *   the one its id's first three characters tell, and for the reference ids of
+ *   a frozen dataset the one the dataset's index knows.
  */
-export function emailOnACase(row: Record<string, unknown>): boolean {
+export function emailOnACase(
+  row: Record<string, unknown>,
+  objectOf: (id: string) => string | undefined = caseById,
+): boolean {
   const parent = row['ParentId'];
-  return typeof parent === 'string' && parent !== '';
+  if (typeof parent === 'string' && parent !== '') return true;
+  const related = row['RelatedToId'];
+  return typeof related === 'string' && related !== '' && objectOf(related) === 'Case';
 }
 
 /**
@@ -410,9 +456,9 @@ export function lookupsThePlatformFills(
 }
 
 /**
- * The order an email and the task it names are written in, as an edge between
- * the objects a run writes: the email first, unless an email of the run is on
- * a case.
+ * The order emails and tasks are written in, as an edge between the objects a
+ * run writes: the emails first, but for those that wait for their task
+ * ({@link waitsForItsTask}).
  *
  * The platform writes an email's task itself as it takes the email, when the
  * email is related to a record — none, run for real, for the emails whose
@@ -420,29 +466,45 @@ export function lookupsThePlatformFills(
  * (`lookupsThePlatformFills`). Written first, the task read from the source
  * would stand beside the platform's: two for one email. Written after, it is
  * found in the target by its email when the platform wrote one
- * ({@link tasksWrittenWithEmails}), and written when it did not. An email on a
- * case names its task from the copy, as a parent: a run that holds one writes
- * the tasks first. Either way the order is set here, not left to how the rest
- * of the graph happens to break the tie.
+ * ({@link tasksWrittenWithEmails}), and written when it did not.
+ *
+ * An email on a case names its task from the copy, as a parent, and goes in
+ * once the tasks are written. The order is the email's, not the object's: a
+ * run that held an email on a case wrote every task first, and the task of
+ * each of its other emails related to a record then stood beside the one the
+ * platform wrote with it. The order is set here, not left to how the rest of
+ * the graph happens to break the tie.
  *
  * @param objects - The objects the run writes; the edge joins two of them only.
- * @param anEmailOnACase - Whether an email the run writes is on a case.
  */
-export function emailWriteEdges(
-  objects: ReadonlySet<string>,
-  anEmailOnACase: boolean,
-): ForgeGraphEdge[] {
+export function emailWriteEdges(objects: ReadonlySet<string>): ForgeGraphEdge[] {
   if (!objects.has(EMAIL_MESSAGE) || !objects.has(TASK)) return [];
-  const [before, after] = anEmailOnACase ? [TASK, EMAIL_MESSAGE] : [EMAIL_MESSAGE, TASK];
   return [
     {
-      sourceObject: before,
-      targetObject: after,
-      relationshipName: `${before}Before${after}`,
+      sourceObject: EMAIL_MESSAGE,
+      targetObject: TASK,
+      relationshipName: `${EMAIL_MESSAGE}Before${TASK}`,
       type: 'lookup',
       required: true,
     },
   ];
+}
+
+/**
+ * Whether an email goes in after the task it names, rather than before the
+ * tasks with the others (`emailWriteEdges`): it is on a case, so it names its
+ * task from the copy (`lookupsThePlatformFills`), and it names one. A run that
+ * writes tasks after its emails holds such an email back until they are in,
+ * when the task it names has an id in the target.
+ *
+ * @param objectOf - As for {@link emailOnACase}.
+ */
+export function waitsForItsTask(
+  row: Record<string, unknown>,
+  objectOf?: (id: string) => string | undefined,
+): boolean {
+  const task = row['ActivityId'];
+  return typeof task === 'string' && task !== '' && emailOnACase(row, objectOf);
 }
 
 /** Ids per `IN` list when the target is asked about the records a run wrote. */

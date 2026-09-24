@@ -674,6 +674,69 @@ describe('sortNodesAskedAgain', () => {
     ]);
   });
 
+  it('reads after the catalog what a node read after it names, and what is read under that', () => {
+    // Read before the catalog, the attribute definition nothing had named
+    // yet was out of scope: the attribute of the product's classification
+    // went to the target without it — REQUIRED_FIELD_MISSING,
+    // AttributeDefinitionId — and the definition without its picklist.
+    const sorted = sortNodesAskedAgain(
+      [
+        makeNode('ProductClassification'),
+        makeNode('AttributePicklist'),
+        makeNode('AttributePicklistValue'),
+        makeNode('AttributeDefinition'),
+        makeNode('ProductClassificationAttr'),
+        makeNode('Contact'),
+      ],
+      catalog,
+      [
+        link('ProductClassification', 'ProductClassificationAttr'),
+        link('AttributeDefinition', 'ProductClassificationAttr'),
+        link('AttributePicklist', 'AttributeDefinition'),
+        link('AttributePicklist', 'AttributePicklistValue'),
+        link('Account', 'Contact'),
+      ],
+    );
+
+    expect(names(sorted)).toEqual([
+      'Contact',
+      'PricebookEntry',
+      'Product2',
+      'Pricebook2',
+      'ProductClassification',
+      'ProductClassificationAttr',
+      'AttributeDefinition',
+      'AttributePicklist',
+      'AttributePicklistValue',
+    ]);
+  });
+
+  it('reads after the catalog a node under one read after it, whichever the first pass met first', () => {
+    // The first pass met the excluded value of an attribute before the
+    // attribute, which the catalog's rows bring into scope.
+    const sorted = sortNodesAskedAgain(
+      [
+        makeNode('AttrPicklistExcludedValue'),
+        makeNode('ProductClassification'),
+        makeNode('ProductClassificationAttr'),
+      ],
+      catalog,
+      [
+        link('ProductClassification', 'ProductClassificationAttr'),
+        link('ProductClassificationAttr', 'AttrPicklistExcludedValue'),
+      ],
+    );
+
+    expect(names(sorted)).toEqual([
+      'PricebookEntry',
+      'Product2',
+      'Pricebook2',
+      'ProductClassification',
+      'ProductClassificationAttr',
+      'AttrPicklistExcludedValue',
+    ]);
+  });
+
   it('keeps before the catalog a node read under an object its rows name that was not put off', () => {
     // The accounts were read in the first pass: a product naming its supplier
     // among them changes nothing of what a contact of theirs is read under.

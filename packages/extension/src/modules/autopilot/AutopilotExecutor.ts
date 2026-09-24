@@ -48,13 +48,18 @@ import {
 } from '../../core/common/existingRecordMatch.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  EMAIL_MESSAGE,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
+  TASK,
   directAccountContactRelations,
   draftStartOf,
+  lookupsThePlatformFills,
   recordsByNaturalKey,
   statusCategories,
+  tasksWrittenWithEmails,
+  waitsForItsTask,
   type RowsLeftOut,
   type SoqlQuery,
   type StatusCategories,
@@ -371,6 +376,19 @@ interface ObjectState {
   defaulted: Map<string, number>;
 }
 
+/** An object's totals before any of its records is written. */
+function emptyObjectState(): ObjectState {
+  return {
+    written: 0,
+    linked: 0,
+    failed: 0,
+    errors: [],
+    refusals: new RefusalTally(),
+    apiCallsUsed: 0,
+    defaulted: new Map(),
+  };
+}
+
 /** Result of executing a single object */
 interface ObjectResult {
   success: number;
@@ -437,6 +455,16 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly unmappedRecordTypes = new Set<string>();
   /** The records read and left to the platform, kept for the run: what hangs from them goes too. */
   private readonly leftToThePlatform = new RowsLeftToThePlatform();
+  /** The task each email read names, by the email's source id. */
+  private readonly taskOfEmail = new Map<string, string>();
+  /**
+   * The emails on a case read and held back until the task node has had its
+   * turn: each names its task, which has no id in the target before. See
+   * `waitsForItsTask`.
+   */
+  private readonly emailsAfterTheirTask: Record<string, unknown>[] = [];
+  /** Whether the task node has had its turn, whatever it wrote. */
+  private taskTurnOver = false;
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -637,8 +665,16 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }),
     );
 
-    /** Write one object of a wave, and say how it went. */
+    /** Write one object of a wave and, after the tasks, the emails that waited for them. */
     const writeNode = async (objectApiName: string): Promise<void> => {
+      await writeObject(objectApiName);
+      // The emails that wait for the task each names go in once the task
+      // node has had its turn: see `writeEmailsAfterTheirTask`.
+      if (objectApiName === TASK) await this.writeEmailsAfterTheirTask(edges, result);
+    };
+
+    /** Write one object of a wave, and say how it went. */
+    const writeObject = async (objectApiName: string): Promise<void> => {
       if (this.skippedObjects.has(objectApiName)) {
         const totalRecords = recordCounts.get(objectApiName) ?? 0;
         result.skippedObjects.push(objectApiName);
@@ -744,6 +780,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             timestamp: '',
           }),
         );
+      }
+
+      // Emails still waiting for the task each names — the task node never
+      // had its turn — go in with what the run could give them.
+      if (this.emailsAfterTheirTask.length > 0) {
+        await this.writeEmailsAfterTheirTask(edges, result);
+        await this.fillOwedLookups(lookups);
       }
 
       // Whatever is still owed points at a record no wave wrote.
@@ -918,15 +961,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     totalRecords: number,
   ): Promise<ObjectResult> {
     const objStart = Date.now();
-    const state: ObjectState = {
-      written: 0,
-      linked: 0,
-      failed: 0,
-      errors: [],
-      refusals: new RefusalTally(),
-      apiCallsUsed: 0,
-      defaulted: new Map(),
-    };
+    const state = emptyObjectState();
     const finish = (): ObjectResult => ({
       success: state.written,
       linked: state.linked,
@@ -1083,6 +1118,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       rows = batch.filter((record) => record['Id'] !== standardBook.source);
       state.linked += batch.length - rows.length;
     }
+    // An email on a case names its task, which the task node still to come
+    // would leave without an id in the target: it waits for it. The others go
+    // now, and the platform writes their tasks as it takes them.
+    if (objectApiName === EMAIL_MESSAGE) rows = this.holdEmailsForTheirTask(rows);
     if (rows.length === 0) return;
 
     const remap = this.deps.remapper.remapRecords(rows, edges, objectApiName);
@@ -1103,7 +1142,22 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })
       : rows;
     payload = this.translateRecordTypes(objectApiName, payload);
-    const owedBySource = await this.lookupsOwed(objectApiName, rows, remap.unresolved, writable);
+    // A lookup the platform fills in itself is neither sent nor owed to the
+    // second pass: an email's task, unless the email is on a case. Sent with
+    // the id read from the source, the email is refused, "you cannot modify
+    // this field". See `lookupsThePlatformFills`.
+    const filled = new Map<number, readonly string[]>();
+    payload.forEach((record, index) => {
+      const fields = lookupsThePlatformFills(objectApiName, record);
+      for (const field of fields) delete record[field];
+      if (fields.length > 0) filled.set(index, fields);
+    });
+    const owedBySource = await this.lookupsOwed(
+      objectApiName,
+      rows,
+      remap.unresolved.filter((lookup) => !filled.get(lookup.index)?.includes(lookup.fieldApiName)),
+      writable,
+    );
 
     // Each read of the target counted as it is made: the lookups below ask
     // nothing when there is nothing to ask about.
@@ -1126,6 +1180,14 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       state.linked += direct.size;
       payload = payload.filter((_, index) => !direct.has(index));
+    }
+    // The task the platform wrote with one of the run's emails is the one
+    // read from the source: linked to, never sent a second time.
+    if (objectApiName === TASK && queryTarget) {
+      const linked = await this.tasksWrittenWithTheirEmail(payload, queryTarget);
+      for (const [sourceId, id] of linked) mappings.push([sourceId, id]);
+      state.linked += linked.size;
+      payload = payload.filter((record) => !linked.has(String(record['Id'])));
     }
     if (payload.length === 0) {
       this.register(objectApiName, mappings);
@@ -1206,6 +1268,131 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     this.register(objectApiName, mappings);
+  }
+
+  /**
+   * The emails of a page to write now: an email on a case that names a task
+   * waits for the task node's turn, while it is still to come and the run
+   * copies tasks (`waitsForItsTask`). The task each email names is noted for
+   * the task node, which links the ones the platform wrote.
+   */
+  private holdEmailsForTheirTask(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+    for (const email of rows) {
+      const task = email['ActivityId'];
+      if (typeof email['Id'] === 'string' && typeof task === 'string' && task !== '') {
+        this.taskOfEmail.set(email['Id'], task);
+      }
+    }
+    if (this.taskTurnOver || !this.planned.has(TASK)) return rows;
+    const now: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      if (waitsForItsTask(row)) this.emailsAfterTheirTask.push(row);
+      else now.push(row);
+    }
+    return now;
+  }
+
+  /**
+   * Of the tasks about to be written, those the platform wrote with an email
+   * the run wrote: the task that email names in the target, by the task's
+   * source id. The platform writes the task of an email that is not on a case
+   * as it takes the email, and refuses its id from a copy: the task read from
+   * the source is that one. A task the platform did not write — its email
+   * related to no record of the target, or not written — is not listed, and
+   * goes as any other.
+   */
+  private async tasksWrittenWithTheirEmail(
+    tasks: readonly Record<string, unknown>[],
+    queryTarget: SoqlQuery,
+  ): Promise<Map<string, string>> {
+    /** The email each task was written with, in the target, by the task's source id. */
+    const emailOfTask = new Map<string, string>();
+    for (const [email, task] of this.taskOfEmail) {
+      const written = this.deps.remapper.getTargetId(EMAIL_MESSAGE as ApiName, email);
+      if (written) emailOfTask.set(task, written);
+    }
+    const asked = tasks.map((task) => String(task['Id'])).filter((id) => emailOfTask.has(id));
+    if (asked.length === 0) return new Map();
+    let found: Map<string, string>;
+    try {
+      found = await tasksWrittenWithEmails(queryTarget, [
+        ...new Set(asked.map((id) => emailOfTask.get(id) ?? '')),
+      ]);
+    } catch (err) {
+      // Not looked up, the tasks go as read, and one may stand beside the
+      // platform's.
+      logger.warn('Autopilot could not look up the tasks written with its emails', {
+        error: extractErrorMessage(err),
+      });
+      return new Map();
+    }
+    const linked = new Map<string, string>();
+    for (const id of asked) {
+      const task = found.get(emailOfTask.get(id) ?? '');
+      if (task) linked.set(id, task);
+    }
+    return linked;
+  }
+
+  /**
+   * The task node has had its turn, whatever it wrote: the emails that
+   * waited for the task each names go in, with the id that task has in the
+   * target in place of the source's, and are counted with the other emails.
+   * The email node is said to have completed once one of them is in.
+   */
+  private async writeEmailsAfterTheirTask(
+    edges: AutopilotEdge[],
+    result: ExecutionResult,
+  ): Promise<void> {
+    this.taskTurnOver = true;
+    const emails = this.emailsAfterTheirTask.splice(0, this.emailsAfterTheirTask.length);
+    if (emails.length === 0) return;
+    const state = emptyObjectState();
+    await this.writeBatch(EMAIL_MESSAGE as ApiName, emails, edges, state);
+    result.totalSuccess += state.written;
+    result.totalFailure += state.failed;
+    result.totalLinked = (result.totalLinked ?? 0) + state.linked;
+    const outcomes = result.objectOutcomes ?? {};
+    result.objectOutcomes = outcomes;
+    const known = outcomes[EMAIL_MESSAGE];
+    const refusals = new RefusalTally();
+    for (const refusal of [...(known?.refusals ?? []), ...state.refusals.list()]) {
+      refusals.addCounted(refusal);
+    }
+    const defaulted = new Map((known?.leftToDefault ?? []).map((d) => [d.field, d.count]));
+    for (const [field, count] of state.defaulted) {
+      defaulted.set(field, (defaulted.get(field) ?? 0) + count);
+    }
+    const outcome: ObjectOutcome = {
+      ...known,
+      written: (known?.written ?? 0) + state.written,
+      linked: (known?.linked ?? 0) + state.linked,
+      failed: (known?.failed ?? 0) + state.failed,
+      refusals: refusals.list(),
+      ...(defaulted.size > 0
+        ? { leftToDefault: [...defaulted].map(([field, count]) => ({ field, count })) }
+        : {}),
+    };
+    outcomes[EMAIL_MESSAGE] = outcome;
+    if (outcome.written + outcome.linked > 0 && result.failedObjects.includes(EMAIL_MESSAGE)) {
+      result.failedObjects.splice(result.failedObjects.indexOf(EMAIL_MESSAGE), 1);
+      delete result.nodeErrors?.[EMAIL_MESSAGE];
+      result.completedObjects.push(EMAIL_MESSAGE);
+    }
+    this.emit(
+      'node-completed',
+      this.makeEvent({
+        type: 'node-completed' as const,
+        timestamp: '',
+        objectApiName: EMAIL_MESSAGE as ApiName,
+        successCount: outcome.written,
+        failureCount: outcome.failed,
+        linkedCount: outcome.linked,
+        refusals: outcome.refusals,
+        elapsedMs: 0,
+        apiCallsUsed: state.apiCallsUsed,
+      }),
+    );
   }
 
   /**

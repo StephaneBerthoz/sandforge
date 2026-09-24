@@ -40,8 +40,13 @@ import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
+  EMAIL_MESSAGE,
   RowsLeftToThePlatform,
+  TASK,
+  lookupsThePlatformFills,
   rowsACopySends,
+  tasksWrittenWithEmails,
+  waitsForItsTask,
   type RequiredLookup,
 } from '../../core/common/platformRecords.js';
 import {
@@ -515,6 +520,157 @@ export class SeedCloneHandler implements DomainHandler {
        * object went on being read and written after the run was cancelled.
        */
       let cancelled = false;
+      /** The task each email read names, by the email's source id. */
+      const taskOfEmail = new Map<string, string>();
+      /**
+       * The emails on a case read and held back until the tasks are written:
+       * each names its task, which has no id in the target before. See
+       * `waitsForItsTask`.
+       */
+      const emailsAfterTheirTask: Record<string, unknown>[] = [];
+      /** Whether the tasks' turn is still to come. */
+      let tasksToCome = objectSet.has(TASK);
+
+      /**
+       * Write rows of an object: its outcomes, one per row, and whether a
+       * cancel stopped the write. An aborted upload wrote none of them, a REST
+       * write stopped between two batches wrote the records before, which
+       * stay in the org and are counted. Any other error is the clone's
+       * failure.
+       */
+      const write = async (
+        objectApiName: string,
+        writeRecords: Record<string, unknown>[],
+      ): Promise<{ outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>; stopped: boolean }> => {
+        try {
+          const outcomes =
+            parsed.upsert && parsed.externalIdField
+              ? await writer.upsert(
+                  objectApiName,
+                  parsed.externalIdField,
+                  writeRecords,
+                  defaultBatchSize,
+                )
+              : await writer.insert(objectApiName, writeRecords, defaultBatchSize);
+          return { outcomes, stopped: false };
+        } catch (writeErr: unknown) {
+          if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
+          return { outcomes: writeErr.written, stopped: true };
+        }
+      };
+
+      /**
+       * Count what the target answered for `sourceRecords` into `objectResult`,
+       * and map each record written or linked for the objects after it.
+       */
+      const count = (
+        outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>,
+        sourceRecords: readonly Record<string, unknown>[],
+        objectResult: CloneObjectResult,
+      ): void => {
+        outcomes.forEach((outcome, i) => {
+          const sourceId =
+            typeof sourceRecords[i]?.['Id'] === 'string' ? sourceRecords[i]['Id'] : '';
+          if (outcome.success) {
+            objectResult.insertedCount++;
+            if (sourceId && outcome.id) {
+              globalIdMap.set(sourceId, outcome.id);
+              objectResult.idMappings.push({ sourceId, targetId: outcome.id });
+            }
+          } else if (outcome.existingId) {
+            // Refused because the target holds it, and named: the children
+            // link to that record, which the clone never writes to.
+            objectResult.linkedCount = (objectResult.linkedCount ?? 0) + 1;
+            if (sourceId) {
+              globalIdMap.set(sourceId, outcome.existingId);
+              objectResult.idMappings.push({ sourceId, targetId: outcome.existingId });
+            }
+          } else {
+            objectResult.failedCount++;
+            objectResult.errors.push({
+              sourceId,
+              message: outcome.errors[0] ?? 'Unknown insert error',
+            });
+          }
+        });
+      };
+
+      /**
+       * Of the tasks read, those the platform wrote with an email the clone
+       * wrote: the task that email names in the target, by the task's source
+       * id. The platform writes the task of an email that is not on a case as
+       * it takes the email, and refuses its id from a copy: the task read from
+       * the source is that one. A task the platform did not write — its email
+       * related to no record of the target, or not written — is not listed.
+       */
+      const tasksWrittenWithTheirEmail = async (
+        tasks: readonly Record<string, unknown>[],
+      ): Promise<Map<string, string>> => {
+        const emails = new Map(
+          (objectResults.find((r) => r.objectApiName === EMAIL_MESSAGE)?.idMappings ?? []).map(
+            (m) => [m.sourceId, m.targetId],
+          ),
+        );
+        /** The email each task was written with, in the target, by the task's source id. */
+        const emailOfTask = new Map<string, string>();
+        for (const [email, task] of taskOfEmail) {
+          const writtenEmail = emails.get(email);
+          if (writtenEmail) emailOfTask.set(task, writtenEmail);
+        }
+        const asked = tasks.map((t) => String(t['Id'])).filter((id) => emailOfTask.has(id));
+        if (asked.length === 0) return new Map();
+        let found: Map<string, string>;
+        try {
+          found = await tasksWrittenWithEmails(
+            async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+            [...new Set(asked.map((id) => emailOfTask.get(id) ?? ''))],
+          );
+        } catch (err: unknown) {
+          // Not looked up, the tasks go as read, and one may stand beside the
+          // platform's.
+          this.deps.log(
+            `[seed:clone] tasks written with the clone's emails not looked up, written as read: ${extractErrorMessage(err)}`,
+          );
+          return new Map();
+        }
+        const linked = new Map<string, string>();
+        for (const id of asked) {
+          const task = found.get(emailOfTask.get(id) ?? '');
+          if (task) linked.set(id, task);
+        }
+        return linked;
+      };
+
+      /**
+       * The tasks have had their turn, whatever they wrote: the emails that
+       * waited for the task each names go in, with the id that task has in the
+       * target in place of the source's. Counted with the other emails.
+       */
+      const writeEmailsAfterTheirTask = async (): Promise<void> => {
+        tasksToCome = false;
+        const emails = emailsAfterTheirTask.splice(0, emailsAfterTheirTask.length);
+        const emailResult = objectResults.find((r) => r.objectApiName === EMAIL_MESSAGE);
+        if (emails.length === 0 || !emailResult || cancelled) return;
+        if (abortController.signal.aborted) {
+          cancelled = true;
+          return;
+        }
+        const { outcomes, stopped } = await write(
+          EMAIL_MESSAGE,
+          emails.map((record) =>
+            prepareRecordForWrite(
+              EMAIL_MESSAGE,
+              record,
+              describeMap.get(EMAIL_MESSAGE),
+              objectSet,
+              globalIdMap,
+            ),
+          ),
+        );
+        count(outcomes, emails, emailResult);
+        written.records += emails.length;
+        if (stopped) cancelled = true;
+      };
 
       for (let index = 0; index < insertOrder.length; index++) {
         if (abortController.signal.aborted) {
@@ -561,15 +717,29 @@ export class SeedCloneHandler implements DomainHandler {
         // it. Sent, a tracked change is refused, "Cannot directly insert
         // FeedItem with type TrackedChange", and a comment on it goes without
         // the feed item it answers, which it may not leave empty.
-        const sourceRecords = leftToThePlatform.keep(
+        let sourceRecords = leftToThePlatform.keep(
           objectApiName,
           read,
           requiredLookupsOf(objectApiName, describeMap.get(objectApiName)).map(({ name }) => name),
         );
         const leftOut = read.length - sourceRecords.length;
+        if (objectApiName === EMAIL_MESSAGE) {
+          for (const email of sourceRecords) {
+            const task = email['ActivityId'];
+            if (typeof email['Id'] === 'string' && typeof task === 'string' && task !== '') {
+              taskOfEmail.set(email['Id'], task);
+            }
+          }
+        }
 
-        const writeRecords = sourceRecords.map((record) =>
-          prepareRecordForWrite(record, describeMap.get(objectApiName), objectSet, globalIdMap),
+        let writeRecords = sourceRecords.map((record) =>
+          prepareRecordForWrite(
+            objectApiName,
+            record,
+            describeMap.get(objectApiName),
+            objectSet,
+            globalIdMap,
+          ),
         );
 
         // A clone copies `RecordTypeId` as it read it, and a type closed to
@@ -606,32 +776,38 @@ export class SeedCloneHandler implements DomainHandler {
           continue;
         }
 
+        // An email on a case names its task, which the tasks still to write
+        // would leave without an id in the target: it waits for them. The
+        // others go now, and the platform writes their tasks as it takes them.
+        if (objectApiName === EMAIL_MESSAGE && tasksToCome) {
+          const waits = sourceRecords.map((record) => waitsForItsTask(record));
+          emailsAfterTheirTask.push(...sourceRecords.filter((_, i) => waits[i]));
+          sourceRecords = sourceRecords.filter((_, i) => !waits[i]);
+          writeRecords = writeRecords.filter((_, i) => !waits[i]);
+        }
+
+        // The task the platform wrote with one of the clone's emails is the
+        // one read from the source: linked, never sent a second time.
+        const linkedTasks =
+          objectApiName === TASK
+            ? await tasksWrittenWithTheirEmail(sourceRecords)
+            : new Map<string, string>();
+        if (linkedTasks.size > 0) {
+          const sent = sourceRecords.map((record) => !linkedTasks.has(String(record['Id'])));
+          sourceRecords = sourceRecords.filter((_, i) => sent[i]);
+          writeRecords = writeRecords.filter((_, i) => sent[i]);
+        }
+
         // Reading an object takes a while: a cancel that came meanwhile is
         // honoured before any of it is written.
         if (abortController.signal.aborted) {
           cancelled = true;
           break;
         }
-        let outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>;
-        try {
-          outcomes =
-            parsed.upsert && parsed.externalIdField
-              ? await writer.upsert(
-                  objectApiName,
-                  parsed.externalIdField,
-                  writeRecords,
-                  defaultBatchSize,
-                )
-              : await writer.insert(objectApiName, writeRecords, defaultBatchSize);
-        } catch (writeErr: unknown) {
-          // The cancel stopped the object's write: an aborted upload wrote
-          // none of it, a REST write stopped between two batches wrote the
-          // records before, which stay in the org and are counted. Any other
-          // error is the clone's failure.
-          if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
+        const { outcomes, stopped } = await write(objectApiName, writeRecords);
+        if (stopped) {
           cancelled = true;
-          if (writeErr.written.length === 0) break;
-          outcomes = writeErr.written;
+          if (outcomes.length === 0) break;
         }
 
         const objectResult: CloneObjectResult = {
@@ -639,40 +815,24 @@ export class SeedCloneHandler implements DomainHandler {
           sourceCount: read.length,
           insertedCount: 0,
           failedCount: 0,
-          linkedCount: 0,
+          linkedCount: linkedTasks.size,
           ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
           idMappings: [],
           errors: [],
         };
-        outcomes.forEach((outcome, i) => {
-          const sourceId =
-            typeof sourceRecords[i]?.['Id'] === 'string' ? sourceRecords[i]['Id'] : '';
-          if (outcome.success) {
-            objectResult.insertedCount++;
-            if (sourceId && outcome.id) {
-              globalIdMap.set(sourceId, outcome.id);
-              objectResult.idMappings.push({ sourceId, targetId: outcome.id });
-            }
-          } else if (outcome.existingId) {
-            // Refused because the target holds it, and named: the children
-            // link to that record, which the clone never writes to.
-            objectResult.linkedCount = (objectResult.linkedCount ?? 0) + 1;
-            if (sourceId) {
-              globalIdMap.set(sourceId, outcome.existingId);
-              objectResult.idMappings.push({ sourceId, targetId: outcome.existingId });
-            }
-          } else {
-            objectResult.failedCount++;
-            objectResult.errors.push({
-              sourceId,
-              message: outcome.errors[0] ?? 'Unknown insert error',
-            });
-          }
-        });
+        for (const [sourceId, targetId] of linkedTasks) {
+          globalIdMap.set(sourceId, targetId);
+          objectResult.idMappings.push({ sourceId, targetId });
+        }
+        count(outcomes, sourceRecords, objectResult);
         objectResults.push(objectResult);
         written.records += sourceRecords.length;
         if (cancelled) break;
+        if (objectApiName === TASK) await writeEmailsAfterTheirTask();
       }
+      // Emails still waiting for the task each names — the tasks' turn ended
+      // before they were written — go in with what the clone could give them.
+      await writeEmailsAfterTheirTask();
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
@@ -836,8 +996,14 @@ function trimSampleRecord(
  * two it cannot be created with (`InsertedById`, which every row holds, and
  * `BestCommentId`), a comment two as well (`InsertedById`, `ParentId`): sent,
  * no feed item and no comment could have gone in.
+ *
+ * So is a lookup the platform fills in itself, though a record can be created
+ * with it: an email's task, unless the email is on a case. Sent with the id
+ * read from the source, the email is refused, "you cannot modify this field".
+ * See `lookupsThePlatformFills`.
  */
 function prepareRecordForWrite(
+  objectApiName: string,
   record: Record<string, unknown>,
   describe: DescribeSObjectResultLike | undefined,
   objectSet: Set<string>,
@@ -851,14 +1017,16 @@ function prepareRecordForWrite(
     if (key === 'Id' || setByThePlatform.has(key)) continue;
     out[key] = value;
   }
-  if (!describe) return out;
-  for (const field of describe.fields) {
-    if (field.type !== 'reference') continue;
-    if (!(field.referenceTo ?? []).some((r) => objectSet.has(r))) continue;
-    const value = out[field.name];
-    if (typeof value === 'string' && idMap.has(value)) {
-      out[field.name] = idMap.get(value);
+  if (describe) {
+    for (const field of describe.fields) {
+      if (field.type !== 'reference') continue;
+      if (!(field.referenceTo ?? []).some((r) => objectSet.has(r))) continue;
+      const value = out[field.name];
+      if (typeof value === 'string' && idMap.has(value)) {
+        out[field.name] = idMap.get(value);
+      }
     }
   }
+  for (const field of lookupsThePlatformFills(objectApiName, out)) delete out[field];
   return out;
 }

@@ -192,5 +192,40 @@ describe('CloneReferenceLinker', () => {
         'Contact',
       ]);
     });
+
+    it('puts the emails before the tasks, whatever lookup names the task', () => {
+      // An email names its task, which put the tasks first: the platform then
+      // wrote a task of its own with each email related to a record, beside
+      // the one the clone had written.
+      const describes = new Map<string, DescribeSObjectResultLike>([
+        ['Case', { fields: [] }],
+        [
+          'Task',
+          { fields: [{ name: 'WhatId', type: 'reference', referenceTo: ['Case', 'Account'] }] },
+        ],
+        [
+          'EmailMessage',
+          {
+            fields: [
+              { name: 'ParentId', type: 'reference', referenceTo: ['Case'] },
+              { name: 'ActivityId', type: 'reference', referenceTo: ['Task'] },
+            ],
+          },
+        ],
+      ]);
+      const objects = ['Task', 'EmailMessage', 'Case'];
+
+      const edges = linker.buildEdgesFromDescribe(objects, describes);
+
+      expect(edges.some((e) => e.from === 'Task' && e.to === 'EmailMessage')).toBe(false);
+      expect(edges).toContainEqual({
+        from: 'EmailMessage',
+        to: 'Task',
+        fieldApiName: 'EmailMessageBeforeTask',
+        relationshipType: 'lookup',
+        required: true,
+      });
+      expect(linker.resolveInsertOrder(objects, edges)).toEqual(['Case', 'EmailMessage', 'Task']);
+    });
   });
 });

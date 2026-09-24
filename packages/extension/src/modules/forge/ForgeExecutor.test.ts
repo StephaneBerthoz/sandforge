@@ -3905,6 +3905,73 @@ describe('ForgeExecutor', () => {
             expect(summary.errors).toEqual([]);
           });
         });
+
+        it('reads the definition an attribute of that classification names, after it, and writes it first', async () => {
+          // Read before the catalog, the definition nothing had named yet was
+          // left out: the attribute went to the target without it, and was
+          // refused, REQUIRED_FIELD_MISSING: AttributeDefinitionId.
+          const COLOUR = '0tj000000000001AAA';
+          const extraTables: Record<string, FakeRow[]> = {
+            ProductClassificationAttr: [
+              {
+                Id: '11C000000000001AAA',
+                Name: 'Colour',
+                ProductClassificationId: HARDWARE,
+                AttributeDefinitionId: COLOUR,
+              },
+            ],
+            AttributeDefinition: [
+              { Id: COLOUR, Name: 'Colour' },
+              { Id: '0tj000000000002AAA', Name: 'Size' },
+            ],
+          };
+          const extraFields: Record<string, FieldInfo[]> = {
+            ProductClassificationAttr: [
+              idField,
+              text('Name'),
+              lookup('ProductClassificationId', 'ProductClassification', true),
+              lookup('AttributeDefinitionId', 'AttributeDefinition', true),
+            ],
+            AttributeDefinition: [idField, text('Name')],
+          };
+          const { orgDeps, inserted } = assetOrgs();
+          const describe = orgDeps.describeFields;
+          orgDeps.describeFields = async (org, object) =>
+            extraFields[object] ?? describe(org, object);
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+            return object in extraTables
+              ? selectRows(extraTables, soql)
+              : query(org, soql, onTruncated);
+          };
+          const read = recordReads(orgDeps);
+          const graph = assetGraph();
+          graph.nodes.push(makeNode('AttributeDefinition'), makeNode('ProductClassificationAttr'));
+          graph.edges.push(
+            { ...edge('ProductClassification', 'ProductClassificationAttr'), required: true },
+            { ...edge('AttributeDefinition', 'ProductClassificationAttr'), required: true },
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+          );
+
+          expect(read['AttributeDefinition']).toEqual(new Set([COLOUR]));
+          expect(inserted['AttributeDefinition']).toEqual([{ Name: 'Colour' }]);
+          expect(inserted['ProductClassificationAttr']).toEqual([
+            {
+              Name: 'Colour',
+              ProductClassificationId: 'ProductClassification:Hardware',
+              AttributeDefinitionId: 'AttributeDefinition:Colour',
+            },
+          ]);
+          expect(summary.errors).toEqual([]);
+        });
       });
 
       it('still brings every price of a price book it is rooted at, with only their standard prices', async () => {
@@ -6429,6 +6496,229 @@ describe('ForgeExecutor', () => {
           { Subject: 'It is broken', ParentId: 'Case:1', ActivityId: 'Task:2' },
         ]);
         expect(summary.errors).toEqual([]);
+      });
+
+      describe('emails on a case and others in one run', () => {
+        const ACCOUNT = '001000000000001AAA';
+        const CASE = '500000000000001AAA';
+        const OFFER = '02s000000000011AAA';
+        const OFFER_TASK = '00T000000000011AAA';
+        const ON_THE_CASE = '02s000000000012AAA';
+        const ON_THE_CASE_TASK = '00T000000000012AAA';
+        const RELATED_TO_THE_CASE = '02s000000000013AAA';
+        const RELATED_TO_THE_CASE_TASK = '00T000000000013AAA';
+        const PLATFORM_TASK = '00TPLATFORM0002AAA';
+        /** What an email or a task of an account and its case is related to. */
+        const toAccountOrCase = (name: string): FieldInfo => ({
+          ...lookup(name, 'Account'),
+          referenceTo: ['Account', 'Case'],
+        });
+
+        /**
+         * An account with an offer emailed from it, and a case with one email
+         * on it and another related to it alone: each email names its task.
+         * The target answers as the platform does: it takes an email's task
+         * only when the email is on a case — its ParentId, or a case in its
+         * RelatedToId — and writes the task of every other email related to a
+         * record itself.
+         */
+        function mixedRun() {
+          const run = fakeOrgs(
+            {
+              Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+              Case: [{ Id: CASE, Subject: 'Broken', AccountId: ACCOUNT }],
+              Task: [
+                { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
+                { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
+                { Id: RELATED_TO_THE_CASE_TASK, Subject: 'Second email', WhatId: CASE },
+              ],
+              EmailMessage: [
+                { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+                {
+                  Id: ON_THE_CASE,
+                  Subject: 'It is broken',
+                  ParentId: CASE,
+                  ActivityId: ON_THE_CASE_TASK,
+                },
+                {
+                  Id: RELATED_TO_THE_CASE,
+                  Subject: 'Still broken',
+                  RelatedToId: CASE,
+                  ActivityId: RELATED_TO_THE_CASE_TASK,
+                },
+              ],
+            },
+            {
+              Account: [idField, text('Name')],
+              Case: [idField, text('Subject'), lookup('AccountId', 'Account')],
+              Task: [idField, text('Subject'), toAccountOrCase('WhatId')],
+              EmailMessage: [
+                idField,
+                text('Subject'),
+                lookup('ParentId', 'Case'),
+                toAccountOrCase('RelatedToId'),
+                lookup('ActivityId', 'Task'),
+              ],
+            },
+          );
+          const target: Record<string, FakeRow[]> = { EmailMessage: [] };
+          const order: string[] = [];
+          const insert = run.orgDeps.insertRecords;
+          run.orgDeps.insertRecords = async (org, object, records) => {
+            if (records.length > 0) order.push(object);
+            // A case's id begins with 500 in the target as in every org.
+            if (object === 'Case') {
+              (run.inserted['Case'] ??= []).push(...records);
+              return records.map(() => ({ id: '500NEW000000001AAA', success: true, errors: [] }));
+            }
+            const results = await insert(org, object, records);
+            return results.map((result, i) => {
+              const record = records[i];
+              if (object !== 'EmailMessage') return result;
+              const onACase =
+                Boolean(record['ParentId']) || String(record['RelatedToId']).startsWith('500');
+              if (record['ActivityId'] && !onACase) {
+                return {
+                  id: '',
+                  success: false,
+                  errors: ['INSUFFICIENT_ACCESS_OR_READONLY: you cannot modify this field'],
+                };
+              }
+              target['EmailMessage'].push({
+                Id: result.id,
+                ActivityId: record['ActivityId']
+                  ? String(record['ActivityId'])
+                  : record['RelatedToId']
+                    ? PLATFORM_TASK
+                    : null,
+              });
+              return result;
+            });
+          };
+          const query = run.orgDeps.queryRecords;
+          run.orgDeps.queryRecords = async (org, soql, onTruncated) =>
+            org === 'tgt' ? selectRows(target, soql) : query(org, soql, onTruncated);
+          const graph = makeGraph(
+            [makeNode('Account'), makeNode('Case'), makeNode('Task'), makeNode('EmailMessage')],
+            [
+              edge('Account', 'Case'),
+              edge('Account', 'Task'),
+              edge('Case', 'Task'),
+              edge('Account', 'EmailMessage'),
+              edge('Case', 'EmailMessage'),
+              edge('Task', 'EmailMessage'),
+            ],
+          );
+          return { ...run, order, graph };
+        }
+
+        it('writes an email on a case after the task it names, with it, and the others before theirs', async () => {
+          // A run that held an email on a case wrote every task first, and
+          // the offer's email then went in with a task of its own from the
+          // platform, beside the one read from the source: two for one email.
+          const { orgDeps, inserted, order, graph } = mixedRun();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: ACCOUNT, rootObjectApiName: 'Account' },
+          );
+
+          expect(order).toEqual(['Account', 'Case', 'EmailMessage', 'Task', 'EmailMessage']);
+          expect(inserted['Task']).toEqual([
+            { Subject: 'Unread email', WhatId: '500NEW000000001AAA' },
+            { Subject: 'Second email', WhatId: '500NEW000000001AAA' },
+          ]);
+          expect(inserted['EmailMessage']).toEqual([
+            { Subject: 'Offer', RelatedToId: 'Account:Acme' },
+            {
+              Subject: 'It is broken',
+              ParentId: '500NEW000000001AAA',
+              ActivityId: 'Task:2',
+            },
+            {
+              Subject: 'Still broken',
+              RelatedToId: '500NEW000000001AAA',
+              ActivityId: 'Task:3',
+            },
+          ]);
+          expect(summary.remapTable[OFFER_TASK]).toBe(PLATFORM_TASK);
+          expect(summary.existingSourceIds).toContain(OFFER_TASK);
+          expect(summary.failedCount).toBe(0);
+          expect(summary.errors).toEqual([]);
+          const emailEvents = progressEvents.filter(
+            (e) => e.objectName === 'EmailMessage' && e.status === 'done',
+          );
+          expect(emailEvents.map((e) => e.message)).toEqual([
+            'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks',
+            'Completed EmailMessage after their task: 2 succeeded, 0 failed',
+          ]);
+        });
+
+        it('still writes the emails that waited for their task when the target refuses the tasks', async () => {
+          // The tasks' write failed as a whole: the emails on the case go in
+          // all the same, at the end of the run, rather than being dropped.
+          const { orgDeps, inserted, graph } = mixedRun();
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, records) =>
+            object === 'Task'
+              ? records.map(() => ({ id: '', success: false, errors: ['UNKNOWN_EXCEPTION'] }))
+              : insert(org, object, records);
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+            rootRecordId: ACCOUNT,
+            rootObjectApiName: 'Account',
+          });
+
+          expect((inserted['EmailMessage'] ?? []).map((e) => e['Subject'])).toEqual([
+            'Offer',
+            'It is broken',
+            'Still broken',
+          ]);
+        });
+
+        it('holds the emails on a case back in a run of whole tables too, until the tasks are read and written', async () => {
+          // A run of whole tables reads each node at its turn: the tasks are
+          // not read yet when the emails are written.
+          const { orgDeps, inserted, order, graph } = mixedRun();
+          const tables: Record<string, FakeRow[]> = {
+            Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+            Case: [{ Id: CASE, Subject: 'Broken', AccountId: ACCOUNT }],
+            Task: [
+              { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
+              { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
+            ],
+            EmailMessage: [
+              { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+              {
+                Id: ON_THE_CASE,
+                Subject: 'It is broken',
+                ParentId: CASE,
+                ActivityId: ON_THE_CASE_TASK,
+              },
+            ],
+          };
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) =>
+            org === 'src'
+              ? (tables[/\bFROM (\w+)/.exec(soql)?.[1] ?? ''] ?? []).map((row) => ({ ...row }))
+              : query(org, soql, onTruncated);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress);
+
+          expect(order).toEqual(['Account', 'Case', 'EmailMessage', 'Task', 'EmailMessage']);
+          expect(inserted['Task']).toEqual([
+            { Subject: 'Unread email', WhatId: '500NEW000000001AAA' },
+          ]);
+          expect(inserted['EmailMessage']).toEqual([
+            { Subject: 'Offer', RelatedToId: 'Account:Acme' },
+            { Subject: 'It is broken', ParentId: '500NEW000000001AAA', ActivityId: 'Task:2' },
+          ]);
+          expect(summary.remapTable[OFFER_TASK]).toBe(PLATFORM_TASK);
+          expect(summary.failedCount).toBe(0);
+        });
       });
     });
 

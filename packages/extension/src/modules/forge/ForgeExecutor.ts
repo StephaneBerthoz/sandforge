@@ -61,13 +61,13 @@ import {
   STATUS_NEEDS_CHILDREN,
   TASK,
   draftStartOf,
-  emailOnACase,
   emailWriteEdges,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
   statusCategories,
   tasksWrittenWithEmails,
+  waitsForItsTask,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
@@ -837,6 +837,14 @@ interface ExecutionState {
    * they cannot go in without one it does, by source id.
    */
   readonly leftToThePlatform: RowsLeftToThePlatform;
+  /**
+   * The emails on a case held back, as read, until the task node's turn is
+   * over: each names its task, which has no id in the target before. See
+   * `waitsForItsTask`.
+   */
+  readonly emailsAfterTheirTask: Record<string, unknown>[];
+  /** Whether the task node's turn to be written is over, whatever it wrote. */
+  taskTurnOver: boolean;
   /** When the target dated the run's writes, once read back at its end. */
   writtenBetween?: ForgeWrittenBetween;
   successCount: number;
@@ -1108,11 +1116,17 @@ function requiredLookupsOf(objectApiName: string, fieldInfos: readonly FieldInfo
 }
 
 /**
- * Whether the run writes cases: only then can an email it writes go in on a
- * case, the one kind whose task a copy names (`emailWriteEdges`).
+ * Whether a run reads every node before it writes one: a record-scoped run,
+ * whose scope is only known outwards from the root, and a run that copies
+ * files, whose size is checked before anything is written.
  */
-function casesWritten(state: ExecutionState): boolean {
-  return state.graph.nodes.some((n) => n.included && n.objectApiName === 'Case');
+function readsBeforeWriting(config: ForgeStageConfig): boolean {
+  return config.isScoped === true || config.files !== undefined;
+}
+
+/** What an object's progress says of `count` emails waiting for the task each names. */
+function waitingForTheirTask(count: number): string {
+  return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
 }
 
 /** Whether a row read is one the run this one retries wrote: it is in the target already. */
@@ -1402,6 +1416,8 @@ export class ForgeExecutor {
       files: null,
       fileContentFieldsLeftOut: new Map<string, Set<string>>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
+      emailsAfterTheirTask: [],
+      taskTurnOver: false,
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -1593,7 +1609,7 @@ export class ForgeExecutor {
      * storage before anything is written, which needs every record read.
      * A single pass's one order is the one writing needs.
      */
-    const twoPhase = config.isScoped === true || config.files !== undefined;
+    const twoPhase = readsBeforeWriting(config);
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
     // A scoped read takes its turns in this order, save a node that waits for
     // a parent still to come: see `readInTurn`.
@@ -1760,8 +1776,11 @@ export class ForgeExecutor {
 
       if (twoPhase) {
         await this.readInTurn(node, state);
-      } else if (await this.readNode(node, state, false, true)) {
-        await this.writeNode(node, state);
+      } else {
+        if (await this.readNode(node, state, false, true)) await this.writeNode(node, state);
+        // The emails that wait for the task each names go in once the task
+        // node has had its turn: see `writeEmailsAfterTheirTask`.
+        if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
       }
     }
 
@@ -1826,6 +1845,7 @@ export class ForgeExecutor {
         // Parents failed while being written are known only now.
         if (await this.skipForFailedParent(node, state, read.fieldInfos)) continue;
         await this.writeNode(node, state);
+        if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
         state.pendingFkUpdates.push(...this.owedNowWritten(state));
 
         // Settle what this node's write has just made resolvable, before the
@@ -1850,6 +1870,10 @@ export class ForgeExecutor {
         }
       }
     }
+
+    // Emails still waiting for the task each names — the task node skipped,
+    // or never reached — go in with what the run could give them.
+    await this.writeEmailsAfterTheirTask(state);
 
     // Pass 2 — patch nullified cycle FKs whose targets are now cloned, and the
     // lookups of rows the run retried wrote at records this run wrote.
@@ -2270,8 +2294,6 @@ export class ForgeExecutor {
     return this.orderByFields(
       state,
       new Map([...state.preread].map(([objectApiName, read]) => [objectApiName, read.fieldInfos])),
-      casesWritten(state) &&
-        (state.preread.get(EMAIL_MESSAGE)?.records.some(emailOnACase) ?? false),
     );
   }
 
@@ -2290,16 +2312,14 @@ export class ForgeExecutor {
    * the lookups of an object at the edge of the graph, of a starter
    * template's objects, of the selling model options the run adds.
    *
-   * And an email before the task it names, unless an email of the run is on a
-   * case: see `emailWriteEdges`.
+   * And the emails before the tasks, but for those that wait for the task they
+   * name: see `emailWriteEdges`.
    *
    * @param fieldsByObject - The source fields of each object the run writes.
-   * @param anEmailOnACase - Whether an email the run writes is, or may be, on a case.
    */
   private orderByFields(
     state: ExecutionState,
     fieldsByObject: ReadonlyMap<string, readonly FieldInfo[]>,
-    anEmailOnACase: boolean,
   ): ForgeGraphNode[] {
     const objects = new Set(
       state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
@@ -2325,7 +2345,7 @@ export class ForgeExecutor {
     return sortNodesForWriting(state.graph, [
       ...required,
       ...catalogWriteEdges(objects, lines),
-      ...emailWriteEdges(objects, anEmailOnACase),
+      ...emailWriteEdges(objects),
     ]);
   }
 
@@ -2348,15 +2368,15 @@ export class ForgeExecutor {
    * without, which points back at it, went first, and the platform refuses
    * it there. The plan reads its cycles in this order too.
    *
-   * The emails it writes are read at their turn, after the order is settled:
-   * a run that writes cases may hold an email on one, whose task goes first.
+   * The emails before the tasks, as a record-scoped run writes them: an email
+   * on a case waits for the task it names, as it is read (`writeNode`).
    */
   private async singlePassOrder(state: ExecutionState): Promise<ForgeGraphNode[]> {
     const included = state.graph.nodes.filter((n) => n.included);
     if (!included.some((n) => isPricebookEntry(n.objectApiName))) {
       return sortNodesForWriting(
         state.graph,
-        emailWriteEdges(new Set(included.map((n) => n.objectApiName)), casesWritten(state)),
+        emailWriteEdges(new Set(included.map((n) => n.objectApiName))),
       );
     }
     const fieldsByObject = new Map<string, readonly FieldInfo[]>();
@@ -2372,7 +2392,7 @@ export class ForgeExecutor {
         }
       });
     }
-    return this.orderByFields(state, fieldsByObject, casesWritten(state));
+    return this.orderByFields(state, fieldsByObject);
   }
 
   /**
@@ -3234,6 +3254,49 @@ export class ForgeExecutor {
   }
 
   /**
+   * The rows of the email node to write now: an email on a case that names a
+   * task the run is still to write waits for it (`waitsForItsTask`), held in
+   * the state until the task node has had its turn.
+   *
+   * A run that reads every node first knows the tasks it writes, and holds
+   * back only an email naming one of them. Another reads the tasks after the
+   * emails, and holds back every email on a case that names a task, while the
+   * task node's turn is still to come.
+   */
+  private holdEmailsForTheirTask(
+    state: ExecutionState,
+    rows: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    if (state.taskTurnOver) return rows;
+    if (!state.graph.nodes.some((n) => n.included && n.objectApiName === TASK)) return rows;
+    const tasks = readsBeforeWriting(state.config)
+      ? new Set((state.preread.get(TASK)?.records ?? []).map((task) => String(task['Id'])))
+      : undefined;
+    const now: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      if (waitsForItsTask(row) && (tasks === undefined || tasks.has(String(row['ActivityId'])))) {
+        state.emailsAfterTheirTask.push(row);
+      } else {
+        now.push(row);
+      }
+    }
+    return now;
+  }
+
+  /**
+   * The task node has had its turn, whatever it wrote: the emails that waited
+   * for the task each names go in, with the id that task has in the target in
+   * place of the source's. Nothing is written once the run is aborted.
+   */
+  private async writeEmailsAfterTheirTask(state: ExecutionState): Promise<void> {
+    state.taskTurnOver = true;
+    const emails = state.emailsAfterTheirTask.splice(0, state.emailsAfterTheirTask.length);
+    if (emails.length === 0 || this.isAborted) return;
+    const node = state.graph.nodes.find((n) => n.objectApiName === EMAIL_MESSAGE);
+    if (node) await this.writeNode(node, state, emails);
+  }
+
+  /**
    * The rows of the task node still to be written once those the platform
    * wrote with the run's emails are linked to what it wrote.
    *
@@ -3839,19 +3902,27 @@ export class ForgeExecutor {
    * user, and the rows whose parent it did not write, expand orphan parents,
    * clean, translate record types, anonymize and insert. A row the run this
    * one retries wrote is not written: see `writtenBefore`.
+   *
+   * @param afterTheirTask - The emails that waited for the task each names,
+   *   written once the task node has had its turn: see
+   *   `writeEmailsAfterTheirTask`. The node's rows otherwise.
    */
-  private async writeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+  private async writeNode(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    afterTheirTask?: Record<string, unknown>[],
+  ): Promise<void> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
     const { fieldInfos, createableSet, targetSetsPending } = read;
+    // The node's rows, or the emails that waited for their task.
+    const rows = afterTheirTask ?? read.records;
     // The rows the run this one retries wrote are in the target: linked to,
     // never written a second time. The others are what this run writes.
-    const writtenBefore = read.records.filter((row) => wasWrittenBefore(config, row));
+    const writtenBefore = rows.filter((row) => wasWrittenBefore(config, row));
     const records =
-      writtenBefore.length > 0
-        ? read.records.filter((row) => !wasWrittenBefore(config, row))
-        : read.records;
+      writtenBefore.length > 0 ? rows.filter((row) => !wasWrittenBefore(config, row)) : rows;
     // The rows to write, less those held back for want of their parent.
     let toWrite = records;
     try {
@@ -3962,6 +4033,25 @@ export class ForgeExecutor {
       // run that reads every object before it writes one — goes with it, and
       // is not held back below as a row whose parent failed.
       toWrite = this.leaveWhatHangsFromThePlatform(state, node, fieldInfos, toWrite);
+
+      // An email on a case names its task, which the tasks still to write
+      // would leave without an id in the target: it waits for them. The
+      // others go now, and the platform writes their tasks as it takes them.
+      let waiting = 0;
+      if (node.objectApiName === EMAIL_MESSAGE && afterTheirTask === undefined) {
+        const now = this.holdEmailsForTheirTask(state, toWrite);
+        waiting = toWrite.length - now.length;
+        toWrite = now;
+        if (waiting > 0 && toWrite.length === 0) {
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'running',
+            progress: 0,
+            message: `${node.objectApiName}: ${waitingForTheirTask(waiting)}`,
+          });
+          return;
+        }
+      }
 
       // The task the platform wrote with one of the run's emails is the one
       // read from the source: linked to, never sent a second time.
@@ -4209,11 +4299,16 @@ export class ForgeExecutor {
           writtenBefore.length > 0
             ? `, ${writtenBefore.length} already in the target from the run retried`
             : '';
+        const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
+        const completed =
+          afterTheirTask === undefined
+            ? `Completed ${node.objectApiName}`
+            : `Completed ${node.objectApiName} after their task`;
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
+          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${afterTheirTask === undefined ? leftToThePlatformNote(state, node.objectApiName) : ''}`,
         });
       }
     } catch (err) {

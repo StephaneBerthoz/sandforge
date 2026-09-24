@@ -4,6 +4,7 @@
  */
 
 import type { AutopilotEdge, RelationshipType } from '@sandforge/shared';
+import { EMAIL_MESSAGE, emailWriteEdges } from '../../core/common/platformRecords.js';
 
 /** Describe field shape for buildEdgesFromDescribe. */
 interface DescribeField {
@@ -120,6 +121,11 @@ export class CloneReferenceLinker {
    * writes by the lookups a record may not leave empty, and a best comment is
    * not one.
    *
+   * Nor does an email's task: the emails go before the tasks, as the edge
+   * `emailWriteEdges` gives. The platform writes the task of an email that is
+   * not on a case as it takes the email, and refuses its id from a copy; an
+   * email on a case waits for its task as the clone writes it.
+   *
    * @param objectApiNames - Object API names in the clone set.
    * @param describeResults - Map of object API name to describe result.
    * @returns Array of AutopilotEdge objects.
@@ -137,6 +143,7 @@ export class CloneReferenceLinker {
 
       for (const field of describe.fields) {
         if (field.createable === false) continue;
+        if (objectApiName === EMAIL_MESSAGE && field.name === 'ActivityId') continue;
         if (field.type === 'reference' && field.referenceTo) {
           for (const refTarget of field.referenceTo) {
             if (objectSet.has(refTarget)) {
@@ -151,6 +158,15 @@ export class CloneReferenceLinker {
           }
         }
       }
+    }
+    for (const edge of emailWriteEdges(objectSet)) {
+      edges.push({
+        from: edge.sourceObject,
+        to: edge.targetObject,
+        fieldApiName: edge.relationshipName,
+        relationshipType: 'lookup' as RelationshipType,
+        required: true,
+      });
     }
 
     return edges;
