@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
+import { NonReidentificationControl } from './NonReidentificationControl.js';
 import { parsePseudonymRules } from './rulesFile.js';
 import { to18 } from './salesforceId.js';
 import type { ExtractedDataset } from './types.js';
@@ -105,6 +106,36 @@ describe('FrozenDatasetAnonymizer', () => {
     const contact = frozen.objects[1].records[0];
     expect(contact.fields.LastName).toBe(pseudonymizer.pseudonymize('lastName', 'Dupont'));
     expect(contact.fields.Email).toMatch(/@example\.invalid$/);
+  });
+
+  it("keeps a feed item's type with no rule naming it, and the control lets it through", () => {
+    // The platform's word for what the item is: without it a load cannot
+    // tell a tracked change from a post.
+    const extracted: ExtractedDataset = {
+      ...makeExtracted(),
+      objects: [
+        {
+          objectApiName: 'FeedItem',
+          records: [
+            {
+              referenceId: 'FeedItem-000001',
+              sourceId: to18('0D5A000000ffffF'),
+              fields: { Id: to18('0D5A000000ffffF'), Type: 'TextPost', Body: 'Call Mr Dupont' },
+            },
+          ],
+        },
+      ],
+    };
+
+    const frozen = anonymizer.anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.objects[0].records[0].fields).toEqual({ Type: 'TextPost', Body: '' });
+    expect(new NonReidentificationControl().run(extracted, frozen, rules).passed).toBe(true);
   });
 
   it('rewrites in-scope lookups to referenceIds', () => {

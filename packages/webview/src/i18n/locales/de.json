@@ -2934,7 +2934,9 @@
       "errors": "Fehler",
       "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt",
       "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
-      "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}"
+      "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
+      "excludedObjects": "Nicht geladene Objekte",
+      "untypedFeedItems": "Beim Laden ausgelassen — der Datensatz enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie den Datensatz erneut, um sie zu laden: {{objects}}"
     },
     "removal": {
       "title": "Letzter Ladevorgang",

@@ -369,6 +369,13 @@ export interface FrozenLoadReportInfo {
    * platform writes them, or what they depend on, itself. Absent when none was.
    */
   leftToThePlatform?: FrozenLeftToThePlatform[];
+  /**
+   * Records the dataset carries and the load left out, by object, because the
+   * dataset does not carry a feed item's type, or they depend on such a feed
+   * item: a tracked change cannot be told from a post. Extracted again, the
+   * dataset loads them. Absent when none was.
+   */
+  untypedFeedItems?: FrozenLeftToThePlatform[];
   mappingPath: string;
   contractPath: string;
 }

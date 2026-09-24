@@ -331,7 +331,11 @@ export function messageLines(message: Posted): string[] {
       const r = p.report as {
         status: string;
         durationMs: number;
-        alignment: { excludedObjects: unknown[]; removals: unknown[]; recordTypeIssues: unknown[] };
+        alignment: {
+          excludedObjects: Array<{ objectApiName: string; reason: string }>;
+          removals: unknown[];
+          recordTypeIssues: unknown[];
+        };
         placeholders: unknown[];
         perObject: Array<{
           objectApiName: string;
@@ -354,6 +358,7 @@ export function messageLines(message: Posted): string[] {
           failures: Array<{ objectApiName: string; errors: string[] }>;
         };
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
+        untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -361,6 +366,11 @@ export function messageLines(message: Posted): string[] {
           `${r.alignment.recordTypeIssues.length} record type issue(s), ` +
           `${r.placeholders.length} placeholder(s)`,
       ];
+      // Which, and why: counted only, an object the target takes no insert of
+      // read like one the target lacks, and the load's errors named nothing.
+      for (const excluded of r.alignment.excludedObjects) {
+        lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
+      }
       for (const o of r.perObject) {
         lines.push(
           `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused, ` +
@@ -369,8 +379,9 @@ export function messageLines(message: Posted): string[] {
         const first = o.failed[0];
         if (first) lines.push(`      first refusal: ${first.errors?.[0] ?? first.error ?? '?'}`);
       }
-      // Never sent: no load could write them.
-      for (const left of r.leftToThePlatform ?? []) {
+      // Never sent: no load could write them, or this dataset cannot say
+      // which of them the platform writes itself.
+      for (const left of [...(r.leftToThePlatform ?? []), ...(r.untypedFeedItems ?? [])]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
       lines.push(`pass 2: ${r.pass2.resolved} resolved, ${r.pass2.unresolved.length} unresolved`);

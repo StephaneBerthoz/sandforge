@@ -12,9 +12,10 @@
  *      find; a reload then purges residuals children-before-parents
  *      (undeletable objects are DEACTIVATED);
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
- *      DeveloperName and picklist RecordType-gap checks;
- *   4. technical placeholders for required lookups absent from the dataset
- *      — named, correctly record-typed, never an exclusion;
+ *      DeveloperName and picklist RecordType-gap checks; an object the
+ *      target lacks, or takes no insert of, is left out and listed;
+ *   4. technical placeholders for required lookups absent from the records
+ *      it writes — named, correctly record-typed, never an exclusion;
  *   5. insert pass 1 in topological order — cycle FKs are nullified and
  *      queued, then patched in pass 2 (pattern of forge CycleFkPatcher);
  *   6. PersonContact post-load: the sidecar referenceId→referenceId pairs
@@ -30,6 +31,8 @@
 
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_CURRENCY_FIELD,
+  PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
@@ -50,7 +53,10 @@ import {
   existingSellingModelOptions,
   leftToThePlatformNote,
   recordsByNaturalKey,
+  standardPriceIds,
   statusCategories,
+  type LeftToThePlatform,
+  type PlatformWrittenRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { leftToThePlatformCoverage } from './manifest.js';
@@ -331,12 +337,17 @@ export class FrozenDatasetLoader {
     // it is told apart from a value; what cannot go in without it goes with
     // it once the target says which lookups a record may not leave empty.
     const leftToThePlatform = new RowsLeftToThePlatform();
+    // Nor is a feed item whose type the dataset does not carry: see
+    // `UNTYPED_FEED_ITEMS`. What hangs from one goes with it, the same way.
+    const untypedFeedItems = new RowsLeftToThePlatform(untypedFeedItem);
     const loading: FrozenDataset = {
       ...working,
       objects: working.objects.map((objectData) => ({
         ...objectData,
         records: objectData.records.filter(
-          (r) => !leftToThePlatform.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
+          (r) =>
+            !leftToThePlatform.leaveOut(objectData.objectApiName, r.referenceId, r.fields) &&
+            !untypedFeedItems.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
         ),
       })),
     };
@@ -445,6 +456,8 @@ export class FrozenDatasetLoader {
     >();
     /** Lookups the target will not take empty, per object — from its describe. */
     const requiredLookups = new Map<string, Set<string>>();
+    /** Objects the target takes no insert of, left out with records to write. */
+    const refusedObjects: string[] = [];
     for (const objectData of loading.objects) {
       const objectApiName = objectData.objectApiName;
       // An extraction writes a file for every object of the graph, and most
@@ -461,6 +474,27 @@ export class FrozenDatasetLoader {
         alignment.excludedObjects.push({
           objectApiName,
           reason: `Not present in target org: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        continue;
+      }
+      // An object the target takes no insert of is not sent. Run for real, a
+      // load sent the error log one of the dossier's quotes had, and the
+      // target refused it — "entity type cannot be inserted" — as its describe
+      // said it would. A record the load only links is no insert; one it has
+      // to write is lost, and that is an error, as Forge counts it.
+      const toWrite = objectData.records.filter((r) => !reused.has(r.referenceId)).length;
+      if (describe.createable === false && toWrite > 0) {
+        refusedObjects.push(objectApiName);
+        const reason =
+          `Not createable in target org: ${toWrite} record${toWrite === 1 ? '' : 's'} ` +
+          'of the dataset not loaded';
+        alignment.excludedObjects.push({ objectApiName, reason });
+        emit({
+          phase: 'align',
+          objectName: objectApiName,
+          status: 'error',
+          progress: 12,
+          message: `Skipped ${objectApiName} — ${reason}`,
         });
         continue;
       }
@@ -485,6 +519,7 @@ export class FrozenDatasetLoader {
         describe,
         resolvedRecordTypes,
         ruleFor: (obj, field) => this.picklistRuleFor(obj, field),
+        linked: reused,
       });
       alignment.objectResults.push(result);
       alignment.removals.push(...result.removals);
@@ -498,7 +533,7 @@ export class FrozenDatasetLoader {
       );
     }
     emit({ phase: 'align', status: 'done', progress: 20, message: 'Schema aligned' });
-    leaveWhatHangsFromThePlatform(alignedByObject, requiredLookups, leftToThePlatform);
+    leaveWhatHangsFrom(alignedByObject, requiredLookups, [leftToThePlatform, untypedFeedItems]);
 
     // 6. Placeholders for required lookups absent from the dataset.
     emit({
@@ -514,19 +549,28 @@ export class FrozenDatasetLoader {
     // left in the target for a load that did not happen, and one missing
     // entry reported per attempt.
     const plans = await this.planRequiredFields(options, alignment.objectResults);
+    // What fills a required field goes into the records the load writes. One
+    // it only links is never sent; counted with them, the report said a
+    // default had gone into the selling model the load had found by its key.
+    const written = (objectApiName: string) =>
+      (alignedByObject.get(objectApiName) ?? []).filter((r) => !reused.has(r.referenceId));
     for (const plan of plans) {
       if (plan.kind === 'placeholder') {
         await checkpoint();
         await this.createPlaceholder(
           options,
           plan,
-          alignedByObject,
+          written(plan.missing.objectApiName),
           mapping,
           placeholders,
           created,
         );
       } else {
-        this.applyScalarDefault(plan.missing, alignedByObject, requiredDefaults);
+        this.applyScalarDefault(
+          plan.missing,
+          written(plan.missing.objectApiName),
+          requiredDefaults,
+        );
       }
     }
     emit({
@@ -615,9 +659,15 @@ export class FrozenDatasetLoader {
         objectResult = await insert(startingRecords, fromFiles);
       }
       perObject.push(objectResult);
-      const leftOutNote = leftToThePlatform
-        .counts(objectApiName)
-        .map(({ why, count }) => `, ${leftToThePlatformNote(count, why)}`)
+      const leftOutNote = [
+        ...leftToThePlatform
+          .counts(objectApiName)
+          .map(({ why, count }) => leftToThePlatformNote(count, why)),
+        ...untypedFeedItems
+          .counts(objectApiName)
+          .map(({ why, count }) => untypedFeedItemNote(count, why)),
+      ]
+        .map((note) => `, ${note}`)
         .join('');
       emit({
         phase: 'insert',
@@ -680,17 +730,23 @@ export class FrozenDatasetLoader {
     });
     await this.deps.mappingStore.persist(mapping, { created: created.list(), startedAt });
     const leftOut = leftToThePlatform.counts();
-    const contractPath = this.writeContract(
-      options,
-      working,
-      perObject,
-      placeholders,
-      now,
-      leftOut,
-    );
+    const untyped = untypedFeedItems.counts();
+    const contractPath = this.writeContract(options, working, perObject, placeholders, now, [
+      ...leftOut.map(({ objectApiName, count }) => ({
+        objectApiName,
+        count,
+        reason: 'left-to-the-platform',
+      })),
+      ...untyped.map(({ objectApiName, count }) => ({
+        objectApiName,
+        count,
+        reason: 'untyped-feed-item',
+      })),
+    ]);
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
     const hasErrors =
+      refusedObjects.length > 0 ||
       perObject.some((o) => o.failed.length > 0) ||
       pass2.unresolved.length > 0 ||
       personContact.unresolved.length > 0 ||
@@ -712,6 +768,15 @@ export class FrozenDatasetLoader {
       statuses,
       purge,
       ...(leftOut.length > 0 ? { leftToThePlatform: leftToThePlatformCoverage(leftOut) } : {}),
+      ...(untyped.length > 0
+        ? {
+            untypedFeedItems: untyped.map(({ objectApiName, why, count }) => ({
+              objectApiName,
+              count,
+              note: untypedFeedItemNote(count, why),
+            })),
+          }
+        : {}),
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
     };
@@ -753,7 +818,10 @@ export class FrozenDatasetLoader {
     }
   }
 
-  /** Pilot scope: descendants of the root folder + the reference records it needs. */
+  /**
+   * Pilot scope: descendants of the root folder + the reference records it
+   * needs, the catalog its prices need included.
+   */
   private filterPilotScope(dataset: FrozenDataset, rootReferenceId?: string): FrozenDataset {
     const rootObject = this.config.rootObjectApiName;
     if (!rootObject) {
@@ -788,20 +856,31 @@ export class FrozenDatasetLoader {
       }
     }
     // Ancestors: reference records the reached records point at (shared referential).
-    const ancestorQueue = [...reached];
-    while (ancestorQueue.length > 0) {
-      const current = ancestorQueue.pop() as string;
-      const record = findRecord(dataset, current);
-      if (!record) {
-        continue;
-      }
-      for (const value of Object.values(record.fields)) {
-        if (typeof value === 'string' && refIndex.has(value) && !reached.has(value)) {
-          reached.add(value);
-          ancestorQueue.push(value);
+    const reachAncestors = (ancestorQueue: string[]): void => {
+      while (ancestorQueue.length > 0) {
+        const current = ancestorQueue.pop() as string;
+        const record = findRecord(dataset, current);
+        if (!record) {
+          continue;
+        }
+        for (const value of Object.values(record.fields)) {
+          if (typeof value === 'string' && refIndex.has(value) && !reached.has(value)) {
+            reached.add(value);
+            ancestorQueue.push(value);
+          }
         }
       }
-    }
+    };
+    reachAncestors([...reached]);
+    // What the folder's prices need and none of its records points at: a
+    // line names its custom price, never the standard one the platform wants
+    // first, nor the option that lets its product be sold under its model.
+    // Rehearsed against a real target, a pilot sent its four prices with
+    // neither, which the platform refuses. They come with what they point
+    // at: the standard book, their models.
+    const needed = catalogThePricesNeed(dataset, reached).filter((id) => !reached.has(id));
+    for (const id of needed) reached.add(id);
+    reachAncestors(needed);
     return {
       ...dataset,
       objects: dataset.objects
@@ -1210,11 +1289,15 @@ export class FrozenDatasetLoader {
     return plans;
   }
 
-  /** Create ONE technical placeholder for a required lookup missing from the dataset. */
+  /**
+   * Create ONE technical placeholder for a required lookup missing from the
+   * dataset, and point at it each of `records` — the ones the load writes of
+   * the object — that leaves the lookup empty.
+   */
   private async createPlaceholder(
     options: FrozenLoadOptions,
     plan: PlaceholderPlan,
-    alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
+    records: ReadonlyArray<{ fields: Record<string, unknown> }>,
     mapping: Map<string, string>,
     placeholders: PlaceholderCreation[],
     created: CreatedKeys,
@@ -1234,7 +1317,7 @@ export class FrozenDatasetLoader {
     mapping.set(placeholderKey, outcome.id);
     created.add(targetObject, placeholderKey);
     let affected = 0;
-    for (const aligned of alignedByObject.get(missing.objectApiName) ?? []) {
+    for (const aligned of records) {
       const current = aligned.fields[missing.field];
       if (current === undefined || current === null || current === '') {
         aligned.fields[missing.field] = outcome.id;
@@ -1251,17 +1334,21 @@ export class FrozenDatasetLoader {
     });
   }
 
-  /** Apply a declared scalar default for a required field missing from the dataset. */
+  /**
+   * Apply a declared scalar default for a required field missing from the
+   * dataset to each of `records` — the ones the load writes of the object —
+   * that leaves it empty.
+   */
   private applyScalarDefault(
     missing: { objectApiName: string; field: string },
-    alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
+    records: ReadonlyArray<{ fields: Record<string, unknown> }>,
     applied: FrozenLoadReport['requiredDefaults'],
   ): void {
     const key = `${missing.objectApiName}.${missing.field}`;
     // Settled by planRequiredFields: a default is declared for every key here.
     const value = this.config.requiredFieldDefaults?.[key];
     let affected = 0;
-    for (const aligned of alignedByObject.get(missing.objectApiName) ?? []) {
+    for (const aligned of records) {
       const current = aligned.fields[missing.field];
       if (current === undefined || current === null || current === '') {
         aligned.fields[missing.field] = value;
@@ -1455,18 +1542,7 @@ export class FrozenDatasetLoader {
 
   /** Price entry ids split into custom prices, then standard ones. */
   private async customPricesFirst(orgId: string, ids: readonly string[]): Promise<string[][]> {
-    const standard = new Set<string>();
-    for (let i = 0; i < ids.length; i += ID_IN_CHUNK) {
-      const inList = ids
-        .slice(i, i + ID_IN_CHUNK)
-        .map((id) => `'${sanitizeSoqlValue(id)}'`)
-        .join(', ');
-      const rows = await this.deps.orgAccess.query(
-        orgId,
-        `SELECT Id FROM PricebookEntry WHERE Id IN (${inList}) AND Pricebook2.IsStandard = true`,
-      );
-      for (const row of rows) standard.add(String(row.Id));
-    }
+    const standard = await standardPriceIds((soql) => this.deps.orgAccess.query(orgId, soql), ids);
     return [ids.filter((id) => !standard.has(id)), ids.filter((id) => standard.has(id))];
   }
 
@@ -1609,8 +1685,10 @@ export class FrozenDatasetLoader {
 
   /**
    * Write the counting contract (files minus exclusions) into the sas. The
-   * records left to the platform are an exclusion of their own, and an object
-   * all of whose records were is counted too: none of it is expected.
+   * records the load left out before sending anything — to the platform, or
+   * for a type the dataset does not carry — are an exclusion of their own,
+   * under their reason, and an object all of whose records were is counted
+   * too: none of it is expected.
    */
   private writeContract(
     options: FrozenLoadOptions,
@@ -1618,19 +1696,22 @@ export class FrozenDatasetLoader {
     perObject: PerObjectLoadResult[],
     placeholders: PlaceholderCreation[],
     now: () => Date,
-    leftOut: ReadonlyArray<{ objectApiName: string; count: number }>,
+    leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
   ): string {
-    const leftOf = new Map<string, number>();
-    for (const { objectApiName, count } of leftOut) {
-      leftOf.set(objectApiName, (leftOf.get(objectApiName) ?? 0) + count);
+    const leftOf = new Map<string, Record<string, number>>();
+    for (const { objectApiName, count, reason } of leftOut) {
+      const reasons = leftOf.get(objectApiName) ?? {};
+      reasons[reason] = (reasons[reason] ?? 0) + count;
+      leftOf.set(objectApiName, reasons);
     }
     const results = [...perObject];
-    for (const [objectApiName, count] of leftOf) {
+    for (const [objectApiName, reasons] of leftOf) {
       if (results.some((r) => r.objectApiName === objectApiName)) continue;
       results.push({
         objectApiName,
         fromFiles:
-          working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ?? count,
+          working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
+          Object.values(reasons).reduce((sum, count) => sum + count, 0),
         inserted: 0,
         reused: 0,
         skippedDuplicates: [],
@@ -1646,9 +1727,10 @@ export class FrozenDatasetLoader {
       if (result.failed.length > 0) {
         exclusionReasons['dml-failed'] = result.failed.length;
       }
-      const left = leftOf.get(result.objectApiName) ?? 0;
-      if (left > 0) {
-        exclusionReasons['left-to-the-platform'] = left;
+      let left = 0;
+      for (const [reason, count] of Object.entries(leftOf.get(result.objectApiName) ?? {})) {
+        exclusionReasons[reason] = count;
+        left += count;
       }
       const excluded = result.skippedDuplicates.length + result.failed.length + left;
       const added = placeholders.filter(
@@ -1687,26 +1769,69 @@ export class FrozenDatasetLoader {
 
 /**
  * Leave out of what is loaded every record whose lookup the target will not
- * take empty names one left to the platform — a comment on a tracked change
- * names the feed item it answers — and what hangs from those, until none is.
+ * take empty names one left out — a comment on a tracked change names the
+ * feed item it answers — and what hangs from those, until none is.
  */
-function leaveWhatHangsFromThePlatform(
+function leaveWhatHangsFrom(
   alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
   requiredLookups: ReadonlyMap<string, ReadonlySet<string>>,
-  leftToThePlatform: RowsLeftToThePlatform,
+  leftOut: readonly RowsLeftToThePlatform[],
 ): void {
   for (let changed = true; changed; ) {
     changed = false;
     for (const [objectApiName, aligned] of alignedByObject) {
       const lookups = [...(requiredLookups.get(objectApiName) ?? [])];
       const kept = aligned.filter(
-        (r) => !leftToThePlatform.leaveOut(objectApiName, r.referenceId, r.fields, lookups),
+        (r) =>
+          !leftOut.some((rows) => rows.leaveOut(objectApiName, r.referenceId, r.fields, lookups)),
       );
       if (kept.length === aligned.length) continue;
       alignedByObject.set(objectApiName, kept);
       changed = true;
     }
   }
+}
+
+/**
+ * Feed items whose type the dataset does not carry.
+ *
+ * An extraction cleared every field its rules named no generator for, the
+ * type of a feed item among them, and until 1.38.2 it kept the tracked
+ * changes. A load of such a dataset cannot tell a tracked change, which the
+ * platform writes itself, from a post: sent untyped, a feed item goes in as a
+ * post, and run for real, a tracked change was refused as one — "Required
+ * fields are missing: [Body]". Left out, with what hangs from them, and the
+ * report says to extract the dataset again.
+ */
+const UNTYPED_FEED_ITEMS: PlatformWrittenRows = {
+  field: 'Type',
+  value: '',
+  noun: 'feed item whose type the dataset does not carry',
+};
+
+/** {@link UNTYPED_FEED_ITEMS} when `row` is one of them. */
+function untypedFeedItem(
+  objectApiName: string,
+  row: Record<string, unknown>,
+): PlatformWrittenRows | undefined {
+  if (objectApiName !== 'FeedItem') return undefined;
+  const type = row[UNTYPED_FEED_ITEMS.field];
+  return typeof type === 'string' && type !== '' ? undefined : UNTYPED_FEED_ITEMS;
+}
+
+/**
+ * What a load report says of `count` records of one object it left out for a
+ * feed item whose type the dataset does not carry.
+ */
+function untypedFeedItemNote(count: number, why: LeftToThePlatform): string {
+  const again = 'extract the dataset again, with rules that keep FeedItem.Type';
+  if (why.through) {
+    return `${count} left out: ${why.through} names a feed item whose type the dataset does not carry — ${again}`;
+  }
+  return (
+    `${count} feed item${count === 1 ? '' : 's'} left out: the dataset does not carry ` +
+    `${count === 1 ? 'its' : 'their'} type, and a tracked change cannot be told from a post — ${again}`
+  );
 }
 
 /** referenceId → objectApiName for every record of the dataset. */
@@ -1780,6 +1905,50 @@ function requiredDependencies(
     deps.set(objectApiName, set);
   }
   return deps;
+}
+
+/**
+ * The referenceIds of the records the prices among `reached` need, which no
+ * record points at: the standard price of each custom price — of its product,
+ * under its selling model, in its currency, as the extraction reads it — and
+ * the option that lets each price's product be sold under its selling model.
+ */
+function catalogThePricesNeed(dataset: FrozenDataset, reached: ReadonlySet<string>): string[] {
+  const recordsOf = (objectApiName: string): FrozenRecord[] =>
+    dataset.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
+  const keyOf = (fields: Record<string, unknown>, keyFields: readonly string[]): string =>
+    keyFields.map((f) => String(fields[f] ?? '')).join('|');
+  const priceKey = [
+    PRICEBOOK_ENTRY_PRODUCT_FIELD,
+    PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+    PRICEBOOK_ENTRY_CURRENCY_FIELD,
+  ];
+  const optionKey = [PRICEBOOK_ENTRY_PRODUCT_FIELD, PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
+  const names = (fields: Record<string, unknown>, field: string): boolean =>
+    typeof fields[field] === 'string' && fields[field] !== '';
+
+  const allPrices = recordsOf(PRICEBOOK_ENTRY_OBJECT);
+  const prices = allPrices.filter(
+    (r) => reached.has(r.referenceId) && names(r.fields, PRICEBOOK_ENTRY_PRODUCT_FIELD),
+  );
+  const standardBook = dataset.standardPricebook;
+  const isStandard = (r: FrozenRecord): boolean =>
+    standardBook !== undefined && r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardBook;
+  const customKeys = new Set(
+    prices.filter((r) => !isStandard(r)).map((r) => keyOf(r.fields, priceKey)),
+  );
+  const standardPrices = allPrices.filter(
+    (r) => isStandard(r) && customKeys.has(keyOf(r.fields, priceKey)),
+  );
+  const soldUnder = new Set(
+    [...prices, ...standardPrices]
+      .filter((r) => names(r.fields, PRICEBOOK_ENTRY_SELLING_MODEL_FIELD))
+      .map((r) => keyOf(r.fields, optionKey)),
+  );
+  const options = recordsOf(SELLING_MODEL_OPTION_OBJECT).filter((r) =>
+    soldUnder.has(keyOf(r.fields, optionKey)),
+  );
+  return [...standardPrices, ...options].map((r) => r.referenceId);
 }
 
 /** Find a record by referenceId across the dataset. */

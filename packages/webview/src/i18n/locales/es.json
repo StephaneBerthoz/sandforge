@@ -2934,7 +2934,9 @@
       "errors": "Errores",
       "postLoad": "Pase 2: {{pass2}} enlaces de ciclo resueltos — PersonContact: {{personContact}} restaurados",
       "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}",
-      "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}"
+      "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
+      "excludedObjects": "Objetos no cargados",
+      "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}"
     },
     "removal": {
       "title": "Última carga",

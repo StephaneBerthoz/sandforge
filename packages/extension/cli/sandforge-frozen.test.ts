@@ -200,6 +200,45 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('names each object a load did not send, with why, and the feed items it could not type', () => {
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed-with-errors',
+          durationMs: 5,
+          alignment: {
+            excludedObjects: [
+              {
+                objectApiName: 'RevenueTransactionErrorLog',
+                reason: 'Not createable in target org: 1 record of the dataset not loaded',
+              },
+            ],
+            removals: [],
+            recordTypeIssues: [],
+          },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          untypedFeedItems: [
+            {
+              objectApiName: 'FeedItem',
+              note: '1 feed item left out: the dataset does not carry its type',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'load: completed-with-errors in 5ms — 1 object(s) excluded, 0 field removal(s), 0 record type issue(s), 0 placeholder(s)',
+      '  RevenueTransactionErrorLog: not loaded — Not createable in target org: 1 record of the dataset not loaded',
+      '  FeedItem: 1 feed item left out: the dataset does not carry its type',
+      'pass 2: 0 resolved, 0 unresolved',
+    ]);
+  });
+
   it('names what an extraction left to the platform, object by object', () => {
     const lines = messageLines({
       type: 'frozen:extract:response',

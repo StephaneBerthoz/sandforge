@@ -488,6 +488,87 @@ const REPORTS_LINEAGE = {
   ],
 };
 
+/** The Frozen status once a dataset is frozen: what the load tab needs to offer a run. */
+const FROZEN_STATUS_WITH_DATASET = {
+  configured: true,
+  sasDir: '/home/qa/.sandforge-sas',
+  datasetDir: '/home/qa/.sandforge-sas/dataset',
+  salt: { present: true, fingerprint: 'abc123def456' },
+  mockDetectionConfigured: false,
+  selection: null,
+  manifest: {
+    version: '0.1.0',
+    status: 'frozen',
+    frozenAt: '2026-09-20T10:00:00.000Z',
+    source: { orgId: DEV_SANDBOX.id, decisionDate: '2026-09-20T09:00:00.000Z' },
+    saltFingerprint: 'abc123def456',
+    rulesVersion: '1.0.0',
+    volumetry: {
+      budgetMax: 2500,
+      measured: { Opportunity: 1, FeedItem: 2 },
+      measuredAt: '2026-09-20T10:00:00.000Z',
+    },
+    controls: {
+      nonReidentification: {
+        passed: true,
+        checks: [],
+        author: 'qa',
+        checkedAt: '2026-09-20T10:00:00.000Z',
+      },
+      dryRunLoad: null,
+      author: 'qa',
+      date: '2026-09-20',
+    },
+  },
+  lastLoad: null,
+  lastVerify: null,
+};
+
+/**
+ * A pilot load's report: one object the target takes no insert of, and feed
+ * items a dataset extracted before their type was kept could not load.
+ */
+const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
+  status: 'completed-with-errors',
+  orgId: QA_SANDBOX.id,
+  mode: { pilot: true, reload: false },
+  startedAt: '2026-09-21T10:00:00.000Z',
+  durationMs: 7_000,
+  alignment: {
+    excludedObjects: [
+      {
+        objectApiName: 'RevenueTransactionErrorLog',
+        reason: 'Not createable in target org: 1 record of the dataset not loaded',
+      },
+    ],
+    removals: [],
+    adjustments: [],
+    recordTypeIssues: [],
+  },
+  placeholders: [],
+  requiredDefaults: [],
+  perObject: [
+    {
+      objectApiName: 'Opportunity',
+      fromFiles: 1,
+      inserted: 1,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [],
+    },
+  ],
+  pass2: { resolved: 0, unresolved: [] },
+  personContact: { restored: 0, unresolved: [] },
+  statuses: { restored: 0, refused: [] },
+  purge: { deleted: {}, deactivated: {}, failures: [] },
+  untypedFeedItems: [
+    { objectApiName: 'FeedItem', count: 2, note: '2 feed items left out' },
+    { objectApiName: 'FeedComment', count: 1, note: '1 left out' },
+  ],
+  mappingPath: '/home/qa/.sandforge-sas/referenceid-mapping.json',
+  contractPath: '/home/qa/.sandforge-sas/counting-contract.json',
+};
+
 /**
  * Assert zero axe violations, with a formatted error message on failure.
  */
@@ -3147,6 +3228,33 @@ for (const theme of STATE_THEMES) {
       await expect(
         page.getByTestId('frozen-extract-tab').locator('input[placeholder]'),
       ).toHaveCount(8);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset load report naming what the load did not send', async ({ page }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      // A frozen dataset to load: the run is offered once the status names one.
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      // An object the target takes no insert of, and feed items the dataset
+      // cannot type, beside the lines every report carries.
+      await answerAll(page, 'frozen:load', 'frozen:load:response', {
+        report: FROZEN_LOAD_REPORT_WITH_LEFT_OUT,
+      });
+      await page
+        .getByTestId('frozen-report-excluded')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-report-untyped-feed-items')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

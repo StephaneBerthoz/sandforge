@@ -2934,7 +2934,9 @@
       "errors": "Errors",
       "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored",
       "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
-      "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}"
+      "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
+      "excludedObjects": "Objects not loaded",
+      "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}"
     },
     "removal": {
       "title": "Last load",

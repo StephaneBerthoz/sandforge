@@ -2934,7 +2934,9 @@
       "errors": "Erros",
       "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos — PersonContact: {{personContact}} restaurados",
       "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}",
-      "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}"
+      "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
+      "excludedObjects": "Objetos não carregados",
+      "untypedFeedItems": "Deixados de fora no carregamento — o conjunto de dados não traz o tipo destes itens de feed, ou daqueles de que dependem, então uma alteração rastreada não se distingue de uma publicação; extraia novamente o conjunto de dados para carregá-los: {{objects}}"
     },
     "removal": {
       "title": "Última carga",

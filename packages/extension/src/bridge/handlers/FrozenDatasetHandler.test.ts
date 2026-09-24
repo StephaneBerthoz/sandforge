@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildFrozenManifest,
+  FrozenDatasetLoader,
   FrozenLoadCancelledError,
   serializeManifest,
   writeSelectionToSas,
@@ -489,100 +490,100 @@ describe('FrozenDatasetHandler', () => {
       expect(conn.sobject).not.toHaveBeenCalled();
     });
 
-    describe('audit trail', () => {
-      /** A frozen dataset of two accounts and one contact, in a sas outside any repo. */
-      function writeDataset(): { config: FrozenProjectConfig; sasDir: string } {
-        const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-audit-'));
-        tmpDirs.push(sasDir);
-        const datasetDir = path.join(sasDir, 'dataset');
-        fs.mkdirSync(path.join(datasetDir, 'data'), { recursive: true });
-        const manifest = buildFrozenManifest({
-          version: '1.2.0',
-          source: { orgId: '00D000000000002AAA', decisionDate: '2026-09-01' },
-          saltFingerprint: 'abcdef012345',
-          rulesVersion: '1.0.0',
-          volumetry: { budgetMax: 100, measured: {}, measuredAt: '2026-09-01T00:00:00.000Z' },
-          nonReidentification: {
-            passed: true,
-            checks: [],
-            author: 'qa',
-            checkedAt: '2026-09-01T00:00:00.000Z',
-          },
+    /** A frozen dataset of two accounts and one contact, in a sas outside any repo. */
+    function writeDataset(): { config: FrozenProjectConfig; sasDir: string } {
+      const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-audit-'));
+      tmpDirs.push(sasDir);
+      const datasetDir = path.join(sasDir, 'dataset');
+      fs.mkdirSync(path.join(datasetDir, 'data'), { recursive: true });
+      const manifest = buildFrozenManifest({
+        version: '1.2.0',
+        source: { orgId: '00D000000000002AAA', decisionDate: '2026-09-01' },
+        saltFingerprint: 'abcdef012345',
+        rulesVersion: '1.0.0',
+        volumetry: { budgetMax: 100, measured: {}, measuredAt: '2026-09-01T00:00:00.000Z' },
+        nonReidentification: {
+          passed: true,
+          checks: [],
           author: 'qa',
+          checkedAt: '2026-09-01T00:00:00.000Z',
+        },
+        author: 'qa',
+      });
+      fs.writeFileSync(path.join(datasetDir, 'manifest.json'), JSON.stringify(manifest));
+      const data = (objectApiName: string, ids: string[]) =>
+        JSON.stringify({
+          objectApiName,
+          records: ids.map((referenceId) => ({ referenceId, fields: { Name: referenceId } })),
         });
-        fs.writeFileSync(path.join(datasetDir, 'manifest.json'), JSON.stringify(manifest));
-        const data = (objectApiName: string, ids: string[]) =>
-          JSON.stringify({
-            objectApiName,
-            records: ids.map((referenceId) => ({ referenceId, fields: { Name: referenceId } })),
-          });
-        fs.writeFileSync(
-          path.join(datasetDir, 'data', 'Account.json'),
-          data('Account', ['A1', 'A2']),
-        );
-        fs.writeFileSync(path.join(datasetDir, 'data', 'Contact.json'), data('Contact', ['C1']));
-        return { config: { ...createMockConfig(), sasDir }, sasDir };
-      }
+      fs.writeFileSync(
+        path.join(datasetDir, 'data', 'Account.json'),
+        data('Account', ['A1', 'A2']),
+      );
+      fs.writeFileSync(path.join(datasetDir, 'data', 'Contact.json'), data('Contact', ['C1']));
+      return { config: { ...createMockConfig(), sasDir }, sasDir };
+    }
 
-      /** A report that inserted one account, reused one, and lost the contact. */
-      function report(): Record<string, unknown> {
-        return {
-          status: 'completed-with-errors',
-          orgId: 'org-2',
-          mode: { pilot: false, reload: true },
-          startedAt: '2026-09-02T00:00:00.000Z',
-          durationMs: 10,
-          alignment: {
-            objectResults: [],
-            excludedObjects: [],
-            removals: [],
-            adjustments: [],
-            recordTypeIssues: [],
+    /** A report that inserted one account, reused one, and lost the contact. */
+    function report(): Record<string, unknown> {
+      return {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-09-02T00:00:00.000Z',
+        durationMs: 10,
+        alignment: {
+          objectResults: [],
+          excludedObjects: [],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Account',
+            fromFiles: 2,
+            inserted: 1,
+            reused: 1,
+            skippedDuplicates: [],
+            failed: [],
           },
-          placeholders: [],
-          requiredDefaults: [],
-          perObject: [
-            {
-              objectApiName: 'Account',
-              fromFiles: 2,
-              inserted: 1,
-              reused: 1,
-              skippedDuplicates: [],
-              failed: [],
-            },
-            {
-              objectApiName: 'Contact',
-              fromFiles: 1,
-              inserted: 0,
-              reused: 0,
-              skippedDuplicates: [],
-              failed: [
-                { objectApiName: 'Contact', referenceId: 'C1', errors: ['REQUIRED_FIELD_MISSING'] },
-              ],
-            },
-          ],
-          pass2: { resolved: 0, unresolved: [] },
-          personContact: { restored: 0, unresolved: [] },
-          statuses: { restored: 0, refused: [] },
-          purge: { deleted: { Case: 3 }, deactivated: {}, failures: [] },
-          mappingPath: '',
-          contractPath: path.join(os.tmpdir(), 'no-such-contract.json'),
-        };
-      }
+          {
+            objectApiName: 'Contact',
+            fromFiles: 1,
+            inserted: 0,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [
+              { objectApiName: 'Contact', referenceId: 'C1', errors: ['REQUIRED_FIELD_MISSING'] },
+            ],
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        statuses: { restored: 0, refused: [] },
+        purge: { deleted: { Case: 3 }, deactivated: {}, failures: [] },
+        mappingPath: '',
+        contractPath: path.join(os.tmpdir(), 'no-such-contract.json'),
+      };
+    }
 
-      function wire(config: FrozenProjectConfig): ConfigStore {
-        const store = new ConfigStore(new InMemoryConfigStoreBackend());
-        store.initialize();
-        store.set('frozen:config', config, 'frozen');
-        deps = { ...createMockDeps(), configStore: store };
-        deps.infraServices = {
-          productionGuard: new ProductionGuard(),
-        } as unknown as NonNullable<HandlerDeps['infraServices']>;
-        vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
-        handler = new FrozenDatasetHandler(deps);
-        return store;
-      }
+    function wire(config: FrozenProjectConfig): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      store.set('frozen:config', config, 'frozen');
+      deps = { ...createMockDeps(), configStore: store };
+      deps.infraServices = {
+        productionGuard: new ProductionGuard(),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
+      handler = new FrozenDatasetHandler(deps);
+      return store;
+    }
 
+    describe('audit trail', () => {
       it('records a load once, counted per object from the mapping it persisted', async () => {
         const { config, sasDir } = writeDataset();
         const store = wire(config);
@@ -801,6 +802,35 @@ describe('FrozenDatasetHandler', () => {
 
           expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
         });
+      });
+    });
+
+    describe('the target, as the loader reads it', () => {
+      it('says which objects the target takes no insert of', async () => {
+        // The loader leaves such an object out by its describe. Dropped on the
+        // way, it read every object as insertable, and sent a quote's error
+        // log for the target to refuse.
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: async (name: string) => ({
+            name,
+            createable: name !== 'RevenueTransactionErrorLog',
+            fields: [],
+            recordTypeInfos: [],
+          }),
+        } as never);
+        loaderLoad.mockImplementation(async () => report());
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        const [{ orgAccess }] = vi.mocked(FrozenDatasetLoader).mock.calls[0];
+        await expect(orgAccess.describe('org-2', 'RevenueTransactionErrorLog')).resolves.toEqual(
+          expect.objectContaining({ createable: false }),
+        );
+        await expect(orgAccess.describe('org-2', 'Account')).resolves.toEqual(
+          expect.objectContaining({ createable: true }),
+        );
       });
     });
   });
@@ -1239,5 +1269,20 @@ describe('toLoadReportInfo', () => {
       leftToThePlatform,
     );
     expect(toLoadReportInfo(report)).not.toHaveProperty('leftToThePlatform');
+  });
+
+  it('hands the panel the feed items the load left out for a type the dataset does not carry', () => {
+    const untypedFeedItems = [
+      {
+        objectApiName: 'FeedItem',
+        count: 1,
+        note: '1 feed item left out: the dataset does not carry its type',
+      },
+    ];
+
+    expect(toLoadReportInfo({ ...report, untypedFeedItems }).untypedFeedItems).toEqual(
+      untypedFeedItems,
+    );
+    expect(toLoadReportInfo(report)).not.toHaveProperty('untypedFeedItems');
   });
 });

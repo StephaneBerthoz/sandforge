@@ -112,6 +112,19 @@ export class RowsLeftToThePlatform {
   private readonly byObject = new Map<string, Map<string, LeftOutGroup>>();
 
   /**
+   * @param rowsOf - Which rows are left out for what they are, before what
+   *   hangs from them: by default, those the platform writes itself. A load
+   *   of a frozen dataset also leaves out the feed items whose type the
+   *   dataset does not carry, which it cannot tell from those.
+   */
+  constructor(
+    private readonly rowsOf: (
+      objectApiName: string,
+      row: Record<string, unknown>,
+    ) => PlatformWrittenRows | undefined = writtenByThePlatform,
+  ) {}
+
+  /**
    * Why `row` is left to the platform, noted under `id` — or nothing, when a
    * copy may write it.
    *
@@ -178,7 +191,7 @@ export class RowsLeftToThePlatform {
     row: Record<string, unknown>,
     requiredLookups: readonly string[],
   ): LeftToThePlatform | undefined {
-    const rows = writtenByThePlatform(objectApiName, row);
+    const rows = this.rowsOf(objectApiName, row);
     if (rows) return { rows };
     for (const through of requiredLookups) {
       const value = row[through];

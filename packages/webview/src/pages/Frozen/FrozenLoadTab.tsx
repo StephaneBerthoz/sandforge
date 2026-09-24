@@ -313,6 +313,22 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 />
               </div>
 
+              {/* Each object the load did not send, and why: the target lacks it, or takes no insert of it. */}
+              {loadReport.alignment.excludedObjects.length > 0 && (
+                <div data-testid="frozen-report-excluded">
+                  <p className="text-[11px] text-text-secondary">
+                    {t('frozen.report.excludedObjects')}
+                  </p>
+                  <ul className="flex flex-col gap-0.5">
+                    {loadReport.alignment.excludedObjects.map((o) => (
+                      <li key={o.objectApiName} className="text-[11px] text-text-secondary">
+                        {o.objectApiName}: {o.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {removalRows.length > 0 && (
                 <div data-testid="frozen-report-removals">
                   <span className="text-xs font-medium text-text-primary">
@@ -386,6 +402,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 >
                   {t('frozen.report.leftToThePlatform', {
                     objects: (loadReport.leftToThePlatform ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* Never sent either: a dataset extracted before feed items kept their type. */}
+              {(loadReport.untypedFeedItems?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-report-untyped-feed-items"
+                >
+                  {t('frozen.report.untypedFeedItems', {
+                    objects: (loadReport.untypedFeedItems ?? [])
                       .map((left) => `${left.objectApiName} (${left.count})`)
                       .join(', '),
                   })}

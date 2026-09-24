@@ -291,4 +291,47 @@ describe('SchemaAligner — required fields', () => {
     );
     expect(result.missingRequired).toEqual([]);
   });
+
+  describe('of records the load only links', () => {
+    const aligner = new SchemaAligner({
+      query: vi.fn(),
+      describe: vi.fn(),
+      picklistValues: vi.fn(),
+    });
+    const describe = makeDescribe([field({ name: 'Name', nillable: false })]);
+
+    it('flags nothing when the load writes none of them', async () => {
+      // A selling model found by its key is never sent: the name the rules
+      // cleared on it is nothing an insert will miss.
+      const result = await aligner.alignObject(
+        makeInput({
+          records: [{ referenceId: 'Model-000001', fields: { Name: '' } }],
+          describe,
+          linked: new Set(['Model-000001']),
+        }),
+      );
+
+      expect(result.alignedRecords).toEqual([{ Name: '' }]);
+      expect(result.missingRequired).toEqual([]);
+    });
+
+    it('does not count one of them as carrying the field for the records it writes', async () => {
+      // The standard book keeps its name; the custom book the load writes has
+      // none, and goes to the target without it unless one is declared.
+      const result = await aligner.alignObject(
+        makeInput({
+          records: [
+            { referenceId: 'Book-000001', fields: { Name: 'Standard' } },
+            { referenceId: 'Book-000002', fields: { Name: '' } },
+          ],
+          describe,
+          linked: new Set(['Book-000001']),
+        }),
+      );
+
+      expect(result.missingRequired).toEqual([
+        { objectApiName: 'Contact', field: 'Name', isLookup: false, referenceTo: [] },
+      ]);
+    });
+  });
 });

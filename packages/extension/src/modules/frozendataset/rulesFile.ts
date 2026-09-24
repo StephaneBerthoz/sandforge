@@ -1,13 +1,13 @@
 /**
  * Pseudonymization rules file — the single source of truth mapping
- * `Object.Field` → generator. No rule is hard-coded in the
- * engine: a field without a rule falls back to the `clear` default so no
- * clear-text ever leaks into the frozen dataset.
+ * `Object.Field` → generator. A field without a rule falls back to the
+ * `clear` default so no clear-text ever leaks into the frozen dataset — all
+ * but the few in {@link KEPT_WITHOUT_A_RULE}, which hold the platform's own
+ * words and no one's data, and which a load cannot do without.
  *
  * The file is versioned JSON (`rulesVersion`, semver). A `keep` rule is
  * only honored when it carries `approved: true`, which a human sets after
- * explicit review: keeping a field in clear text is never the default and
- * never automatic.
+ * explicit review: keeping a field in clear text is never automatic.
  */
 
 import { PSEUDONYM_GENERATORS, type PseudonymGenerator } from './DeterministicPseudonymizer.js';
@@ -128,13 +128,27 @@ export function serializePseudonymRules(file: PseudonymRulesFile): string {
 }
 
 /**
+ * Fields kept, not cleared, when the rules name no generator for them.
+ *
+ * The type of a feed item is one of the platform's own words — a post, a
+ * link, a tracked change — and says whether the platform writes the row
+ * itself: a load that cannot read it cannot tell a tracked change, which the
+ * platform refuses from a copy, from a post. Cleared by default, the tracked
+ * change of a real dataset went out untyped, and the target refused it for
+ * its missing body. A rule the file declares still wins.
+ */
+const KEPT_WITHOUT_A_RULE: ReadonlySet<string> = new Set(['FeedItem.Type']);
+
+/**
  * Resolve the effective generator for `objectApiName.fieldApiName`.
- * Fields without a rule default to `clear` — never clear-text.
+ * Fields without a rule default to `clear` — never clear-text — except
+ * those of {@link KEPT_WITHOUT_A_RULE}, kept.
  */
 export function resolveGenerator(
   rules: PseudonymRulesFile,
   objectApiName: string,
   fieldApiName: string,
 ): PseudonymGenerator {
-  return rules.rules[`${objectApiName}.${fieldApiName}`]?.generator ?? 'clear';
+  const key = `${objectApiName}.${fieldApiName}`;
+  return rules.rules[key]?.generator ?? (KEPT_WITHOUT_A_RULE.has(key) ? 'keep' : 'clear');
 }

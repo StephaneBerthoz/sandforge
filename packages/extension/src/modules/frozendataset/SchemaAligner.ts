@@ -12,8 +12,8 @@
  *     to describe, only the UI API `picklist-values/{recordTypeId}/{field}`
  *     sees it. Rejected values follow the same declared rule and are
  *     listed with scope 'record-type';
- *   - required fields missing from EVERY record (a lookup turned
- *     required after the source data was created) are
+ *   - required fields missing from EVERY record the load writes (a lookup
+ *     turned required after the source data was created) are
  *     reported for the placeholder pattern; records are never dropped.
  */
 
@@ -39,6 +39,13 @@ export interface SchemaAlignObjectInput {
   resolvedRecordTypes: ReadonlyMap<string, string>;
   /** Declared picklist rule lookup (`Object.field` specific, else default). */
   ruleFor: (objectApiName: string, field: string) => PicklistRule;
+  /**
+   * The records, by referenceId, the load links to what the target already
+   * holds and never writes: the standard price book, a selling model found by
+   * its natural key, a record a reload reuses. Aligned like the others; left
+   * out of the required-field check, which is about what an insert sends.
+   */
+  linked?: ReadonlySet<string>;
 }
 
 /**
@@ -112,24 +119,32 @@ export class SchemaAligner {
 
   /**
    * Required-at-insert fields (createable, non-nillable, no platform
-   * default) absent from every record. Reported for the placeholder
-   * pattern — partial presence is left to per-record DML outcomes.
+   * default) absent from every record the load writes. Reported for the
+   * placeholder pattern — partial presence is left to per-record DML
+   * outcomes.
    */
   private detectMissingRequired(
     input: SchemaAlignObjectInput,
     alignedRecords: Array<Record<string, unknown>>,
   ): MissingRequiredField[] {
+    // A record the load only links is never sent, so what an insert requires
+    // says nothing of it. Checked with the others, the selling model a load
+    // found by its key made it ask for a default for the name the rules had
+    // cleared — and refuse to write anything until one was declared.
+    const written = alignedRecords.filter(
+      (_, i) => !input.linked?.has(input.records[i].referenceId),
+    );
     // "Absent from every record" is only a finding when there is a record.
     // With none, every required field of the object qualified, and the load
     // asked for a default — or created a placeholder in the target — for an
     // object it had nothing to write to.
-    if (alignedRecords.length === 0) return [];
+    if (written.length === 0) return [];
     const missing: MissingRequiredField[] = [];
     for (const fd of input.describe.fields) {
       if (!fd.createable || fd.nillable || fd.defaultedOnCreate) {
         continue;
       }
-      const present = alignedRecords.some((r) => {
+      const present = written.some((r) => {
         const v = r[fd.name];
         return v !== undefined && v !== null && v !== '';
       });

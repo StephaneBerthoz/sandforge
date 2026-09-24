@@ -332,6 +332,85 @@ describe('FrozenPage', () => {
     expect(leftOut.textContent).toContain('FeedItem (2), FeedComment (1)');
   });
 
+  it('names each object the load did not send, and why', () => {
+    // An object the target takes no insert of makes the load one with errors;
+    // with no failed record to show, the report said nothing of which.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: true, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: {
+          excludedObjects: [
+            {
+              objectApiName: 'RevenueTransactionErrorLog',
+              reason: 'Not createable in target org: 1 record of the dataset not loaded',
+            },
+          ],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const excluded = screen.getByTestId('frozen-report-excluded');
+    expect(excluded.textContent).toContain('Objects not loaded');
+    expect(excluded.textContent).toContain(
+      'RevenueTransactionErrorLog: Not createable in target org: 1 record of the dataset not loaded',
+    );
+  });
+
+  it('says which feed items a dataset without their type could not load, and to extract it again', () => {
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: {
+          excludedObjects: [],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        untypedFeedItems: [
+          { objectApiName: 'FeedItem', count: 3, note: '3 feed items left out' },
+          { objectApiName: 'FeedComment', count: 1, note: '1 left out' },
+        ],
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const untyped = screen.getByTestId('frozen-report-untyped-feed-items');
+    expect(untyped.textContent).toContain('extract the dataset again');
+    expect(untyped.textContent).toContain('FeedItem (3), FeedComment (1)');
+    expect(screen.queryByTestId('frozen-report-left-to-the-platform')).toBeNull();
+    expect(screen.queryByTestId('frozen-report-excluded')).toBeNull();
+  });
+
   it('renders the load report with removals and skipped duplicates', () => {
     useFrozenStore.setState({
       tab: 'load',

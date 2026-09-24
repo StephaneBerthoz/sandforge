@@ -121,6 +121,33 @@ describe('RowsLeftToThePlatform', () => {
     expect(left.counts('Task')).toEqual([]);
   });
 
+  it('leaves out the rows it is told to instead, and what hangs from them', () => {
+    // A load of a frozen dataset cannot tell a feed item whose type the
+    // dataset lost from a tracked change: it leaves those out, the same way.
+    const UNTYPED = { field: 'Type', value: '', noun: 'untyped feed item' };
+    const left = new RowsLeftToThePlatform((objectApiName, row) =>
+      objectApiName === 'FeedItem' && !row['Type'] ? UNTYPED : undefined,
+    );
+
+    expect(
+      left.keep('FeedItem', [
+        { Id: '0D5UNTYPED', Type: '' },
+        { Id: '0D5POST', Type: 'TextPost' },
+        { Id: '0D5CHANGE', Type: 'TrackedChange' },
+      ]),
+    ).toEqual([
+      { Id: '0D5POST', Type: 'TextPost' },
+      { Id: '0D5CHANGE', Type: 'TrackedChange' },
+    ]);
+    expect(
+      left.keep('FeedComment', [{ Id: '0D7ON', FeedItemId: '0D5UNTYPED' }], ['FeedItemId']),
+    ).toEqual([]);
+    expect(left.counts()).toEqual([
+      { objectApiName: 'FeedItem', why: { rows: UNTYPED }, count: 1 },
+      { objectApiName: 'FeedComment', why: { rows: UNTYPED, through: 'FeedItemId' }, count: 1 },
+    ]);
+  });
+
   it('notes a row under the id it is given, when the row carries none of its own', () => {
     const left = new RowsLeftToThePlatform();
 

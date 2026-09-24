@@ -338,6 +338,7 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
     statuses: report.statuses,
     purge: report.purge,
     ...(report.leftToThePlatform ? { leftToThePlatform: report.leftToThePlatform } : {}),
+    ...(report.untypedFeedItems ? { untypedFeedItems: report.untypedFeedItems } : {}),
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
   };
@@ -784,6 +785,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         const meta = await conn.describe(objectApiName);
         return {
           name: meta.name,
+          // What the load reads to leave out an object the target takes no
+          // insert of, instead of sending its records to be refused.
+          createable: meta.createable,
           fields: meta.fields.map((f) => ({
             name: f.name,
             type: f.type,

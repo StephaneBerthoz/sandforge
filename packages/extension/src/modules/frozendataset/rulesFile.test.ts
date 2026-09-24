@@ -82,6 +82,24 @@ describe('resolveGenerator', () => {
     });
     expect(resolveGenerator(file, 'Contact', 'Email')).toBe('email');
   });
+
+  it("keeps a feed item's type when no rule names it, and only that field", () => {
+    // Cleared, a load cannot tell a tracked change from a post: the tracked
+    // change of a real dataset went out untyped and was refused.
+    const file = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+
+    expect(resolveGenerator(file, 'FeedItem', 'Type')).toBe('keep');
+    expect(resolveGenerator(file, 'FeedItem', 'Body')).toBe('clear');
+    expect(resolveGenerator(file, 'Task', 'Type')).toBe('clear');
+  });
+
+  it("lets a declared rule on a feed item's type win", () => {
+    const file = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'FeedItem.Type': { generator: 'clear' } },
+    });
+    expect(resolveGenerator(file, 'FeedItem', 'Type')).toBe('clear');
+  });
 });
 
 describe('serializePseudonymRules', () => {

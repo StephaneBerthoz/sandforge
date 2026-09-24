@@ -35,6 +35,12 @@ export interface TargetFieldDescribe {
 /** Minimal target-org object describe consumed by the load phase. */
 export interface TargetObjectDescribe {
   name: string;
+  /**
+   * Whether the running user may insert records of the object. False for one
+   * the target keeps to itself — an error log of its pricing runs — or keeps
+   * from that user; absent, taken as true.
+   */
+  createable?: boolean;
   fields: TargetFieldDescribe[];
   /**
    * Record types as the running user sees them. `available` is false for one
@@ -341,6 +347,13 @@ export interface FrozenLoadReport {
    * change — or they cannot go in without one it does. Absent when none was.
    */
   leftToThePlatform?: FrozenLeftToThePlatform[];
+  /**
+   * Records the dataset carries and the load left out, by object, because the
+   * dataset does not carry a feed item's type — a dataset extracted before
+   * 1.38.2, whose rules cleared it — or they cannot go in without such a feed
+   * item. Extracted again, the dataset loads them. Absent when none was.
+   */
+  untypedFeedItems?: FrozenLeftToThePlatform[];
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */

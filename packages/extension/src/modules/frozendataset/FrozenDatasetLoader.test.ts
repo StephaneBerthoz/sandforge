@@ -14,6 +14,7 @@ import {
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
 import { LoadGuardError } from './LoadGuards.js';
+import { standardPriceIds } from '../../core/common/platformRecords.js';
 import type { FrozenDataset } from './types.js';
 import type {
   FrozenDmlWriter,
@@ -21,6 +22,15 @@ import type {
   TargetFieldDescribe,
   TargetObjectDescribe,
 } from './loadTypes.js';
+
+/**
+ * The shared rules of the platform's records, as they are, with the one that
+ * tells standard prices apart watched: the purge asks it, not a copy of it.
+ */
+vi.mock('../../core/common/platformRecords.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/common/platformRecords.js')>();
+  return { ...actual, standardPriceIds: vi.fn(actual.standardPriceIds) };
+});
 
 const repoRoot = findRepoRoot(process.cwd());
 const tmpDirs: string[] = [];
@@ -312,6 +322,98 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contract.objects.Contact).toBeUndefined();
   });
 
+  it('sends nothing of an object the target takes no insert of, and says the load had errors', async () => {
+    // Run for real, the error log a quote had went to the target, which
+    // refused it: "entity type cannot be inserted". Its describe said so.
+    const dataset = makeAccountContactDataset();
+    dataset.objects.push({
+      objectApiName: 'RevenueTransactionErrorLog',
+      records: [
+        {
+          referenceId: 'RevenueTransactionErrorLog-000001',
+          fields: { PrimaryRecordId: 'Account-000001', ErrorMessage: 'pricing failed' },
+        },
+      ],
+    });
+    const describes = describeFromDataset(dataset);
+    describes.RevenueTransactionErrorLog.createable = false;
+    const calls: DmlCall[] = [];
+    const progress: Array<{ objectName?: string; status: string; message: string }> = [];
+    const deps = makeDeps({ dataset, describes, writer: makeWriter(calls) });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(calls.map((c) => c.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(report.alignment.excludedObjects).toEqual([
+      {
+        objectApiName: 'RevenueTransactionErrorLog',
+        reason: 'Not createable in target org: 1 record of the dataset not loaded',
+      },
+    ]);
+    expect(report.status).toBe('completed-with-errors');
+    expect(progress).toContainEqual(
+      expect.objectContaining({ objectName: 'RevenueTransactionErrorLog', status: 'error' }),
+    );
+    const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
+    expect(contract.objects.RevenueTransactionErrorLog).toBeUndefined();
+  });
+
+  it('counts no error for an object the target takes no insert of when it only links its records', async () => {
+    // A running user who may not create price books still loads prices into
+    // the standard one, which the load matches and never writes.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [{ referenceId: 'Pricebook2-000001', fields: { Name: 'Standard' } }],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [{ referenceId: 'Product2-000001', fields: { Name: 'A' } }],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            {
+              referenceId: 'PricebookEntry-000001',
+              fields: {
+                Pricebook2Id: 'Pricebook2-000001',
+                Product2Id: 'Product2-000001',
+                UnitPrice: 10,
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000001',
+    };
+    const describes = describeFromDataset(dataset);
+    describes.Pricebook2.createable = false;
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes,
+      writer: makeWriter(calls),
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01sTARGETSTANDARD' }] : [],
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(report.status).toBe('completed');
+    expect(report.alignment.excludedObjects).toEqual([]);
+    expect(calls.map((c) => c.objectApiName)).toEqual(['Product2', 'PricebookEntry']);
+    expect(report.perObject.find((o) => o.objectApiName === 'Pricebook2')).toMatchObject({
+      inserted: 0,
+      reused: 1,
+    });
+  });
+
   it('leaves out what the dataset cleared, so the target applies its own default', async () => {
     // '' is how the `clear` generator marks a removed value. Sent as-is, the
     // target read it as a value: an owner "cannot be blank".
@@ -596,6 +698,101 @@ describe('FrozenDatasetLoader — required fields the dataset leaves empty', () 
       /record type Missing_RT is not on Account/,
     );
     expect(calls).toEqual([]);
+  });
+
+  describe('of the records it only links', () => {
+    /**
+     * Two price books, the standard one the load matches and one it writes,
+     * and a selling model the target already holds under its key — each with
+     * the name the rules cleared.
+     */
+    function linkedDataset(): FrozenDataset {
+      return {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Pricebook2',
+            records: [
+              { referenceId: 'Pricebook2-000001', fields: { Name: '' } },
+              { referenceId: 'Pricebook2-000002', fields: { Name: '' } },
+            ],
+          },
+          {
+            objectApiName: 'ProductSellingModel',
+            records: [
+              {
+                referenceId: 'ProductSellingModel-000001',
+                fields: {
+                  Name: '',
+                  SellingModelType: 'OneTime',
+                  PricingTerm: null,
+                  PricingTermUnit: null,
+                },
+              },
+            ],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+        standardPricebook: 'Pricebook2-000001',
+      };
+    }
+
+    /** The target: both objects want a name, and it holds the book and the model. */
+    function linkingTarget(dataset: FrozenDataset) {
+      const describes = describeFromDataset(dataset);
+      for (const describe of Object.values(describes)) {
+        describe.fields = describe.fields.map((f) =>
+          f.name === 'Name' ? { ...f, nillable: false } : f,
+        );
+      }
+      const queryImpl = async (_org: string, soql: string) => {
+        if (soql.includes('IsStandard = true')) return [{ Id: '01sTARGETSTANDARD' }];
+        if (soql.includes('FROM ProductSellingModel WHERE')) return [{ Id: '0jPTARGETONETIME' }];
+        return [];
+      };
+      return { describes, queryImpl };
+    }
+
+    it('asks no default for a field the rules cleared on a record it never writes', async () => {
+      // Asked, the load refused to write anything until a name was declared
+      // for a selling model it only links.
+      const dataset = linkedDataset();
+      dataset.objects = dataset.objects.filter((o) => o.objectApiName === 'ProductSellingModel');
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls), ...linkingTarget(dataset) });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(report.status).toBe('completed');
+      expect(report.requiredDefaults).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(report.perObject.find((o) => o.objectApiName === 'ProductSellingModel')).toMatchObject(
+        { inserted: 0, reused: 1 },
+      );
+    });
+
+    it('asks it for the records it writes, and fills only those', async () => {
+      // The standard book is matched, the other one written: its name is what
+      // the default is for, and the report counts the one record it went into.
+      const dataset = linkedDataset();
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: makeWriter(calls),
+        ...linkingTarget(dataset),
+        config: { requiredFieldDefaults: { 'Pricebook2.Name': 'Loaded book' } },
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(report.requiredDefaults).toEqual([
+        { objectApiName: 'Pricebook2', field: 'Name', value: 'Loaded book', affectedRecords: 1 },
+      ]);
+      expect(calls.map((c) => [c.objectApiName, c.payload])).toEqual([
+        ['Pricebook2', [{ Name: 'Loaded book' }]],
+      ]);
+    });
   });
 });
 
@@ -1531,6 +1728,12 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     const deletes = calls.filter((c) => c.op === 'delete' && c.objectApiName === 'PricebookEntry');
     expect(deletes.map((c) => c.payload)).toEqual([['01uCUSTOM'], ['01uSTANDARD']]);
     expect(report.purge.deleted).toMatchObject({ PricebookEntry: 2 });
+    // Told apart by the rule Forge's removal reads too, so a fix to it
+    // reaches both: the purge used to carry a copy of it.
+    expect(standardPriceIds).toHaveBeenCalledWith(expect.any(Function), [
+      '01uSTANDARD',
+      '01uCUSTOM',
+    ]);
   });
 
   it('leaves a direct relation to go with its contact', async () => {
@@ -1688,6 +1891,154 @@ describe('FrozenDatasetLoader — pilot mode', () => {
     expect(contract.objects.Case.fromFiles).toBe(1);
     expect(contract.objects.Contact.fromFiles).toBe(1);
     expect(contract.objects.Asset.fromFiles).toBe(1);
+  });
+
+  it("carries what the folder's prices need, which none of its records points at", async () => {
+    // A line names its custom price. The standard price of its product under
+    // its model, and the option that lets the product be sold under it, are
+    // named by nothing: left out, the pilot sent its prices without either,
+    // and the platform refuses such a price.
+    const price = (referenceId: string, book: string, product: string, unitPrice: number) => ({
+      referenceId,
+      fields: {
+        Pricebook2Id: book,
+        Product2Id: product,
+        ProductSellingModelId: 'ProductSellingModel-000001',
+        UnitPrice: unitPrice,
+      },
+    });
+    const option = (referenceId: string, product: string) => ({
+      referenceId,
+      fields: { Product2Id: product, ProductSellingModelId: 'ProductSellingModel-000001' },
+    });
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Opportunity',
+          records: [
+            { referenceId: 'Opportunity-000001', fields: { Name: 'Pilot' } },
+            { referenceId: 'Opportunity-000002', fields: { Name: 'Other' } },
+          ],
+        },
+        {
+          objectApiName: 'OpportunityLineItem',
+          records: [
+            {
+              referenceId: 'OpportunityLineItem-000001',
+              fields: {
+                OpportunityId: 'Opportunity-000001',
+                PricebookEntryId: 'PricebookEntry-000001',
+              },
+            },
+            {
+              referenceId: 'OpportunityLineItem-000002',
+              fields: {
+                OpportunityId: 'Opportunity-000002',
+                PricebookEntryId: 'PricebookEntry-000002',
+              },
+            },
+          ],
+        },
+        {
+          objectApiName: 'Pricebook2',
+          records: [
+            { referenceId: 'Pricebook2-000001', fields: { Name: 'Resellers' } },
+            { referenceId: 'Pricebook2-000002', fields: { Name: 'Standard' } },
+          ],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [
+            { referenceId: 'Product2-000001', fields: { Name: 'Sold in the pilot' } },
+            { referenceId: 'Product2-000002', fields: { Name: 'Sold elsewhere' } },
+          ],
+        },
+        {
+          objectApiName: 'ProductSellingModel',
+          records: [
+            {
+              referenceId: 'ProductSellingModel-000001',
+              fields: { Name: 'One-time', SellingModelType: 'OneTime' },
+            },
+          ],
+        },
+        {
+          objectApiName: 'ProductSellingModelOption',
+          records: [
+            option('ProductSellingModelOption-000001', 'Product2-000001'),
+            option('ProductSellingModelOption-000002', 'Product2-000002'),
+          ],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            price('PricebookEntry-000001', 'Pricebook2-000001', 'Product2-000001', 9),
+            price('PricebookEntry-000002', 'Pricebook2-000001', 'Product2-000002', 19),
+            price('PricebookEntry-000003', 'Pricebook2-000002', 'Product2-000001', 10),
+            price('PricebookEntry-000004', 'Pricebook2-000002', 'Product2-000002', 20),
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000002',
+    };
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      config: { rootObjectApiName: 'Opportunity' },
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01sTARGETSTANDARD' }] : [],
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { pilot: { rootReferenceId: 'Opportunity-000001' } }),
+    );
+
+    const sent = (objectApiName: string) =>
+      calls
+        .filter((c) => c.op === 'insert' && c.objectApiName === objectApiName)
+        .map((c) => c.payload as Array<Record<string, unknown>>);
+    const mapping = await new SasReferenceIdMappingStore(deps.sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).load();
+    const product = mapping.get('Product2-000001');
+    const model = mapping.get('ProductSellingModel-000001');
+    // The standard price first, in a call of its own, then the custom one.
+    expect(sent('PricebookEntry')).toEqual([
+      [
+        {
+          Pricebook2Id: '01sTARGETSTANDARD',
+          Product2Id: product,
+          ProductSellingModelId: model,
+          UnitPrice: 10,
+        },
+      ],
+      [
+        {
+          Pricebook2Id: mapping.get('Pricebook2-000001'),
+          Product2Id: product,
+          ProductSellingModelId: model,
+          UnitPrice: 9,
+        },
+      ],
+    ]);
+    expect(sent('ProductSellingModelOption')).toEqual([
+      [{ Product2Id: product, ProductSellingModelId: model }],
+    ]);
+    // The standard book is matched, never written; nothing of the other folder comes.
+    expect(mapping.get('Pricebook2-000002')).toBe('01sTARGETSTANDARD');
+    expect(sent('Pricebook2')).toEqual([[{ Name: 'Resellers' }]]);
+    expect(sent('Product2')).toEqual([[{ Name: 'Sold in the pilot' }]]);
+    expect(sent('Opportunity')).toEqual([[{ Name: 'Pilot' }]]);
+    expect(report.perObject.find((o) => o.objectApiName === 'Pricebook2')).toMatchObject({
+      fromFiles: 2,
+      inserted: 1,
+      reused: 1,
+    });
+    expect(report.status).toBe('completed');
   });
 
   it('requires a root object configuration for pilot mode', async () => {
@@ -2048,6 +2399,95 @@ describe('FrozenDatasetLoader — a feed item the platform writes itself', () =>
       excluded: 1,
       added: 0,
       expected: 0,
+    });
+  });
+
+  describe('in a dataset that does not carry their type', () => {
+    /**
+     * As extracted before 1.38.2: the rules cleared the type of every feed
+     * item — the tracked change's among them — or the extraction left it out.
+     */
+    function untypedDataset(): FrozenDataset {
+      const dataset = feedDataset();
+      const [post, change] = dataset.objects[1].records;
+      post.fields.Type = '';
+      delete change.fields.Type;
+      return dataset;
+    }
+
+    it('leaves those feed items out, and what hangs from them, and says to extract it again', async () => {
+      // Sent untyped, a feed item goes in as a post, and the tracked change
+      // was refused as one: "Required fields are missing: [Body]".
+      const dataset = untypedDataset();
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes: describesOf(dataset),
+        writer: makeWriter(calls),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(insertedOf(calls, 'FeedItem')).toEqual([]);
+      expect(insertedOf(calls, 'FeedComment')).toEqual([]);
+      expect(insertedOf(calls, 'Opportunity')).toEqual([{ Name: 'Deal' }]);
+      expect(report.untypedFeedItems).toEqual([
+        {
+          objectApiName: 'FeedItem',
+          count: 2,
+          note:
+            '2 feed items left out: the dataset does not carry their type, and a tracked ' +
+            'change cannot be told from a post — extract the dataset again, with rules that ' +
+            'keep FeedItem.Type',
+        },
+        {
+          objectApiName: 'FeedComment',
+          count: 2,
+          note:
+            '2 left out: FeedItemId names a feed item whose type the dataset does not carry ' +
+            '— extract the dataset again, with rules that keep FeedItem.Type',
+        },
+      ]);
+      expect(report).not.toHaveProperty('leftToThePlatform');
+      // Left out before anything is asked of them: what the target requires
+      // of a feed item never sent is nothing the load should ask a default for.
+      expect(deps.orgAccess.describe).not.toHaveBeenCalledWith('00D-target', 'FeedItem');
+      const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
+      expect(contract.objects['FeedItem']).toEqual({
+        fromFiles: 2,
+        exclusionReasons: { 'untyped-feed-item': 2 },
+        excluded: 2,
+        added: 0,
+        expected: 0,
+      });
+      expect(contract.objects['FeedComment']).toEqual({
+        fromFiles: 2,
+        exclusionReasons: { 'untyped-feed-item': 2 },
+        excluded: 2,
+        added: 0,
+        expected: 0,
+      });
+    });
+
+    it('still sends the feed items whose type it carries', async () => {
+      const dataset = untypedDataset();
+      dataset.objects[1].records[0].fields.Type = 'TextPost';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes: describesOf(dataset),
+        writer: makeWriter(calls),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(insertedOf(calls, 'FeedItem').map((r) => r.Body)).toEqual(['Kick-off']);
+      expect(insertedOf(calls, 'FeedComment').map((r) => r.CommentBody)).toEqual(['On the post']);
+      expect(report.untypedFeedItems?.map((left) => [left.objectApiName, left.count])).toEqual([
+        ['FeedItem', 1],
+        ['FeedComment', 1],
+      ]);
+      expect(report.status).toBe('completed');
     });
   });
 });

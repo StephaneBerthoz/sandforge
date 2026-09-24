@@ -10,7 +10,8 @@
  *   3. in-scope lookup values (source IDs of extracted records) are
  *      replaced by the target record's `referenceId`;
  *   4. every other field goes through its rules-file generator, default
- *      `clear` — never clear-text;
+ *      `clear` — never clear-text, but for the platform's own words a load
+ *      needs, such as a feed item's type (`resolveGenerator`);
  *   5. **dead-ID sweep**: any remaining string validating the Salesforce
  *      18-char checksum is emptied (the reliable discriminant — it catches
  *      RecordType IDs of other pods and IDs pasted into free-text fields).
@@ -156,7 +157,7 @@ export class FrozenDatasetAnonymizer {
           continue;
         }
       }
-      // Step 4 — rules-file generator, default clear.
+      // Step 4 — rules-file generator, default clear (see resolveGenerator).
       const generator = resolveGenerator(rules, objectApiName, field);
       out[field] = pseudonymizer.pseudonymize(generator, value);
     }

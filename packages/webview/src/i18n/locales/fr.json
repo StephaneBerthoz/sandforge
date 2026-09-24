@@ -2934,7 +2934,9 @@
       "errors": "Erreurs",
       "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus — PersonContact : {{personContact}} restaurés",
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
-      "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}"
+      "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
+      "excludedObjects": "Objets non chargés",
+      "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}"
     },
     "removal": {
       "title": "Dernier chargement",
