@@ -12,7 +12,11 @@ import {
   type FrozenExtractionOptions,
 } from './FrozenDatasetExtractor.js';
 import { InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
+import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
+import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
+import { parsePseudonymRules } from './rulesFile.js';
 import { to18 } from './salesforceId.js';
+import type { ExtractedDataset } from './types.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 const tmpDirs: string[] = [];
@@ -390,7 +394,10 @@ describe('FrozenDatasetExtractor — prices', () => {
         if (soql.includes('FROM Pricebook2')) {
           return [{ attributes: { type: 'Pricebook2' }, Id: STANDARD, Name: 'Standard' }];
         }
-        if (soql.includes('FROM PricebookEntry') && soql.includes(`Pricebook2Id = '${STANDARD}'`)) {
+        if (
+          soql.includes('FROM PricebookEntry') &&
+          soql.includes(`Pricebook2Id IN ('${STANDARD}')`)
+        ) {
           return [
             {
               attributes: { type: 'PricebookEntry' },
@@ -466,7 +473,7 @@ describe('FrozenDatasetExtractor — prices', () => {
       STANDARD,
     );
     // Asked for the products the custom prices price — and only those.
-    const standardRead = queries.find((q) => q.includes(`Pricebook2Id = '${STANDARD}'`));
+    const standardRead = queries.find((q) => q.includes(`Pricebook2Id IN ('${STANDARD}')`));
     expect(standardRead).toContain(`Product2Id IN ('${PRODUCT_A}')`);
     expect(standardRead).toContain('CreatedDate <=');
     // jsforce's envelope is not a field.
@@ -696,5 +703,500 @@ describe('FrozenDatasetExtractor — a required lookup at an object it never rea
 
     const contacts = dataset.objects.find((o) => o.objectApiName === 'Contact')?.records;
     expect(contacts?.map((r) => r.sourceId)).toEqual([CONTACT_1, CONTACT_2]);
+  });
+});
+
+const id: ScopableField = { name: 'Id', type: 'id', referenceTo: [] };
+
+function lookup(name: string, to: string[], nillable = true): ScopableField {
+  return { name, type: 'reference', referenceTo: to, nillable };
+}
+
+function edge(sourceObject: string, targetObject: string, relationshipName: string) {
+  return { sourceObject, targetObject, relationshipName, type: 'lookup' as const };
+}
+
+function graphOf(nodes: ForgeGraphNode[], edges: ForgeGraph['edges']): ForgeGraph {
+  return { nodes, edges, totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0 };
+}
+
+/** An extractor reading a source org in miniature (`selectRows`). */
+function extractorOver(
+  tables: Record<string, FakeRow[]>,
+  fields: Record<string, ScopableField[]>,
+): FrozenDatasetExtractor {
+  return new FrozenDatasetExtractor({
+    query: async (soql) => (soql.includes('FROM RecordType') ? [] : selectRows(tables, soql)),
+    describeFields: async (objectApiName) => fields[objectApiName] ?? [id],
+  });
+}
+
+function sourceIdsOf(dataset: ExtractedDataset, objectApiName: string): string[] {
+  return (
+    dataset.objects
+      .find((o) => o.objectApiName === objectApiName)
+      ?.records.map((r) => r.sourceId) ?? []
+  );
+}
+
+describe('FrozenDatasetExtractor — an object reached two ways', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const ACCOUNT = to18('001A00000000acc');
+  const OTHER_ACCOUNT = to18('001A00000000oth');
+  const NAMED_CONTACT = to18('003A00000000nam');
+  const SIBLING_CONTACT = to18('003A00000000sib');
+  const STRANGER_CONTACT = to18('003A00000000str');
+  const FEED_ITEM = to18('0D5A00000000fee');
+  const FIRST_ORDER = to18('801A00000000or1');
+  const SECOND_ORDER = to18('801A00000000or2');
+  const OTHER_ORDER = to18('801A00000000or3');
+
+  it('reads the contacts of the account as well as the one the opportunity names', async () => {
+    // The opportunity's contact lookup put one contact in scope before
+    // Contact was read, and read by that id alone, the account's other
+    // contacts were never asked for.
+    const dir = makeTmpDir();
+    const extractor = extractorOver(
+      {
+        Opportunity: [{ Id: OPPORTUNITY, AccountId: ACCOUNT, ContactId: NAMED_CONTACT }],
+        Account: [{ Id: ACCOUNT }, { Id: OTHER_ACCOUNT }],
+        Contact: [
+          { Id: NAMED_CONTACT, AccountId: ACCOUNT },
+          { Id: SIBLING_CONTACT, AccountId: ACCOUNT },
+          { Id: STRANGER_CONTACT, AccountId: OTHER_ACCOUNT },
+        ],
+      },
+      {
+        Opportunity: [id, lookup('AccountId', ['Account']), lookup('ContactId', ['Contact'])],
+        Contact: [id, lookup('AccountId', ['Account'])],
+      },
+    );
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [makeNode('Opportunity', 0), makeNode('Account', 1), makeNode('Contact', 2)],
+        [
+          edge('Account', 'Opportunity', 'Opportunities'),
+          edge('Contact', 'Opportunity', 'Opportunities'),
+          edge('Account', 'Contact', 'Contacts'),
+        ],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'Contact')).toEqual([NAMED_CONTACT, SIBLING_CONTACT].sort());
+    expect(sourceIdsOf(dataset, 'Account')).toEqual([ACCOUNT]);
+  });
+
+  it('reads the orders of the opportunity after a feed item named it as an order', async () => {
+    // A feed item's parent can be nearly any object, and the id it holds was
+    // put in scope under each of them. Run for real, the opportunity's own id
+    // was the only order in scope, the order read by it came back empty, and
+    // not one of the orders under the opportunity was read.
+    const dir = makeTmpDir();
+    const extractor = extractorOver(
+      {
+        Opportunity: [{ Id: OPPORTUNITY }],
+        FeedItem: [{ Id: FEED_ITEM, ParentId: OPPORTUNITY }],
+        Order: [
+          { Id: FIRST_ORDER, OpportunityId: OPPORTUNITY },
+          { Id: SECOND_ORDER, OpportunityId: OPPORTUNITY },
+          { Id: OTHER_ORDER, OpportunityId: to18('006A00000000oth') },
+        ],
+      },
+      {
+        FeedItem: [id, lookup('ParentId', ['Opportunity', 'Order'], false)],
+        Order: [id, lookup('OpportunityId', ['Opportunity'])],
+      },
+    );
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [makeNode('Opportunity', 0), makeNode('FeedItem', 1), makeNode('Order', 1)],
+        [
+          edge('Opportunity', 'FeedItem', 'Feeds'),
+          edge('Order', 'FeedItem', 'Feeds'),
+          edge('Opportunity', 'Order', 'Orders'),
+        ],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'FeedItem')).toEqual([FEED_ITEM]);
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([FIRST_ORDER, SECOND_ORDER].sort());
+  });
+
+  it('keeps the price a quote line names when its book prices the product another way too', async () => {
+    // A book holds a product's price once per selling model, and the dataset
+    // keeps one price per book and product. Read under the book and the
+    // product in scope, the catalog brought prices no line names; run for
+    // real, one of them took the place of the price two quote lines used, and
+    // those lines were left pointing at nothing.
+    const dir = makeTmpDir();
+    const BOOK = to18('01sA00000000bok');
+    const PRODUCT = to18('01tA00000000prd');
+    const QUOTE = to18('0Q0A00000000quo');
+    const LINE = to18('0QLA00000000lin');
+    const NAMED_PRICE = to18('01uA00000000zzz');
+    const OTHER_PRICE = to18('01uA00000000aaa');
+    const extractor = extractorOver(
+      {
+        Opportunity: [{ Id: OPPORTUNITY, Pricebook2Id: BOOK }],
+        Pricebook2: [{ Id: BOOK, IsStandard: false }],
+        Quote: [{ Id: QUOTE, OpportunityId: OPPORTUNITY, Pricebook2Id: BOOK }],
+        QuoteLineItem: [
+          { Id: LINE, QuoteId: QUOTE, PricebookEntryId: NAMED_PRICE, Product2Id: PRODUCT },
+        ],
+        PricebookEntry: [
+          { Id: NAMED_PRICE, Pricebook2Id: BOOK, Product2Id: PRODUCT, IsActive: true },
+          { Id: OTHER_PRICE, Pricebook2Id: BOOK, Product2Id: PRODUCT, IsActive: true },
+        ],
+        Product2: [{ Id: PRODUCT }],
+      },
+      {
+        Opportunity: [id, lookup('Pricebook2Id', ['Pricebook2'])],
+        Quote: [
+          id,
+          lookup('OpportunityId', ['Opportunity']),
+          lookup('Pricebook2Id', ['Pricebook2']),
+        ],
+        QuoteLineItem: [
+          id,
+          lookup('QuoteId', ['Quote'], false),
+          lookup('PricebookEntryId', ['PricebookEntry'], false),
+          lookup('Product2Id', ['Product2'], false),
+        ],
+        PricebookEntry: [
+          id,
+          lookup('Pricebook2Id', ['Pricebook2'], false),
+          lookup('Product2Id', ['Product2'], false),
+          { name: 'IsActive', type: 'boolean', referenceTo: [] },
+        ],
+      },
+    );
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [
+          makeNode('Opportunity', 0),
+          makeNode('Pricebook2', 1),
+          makeNode('Quote', 1),
+          makeNode('QuoteLineItem', 2),
+          makeNode('Product2', 2),
+          makeNode('PricebookEntry', 2),
+        ],
+        [
+          edge('Pricebook2', 'Opportunity', 'Opportunities'),
+          edge('Opportunity', 'Quote', 'Quotes'),
+          edge('Pricebook2', 'Quote', 'Quotes'),
+          edge('Quote', 'QuoteLineItem', 'QuoteLineItems'),
+          edge('PricebookEntry', 'QuoteLineItem', 'QuoteLineItems'),
+          edge('Product2', 'QuoteLineItem', 'QuoteLineItems'),
+          edge('Pricebook2', 'PricebookEntry', 'PricebookEntries'),
+          edge('Product2', 'PricebookEntry', 'PricebookEntries'),
+        ],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'QuoteLineItem')).toEqual([LINE]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([NAMED_PRICE]);
+  });
+
+  it('leaves out the line items of an opportunity met through a quote of the account', async () => {
+    // The account's quotes are its children and stay in the dataset, another
+    // opportunity's among them. That opportunity's id, met once Opportunity
+    // had been read, is no parent in scope: read under it, its line items
+    // came in, and with them the opportunity itself, fetched as the parent
+    // they require.
+    const dir = makeTmpDir();
+    const OTHER_OPPORTUNITY = to18('006A00000000oth');
+    const OWN_QUOTE = to18('0Q0A00000000own');
+    const OTHER_QUOTE = to18('0Q0A00000000oth');
+    const OWN_LINE = to18('00kA00000000own');
+    const OTHER_LINE = to18('00kA00000000oth');
+    const extractor = extractorOver(
+      {
+        Opportunity: [
+          { Id: OPPORTUNITY, AccountId: ACCOUNT },
+          { Id: OTHER_OPPORTUNITY, AccountId: ACCOUNT },
+        ],
+        Account: [{ Id: ACCOUNT }],
+        Quote: [
+          { Id: OWN_QUOTE, OpportunityId: OPPORTUNITY, AccountId: ACCOUNT },
+          { Id: OTHER_QUOTE, OpportunityId: OTHER_OPPORTUNITY, AccountId: ACCOUNT },
+        ],
+        OpportunityLineItem: [
+          { Id: OWN_LINE, OpportunityId: OPPORTUNITY },
+          { Id: OTHER_LINE, OpportunityId: OTHER_OPPORTUNITY },
+        ],
+      },
+      {
+        Opportunity: [id, lookup('AccountId', ['Account'])],
+        Quote: [id, lookup('OpportunityId', ['Opportunity']), lookup('AccountId', ['Account'])],
+        OpportunityLineItem: [id, lookup('OpportunityId', ['Opportunity'], false)],
+      },
+    );
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [
+          makeNode('Opportunity', 0),
+          makeNode('Account', 1),
+          makeNode('Quote', 1),
+          makeNode('OpportunityLineItem', 1),
+        ],
+        [
+          edge('Account', 'Opportunity', 'Opportunities'),
+          edge('Account', 'Quote', 'Quotes'),
+          edge('Opportunity', 'Quote', 'Quotes'),
+          edge('Opportunity', 'OpportunityLineItem', 'OpportunityLineItems'),
+        ],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'Quote')).toEqual([OWN_QUOTE, OTHER_QUOTE].sort());
+    expect(sourceIdsOf(dataset, 'OpportunityLineItem')).toEqual([OWN_LINE]);
+    expect(sourceIdsOf(dataset, 'Opportunity')).toEqual([OPPORTUNITY]);
+  });
+});
+
+describe('FrozenDatasetExtractor — the standard prices of the products a dossier prices', () => {
+  const STANDARD_BOOK = to18('01sA00000000std');
+  const CUSTOM_BOOK = to18('01sA00000000cus');
+  const opportunity = (currency: string): string => to18(`006A00000000${currency}`);
+  const product = (n: number): string => to18(`01tA${String(n).padStart(11, '0')}`);
+  const line = (n: number, currency: string): string =>
+    to18(`00k${currency}${String(n).padStart(9, '0')}`);
+  const price = (book: 'C' | 'S', n: number, currency: string): string =>
+    to18(`01u${book}${currency}${String(n).padStart(8, '0')}`);
+
+  /**
+   * One opportunity per currency, each with a line per product priced from
+   * the custom book in its currency; the standard book prices every product
+   * in every currency of `standardIn`.
+   */
+  function dossiers(
+    products: number,
+    currencies: readonly string[],
+    standardIn: readonly string[] = currencies,
+  ): Record<string, FakeRow[]> {
+    const numbers = Array.from({ length: products }, (_, i) => i + 1);
+    return {
+      Opportunity: currencies.map((c) => ({
+        Id: opportunity(c),
+        Pricebook2Id: CUSTOM_BOOK,
+        CurrencyIsoCode: c,
+      })),
+      Pricebook2: [
+        { Id: STANDARD_BOOK, IsStandard: true },
+        { Id: CUSTOM_BOOK, IsStandard: false },
+      ],
+      Product2: numbers.map((n) => ({ Id: product(n) })),
+      OpportunityLineItem: currencies.flatMap((c) =>
+        numbers.map((n) => ({
+          Id: line(n, c),
+          OpportunityId: opportunity(c),
+          PricebookEntryId: price('C', n, c),
+          Product2Id: product(n),
+          CurrencyIsoCode: c,
+        })),
+      ),
+      PricebookEntry: numbers.flatMap((n) => [
+        ...currencies.map((c) => ({
+          Id: price('C', n, c),
+          Pricebook2Id: CUSTOM_BOOK,
+          Product2Id: product(n),
+          IsActive: true,
+          CurrencyIsoCode: c,
+        })),
+        ...standardIn.map((c) => ({
+          Id: price('S', n, c),
+          Pricebook2Id: STANDARD_BOOK,
+          Product2Id: product(n),
+          IsActive: true,
+          CurrencyIsoCode: c,
+        })),
+      ]),
+    };
+  }
+
+  const currency: ScopableField = { name: 'CurrencyIsoCode', type: 'picklist', referenceTo: [] };
+  const describedAs = (priceFields: ScopableField[] = []): Record<string, ScopableField[]> => ({
+    Opportunity: [id, lookup('Pricebook2Id', ['Pricebook2']), currency],
+    Pricebook2: [id, { name: 'IsStandard', type: 'boolean', referenceTo: [] }],
+    OpportunityLineItem: [
+      id,
+      lookup('OpportunityId', ['Opportunity'], false),
+      lookup('PricebookEntryId', ['PricebookEntry'], false),
+      lookup('Product2Id', ['Product2']),
+      currency,
+    ],
+    PricebookEntry: [
+      id,
+      lookup('Pricebook2Id', ['Pricebook2'], false),
+      lookup('Product2Id', ['Product2'], false),
+      { name: 'IsActive', type: 'boolean', referenceTo: [] },
+      currency,
+      ...priceFields,
+    ],
+  });
+
+  const graph = graphOf(
+    [
+      makeNode('Opportunity', 0),
+      makeNode('Pricebook2', 1),
+      makeNode('OpportunityLineItem', 1),
+      makeNode('Product2', 2),
+      makeNode('PricebookEntry', 2),
+    ],
+    [
+      edge('Pricebook2', 'Opportunity', 'Opportunities'),
+      edge('Opportunity', 'OpportunityLineItem', 'OpportunityLineItems'),
+      edge('PricebookEntry', 'OpportunityLineItem', 'OpportunityLineItems'),
+      edge('Product2', 'OpportunityLineItem', 'OpportunityLineItems'),
+      edge('Pricebook2', 'PricebookEntry', 'PricebookEntries'),
+      edge('Product2', 'PricebookEntry', 'PricebookEntries'),
+    ],
+  );
+
+  /** Extract the dossiers, reading the org the way Salesforce answers a query URI. */
+  async function extractFrom(
+    tables: Record<string, FakeRow[]>,
+    fields: Record<string, ScopableField[]>,
+    roots: string[],
+  ): Promise<{ dataset: ExtractedDataset; sent: string[] }> {
+    const sent: string[] = [];
+    const extractor = new FrozenDatasetExtractor({
+      query: async (soql) => {
+        sent.push(soql);
+        // Salesforce refuses a request URI much past 16 000 characters.
+        if (encodeURIComponent(soql).length > 16_000) throw new Error('414 URI Too Long');
+        return soql.includes('FROM RecordType') ? [] : selectRows(tables, soql);
+      },
+      describeFields: async (objectApiName) => fields[objectApiName] ?? [id],
+    });
+    const dataset = await extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: roots,
+      graph,
+    });
+    return { dataset, sent };
+  }
+
+  const standardPricesOf = (dataset: ExtractedDataset): Record<string, unknown>[] =>
+    (dataset.objects.find((o) => o.objectApiName === 'PricebookEntry')?.records ?? [])
+      .map((r) => r.fields)
+      .filter((f) => f.Pricebook2Id === STANDARD_BOOK);
+
+  it('reads the standard price of each of seven hundred products', async () => {
+    const { dataset, sent } = await extractFrom(dossiers(700, ['EUR']), describedAs(), [
+      opportunity('EUR'),
+    ]);
+
+    expect(standardPricesOf(dataset).map((f) => f.Product2Id)).toEqual(
+      Array.from({ length: 700 }, (_, i) => product(i + 1)).sort(),
+    );
+    expect(sent.filter((soql) => encodeURIComponent(soql).length > 16_000)).toEqual([]);
+  });
+
+  it('takes the standard price of each currency a custom price is in, and of no other', async () => {
+    // An org with several currencies prices a product once per currency, and
+    // a custom price needs the standard price of its own currency. Taken by
+    // product, the prices in euros and dollars brought the pound price too,
+    // which no price of the dataset needs.
+    const { dataset } = await extractFrom(
+      dossiers(2, ['EUR', 'USD'], ['EUR', 'USD', 'GBP']),
+      describedAs(),
+      [opportunity('EUR'), opportunity('USD')],
+    );
+
+    const standard = standardPricesOf(dataset);
+    for (const n of [1, 2]) {
+      const currencies = standard
+        .filter((f) => f.Product2Id === product(n))
+        .map((f) => f.CurrencyIsoCode)
+        .sort();
+      expect(currencies).toEqual(['EUR', 'USD']);
+    }
+
+    // The load writes the standard prices first, those whose book is the one
+    // the dataset names as standard, and matches that book to the target's.
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted: dataset,
+      rules: parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} }),
+      pseudonymizer: new DeterministicPseudonymizer('standard-prices-test-salt'),
+      datasetVersion: '1.0.0',
+    });
+    const standardBook = dataset.objects
+      .find((o) => o.objectApiName === 'Pricebook2')
+      ?.records.find((r) => r.sourceId === STANDARD_BOOK)?.referenceId;
+    expect(dataset.standardPricebookSourceId).toBe(STANDARD_BOOK);
+    expect(frozen.standardPricebook).toBe(standardBook);
+    const frozenPrices =
+      frozen.objects.find((o) => o.objectApiName === 'PricebookEntry')?.records ?? [];
+    expect(
+      frozenPrices.filter((r) => r.fields.Pricebook2Id === frozen.standardPricebook),
+    ).toHaveLength(standard.length);
+  });
+
+  it('takes the standard price of the selling model a custom price is sold under', async () => {
+    // A product priced under two selling models holds a standard price under
+    // each, and the dataset keeps one standard price per product and
+    // currency. Taken by product, the one under the other model came first
+    // and stayed; the custom price was left with no standard price of its own
+    // model, which the platform requires.
+    const SOLD_UNDER = to18('0jPA00000000sub');
+    const OTHER_MODEL = to18('0jPA00000000oth');
+    const tables = dossiers(1, ['EUR']);
+    const standardUnder = (model: string, suffix: string): FakeRow => ({
+      Id: to18(`01uS00000000${suffix}`),
+      Pricebook2Id: STANDARD_BOOK,
+      Product2Id: product(1),
+      IsActive: true,
+      CurrencyIsoCode: 'EUR',
+      ProductSellingModelId: model,
+    });
+    tables.PricebookEntry = [
+      { ...tables.PricebookEntry[0], ProductSellingModelId: SOLD_UNDER },
+      standardUnder(OTHER_MODEL, 'smA'),
+      standardUnder(SOLD_UNDER, 'smB'),
+    ];
+
+    const { dataset } = await extractFrom(
+      tables,
+      describedAs([lookup('ProductSellingModelId', ['ProductSellingModel'])]),
+      [opportunity('EUR')],
+    );
+
+    expect(standardPricesOf(dataset).map((f) => f.ProductSellingModelId)).toEqual([SOLD_UNDER]);
+  });
+
+  it('reads the standard prices of a price object hundreds of fields wide', async () => {
+    // Two hundred products a statement, whatever the width of the field list
+    // written in front of them: past some four hundred fields a statement no
+    // longer fits the request URI, the org refuses it, and the extraction
+    // stops there.
+    const wide = Array.from({ length: 420 }, (_, i) => ({
+      name: `Price_Attribute_${String(i).padStart(3, '0')}__c`,
+      type: 'string',
+      referenceTo: [],
+    }));
+    const { dataset, sent } = await extractFrom(dossiers(200, ['EUR']), describedAs(wide), [
+      opportunity('EUR'),
+    ]);
+
+    expect(standardPricesOf(dataset)).toHaveLength(200);
+    expect(sent.filter((soql) => encodeURIComponent(soql).length > 16_000)).toEqual([]);
   });
 });

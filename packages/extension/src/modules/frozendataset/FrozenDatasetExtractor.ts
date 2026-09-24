@@ -29,8 +29,10 @@ import * as path from 'node:path';
 import type { ForgeGraph } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_CURRENCY_FIELD,
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   dedupePricebookEntries,
@@ -235,6 +237,22 @@ export class FrozenDatasetExtractor {
         rootObjectApiName: `__frozen_root_${options.rootObject}__`,
         rootRecordId: options.rootRecordIds[0],
         extraWhere: hasCreatedDate ? asOfWhere : undefined,
+        // An object of the dossier is read once, so its read takes what every
+        // edge brings to it: the rows a row read before names, and its rows
+        // under a parent in scope. Read by the named rows alone, one reached
+        // first through a lookup hid the rest: run for real, the
+        // opportunity's synced quote was the one quote read, and a feed item
+        // on the opportunity, whose parent can be nearly any object, put the
+        // opportunity's own id in scope as an order — the order read by it
+        // came back empty, and none of the orders under the opportunity was
+        // read. The root comes first, before any parent has anything in
+        // scope, so it is read by the selection alone.
+        //
+        // The catalog stays read by what the dossier names. Its rows under a
+        // book and a product in scope are other sales' prices, and the
+        // dataset keeps one price per book and product: read both ways, a
+        // price no line named took the place of the one two quote lines used.
+        everyEdge: !CATALOG_OBJECTS.has(node.objectApiName),
         readObjects,
       });
       if (!built.scoped) {
@@ -264,7 +282,12 @@ export class FrozenDatasetExtractor {
           bucket.set(id, withoutEnvelope(row));
         }
       }
-      cache.add(node.objectApiName, ids);
+      // The object's scope is settled with its read. An id of it met later
+      // names a row no read of the dossier fetches, and its children are not
+      // the dossier's: an account's quotes include another opportunity's,
+      // and read under that opportunity's id, its line items came in, and the
+      // opportunity with them, fetched as the parent they require.
+      cache.addRead(node.objectApiName, ids);
       // Seed parent objects referenced by lookups so their own wave can
       // use the 'self-cached' branch (mirrors ForgeExecutor behavior).
       for (const field of fields) {
@@ -417,9 +440,18 @@ export class FrozenDatasetExtractor {
    * line item points at — in its custom book — never the product's standard
    * entry. Loaded for real, every custom price was refused: "create a
    * standard price first". Forge learned this rule a release earlier and
-   * reads them; this reads them too, for exactly the products in hand. The
-   * standard book comes with them so their `Pricebook2Id` has something to
-   * point at; the load matches it to the target's own and never inserts it.
+   * reads them; this reads them too, for exactly the products in hand, with
+   * the statements Forge reads them with. The standard book comes with them
+   * so their `Pricebook2Id` has something to point at; the load matches it to
+   * the target's own and never inserts it.
+   *
+   * Of a product's standard prices, it takes the ones its custom prices need:
+   * in their currency and under their selling model. A book prices a product
+   * once per currency the org holds and per model it is sold under; taken by
+   * product, a price in euros brings the standard prices in every other
+   * currency too, and one under another model can take the place of the one
+   * the custom price needs, since the dataset keeps one standard price per
+   * product and currency.
    *
    * @returns The source id of the standard book, when prices were read.
    */
@@ -434,11 +466,26 @@ export class FrozenDatasetExtractor {
     const standardId = typeof book?.Id === 'string' ? book.Id : undefined;
     if (!standardId) return undefined;
 
+    // The standard price a custom price needs: of its product, under its
+    // selling model — none in an org that sells without them — and in its
+    // currency, absent from an org with one.
+    const pairOf = (row: Record<string, unknown>): string =>
+      [
+        PRICEBOOK_ENTRY_PRODUCT_FIELD,
+        PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+        PRICEBOOK_ENTRY_CURRENCY_FIELD,
+      ]
+        .map((field) => String(row[field] ?? ''))
+        .join('|');
     const productIds = new Set<string>();
+    const pricedPairs = new Set<string>();
     for (const row of entries.values()) {
       if (row[PRICEBOOK_ENTRY_BOOK_FIELD] === standardId) continue;
       const product = row[PRICEBOOK_ENTRY_PRODUCT_FIELD];
-      if (typeof product === 'string' && product !== '') productIds.add(product);
+      if (typeof product === 'string' && product !== '') {
+        productIds.add(product);
+        pricedPairs.add(pairOf(row));
+      }
     }
     if (productIds.size === 0) return undefined;
 
@@ -465,21 +512,24 @@ export class FrozenDatasetExtractor {
       }
     }
 
-    const products = [...productIds];
-    for (let i = 0; i < products.length; i += PRODUCT_CHUNK) {
-      const inList = products
-        .slice(i, i + PRODUCT_CHUNK)
-        .map((id) => `'${sanitizeSoqlValue(id)}'`)
-        .join(', ');
-      const rows = await read(
-        PRICEBOOK_ENTRY_OBJECT,
-        `${PRICEBOOK_ENTRY_BOOK_FIELD} = '${sanitizeSoqlValue(standardId)}' ` +
-          `AND ${PRICEBOOK_ENTRY_PRODUCT_FIELD} IN (${inList})`,
-      );
-      for (const row of rows) {
-        if (typeof row.Id === 'string' && !entries.has(row.Id)) {
-          entries.set(row.Id, withoutEnvelope(row));
-        }
+    // The products laid over as many statements as a request URI holds. Cut
+    // into lists of two hundred, a statement grows with the field list written
+    // in front of them, which a count of ids never looks at: a price object
+    // some four hundred fields wide makes a query longer than the org takes,
+    // and the whole extraction stops on it.
+    const priceFields = await this.deps.describeFields(PRICEBOOK_ENTRY_OBJECT);
+    const statements = this.soqlBuilder.buildJoining({
+      objectApiName: PRICEBOOK_ENTRY_OBJECT,
+      selectFields: this.selectFields(PRICEBOOK_ENTRY_OBJECT, priceFields, options.excludedFields),
+      split: { field: PRICEBOOK_ENTRY_PRODUCT_FIELD, ids: productIds },
+      whole: { field: PRICEBOOK_ENTRY_BOOK_FIELD, ids: new Set([standardId]) },
+      extraWhere: priceFields.some((f) => f.name === 'CreatedDate') ? asOfWhere : undefined,
+    });
+    for (const soql of statements) {
+      for (const row of await this.deps.query(soql)) {
+        if (typeof row.Id !== 'string' || entries.has(row.Id)) continue;
+        if (!pricedPairs.has(pairOf(row))) continue;
+        entries.set(row.Id, withoutEnvelope(row));
       }
     }
     return standardId;
