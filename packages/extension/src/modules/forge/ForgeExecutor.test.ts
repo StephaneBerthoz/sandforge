@@ -4332,6 +4332,165 @@ describe('ForgeExecutor', () => {
             expect(summary.readByObject.find((r) => r.objectApiName === 'Product2')?.read).toBe(3);
           });
 
+          describe('a product the second read brings, based on a classification no read took', () => {
+            const SERVICES = '11B000000000003AAA';
+
+            /** The defaults' org, the fifth widget based on the services classification. */
+            function servicesOrgs() {
+              const orgs = defaultsOrgs([
+                {
+                  Id: HARDWARE_DEFAULT,
+                  Name: 'Hardware default',
+                  Classification__c: HARDWARE,
+                  Default_Product__c: product(5),
+                },
+                {
+                  Id: 'a0C000000000002AAA',
+                  Name: 'Services default',
+                  Classification__c: SERVICES,
+                  Default_Product__c: product(4),
+                },
+              ]);
+              const query = orgs.orgDeps.queryRecords;
+              orgs.orgDeps.queryRecords = async (org, soql, onTruncated) => {
+                const rows = await query(org, soql, onTruncated);
+                return /\bFROM Product2\b/.test(soql)
+                  ? rows.map((row) =>
+                      row['Id'] === product(5) ? { ...row, BasedOnId: SERVICES } : row,
+                    )
+                  : rows;
+              };
+              return orgs;
+            }
+
+            it('reads that classification and what is under it, and nothing past them', async () => {
+              // Read again for the hardware default's product, the catalog
+              // brought the fifth widget: its classification was one no read
+              // took, and the widget went to the target without it.
+              const { orgDeps, inserted } = servicesOrgs();
+              const read = recordReads(orgDeps);
+
+              const summary = await new ForgeExecutor(orgDeps).execute(
+                defaultsGraph(),
+                'src',
+                'tgt',
+                onProgress,
+                { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+              );
+
+              expect(read['ProductClassification']).toEqual(new Set([HARDWARE, LEGACY, SERVICES]));
+              expect(inserted['Product2']).toContainEqual({
+                Name: 'Widget 5',
+                BasedOnId: 'ProductClassification:Services',
+              });
+              // Under that classification, its default: the product it names
+              // is not read by the catalog a third time, and the lookup is said.
+              expect(inserted['Classification_Default__c']).toContainEqual({
+                Name: 'Services default',
+                Classification__c: 'ProductClassification:Services',
+              });
+              expect(read['Product2']).toEqual(new Set([product(1), product(6), product(5)]));
+              const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
+              expect(pass2?.samples.map((s) => s.recordSummary)).toEqual([
+                expect.stringContaining(`Default_Product__c=<source ${product(4)}>`),
+              ]);
+            });
+
+            it('says in a dry run the rows it would add for it', async () => {
+              const { orgDeps } = servicesOrgs();
+
+              const summary = await new ForgeExecutor(orgDeps).execute(
+                defaultsGraph(),
+                'src',
+                'tgt',
+                onProgress,
+                { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity', dryRun: true },
+              );
+
+              const said = progressEvents.map((e) => e.message);
+              expect(said).toContain(
+                '[dry-run] ProductClassification: 1 more record(s) would be inserted, for what the catalog read again brought',
+              );
+              expect(said).toContain(
+                '[dry-run] Classification_Default__c: 1 more record(s) would be inserted, for what the catalog read again brought',
+              );
+              expect(
+                summary.readByObject.find((r) => r.objectApiName === 'ProductClassification')?.read,
+              ).toBe(3);
+            });
+          });
+
+          it('counts in a dry run a price the second read finds against those the first read took', async () => {
+            // A book prices a product once — per selling model and currency —
+            // and the source held a second price of the first widget in the
+            // book its line uses: a real run writes one of the two, and a dry
+            // run counted the second as one more.
+            const DUPLICATE_PRICE = '01u000000000099AAA';
+            const orgs = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Price__c: DUPLICATE_PRICE,
+              },
+            ]);
+            const query = orgs.orgDeps.queryRecords;
+            orgs.orgDeps.queryRecords = async (org, soql, onTruncated) => {
+              const rows = await query(org, soql, onTruncated);
+              return /\bFROM PricebookEntry WHERE Id IN\b/.test(soql) &&
+                soql.includes(DUPLICATE_PRICE)
+                ? [
+                    ...rows,
+                    {
+                      Id: DUPLICATE_PRICE,
+                      Name: 'Widget 1 custom again',
+                      Pricebook2Id: CUSTOM_BOOK,
+                      Product2Id: product(1),
+                      UnitPrice: '9',
+                    },
+                  ]
+                : rows;
+            };
+            const describe = orgs.orgDeps.describeFields;
+            orgs.orgDeps.describeFields = async (org, object) =>
+              object === 'Classification_Default__c'
+                ? [
+                    idField,
+                    text('Name'),
+                    lookup('Classification__c', 'ProductClassification', true),
+                    lookup('Default_Price__c', 'PricebookEntry'),
+                  ]
+                : describe(org, object);
+            const graph = defaultsGraph();
+            graph.edges.push(edge('PricebookEntry', 'Classification_Default__c'));
+            const options = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+            const real = await new ForgeExecutor(orgs.orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              options,
+            );
+            const dry = await new ForgeExecutor(orgs.orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { ...options, dryRun: true },
+            );
+
+            const written = orgs.inserted['PricebookEntry'].map((r) => r['Name']);
+            expect(written.filter((name) => String(name).startsWith('Widget 1 custom'))).toEqual([
+              'Widget 1 custom',
+            ]);
+            const pricesRead = (summary: typeof real): number | undefined =>
+              summary.readByObject.find((r) => r.objectApiName === 'PricebookEntry')?.read;
+            expect(pricesRead(dry)).toBe(written.length);
+            expect(pricesRead(dry)).toBe(pricesRead(real));
+            expect(dry.wouldInsertCount).toBe(real.successCount);
+          });
+
           it('reads no more of an object than the cap on each object, its first read counted', async () => {
             const { orgDeps } = defaultsOrgs([
               {
@@ -5533,6 +5692,400 @@ describe('ForgeExecutor', () => {
               ],
             },
           ],
+        });
+      });
+
+      describe('the lines whose price is held back for want of its option', () => {
+        // The lines are read before the catalog, which is read last: when the
+        // prices sold under a model were held back, the lines that use them
+        // had been read and kept. A real run sent them, and the platform
+        // refused each for want of its price.
+        const heldThroughPrice = (count: number) => ({
+          recordSummary: `PricebookEntryId → PricebookEntry (${count} record${count === 1 ? '' : 's'})`,
+          messages: [
+            'Not written: PricebookEntryId may not be left empty, and the PricebookEntry it ' +
+              'names is held back for ProductSellingModelOption, excluded from this run.',
+          ],
+        });
+
+        it('holds back and names the lines whose price it held back, and sends none of them', async () => {
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+          const refused = platform(orgDeps, inserted);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(refused).toEqual([]);
+          // The lines on the prices from before selling models go in.
+          expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 3 custom none',
+            'PricebookEntry:Widget 1 custom none',
+          ]);
+          expect(inserted['QuoteLineItem']).toBeUndefined();
+          expect(summary.errors).toEqual(
+            expect.arrayContaining([
+              {
+                objectApiName: 'OpportunityLineItem',
+                stage: 'scope',
+                failedCount: 2,
+                attemptedCount: 0,
+                samples: [heldThroughPrice(2)],
+              },
+              {
+                objectApiName: 'QuoteLineItem',
+                stage: 'scope',
+                failedCount: 1,
+                attemptedCount: 0,
+                samples: [heldThroughPrice(1)],
+              },
+            ]),
+          );
+          // Two prices and three lines, read to be cloned and not written.
+          expect(summary.failedCount).toBe(5);
+          expect(summary.readByObject).toContainEqual({
+            objectApiName: 'OpportunityLineItem',
+            read: 4,
+          });
+          expect(
+            progressEvents.find(
+              (e) => e.objectName === 'OpportunityLineItem' && e.status === 'done',
+            )?.message,
+          ).toBe(
+            'Completed OpportunityLineItem: 2 succeeded, 0 failed, 2 not written without ' +
+              'ProductSellingModelOption, excluded from this run',
+          );
+        });
+
+        it('takes them off what a dry run would insert, and says so', async () => {
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+              dryRun: true,
+            },
+          );
+
+          expect(inserted).toEqual({});
+          const messages = progressEvents.map((e) => e.message);
+          expect(messages).toContain(
+            '[dry-run] OpportunityLineItem: 2 fewer would be inserted, not written without ' +
+              'ProductSellingModelOption, excluded from this run',
+          );
+          expect(messages).toContain(
+            'Held back QuoteLineItem, nothing written: every record needs ' +
+              'ProductSellingModelOption, excluded from this run. Objects that cannot be ' +
+              'written without it will be skipped.',
+          );
+          // Every row it read to clone, less the two prices and three lines
+          // held back.
+          expect(summary.wouldInsertCount).toBe(
+            summary.readByObject.reduce((sum, r) => sum + r.read, 0) - summary.failedCount,
+          );
+          expect(summary.failedCount).toBe(5);
+          expect(summary.errors).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ objectApiName: 'OpportunityLineItem', failedCount: 2 }),
+              expect.objectContaining({ objectApiName: 'QuoteLineItem', failedCount: 1 }),
+            ]),
+          );
+        });
+
+        it('names the lines behind prices that were all held back, where it skipped them unsaid', async () => {
+          // Every line on a price sold under a model: every price is held
+          // back, and the lines came to nothing without a word.
+          const onModels = tables();
+          onModels['OpportunityLineItem'] = onModels['OpportunityLineItem'].filter(
+            (row) => String(row['PricebookEntryId']).slice(12, 13) === '1',
+          );
+          const { orgDeps, inserted } = fakeOrgs(onModels, fields);
+          const refused = platform(orgDeps, inserted);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(refused).toEqual([]);
+          expect(inserted['OpportunityLineItem']).toBeUndefined();
+          expect(inserted['PricebookEntry']).toBeUndefined();
+          expect(summary.errors).toEqual(
+            expect.arrayContaining([
+              {
+                objectApiName: 'OpportunityLineItem',
+                stage: 'scope',
+                failedCount: 2,
+                attemptedCount: 0,
+                samples: [heldThroughPrice(2)],
+              },
+            ]),
+          );
+          // Two prices and three lines.
+          expect(summary.failedCount).toBe(5);
+        });
+
+        it('holds back what hangs from a line it held back, round after round', async () => {
+          // A comment's feed item is posted on the line: it may not be left
+          // without it, and neither may the comment without the feed item.
+          const feedParent: FieldInfo = {
+            ...lookup('ParentId', 'Opportunity', true),
+            referenceTo: ['Opportunity', 'OpportunityLineItem', 'Quote'],
+          };
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              ...tables(),
+              FeedItem: [
+                { Id: '0D5000000000001AAA', Body: 'On the line', ParentId: '00k000000000001AAA' },
+                { Id: '0D5000000000002AAA', Body: 'On the deal', ParentId: OPPORTUNITY },
+              ],
+              FeedComment: [
+                {
+                  Id: '0D7000000000001AAA',
+                  CommentBody: 'Agreed',
+                  FeedItemId: '0D5000000000001AAA',
+                },
+              ],
+            },
+            {
+              ...fields,
+              FeedItem: [idField, text('Body'), feedParent],
+              FeedComment: [idField, text('CommentBody'), lookup('FeedItemId', 'FeedItem', true)],
+            },
+          );
+          platform(orgDeps, inserted);
+          const walked = graph();
+          walked.nodes.push(makeNode('FeedItem'), makeNode('FeedComment'));
+          walked.edges.push(
+            { ...edge('Opportunity', 'FeedItem'), required: true },
+            { ...edge('OpportunityLineItem', 'FeedItem'), required: true },
+            { ...edge('FeedItem', 'FeedComment'), required: true },
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked,
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(inserted['FeedItem']).toEqual([
+            { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+          ]);
+          expect(inserted['FeedComment']).toBeUndefined();
+          expect(summary.errors).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                objectApiName: 'FeedItem',
+                failedCount: 1,
+                samples: [
+                  {
+                    recordSummary: 'ParentId → OpportunityLineItem (1 record)',
+                    messages: [
+                      'Not written: ParentId may not be left empty, and the ' +
+                        'OpportunityLineItem it names is held back for ' +
+                        'ProductSellingModelOption, excluded from this run.',
+                    ],
+                  },
+                ],
+              }),
+              expect.objectContaining({
+                objectApiName: 'FeedComment',
+                failedCount: 1,
+                samples: [
+                  expect.objectContaining({
+                    recordSummary: 'FeedItemId → FeedItem (1 record)',
+                  }),
+                ],
+              }),
+            ]),
+          );
+        });
+
+        it('holds back no line whose price the run it retries wrote', async () => {
+          // In the target already, the prices the exclusion holds back are
+          // there for the lines to name: nothing is missing under them.
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+          const refused = platform(orgDeps, inserted);
+
+          await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            excludedObjects: ['ProductSellingModelOption'],
+            writtenBefore: {
+              [price('custom', 'once', 1)]: 'PricebookEntry:Widget 1 custom once',
+              [price('custom', 'once', 2)]: 'PricebookEntry:Widget 2 custom once',
+            },
+          });
+
+          expect(refused).toEqual([]);
+          expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 1 custom once',
+            'PricebookEntry:Widget 2 custom once',
+            'PricebookEntry:Widget 3 custom none',
+            'PricebookEntry:Widget 1 custom none',
+          ]);
+          expect(inserted['QuoteLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 2 custom once',
+          ]);
+        });
+
+        it('holds back a price the catalog is read again for, when it is sold under a model', async () => {
+          // A classification's record names a price no line uses, read by the
+          // catalog's second read: sold under a model whose options were left
+          // out, it went to the target, and was refused for want of one.
+          const HARDWARE = '11B000000000001AAA';
+          const base = tables();
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              ...base,
+              Product2: base.Product2.map((row) => ({ ...row, BasedOnId: HARDWARE })),
+              ProductClassification: [{ Id: HARDWARE, Name: 'Hardware' }],
+              Classification_Default__c: [
+                {
+                  Id: 'a0C000000000001AAA',
+                  Name: 'Hardware default',
+                  Classification__c: HARDWARE,
+                  Default_Price__c: price('custom', 'once', 4),
+                },
+              ],
+            },
+            {
+              ...fields,
+              Product2: [...fields.Product2, lookup('BasedOnId', 'ProductClassification')],
+              ProductClassification: [idField, text('Name')],
+              Classification_Default__c: [
+                idField,
+                text('Name'),
+                lookup('Classification__c', 'ProductClassification', true),
+                lookup('Default_Price__c', 'PricebookEntry'),
+              ],
+            },
+          );
+          const refused = platform(orgDeps, inserted);
+          const walked = graph();
+          walked.nodes.push(
+            makeNode('ProductClassification'),
+            makeNode('Classification_Default__c'),
+          );
+          walked.edges.push(
+            edge('ProductClassification', 'Product2'),
+            { ...edge('ProductClassification', 'Classification_Default__c'), required: true },
+            edge('PricebookEntry', 'Classification_Default__c'),
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked,
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(refused).toEqual([]);
+          expect(
+            (inserted['PricebookEntry'] ?? []).filter((r) => r['ProductSellingModelId']),
+          ).toEqual([]);
+          // The two prices its lines use, and the one the record names.
+          expect(summary.errors).toContainEqual(
+            expect.objectContaining({ objectApiName: 'PricebookEntry', failedCount: 3 }),
+          );
+        });
+
+        it('holds back a feed item on a record of an object the user excluded, in a run of whole tables', async () => {
+          // A feed item's parent can be any of many objects, one of them left
+          // out: the item was sent without it, and refused.
+          const feedParent: FieldInfo = {
+            ...lookup('ParentId', 'Opportunity', true),
+            referenceTo: ['Opportunity', 'Quote'],
+          };
+          const rows: Record<string, FakeRow[]> = {
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+            Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+            FeedItem: [
+              { Id: '0D5000000000001AAA', Body: 'On the deal', ParentId: OPPORTUNITY },
+              { Id: '0D5000000000002AAA', Body: 'On the offer', ParentId: QUOTE },
+            ],
+          };
+          const { orgDeps, inserted } = fakeOrgs(rows, {
+            Opportunity: [idField, text('Name')],
+            Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+            FeedItem: [idField, text('Body'), feedParent],
+          });
+          orgDeps.queryRecords = async (_org, soql) => {
+            const whole = /^SELECT .+ FROM (\w+)$/.exec(soql);
+            return whole ? [...(rows[whole[1]] ?? [])] : selectRows(rows, soql);
+          };
+          const prefixes: Record<string, string> = { Opportunity: '006', Quote: '0Q0' };
+          orgDeps.describeObject = async (_org, object) => ({
+            keyPrefix: prefixes[object] ?? null,
+            recordTypes: [],
+          });
+          const whole = makeGraph(
+            [makeNode('Opportunity'), makeNode('Quote'), makeNode('FeedItem')],
+            [
+              edge('Opportunity', 'Quote'),
+              { ...edge('Opportunity', 'FeedItem'), required: true },
+              { ...edge('Quote', 'FeedItem'), required: true },
+            ],
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            whole,
+            'src',
+            'tgt',
+            onProgress,
+            { excludedObjects: ['Quote'] },
+          );
+
+          expect(inserted['Quote']).toBeUndefined();
+          expect(inserted['FeedItem']).toEqual([
+            { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+          ]);
+          expect(summary.errors).toContainEqual({
+            objectApiName: 'FeedItem',
+            stage: 'scope',
+            failedCount: 1,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'ParentId → Quote (1 record)',
+                messages: [
+                  'Not written: ParentId may not be left empty, and Quote is excluded from this run.',
+                ],
+              },
+            ],
+          });
         });
       });
 

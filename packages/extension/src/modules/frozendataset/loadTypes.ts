@@ -79,6 +79,12 @@ export interface TargetOrgAccess {
     recordTypeId: string,
     fieldApiName: string,
   ): Promise<string[]>;
+  /**
+   * The id of the user the session writes to the org as: what a reload's
+   * purge keeps of what it left on a record is its own only when that user
+   * modified the record last. Absent, it keeps none.
+   */
+  userId?(orgId: string): Promise<string>;
 }
 
 /**

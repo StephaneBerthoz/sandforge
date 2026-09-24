@@ -682,6 +682,11 @@ interface HeldForExclusion {
   readonly field: string;
   /** The object excluded. */
   readonly excluded: string;
+  /**
+   * The object of the row that lookup names, when that row is itself held
+   * back for `excluded`: a line whose price is.
+   */
+  readonly through?: string;
 }
 
 /**
@@ -789,7 +794,10 @@ interface ExecutionState {
    * at their turn for what they reached. See `sortNodesAskedAgain`.
    */
   readonly catalogNodes: CatalogNodeAskedAgain[];
-  /** Rows read from the source, keyed by object, awaiting their write. */
+  /**
+   * Rows read from the source, keyed by object, awaiting their write — or, in
+   * a dry run that reads every node first, the rows it would write.
+   */
   readonly preread: Map<string, PrereadNode>;
   /**
    * Per object, the rows read to clone it, as its last read left them: a node
@@ -1204,7 +1212,13 @@ function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[]
 }
 
 /** Why a row held back for an object the user excluded is not written. */
-function heldForExclusionReason({ field, excluded }: HeldForExclusion): string {
+function heldForExclusionReason({ field, excluded, through }: HeldForExclusion): string {
+  if (through !== undefined) {
+    return (
+      `Not written: ${field} may not be left empty, and the ${through} it names is held back ` +
+      `for ${excluded}, excluded from this run.`
+    );
+  }
   return excluded === SELLING_MODEL_OPTION_OBJECT
     ? `Not written: a price sold under a selling model needs its product's option for that ` +
         `model, and ${excluded} is excluded from this run.`
@@ -1233,7 +1247,7 @@ function heldForExclusionsReports(state: ExecutionState): ExecutionObjectError[]
   return [...state.heldForExclusions].map(([objectApiName, held]): ExecutionObjectError => {
     const groups = new Map<string, HeldForExclusion & { count: number }>();
     for (const why of held.values()) {
-      const key = `${why.field}|${why.excluded}`;
+      const key = `${why.field}|${why.through ?? ''}|${why.excluded}`;
       const group = groups.get(key) ?? { ...why, count: 0 };
       group.count++;
       groups.set(key, group);
@@ -1247,11 +1261,49 @@ function heldForExclusionsReports(state: ExecutionState): ExecutionObjectError[]
         .sort((a, b) => b.count - a.count)
         .slice(0, 3)
         .map((group) => ({
-          recordSummary: `${group.field} → ${group.excluded} (${group.count} record${group.count === 1 ? '' : 's'})`,
+          recordSummary: `${group.field} → ${group.through ?? group.excluded} (${group.count} record${group.count === 1 ? '' : 's'})`,
           messages: [heldForExclusionReason(group)],
         })),
     };
   });
+}
+
+/**
+ * The row held back for an object the user excluded that a source id names,
+ * with its object: what a row naming it through a lookup it may not leave
+ * empty cannot be written without.
+ */
+function heldRowOf(
+  state: ExecutionState,
+  id: string,
+): { objectApiName: string; why: HeldForExclusion } | undefined {
+  for (const [objectApiName, held] of state.heldForExclusions) {
+    const why = held.get(id);
+    if (why) return { objectApiName, why };
+  }
+  return undefined;
+}
+
+/**
+ * Why a row cannot be written when one of `required` — the lookups it may
+ * not leave empty — names a row held back for an object the user excluded:
+ * that row's exclusion, through it. Nothing when none does, or when the
+ * target holds the row named already: the run it retries wrote it.
+ */
+function heldRowNamedBy(
+  state: ExecutionState,
+  row: Record<string, unknown>,
+  required: readonly FieldInfo[],
+): HeldForExclusion | undefined {
+  for (const field of required) {
+    const value = row[field.name];
+    if (typeof value !== 'string' || value === '' || state.remapper.get(value)) continue;
+    const heldRow = heldRowOf(state, value);
+    if (heldRow) {
+      return { field: field.name, excluded: heldRow.why.excluded, through: heldRow.objectApiName };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -1992,8 +2044,19 @@ export class ForgeExecutor {
       }
     }
 
-    // What the records read after the catalog named of it, read by id.
-    await this.readCatalogAgain(state);
+    // What the records read after the catalog named of it, read by id — and
+    // what its rows read then name, read by the nodes read after it once more.
+    const lastOfTheCatalog = deferred
+      .map((node) => CATALOG_OBJECTS.has(node.objectApiName))
+      .lastIndexOf(true);
+    await this.readCatalogAgain(
+      state,
+      lastOfTheCatalog < 0 ? [] : deferred.slice(lastOfTheCatalog + 1),
+    );
+
+    // Every row is read: what was read before a row it cannot be written
+    // without was held back is held back with it.
+    if (twoPhase) this.holdBackWhatHeldRowsCost(state);
 
     // The files of what was read, chosen and measured while nothing is
     // written yet: a run whose files do not fit in the target stops here.
@@ -2003,8 +2066,8 @@ export class ForgeExecutor {
     // one writing needs: parents first, the root no longer pulled to the
     // front because nothing is being scoped any more — and the catalog in the
     // order the platform takes it, which the fields read say more about than
-    // the graph does.
-    if (twoPhase) {
+    // the graph does. A dry run holds its rows too, and writes none.
+    if (twoPhase && !config.dryRun) {
       for (const node of this.writeOrderOf(state)) {
         if (this.isAborted) {
           throw new ForgeAbortedError(
@@ -2502,6 +2565,40 @@ export class ForgeExecutor {
       await this.sourceKeyPrefixes(state, unasked);
     }
     return state.sourceKeyPrefixes;
+  }
+
+  /**
+   * The objects the user excluded by name that a lookup of these fields may
+   * not leave empty and that can name several objects can name, by the key
+   * prefix of their ids: what tells that such a lookup names a record of one
+   * (`holdBackWhatExclusionsCost`). Each object's prefix is asked once a run.
+   */
+  private async excludedByKeyPrefix(
+    state: ExecutionState,
+    objectApiName: string,
+    fieldInfos: readonly FieldInfo[],
+  ): Promise<ReadonlyMap<string, string>> {
+    const excluded = state.config.excludedObjects;
+    if (excluded.size === 0) return new Map();
+    const named = new Set<string>();
+    for (const field of fieldInfos) {
+      const targets = field.isReference ? (field.referenceTo ?? []) : [];
+      if (targets.length < 2 || !isRequiredLookup(objectApiName, field.name, field.nillable)) {
+        continue;
+      }
+      for (const target of targets) if (excluded.has(target)) named.add(target);
+    }
+    const unasked = new Set([...named].filter((object) => !state.keyPrefixesAsked.has(object)));
+    if (unasked.size > 0) {
+      for (const object of unasked) state.keyPrefixesAsked.add(object);
+      await this.sourceKeyPrefixes(state, unasked);
+    }
+    const byPrefix = new Map<string, string>();
+    for (const object of named) {
+      const prefix = state.sourceKeyPrefixes.get(object);
+      if (prefix && !byPrefix.has(prefix)) byPrefix.set(prefix, object);
+    }
+    return byPrefix;
   }
 
   /**
@@ -3248,7 +3345,14 @@ export class ForgeExecutor {
         reached,
       );
       this.keepWhatStatusesNeed(state, node, records, reached);
-      const heldBack = this.holdBackWhatExclusionsCost(state, node, fieldInfos, records, reached);
+      const heldBack = this.holdBackWhatExclusionsCost(
+        state,
+        node,
+        fieldInfos,
+        records,
+        reached,
+        await this.excludedByKeyPrefix(state, node.objectApiName, fieldInfos),
+      );
       if (reached) state.scopeCache?.addReached(node.objectApiName, reached);
       // Every id of an object begins with its key prefix, and the rows read
       // tell it without a describe — a dry run keeps none of them for later.
@@ -3431,6 +3535,19 @@ export class ForgeExecutor {
       // are counted with them as they are among the failed.
       state.readByObject.set(node.objectApiName, records.length + (heldOfNode?.size ?? 0));
 
+      // Held for the write pass — and by a dry run of a run that reads every
+      // node before it writes one, for what it reads after: a row held back
+      // since can be one these name, and a second read of the object is
+      // counted against these (`readMore`). That dry run writes none of them.
+      if (!config.dryRun || readsBeforeWriting(config)) {
+        state.preread.set(node.objectApiName, {
+          fieldInfos,
+          createableSet,
+          records,
+          targetSetsPending,
+        });
+      }
+
       if (config.dryRun) {
         onProgress({
           objectName: node.objectApiName,
@@ -3442,13 +3559,6 @@ export class ForgeExecutor {
         state.wouldInsertCount += records.length;
         return false;
       }
-
-      state.preread.set(node.objectApiName, {
-        fieldInfos,
-        createableSet,
-        records,
-        targetSetsPending,
-      });
       return true;
     } catch (err) {
       // An abort is a control-flow signal, not a node failure. Recording it as
@@ -3497,23 +3607,30 @@ export class ForgeExecutor {
   /**
    * Take out of `records` the rows that cannot be written without a record of
    * an object the user excluded by name: one a lookup they may not leave empty
-   * names — a line's price, a price's product — or, for a price sold under a
-   * selling model the run carries, its product's option for that model, when
-   * the options are excluded. Their ids go out of `reached`, so nothing is
-   * read under them, and they put nothing in scope. Returns how many of
-   * `records` it took out.
+   * names — a line's price, a price's product, the record a feed item is
+   * posted on — or, for a price sold under a selling model the run carries,
+   * its product's option for that model, when the options are excluded. So
+   * are the rows such a lookup of theirs names a row held back of: a line
+   * whose price is. Their ids go out of `reached`, so nothing is read under
+   * them, and they put nothing in scope. Returns how many of `records` it
+   * took out.
    *
    * Excluded, the object is not read, and a row sent without the record the
    * platform refuses it without is a refusal a dry run never hears: it counted
    * each such line among what it would insert. Held back, the rows are said,
    * once however many times their object is read, and counted as failed.
    *
-   * The lookup has to name one object, as for the catalog a run adds: one
-   * that can name several says nothing of which. A row whose parent the
-   * target already has — the standard price book, matched — goes on. Of an
-   * object whose rows the status of records above them needs, which rows
-   * are kept and which held back is noted by the records they name: see
-   * `reportDraftsExclusionsLeave`.
+   * A lookup that can name several objects names an excluded one by the key
+   * prefix of the id it holds (`excludedPrefixes`): a feed item on a quote the
+   * user had left out was sent, and refused for want of it, while Review said
+   * it would not be written. A row whose parent the target already has — the
+   * standard price book, matched — goes on. Of an object whose rows the status of records above
+   * them needs, which rows are kept and which held back is noted by the
+   * records they name: see `reportDraftsExclusionsLeave`.
+   *
+   * @param excludedPrefixes - The excluded objects a lookup of these rows
+   *   that can name several may name, by the key prefix of their ids; see
+   *   `excludedByKeyPrefix`.
    */
   private holdBackWhatExclusionsCost(
     state: ExecutionState,
@@ -3521,25 +3638,37 @@ export class ForgeExecutor {
     fieldInfos: readonly FieldInfo[],
     records: Record<string, unknown>[],
     reached: Set<string> | undefined,
+    excludedPrefixes: ReadonlyMap<string, string>,
   ): number {
     const excluded = state.config.excludedObjects;
     if (excluded.size === 0) return 0;
     const object = node.objectApiName;
-    const lookups = fieldInfos.filter((f) => {
-      const targets = f.isReference ? (f.referenceTo ?? []) : [];
-      return (
-        targets.length === 1 &&
-        targets[0] !== object &&
-        excluded.has(targets[0]) &&
-        isRequiredLookup(object, f.name, f.nillable)
-      );
+    const required = fieldInfos.filter(
+      (f) => f.isReference && isRequiredLookup(object, f.name, f.nillable),
+    );
+    const lookups = required.filter((f) => {
+      const targets = f.referenceTo ?? [];
+      return targets.length === 1 && targets[0] !== object && excluded.has(targets[0]);
+    });
+    const polymorphic = required.filter((f) => {
+      const targets = f.referenceTo ?? [];
+      return targets.length > 1 && targets.some((target) => excluded.has(target));
     });
     const needsOption =
       object === PRICEBOOK_ENTRY_OBJECT &&
       state.sellingModels &&
       excluded.has(SELLING_MODEL_OPTION_OBJECT);
     const status = statusParentOf(object);
-    if (lookups.length === 0 && !needsOption && !status) return 0;
+    const namesHeldRows = required.length > 0 && state.heldForExclusions.size > 0;
+    if (
+      lookups.length === 0 &&
+      polymorphic.length === 0 &&
+      !namesHeldRows &&
+      !needsOption &&
+      !status
+    ) {
+      return 0;
+    }
 
     const whyHeld = (row: Record<string, unknown>): HeldForExclusion | undefined => {
       for (const field of lookups) {
@@ -3548,6 +3677,16 @@ export class ForgeExecutor {
           return { field: field.name, excluded: (field.referenceTo ?? [])[0] };
         }
       }
+      for (const field of polymorphic) {
+        const value = row[field.name];
+        if (typeof value !== 'string' || value === '' || state.remapper.get(value)) continue;
+        const owner = excludedPrefixes.get(value.slice(0, 3));
+        if (owner !== undefined && (field.referenceTo ?? []).includes(owner)) {
+          return { field: field.name, excluded: owner };
+        }
+      }
+      const through = namesHeldRows ? heldRowNamedBy(state, row, required) : undefined;
+      if (through) return through;
       const model = row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
       if (needsOption && typeof model === 'string' && model !== '') {
         return {
@@ -3591,6 +3730,119 @@ export class ForgeExecutor {
       records.push(...kept);
     }
     return heldBack;
+  }
+
+  /**
+   * Hold back, once every node has been read, the rows read before a row
+   * they cannot be written without was held back for an object the user
+   * excluded: a lookup they may not leave empty names it. Round after round,
+   * until no row read names one held back.
+   *
+   * The catalog is read last, and the lines that price from it before it.
+   * With the selling model options excluded, a line whose price was held back
+   * had been read and kept: a dry run counted it among what it would insert,
+   * and a real run sent it for the platform to refuse — or, every price held
+   * back, skipped it unsaid behind them. Held back here, the rows are said as
+   * the rows an exclusion holds back at their read are, and a dry run takes
+   * them off what it would insert. A record whose status needs rows of them
+   * under it and is left none is noted, for `reportDraftsExclusionsLeave`.
+   */
+  private holdBackWhatHeldRowsCost(state: ExecutionState): void {
+    const { config, onProgress } = state;
+    if (state.heldForExclusions.size === 0) return;
+    for (let found = true; found && !this.isAborted; ) {
+      found = false;
+      for (const [objectApiName, read] of [...state.preread]) {
+        const required = read.fieldInfos.filter(
+          (f) => f.isReference && isRequiredLookup(objectApiName, f.name, f.nillable),
+        );
+        if (required.length === 0) continue;
+        const kept: Record<string, unknown>[] = [];
+        const heldNow: Array<{ id: string; row: Record<string, unknown>; why: HeldForExclusion }> =
+          [];
+        for (const row of read.records) {
+          const id = row['Id'];
+          const why =
+            typeof id === 'string' && !wasWrittenBefore(config, row)
+              ? heldRowNamedBy(state, row, required)
+              : undefined;
+          if (typeof id === 'string' && why) heldNow.push({ id, row, why });
+          else kept.push(row);
+        }
+        if (heldNow.length === 0) continue;
+        found = true;
+        const held =
+          state.heldForExclusions.get(objectApiName) ?? new Map<string, HeldForExclusion>();
+        for (const { id, why } of heldNow) held.set(id, why);
+        state.heldForExclusions.set(objectApiName, held);
+        state.failedCount += heldNow.length;
+        // Their files go with them: the run copies those of the records it writes.
+        const ids = new Set(heldNow.map(({ id }) => id));
+        const files = state.fileScope.get(objectApiName) ?? [];
+        if (files.length > 0) {
+          state.fileScope.set(
+            objectApiName,
+            files.filter((id) => !ids.has(id)),
+          );
+        }
+        this.noteStatusRowsHeld(state, objectApiName, kept, heldNow);
+        const excluded = [...new Set(heldNow.map(({ why }) => why.excluded))].sort().join(', ');
+        if (config.dryRun) {
+          state.wouldInsertCount -= heldNow.length;
+          onProgress({
+            objectName: objectApiName,
+            status: 'done',
+            progress: 100,
+            message:
+              `[dry-run] ${objectApiName}: ${heldNow.length} fewer would be inserted, not ` +
+              `written without ${excluded}, excluded from this run`,
+          });
+        }
+        if (kept.length > 0) {
+          state.preread.set(objectApiName, { ...read, records: kept });
+          continue;
+        }
+        // Nothing of the object left to write, as when every row it read
+        // was held back at its read.
+        state.preread.delete(objectApiName);
+        state.failedObjects.add(objectApiName);
+        onProgress({
+          objectName: objectApiName,
+          status: 'error',
+          progress: 100,
+          message:
+            `Held back ${objectApiName}, nothing written: every record needs ${excluded}, ` +
+            'excluded from this run. Objects that cannot be written without it will be skipped.',
+        });
+      }
+    }
+  }
+
+  /**
+   * Note, of the rows of an object whose rows the status of the records above
+   * them needs, those just held back: a record above none of the rows still
+   * kept is left one held back row's reason. See `reportDraftsExclusionsLeave`.
+   */
+  private noteStatusRowsHeld(
+    state: ExecutionState,
+    objectApiName: string,
+    kept: readonly Record<string, unknown>[],
+    heldNow: ReadonlyArray<{ row: Record<string, unknown>; why: HeldForExclusion }>,
+  ): void {
+    const status = statusParentOf(objectApiName);
+    if (!status) return;
+    const above = state.statusChildrenRead.get(status.parent);
+    const held = new Map(above?.held ?? []);
+    for (const { row, why } of heldNow) {
+      const parent = row[status.lookup];
+      if (typeof parent === 'string' && !held.has(parent)) held.set(parent, why);
+    }
+    const stillKept = new Set<string>();
+    for (const row of kept) {
+      const parent = row[status.lookup];
+      if (typeof parent === 'string') stillKept.add(parent);
+    }
+    state.statusChildrenRead.set(status.parent, { kept: stillKept, held });
   }
 
   /**
@@ -3911,10 +4163,16 @@ export class ForgeExecutor {
    * written without, as the catalog's read does, in the same order — a
    * price's book, product and selling model, the standard price a custom one
    * needs, the options that sell a product under a selling model. What it
-   * names outside the catalog is not read again: a record the run did not
-   * read, whose lookup at it is left empty and reported.
+   * names outside the catalog is read after it by the nodes read after the
+   * catalog, once more (`readAfterTheCatalogAgain`).
+   *
+   * @param afterTheCatalog - The nodes put off that were read after the
+   *   catalog, in the order they were read.
    */
-  private async readCatalogAgain(state: ExecutionState): Promise<void> {
+  private async readCatalogAgain(
+    state: ExecutionState,
+    afterTheCatalog: readonly ForgeGraphNode[],
+  ): Promise<void> {
     const cache = state.scopeCache;
     if (!cache) return;
     const { config } = state;
@@ -3928,6 +4186,10 @@ export class ForgeExecutor {
     );
     if (!catalog.some(({ node }) => namedSinceItsRead(cache, node.objectApiName).size > 0)) return;
 
+    /** The ids each object was named by before this read: what it names past them is its own. */
+    const namedBefore = new Map(
+      [...cache.entries()].map(([objectApiName, ids]) => [objectApiName, new Set(ids)]),
+    );
     /** The objects this read found rows of: new products or selling models want their options. */
     const found = new Set<string>();
     for (const { node, fieldInfos } of catalog) {
@@ -3987,6 +4249,126 @@ export class ForgeExecutor {
       );
       if (fresh.length > 0) found.add(objectApiName);
     }
+    if (found.size > 0) await this.readAfterTheCatalogAgain(state, afterTheCatalog, namedBefore);
+  }
+
+  /**
+   * Read once more the nodes read after the catalog, for what the rows its
+   * second read added name outside it and what hangs under those, as the
+   * first read's rows had theirs read: the classification a new product is
+   * based on, the attributes of that classification, the definitions they
+   * name. Left unread, the new product went to the target without its
+   * classification, and the second pass reported the lookup.
+   *
+   * In the order they were read after the catalog, each node is read by the
+   * ids named of it since the catalog was read again that no read took, and
+   * under the rows this pass added of an object it is read under. One pass,
+   * each node read once: what the rows it reads name of the catalog is not
+   * read a third time, and a lookup at it is left empty and reported.
+   *
+   * @param namedBefore - Per object, the ids named of it before the catalog
+   *   was read again.
+   */
+  private async readAfterTheCatalogAgain(
+    state: ExecutionState,
+    afterTheCatalog: readonly ForgeGraphNode[],
+    namedBefore: ReadonlyMap<string, ReadonlySet<string>>,
+  ): Promise<void> {
+    const cache = state.scopeCache;
+    if (!cache) return;
+    const { config } = state;
+    /** The objects this pass added rows of: what is read under them is read again. */
+    const added = new Set<string>();
+    for (const node of afterTheCatalog) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      const objectApiName = node.objectApiName;
+      if (
+        state.failedObjects.has(objectApiName) ||
+        state.notCreatable.has(objectApiName) ||
+        config.referenceDataObjects.has(objectApiName)
+      ) {
+        continue;
+      }
+      const before = namedBefore.get(objectApiName);
+      const taken = cache.isRead(objectApiName) ? cache.scopeOf(objectApiName) : undefined;
+      const named = new Set(
+        [...(cache.get(objectApiName) ?? [])].filter((id) => !before?.has(id) && !taken?.has(id)),
+      );
+      const under = new Set(
+        state.graph.edges
+          .filter((e) => e.targetObject === objectApiName && added.has(e.sourceObject))
+          .map((e) => e.sourceObject),
+      );
+      if (named.size === 0 && under.size === 0) continue;
+      const again = await this.fieldsReadAgain(state, node);
+      if (!again) continue;
+      const { fields } = again;
+      const extraWhere = config.objectSoqlFilters?.[objectApiName];
+      const statements: string[] = [];
+      if (named.size > 0) {
+        const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+        statements.push(
+          ...new ScopedSoqlBuilder().buildById({
+            objectApiName,
+            selectFields: selectFields.length > 0 ? selectFields : ['Id'],
+            ids: named,
+            extraWhere,
+          }),
+        );
+      }
+      if (under.size > 0) {
+        const query = buildNodeQuery({
+          node,
+          edges: state.graph.edges,
+          fieldInfos: fields,
+          scopedBuilder: state.scopedBuilder,
+          scopeCache: cache,
+          rootObjectApiName: config.rootObjectApiName,
+          rootRecordId: config.rootRecordId,
+          extraWhere,
+          readObjects: state.readObjects,
+          catalog: CATALOG_OBJECTS,
+          under,
+        });
+        if (query.kind === 'query') statements.push(...query.statements);
+      }
+      if (statements.length === 0) continue;
+      const fresh = await this.readMore(
+        state,
+        node,
+        fields,
+        statements,
+        'for what the catalog read again brought',
+      );
+      if (fresh.length === 0) continue;
+      added.add(objectApiName);
+      // Said as a read of the object says them, now that it has rows to write.
+      if (again.described) this.withoutFileContent(state, objectApiName, again.described, true);
+    }
+  }
+
+  /**
+   * The source fields a node is read again by: those its read described, or,
+   * for one no read kept, its describe now — `described`, of which `fields`
+   * leaves out those that hold a file's content, as every read does.
+   * Undefined when it cannot be described: its own read said why.
+   */
+  private async fieldsReadAgain(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+  ): Promise<{ fields: FieldInfo[]; described?: FieldInfo[] } | undefined> {
+    const read = state.preread.get(node.objectApiName);
+    if (read) return { fields: [...read.fieldInfos] };
+    try {
+      const described = await this.deps.describeFields(state.sourceOrgId, node.objectApiName);
+      return { fields: described.filter((f) => !isFileContentField(f)), described };
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -4038,6 +4420,21 @@ export class ForgeExecutor {
           ),
       );
       const read = rows.filter(unheld);
+      // Held back as at the object's read, when they cannot be written without
+      // a record of an object the user excluded: read again, a price sold
+      // under a selling model whose options were excluded went to the write.
+      const heldBefore = new Set(state.heldForExclusions.get(objectApiName)?.keys() ?? []);
+      this.holdBackWhatExclusionsCost(
+        state,
+        node,
+        fields,
+        read,
+        undefined,
+        await this.excludedByKeyPrefix(state, objectApiName, fields),
+      );
+      const heldNow = [...(state.heldForExclusions.get(objectApiName) ?? [])].filter(
+        ([id]) => !heldBefore.has(id),
+      );
       this.leaveToThePlatform(state, objectApiName, read, fields);
       const fresh = (await keep(read)).filter(unheld);
       // What the rows name is met; what the object holds is what the reads took.
@@ -4049,43 +4446,52 @@ export class ForgeExecutor {
         objectApiName,
         fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : [])),
       );
-      if (fresh.length === 0) return [];
+      if (fresh.length === 0 && heldNow.length === 0) return [];
       if (config.files) {
         const ids = fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
         state.fileScope.set(objectApiName, [...(state.fileScope.get(objectApiName) ?? []), ...ids]);
       }
       // Left out of scope by its read, the object was counted as skipped.
       if (!wasRead) state.skippedCount--;
-      let added = fresh.length;
-      if (!config.dryRun) {
-        const before = state.preread.get(objectApiName);
-        const earlier = before?.records ?? [];
-        // A book holds one price per product — and selling model, and
-        // currency — whichever read took it.
-        const records = isPricebookEntry(objectApiName)
-          ? dedupePricebookEntries([...earlier, ...fresh], { sellingModel: state.sellingModels })
-          : [...earlier, ...fresh];
-        added = records.length - earlier.length;
-        state.preread.set(
-          objectApiName,
-          before
-            ? { ...before, records }
-            : {
-                fieldInfos: fields,
-                createableSet: new Set(fields.filter((f) => f.createable).map((f) => f.name)),
-                records,
-                targetSetsPending: null,
-              },
-        );
-      }
-      state.readByObject.set(objectApiName, (state.readByObject.get(objectApiName) ?? 0) + added);
+      // Counted against the rows the run holds of the object — a dry run's
+      // too, which holds them for this: a book holds one price per product —
+      // and selling model, and currency — whichever read took it. Counted
+      // against the new rows alone, a dry run said one price more than a
+      // real run writes whenever a new one matched one the first read took.
+      const before = state.preread.get(objectApiName);
+      const earlier = before?.records ?? [];
+      const records = isPricebookEntry(objectApiName)
+        ? dedupePricebookEntries([...earlier, ...fresh], { sellingModel: state.sellingModels })
+        : [...earlier, ...fresh];
+      const added = records.length - earlier.length;
+      state.preread.set(
+        objectApiName,
+        before
+          ? { ...before, records }
+          : {
+              fieldInfos: fields,
+              createableSet: new Set(fields.filter((f) => f.createable).map((f) => f.name)),
+              records,
+              targetSetsPending: null,
+            },
+      );
+      // The rows held back were read to be cloned, and are counted with them.
+      state.readByObject.set(
+        objectApiName,
+        (state.readByObject.get(objectApiName) ?? 0) + added + heldNow.length,
+      );
       if (config.dryRun) {
         state.wouldInsertCount += added;
+        const excluded = [...new Set(heldNow.map(([, why]) => why.excluded))].sort().join(', ');
         state.onProgress({
           objectName: objectApiName,
           status: 'done',
           progress: 100,
-          message: `[dry-run] ${objectApiName}: ${added} more record(s) would be inserted, ${note}`,
+          message:
+            `[dry-run] ${objectApiName}: ${added} more record(s) would be inserted, ${note}` +
+            (heldNow.length > 0
+              ? `, ${heldNow.length} more not written without ${excluded}, excluded from this run`
+              : ''),
         });
       }
       return fresh;

@@ -130,11 +130,14 @@ interface MakeDepsOptions {
   config?: FrozenLoadConfig;
   sasDir?: string;
   guard?: ProductionGuard;
+  /** The user the session writes as; absent, the target does not say. */
+  userId?: string;
 }
 
 function makeDeps(options: MakeDepsOptions): FrozenDatasetLoaderDeps & { sasDir: string } {
   const sasDir = options.sasDir ?? makeTmpDir();
   const describes = options.describes ?? describeFromDataset(options.dataset);
+  const user = options.userId;
   return {
     orgAccess: {
       query: vi.fn(options.queryImpl ?? (async () => [])),
@@ -146,6 +149,7 @@ function makeDeps(options: MakeDepsOptions): FrozenDatasetLoaderDeps & { sasDir:
         return describe;
       }),
       picklistValues: vi.fn(async () => []),
+      ...(user === undefined ? {} : { userId: vi.fn(async () => user) }),
     },
     writer: options.writer ?? makeWriter([]),
     guard: options.guard ?? new ProductionGuard(),
@@ -3795,11 +3799,15 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
    * writer stopped by the cancel as the bulk writer is — a write sent once the
    * cancel came writes nothing — and the cancel coming as the order is set to
    * Draft.
+   *
+   * @param afterGiveBack - What happens in the target once the order's status
+   *   is given back, before anything else is asked of it.
    */
   function reloadCancelledAtTheDraft(
     target: OrderTarget,
     sasDir: string,
     clock: Pick<FrozenDatasetLoaderDeps, 'serverTime'> = {},
+    afterGiveBack?: () => void,
   ) {
     const dataset = makeAccountContactDataset();
     const stop = new AbortController();
@@ -3820,8 +3828,16 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
         sasDir,
         writer,
         queryImpl: async (_org: string, soql: string) => target.select(soql),
+        userId: USER,
       }),
-      restoringWriter: writes,
+      restoringWriter: {
+        ...writes,
+        update: async (...args: Parameters<FrozenDmlWriter['update']>) => {
+          const outcomes = await writes.update(...args);
+          afterGiveBack?.();
+          return outcomes;
+        },
+      },
       ...clock,
     };
     return new FrozenDatasetLoader(deps)
@@ -3873,6 +3889,7 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
       guard,
       writer: target.writer(),
       queryImpl: async (_org, soql) => target.select(soql),
+      userId: USER,
     });
 
     const error = await new FrozenDatasetLoader(deps)
@@ -3925,6 +3942,7 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
       sasDir,
       writer: target.writer(),
       queryImpl: async (_org, soql) => target.select(soql),
+      userId: USER,
     });
 
     const report = await new FrozenDatasetLoader(deps).load(
@@ -4067,6 +4085,54 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
       const [load] = await recordedLoads(sasDir);
       expect(load.removalStamps).toEqual({});
     });
+  });
+
+  it('stamps no order a colleague edits between its status given back and the stamp read', async () => {
+    // Read by its date alone, the colleague's edit was kept as the reload's
+    // doing, and the removal of the load deleted the order it was made on.
+    const target = new OrderTarget();
+    const sasDir = makeTmpDir();
+    await orderLoaded(sasDir);
+
+    const error = await reloadCancelledAtTheDraft(target, sasDir, {}, () => {
+      Object.assign(target.row('Order', ORDER) ?? {}, {
+        Description: 'Keep for the audit',
+        LastModifiedDate: target.now(),
+        LastModifiedById: COLLEAGUE,
+      });
+    });
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    const loads = await recordedLoads(sasDir);
+    expect(loads).toHaveLength(1);
+    expect(loads[0].removalStamps).toEqual({});
+    expect(await removeNextLoad(sasDir, target)).toEqual([
+      'OrderItem: 0 deleted, 0 kept changed, 1 refused',
+      'Order: 0 deleted, 1 kept changed, 0 refused',
+    ]);
+    expect(target.row('Order', ORDER)?.Description).toBe('Keep for the audit');
+  });
+
+  it('stamps nothing when the target does not say which user the reload writes as', async () => {
+    const target = new OrderTarget();
+    const sasDir = makeTmpDir();
+    await orderLoaded(sasDir);
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+    target.refuse = (operation, object) =>
+      operation === 'delete' && object === 'Order' ? 'DELETE_FAILED: it has invoices' : undefined;
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true }));
+
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    const [, earlier] = await recordedLoads(sasDir);
+    expect(earlier.removalStamps).toEqual({});
   });
 });
 

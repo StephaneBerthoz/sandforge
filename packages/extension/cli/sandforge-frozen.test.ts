@@ -328,6 +328,34 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('says the cap was raised when discovery reached more objects than it', () => {
+    // Twice the cap: the parents their records cannot be written without took
+    // discovery past it, and the bare count read as the cap not holding.
+    const lines = messageLines({
+      type: 'frozen:extract:response',
+      payload: {
+        recordCount: 1,
+        datasetDir: '/sas/dataset',
+        manifest: {
+          version: '1.0.0',
+          volumetry: { measured: { Opportunity: 1 } },
+          coverage: {
+            objects: 100,
+            truncated: true,
+            maxNodes: 50,
+            unboundedObjects: [],
+            filesLeftOut: [],
+          },
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'graph: 100 object(s) at a cap of 50 (raised for the parents their records cannot be ' +
+        'written without) — TRUNCATED: objects further out were not read',
+    );
+  });
+
   it('names what the objects excludedObjects leaves out cost the records the dataset holds', () => {
     const lines = messageLines({
       type: 'frozen:extract:response',

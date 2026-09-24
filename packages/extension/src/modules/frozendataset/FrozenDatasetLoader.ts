@@ -1863,7 +1863,11 @@ export class FrozenDatasetLoader {
    * A record someone gave another status since is left as they left it, and
    * one the purge deleted is gone. One whose status cannot be given back — an
    * order whose products the purge deleted is not activated again — is listed
-   * among the purge's failures, and stays at Draft.
+   * among the purge's failures, and stays at Draft. One someone else modified
+   * last is not stamped, however soon after the status went back: read by its
+   * date alone, an edit that came between the two was kept as the purge's
+   * doing, and the load's removal deleted the record it was made on. A target
+   * that does not say which user the purge writes as has none stamped.
    *
    * Written through `restoringWriter`, which the load's cancel does not stop,
    * and never thrown: it runs on the purge's way out, and what stopped the
@@ -1875,6 +1879,7 @@ export class FrozenDatasetLoader {
     purge: PurgeReport,
   ): Promise<void> {
     const writer = this.deps.restoringWriter ?? this.deps.writer;
+    const user = await this.runningUser(options.orgId);
     const stamps: Record<string, string> = {};
     for (const objectApiName of new Set(drafted.map((record) => record.objectApiName))) {
       const records = drafted.filter((record) => record.objectApiName === objectApiName);
@@ -1918,16 +1923,21 @@ export class FrozenDatasetLoader {
         });
       }
       const unchanged = inDraft.filter((record) => record.unchanged);
-      if (unchanged.length === 0) continue;
+      if (unchanged.length === 0 || user === undefined) continue;
       try {
         const dated = await this.readRecords(
           options.orgId,
           objectApiName,
-          ['LastModifiedDate'],
+          ['LastModifiedDate', 'LastModifiedById'],
           unchanged.map((record) => record.id),
         );
         for (const row of dated) {
-          if (typeof row.Id === 'string' && typeof row.LastModifiedDate === 'string') {
+          if (
+            typeof row.Id === 'string' &&
+            typeof row.LastModifiedDate === 'string' &&
+            typeof row.LastModifiedById === 'string' &&
+            recordKey(row.LastModifiedById) === user
+          ) {
             stamps[row.Id] = row.LastModifiedDate;
           }
         }
@@ -1941,6 +1951,21 @@ export class FrozenDatasetLoader {
       await this.deps.mappingStore.recordStamps(stamps);
     } catch {
       // As unstamped.
+    }
+  }
+
+  /**
+   * The user the load writes to the org as, by record key; undefined when the
+   * target does not say, or the question fails.
+   */
+  private async runningUser(orgId: string): Promise<string | undefined> {
+    const userId = this.deps.orgAccess.userId;
+    if (!userId) return undefined;
+    try {
+      const user = await userId.call(this.deps.orgAccess, orgId);
+      return user ? recordKey(user) : undefined;
+    } catch {
+      return undefined;
     }
   }
 

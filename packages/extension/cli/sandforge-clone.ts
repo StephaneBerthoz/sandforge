@@ -26,7 +26,7 @@
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig, ForgeFilesReport, ForgeGraph } from '@sandforge/shared';
+import type { ForgeConfig, ForgeFilesReport, ForgeGraph, ForgePlan } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
   FILE_COPY_CEILING_MB,
@@ -37,7 +37,10 @@ import {
   formatFileSize,
   leftOutAsEmptyTable,
 } from '@sandforge/shared';
-import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
+import {
+  DEFAULT_MAX_NODES,
+  GraphDiscoveryService,
+} from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
   GraphDiscoveryDeps,
   ObjectDescribe,
@@ -133,7 +136,9 @@ Options:
                          object you expected is missing, e.g. the lines of an
                          Opportunity's quotes. The prices, products, price
                          books and selling models the lines use come whatever
-                         the cap, as do the items of an activated order.
+                         the cap, as do the items of an activated order. Each
+                         parent a record reached cannot be written without
+                         takes the cap one object further, up to twice it.
   --anonymize            anonymize PII fields                   (default: off)
   --dry-run              skip writes, surface scoped queries    (default: off)
   --upsert               use external Id upsert when available  (default: insert)
@@ -752,6 +757,42 @@ export function objectOutcomePrinter(
 }
 
 /**
+ * The line that says how far discovery reached: the objects it described —
+ * those the run reads and those it leaves out, empty tables among them —
+ * against its cap, the lookups it met and how many of them join two of those
+ * objects, and the plan's waves and cycles.
+ *
+ * The objects can outnumber the cap: each parent a record reached cannot be
+ * written without raises it by one, to twice the cap. Printed as "100 nodes"
+ * from a run at the default cap of fifty, the count read as the cap not
+ * holding, and most of the 4 530 edges beside it were lookups at objects
+ * discovery never reached. Exported so it can be tested.
+ *
+ * @param maxNodes - The cap discovery was given.
+ */
+export function graphLine(
+  graph: ForgeGraph,
+  plan: Pick<ForgePlan, 'waves' | 'cycleResolutions'>,
+  maxNodes: number,
+): string {
+  const objects = new Set(graph.nodes.map((n) => n.objectApiName));
+  const included = graph.nodes.filter((n) => n.included).length;
+  const between = graph.edges.filter(
+    (e) => objects.has(e.sourceObject) && objects.has(e.targetObject),
+  ).length;
+  const raised =
+    graph.nodes.length > maxNodes
+      ? ' (raised for the parents their records cannot be written without)'
+      : '';
+  return (
+    `graph: ${graph.nodes.length} objects at a cap of ${maxNodes}${raised}, ${included} included; ` +
+    `${graph.edges.length} lookups, ${between} between these objects; ` +
+    `${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles` +
+    (graph.truncated ? ' (TRUNCATED)' : '')
+  );
+}
+
+/**
  * What the executor is asked to do, from the command line and the graph
  * discovery built. Exported so it can be tested.
  *
@@ -868,9 +909,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // and those discovery never reached, which it would otherwise add.
   const graph = withObjectsLeftOut(discovered, new Set(args.excludedObjects));
   const plan = new ForgePlanGenerator().generate(graph);
-  console.log(
-    `graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`,
-  );
+  console.log(graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES));
 
   if (args.listObjects) {
     // The question a user asks when an object they expected is missing from a

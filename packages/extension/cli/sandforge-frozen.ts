@@ -256,10 +256,18 @@ function removalCounts(object: {
     .join(', ');
 }
 
-/** How far discovery reached, and whether it stopped short. */
+/**
+ * How far discovery reached, and whether it stopped short. The objects can
+ * outnumber the cap — each parent a record reached cannot be written without
+ * raises it by one, to twice it — and "100 object(s) at a cap of 50" read as
+ * the cap not holding: that is said.
+ */
 function graphLine(graph: { objects: number; truncated: boolean; maxNodes: number }): string {
   return (
     `graph: ${graph.objects} object(s) at a cap of ${graph.maxNodes}` +
+    (graph.objects > graph.maxNodes
+      ? ' (raised for the parents their records cannot be written without)'
+      : '') +
     (graph.truncated ? ' — TRUNCATED: objects further out were not read' : '')
   );
 }

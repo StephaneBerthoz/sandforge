@@ -823,6 +823,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return (res.values ?? []).map((v) => v.value);
       },
+      // Only the SOAP API tells it, as it tells a removal.
+      userId: async (orgId) => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        return (await conn.soap.getUserInfo()).userId;
+      },
     };
   }
 

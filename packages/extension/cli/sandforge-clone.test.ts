@@ -19,6 +19,7 @@ import {
   describeOnce,
   executeOptions,
   failedOutright,
+  graphLine,
   jsonResult,
   loadRecordTypes,
   main,
@@ -999,6 +1000,83 @@ describe('sandforge-clone excluded objects', () => {
 
   it('leaves out nothing without the flag', () => {
     expect(executeOptions(parseArgs(argv()), graph, []).excludedObjects).toBeUndefined();
+  });
+});
+
+describe('sandforge-clone graph line', () => {
+  const node = (objectApiName: string, included = true): ForgeGraphNode => ({
+    objectApiName,
+    recordCount: included ? 1 : 0,
+    fieldCount: 5,
+    status: 'idle',
+    progress: 0,
+    included,
+    piiFields: [],
+    anonymizeFields: [],
+    level: 0,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: 4,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 1,
+    batchStrategy: 'auto',
+  });
+  const lookup = (sourceObject: string, targetObject: string) => ({
+    sourceObject,
+    targetObject,
+    relationshipName: `${sourceObject}To${targetObject}`,
+    type: 'lookup' as const,
+  });
+  const wave = (order: number, objectApiNames: string[]) => ({
+    order,
+    objectApiNames,
+    totalRecords: objectApiNames.length,
+    estimatedDurationSeconds: 0,
+    estimatedApiCalls: 1,
+  });
+  const plan = {
+    waves: [wave(0, ['Account', 'Pricebook2']), wave(1, ['Opportunity'])],
+    cycleResolutions: [],
+  };
+
+  it('says the cap was raised when the objects discovery reached outnumber it', () => {
+    // Four objects at a cap of two: the parents their records cannot be
+    // written without took discovery past it. Printed as "4 nodes", the
+    // count read as the cap not holding.
+    const graph: ForgeGraph = {
+      nodes: [node('Opportunity'), node('Account'), node('Pricebook2'), node('Lead', false)],
+      edges: [
+        lookup('Account', 'Opportunity'),
+        lookup('Pricebook2', 'Opportunity'),
+        lookup('Campaign', 'Opportunity'),
+      ],
+      totalRecords: 3,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+      truncated: true,
+    };
+
+    expect(graphLine(graph, plan, 2)).toBe(
+      'graph: 4 objects at a cap of 2 (raised for the parents their records cannot be ' +
+        'written without), 3 included; 3 lookups, 2 between these objects; 2 waves, 0 cycles ' +
+        '(TRUNCATED)',
+    );
+  });
+
+  it('says the cap alone when discovery stayed within it', () => {
+    const graph: ForgeGraph = {
+      nodes: [node('Opportunity'), node('Account')],
+      edges: [lookup('Account', 'Opportunity')],
+      totalRecords: 2,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    expect(graphLine(graph, plan, 50)).toBe(
+      'graph: 2 objects at a cap of 50, 2 included; 1 lookups, 1 between these objects; ' +
+        '2 waves, 0 cycles',
+    );
   });
 });
 
