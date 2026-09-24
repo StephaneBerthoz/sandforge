@@ -119,6 +119,31 @@ describe('ClonePreviewPanel', () => {
     ]);
   });
 
+  it('names the lookups only the source org has, whose values the clone will not write', () => {
+    // A key contact deployed to the source alone: the run leaves it out of
+    // every record, and its order does not go by it.
+    const sourceOnly: ClonePreviewResult = {
+      ...mockPreview,
+      sourceOnlyLookups: [
+        { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
+      ],
+    };
+    render(<ClonePreviewPanel previewResult={sourceOnly} onExecute={vi.fn()} onBack={vi.fn()} />);
+
+    const lookups = screen.getByTestId('clone-preview-source-only');
+    expect(lookups.textContent).toContain(
+      'Only in the source org — the target org does not have these lookups, so their values will not be written:',
+    );
+    expect([...lookups.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Account.Key_Contact__c → Contact',
+    ]);
+  });
+
+  it('names no lookup of the source alone when the two orgs have the same', () => {
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByTestId('clone-preview-source-only')).toBeNull();
+  });
+
   it('names no lookup when the clone leaves none to a second pass', () => {
     render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
     expect(screen.queryByTestId('clone-preview-filled-after')).toBeNull();

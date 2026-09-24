@@ -24,8 +24,9 @@ export interface ClonePreviewPanelProps {
 
 /**
  * Displays a clone preview with three sections:
- * 1. Insert order (topological) with dependency arrows, and the lookups a
- *    second pass fills in once the record they point at is written
+ * 1. Insert order (topological) with dependency arrows, the lookups a second
+ *    pass fills in once the record they point at is written, and those only
+ *    the source org has, whose values the clone does not write
  * 2. Record counts per object with totals
  * 3. Sample records per object in expandable accordions
  */
@@ -42,6 +43,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
     0,
   );
   const filledAfterInsert = previewResult.filledAfterInsert ?? [];
+  const sourceOnlyLookups = previewResult.sourceOnlyLookups ?? [];
 
   /** Build DataTable columns from sample record keys. */
   const buildSampleColumns = (
@@ -89,6 +91,25 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               </span>
               <ul className="flex flex-col gap-0.5">
                 {filledAfterInsert.map((lookup) => (
+                  <li
+                    key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
+                    className="text-xs font-mono text-[var(--sf-text-primary)]"
+                  >
+                    {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* A lookup the source has and the target lacks: the order above
+              is the target's, and the clone leaves it out of every record. */}
+          {sourceOnlyLookups.length > 0 && (
+            <div className="flex flex-col gap-1 mt-3" data-testid="clone-preview-source-only">
+              <span className="text-xs text-[var(--sf-text-secondary)]">
+                {t('seed.clone.preview.sourceOnlyLookups')}
+              </span>
+              <ul className="flex flex-col gap-0.5">
+                {sourceOnlyLookups.map((lookup) => (
                   <li
                     key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
                     className="text-xs font-mono text-[var(--sf-text-primary)]"

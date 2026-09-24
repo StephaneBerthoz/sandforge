@@ -209,7 +209,18 @@ export class SeedCloneHandler implements DomainHandler {
     }
   }
 
-  /** Preview a clone: per-object counts, bounded samples, relationships, insert order. */
+  /**
+   * Preview a clone: per-object counts, bounded samples, relationships, insert order.
+   *
+   * The order, the dependencies, the lookups left to the second pass and what
+   * the clone sends are read from the target's describe, as the run reads
+   * them: read from the source's, a lookup one org has and the other lacks
+   * made the preview show an order and a second pass the run does not make.
+   * The rows are counted and sampled in the source, where the run reads them.
+   * A request without a target is refused with its payload — the schema asks
+   * for one, as it does of the run — and never falls back on the source's
+   * describe, which would show an order no run follows.
+   */
   private async handlePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
@@ -226,20 +237,45 @@ export class SeedCloneHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+      const targetConn = await getJsforceConnection(
+        parsed.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const fetcher = new CloneRecordFetcher({ log: this.deps.log });
       const linker = new CloneReferenceLinker();
       const objectNames = parsed.objects.map((o) => o.objectApiName);
       /** Every object of the clone, with the filter it is read by. */
       const copied = new Map(parsed.objects.map((o) => [o.objectApiName, o.whereClause]));
 
+      /** The target's describes, which the run orders and writes by. */
       const describeMap = new Map<string, DescribeSObjectResultLike>();
+      /** The source's, for the lookups the target lacks. */
+      const sourceDescribes = new Map<string, DescribeSObjectResultLike>();
       /** Each object counted and sampled; its dependencies come with the order, below. */
       const counted: Array<Omit<ClonePreviewResult['objects'][number], 'relationships'>> = [];
 
       for (const objectConfig of parsed.objects) {
-        const describe = await conn.describe(objectConfig.objectApiName);
+        const [describe, sourceDescribe] = await Promise.all([
+          targetConn.describe(objectConfig.objectApiName).catch((err: unknown) => {
+            // The run stops on it too, before writing anything: said here
+            // with the object, which the org's answer does not name.
+            throw new Error(
+              `${objectConfig.objectApiName} could not be described in the target org: ${extractErrorMessage(err)}`,
+            );
+          }),
+          conn.describe(objectConfig.objectApiName),
+        ]);
+        checkApiLimits(
+          targetConn.limitInfo,
+          `seed:clone:preview describe ${objectConfig.objectApiName} in the target`,
+        );
         checkApiLimits(conn.limitInfo, `seed:clone:preview describe ${objectConfig.objectApiName}`);
         describeMap.set(objectConfig.objectApiName, describe as DescribeSObjectResultLike);
+        sourceDescribes.set(
+          objectConfig.objectApiName,
+          sourceDescribe as DescribeSObjectResultLike,
+        );
 
         // What the clone will send: it leaves to the platform the rows the
         // platform writes itself and what cannot go in without one of them
@@ -296,11 +332,15 @@ export class SeedCloneHandler implements DomainHandler {
         linker.lookupsFilledAfter(insertOrder, edges),
         insertOrder,
       );
+      // Read from the source and left out of every record by the run: named
+      // before anything is written, as the order no longer goes by them.
+      const sourceOnlyLookups = lookupsOnlyTheSourceHas(insertOrder, sourceDescribes, describeMap);
 
       const payload: ClonePreviewResult = {
         objects: previewObjects,
         insertOrder,
         ...(filledAfterInsert.length > 0 ? { filledAfterInsert } : {}),
+        ...(sourceOnlyLookups.length > 0 ? { sourceOnlyLookups } : {}),
       };
       const response = buildResponse(
         this.deps,
@@ -939,13 +979,13 @@ export class SeedCloneHandler implements DomainHandler {
       // Once every object is written, the lookups the insert left empty are
       // filled in: the records they name are in the target now. A clone the
       // cancel stopped — during its last write too — writes nothing more, and
-      // says how many it left empty; one cancelled during the pass stops
-      // between two calls, and says what it had filled and what it left.
+      // says how many it left empty, and why; one cancelled during the pass
+      // stops between two calls, and says what it had filled and what it left.
       let secondPass: CloneSecondPass | undefined;
       if (owedLookups.length > 0) {
         if (abortController.signal.aborted) cancelled = true;
         secondPass = cancelled
-          ? { owed: owedLookups.length, filled: 0, samples: [] }
+          ? secondPassCancelledBefore(owedLookups)
           : await fillOwedLookups({
               owed: owedLookups,
               idMap: globalIdMap,
@@ -1111,6 +1151,40 @@ function cloneLookups(edges: readonly AutopilotEdge[], order: readonly string[])
     .sort((a, b) => (position.get(a.objectApiName) ?? 0) - (position.get(b.objectApiName) ?? 0));
 }
 
+/**
+ * The lookups between the clone's objects that the source's describe has and
+ * the target's does not, in the order their objects are written.
+ *
+ * The run writes only the fields the target describes (`prepareRecordForWrite`),
+ * so the values of such a lookup are not written, and neither its order nor
+ * its second pass goes by it. A target describe that lists no field says
+ * nothing of what the target lacks, to the run either. A lookup no record is
+ * created with is written in neither org, and is not named.
+ *
+ * @param order - The objects of the clone, as the run writes them.
+ */
+function lookupsOnlyTheSourceHas(
+  order: readonly string[],
+  sourceDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+  targetDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+): CloneLookup[] {
+  const objectSet = new Set(order);
+  return order.flatMap((objectApiName) => {
+    const inTarget = describedFields(targetDescribes.get(objectApiName));
+    if (!inTarget) return [];
+    return (sourceDescribes.get(objectApiName)?.fields ?? [])
+      .filter(
+        (field) =>
+          field.type === 'reference' && field.createable !== false && !inTarget.has(field.name),
+      )
+      .flatMap((field) =>
+        (field.referenceTo ?? [])
+          .filter((referenceTo) => objectSet.has(referenceTo))
+          .map((referenceTo) => ({ objectApiName, field: field.name, referenceTo })),
+      );
+  });
+}
+
 /** A lookup a record goes in without, and the source id it named: the second pass fills it. */
 interface OwedLookup {
   fieldName: string;
@@ -1218,6 +1292,27 @@ async function fillOwedLookups(input: {
       record: recordSummary,
       messages,
     })),
+  };
+}
+
+/**
+ * The second pass of a clone a cancel stopped before it: no lookup filled,
+ * and why, in the words the pass itself gives when a cancel stops it partway
+ * (`patchCycleFkUpdates`). It gave none, and read as a pass whose every
+ * update the target had refused.
+ */
+function secondPassCancelledBefore(owed: readonly PendingFkUpdate[]): CloneSecondPass {
+  const objects = [...new Set(owed.map((update) => update.objectApiName))];
+  return {
+    owed: owed.length,
+    filled: 0,
+    samples: [
+      {
+        record: `${objects.join(', ')}: ${owed.length} lookup${owed.length === 1 ? '' : 's'} not sent`,
+        messages: ['The run was cancelled before they were filled in: they stay empty.'],
+      },
+    ],
+    cancelledBefore: true,
   };
 }
 

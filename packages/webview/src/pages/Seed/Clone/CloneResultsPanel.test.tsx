@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import '../../../i18n';
+import i18n from '../../../i18n';
+import fr from '../../../i18n/locales/fr.json';
 import { CloneResultsPanel } from './CloneResultsPanel';
 import type { CloneExecutionResult } from '@sandforge/shared';
 
@@ -261,6 +262,102 @@ describe('CloneResultsPanel', () => {
     expect([...fields.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
       'Account — Legacy__c, Region__c',
     ]);
+  });
+
+  describe('a clone a cancel stopped', () => {
+    /** Cancelled once the accounts were in: the contacts were never read. */
+    const cancelled: CloneExecutionResult = {
+      status: 'partial',
+      cancelled: true,
+      totalSourceRecords: 16,
+      totalInserted: 16,
+      totalFailed: 0,
+      durationMs: 2100,
+      objectResults: [
+        { ...mockSuccessResult.objectResults[0], sourceCount: 16, insertedCount: 16 },
+      ],
+    };
+
+    /** The pass it never ran: three lookups owed, and why they stay empty, as the host words it. */
+    const beforeItsSecondPass: CloneExecutionResult = {
+      ...cancelled,
+      secondPass: {
+        owed: 3,
+        filled: 0,
+        cancelledBefore: true,
+        samples: [
+          {
+            record: 'Account: 3 lookups not sent',
+            messages: ['The run was cancelled before they were filled in: they stay empty.'],
+          },
+        ],
+      },
+    };
+
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('reads as cancelled, not as partially done, and says what it created before it stopped', () => {
+      // A cancelled clone showed the badge of one that had run to its end
+      // with failures, and nothing said the records it wrote stay in the org.
+      render(<CloneResultsPanel result={cancelled} onDone={vi.fn()} />);
+
+      const summary = screen.getByTestId('clone-results-summary');
+      expect(summary.textContent).toContain('Cancelled');
+      expect(summary.textContent).not.toContain('partial');
+      expect(screen.getByTestId('clone-results-cancelled').textContent).toBe(
+        'The clone was cancelled before it finished. By then it had created 16 records in the target org; they stay there.',
+      );
+    });
+
+    it('says so when it was cancelled before it created any record', () => {
+      render(
+        <CloneResultsPanel
+          result={{ ...cancelled, totalInserted: 0, objectResults: [] }}
+          onDone={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('clone-results-cancelled').textContent).toBe(
+        'The clone was cancelled before it created any record in the target org.',
+      );
+    });
+
+    it('says the lookups it owed stay empty when the cancel came before its second pass', () => {
+      render(<CloneResultsPanel result={beforeItsSecondPass} onDone={vi.fn()} />);
+
+      const pass = screen.getByTestId('clone-results-second-pass');
+      expect([...pass.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
+        'Second pass — lookups filled in once the record they point at was in: 0/3',
+        'The clone was cancelled before this pass: the 3 lookups it owed stay empty.',
+      ]);
+      // The host's sample says the same, in English only: not listed again.
+      expect(pass.querySelector('li')).toBeNull();
+    });
+
+    it('says it in the language the panel is set to', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      render(<CloneResultsPanel result={beforeItsSecondPass} onDone={vi.fn()} />);
+
+      expect(screen.getByTestId('clone-results-summary').textContent).toContain(
+        fr.home.opStatus.cancelled,
+      );
+      expect(screen.getByTestId('clone-results-cancelled').textContent).toBe(
+        fr.seed.clone.results.cancelled_other.replace('{{count}}', '16'),
+      );
+      expect(screen.getByTestId('clone-results-second-pass').textContent).toContain(
+        fr.seed.clone.results.secondPassCancelled_other.replace('{{count}}', '3'),
+      );
+    });
+
+    it('says nothing of a cancel for a clone that ran to its end', () => {
+      render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
+
+      expect(screen.queryByTestId('clone-results-cancelled')).toBeNull();
+      expect(screen.getByTestId('clone-results-summary').textContent).not.toContain('Cancelled');
+    });
   });
 
   it('says nothing of a second pass or of missing fields when the clone had neither', () => {

@@ -332,7 +332,10 @@ describe('SeedCloneHandler — the second pass', () => {
     expect(response.payload as unknown).not.toHaveProperty('secondPass');
   });
 
-  it('fills in nothing after a cancel, and says how many lookups it left empty', async () => {
+  it('fills in nothing after a cancel, and says how many lookups it left empty, and why', async () => {
+    // Cancelled before its second pass, a clone said it had filled none of
+    // the lookups it owed and gave no reason: it read as one whose updates
+    // the target had all refused.
     const registry = new BackgroundOperationRegistry();
     handler.setRegistry(registry);
     orgWithAccountsAndContacts();
@@ -352,7 +355,18 @@ describe('SeedCloneHandler — the second pass', () => {
     const [response] = posted(deps, 'seed:clone:execute:response');
     expect(response.payload as unknown).toMatchObject({
       cancelled: true,
-      secondPass: { owed: 1, filled: 0, samples: [] },
+      // Said as the pass says it when a cancel stops it partway.
+      secondPass: {
+        owed: 1,
+        filled: 0,
+        cancelledBefore: true,
+        samples: [
+          {
+            record: 'Account: 1 lookup not sent',
+            messages: ['The run was cancelled before they were filled in: they stay empty.'],
+          },
+        ],
+      },
     });
   });
 
@@ -489,6 +503,176 @@ describe('SeedCloneHandler — the second pass', () => {
           relationships: [{ field: 'FeedItemId', referenceTo: 'FeedItem' }],
         },
       ],
+    });
+  });
+
+  describe('a source and a target that describe the objects differently', () => {
+    const NAME = { name: 'Name', type: 'string', createable: true, updateable: true };
+    const LAST_NAME = { name: 'LastName', type: 'string', createable: true, updateable: true };
+
+    /** A describe per object, or what the org answers when it has no such object. */
+    type Describes = Record<string, unknown[] | Error>;
+
+    /** Each org's connection answers with its own describes. */
+    function twoOrgs(source: Describes, target: Describes): void {
+      const connectionTo = (describes: Describes) => ({
+        describe: vi.fn(async (name: string) => {
+          const fields = describes[name] ?? [];
+          if (fields instanceof Error) throw fields;
+          return { keyPrefix: null, fields, recordTypeInfos: [] };
+        }),
+        sobject: vi.fn((name: string) => ({
+          update: (records: unknown[], options: unknown) => targetUpdate(name, records, options),
+        })),
+        limitInfo: undefined,
+      });
+      const byOrg = new Map([
+        [ACCOUNTS_AND_CONTACTS.sourceOrgId, connectionTo(source)],
+        [ACCOUNTS_AND_CONTACTS.targetOrgId, connectionTo(target)],
+      ]);
+      mockGetConn.mockImplementation(
+        async (orgId: string) =>
+          byOrg.get(orgId) as unknown as Awaited<ReturnType<typeof getJsforceConnection>>,
+      );
+    }
+
+    beforeEach(() => {
+      fetcher.countRecords.mockResolvedValue(2);
+      fetcher.fetchSample.mockResolvedValue([]);
+    });
+
+    it('previews the order, the dependencies and the second pass from the describe the run reads, and names the lookup only the source has', async () => {
+      // A key contact the target was never given: read from the source's
+      // describe, the preview put the accounts in a cycle with the contacts
+      // and promised a second pass for it, and the run, which reads the
+      // target's, left the field out of every record.
+      twoOrgs(
+        {
+          Account: [NAME, lookup('ParentId', 'Account'), lookup('Key_Contact__c', 'Contact')],
+          Contact: [LAST_NAME, lookup('AccountId', 'Account'), lookup('ReportsToId', 'Contact')],
+        },
+        {
+          Account: [NAME, lookup('ParentId', 'Account')],
+          Contact: [LAST_NAME, lookup('AccountId', 'Account'), lookup('ReportsToId', 'Contact')],
+        },
+      );
+
+      await handler.handle(buildMsg('seed:clone:preview', ACCOUNTS_AND_CONTACTS));
+
+      expect(posted(deps, 'seed:clone:error')).toEqual([]);
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        insertOrder: ['Account', 'Contact'],
+        objects: [
+          {
+            objectApiName: 'Contact',
+            relationships: [
+              { field: 'AccountId', referenceTo: 'Account' },
+              { field: 'ReportsToId', referenceTo: 'Contact' },
+            ],
+          },
+          {
+            objectApiName: 'Account',
+            relationships: [{ field: 'ParentId', referenceTo: 'Account' }],
+          },
+        ],
+        filledAfterInsert: [
+          { objectApiName: 'Account', field: 'ParentId', referenceTo: 'Account' },
+          { objectApiName: 'Contact', field: 'ReportsToId', referenceTo: 'Contact' },
+        ],
+        sourceOnlyLookups: [
+          { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
+        ],
+      });
+    });
+
+    it('writes the objects in the order its preview showed when a lookup only the source has would have ordered them', async () => {
+      // An invoice's account, deployed to the source alone: the preview put
+      // the accounts first, and the run wrote the invoices first, as picked.
+      const INVOICE = 'a01Fk00000InVoIIAV';
+      const PICKED = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'Invoice__c' }, { objectApiName: 'Account' }],
+      };
+      twoOrgs(
+        { Invoice__c: [NAME, lookup('Account__c', 'Account')], Account: [NAME] },
+        { Invoice__c: [NAME], Account: [NAME] },
+      );
+      sourceRows({
+        Invoice__c: [{ Id: INVOICE, Name: 'First invoice', Account__c: ACME }],
+        Account: [{ Id: ACME, Name: 'Acme' }],
+      });
+
+      await handler.handle(buildMsg('seed:clone:preview', PICKED));
+      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+
+      const written = writer.insert.mock.calls.map(([name]) => name);
+      expect(written).toEqual(['Invoice__c', 'Account']);
+      const [preview] = posted(deps, 'seed:clone:preview:response');
+      expect(preview.payload as unknown).toMatchObject({
+        insertOrder: written,
+        objects: [
+          { objectApiName: 'Invoice__c', relationships: [] },
+          { objectApiName: 'Account', relationships: [] },
+        ],
+        sourceOnlyLookups: [
+          { objectApiName: 'Invoice__c', field: 'Account__c', referenceTo: 'Account' },
+        ],
+      });
+      // The run leaves it out, as the preview said.
+      const [response] = posted(deps, 'seed:clone:execute:response');
+      expect(response.payload as unknown).toMatchObject({
+        objectResults: [{ objectApiName: 'Invoice__c', fieldsNotInTarget: ['Account__c'] }, {}],
+      });
+    });
+
+    it('says which object the target cannot describe, where the run would stop before writing anything', async () => {
+      // Previewed from the source alone, an object the target lacks read as
+      // ready to clone, and the run stopped on the target's answer, which
+      // names no object.
+      twoOrgs(
+        { Invoice__c: [NAME], Account: [NAME] },
+        {
+          Invoice__c: new Error('NOT_FOUND: The requested resource does not exist'),
+          Account: [NAME],
+        },
+      );
+
+      await handler.handle(
+        buildMsg('seed:clone:preview', {
+          ...ACCOUNTS_AND_CONTACTS,
+          objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
+        }),
+      );
+
+      expect(posted(deps, 'seed:clone:preview:response')).toEqual([]);
+      expect(posted(deps, 'seed:clone:error')[0].payload as unknown).toMatchObject({
+        message:
+          'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist',
+      });
+    });
+
+    it('names no lookup when both orgs have the same', async () => {
+      orgWithAccountsAndContacts();
+
+      await handler.handle(buildMsg('seed:clone:preview', ACCOUNTS_AND_CONTACTS));
+
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload).not.toHaveProperty('sourceOnlyLookups');
+    });
+
+    it('previews nothing without a target, before reading either org', async () => {
+      // The order is the target's to give, as the run reads it: a preview
+      // that fell back to the source's would show what no run does.
+      await handler.handle(
+        buildMsg('seed:clone:preview', { ...ACCOUNTS_AND_CONTACTS, targetOrgId: '' }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(posted(deps, 'seed:clone:preview:response')).toEqual([]);
+      expect(posted(deps, 'seed:clone:error')[0].payload as unknown).toMatchObject({
+        code: 'INVALID_PAYLOAD',
+      });
     });
   });
 

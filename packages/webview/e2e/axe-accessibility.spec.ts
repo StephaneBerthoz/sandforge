@@ -1593,18 +1593,26 @@ for (const theme of SCANNED_THEMES) {
           { objectApiName: 'Account', field: 'ParentId', referenceTo: 'Account' },
           { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
         ],
+        sourceOnlyLookups: [
+          { objectApiName: 'Contact', field: 'Legacy_Account__c', referenceTo: 'Account' },
+        ],
       });
       await page.waitForSelector('[data-testid="clone-preview-filled-after"]', {
         timeout: 10_000,
       });
     }
 
-    test('Seed Clone preview naming the lookups a second pass fills in', async ({ page }) => {
+    test('Seed Clone preview naming the lookups a second pass fills in and those only the source has', async ({
+      page,
+    }) => {
       await previewAccountsAndContacts(page);
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="clone-preview-filled-after"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-preview-source-only"]'),
       ).toBeGreaterThan(0);
     });
 
@@ -1666,6 +1674,53 @@ for (const theme of SCANNED_THEMES) {
           results,
           '[data-testid="clone-results-fields-not-in-target"]',
         ),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed Clone results of a clone cancelled before its second pass', async ({ page }) => {
+      await previewAccountsAndContacts(page);
+      await page.getByTestId('clone-preview-execute').click();
+      await bridge.waitForMessage('seed:clone:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:execute', 'seed:clone:execute:response', {
+        status: 'partial',
+        cancelled: true,
+        totalSourceRecords: 16,
+        totalInserted: 16,
+        totalFailed: 0,
+        durationMs: 2100,
+        secondPass: {
+          owed: 2,
+          filled: 0,
+          cancelledBefore: true,
+          samples: [
+            {
+              record: 'Account: 2 lookups not sent',
+              messages: ['The run was cancelled before they were filled in: they stay empty.'],
+            },
+          ],
+        },
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            sourceCount: 16,
+            insertedCount: 16,
+            failedCount: 0,
+            idMappings: [{ sourceId: fakeId('001', 7), targetId: fakeId('001', 8) }],
+            errors: [],
+          },
+        ],
+      });
+      await page.waitForSelector('[data-testid="clone-results-cancelled"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-results-cancelled"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-results-second-pass"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-results-summary"]'),
       ).toBeGreaterThan(0);
     });
 

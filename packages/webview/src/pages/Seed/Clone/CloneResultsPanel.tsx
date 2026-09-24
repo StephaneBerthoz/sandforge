@@ -187,7 +187,13 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
           {t('seed.clone.results.title')}
         </span>
-        <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>{result.status}</Badge>
+        {/* A clone the Cancel stopped reads as cancelled, as a seed does, not
+            as one that ran to its end with failures. */}
+        {result.cancelled ? (
+          <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+        ) : (
+          <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>{result.status}</Badge>
+        )}
         <span className="text-xs text-[var(--sf-text-secondary)]">
           {t('seed.clone.results.duration')}: {formattedDuration}s
         </span>
@@ -225,6 +231,22 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         )}
       </div>
 
+      {/* What a cancelled clone created stays in the target: nothing takes
+          it back, and the objects it never reached are not listed below. */}
+      {result.cancelled && (
+        <div
+          className="rounded border border-[var(--sf-border)] px-3 py-2 text-xs text-[var(--sf-text-secondary)]"
+          role="status"
+          data-testid="clone-results-cancelled"
+        >
+          <p>
+            {result.totalInserted > 0
+              ? t('seed.clone.results.cancelled', { count: result.totalInserted })
+              : t('seed.clone.results.cancelledNothing')}
+          </p>
+        </div>
+      )}
+
       {/* The lookups written empty and filled in once the record they point
           at was in: how many were, and why the others were not. */}
       {secondPass && (
@@ -243,16 +265,24 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
               owed: secondPass.owed,
             })}
           </p>
-          {secondPass.samples.length > 0 && (
-            <ul className="mt-1 flex flex-col gap-0.5">
-              {/* Two batches of one object refused whole read the same: keyed by place. */}
-              {secondPass.samples.map((sample, index) => (
-                <li key={index}>
-                  <span className="font-mono">{sample.record}</span>
-                  {` — ${sample.messages.join(' ')}`}
-                </li>
-              ))}
-            </ul>
+          {/* A pass the cancel came before never ran: its one sample says so
+              in English, and this says it in the reader's language. */}
+          {secondPass.cancelledBefore ? (
+            <p className="mt-1">
+              {t('seed.clone.results.secondPassCancelled', { count: secondPass.owed })}
+            </p>
+          ) : (
+            secondPass.samples.length > 0 && (
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {/* Two batches of one object refused whole read the same: keyed by place. */}
+                {secondPass.samples.map((sample, index) => (
+                  <li key={index}>
+                    <span className="font-mono">{sample.record}</span>
+                    {` — ${sample.messages.join(' ')}`}
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </div>
       )}

@@ -90,9 +90,15 @@ export interface CloneSecondPass {
   filled: number;
   /**
    * Up to three of the others, each with why: the record it names was never
-   * cloned, or the target refused the update.
+   * cloned, the target refused the update, or a cancel kept it from being sent.
    */
   samples: Array<{ record: string; messages: string[] }>;
+  /**
+   * Set when a cancel stopped the clone before the pass began: it sent no
+   * update, and every lookup it owed stays empty. A pass a cancel stops
+   * partway says what it left in its samples.
+   */
+  cancelledBefore?: boolean;
 }
 
 /**
@@ -163,4 +169,11 @@ export interface ClonePreviewResult {
    * the insert writing both cannot fill. Absent when there are none.
    */
   filledAfterInsert?: CloneLookup[];
+  /**
+   * The lookups between the clone's objects that the source org has and the
+   * target does not: the clone leaves them out of every record, so their
+   * values are not written, and its order goes by the target's lookups, as
+   * the rest of the preview does. Absent when there are none.
+   */
+  sourceOnlyLookups?: CloneLookup[];
 }
