@@ -30,6 +30,7 @@ const linker = vi.hoisted(() => ({
   buildEdgesFromDescribe: vi.fn(),
   resolveInsertOrder: vi.fn(),
   lookupsFilledAfter: vi.fn(),
+  lookupsOf: vi.fn(),
 }));
 
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
@@ -132,6 +133,7 @@ describe('SeedCloneHandler', () => {
     linker.buildEdgesFromDescribe.mockReturnValue([]);
     linker.resolveInsertOrder.mockReturnValue(['Account']);
     linker.lookupsFilledAfter.mockReturnValue([]);
+    linker.lookupsOf.mockReturnValue([]);
     fetcher.fetchRecords.mockResolvedValue([{ Id: '001SRC', Name: 'Acme' }]);
     writer.insert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
     writer.upsert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
@@ -260,35 +262,23 @@ describe('SeedCloneHandler', () => {
       });
     });
 
-    it('lists as a dependency only a lookup the clone writes', async () => {
-      // A feed item names its best comment through a lookup the platform sets
-      // itself: the clone never writes it, and it is not what orders the feed.
-      mockGetConn.mockResolvedValue({
-        describe: vi.fn(async (name: string) => ({
-          fields:
-            name === 'FeedComment'
-              ? [
-                  {
-                    name: 'FeedItemId',
-                    type: 'reference',
-                    referenceTo: ['FeedItem'],
-                    nillable: false,
-                    createable: true,
-                  },
-                ]
-              : [
-                  {
-                    name: 'BestCommentId',
-                    type: 'reference',
-                    referenceTo: ['FeedComment'],
-                    nillable: true,
-                    createable: false,
-                  },
-                ],
-        })),
-        limitInfo: undefined,
-      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+    it("lists each object's dependencies from the edges its insert order is resolved from", async () => {
+      // Read from the describe apart from the order, the list named lookups
+      // the order leaves out. See the second-pass tests for the real edges.
+      const edges = [
+        {
+          from: 'FeedItem',
+          to: 'FeedComment',
+          fieldApiName: 'FeedItemId',
+          relationshipType: 'lookup',
+          required: true,
+        },
+      ];
+      linker.buildEdgesFromDescribe.mockReturnValue(edges);
       linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+      linker.lookupsOf.mockImplementation((name: string) =>
+        name === 'FeedComment' ? [{ field: 'FeedItemId', referenceTo: 'FeedItem' }] : [],
+      );
       fetcher.countRecords.mockResolvedValue(3);
       fetcher.fetchSample.mockResolvedValue([]);
 
@@ -301,6 +291,11 @@ describe('SeedCloneHandler', () => {
         ),
       );
 
+      expect(linker.resolveInsertOrder).toHaveBeenCalledWith(['FeedItem', 'FeedComment'], edges);
+      expect(linker.lookupsOf.mock.calls).toEqual([
+        ['FeedItem', edges],
+        ['FeedComment', edges],
+      ]);
       const [response] = posted(deps, 'seed:clone:preview:response');
       expect(response.payload as unknown).toMatchObject({
         objects: [

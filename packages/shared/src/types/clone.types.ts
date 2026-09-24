@@ -147,7 +147,11 @@ export interface ClonePreviewResult {
     leftToThePlatform?: number;
     /** Sample records from the source org, of those the clone will send */
     sampleRecords: Record<string, unknown>[];
-    /** Lookup relationships to other objects in the clone set */
+    /**
+     * The lookups to objects of the clone the insert order goes by: one per
+     * object of the clone a polymorphic lookup can name, and none the
+     * platform fills, such as an email's task.
+     */
     relationships: Array<{ field: string; referenceTo: string }>;
   }>;
   /** Topologically sorted insert order */

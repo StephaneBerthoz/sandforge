@@ -46,24 +46,23 @@ describe('settles', () => {
   });
 
   it('takes only the messages that carry the request id, as the page hooks do', () => {
-    expect(settles(reply('monitor:data', 'req-1'), 'req-1', 'monitor:data', 'monitor:error')).toBe(
-      'answered',
-    );
-    expect(settles(reply('monitor:data', 'req-2'), 'req-1', 'monitor:data', 'monitor:error')).toBe(
-      undefined,
-    );
-    expect(settles(reply('monitor:data'), 'req-1', 'monitor:data', 'monitor:error')).toBe(
-      undefined,
-    );
+    expect(settles(reply('monitor:data', 'req-1'), 'req-1', 'monitor:data')).toBe('answered');
+    expect(settles(reply('monitor:data', 'req-2'), 'req-1', 'monitor:data')).toBe(undefined);
+    expect(settles(reply('monitor:data'), 'req-1', 'monitor:data')).toBe(undefined);
+    expect(settles(reply('monitor:error', 'req-2'), 'req-1', 'monitor:data')).toBe(undefined);
   });
 
   it('reads the error channel and a bridge refusal as failures of the request', () => {
-    expect(settles(reply('monitor:error', 'req-1'), 'req-1', 'monitor:data', 'monitor:error')).toBe(
-      'failed',
-    );
-    expect(settles(reply('bridge:error', 'req-1'), 'req-1', 'monitor:data', 'monitor:error')).toBe(
-      'refused',
-    );
+    expect(settles(reply('monitor:error', 'req-1'), 'req-1', 'monitor:data')).toBe('failed');
+    expect(settles(reply('bridge:error', 'req-1'), 'req-1', 'monitor:data')).toBe('refused');
+  });
+
+  it("reads as the request's failure an error channel other than its domain's", () => {
+    // The clone answers its preview on `seed:clone:error`, which its page
+    // listens to; taken for nothing, a refused preview waited out the timeout.
+    expect(
+      settles(reply('seed:clone:error', 'req-1'), 'req-1', 'seed:clone:preview:response'),
+    ).toBe('failed');
   });
 });
 
@@ -102,6 +101,35 @@ describe('createPanelHost', () => {
       // A type the bridge schema does not know never reaches a handler.
       const unknown = await host.request({ type: 'monitor:no-such-request' });
       expect(unknown.outcome).toBe('refused');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ends the wait on the error a handler answers on its own channel', async () => {
+    // A clone preview of an org nobody registered: the handler says so on
+    // `seed:clone:error` at once, and the host reported "unanswered" once it
+    // had waited as long as it would.
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      const host = createPanelHost({ storeDir: dir, log: () => undefined, waitMs: 2_000 });
+
+      const preview = await host.request({
+        type: 'seed:clone:preview',
+        payload: {
+          sourceOrgId: '00D000000000009AAA',
+          targetOrgId: '00D000000000008AAA',
+          objects: [{ objectApiName: 'Account' }],
+        },
+        timeoutMs: 1_000,
+      });
+
+      expect(preview.outcome).toBe('failed');
+      expect(preview.message?.type).toBe('seed:clone:error');
+      expect(preview.late).toBe(false);
+      expect(String((preview.message?.payload as { message?: string }).message)).toContain(
+        'Org not found',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

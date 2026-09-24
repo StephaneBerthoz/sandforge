@@ -2031,6 +2031,7 @@ export class ForgeExecutor {
             onProgress,
             deferUnresolved: true,
             stillPending,
+            stopped: () => this.isAborted,
           });
           if (settled) state.errors.push(settled);
           state.pendingFkUpdates.push(...stillPending);
@@ -2052,9 +2053,17 @@ export class ForgeExecutor {
       targetOrgId,
       enabled: !config.dryRun,
       onProgress,
+      stopped: () => this.isAborted,
     });
     if (pass2Error) {
       state.errors.push(pass2Error);
+    }
+    // Stopped during the pass, or during the settle of the last node: the run
+    // ends cancelled, with what the pass filled and what it left.
+    if (this.isAborted) {
+      throw new ForgeAbortedError(
+        'Forge execution was aborted by user request. Remaining objects were not processed.',
+      );
     }
 
     // Files come after the records they hang on: a file is published on the

@@ -20,9 +20,9 @@
  *
  * A request leaves the way the panel's hooks send one — built by the
  * webview's rules, enveloped, posted into the broker — and is answered the way
- * they take one: the first message of the response type, of the domain's
- * error channel, or a bridge refusal, that carries the request's id. Anything
- * else is not the panel's answer, however plausible it looks.
+ * they take one: the first message of the response type, of an error channel,
+ * or a bridge refusal, that carries the request's id. Anything else is not the
+ * panel's answer, however plausible it looks.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -57,7 +57,7 @@ export type PostedMessage = BaseMessage & { payload?: unknown };
 export type PanelOutcome =
   /** The response type, correlated to the request. */
   | 'answered'
-  /** The domain's error channel, correlated to the request. */
+  /** An error channel — the domain's, or the one its handler answers on — correlated to the request. */
   | 'failed'
   /** The broker turned the request down before any handler saw it. */
   | 'refused'
@@ -149,17 +149,22 @@ export function orgFromIdentity(session: SfOrg, identity: OrgIdentity): Salesfor
  * request whose id it carries as `correlationId`. A reply of the right type
  * for another request, or one carrying no correlation at all, answers
  * nothing — the hook would keep waiting, and so does this.
+ *
+ * Any error channel carrying the request's id is its failure, not only the
+ * domain's. A hook names its own when its handler answers on another — the
+ * clone's page listens to `seed:clone:error` — and the host, which does not
+ * know the hook, took `<domain>:error` alone: a clone preview the handler had
+ * refused at once waited out the timeout and was reported unanswered.
  */
 export function settles(
   message: PostedMessage,
   requestId: string,
   responseType: string,
-  errorType: string,
 ): Exclude<PanelOutcome, 'unanswered'> | undefined {
   if (message.correlationId !== requestId) return undefined;
   if (message.type === responseType) return 'answered';
-  if (message.type === errorType) return 'failed';
   if (message.type === 'bridge:error') return 'refused';
+  if (message.type.endsWith(':error')) return 'failed';
   return undefined;
 }
 
@@ -306,7 +311,6 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
       const send = inbound;
       if (!send) return Promise.reject(new Error('No panel is registered with the broker.'));
       const responseType = request.responseType ?? `${request.type}:response`;
-      const errorType = `${request.type.split(':')[0]}:error`;
       const timeoutMs = request.timeoutMs ?? PANEL_TIMEOUT_MS;
       // `buildMessage` in the webview: a random id, the type, a timestamp,
       // and the payload only when there is one.
@@ -325,7 +329,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
           resolve(answer);
         };
         const waiter = (reply: PostedMessage): void => {
-          const outcome = settles(reply, message.id, responseType, errorType);
+          const outcome = settles(reply, message.id, responseType);
           if (!outcome) return;
           const elapsedMs = Date.now() - startedAt;
           finish({ outcome, message: reply, elapsedMs, late: elapsedMs > timeoutMs });

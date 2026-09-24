@@ -356,6 +356,58 @@ describe('SeedCloneHandler — the second pass', () => {
     });
   });
 
+  it('stops the second pass between two calls when the clone is cancelled, and says what it filled and what it left', async () => {
+    // Cancelled during the pass, the clone went on filling lookups in the
+    // target until the last one, and ended as a clone nobody had cancelled.
+    const registry = new BackgroundOperationRegistry();
+    handler.setRegistry(registry);
+    orgWithAccountsAndContacts();
+    /** A fake account id whose first twelve characters tell it apart. */
+    const account = (n: number): string => `001Fk${String(n).padStart(7, '0')}PaReIA`;
+    // Each account under the one before: 249 parents to fill, in two calls.
+    const rows = {
+      Account: Array.from({ length: 250 }, (_, n) => ({
+        Id: account(n),
+        Name: `Account ${n}`,
+        ParentId: n === 0 ? null : account(n - 1),
+      })),
+    };
+    sourceRows(rows);
+    targetGivesIds(rows);
+    targetUpdate.mockImplementation(async (_name: string, records: Array<{ Id: string }>) => {
+      registry.abort('msg-seed:clone:execute');
+      return records.map((record) => ({ id: record.Id, success: true, errors: [] }));
+    });
+
+    await handler.handle(
+      buildMsg('seed:clone:execute', {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'Account' }],
+      }),
+    );
+
+    expect(targetUpdate).toHaveBeenCalledTimes(1);
+    const [response] = posted(deps, 'seed:clone:execute:response');
+    expect(response.payload as unknown).toMatchObject({
+      status: 'partial',
+      cancelled: true,
+      totalInserted: 250,
+      secondPass: {
+        owed: 249,
+        filled: 200,
+        samples: [
+          {
+            record: 'Account: 49 lookups not sent',
+            messages: ['The run was cancelled before they were filled in: they stay empty.'],
+          },
+        ],
+      },
+    });
+    expect(posted(deps, 'operation:completed')[0].payload as unknown).toMatchObject({
+      result: { aborted: true },
+    });
+  });
+
   it('stops before writing anything at a cycle of lookups that must be set at insert', async () => {
     orgWithAccountsAndContacts({ keyContact: true, account: true });
 
@@ -385,6 +437,57 @@ describe('SeedCloneHandler — the second pass', () => {
         { objectApiName: 'Account', field: 'ParentId', referenceTo: 'Account' },
         { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
         { objectApiName: 'Contact', field: 'ReportsToId', referenceTo: 'Contact' },
+      ],
+    });
+  });
+
+  it('lists as a dependency only a lookup the clone writes', async () => {
+    // A feed item names its best comment through a lookup the platform sets
+    // itself: the clone never writes it, and it is not what orders the feed.
+    mockGetConn.mockResolvedValue({
+      describe: vi.fn(async (name: string) => ({
+        fields:
+          name === 'FeedComment'
+            ? [
+                {
+                  name: 'FeedItemId',
+                  type: 'reference',
+                  referenceTo: ['FeedItem'],
+                  nillable: false,
+                  createable: true,
+                },
+              ]
+            : [
+                {
+                  name: 'BestCommentId',
+                  type: 'reference',
+                  referenceTo: ['FeedComment'],
+                  nillable: true,
+                  createable: false,
+                },
+              ],
+      })),
+      limitInfo: undefined,
+    } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+    fetcher.countRecords.mockResolvedValue(3);
+    fetcher.fetchSample.mockResolvedValue([]);
+
+    await handler.handle(
+      buildMsg('seed:clone:preview', {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'FeedItem' }, { objectApiName: 'FeedComment' }],
+      }),
+    );
+
+    const [response] = posted(deps, 'seed:clone:preview:response');
+    expect(response.payload as unknown).toMatchObject({
+      insertOrder: ['FeedItem', 'FeedComment'],
+      objects: [
+        { objectApiName: 'FeedItem', relationships: [] },
+        {
+          objectApiName: 'FeedComment',
+          relationships: [{ field: 'FeedItemId', referenceTo: 'FeedItem' }],
+        },
       ],
     });
   });
@@ -443,6 +546,54 @@ describe('SeedCloneHandler — the second pass', () => {
         limitInfo: undefined,
       } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
     }
+
+    it('previews as dependencies the lookups the order reads: not the task the platform fills for an email, and a what at each object it can name', async () => {
+      // A real preview listed the email's task among the email's dependencies,
+      // though the emails go in before the tasks and the platform fills it;
+      // and a task's what, which names an account or a case, at the account
+      // alone.
+      targetWithEmailsThatAnswerEachOther();
+      fetcher.countRecords.mockResolvedValue(1);
+      fetcher.fetchSample.mockResolvedValue([]);
+
+      await handler.handle(
+        buildMsg('seed:clone:preview', {
+          ...ACCOUNTS_AND_CONTACTS,
+          objects: [
+            { objectApiName: 'Task' },
+            { objectApiName: 'EmailMessage' },
+            { objectApiName: 'Case' },
+            { objectApiName: 'Account' },
+          ],
+        }),
+      );
+
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        // Nothing orders the case and the account: they go as they were picked.
+        insertOrder: ['Case', 'Account', 'EmailMessage', 'Task'],
+        objects: [
+          {
+            objectApiName: 'Task',
+            relationships: [
+              { field: 'WhatId', referenceTo: 'Account' },
+              { field: 'WhatId', referenceTo: 'Case' },
+            ],
+          },
+          {
+            objectApiName: 'EmailMessage',
+            relationships: [
+              { field: 'ParentId', referenceTo: 'Case' },
+              { field: 'RelatedToId', referenceTo: 'Account' },
+              { field: 'RelatedToId', referenceTo: 'Case' },
+              { field: 'ReplyToEmailMessageId', referenceTo: 'EmailMessage' },
+            ],
+          },
+          { objectApiName: 'Case', relationships: [] },
+          { objectApiName: 'Account', relationships: [] },
+        ],
+      });
+    });
 
     it('fills in after the tasks the lookups at an email that waited for its task', async () => {
       // An email on a case waits for the task it names, and goes in after the

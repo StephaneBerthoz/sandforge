@@ -63,6 +63,13 @@ export interface CycleFkPatchInput {
   deferUnresolved?: boolean;
   /** Collects the updates that could not be resolved, when deferring. */
   stillPending?: PendingFkUpdate[];
+  /**
+   * Whether the run was cancelled, asked before each call. Once it says so,
+   * no call more is sent: the lookups of the calls left are counted as left
+   * empty, and said so. Without it, a clone cancelled during the pass went
+   * on writing to the target until its last lookup.
+   */
+  stopped?: () => boolean;
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -136,10 +143,20 @@ export async function patchCycleFkUpdates(
   // lookup of two resolved when neither was written.
   let pass2Failed = 0;
   const pass2Samples: ExecutionErrorSample[] = [];
+  /** The lookups of the calls a cancel kept from being sent, and their objects. */
+  let notSent = 0;
+  const notSentObjects = new Set<string>();
+  let cancelled = false;
   const maxPerCall = WRITE_API_MAX_BATCH['rest'];
   for (const [objectApiName, recordsToUpdate] of owed.updates()) {
     for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
       const batch = recordsToUpdate.slice(offset, offset + maxPerCall);
+      if (!cancelled) cancelled = input.stopped?.() === true;
+      if (cancelled) {
+        for (const record of batch) notSent += lookupsIn(record);
+        notSentObjects.add(objectApiName);
+        continue;
+      }
       try {
         const updateResults = await updateRecords(targetOrgId, objectApiName, batch);
         for (let i = 0; i < updateResults.length; i++) {
@@ -187,19 +204,32 @@ export async function patchCycleFkUpdates(
     // Nothing was owed yet; saying so on every node would be noise.
     return null;
   }
+  const leftEmpty = pass2Failed + unresolvedCount + notSent;
   onProgress({
     objectName: '__pass2__',
-    status: pass2Failed + unresolvedCount > 0 ? 'error' : 'done',
+    status: leftEmpty > 0 ? 'error' : 'done',
     progress: 100,
-    message: `Pass 2 (cycle FK update): ${resolvedCount - pass2Failed}/${totalAttempted} resolved`,
+    message:
+      `Pass 2 (cycle FK update): ${resolvedCount - pass2Failed - notSent}/${totalAttempted} resolved` +
+      (notSent > 0 ? `; cancelled with ${notSent} not sent` : ''),
   });
-  if (pass2Failed > 0 || unresolvedCount > 0) {
+  if (leftEmpty > 0) {
+    // What the cancel left goes first: the samples are cut at three.
+    const stoppedSample: ExecutionErrorSample[] =
+      notSent > 0
+        ? [
+            {
+              recordSummary: `${[...notSentObjects].join(', ')}: ${notSent} lookup${notSent === 1 ? '' : 's'} not sent`,
+              messages: ['The run was cancelled before they were filled in: they stay empty.'],
+            },
+          ]
+        : [];
     return {
       objectApiName: '__pass2__',
       stage: 'insert',
-      failedCount: pass2Failed + unresolvedCount,
+      failedCount: leftEmpty,
       attemptedCount: totalAttempted,
-      samples: [...pass2Samples, ...unresolved].slice(0, 3),
+      samples: [...stoppedSample, ...pass2Samples, ...unresolved].slice(0, 3),
     };
   }
   return null;

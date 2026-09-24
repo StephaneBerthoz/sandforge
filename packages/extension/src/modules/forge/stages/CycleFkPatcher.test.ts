@@ -314,6 +314,111 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].message).toBe('Pass 2 (cycle FK update): 1/2 resolved');
   });
 
+  /** 450 contacts, each owing its ReportsToId, every one resolvable: three calls of the pass. */
+  function fourHundredFiftyOwed(): { pending: PendingFkUpdate[]; remapper: IdRemapper } {
+    const remapper = new IdRemapper();
+    const pending: PendingFkUpdate[] = [];
+    for (let i = 0; i < 450; i++) {
+      remapper.add(`003OLD${i}`, `003NEW${i}`);
+      pending.push(
+        makePending({
+          objectApiName: 'Contact',
+          newId: `003NEW${i}`,
+          sourceId: `003OLD${i}`,
+          fieldName: 'ReportsToId',
+          sourceRefId: `003OLD${i}`,
+        }),
+      );
+    }
+    return { pending, remapper };
+  }
+
+  it('stops between two calls once the run is cancelled, and says what it filled and what it left', async () => {
+    // The pass went on sending every call after a cancel: a clone stopped
+    // during it still wrote to the target until the last lookup.
+    const { pending, remapper } = fourHundredFiftyOwed();
+    let cancelled = false;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _obj, records) => {
+        cancelled = true;
+        return records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }));
+      });
+    const input = makeInput({
+      pendingFkUpdates: pending,
+      remapper,
+      updateRecords,
+      stopped: () => cancelled,
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toEqual({
+      objectApiName: '__pass2__',
+      stage: 'insert',
+      failedCount: 250,
+      attemptedCount: 450,
+      samples: [
+        {
+          recordSummary: 'Contact: 250 lookups not sent',
+          messages: ['The run was cancelled before they were filled in: they stay empty.'],
+        },
+      ],
+    });
+    const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+    expect(progress).toEqual([
+      {
+        objectName: '__pass2__',
+        status: 'error',
+        progress: 100,
+        message: 'Pass 2 (cycle FK update): 200/450 resolved; cancelled with 250 not sent',
+      },
+    ]);
+  });
+
+  it('sends nothing once the run is cancelled before its first call', async () => {
+    const { pending, remapper } = fourHundredFiftyOwed();
+    const input = makeInput({ pendingFkUpdates: pending, remapper, stopped: () => true });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(input.updateRecords).not.toHaveBeenCalled();
+    expect(error).toMatchObject({ failedCount: 450, attemptedCount: 450 });
+    expect(error?.samples[0].recordSummary).toBe('Contact: 450 lookups not sent');
+  });
+
+  it('settling after a node, counts what a cancel left unsent and still hands back what it cannot resolve yet', async () => {
+    // What the cancel stopped is said with this settle: the run ends before
+    // the pass that would have said it. What no record written can fill yet
+    // goes back, as it always did.
+    const { pending, remapper } = fourHundredFiftyOwed();
+    const notYet = makePending({ sourceRefId: '003NOTYET' });
+    let cancelled = false;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _obj, records) => {
+        cancelled = true;
+        return records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }));
+      });
+    const stillPending: PendingFkUpdate[] = [];
+
+    const error = await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: [...pending, notYet],
+        remapper,
+        updateRecords,
+        stopped: () => cancelled,
+        deferUnresolved: true,
+        stillPending,
+      }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(stillPending).toEqual([notYet]);
+    expect(error).toMatchObject({ failedCount: 250, attemptedCount: 450 });
+  });
+
   it('counts a thrown batch as failed for every record in it', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');

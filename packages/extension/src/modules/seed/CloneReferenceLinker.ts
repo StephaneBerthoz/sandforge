@@ -40,9 +40,11 @@ export interface DescribeSObjectResultLike {
 export class CloneReferenceLinker {
   /**
    * Resolve the insert order for a set of objects based on their edges.
-   * Objects with no dependencies (no parents) are placed first; ties go
-   * alphabetically. Self-referential edges (where from === to) are ignored
-   * for ordering: {@link lookupsFilledAfter} leaves them to the second pass.
+   * Objects with no dependencies (no parents) are placed first; where the
+   * lookups leave a choice, the objects go in the order they were picked
+   * (see `inThePickedOrder`). Self-referential edges (where from === to) are
+   * ignored for ordering: {@link lookupsFilledAfter} leaves them to the
+   * second pass.
    *
    * Any cycle used to stop the clone. An account's key contact — a custom
    * lookup the record may leave empty — against a contact's account, and a
@@ -53,7 +55,7 @@ export class CloneReferenceLinker {
    * have to hold their value when the record is created is refused: no
    * order writes one of its objects first.
    *
-   * @param objects - List of object API names to sort.
+   * @param objects - List of object API names to sort, in the order they were picked.
    * @param edges - Lookup relationships between objects, `required` when the
    *   lookup has to be set when the record is created, and the edge that puts
    *   the emails before the tasks.
@@ -103,9 +105,32 @@ export class CloneReferenceLinker {
     const inside = insertionGroups(withOrder).some((group) => group.length > 1)
       ? setAtInsert
       : withOrder;
-    return insertionGroups(pointsAt).flatMap((group) =>
+    return inThePickedOrder(insertionGroups(pointsAt), pointsAt, objects).flatMap((group) =>
       group.length > 1 ? orderWithinGroup(group, inside) : group,
     );
+  }
+
+  /**
+   * The lookups of `objectApiName` the clone goes by, as its preview lists
+   * them: every edge of `edges` into the object — one per object of the clone
+   * a polymorphic lookup can name — but the one that only puts the emails
+   * before the tasks (`ordersOnly`), which no record carries.
+   *
+   * Listed from the describe apart from the order, the preview named as a
+   * dependency of the emails the task each names, which the platform fills
+   * and the order leaves out, though the emails go in before the tasks; and
+   * a task's what, which names a case or an account, at the first of the two
+   * alone.
+   *
+   * @param edges - The edges the order was resolved from.
+   */
+  lookupsOf(
+    objectApiName: string,
+    edges: readonly AutopilotEdge[],
+  ): Array<{ field: string; referenceTo: string }> {
+    return edges
+      .filter((edge) => edge.to === objectApiName && !ordersOnly(edge))
+      .map((edge) => ({ field: edge.fieldApiName, referenceTo: edge.from }));
   }
 
   /**
@@ -214,6 +239,62 @@ export class CloneReferenceLinker {
 
     return edges;
   }
+}
+
+/**
+ * The groups `insertionGroups` gives — each cycle one, every other object one
+ * of its own, each after the groups it points at — in the order their objects
+ * were picked wherever the lookups leave a choice: of the groups whose parents
+ * are all placed, the one holding the object picked first goes next. An object
+ * moves up only as far as what points at it needs.
+ *
+ * `insertionGroups` settles such a choice by name, for the loads that have no
+ * other order to keep. A clone has the user's, and kept it until its second
+ * pass: picked before an account and its contacts, a product that points at
+ * neither went in after them.
+ *
+ * @param groups - The groups, as `insertionGroups` orders them.
+ * @param pointsAt - Object → the objects its records point at.
+ * @param picked - The objects, in the order they were picked.
+ */
+function inThePickedOrder(
+  groups: readonly string[][],
+  pointsAt: ReadonlyMap<string, ReadonlySet<string>>,
+  picked: readonly string[],
+): string[][] {
+  const rank = new Map<string, number>();
+  picked.forEach((name, index) => {
+    if (!rank.has(name)) rank.set(name, index);
+  });
+  const groupOf = new Map<string, number>();
+  groups.forEach((group, index) => group.forEach((name) => groupOf.set(name, index)));
+  /** Per group, where its object picked first was picked. */
+  const first = groups.map((group) => Math.min(...group.map((name) => rank.get(name) ?? Infinity)));
+  /** Per group, the other groups its objects point at. */
+  const parents = groups.map((group, index) => {
+    const of = new Set<number>();
+    for (const name of group) {
+      for (const parent of pointsAt.get(name) ?? []) {
+        const at = groupOf.get(parent);
+        if (at !== undefined && at !== index) of.add(at);
+      }
+    }
+    return of;
+  });
+  const placed = new Set<number>();
+  const ordered: string[][] = [];
+  while (ordered.length < groups.length) {
+    let next = -1;
+    for (let index = 0; index < groups.length; index++) {
+      if (placed.has(index) || [...parents[index]].some((parent) => !placed.has(parent))) continue;
+      if (next === -1 || first[index] < first[next]) next = index;
+    }
+    // The groups never point at each other in a cycle: one is always ready.
+    if (next === -1) break;
+    placed.add(next);
+    ordered.push(groups[next]);
+  }
+  return ordered;
 }
 
 /**

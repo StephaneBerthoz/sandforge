@@ -227,12 +227,12 @@ export class SeedCloneHandler implements DomainHandler {
       const fetcher = new CloneRecordFetcher({ log: this.deps.log });
       const linker = new CloneReferenceLinker();
       const objectNames = parsed.objects.map((o) => o.objectApiName);
-      const objectSet = new Set(objectNames);
       /** Every object of the clone, with the filter it is read by. */
       const copied = new Map(parsed.objects.map((o) => [o.objectApiName, o.whereClause]));
 
       const describeMap = new Map<string, DescribeSObjectResultLike>();
-      const previewObjects: ClonePreviewResult['objects'] = [];
+      /** Each object counted and sampled; its dependencies come with the order, below. */
+      const counted: Array<Omit<ClonePreviewResult['objects'][number], 'relationships'>> = [];
 
       for (const objectConfig of parsed.objects) {
         const describe = await conn.describe(objectConfig.objectApiName);
@@ -269,29 +269,24 @@ export class SeedCloneHandler implements DomainHandler {
         ]);
         const leftToThePlatform = matched === undefined ? 0 : matched - recordCount;
 
-        // The lookups the clone links, as its insert order reads them: one no
-        // record is created with is never written, and a feed item's best
-        // comment counted as a dependency the clone does not have.
-        const relationships: Array<{ field: string; referenceTo: string }> = [];
-        for (const field of describe.fields) {
-          if (field.type !== 'reference' || field.createable === false) continue;
-          const target = (field.referenceTo ?? []).find((r) => objectSet.has(r));
-          if (target) {
-            relationships.push({ field: field.name, referenceTo: target });
-          }
-        }
-
-        previewObjects.push({
+        counted.push({
           objectApiName: objectConfig.objectApiName,
           recordCount,
           ...(leftToThePlatform > 0 ? { leftToThePlatform } : {}),
           sampleRecords: sampleRecords.map((r) => trimSampleRecord(r, PREVIEW_SAMPLE_MAX_FIELDS)),
-          relationships,
         });
       }
 
       const edges = linker.buildEdgesFromDescribe(objectNames, describeMap);
       const insertOrder = linker.resolveInsertOrder(objectNames, edges);
+      // The lookups the clone links, as its insert order reads them: read
+      // from the describe apart from the order, the list named an email's
+      // task, which the platform fills and the order leaves out, and a
+      // polymorphic lookup at one of the objects it can name.
+      const previewObjects: ClonePreviewResult['objects'] = counted.map((object) => ({
+        ...object,
+        relationships: linker.lookupsOf(object.objectApiName, edges),
+      }));
       // What the clone writes empty and fills in once the record it names is
       // in, in the order the objects are written: the preview names the
       // lookups that break a cycle before anything is written.
@@ -904,7 +899,8 @@ export class SeedCloneHandler implements DomainHandler {
       // Once every object is written, the lookups the insert left empty are
       // filled in: the records they name are in the target now. A clone the
       // cancel stopped — during its last write too — writes nothing more, and
-      // says how many it left empty.
+      // says how many it left empty; one cancelled during the pass stops
+      // between two calls, and says what it had filled and what it left.
       let secondPass: CloneSecondPass | undefined;
       if (owedLookups.length > 0) {
         if (abortController.signal.aborted) cancelled = true;
@@ -915,6 +911,7 @@ export class SeedCloneHandler implements DomainHandler {
               idMap: globalIdMap,
               targetConn,
               targetOrgId: parsed.targetOrgId,
+              stopped: () => abortController.signal.aborted,
               report: (step) => {
                 sendOperationProgress(
                   this.deps,
@@ -927,6 +924,8 @@ export class SeedCloneHandler implements DomainHandler {
                 this.liveTracker?.updateProgress(operationId, 100, written.records, 0, step);
               },
             });
+        // Cancelled during the pass: the clone ends as a cancelled one does.
+        if (abortController.signal.aborted) cancelled = true;
       }
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
@@ -1134,12 +1133,16 @@ function leaveForTheSecondPass(
  * and a rule that also runs on edit would refuse setting a lookup on it.
  * Loaded when a clone owes one, so Forge's pipeline stays off the activation
  * path.
+ *
+ * @param input.stopped - Whether the clone was cancelled, asked before each
+ *   call: the pass sends none after it, and counts what it left.
  */
 async function fillOwedLookups(input: {
   owed: readonly PendingFkUpdate[];
   idMap: ReadonlyMap<string, string>;
   targetConn: Awaited<ReturnType<typeof getJsforceConnection>>;
   targetOrgId: string;
+  stopped: () => boolean;
   report: (step: string) => void;
 }): Promise<CloneSecondPass> {
   const { owed, targetConn } = input;
@@ -1165,6 +1168,7 @@ async function fillOwedLookups(input: {
     },
     targetOrgId: input.targetOrgId,
     enabled: true,
+    stopped: input.stopped,
     onProgress: (event) => input.report(event.message),
   });
   return {

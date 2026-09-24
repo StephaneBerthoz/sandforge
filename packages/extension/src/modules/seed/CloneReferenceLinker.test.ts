@@ -76,9 +76,11 @@ describe('CloneReferenceLinker', () => {
         edge('Account', 'Opportunity', 'AccountId'),
       ];
 
+      // The case and the opportunity point at nothing of each other: they go
+      // in the order they were picked.
       expect(
         linker.resolveInsertOrder(['Opportunity', 'Case', 'Contact', 'Account'], edges),
-      ).toEqual(['Account', 'Contact', 'Case', 'Opportunity']);
+      ).toEqual(['Account', 'Contact', 'Opportunity', 'Case']);
     });
 
     it('throws on a cycle of lookups that must all be set at insert, naming them', () => {
@@ -104,6 +106,86 @@ describe('CloneReferenceLinker', () => {
       const result = linker.resolveInsertOrder(['Account', 'Product2', 'Lead'], []);
       expect(result).toHaveLength(3);
       expect(new Set(result)).toEqual(new Set(['Account', 'Product2', 'Lead']));
+    });
+
+    it('writes in the order the objects were picked wherever no lookup decides', () => {
+      // Picked a product, then contacts and their accounts: the product,
+      // which points at neither, went last because of its name.
+      const cycle = [
+        edge('Contact', 'Account', 'Key_Contact__c'),
+        edge('Account', 'Contact', 'AccountId', true),
+      ];
+
+      expect(linker.resolveInsertOrder(['Product2', 'Lead', 'Account'], [])).toEqual([
+        'Product2',
+        'Lead',
+        'Account',
+      ]);
+      expect(linker.resolveInsertOrder(['Product2', 'Contact', 'Account'], cycle)).toEqual([
+        'Product2',
+        'Account',
+        'Contact',
+      ]);
+    });
+
+    it('moves an object up only as far as what points at it needs, the rest keeping the picked order', () => {
+      // The contacts need their accounts: the accounts go just before them,
+      // and the leads, picked after the contacts, still go after them.
+      const edges = [edge('Account', 'Contact', 'AccountId')];
+
+      expect(linker.resolveInsertOrder(['Contact', 'Account', 'Lead'], edges)).toEqual([
+        'Account',
+        'Contact',
+        'Lead',
+      ]);
+    });
+  });
+
+  describe('lookupsOf', () => {
+    it('lists the lookups the order reads: every object of the clone a polymorphic one names, none the platform fills, and not the emails-before-tasks order', () => {
+      // An email's task is the platform's to fill: the order leaves it out,
+      // and the preview listed it as a dependency of the emails, which go in
+      // before the tasks. A task's what, which names a case or an account,
+      // was listed at the first of the two alone.
+      const describes = new Map<string, DescribeSObjectResultLike>([
+        ['Account', { fields: [] }],
+        ['Case', { fields: [{ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }] }],
+        [
+          'Task',
+          {
+            fields: [
+              { name: 'WhatId', type: 'reference', referenceTo: ['Account', 'Case'] },
+              { name: 'AccountId', type: 'reference', referenceTo: ['Account'], createable: false },
+            ],
+          },
+        ],
+        [
+          'EmailMessage',
+          {
+            fields: [
+              { name: 'ParentId', type: 'reference', referenceTo: ['Case'] },
+              { name: 'ActivityId', type: 'reference', referenceTo: ['Task'] },
+              { name: 'ReplyToEmailMessageId', type: 'reference', referenceTo: ['EmailMessage'] },
+            ],
+          },
+        ],
+      ]);
+      const objects = ['Task', 'EmailMessage', 'Case', 'Account'];
+
+      const edges = linker.buildEdgesFromDescribe(objects, describes);
+
+      expect(linker.lookupsOf('Task', edges)).toEqual([
+        { field: 'WhatId', referenceTo: 'Account' },
+        { field: 'WhatId', referenceTo: 'Case' },
+      ]);
+      expect(linker.lookupsOf('EmailMessage', edges)).toEqual([
+        { field: 'ParentId', referenceTo: 'Case' },
+        { field: 'ReplyToEmailMessageId', referenceTo: 'EmailMessage' },
+      ]);
+      expect(linker.lookupsOf('Case', edges)).toEqual([
+        { field: 'AccountId', referenceTo: 'Account' },
+      ]);
+      expect(linker.lookupsOf('Account', edges)).toEqual([]);
     });
   });
 
