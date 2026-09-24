@@ -383,7 +383,8 @@ export interface JoiningOpts {
  * jsforce sends a query over GET with the SOQL percent-encoded into `?q=`, and
  * Salesforce refuses a request URI much past 16 000 characters. Encoding is
  * what makes an Id list expensive: `'001...AAA', ` is 22 characters in the
- * statement and 30 in the URI. The budget leaves room for the API path in
+ * statement and 26 in the URI, where the comma and the space are encoded and
+ * the quotes are not. The budget leaves room for the API path in
  * front of the query and the ` LIMIT N` a per-object cap appends after it.
  */
 export const MAX_STATEMENT_URI_CHARS = 15_800;
