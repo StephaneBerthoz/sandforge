@@ -782,6 +782,7 @@
       "preview": {
         "title": "Aperçu du clonage",
         "insertOrder": "Ordre d'insertion",
+        "filledAfterInsert": "Écrits vides, puis remplis une fois l'enregistrement qu'ils désignent écrit (seconde passe) :",
         "recordCounts": "Nombre d'enregistrements",
         "sampleRecords": "Exemples d'enregistrements",
         "largeWarning": "Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.",
@@ -794,6 +795,8 @@
         "inserted": "Insérés",
         "linked": "Rattachés à l'existant",
         "leftToThePlatform": "Laissés de côté (la plateforme les écrit elle-même, ou ce dont ils dépendent)",
+        "secondPass": "Seconde passe — liens remplis une fois l'enregistrement désigné écrit : {{filled}}/{{owed}}",
+        "fieldsNotInTarget": "Laissés de côté dans chaque enregistrement : l'org cible n'a pas ces champs.",
         "failed": "Échoués",
         "duration": "Durée",
         "idMapping": "Correspondance des IDs",

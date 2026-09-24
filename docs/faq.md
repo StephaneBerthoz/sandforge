@@ -50,7 +50,7 @@ Navigate to **Seed**, select **Clone from Org** from the mode selector, choose t
 
 ### Can I clone self-referential objects (e.g., Account.ParentId)?
 
-Yes. SandForge detects self-referential relationships and uses a two-pass insert: the first pass inserts records without self-references, the second pass updates self-referential fields with the remapped IDs. Circular dependencies between different objects are detected and reported as errors.
+Yes. SandForge detects self-referential relationships and uses a two-pass insert: the first pass inserts records without self-references, the second pass updates self-referential fields with the remapped IDs. A cycle between objects -- an account pointing at its key contact while the contact points at its account -- is written the same way: the lookup that points at the object written later goes in empty and is filled in by the second pass. Only a cycle of lookups that must be set when the record is created is reported as an error, before anything is written.
 
 ### Can I automate recurring operations?
 

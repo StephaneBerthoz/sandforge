@@ -24,7 +24,8 @@ export interface ClonePreviewPanelProps {
 
 /**
  * Displays a clone preview with three sections:
- * 1. Insert order (topological) with dependency arrows
+ * 1. Insert order (topological) with dependency arrows, and the lookups a
+ *    second pass fills in once the record they point at is written
  * 2. Record counts per object with totals
  * 3. Sample records per object in expandable accordions
  */
@@ -40,6 +41,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
     (sum, obj) => sum + obj.relationships.length,
     0,
   );
+  const filledAfterInsert = previewResult.filledAfterInsert ?? [];
 
   /** Build DataTable columns from sample record keys. */
   const buildSampleColumns = (
@@ -77,6 +79,26 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               </div>
             ))}
           </div>
+          {/* The lookups that break a cycle, and those at a record of the same
+              object, go in empty and are filled in afterwards: named here,
+              before anything is written. */}
+          {filledAfterInsert.length > 0 && (
+            <div className="flex flex-col gap-1 mt-3" data-testid="clone-preview-filled-after">
+              <span className="text-xs text-[var(--sf-text-secondary)]">
+                {t('seed.clone.preview.filledAfterInsert')}
+              </span>
+              <ul className="flex flex-col gap-0.5">
+                {filledAfterInsert.map((lookup) => (
+                  <li
+                    key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
+                    className="text-xs font-mono text-[var(--sf-text-primary)]"
+                  >
+                    {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </CardBody>
       </Card>
 

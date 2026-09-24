@@ -35,8 +35,11 @@ import {
 export interface CycleFkPatchInput {
   /** Nullified cycle FKs collected during pass-1 inserts. */
   pendingFkUpdates: readonly PendingFkUpdate[];
-  /** Source→target ID mappings accumulated during the full execution. */
-  remapper: IdRemapper;
+  /**
+   * Source→target ID mappings accumulated during the full execution: Forge's
+   * remapper, or the map a Seed clone keeps, which runs this pass too.
+   */
+  remapper: Pick<IdRemapper, 'get'>;
   /** Update dep — when omitted, pass 2 is skipped entirely. */
   updateRecords: ForgeExecutorDeps['updateRecords'];
   /** ID of the target Salesforce org. */

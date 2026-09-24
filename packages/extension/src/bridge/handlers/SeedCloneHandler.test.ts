@@ -29,6 +29,7 @@ const fetcher = vi.hoisted(() => ({
 const linker = vi.hoisted(() => ({
   buildEdgesFromDescribe: vi.fn(),
   resolveInsertOrder: vi.fn(),
+  lookupsFilledAfter: vi.fn(),
 }));
 
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
@@ -130,6 +131,7 @@ describe('SeedCloneHandler', () => {
     } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
     linker.buildEdgesFromDescribe.mockReturnValue([]);
     linker.resolveInsertOrder.mockReturnValue(['Account']);
+    linker.lookupsFilledAfter.mockReturnValue([]);
     fetcher.fetchRecords.mockResolvedValue([{ Id: '001SRC', Name: 'Acme' }]);
     writer.insert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
     writer.upsert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
@@ -322,6 +324,46 @@ describe('SeedCloneHandler', () => {
       const [account] = (response.payload as { objects: Array<Record<string, unknown>> }).objects;
       expect(account).toMatchObject({ objectApiName: 'Account', recordCount: 12 });
       expect(account).not.toHaveProperty('leftToThePlatform');
+      // Nor any lookup left to a second pass: there is none.
+      expect(response.payload).not.toHaveProperty('filledAfterInsert');
+    });
+
+    it('lists the lookups a second pass fills, in the order their objects are written', async () => {
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+      linker.lookupsFilledAfter.mockReturnValue([
+        {
+          from: 'Contact',
+          to: 'Contact',
+          fieldApiName: 'ReportsToId',
+          relationshipType: 'lookup',
+          required: false,
+        },
+        {
+          from: 'Contact',
+          to: 'Account',
+          fieldApiName: 'Key_Contact__c',
+          relationshipType: 'lookup',
+          required: false,
+        },
+      ]);
+      fetcher.countRecords.mockResolvedValue(3);
+      fetcher.fetchSample.mockResolvedValue([]);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:preview',
+          clonePayload({ objects: [{ objectApiName: 'Contact' }, { objectApiName: 'Account' }] }),
+        ),
+      );
+
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        insertOrder: ['Account', 'Contact'],
+        filledAfterInsert: [
+          { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
+          { objectApiName: 'Contact', field: 'ReportsToId', referenceTo: 'Contact' },
+        ],
+      });
     });
   });
 
@@ -329,6 +371,8 @@ describe('SeedCloneHandler', () => {
     it('writes through BulkDataWriter and reports a successful clone', async () => {
       await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
 
+      // A describe that lists no field could not say which the target has:
+      // every field read is sent, and none named as missing.
       expect(writer.insert).toHaveBeenCalledWith('Account', [{ Name: 'Acme' }], 200);
       expect(posted(deps, 'operation:started')).toHaveLength(1);
       const responses = posted(deps, 'seed:clone:execute:response');
@@ -338,6 +382,9 @@ describe('SeedCloneHandler', () => {
         totalInserted: 1,
         totalFailed: 0,
       });
+      const result = responses[0].payload as { objectResults: Array<Record<string, unknown>> };
+      expect(result).not.toHaveProperty('secondPass');
+      expect(result.objectResults[0]).not.toHaveProperty('fieldsNotInTarget');
     });
 
     describe('before and after the write', () => {
@@ -354,6 +401,7 @@ describe('SeedCloneHandler', () => {
               ? {
                   keyPrefix: '001',
                   fields: [
+                    { name: 'Name', type: 'string' },
                     { name: 'RecordTypeId', type: 'reference', referenceTo: ['RecordType'] },
                   ],
                   recordTypeInfos: [
@@ -371,7 +419,10 @@ describe('SeedCloneHandler', () => {
                 }
               : {
                   keyPrefix: '003',
-                  fields: [{ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }],
+                  fields: [
+                    { name: 'LastName', type: 'string' },
+                    { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+                  ],
                   recordTypeInfos: [],
                 },
           ),
@@ -496,8 +547,12 @@ describe('SeedCloneHandler', () => {
                       referenceTo: ['FeedItem', 'OpportunityFeed'],
                       nillable: false,
                     },
+                    { name: 'CommentBody', type: 'textarea' },
                   ]
-                : [{ name: 'Type', type: 'picklist', nillable: true }],
+                : [
+                    { name: 'Type', type: 'picklist', nillable: true },
+                    { name: 'Body', type: 'textarea' },
+                  ],
             recordTypeInfos: [],
           })),
           limitInfo: undefined,
@@ -717,12 +772,13 @@ describe('SeedCloneHandler', () => {
             fields:
               name === 'EmailMessage'
                 ? [
+                    { name: 'Subject', type: 'string' },
                     lookup('ParentId', 'Case'),
                     lookup('RelatedToId', 'Account', 'Case'),
                     lookup('ActivityId', 'Task'),
                   ]
                 : name === 'Task'
-                  ? [lookup('WhatId', 'Account', 'Case')]
+                  ? [{ name: 'Subject', type: 'string' }, lookup('WhatId', 'Account', 'Case')]
                   : [],
             recordTypeInfos: [],
           })),
@@ -859,6 +915,57 @@ describe('SeedCloneHandler', () => {
           targetId: PLATFORM_TASK,
         });
       });
+    });
+
+    it('leaves out the fields the target does not have, and names them in the result', async () => {
+      // The fetcher reads the fields the source describes. A custom field the
+      // target lacks cost the whole record: the org refuses a record carrying one.
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn(async () => ({
+          keyPrefix: '001',
+          fields: [
+            { name: 'Name', type: 'string', createable: true },
+            { name: 'Industry', type: 'picklist', createable: true },
+          ],
+          recordTypeInfos: [],
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      fetcher.fetchRecords.mockResolvedValue([
+        { Id: '001SRC1', Name: 'Acme', Industry: 'Energy', Region__c: 'North', Legacy__c: 'A-1' },
+        { Id: '001SRC2', Name: 'Globex', Industry: null, Region__c: null, Legacy__c: 'G-7' },
+      ]);
+      writer.insert.mockResolvedValue([
+        { id: '001TGT1', success: true, errors: [] },
+        { id: '001TGT2', success: true, errors: [] },
+      ]);
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(writer.insert).toHaveBeenCalledWith(
+        'Account',
+        [
+          { Name: 'Acme', Industry: 'Energy' },
+          { Name: 'Globex', Industry: null },
+        ],
+        200,
+      );
+      const [response] = posted(deps, 'seed:clone:execute:response');
+      expect(response.payload as unknown).toMatchObject({
+        status: 'success',
+        totalInserted: 2,
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            insertedCount: 2,
+            fieldsNotInTarget: ['Legacy__c', 'Region__c'],
+          },
+        ],
+      });
+      expect(deps.log).toHaveBeenCalledWith(
+        '[INFO] seed:clone Account: 2 field(s) the target does not have left out — ' +
+          'Legacy__c, Region__c',
+      );
     });
 
     it('reports execute failures on operation:failed as retryable', async () => {

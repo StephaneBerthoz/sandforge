@@ -782,6 +782,7 @@
       "preview": {
         "title": "Klon-Vorschau",
         "insertOrder": "Einfügereihenfolge",
+        "filledAfterInsert": "Leer geschrieben und ausgefüllt, sobald der Datensatz, auf den sie verweisen, vorhanden ist (zweiter Durchlauf):",
         "recordCounts": "Datensatzanzahl",
         "sampleRecords": "Beispieldatensätze",
         "largeWarning": "Dieser Klon umfasst über 10.000 Datensätze. Es kann mehrere Minuten dauern.",
@@ -794,6 +795,8 @@
         "inserted": "Eingefügt",
         "linked": "Mit Vorhandenem verknüpft",
         "leftToThePlatform": "Ausgelassen (die Plattform schreibt sie oder das, wovon sie abhängen, selbst)",
+        "secondPass": "Zweiter Durchlauf — Verknüpfungen ausgefüllt, sobald der Datensatz, auf den sie verweisen, vorhanden war: {{filled}}/{{owed}}",
+        "fieldsNotInTarget": "In jedem Datensatz ausgelassen: Die Ziel-Org hat diese Felder nicht.",
         "failed": "Fehlgeschlagen",
         "duration": "Dauer",
         "idMapping": "ID-Zuordnung",

@@ -45,6 +45,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
     [result.durationMs],
   );
 
+  /** The second pass, when the clone owed one. */
+  const secondPass = result.secondPass;
+  /** Per object, the fields the target does not have, which the clone left out. */
+  const fieldsNotInTarget = result.objectResults.flatMap(
+    ({ objectApiName, fieldsNotInTarget: fields = [] }) =>
+      fields.length > 0 ? [{ objectApiName, fields }] : [],
+  );
+
   /** Get page for a specific object. */
   const getPage = (objectApiName: string): number => objectPages[objectApiName] ?? 1;
 
@@ -216,6 +224,58 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           </span>
         )}
       </div>
+
+      {/* The lookups written empty and filled in once the record they point
+          at was in: how many were, and why the others were not. */}
+      {secondPass && (
+        <div
+          className={`rounded border px-3 py-2 text-xs ${
+            secondPass.filled < secondPass.owed
+              ? 'border-status-warning text-status-warning'
+              : 'border-[var(--sf-border)] text-[var(--sf-text-secondary)]'
+          }`}
+          role="status"
+          data-testid="clone-results-second-pass"
+        >
+          <p>
+            {t('seed.clone.results.secondPass', {
+              filled: secondPass.filled,
+              owed: secondPass.owed,
+            })}
+          </p>
+          {secondPass.samples.length > 0 && (
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {/* Two batches of one object refused whole read the same: keyed by place. */}
+              {secondPass.samples.map((sample, index) => (
+                <li key={index}>
+                  <span className="font-mono">{sample.record}</span>
+                  {` — ${sample.messages.join(' ')}`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Read from the source and not in the target: left out of every
+          record, which the target would have refused whole. */}
+      {fieldsNotInTarget.length > 0 && (
+        <div
+          className="rounded border border-[var(--sf-border)] px-3 py-2 text-xs text-[var(--sf-text-secondary)]"
+          role="status"
+          data-testid="clone-results-fields-not-in-target"
+        >
+          <p>{t('seed.clone.results.fieldsNotInTarget')}</p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {fieldsNotInTarget.map(({ objectApiName, fields }) => (
+              <li key={objectApiName}>
+                <span className="font-mono text-[var(--sf-text-primary)]">{objectApiName}</span>
+                {` — ${fields.join(', ')}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Per-object accordion */}
       <Accordion

@@ -1337,6 +1337,122 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    /** The Seed Clone wizard at its preview of accounts and contacts, their lookups both ways. */
+    async function previewAccountsAndContacts(page: Page): Promise<void> {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await page.getByTestId('mode-card-clone').click();
+      await page.getByTestId('clone-source-select').selectOption(QA_SANDBOX.id);
+      await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+        objects: [
+          { apiName: 'Account', label: 'Account', recordCount: -1 },
+          { apiName: 'Contact', label: 'Contact', recordCount: -1 },
+        ],
+      });
+      await page.getByTestId('clone-wizard-next').click();
+      await page.getByTestId('clone-obj-check-Account').check();
+      await page.getByTestId('clone-obj-check-Contact').check();
+      await page.getByTestId('clone-wizard-next').click();
+      await bridge.waitForMessage('seed:clone:preview', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:preview', 'seed:clone:preview:response', {
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 16,
+            sampleRecords: [{ Name: 'Acme' }],
+            relationships: [
+              { field: 'ParentId', referenceTo: 'Account' },
+              { field: 'Key_Contact__c', referenceTo: 'Contact' },
+            ],
+          },
+          {
+            objectApiName: 'Contact',
+            recordCount: 18,
+            sampleRecords: [{ LastName: 'Doe' }],
+            relationships: [{ field: 'AccountId', referenceTo: 'Account' }],
+          },
+        ],
+        insertOrder: ['Account', 'Contact'],
+        filledAfterInsert: [
+          { objectApiName: 'Account', field: 'ParentId', referenceTo: 'Account' },
+          { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
+        ],
+      });
+      await page.waitForSelector('[data-testid="clone-preview-filled-after"]', {
+        timeout: 10_000,
+      });
+    }
+
+    test('Seed Clone preview naming the lookups a second pass fills in', async ({ page }) => {
+      await previewAccountsAndContacts(page);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-preview-filled-after"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed Clone results saying what the second pass left empty and which fields the target lacks', async ({
+      page,
+    }) => {
+      await previewAccountsAndContacts(page);
+      await page.getByTestId('clone-preview-execute').click();
+      await bridge.waitForMessage('seed:clone:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:execute', 'seed:clone:execute:response', {
+        status: 'success',
+        totalSourceRecords: 34,
+        totalInserted: 34,
+        totalFailed: 0,
+        durationMs: 4200,
+        secondPass: {
+          owed: 3,
+          filled: 2,
+          samples: [
+            {
+              record: `Account source=${fakeId('001', 7)} target=${fakeId('001', 8)} Key_Contact__c=<source ${fakeId('003', 9)}>`,
+              messages: [
+                `Cycle FK 'Key_Contact__c' could not be resolved — referenced parent (source ${fakeId('003', 9)}) was not cloned`,
+              ],
+            },
+          ],
+        },
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            sourceCount: 16,
+            insertedCount: 16,
+            failedCount: 0,
+            fieldsNotInTarget: ['Legacy__c', 'Region__c'],
+            idMappings: [{ sourceId: fakeId('001', 7), targetId: fakeId('001', 8) }],
+            errors: [],
+          },
+          {
+            objectApiName: 'Contact',
+            sourceCount: 18,
+            insertedCount: 18,
+            failedCount: 0,
+            idMappings: [{ sourceId: fakeId('003', 1), targetId: fakeId('003', 2) }],
+            errors: [],
+          },
+        ],
+      });
+      await page.waitForSelector('[data-testid="clone-results-second-pass"]', {
+        timeout: 10_000,
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-results-second-pass"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="clone-results-fields-not-in-target"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Sync page', async ({ page }) => {
       await navigateToModule(bridge, page, 'sync', 'panel-app', { theme });
       await bridge.respond('org:list:response', { orgs: MOCK_ORGS });

@@ -1,10 +1,13 @@
 import type {
   AuditOutcome,
+  AutopilotEdge,
   CloneExecutionResult,
+  CloneLookup,
   CloneObjectResult,
   ClonePreviewResult,
+  CloneSecondPass,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { duplicateRuleHeaders, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -31,12 +34,14 @@ import {
 } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { formatSaveError } from '../../core/common/existingRecordMatch.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CloneRecordFetcher } from '../../modules/seed/CloneRecordFetcher.js';
 import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js';
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
+import type { PendingFkUpdate } from '../../modules/forge/stages/BatchWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
@@ -109,7 +114,9 @@ const CLONE_FAILURE_CODES = {
  *   seed:clone:preview         -> seed:clone:preview:response         (ClonePreviewResult)
  *   seed:clone:execute         -> seed:clone:execute:response         (CloneExecutionResult)
  * The execute flow inserts parents before children (topological order) and
- * remaps in-set reference fields to the newly created target IDs. Query
+ * remaps in-set reference fields to the newly created target IDs; a lookup of
+ * a cycle that points forward, and one at a record of the same object, goes in
+ * empty and is filled by a second pass once every object is written. Query
  * failures are reported on `seed:clone:error`; execute failures on
  * `operation:failed` (same convention as seed:execute / sync:execute).
  */
@@ -285,8 +292,19 @@ export class SeedCloneHandler implements DomainHandler {
 
       const edges = linker.buildEdgesFromDescribe(objectNames, describeMap);
       const insertOrder = linker.resolveInsertOrder(objectNames, edges);
+      // What the clone writes empty and fills in once the record it names is
+      // in, in the order the objects are written: the preview names the
+      // lookups that break a cycle before anything is written.
+      const filledAfterInsert = cloneLookups(
+        linker.lookupsFilledAfter(insertOrder, edges),
+        insertOrder,
+      );
 
-      const payload: ClonePreviewResult = { objects: previewObjects, insertOrder };
+      const payload: ClonePreviewResult = {
+        objects: previewObjects,
+        insertOrder,
+        ...(filledAfterInsert.length > 0 ? { filledAfterInsert } : {}),
+      };
       const response = buildResponse(
         this.deps,
         msg,
@@ -501,15 +519,17 @@ export class SeedCloneHandler implements DomainHandler {
           recordTypes: parseRecordTypeInfos(describe.recordTypeInfos),
         });
       }
-      const insertOrder = linker.resolveInsertOrder(
-        objectNames,
-        linker.buildEdgesFromDescribe(objectNames, describeMap),
-      );
+      const edges = linker.buildEdgesFromDescribe(objectNames, describeMap);
+      const insertOrder = linker.resolveInsertOrder(objectNames, edges);
+      /** The lookups the insert leaves empty for the second pass: see `leaveForTheSecondPass`. */
+      const filledAfter = linker.lookupsFilledAfter(insertOrder, edges);
       written.of = Math.max(insertOrder.length, 1);
       const configsByName = new Map(parsed.objects.map((o) => [o.objectApiName, o]));
 
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
+      /** The lookups written records went in without, for the second pass to fill. */
+      const owedLookups: PendingFkUpdate[] = [];
       /** The records read and left to the platform, across objects: what hangs from them goes too. */
       const leftToThePlatform = new RowsLeftToThePlatform();
       let objectLevelFailures = 0;
@@ -561,12 +581,16 @@ export class SeedCloneHandler implements DomainHandler {
 
       /**
        * Count what the target answered for `sourceRecords` into `objectResult`,
-       * and map each record written or linked for the objects after it.
+       * and map each record written or linked for the objects after it. What
+       * a record the clone wrote went in without (`owed`, index-aligned with
+       * `sourceRecords`) is left to the second pass; a record the target
+       * already held owes nothing: the clone never writes to it.
        */
       const count = (
         outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>,
         sourceRecords: readonly Record<string, unknown>[],
         objectResult: CloneObjectResult,
+        owed: ReadonlyArray<readonly OwedLookup[]>,
       ): void => {
         outcomes.forEach((outcome, i) => {
           const sourceId =
@@ -576,6 +600,18 @@ export class SeedCloneHandler implements DomainHandler {
             if (sourceId && outcome.id) {
               globalIdMap.set(sourceId, outcome.id);
               objectResult.idMappings.push({ sourceId, targetId: outcome.id });
+            }
+            const newId = outcome.id;
+            if (newId) {
+              for (const { fieldName, sourceRefId } of owed[i] ?? []) {
+                owedLookups.push({
+                  objectApiName: objectResult.objectApiName,
+                  newId,
+                  sourceId: sourceId || undefined,
+                  fieldName,
+                  sourceRefId,
+                });
+              }
             }
           } else if (outcome.existingId) {
             // Refused because the target holds it, and named: the children
@@ -655,19 +691,24 @@ export class SeedCloneHandler implements DomainHandler {
           cancelled = true;
           return;
         }
-        const { outcomes, stopped } = await write(
-          EMAIL_MESSAGE,
-          emails.map((record) =>
-            prepareRecordForWrite(
-              EMAIL_MESSAGE,
-              record,
-              describeMap.get(EMAIL_MESSAGE),
-              objectSet,
-              globalIdMap,
-            ),
+        const writeRecords = emails.map((record) =>
+          prepareRecordForWrite(
+            EMAIL_MESSAGE,
+            record,
+            describeMap.get(EMAIL_MESSAGE),
+            objectSet,
+            globalIdMap,
           ),
         );
-        count(outcomes, emails, emailResult);
+        const owed = leaveForTheSecondPass(
+          EMAIL_MESSAGE,
+          emails,
+          writeRecords,
+          filledAfter,
+          globalIdMap,
+        );
+        const { outcomes, stopped } = await write(EMAIL_MESSAGE, writeRecords);
+        count(outcomes, emails, emailResult, owed);
         written.records += emails.length;
         if (stopped) cancelled = true;
       };
@@ -741,6 +782,29 @@ export class SeedCloneHandler implements DomainHandler {
             globalIdMap,
           ),
         );
+        // Left out of every record, and named: see `prepareRecordForWrite`.
+        const fieldsNotInTarget = fieldsTheTargetLacks(
+          sourceRecords,
+          describeMap.get(objectApiName),
+        );
+        if (fieldsNotInTarget.length > 0) {
+          this.deps.log(
+            `[INFO] seed:clone ${objectApiName}: ${fieldsNotInTarget.length} field(s) the ` +
+              `target does not have left out — ${fieldsNotInTarget.join(', ')}`,
+          );
+        }
+        /**
+         * Per record, the lookups it goes in without, filled by the second
+         * pass. Taken of every record read, an email held back for its task
+         * included: a lookup at one is at a record the clone writes.
+         */
+        let owed = leaveForTheSecondPass(
+          objectApiName,
+          sourceRecords,
+          writeRecords,
+          filledAfter,
+          globalIdMap,
+        );
 
         // A clone copies `RecordTypeId` as it read it, and a type closed to
         // the running user in the target refuses every record carrying it with
@@ -784,6 +848,7 @@ export class SeedCloneHandler implements DomainHandler {
           emailsAfterTheirTask.push(...sourceRecords.filter((_, i) => waits[i]));
           sourceRecords = sourceRecords.filter((_, i) => !waits[i]);
           writeRecords = writeRecords.filter((_, i) => !waits[i]);
+          owed = owed.filter((_, i) => !waits[i]);
         }
 
         // The task the platform wrote with one of the clone's emails is the
@@ -796,6 +861,7 @@ export class SeedCloneHandler implements DomainHandler {
           const sent = sourceRecords.map((record) => !linkedTasks.has(String(record['Id'])));
           sourceRecords = sourceRecords.filter((_, i) => sent[i]);
           writeRecords = writeRecords.filter((_, i) => sent[i]);
+          owed = owed.filter((_, i) => sent[i]);
         }
 
         // Reading an object takes a while: a cancel that came meanwhile is
@@ -817,6 +883,7 @@ export class SeedCloneHandler implements DomainHandler {
           failedCount: 0,
           linkedCount: linkedTasks.size,
           ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
+          ...(fieldsNotInTarget.length > 0 ? { fieldsNotInTarget } : {}),
           idMappings: [],
           errors: [],
         };
@@ -824,7 +891,7 @@ export class SeedCloneHandler implements DomainHandler {
           globalIdMap.set(sourceId, targetId);
           objectResult.idMappings.push({ sourceId, targetId });
         }
-        count(outcomes, sourceRecords, objectResult);
+        count(outcomes, sourceRecords, objectResult, owed);
         objectResults.push(objectResult);
         written.records += sourceRecords.length;
         if (cancelled) break;
@@ -833,6 +900,34 @@ export class SeedCloneHandler implements DomainHandler {
       // Emails still waiting for the task each names — the tasks' turn ended
       // before they were written — go in with what the clone could give them.
       await writeEmailsAfterTheirTask();
+
+      // Once every object is written, the lookups the insert left empty are
+      // filled in: the records they name are in the target now. A clone the
+      // cancel stopped — during its last write too — writes nothing more, and
+      // says how many it left empty.
+      let secondPass: CloneSecondPass | undefined;
+      if (owedLookups.length > 0) {
+        if (abortController.signal.aborted) cancelled = true;
+        secondPass = cancelled
+          ? { owed: owedLookups.length, filled: 0, samples: [] }
+          : await fillOwedLookups({
+              owed: owedLookups,
+              idMap: globalIdMap,
+              targetConn,
+              targetOrgId: parsed.targetOrgId,
+              report: (step) => {
+                sendOperationProgress(
+                  this.deps,
+                  operationId,
+                  100,
+                  written.records,
+                  written.records,
+                  step,
+                );
+                this.liveTracker?.updateProgress(operationId, 100, written.records, 0, step);
+              },
+            });
+      }
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
@@ -857,6 +952,7 @@ export class SeedCloneHandler implements DomainHandler {
         totalLinked,
         ...(totalLeftToThePlatform > 0 ? { totalLeftToThePlatform } : {}),
         totalFailed,
+        ...(secondPass ? { secondPass } : {}),
         durationMs: Date.now() - startedAt,
         ...(cancelled ? { cancelled: true } : {}),
       };
@@ -968,6 +1064,147 @@ function requiredLookupsOf(
     .map((field) => ({ name: field.name, referenceTo: field.referenceTo ?? [] }));
 }
 
+/** The lookups of `edges` as the preview lists them, in the order their objects are written. */
+function cloneLookups(edges: readonly AutopilotEdge[], order: readonly string[]): CloneLookup[] {
+  const position = new Map(order.map((name, index) => [name, index]));
+  return edges
+    .map((edge) => ({ objectApiName: edge.to, field: edge.fieldApiName, referenceTo: edge.from }))
+    .sort((a, b) => (position.get(a.objectApiName) ?? 0) - (position.get(b.objectApiName) ?? 0));
+}
+
+/** A lookup a record goes in without, and the source id it named: the second pass fills it. */
+interface OwedLookup {
+  fieldName: string;
+  sourceRefId: string;
+}
+
+/**
+ * Take out of each record the lookups the second pass fills, and say which
+ * each one owes.
+ *
+ * A lookup the order writes before the object it points at — one of a cycle —
+ * goes in empty whatever it names: the records of that object are not read
+ * yet, and the second pass says which it could not fill, as Forge's does. A
+ * lookup at a record of the object itself goes in empty when the clone writes
+ * that record, which the insert writing both cannot name yet; one at a record
+ * the clone does not write goes as it was read, as any lookup at a record the
+ * clone did not copy does — the target takes it when it holds that record,
+ * as two sandboxes of one production can, or refuses it and says why.
+ *
+ * @param payloads - The records to write, index-aligned with `sourceRecords`;
+ *   the lookups owed are removed from them.
+ * @returns Per record, index-aligned, the lookups it owes and the source ids they named.
+ */
+function leaveForTheSecondPass(
+  objectApiName: string,
+  sourceRecords: readonly Record<string, unknown>[],
+  payloads: Record<string, unknown>[],
+  filledAfter: readonly AutopilotEdge[],
+  idMap: ReadonlyMap<string, string>,
+): OwedLookup[][] {
+  const ofObject = filledAfter.filter((edge) => edge.to === objectApiName);
+  const atLater = new Set(
+    ofObject.filter((edge) => edge.from !== objectApiName).map((edge) => edge.fieldApiName),
+  );
+  const fields = new Set(ofObject.map((edge) => edge.fieldApiName));
+  const written = new Set(
+    sourceRecords.map((record) => record['Id']).filter((id) => typeof id === 'string'),
+  );
+  return payloads.map((payload, index) => {
+    const owed: OwedLookup[] = [];
+    for (const field of fields) {
+      const value = sourceRecords[index]?.[field];
+      if (typeof value !== 'string' || value === '' || idMap.has(value)) continue;
+      if (!(field in payload)) continue;
+      if (!atLater.has(field) && !written.has(value)) continue;
+      delete payload[field];
+      owed.push({ fieldName: field, sourceRefId: value });
+    }
+    return owed;
+  });
+}
+
+/**
+ * The second pass: fill in the lookups the records went in without, now that
+ * the records they name are in the target — Forge's pass 2 (`CycleFkPatcher`),
+ * one update per record however many lookups it owes, in calls of at most two
+ * hundred, saying which it could not fill and why: the record named was never
+ * cloned, or the target refused the update. The updates go as Forge sends its
+ * own, duplicate rules waived: a copy looks like the record it was made from,
+ * and a rule that also runs on edit would refuse setting a lookup on it.
+ * Loaded when a clone owes one, so Forge's pipeline stays off the activation
+ * path.
+ */
+async function fillOwedLookups(input: {
+  owed: readonly PendingFkUpdate[];
+  idMap: ReadonlyMap<string, string>;
+  targetConn: Awaited<ReturnType<typeof getJsforceConnection>>;
+  targetOrgId: string;
+  report: (step: string) => void;
+}): Promise<CloneSecondPass> {
+  const { owed, targetConn } = input;
+  const { patchCycleFkUpdates } = await import('../../modules/forge/stages/CycleFkPatcher.js');
+  const unfilled = await patchCycleFkUpdates({
+    pendingFkUpdates: owed,
+    remapper: input.idMap,
+    updateRecords: async (_orgId, objectApiName, records) => {
+      const answer = await targetConn
+        .sobject(objectApiName)
+        .update(records as unknown as Array<{ Id: string }>, {
+          allowRecursive: true,
+          headers: duplicateRuleHeaders(true),
+        });
+      return (Array.isArray(answer) ? answer : [answer]).map((result, index) => {
+        const id = records[index]?.['Id'];
+        return {
+          id: result.id ?? (typeof id === 'string' ? id : ''),
+          success: result.success,
+          errors: (result.success ? [] : result.errors).map(formatSaveError),
+        };
+      });
+    },
+    targetOrgId: input.targetOrgId,
+    enabled: true,
+    onProgress: (event) => input.report(event.message),
+  });
+  return {
+    owed: owed.length,
+    filled: owed.length - (unfilled?.failedCount ?? 0),
+    samples: (unfilled?.samples ?? []).map(({ recordSummary, messages }) => ({
+      record: recordSummary,
+      messages,
+    })),
+  };
+}
+
+/**
+ * The fields the target's describe of an object lists, or `null` when it
+ * lists none: a describe that could not say, not an object without fields.
+ */
+function describedFields(describe: DescribeSObjectResultLike | undefined): Set<string> | null {
+  const names = new Set((describe?.fields ?? []).map((field) => field.name));
+  return names.size > 0 ? names : null;
+}
+
+/**
+ * The fields read of an object that the target's describe of it does not
+ * have, sorted: left out of every record, and named in the result.
+ */
+function fieldsTheTargetLacks(
+  records: readonly Record<string, unknown>[],
+  describe: DescribeSObjectResultLike | undefined,
+): string[] {
+  const described = describedFields(describe);
+  if (!described) return [];
+  const lacking = new Set<string>();
+  for (const record of records) {
+    for (const key of Object.keys(record)) {
+      if (key !== 'Id' && !described.has(key)) lacking.add(key);
+    }
+  }
+  return [...lacking].sort();
+}
+
 /** Keep only the first `maxFields` non-null fields of a sample record. */
 function trimSampleRecord(
   record: Record<string, unknown>,
@@ -1001,6 +1238,13 @@ function trimSampleRecord(
  * with it: an email's task, unless the email is on a case. Sent with the id
  * read from the source, the email is refused, "you cannot modify this field".
  * See `lookupsThePlatformFills`.
+ *
+ * And so is a field the target's describe does not have at all. The fetcher
+ * reads the fields the SOURCE describes, and the target can lack one — a
+ * custom field not deployed there, a feature not turned on — which the org
+ * refuses a record for, whole. Forge writes only the fields both orgs
+ * describe; the clone leaves such a field out the same way and names it in
+ * the result (`fieldsTheTargetLacks`).
  */
 function prepareRecordForWrite(
   objectApiName: string,
@@ -1012,9 +1256,11 @@ function prepareRecordForWrite(
   const setByThePlatform = new Set(
     (describe?.fields ?? []).filter((f) => f.createable === false).map((f) => f.name),
   );
+  const described = describedFields(describe);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (key === 'Id' || setByThePlatform.has(key)) continue;
+    if (described && !described.has(key)) continue;
     out[key] = value;
   }
   if (describe) {

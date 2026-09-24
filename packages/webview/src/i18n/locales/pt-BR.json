@@ -782,6 +782,7 @@
       "preview": {
         "title": "Pré-visualização de clonagem",
         "insertOrder": "Ordem de inserção",
+        "filledAfterInsert": "Gravados vazios e preenchidos depois de gravado o registro para o qual apontam (segunda passagem):",
         "recordCounts": "Quantidade de registros",
         "sampleRecords": "Registros de amostra",
         "largeWarning": "Esta clonagem envolve mais de 10.000 registros. Pode levar vários minutos para concluir.",
@@ -794,6 +795,8 @@
         "inserted": "Inseridos",
         "linked": "Vinculados a existentes",
         "leftToThePlatform": "Deixados de fora (a própria plataforma os grava, ou aquilo de que dependem)",
+        "secondPass": "Segunda passagem — vínculos preenchidos depois de gravado o registro para o qual apontam: {{filled}}/{{owed}}",
+        "fieldsNotInTarget": "Deixados de fora de todos os registros: a org de destino não tem estes campos.",
         "failed": "Falhados",
         "duration": "Duração",
         "idMapping": "Mapeamento de IDs",

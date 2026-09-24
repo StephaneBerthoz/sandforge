@@ -204,6 +204,72 @@ describe('CloneResultsPanel', () => {
     expect(screen.queryByTestId('clone-results-left-to-the-platform')).toBeNull();
   });
 
+  it('says how many lookups the second pass filled in', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      secondPass: { owed: 3, filled: 3, samples: [] },
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-results-second-pass').textContent).toBe(
+      'Second pass — lookups filled in once the record they point at was in: 3/3',
+    );
+  });
+
+  it('says why the second pass could not fill in a lookup', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      secondPass: {
+        owed: 2,
+        filled: 1,
+        samples: [
+          {
+            record: 'Account source=001xx002 target=001yy002 Key_Contact__c=<source 003xx009>',
+            messages: [
+              "Cycle FK 'Key_Contact__c' could not be resolved — referenced parent (source 003xx009) was not cloned",
+            ],
+          },
+        ],
+      },
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    const pass = screen.getByTestId('clone-results-second-pass');
+    expect(pass.querySelector('p')?.textContent).toBe(
+      'Second pass — lookups filled in once the record they point at was in: 1/2',
+    );
+    expect(pass.querySelector('li')?.textContent).toBe(
+      'Account source=001xx002 target=001yy002 Key_Contact__c=<source 003xx009> — ' +
+        "Cycle FK 'Key_Contact__c' could not be resolved — referenced parent (source 003xx009) was not cloned",
+    );
+  });
+
+  it('names, per object, the fields left out because the target does not have them', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      objectResults: [
+        { ...mockSuccessResult.objectResults[0], fieldsNotInTarget: ['Legacy__c', 'Region__c'] },
+        mockSuccessResult.objectResults[1],
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    const fields = screen.getByTestId('clone-results-fields-not-in-target');
+    expect(fields.querySelector('p')?.textContent).toBe(
+      'Left out of every record: the target org does not have these fields.',
+    );
+    expect([...fields.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Account — Legacy__c, Region__c',
+    ]);
+  });
+
+  it('says nothing of a second pass or of missing fields when the clone had neither', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    expect(screen.queryByTestId('clone-results-second-pass')).toBeNull();
+    expect(screen.queryByTestId('clone-results-fields-not-in-target')).toBeNull();
+  });
+
   it('should call onDone when clicking Done button', () => {
     const onDone = vi.fn();
     render(<CloneResultsPanel result={mockSuccessResult} onDone={onDone} />);

@@ -53,10 +53,46 @@ export interface CloneObjectResult {
    * existed.
    */
   leftToThePlatform?: number;
+  /**
+   * Fields the clone read and left out of every record because the target's
+   * describe of the object does not have them: sent, the org refuses the whole
+   * record. Absent when there are none.
+   */
+  fieldsNotInTarget?: string[];
   /** Mapping of source record IDs to target record IDs, linked records included */
   idMappings: Array<{ sourceId: string; targetId: string }>;
   /** Errors encountered during insertion */
   errors: Array<{ sourceId: string; message: string }>;
+}
+
+/**
+ * A lookup of the clone's objects: the field of `objectApiName` that points at
+ * a record of `referenceTo`.
+ */
+export interface CloneLookup {
+  /** The object whose records carry the lookup. */
+  objectApiName: string;
+  /** The lookup field's API name. */
+  field: string;
+  /** The object the lookup points at. */
+  referenceTo: string;
+}
+
+/**
+ * What a clone's second pass did: the lookups it wrote empty at insert —
+ * one of a cycle, whose record went in before the one it names, or one at a
+ * record of the same object — and filled once the record they name was in.
+ */
+export interface CloneSecondPass {
+  /** Lookups the insert left empty for the second pass to fill. */
+  owed: number;
+  /** Of those, the ones it filled. */
+  filled: number;
+  /**
+   * Up to three of the others, each with why: the record it names was never
+   * cloned, or the target refused the update.
+   */
+  samples: Array<{ record: string; messages: string[] }>;
 }
 
 /**
@@ -77,6 +113,11 @@ export interface CloneExecutionResult {
   totalLeftToThePlatform?: number;
   /** Total records that failed to insert */
   totalFailed: number;
+  /**
+   * The lookups written empty and filled after the insert. Absent when the
+   * clone left none for a second pass.
+   */
+  secondPass?: CloneSecondPass;
   /** Total duration in milliseconds */
   durationMs: number;
   /**
@@ -111,4 +152,11 @@ export interface ClonePreviewResult {
   }>;
   /** Topologically sorted insert order */
   insertOrder: string[];
+  /**
+   * The lookups the clone writes empty and fills in a second pass once the
+   * record they point at is in the target: one of a cycle, whose record goes
+   * in before the one it names, and one at a record of its own object, which
+   * the insert writing both cannot fill. Absent when there are none.
+   */
+  filledAfterInsert?: CloneLookup[];
 }

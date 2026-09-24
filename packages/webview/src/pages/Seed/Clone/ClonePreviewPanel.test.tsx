@@ -95,6 +95,35 @@ describe('ClonePreviewPanel', () => {
     expect(screen.getByTestId('clone-total-records').textContent).toContain('4 records');
   });
 
+  it('names the lookups a second pass fills in, under the insert order', () => {
+    // An account's key contact against a contact's account used to stop the
+    // clone on a cycle; the accounts now go in without it, filled in once the
+    // contacts are in, as each account's parent is once every account is.
+    const cycle: ClonePreviewResult = {
+      ...mockPreview,
+      insertOrder: ['Account', 'Contact'],
+      filledAfterInsert: [
+        { objectApiName: 'Account', field: 'ParentId', referenceTo: 'Account' },
+        { objectApiName: 'Account', field: 'Key_Contact__c', referenceTo: 'Contact' },
+      ],
+    };
+    render(<ClonePreviewPanel previewResult={cycle} onExecute={vi.fn()} onBack={vi.fn()} />);
+
+    const filled = screen.getByTestId('clone-preview-filled-after');
+    expect(filled.textContent).toContain(
+      'Written empty, then filled in once the record they point at is in (second pass):',
+    );
+    expect([...filled.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Account.ParentId → Account',
+      'Account.Key_Contact__c → Contact',
+    ]);
+  });
+
+  it('names no lookup when the clone leaves none to a second pass', () => {
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByTestId('clone-preview-filled-after')).toBeNull();
+  });
+
   it('says nothing left out for a clone that sends every row its filters match', () => {
     render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
     expect(screen.queryByTestId('clone-preview-left-to-the-platform')).toBeNull();

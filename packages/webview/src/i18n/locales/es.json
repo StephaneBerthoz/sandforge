@@ -782,6 +782,7 @@
       "preview": {
         "title": "Vista previa de clonación",
         "insertOrder": "Orden de inserción",
+        "filledAfterInsert": "Se escriben vacíos y se rellenan una vez escrito el registro al que apuntan (segunda pasada):",
         "recordCounts": "Cantidad de registros",
         "sampleRecords": "Registros de muestra",
         "largeWarning": "Esta clonación incluye más de 10.000 registros. Puede tardar varios minutos.",
@@ -794,6 +795,8 @@
         "inserted": "Insertados",
         "linked": "Vinculados a existentes",
         "leftToThePlatform": "Excluidos (la plataforma los escribe ella misma, o aquello de lo que dependen)",
+        "secondPass": "Segunda pasada — vínculos rellenados una vez escrito el registro al que apuntan: {{filled}}/{{owed}}",
+        "fieldsNotInTarget": "Excluidos de todos los registros: la org de destino no tiene estos campos.",
         "failed": "Fallidos",
         "duration": "Duración",
         "idMapping": "Mapeo de IDs",
