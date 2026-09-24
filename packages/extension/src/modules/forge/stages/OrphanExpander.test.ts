@@ -250,6 +250,109 @@ describe('OrphanExpander', () => {
     ]);
   });
 
+  describe('a lookup that can point at several objects', () => {
+    /** A feed item's parent: it may not be left empty, and it can be one of several objects. */
+    const FEED_FIELDS: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account', 'FeedItem', 'Opportunity', 'Quote'],
+        nillable: false,
+      },
+    ];
+    const QUOTE_ID = '0Q0AP00ORPHAN12';
+    /** The source org's key prefixes. */
+    const PREFIXES: Record<string, string> = {
+      Account: '001',
+      FeedItem: '0D5',
+      Opportunity: '006',
+      Quote: '0Q0',
+    };
+    /** The run telling the object of an id among the candidates, by its key prefix. */
+    const objectOfById = () =>
+      vi.fn(async (id: string, candidates: readonly string[]) =>
+        candidates.find((object) => PREFIXES[object] === id.slice(0, 3)),
+      );
+
+    it('looks for the parent in the object its id belongs to, not in the first one the lookup names', async () => {
+      // `ParentId` names its objects in alphabetical order: looked for among
+      // the accounts, a quote was never found.
+      const deps = makeDeps({
+        queryRecords: vi
+          .fn<ExpanderDeps['queryRecords']>()
+          .mockResolvedValue([{ Id: QUOTE_ID, Name: 'Renewal' }]),
+        insertRecords: vi
+          .fn<ExpanderDeps['insertRecords']>()
+          .mockResolvedValue([{ id: '0Q0NEW', success: true, errors: [] }]),
+      });
+      const objectOf = objectOfById();
+      const { input } = makeInput(deps, {
+        node: makeNode('FeedItem'),
+        fieldInfos: FEED_FIELDS,
+        records: [{ Id: '0D5OLD1', ParentId: QUOTE_ID }],
+        objectOf,
+      });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(objectOf).toHaveBeenCalledWith(QUOTE_ID, [
+        'Account',
+        'FeedItem',
+        'Opportunity',
+        'Quote',
+      ]);
+      expect(vi.mocked(deps.describeFields).mock.calls.map(([, object]) => object)).toEqual([
+        'Quote',
+        'Quote',
+      ]);
+      expect(vi.mocked(deps.queryRecords).mock.calls[0][1]).toBe(
+        `SELECT Id, Name, OwnerId FROM Quote WHERE Id = '${QUOTE_ID}'`,
+      );
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][1]).toBe('Quote');
+      expect(input.remapper.get(QUOTE_ID)).toBe('0Q0NEW');
+      expect(expander.buildErrorReport()).toBeNull();
+    });
+
+    it('leaves the parent alone when the run cannot tell which object its id belongs to', async () => {
+      // A feed item posted on a user: an object no copy writes, and none
+      // of those the parent is looked for in.
+      const deps = makeDeps();
+      const { input } = makeInput(deps, {
+        node: makeNode('FeedItem'),
+        fieldInfos: FEED_FIELDS,
+        records: [{ Id: '0D5OLD1', ParentId: '005AP00000USER1' }],
+        objectOf: objectOfById(),
+      });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(deps.describeFields).not.toHaveBeenCalled();
+      expect(deps.queryRecords).not.toHaveBeenCalled();
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(expander.buildErrorReport()).toBeNull();
+    });
+
+    it('leaves a parent of the node’s own object to the node', async () => {
+      const deps = makeDeps();
+      const { input } = makeInput(deps, {
+        node: makeNode('FeedItem'),
+        fieldInfos: FEED_FIELDS,
+        records: [{ Id: '0D5OLD1', ParentId: '0D5AP00000POST1' }],
+        objectOf: objectOfById(),
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(deps.describeFields).not.toHaveBeenCalled();
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+    });
+  });
+
   it('does nothing when disabled', async () => {
     const deps = makeDeps();
     const { input } = makeInput(deps, { enabled: false });

@@ -952,6 +952,60 @@ describe('ForgeExecutor', () => {
         },
       ]);
     });
+
+    it('counts as failed a selling model refused as held and still waiting for its key when a cancel falls before the next call', async () => {
+      // The target refused the first model without naming the one it holds:
+      // the row waits for the lookup by its key made once the calls are
+      // through, which the cancel before the second call never let come.
+      deps.batchStrategy = {
+        resolve: (_strategy, recordCount) => ({
+          api: 'rest',
+          batchSize: 1,
+          batchCount: recordCount,
+        }),
+      };
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: '0jP000000000001', Name: 'One-time' },
+        { Id: '0jP000000000002', Name: 'Monthly' },
+      ]);
+      const refusal =
+        'DUPLICATE_VALUE: a product selling model already exists for this combination';
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map(() => ({ id: '', success: false, errors: [refusal] }));
+      });
+      const graph = makeGraph([makeNode('ProductSellingModel', { batchStrategy: 'rest' })]);
+
+      const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ForgeAbortedError);
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      // Nothing is looked up in the target once the run is told to stop.
+      expect(vi.mocked(deps.queryRecords).mock.calls.filter(([org]) => org === 'tgt')).toEqual([]);
+      const partial = partialSummaryOf(error);
+      expect(partial?.failedCount).toBe(1);
+      expect(partial?.existingRecords).toEqual([
+        { objectApiName: 'ProductSellingModel', linked: 0, unidentified: 1 },
+      ]);
+      expect(partial?.errors).toEqual([
+        {
+          objectApiName: 'ProductSellingModel',
+          stage: 'insert',
+          failedCount: 1,
+          attemptedCount: 1,
+          samples: [
+            {
+              recordSummary: 'Name=One-time',
+              messages: [
+                refusal,
+                'The record the target holds under the same key was not looked up: ' +
+                  'Forge execution was aborted by user request. No further batches will be processed.',
+              ],
+            },
+          ],
+        },
+      ]);
+    });
   });
 
   it('describes the target org while the source query is still running', async () => {
@@ -4231,6 +4285,194 @@ describe('ForgeExecutor', () => {
           { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
         ]);
         expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+      });
+
+      it('copies the missing parent of a feed item from the object its id belongs to', async () => {
+        // The quotes left out of the clone, the feed items posted on them
+        // point at parents the run does not write, which expansion copies in.
+        // Looked for among the accounts — the first object `ParentId` names —
+        // a quote was never found, and its feed item went in without it.
+        const { orgDeps, inserted } = orgs([]);
+        const everyRow = tables();
+        orgDeps.queryRecords = async (_org, soql) => {
+          const whole = /^SELECT .+ FROM (\w+)$/.exec(soql)?.[1];
+          return whole
+            ? (everyRow[whole] ?? []).map((row) => ({ ...row }))
+            : selectRows(everyRow, soql);
+        };
+        const described: string[] = [];
+        const describeFields = orgDeps.describeFields;
+        orgDeps.describeFields = async (org, object) => {
+          described.push(object);
+          return describeFields(org, object);
+        };
+        const describeObject = orgDeps.describeObject;
+        orgDeps.describeObject = async (org, object) => {
+          described.push(object);
+          return describeObject!(org, object);
+        };
+        const withoutQuotes = graph();
+        withoutQuotes.nodes = withoutQuotes.nodes.map((n) =>
+          n.objectApiName === 'Quote' || n.objectApiName === 'QuoteLineItem'
+            ? { ...n, included: false }
+            : n,
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          withoutQuotes,
+          'src',
+          'tgt',
+          onProgress,
+          { expandOrphanParents: true },
+        );
+
+        expect(inserted['Quote']).toEqual([{ Name: 'First' }, { Name: 'Second' }]);
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+          { Body: 'On the first quote', ParentId: 'Quote:First' },
+          { Body: 'On the second quote', ParentId: 'Quote:Second' },
+        ]);
+        // The objects of the graph are asked first, and the one found ends
+        // the search: no account was ever described.
+        expect(described).not.toContain('Account');
+        expect(
+          summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__'),
+        ).toBeUndefined();
+      });
+    });
+
+    describe('a feed item the platform writes itself', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const POST = '0D5000000000001AAA';
+      const CHANGE = '0D5000000000002AAA';
+      const fields: Record<string, FieldInfo[]> = {
+        Opportunity: [idField, text('Name')],
+        FeedItem: [
+          idField,
+          text('Body'),
+          text('Type'),
+          {
+            ...lookup('ParentId', 'Opportunity', true),
+            referenceTo: ['Account', 'Opportunity'],
+          },
+        ],
+        FeedComment: [idField, text('CommentBody'), lookup('FeedItemId', 'FeedItem', true)],
+      };
+      const tables = (): Record<string, FakeRow[]> => ({
+        Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+        FeedItem: [
+          { Id: POST, Body: 'Kick-off', Type: 'TextPost', ParentId: OPPORTUNITY },
+          { Id: CHANGE, Body: null, Type: 'TrackedChange', ParentId: OPPORTUNITY },
+        ],
+        FeedComment: [
+          { Id: '0D7000000000001AAA', CommentBody: 'On the post', FeedItemId: POST },
+          { Id: '0D7000000000002AAA', CommentBody: 'On the change', FeedItemId: CHANGE },
+        ],
+      });
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          [makeNode('Opportunity'), makeNode('FeedItem'), makeNode('FeedComment')],
+          [
+            { ...edge('Opportunity', 'FeedItem'), type: 'master-detail', required: true },
+            { ...edge('FeedItem', 'FeedComment'), type: 'master-detail', required: true },
+          ],
+        );
+      const scoped = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+      /** The fake orgs of `tables`, whose target refuses a tracked change as the platform does. */
+      function orgs() {
+        const run = fakeOrgs(tables(), fields);
+        const insert = run.orgDeps.insertRecords;
+        run.orgDeps.insertRecords = async (org, object, records) => {
+          const results = await insert(org, object, records);
+          return results.map((result, i) =>
+            object === 'FeedItem' && records[i]['Type'] === 'TrackedChange'
+              ? {
+                  id: '',
+                  success: false,
+                  errors: [
+                    'INVALID_FIELD: Cannot directly insert FeedItem with type TrackedChange',
+                  ],
+                }
+              : result,
+          );
+        };
+        return run;
+      }
+
+      const leftOut = {
+        objectApiName: 'FeedItem',
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'Type=TrackedChange (1 record)',
+            messages: [
+              'Not written: the platform writes each tracked change itself, and refuses one a copy sends.',
+            ],
+          },
+        ],
+      };
+
+      it('leaves out a tracked change, which the platform refuses from a copy, and says so', async () => {
+        // Run for real, the clone of an opportunity sent its one feed item, a
+        // tracked change, and the platform refused it: "Cannot directly
+        // insert FeedItem with type TrackedChange".
+        const { orgDeps, inserted } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'Kick-off', Type: 'TextPost', ParentId: 'Opportunity:Deal' },
+        ]);
+        expect(summary.failedCount).toBe(0);
+        expect(summary.errors).toEqual([leftOut]);
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
+          status: 'done',
+          message:
+            'Completed FeedItem: 1 succeeded, 0 failed, 1 tracked change left out: the platform writes them itself',
+        });
+      });
+
+      it('reads nothing that hangs from a tracked change it leaves out', async () => {
+        // A comment cannot go in without the feed item it answers.
+        const { orgDeps, inserted } = orgs();
+        const read = recordReads(orgDeps);
+
+        await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, scoped);
+
+        expect([...(read['FeedComment'] ?? [])]).toEqual(['0D7000000000001AAA']);
+        expect(inserted['FeedComment']).toEqual([
+          { CommentBody: 'On the post', FeedItemId: 'FeedItem:1' },
+        ]);
+      });
+
+      it('says in a dry run that a tracked change would be left out, and counts it among nothing inserted', async () => {
+        const { orgDeps } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          { ...scoped, dryRun: true },
+        );
+
+        expect(
+          progressEvents.find((e) => e.objectName === 'FeedItem' && e.status === 'done')?.message,
+        ).toBe(
+          '[dry-run] FeedItem: 1 record(s) would be inserted, 1 tracked change left out: the platform writes them itself',
+        );
+        // The opportunity, the post and the comment on it.
+        expect(summary.wouldInsertCount).toBe(3);
+        expect(summary.errors).toEqual([leftOut]);
       });
     });
 

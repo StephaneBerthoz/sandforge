@@ -54,6 +54,8 @@ import {
   STATUS_LIFECYCLES,
   draftStartOf,
   statusCategories,
+  writtenByThePlatform,
+  type PlatformWrittenRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
@@ -737,6 +739,11 @@ interface ExecutionState {
   files: ForgeFilesReport | null;
   /** Per object, the fields left out of its records because they hold a file's content. */
   readonly fileContentFieldsLeftOut: Map<string, Set<string>>;
+  /**
+   * Per object, the rows read and left out because the platform writes them
+   * itself, by kind, with the source id of each.
+   */
+  readonly leftToThePlatform: Map<string, Map<PlatformWrittenRows, Set<string>>>;
   /** When the target dated the run's writes, once read back at its end. */
   writtenBetween?: ForgeWrittenBetween;
   successCount: number;
@@ -833,6 +840,41 @@ function parentNotWrittenSamples(
             : 'was not written by this run.'),
       ],
     }));
+}
+
+/**
+ * What an object's last word says of its rows left out because the platform
+ * writes them itself — `, 1 tracked change left out: …` — or nothing.
+ */
+function leftToThePlatformNote(state: ExecutionState, objectApiName: string): string {
+  return [...(state.leftToThePlatform.get(objectApiName) ?? [])]
+    .map(
+      ([rows, ids]) =>
+        `, ${ids.size} ${rows.noun}${ids.size === 1 ? '' : 's'} left out: the platform writes them itself`,
+    )
+    .join('');
+}
+
+/**
+ * The rows left out because the platform writes them itself, one report per
+ * object and one sample per kind. Not written, and not counted as failed: no
+ * copy can write them, and the target writes its own.
+ */
+function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...state.leftToThePlatform].map(
+    ([objectApiName, kinds]): ExecutionObjectError => ({
+      objectApiName,
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [...kinds].map(([rows, ids]) => ({
+        recordSummary: `${rows.field}=${rows.value} (${ids.size} record${ids.size === 1 ? '' : 's'})`,
+        messages: [
+          `Not written: the platform writes each ${rows.noun} itself, and refuses one a copy sends.`,
+        ],
+      })),
+    }),
+  );
 }
 
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
@@ -1101,6 +1143,7 @@ export class ForgeExecutor {
       fileScope: new Map<string, string[]>(),
       files: null,
       fileContentFieldsLeftOut: new Map<string, Set<string>>(),
+      leftToThePlatform: new Map<string, Map<PlatformWrittenRows, Set<string>>>(),
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -1832,6 +1875,38 @@ export class ForgeExecutor {
   }
 
   /**
+   * The object among `candidates` a source id belongs to, told by its key
+   * prefix as `sourceKeyPrefixes` tells it; nothing when none of them has it.
+   *
+   * The prefixes the run knows already are asked first, then those of the
+   * objects of the graph — rows read of them, or the describe the run holds —
+   * and only then the others, a few at a time, stopping at the one that has
+   * it: a feed item's parent can be any of 216 objects, and the describe of
+   * an object outside the graph is a request of its own.
+   */
+  private async objectOfSourceId(
+    state: ExecutionState,
+    id: string,
+    candidates: readonly string[],
+  ): Promise<string | undefined> {
+    const prefix = id.slice(0, 3);
+    const known = candidates.find((o) => state.sourceKeyPrefixes.get(o) === prefix);
+    if (known) return known;
+    const inGraph = new Set(state.graph.nodes.map((n) => n.objectApiName));
+    const unknown = candidates.filter((o) => !state.sourceKeyPrefixes.has(o));
+    const outside = unknown.filter((o) => !inGraph.has(o));
+    const waves = [unknown.filter((o) => inGraph.has(o))];
+    for (let i = 0; i < outside.length; i += CONCURRENT_DESCRIBE_LIMIT) {
+      waves.push(outside.slice(i, i + CONCURRENT_DESCRIBE_LIMIT));
+    }
+    for (const wave of waves) {
+      const found = (await this.sourceKeyPrefixes(state, new Set(wave))).get(prefix);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /**
    * The order a record-scoped run writes its nodes in, once every one of
    * them has been read: required parents first, and the catalog as
    * `catalogWriteEdges` lays it out — its lines being the nodes whose fields,
@@ -2004,7 +2079,9 @@ export class ForgeExecutor {
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
       remapCount: state.remapper.count,
-      errors: [...state.errors],
+      // What the platform writes itself is said once, at the end, whichever
+      // reads of its object found it.
+      errors: [...state.errors, ...leftToThePlatformReports(state)],
       truncatedObjects: [...state.truncatedObjects],
       // BA reconciliation: dump the full source→target ID map so callers
       // can audit, export to CSV, or persist as part of a checkpoint.
@@ -2288,6 +2365,14 @@ export class ForgeExecutor {
         return false;
       }
 
+      // What the platform writes itself is left out as soon as it is read,
+      // and said: see `writtenByThePlatform`. The direct account-contact
+      // relation waits for the write, as it is found in the target by the ids
+      // the write makes. A tracked change needs nothing of the target, and
+      // kept until the write it put what hangs from it in scope: a comment on
+      // it, which cannot go in without it.
+      this.leaveToThePlatform(state, node.objectApiName, records);
+
       // The standard price book is matched, never cloned: every org has
       // exactly one, it cannot be created, and the two were registered with
       // each other before anything was read. Left in, it was inserted like
@@ -2367,7 +2452,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted`,
+          message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted${leftToThePlatformNote(state, node.objectApiName)}`,
         });
         // Counted under their own name: a dry run creates nothing.
         state.wouldInsertCount += records.length;
@@ -2412,6 +2497,34 @@ export class ForgeExecutor {
         message: `Error on ${node.objectApiName}: ${extractErrorMessage(err)}`,
       });
       return false;
+    }
+  }
+
+  /**
+   * Take out of `records` the rows the platform writes itself
+   * (`writtenByThePlatform`), keeping the source id of each by kind: what
+   * the object's last word and the summary say was left out. Kept by id, the
+   * rows of a node read twice are counted once.
+   */
+  private leaveToThePlatform(
+    state: ExecutionState,
+    objectApiName: string,
+    records: Record<string, unknown>[],
+  ): void {
+    const kept = records.filter((row) => {
+      const rows = writtenByThePlatform(objectApiName, row);
+      if (!rows) return true;
+      const kinds =
+        state.leftToThePlatform.get(objectApiName) ?? new Map<PlatformWrittenRows, Set<string>>();
+      const ids = kinds.get(rows) ?? new Set<string>();
+      ids.add(String(row['Id']));
+      kinds.set(rows, ids);
+      state.leftToThePlatform.set(objectApiName, kinds);
+      return false;
+    });
+    if (kept.length !== records.length) {
+      records.length = 0;
+      records.push(...kept);
     }
   }
 
@@ -2819,6 +2932,7 @@ export class ForgeExecutor {
           (await this.startAsDrafts(state, objectApiName, [payload])).get(0),
         oweStatus: (objectApiName, id, status) =>
           state.deferredStatuses.push({ objectApiName, id, status }),
+        objectOf: (id, candidates) => this.objectOfSourceId(state, id, candidates),
       });
 
       const cleanedRecords = cleanNodeRecords({
@@ -2990,7 +3104,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}${withoutTheirParent}`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
         });
       }
     } catch (err) {

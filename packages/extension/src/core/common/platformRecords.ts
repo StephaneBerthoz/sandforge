@@ -32,6 +32,40 @@ export const NATURAL_KEYS: Readonly<Record<string, readonly string[]>> = {
   ProductSellingModel: ['SellingModelType', 'PricingTerm', 'PricingTermUnit'],
 };
 
+/** Rows of an object the platform writes itself, told by the value one of their fields holds. */
+export interface PlatformWrittenRows {
+  /** The field that tells them. */
+  readonly field: string;
+  /** Its value on them. */
+  readonly value: string;
+  /** One of them, in words. */
+  readonly noun: string;
+}
+
+/**
+ * Rows the platform writes itself and refuses from a copy, by object.
+ *
+ * A tracked change is the org's own record of a change to a tracked field,
+ * written as the change is made. Run for real, the clone of an opportunity
+ * sent the one feed item it had, a tracked change, and the target refused
+ * it: "Cannot directly insert FeedItem with type TrackedChange". The other
+ * types the platform generates — a call logged, a record created from the
+ * publisher — are ones the API reference asks a copy not to create, not ones
+ * it says are refused: a Chatter migration may carry them, so they are left
+ * to the insert.
+ */
+export const PLATFORM_WRITTEN_ROWS: Readonly<Record<string, readonly PlatformWrittenRows[]>> = {
+  FeedItem: [{ field: 'Type', value: 'TrackedChange', noun: 'tracked change' }],
+};
+
+/** Which rows the platform writes itself `row` is one of, or nothing when a copy may write it. */
+export function writtenByThePlatform(
+  objectApiName: string,
+  row: Record<string, unknown>,
+): PlatformWrittenRows | undefined {
+  return PLATFORM_WRITTEN_ROWS[objectApiName]?.find((rows) => row[rows.field] === rows.value);
+}
+
 /**
  * Objects whose status follows a lifecycle, and the object listing each
  * status with its category. A record is born in the Draft category and moves

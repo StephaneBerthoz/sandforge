@@ -6,6 +6,7 @@ import {
   recordsByNaturalKey,
   standardPriceIds,
   statusCategories,
+  writtenByThePlatform,
   type SoqlQuery,
 } from './platformRecords.js';
 
@@ -31,6 +32,23 @@ describe('standardPriceIds', () => {
       Array.from({ length: 201 }, (_, i) => `01u${String(i).padStart(3, '0')}`),
     );
     expect(query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('writtenByThePlatform', () => {
+  it('names a tracked change as a feed item the platform writes itself', () => {
+    expect(writtenByThePlatform('FeedItem', { Id: '0D5A', Type: 'TrackedChange' })).toEqual({
+      field: 'Type',
+      value: 'TrackedChange',
+      noun: 'tracked change',
+    });
+  });
+
+  it('leaves to the insert a post, a feed item of a type it cannot say is refused, and other objects', () => {
+    expect(writtenByThePlatform('FeedItem', { Id: '0D5A', Type: 'TextPost' })).toBeUndefined();
+    expect(writtenByThePlatform('FeedItem', { Id: '0D5A', Type: 'CallLogPost' })).toBeUndefined();
+    expect(writtenByThePlatform('FeedItem', { Id: '0D5A' })).toBeUndefined();
+    expect(writtenByThePlatform('Task', { Id: '00TA', Type: 'TrackedChange' })).toBeUndefined();
   });
 });
 

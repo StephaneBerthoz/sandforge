@@ -99,6 +99,13 @@ export interface OrphanExpansionInput {
    * reported — with the records of the run written as drafts.
    */
   oweStatus?: (objectApiName: string, targetId: string, status: string) => void;
+  /**
+   * The object among `candidates` a source id belongs to, as the run tells it
+   * by the id's key prefix; nothing when it cannot. What the parent of a
+   * lookup that can point at several objects is looked for in. Absent, such
+   * a parent is not looked for.
+   */
+  objectOf?: (id: string, candidates: readonly string[]) => Promise<string | undefined>;
 }
 
 /**
@@ -134,7 +141,7 @@ export class OrphanExpander {
    */
   async expandForNode(input: OrphanExpansionInput): Promise<void> {
     if (!input.enabled || this.expansionsUsed >= input.maxExpansions) return;
-    const { node, fieldInfos, records, remapper, scopeCache } = input;
+    const { fieldInfos, records, remapper, scopeCache } = input;
 
     const requiredOrphans = new Map<string, { object: string; sourceId: string }>();
     const requiredRefFields = fieldInfos.filter(
@@ -145,18 +152,11 @@ export class OrphanExpander {
         const value = r[field.name];
         if (typeof value !== 'string' || !value) continue;
         if (remapper.get(value)) continue;
-        for (const target of field.referenceTo ?? []) {
-          if (target === node.objectApiName) continue;
-          // Excluded objects (User, RecordType, Group, job and log tables,
-          // history/feed/share/changeevent suffixes) can't be cloned in a
-          // meaningful way and would just burn API calls + add noise to the
-          // error report. Same list discovery uses, so the two cannot drift.
-          if (isExcludedFromCopy(target)) continue;
-          const key = `${target}::${value}`;
-          if (!requiredOrphans.has(key)) {
-            requiredOrphans.set(key, { object: target, sourceId: value });
-          }
-          break;
+        const target = await this.parentObjectOf(input, field, value);
+        if (!target) continue;
+        const key = `${target}::${value}`;
+        if (!requiredOrphans.has(key)) {
+          requiredOrphans.set(key, { object: target, sourceId: value });
         }
       }
     }
@@ -230,6 +230,34 @@ export class OrphanExpander {
         }),
       );
     }
+  }
+
+  /**
+   * The object of the record `id` names through `field`, when it is one the
+   * expander copies: not the node's own, and not one no copy writes — User,
+   * RecordType, Group, the job and log tables, the history, feed, share and
+   * change-event variants, which would only burn calls and fill the error
+   * report. The list is discovery's, so the two cannot drift.
+   *
+   * A lookup that can point at several objects names none of them: the
+   * parent's object is the one its id's key prefix stands for, as the run
+   * tells it (`objectOf`). Fetched from the first object the lookup named, the
+   * parent of a feed item was looked for among the accounts whatever it was —
+   * a real org describes `ParentId` with 216 objects, the account first — and
+   * one of any other object could not be found there. Nothing when the run
+   * cannot tell.
+   */
+  private async parentObjectOf(
+    input: OrphanExpansionInput,
+    field: FieldInfo,
+    id: string,
+  ): Promise<string | undefined> {
+    const named = field.referenceTo ?? [];
+    const copied = named.filter((target) => !isExcludedFromCopy(target));
+    let object: string | undefined;
+    if (named.length === 1) object = copied[0];
+    else if (copied.length > 0) object = await input.objectOf?.(id, copied);
+    return object === input.node.objectApiName ? undefined : object;
   }
 
   /**

@@ -698,6 +698,60 @@ describe('BatchWriter — duplicates found by their natural key', () => {
     ]);
   });
 
+  it('counts a duplicate still waiting for its key as a failure it could not identify when a cancel stops the node', async () => {
+    // Refused without the record named, the row waits for the lookup made
+    // once the calls are through. A cancel before the next call ended the
+    // node there, and the row was neither linked nor counted.
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+    };
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValue([{ id: '', success: false, errors: ['DUPLICATE_VALUE: already exists'] }]);
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [{ Id: '0jPEXISTING' }]);
+    const once = { SellingModelType: 'OneTime', PricingTerm: null, PricingTermUnit: null };
+    const monthly = { SellingModelType: 'TermDefined', PricingTerm: 1, PricingTermUnit: 'Months' };
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = makeInput([], {
+      node: makeNode('ProductSellingModel', 2),
+      records: [once, monthly],
+      cleanedRecords: [
+        { source: { Id: '0jPONCE' }, cleaned: once, nullifiedFks: [] },
+        { source: { Id: '0jPMONTHLY' }, cleaned: monthly, nullifiedFks: [] },
+      ],
+      waitIfPaused,
+    });
+    const tally = emptyBatchWriteResult();
+
+    await expect(
+      new BatchWriter({ insertRecords, queryRecords }, oneByOne).writeNode(input, tally),
+    ).rejects.toThrow('cancelled');
+
+    // Told to stop, the run looks nothing more up.
+    expect(queryRecords).not.toHaveBeenCalled();
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(input.remapper.get('0jPONCE')).toBeUndefined();
+    expect(tally).toMatchObject({
+      successCount: 0,
+      linkedExistingCount: 0,
+      failureCount: 1,
+      alreadyExistsCount: 1,
+      unidentifiedExistingCount: 1,
+    });
+    expect(tally.errorSamples).toEqual([
+      {
+        recordSummary: 'SellingModelType=OneTime PricingTerm=null PricingTermUnit=null',
+        messages: [
+          'DUPLICATE_VALUE: already exists',
+          'The record the target holds under the same key was not looked up: cancelled',
+        ],
+      },
+    ]);
+  });
+
   it('keeps the duplicate a failure when the key matches more than one record', async () => {
     const insertRecords = vi
       .fn<InsertImpl>()

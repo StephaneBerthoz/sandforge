@@ -180,6 +180,20 @@ export interface BatchWriteResult {
   pendingFkUpdates: PendingFkUpdate[];
 }
 
+/**
+ * A row the target refused as one it already holds without naming the
+ * record, for an object with a natural key: it waits for the lookup by that
+ * key made once the node's calls are through.
+ */
+interface UnnamedDuplicate {
+  /** The payload sent, which carries the key. */
+  payload: Record<string, unknown>;
+  /** The source id of the row. */
+  sourceId: unknown;
+  /** What the target refused it with. */
+  errors: string[];
+}
+
 /** A {@link BatchWriteResult} with nothing counted yet. */
 export function emptyBatchWriteResult(): BatchWriteResult {
   return {
@@ -269,11 +283,7 @@ export class BatchWriter {
 
     let recordOffset = 0;
     /** Duplicates the target did not name, for an object with a natural key. */
-    const byNaturalKey: Array<{
-      payload: Record<string, unknown>;
-      sourceId: unknown;
-      errors: string[];
-    }> = [];
+    const byNaturalKey: UnnamedDuplicate[] = [];
 
     // Upsert via external Id when available — re-runs patch existing
     // target rows instead of failing on DUPLICATE_VALUE. When multiple
@@ -289,7 +299,25 @@ export class BatchWriter {
     );
 
     for (let b = 0; b < batchCount; b++) {
-      await input.waitIfPaused();
+      try {
+        await input.waitIfPaused();
+      } catch (err) {
+        // A cancel stops the node before its next call. The duplicates the
+        // target refused in the calls before, without naming the record, were
+        // left waiting for a lookup the run no longer makes: neither linked
+        // nor counted, missing from what the run said it did. Not written,
+        // they stay failures the run could not identify, as when the lookup
+        // cannot be read.
+        this.settleByNaturalKey(
+          node.objectApiName,
+          byNaturalKey,
+          [],
+          remapper,
+          tally,
+          `The record the target holds under the same key was not looked up: ${extractErrorMessage(err)}`,
+        );
+        throw err;
+      }
 
       const batch = records.slice(b * batchSize, (b + 1) * batchSize);
       let results: InsertResult[];
@@ -436,29 +464,56 @@ export class BatchWriter {
         // A lookup that could not be read finds nothing: each duplicate stays
         // a failure the run could not identify, and its sample says why, while
         // what the calls wrote stays theirs, as it does when a call throws.
-        found = byNaturalKey.map(() => undefined);
+        found = [];
         lookupFailed = `The record the target holds under the same key could not be looked up: ${extractErrorMessage(err)}`;
       }
-      byNaturalKey.forEach((duplicate, i) => {
-        const id = found[i];
-        if (id && typeof duplicate.sourceId === 'string') {
-          remapper.addExisting(duplicate.sourceId, id, node.objectApiName);
-          tally.linkedExistingCount++;
-          return;
-        }
-        tally.failureCount++;
-        tally.unidentifiedExistingCount++;
-        if (duplicate.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
-        if (tally.errorSamples.length < 3) {
-          tally.errorSamples.push({
-            recordSummary: summarizeRecordForError(duplicate.payload),
-            messages: lookupFailed ? [...duplicate.errors, lookupFailed] : duplicate.errors,
-          });
-        }
-      });
+      this.settleByNaturalKey(
+        node.objectApiName,
+        byNaturalKey,
+        found,
+        remapper,
+        tally,
+        lookupFailed,
+      );
     }
 
     return tally;
+  }
+
+  /**
+   * Settle the duplicates the target refused without naming the record it
+   * holds: each is linked to the one record its key found, by index, and the
+   * others are counted as failures the run could not identify.
+   *
+   * @param found - The record found under each duplicate's key, by index;
+   *   nothing where none, or more than one, was.
+   * @param notFoundBecause - Why nothing was looked up, added to the samples.
+   */
+  private settleByNaturalKey(
+    objectApiName: string,
+    duplicates: readonly UnnamedDuplicate[],
+    found: ReadonlyArray<string | undefined>,
+    remapper: IdRemapper,
+    tally: BatchWriteResult,
+    notFoundBecause?: string,
+  ): void {
+    duplicates.forEach((duplicate, i) => {
+      const id = found[i];
+      if (id && typeof duplicate.sourceId === 'string') {
+        remapper.addExisting(duplicate.sourceId, id, objectApiName);
+        tally.linkedExistingCount++;
+        return;
+      }
+      tally.failureCount++;
+      tally.unidentifiedExistingCount++;
+      if (duplicate.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
+      if (tally.errorSamples.length < 3) {
+        tally.errorSamples.push({
+          recordSummary: summarizeRecordForError(duplicate.payload),
+          messages: notFoundBecause ? [...duplicate.errors, notFoundBecause] : duplicate.errors,
+        });
+      }
+    });
   }
 
   /**
