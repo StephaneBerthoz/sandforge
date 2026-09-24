@@ -72,6 +72,7 @@ import {
   dryRunLine,
   filesRunError,
   ForgeFilesRefusedError,
+  lookupFailure,
   plannedFilesReport,
   remainingStorageBytes,
   selectFiles,
@@ -1761,7 +1762,8 @@ export class ForgeExecutor {
    * A file over the run's cap, or kept outside Salesforce, is left out and
    * listed. The rest are checked against the file storage the target has
    * left: a real run that would not fit stops here with nothing written, and
-   * a dry run says so and lists what it would copy.
+   * a dry run says so and lists what it would copy. A real run whose files
+   * could not all be looked up stops here too.
    *
    * @returns The files the write pass is to copy; none on a dry run.
    */
@@ -1776,6 +1778,12 @@ export class ForgeExecutor {
       maxFileBytes: files.maxFileBytes,
       queryRecords: deps.queryRecords,
     });
+    // Written, the records would reach the target without the files a
+    // failed lookup hid, and the run would read as complete.
+    const unread = lookupFailure(selection);
+    if (unread && !config.dryRun) {
+      throw new ForgeFilesRefusedError(`${unread} Nothing was written.`);
+    }
     state.errors.push(...selection.errors);
 
     let remaining: number | undefined;

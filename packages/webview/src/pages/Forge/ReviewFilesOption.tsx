@@ -93,12 +93,16 @@ export const ReviewFilesOption: React.FC = () => {
               data-testid="forge-files-max-size"
               aria-describedby={sizeHintId}
               aria-invalid={sizeRefused}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                const size = sizeOf(e.target.value);
+              onChange={(e) => setDraft(e.target.value)}
+              // Taken once the field is left, never keystroke by keystroke:
+              // typing 50 over 10 goes through 5, a size of its own, which
+              // was kept when 50 was refused and went with the run. A size
+              // refused gives the field back the last one taken.
+              onBlur={() => {
+                const size = sizeOf(draft);
                 if (size !== null) setFileCopy({ maxFileSizeMB: size });
+                setDraft(String(size ?? fileCopy.maxFileSizeMB));
               }}
-              onBlur={() => setDraft(String(fileCopy.maxFileSizeMB))}
               className={cn(
                 'w-20 px-2 py-1 rounded text-xs',
                 'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',

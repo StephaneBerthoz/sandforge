@@ -51,15 +51,32 @@ describe('ReviewFilesOption', () => {
     const size = screen.getByTestId('forge-files-max-size');
 
     fireEvent.change(size, { target: { value: '3' } });
+    fireEvent.blur(size);
     expect(useForgeStore.getState().fileCopy.maxFileSizeMB).toBe(3);
     expect(size.getAttribute('aria-invalid')).toBe('false');
 
     fireEvent.change(size, { target: { value: '36' } });
-    expect(useForgeStore.getState().fileCopy.maxFileSizeMB).toBe(3);
     expect(size.getAttribute('aria-invalid')).toBe('true');
 
     fireEvent.blur(size);
+    expect(useForgeStore.getState().fileCopy.maxFileSizeMB).toBe(3);
     expect(size).toHaveProperty('value', '3');
+  });
+
+  it('keeps the last size taken when the one typed is refused, never a digit typed on the way', () => {
+    useForgeStore.getState().setFileCopy({ enabled: true });
+    render(<ReviewFilesOption />);
+    const size = screen.getByTestId('forge-files-max-size');
+
+    // 50 typed over 10: the field reads 5 on the way, a size of its own.
+    fireEvent.change(size, { target: { value: '5' } });
+    fireEvent.change(size, { target: { value: '50' } });
+    expect(size.getAttribute('aria-invalid')).toBe('true');
+    fireEvent.blur(size);
+
+    expect(useForgeStore.getState().fileCopy.maxFileSizeMB).toBe(10);
+    expect(size).toHaveProperty('value', '10');
+    expect(size.getAttribute('aria-invalid')).toBe('false');
   });
 
   it('asks, in a confirmation of its own, to accept the files as they are while the run anonymizes', () => {

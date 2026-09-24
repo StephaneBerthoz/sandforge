@@ -398,6 +398,64 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
     expect(deps.insertFile).not.toHaveBeenCalled();
   });
 
+  describe('when the files of its records could not be looked up', () => {
+    const TIMEOUT = 'QUERY_TIMEOUT: Your query request was running for too long.';
+
+    /** The source failing the lookups that read `from`, answering everything else. */
+    function failing(from: string) {
+      const orgs = fakeOrgs();
+      const answer = orgs.deps.queryRecords.getMockImplementation()!;
+      orgs.deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+        if (org === 'src' && soql.includes(from)) throw new Error(TIMEOUT);
+        return answer(org, soql);
+      });
+      return orgs;
+    }
+
+    it.each([
+      ['links', 'FROM ContentDocumentLink'],
+      ['versions', 'FROM ContentVersion'],
+      ['attachments', 'FROM Attachment'],
+    ])('writes nothing and says why when the %s lookup failed', async (_lookup, from) => {
+      // Written all the same, the records went to the target without the
+      // files the lookup hid, and the run read as a success whose files said
+      // there was none to copy.
+      const { deps } = failing(from);
+
+      const run = new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+        ...SCOPED,
+        files: FILES,
+      });
+
+      await expect(run).rejects.toBeInstanceOf(ForgeFilesRefusedError);
+      await expect(run).rejects.toThrow(
+        `The files of the records to clone could not all be looked up in the source (${TIMEOUT}). ` +
+          'Run it again, or leave the files out. Nothing was written.',
+      );
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(deps.insertFile).not.toHaveBeenCalled();
+    });
+
+    it('lists on a dry run the lookup that failed beside the files it found, without stopping it', async () => {
+      const { deps } = failing('FROM Attachment');
+
+      const summary = await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+        ...SCOPED,
+        dryRun: true,
+        files: FILES,
+      });
+
+      expect(summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Attachment',
+          stage: 'query',
+          samples: [expect.objectContaining({ messages: [TIMEOUT] })],
+        }),
+      );
+      expect(summary.files?.wouldCopy?.map((f) => f.sourceId)).toEqual([DOCUMENT]);
+    });
+  });
+
   it('checks the files of a full-table run against the target before its first write', async () => {
     // A full-table run writes each object as soon as it has read it; asked
     // to copy files, it reads everything first so nothing is written before

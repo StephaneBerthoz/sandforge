@@ -43,9 +43,9 @@ const SAMPLE_LIMIT = 3;
 
 /**
  * Raised when a run asked to copy files may not go ahead: it anonymizes and
- * the files were not accepted as they are, the session cannot move a file, or
- * the files do not fit in what the target has left. Raised before anything
- * is written.
+ * the files were not accepted as they are, the session cannot move a file,
+ * the files of its records could not be looked up, or the files do not fit in
+ * what the target has left. Raised before anything is written.
  */
 export class ForgeFilesRefusedError extends Error {
   constructor(message: string) {
@@ -126,7 +126,11 @@ function size(row: Record<string, unknown>, field: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-/** A report of a read that failed, as the record stages write one. */
+/**
+ * A report of a lookup that failed. It counts no file, since the files it
+ * would have found are unknown: a real run stops on it (see
+ * {@link lookupFailure}), and only a dry run reports it.
+ */
 function readFailure(objectApiName: string, what: string, err: unknown): ExecutionObjectError {
   return {
     objectApiName,
@@ -286,6 +290,26 @@ export async function selectFiles(input: {
 }
 
 /**
+ * Why the run cannot say which files its records hold, or null when every
+ * lookup answered.
+ *
+ * A lookup that failed — the links, the versions or the attachments — hides
+ * an unknown number of files. The run used to write its records all the
+ * same, without those files, and read as a success whose files said there
+ * was none to copy.
+ */
+export function lookupFailure(selection: FileSelection): string | null {
+  if (selection.errors.length === 0) return null;
+  const messages = new Set(
+    selection.errors.flatMap((error) => error.samples.flatMap((sample) => sample.messages)),
+  );
+  return (
+    `The files of the records to clone could not all be looked up in the source ` +
+    `(${[...messages].join('; ')}). Run it again, or leave the files out.`
+  );
+}
+
+/**
  * A report about the run's files as a whole, rather than one object's: named
  * for no object, as the other reports of a pass are, so the audit trail does
  * not count it as a record.
@@ -426,6 +450,25 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     }
     return entry;
   };
+  const errorOf = (objectApiName: string, stage: ExecutionObjectError['stage']) =>
+    errors.find((e) => e.objectApiName === objectApiName && e.stage === stage);
+  /**
+   * Per object and stage, the records the stage tried: what its failures are
+   * counted out of, as the record stages count theirs. Counted from its
+   * failures alone, a stage that lost 2 files of 50 said "2/2", as if it had
+   * copied none.
+   */
+  const tried = new Map<string, number>();
+  const attempt = (
+    objectApiName: string,
+    stage: ExecutionObjectError['stage'],
+    count = 1,
+  ): void => {
+    const key = `${objectApiName}/${stage}`;
+    tried.set(key, (tried.get(key) ?? 0) + count);
+    const error = errorOf(objectApiName, stage);
+    if (error) error.attemptedCount += count;
+  };
   /**
    * Report a record the run did not write — or, when `written` says so, a
    * problem with one it did, which is not counted as failed.
@@ -437,14 +480,19 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     message: string,
     written = false,
   ): void => {
-    let error = errors.find((e) => e.objectApiName === objectApiName && e.stage === stage);
+    let error = errorOf(objectApiName, stage);
     if (!error) {
-      error = { objectApiName, stage, failedCount: 0, attemptedCount: 0, samples: [] };
+      error = {
+        objectApiName,
+        stage,
+        failedCount: 0,
+        attemptedCount: tried.get(`${objectApiName}/${stage}`) ?? 0,
+        samples: [],
+      };
       errors.push(error);
     }
     if (!written) {
       error.failedCount++;
-      error.attemptedCount++;
       failures++;
     }
     if (error.samples.length < SAMPLE_LIMIT) {
@@ -478,6 +526,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     });
 
     let content: string;
+    attempt(file.objectApiName, 'query');
     try {
       content = await deps.readFileBody(sourceOrgId, file.body.objectApiName, file.body.id);
     } catch (err) {
@@ -501,6 +550,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
         ? { ...file.fields, VersionData: content, FirstPublishLocationId: publishedOn }
         : { ...file.fields, Body: content, ParentId: publishedOn };
     let written: InsertResult;
+    attempt(file.objectApiName, 'insert');
     try {
       written = await deps.insertFile(targetOrgId, file.body.objectApiName, record);
     } catch (err) {
@@ -557,6 +607,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
         : [];
     });
     if (links.length === 0) continue;
+    attempt('ContentDocumentLink', 'insert', links.length);
     try {
       const results = await deps.insertRecords(targetOrgId, 'ContentDocumentLink', links);
       links.forEach((_, at) => {

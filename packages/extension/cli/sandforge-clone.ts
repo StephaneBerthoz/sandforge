@@ -932,7 +932,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   } catch (err: unknown) {
     // Refused before anything was written — the files do not fit in the
-    // target, or its storage could not be read: said as it is, not as a crash.
+    // target, its storage could not be read, or the files could not all be
+    // looked up in the source: said as it is, not as a crash.
     if (err instanceof ForgeFilesRefusedError) {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);

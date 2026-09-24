@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ForgeFilesReport } from '@sandforge/shared';
 import {
   copyFiles,
+  lookupFailure,
   plannedFilesReport,
   selectFiles,
   storageShortfall,
@@ -214,7 +215,7 @@ describe('selectFiles', () => {
     expect(queryRecords).not.toHaveBeenCalled();
   });
 
-  it('reports a read the source refused instead of failing the run', async () => {
+  it('reports a read the source refused, beside what the other reads found', async () => {
     const tables = sourceFiles();
     const queryRecords = vi.fn(async (_orgId: string, soql: string) => {
       if (soql.includes('FROM Attachment')) throw new Error('INVALID_TYPE: sObject type');
@@ -239,6 +240,61 @@ describe('selectFiles', () => {
         samples: [expect.objectContaining({ messages: ['INVALID_TYPE: sObject type'] })],
       }),
     ]);
+  });
+});
+
+describe('lookupFailure', () => {
+  it('says nothing when every lookup answered', async () => {
+    const selection = await selectFiles({
+      scope: SCOPE,
+      sourceOrgId: 'src',
+      maxFileBytes: MB,
+      queryRecords: readerOf(sourceFiles()),
+    });
+
+    expect(lookupFailure(selection)).toBeNull();
+  });
+
+  it('says what each lookup that failed answered', async () => {
+    const queryRecords = vi.fn(async (_orgId: string, soql: string) => {
+      if (soql.includes('FROM Attachment')) throw new Error('INVALID_TYPE: sObject type');
+      throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+    });
+
+    const selection = await selectFiles({
+      scope: SCOPE,
+      sourceOrgId: 'src',
+      maxFileBytes: MB,
+      queryRecords,
+    });
+
+    expect(lookupFailure(selection)).toBe(
+      'The files of the records to clone could not all be looked up in the source ' +
+        '(QUERY_TIMEOUT: Your query request was running for too long.; ' +
+        'INVALID_TYPE: sObject type). Run it again, or leave the files out.',
+    );
+  });
+
+  it('says an answer two lookups gave once', async () => {
+    const tables = sourceFiles();
+    const queryRecords = vi.fn(async (_orgId: string, soql: string) => {
+      if (soql.includes('FROM ContentDocumentLink')) return asAnswered(selectRows(tables, soql));
+      throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+    });
+
+    const selection = await selectFiles({
+      scope: SCOPE,
+      sourceOrgId: 'src',
+      maxFileBytes: MB,
+      queryRecords,
+    });
+
+    expect(selection.errors).toHaveLength(2);
+    expect(lookupFailure(selection)).toBe(
+      'The files of the records to clone could not all be looked up in the source ' +
+        '(REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.). ' +
+        'Run it again, or leave the files out.',
+    );
   });
 });
 
@@ -484,7 +540,7 @@ describe('copyFiles', () => {
         objectApiName: 'ContentDocument',
         stage: 'insert',
         failedCount: 1,
-        attemptedCount: 1,
+        attemptedCount: 2,
         samples: [
           {
             recordSummary: 'Report (4 B)',
@@ -495,6 +551,59 @@ describe('copyFiles', () => {
     ]);
     expect(remapper.get(DOC_B)).toBe('069NEW002');
     expect(remapper.get(DOC_A)).toBeUndefined();
+  });
+
+  it('counts what each stage lost out of everything it tried, not out of its failures alone', async () => {
+    // Four files on the two cases: the second is not read, the third is
+    // refused, and the fourth is copied with its link refused.
+    const files = [1, 2, 3, 4].map((n) =>
+      file({
+        sourceId: id('069', n),
+        body: { objectApiName: 'ContentVersion', id: id('068', n) },
+        name: `Report ${n}`,
+        fields: { Title: `Report ${n}`, PathOnClient: 'report.pdf' },
+      }),
+    );
+    const readFileBody = vi.fn(async (_orgId: string, _object: string, versionId: string) => {
+      if (versionId === id('068', 2)) throw new Error('UNKNOWN_EXCEPTION: read failed');
+      return contentOf(4);
+    });
+    const insertFile = vi.fn(
+      async (
+        _orgId: string,
+        _object: string,
+        record: Record<string, unknown>,
+      ): Promise<InsertResult> =>
+        record['Title'] === 'Report 3'
+          ? { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'] }
+          : { id: `068NEW${String(record['Title']).slice(-1)}`, success: true, errors: [] },
+    );
+    let linkCalls = 0;
+    const insertRecords = vi.fn(
+      async (_orgId: string, _object: string, records: unknown[]): Promise<InsertResult[]> =>
+        records.map((_, i) =>
+          ++linkCalls === 2
+            ? { id: '', success: false, errors: ['INSUFFICIENT_ACCESS: link refused'] }
+            : { id: `06ANEW${i}`, success: true, errors: [] },
+        ),
+    );
+    const deps = targetDeps({ readFileBody, insertFile, insertRecords });
+    const report = plannedFilesReport({ files, leftOut: [], errors: [] }, MB);
+
+    const { failures, errors } = await run(files, deps, createdCases(), report);
+
+    expect(failures).toBe(3);
+    expect(
+      errors.map((e) => `[${e.stage}] ${e.objectApiName} ${e.failedCount}/${e.attemptedCount}`),
+    ).toEqual([
+      '[query] ContentDocument 1/4',
+      '[insert] ContentDocument 1/3',
+      '[insert] ContentDocumentLink 1/2',
+    ]);
+    expect(report.objects).toEqual([
+      { objectApiName: 'ContentDocument', planned: 4, plannedBytes: 16, copied: 2, failed: 2 },
+    ]);
+    expect(report.links).toBe(1);
   });
 
   it('stops before the next file once the run is stopped, keeping what it copied', async () => {

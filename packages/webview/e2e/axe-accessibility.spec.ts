@@ -734,8 +734,23 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, accepted, '[data-testid="forge-files-option"]'),
       ).toBeGreaterThan(0);
 
+      // A size the field refuses, then Execute: the run takes the last size
+      // the field took, never the 5 that typing 50 went through.
+      const size = page.getByTestId('forge-files-max-size');
+      await size.fill('20');
+      await size.blur();
+      await size.fill('');
+      await size.pressSequentially('50');
+      await expect(size).toHaveAttribute('aria-invalid', 'true');
+      expectNoViolations(await checkAccessibility(page, reviewScan));
+
       await page.getByTestId('execute-button').click();
       await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      const execute = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+      expect((execute.payload as Record<string, unknown>).files).toEqual({
+        maxFileSizeMB: 20,
+        acceptedAsIs: true,
+      });
       await answerAll(page, 'forge:execute', 'forge:execute:response', {
         result: {
           forgeId: 'forge-run-files',
