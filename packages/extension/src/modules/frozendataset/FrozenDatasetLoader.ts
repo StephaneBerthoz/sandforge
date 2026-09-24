@@ -6,8 +6,11 @@
  * Pipeline (every divergence is listed in the report, nothing is silent):
  *   1. entry guards (LoadGuards.ts) — sandbox-only, protected envs,
  *      mocked callouts, non-empty dataset;
- *   2. reload: reuse by configured identity keys, then purge residuals
- *      children-before-parents (undeletable objects are DEACTIVATED);
+ *   2. what the target already holds is matched: the standard price book,
+ *      a selling model by its natural key, the option joining a product and
+ *      a model both matched — and on a reload the records its identity keys
+ *      find; a reload then purges residuals children-before-parents
+ *      (undeletable objects are DEACTIVATED);
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks;
  *   4. technical placeholders for required lookups absent from the dataset
@@ -27,6 +30,9 @@
 
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
 } from '@sandforge/shared';
@@ -37,12 +43,16 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import {
   ACCOUNT_CONTACT_RELATION,
+  NATURAL_KEYS,
   STATUS_LIFECYCLES,
   draftStartOf,
+  existingSellingModelOptions,
+  recordsByNaturalKey,
   statusCategories,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
+import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
@@ -310,6 +320,14 @@ export class FrozenDatasetLoader {
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
       await this.reuseByIdentityKeys(options, working, mapping, reused);
+    }
+    // What the target already holds and keeps one of is linked on every load,
+    // and before a reload purges, as the standard book is: the purge takes
+    // whatever the last load mapped and this one has not, and a model linked
+    // last time would otherwise go as a record the last load wrote.
+    await this.matchByNaturalKey(orgId, working, mapping, reused);
+    await this.matchSellingModelOptions(orgId, working, mapping, reused);
+    if (options.reload) {
       if (!options.pilot) {
         await this.purgeResiduals(
           options,
@@ -749,6 +767,109 @@ export class FrozenDatasetLoader {
           reused.add(record.referenceId);
         }
       }
+    }
+  }
+
+  /**
+   * Link each record of an object the platform keeps one of per natural key
+   * to the one the target holds under that key (`NATURAL_KEYS`).
+   *
+   * A selling model is one per type, pricing term and unit, and a target that
+   * sells under selling models holds the ones it sells under. Inserted again,
+   * the model is refused — "a product selling model already exists for this
+   * combination" — and the refusal names no record. Skipped as a duplicate,
+   * it left every price of the dataset sold under it without its model: a
+   * lookup set at insert or never, since the platform takes no update of it,
+   * and pass 2 listed each one unresolved. Forge met the refusal on a real
+   * clone and links the one record the key finds; this looks the key up
+   * before anything is written.
+   *
+   * A key field the rules cleared — `''`, what the `clear` generator leaves —
+   * or did not carry says nothing of the key: such a record is not matched,
+   * and the insert says what the target makes of it. `null` is a key value:
+   * a one-time model has no pricing term.
+   */
+  private async matchByNaturalKey(
+    orgId: string,
+    working: FrozenDataset,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<void> {
+    for (const [objectApiName, keyFields] of Object.entries(NATURAL_KEYS)) {
+      const records = (
+        working.objects.find((o) => o.objectApiName === objectApiName)?.records ?? []
+      ).filter(
+        (r) =>
+          !mapping.has(r.referenceId) &&
+          keyFields.every((f) => r.fields[f] !== undefined && r.fields[f] !== ''),
+      );
+      if (records.length === 0) continue;
+      let found: Array<string | undefined>;
+      try {
+        found = await recordsByNaturalKey(
+          (soql) => this.deps.orgAccess.query(orgId, soql),
+          objectApiName,
+          keyFields,
+          records.map((r) => r.fields),
+        );
+      } catch {
+        // A target without the object cannot be asked. Its absence is listed
+        // by the alignment, and any other refusal by the insert.
+        continue;
+      }
+      records.forEach((record, i) => {
+        const id = found[i];
+        if (id === undefined) return;
+        mapping.set(record.referenceId, id);
+        reused.add(record.referenceId);
+      });
+    }
+  }
+
+  /**
+   * Link each selling model option of the dataset whose product and model
+   * this load links rather than writes — a product reused by its identity
+   * keys, a model found by its natural key — to the option the target
+   * already holds for that pair.
+   *
+   * A product is sold under a model through one option, and the target
+   * holding both may well hold the option that joins them: inserted again,
+   * it would be refused. Found the way Forge finds it, by the pair, before a
+   * reload purges, for the reason the models are. An option of a product
+   * this load writes is new with its product.
+   */
+  private async matchSellingModelOptions(
+    orgId: string,
+    working: FrozenDataset,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<void> {
+    const joined: Array<{ referenceId: string; pair: Record<string, string> }> = [];
+    for (const record of working.objects.find(
+      (o) => o.objectApiName === SELLING_MODEL_OPTION_OBJECT,
+    )?.records ?? []) {
+      if (mapping.has(record.referenceId)) continue;
+      const product = record.fields[PRICEBOOK_ENTRY_PRODUCT_FIELD];
+      const model = record.fields[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
+      const productId = typeof product === 'string' ? mapping.get(product) : undefined;
+      const modelId = typeof model === 'string' ? mapping.get(model) : undefined;
+      if (productId === undefined || modelId === undefined) continue;
+      joined.push({
+        referenceId: record.referenceId,
+        pair: {
+          [PRICEBOOK_ENTRY_PRODUCT_FIELD]: productId,
+          [PRICEBOOK_ENTRY_SELLING_MODEL_FIELD]: modelId,
+        },
+      });
+    }
+    if (joined.length === 0) return;
+    const held = await existingSellingModelOptions(
+      (soql) => this.deps.orgAccess.query(orgId, soql),
+      joined.map((j) => j.pair),
+    );
+    for (const [index, id] of held) {
+      mapping.set(joined[index].referenceId, id);
+      reused.add(joined[index].referenceId);
     }
   }
 
@@ -1456,7 +1577,11 @@ function buildReferenceIndex(dataset: FrozenDataset): Map<string, string> {
   return index;
 }
 
-/** Object → set of objects its records reference (through referenceId-valued fields). */
+/**
+ * Object → set of objects its records reference (through referenceId-valued
+ * fields), and those the catalog has to be written after though none of its
+ * records points at them.
+ */
 function buildObjectDependencies(
   dataset: FrozenDataset,
   refIndex: ReadonlyMap<string, string>,
@@ -1475,6 +1600,14 @@ function buildObjectDependencies(
       }
     }
     deps.set(objectData.objectApiName, set);
+  }
+  // A price points at no option, and the platform refuses a price for a
+  // product under a selling model the product has no option for. Ordered by
+  // the lookups alone, the prices and the options were ready together and
+  // went in by name, the prices first. Forge's catalog order says which goes
+  // first where no lookup does.
+  for (const { sourceObject, targetObject } of catalogWriteEdges(new Set(deps.keys()), [])) {
+    deps.get(targetObject)?.add(sourceObject);
   }
   return deps;
 }

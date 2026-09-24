@@ -35,6 +35,7 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   SELLING_MODEL_OBJECT,
+  SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   dedupePricebookEntries,
 } from '@sandforge/shared';
@@ -43,6 +44,7 @@ import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
 import {
   CATALOG_OBJECTS,
+  PRODUCT_OBJECT,
   catalogBeyond,
   followsToItsParent,
   objectsOfId,
@@ -399,6 +401,7 @@ export class FrozenDatasetExtractor {
       recordsByObject,
       asOfWhere,
     );
+    await this.addSellingModelOptions(options, recordsByObject, describe, asOfWhere);
 
     // Whether the dataset carries the selling models its prices are sold
     // under, so the load writes the lookup that tells two prices apart.
@@ -645,6 +648,85 @@ export class FrozenDatasetExtractor {
       }
     }
     return standardId;
+  }
+
+  /**
+   * The selling model options the dataset's prices need: for each product a
+   * price sells under a selling model, the option that lets it be sold so.
+   *
+   * The platform takes no price for a product under a model the product has
+   * no option for — "add a product selling model option to the product
+   * first" — standard price included (see `standard-pricebook.ts` in shared).
+   * Nothing points at an option, neither a line nor a price, so scope never
+   * reaches one, and discovery seldom does: they sit two levels past the
+   * lines. Forge learned this a release earlier and reads the options of the
+   * products in scope under the models in scope; this reads them with the
+   * statements Forge reads them with, once every price is in, and keeps the
+   * ones a price names. Run for real on an opportunity whose 69 prices were
+   * all sold under the one-time model, the dataset carried that model and
+   * none of the 33 options that sell its products under it.
+   *
+   * Left out where the graph leaves the object out, and for a product or a
+   * model the dataset does not hold: an option is written with both.
+   */
+  private async addSellingModelOptions(
+    options: FrozenExtractionOptions,
+    recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
+    describe: (objectApiName: string) => Promise<ScopableField[]>,
+    asOfWhere: string,
+  ): Promise<void> {
+    if (
+      options.graph.nodes.some(
+        (n) => n.objectApiName === SELLING_MODEL_OPTION_OBJECT && !n.included,
+      )
+    ) {
+      return;
+    }
+    const prices = recordsByObject.get(PRICEBOOK_ENTRY_OBJECT);
+    const products = recordsByObject.get(PRODUCT_OBJECT);
+    const models = recordsByObject.get(SELLING_MODEL_OBJECT);
+    if (!prices || !products || !models) return;
+
+    // An option names its product and its model with the two fields a price
+    // names them with.
+    const pairOf = (row: Record<string, unknown>): string =>
+      `${String(row[PRICEBOOK_ENTRY_PRODUCT_FIELD] ?? '')}|${String(row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`;
+    const soldProducts = new Set<string>();
+    const soldUnder = new Set<string>();
+    const pairs = new Set<string>();
+    for (const row of prices.values()) {
+      const product = row[PRICEBOOK_ENTRY_PRODUCT_FIELD];
+      const model = row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
+      if (typeof product !== 'string' || !products.has(product)) continue;
+      if (typeof model !== 'string' || !models.has(model)) continue;
+      soldProducts.add(product);
+      soldUnder.add(model);
+      pairs.add(pairOf(row));
+    }
+    if (pairs.size === 0) return;
+
+    const fields = await describe(SELLING_MODEL_OPTION_OBJECT);
+    // The products laid over as many statements as a request URI holds, the
+    // handful of models carried whole by each.
+    const statements = this.soqlBuilder.buildJoining({
+      objectApiName: SELLING_MODEL_OPTION_OBJECT,
+      selectFields: this.selectFields(SELLING_MODEL_OPTION_OBJECT, fields, options.excludedFields),
+      split: { field: PRICEBOOK_ENTRY_PRODUCT_FIELD, ids: soldProducts },
+      whole: { field: PRICEBOOK_ENTRY_SELLING_MODEL_FIELD, ids: soldUnder },
+      extraWhere: fields.some((f) => f.name === 'CreatedDate') ? asOfWhere : undefined,
+    });
+    let bucket = recordsByObject.get(SELLING_MODEL_OPTION_OBJECT);
+    if (!bucket) {
+      bucket = new Map();
+      recordsByObject.set(SELLING_MODEL_OPTION_OBJECT, bucket);
+    }
+    for (const soql of statements) {
+      for (const row of await this.deps.query(soql)) {
+        if (typeof row.Id !== 'string' || bucket.has(row.Id)) continue;
+        if (!pairs.has(pairOf(row))) continue;
+        bucket.set(row.Id, withoutEnvelope(row));
+      }
+    }
   }
 
   /** Explicit SELECT clause: described fields minus exclusions. No SELECT *. */

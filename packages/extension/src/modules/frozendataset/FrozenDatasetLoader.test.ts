@@ -814,6 +814,276 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
   });
 });
 
+describe('FrozenDatasetLoader — a catalog sold under selling models', () => {
+  const TARGET_MODEL = '0jPTARGETONETIME';
+  const TARGET_PRODUCT = '01tTARGETPRODUCT';
+  const TARGET_OPTION = '0iOTARGETOPTION';
+
+  /**
+   * One product priced in the standard book under a one-time selling model,
+   * with the option that lets it be sold so — as an extraction carries it.
+   */
+  function soldUnderAModel(sellingModelType: string = 'OneTime'): FrozenDataset {
+    return {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [{ referenceId: 'Pricebook2-000001', fields: { Name: 'Standard' } }],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [{ referenceId: 'Product2-000001', fields: { Name: 'A', ProductCode: 'P-1' } }],
+        },
+        {
+          objectApiName: 'ProductSellingModel',
+          records: [
+            {
+              referenceId: 'ProductSellingModel-000001',
+              fields: {
+                Name: 'One-time',
+                SellingModelType: sellingModelType,
+                PricingTerm: null,
+                PricingTermUnit: null,
+              },
+            },
+          ],
+        },
+        {
+          objectApiName: 'ProductSellingModelOption',
+          records: [
+            {
+              referenceId: 'ProductSellingModelOption-000001',
+              fields: {
+                Product2Id: 'Product2-000001',
+                ProductSellingModelId: 'ProductSellingModel-000001',
+              },
+            },
+          ],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            {
+              referenceId: 'PricebookEntry-000001',
+              fields: {
+                Pricebook2Id: 'Pricebook2-000001',
+                Product2Id: 'Product2-000001',
+                ProductSellingModelId: 'ProductSellingModel-000001',
+                UnitPrice: 10,
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000001',
+    };
+  }
+
+  /**
+   * A target that sells under a one-time selling model, as the real one did:
+   * it keeps one model per type, term and unit and refuses a second without
+   * naming the one it holds, and takes no price for a product under a model
+   * the product has no option for.
+   */
+  function sellingTarget(held: { products?: boolean; options?: boolean } = {}) {
+    const calls: DmlCall[] = [];
+    const queries: string[] = [];
+    const options = new Set<string>(held.options ? [`${TARGET_PRODUCT}|${TARGET_MODEL}`] : []);
+    let counter = 0;
+    const accepted = (objectApiName: string) => ({
+      id: `REAL-${objectApiName}-${++counter}`,
+      success: true,
+      errors: [],
+    });
+    const refused = (error: string) => ({ success: false, errors: [error] });
+    const writer = makeWriter(calls);
+    writer.insert = vi.fn(
+      async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+        calls.push({ op: 'insert', objectApiName, payload: records });
+        return records.map((record) => {
+          if (objectApiName === 'ProductSellingModel') {
+            // A model with no type is given the one-time type the target holds.
+            return (record.SellingModelType ?? 'OneTime') === 'OneTime'
+              ? refused(
+                  'DUPLICATE_VALUE: a product selling model already exists for this combination',
+                )
+              : accepted(objectApiName);
+          }
+          const pair = `${String(record.Product2Id)}|${String(record.ProductSellingModelId)}`;
+          if (objectApiName === 'ProductSellingModelOption') {
+            if (!record.Product2Id || !record.ProductSellingModelId) {
+              return refused('REQUIRED_FIELD_MISSING: Product2Id, ProductSellingModelId');
+            }
+            if (options.has(pair)) return refused('DUPLICATE_VALUE: duplicate value found');
+            options.add(pair);
+            return accepted(objectApiName);
+          }
+          if (objectApiName === 'PricebookEntry' && record.ProductSellingModelId) {
+            if (!options.has(pair)) {
+              return refused(
+                'FIELD_INTEGRITY_EXCEPTION: add a product selling model option to the product first',
+              );
+            }
+          }
+          return accepted(objectApiName);
+        });
+      },
+    );
+    writer.update = vi.fn(
+      async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+        calls.push({ op: 'update', objectApiName, payload: records });
+        // The platform takes the selling model of a price at insert or never.
+        return records.map((r) =>
+          objectApiName === 'PricebookEntry' && 'ProductSellingModelId' in r
+            ? refused('INVALID_FIELD_FOR_INSERT_UPDATE: ProductSellingModelId')
+            : { id: String(r.Id), success: true, errors: [] },
+        );
+      },
+    );
+    const queryImpl = async (_org: string, soql: string) => {
+      queries.push(soql);
+      if (soql === 'SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1') {
+        return [{ Id: '01sTARGETSTANDARD' }];
+      }
+      if (
+        soql.includes('FROM ProductSellingModel WHERE') &&
+        soql.includes("SellingModelType = 'OneTime'") &&
+        soql.includes('PricingTerm = null') &&
+        soql.includes('PricingTermUnit = null')
+      ) {
+        return [{ Id: TARGET_MODEL }];
+      }
+      if (soql.includes('FROM Product2 WHERE') && held.products) {
+        return [{ Id: TARGET_PRODUCT, ProductCode: 'P-1' }];
+      }
+      if (soql.includes('FROM ProductSellingModelOption WHERE') && held.options) {
+        return soql.includes(`'${TARGET_PRODUCT}'`)
+          ? [{ Id: TARGET_OPTION, Product2Id: TARGET_PRODUCT, ProductSellingModelId: TARGET_MODEL }]
+          : [];
+      }
+      return [];
+    };
+    return { calls, queries, writer, queryImpl };
+  }
+
+  it('links the selling model the target already holds, and writes the prices under it', async () => {
+    // Inserted again, the model was refused and skipped as a duplicate: the
+    // price went in without it, a lookup the platform takes at insert or
+    // never, and pass 2 listed it unresolved.
+    const dataset = soldUnderAModel();
+    const target = sellingTarget();
+    const deps = makeDeps({ dataset, writer: target.writer, queryImpl: target.queryImpl });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(target.calls.map((c) => c.objectApiName)).not.toContain('ProductSellingModel');
+    expect(report.perObject.find((o) => o.objectApiName === 'ProductSellingModel')).toMatchObject({
+      fromFiles: 1,
+      inserted: 0,
+      reused: 1,
+      skippedDuplicates: [],
+      failed: [],
+    });
+    const payloadOf = (objectApiName: string) =>
+      (target.calls.find((c) => c.objectApiName === objectApiName)?.payload ?? []) as Array<
+        Record<string, unknown>
+      >;
+    expect(payloadOf('ProductSellingModelOption')[0].ProductSellingModelId).toBe(TARGET_MODEL);
+    expect(payloadOf('PricebookEntry')[0]).toMatchObject({
+      Pricebook2Id: '01sTARGETSTANDARD',
+      ProductSellingModelId: TARGET_MODEL,
+    });
+    expect(report.perObject.find((o) => o.objectApiName === 'PricebookEntry')).toMatchObject({
+      inserted: 1,
+      failed: [],
+    });
+    expect(report.pass2.unresolved).toEqual([]);
+    expect(report.status).toBe('completed');
+    const mapping = await new SasReferenceIdMappingStore(deps.sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).load();
+    expect(mapping.get('ProductSellingModel-000001')).toBe(TARGET_MODEL);
+  });
+
+  it('writes the options before the prices that need them', async () => {
+    // A price points at no option, so by their lookups the two were ready
+    // together and went in by name — the prices first, every one refused.
+    const dataset = soldUnderAModel();
+    const target = sellingTarget();
+    const deps = makeDeps({ dataset, writer: target.writer, queryImpl: target.queryImpl });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    const inserted = target.calls.filter((c) => c.op === 'insert').map((c) => c.objectApiName);
+    expect(inserted.indexOf('ProductSellingModelOption')).toBeGreaterThanOrEqual(0);
+    expect(inserted.indexOf('ProductSellingModelOption')).toBeLessThan(
+      inserted.indexOf('PricebookEntry'),
+    );
+    expect(report.perObject.find((o) => o.objectApiName === 'PricebookEntry')).toMatchObject({
+      inserted: 1,
+      failed: [],
+    });
+  });
+
+  it('links the option the target holds for a product and a model it already holds', async () => {
+    // Reloaded over a target whose product the identity keys find: the
+    // target already sells it under the model, through its own option.
+    // Inserted again, the option was refused; and the last load's link to it
+    // was purged as a record that load wrote, with the model it joins.
+    const dataset = soldUnderAModel();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Product2-000001', TARGET_PRODUCT],
+        ['ProductSellingModel-000001', TARGET_MODEL],
+        ['ProductSellingModelOption-000001', TARGET_OPTION],
+        ['PricebookEntry-000001', '01uLASTLOAD'],
+      ]),
+    );
+    const target = sellingTarget({ products: true, options: true });
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer,
+      queryImpl: target.queryImpl,
+      config: { identityKeys: { Product2: ['ProductCode'] } },
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true }),
+    );
+
+    const deleted = target.calls
+      .filter((c) => c.op === 'delete')
+      .flatMap((c) => c.payload as string[]);
+    expect(deleted).toEqual(['01uLASTLOAD']);
+    const inserted = target.calls.filter((c) => c.op === 'insert').map((c) => c.objectApiName);
+    expect(inserted).toEqual(['PricebookEntry']);
+    expect(
+      report.perObject.find((o) => o.objectApiName === 'ProductSellingModelOption'),
+    ).toMatchObject({ inserted: 0, reused: 1, skippedDuplicates: [], failed: [] });
+    expect(report.status).toBe('completed');
+  });
+
+  it('matches no model whose key the rules cleared', async () => {
+    // '' is what the `clear` generator leaves: the dataset no longer says
+    // which model it was, and a key read as empty could only find another.
+    const dataset = soldUnderAModel('');
+    const target = sellingTarget();
+    const deps = makeDeps({ dataset, writer: target.writer, queryImpl: target.queryImpl });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(target.queries.filter((soql) => soql.includes('FROM ProductSellingModel '))).toEqual([]);
+    expect(
+      report.perObject.find((o) => o.objectApiName === 'ProductSellingModel')?.skippedDuplicates,
+    ).toHaveLength(1);
+  });
+});
+
 describe('FrozenDatasetLoader — statuses with a lifecycle', () => {
   function orderDataset(status: string): FrozenDataset {
     return {

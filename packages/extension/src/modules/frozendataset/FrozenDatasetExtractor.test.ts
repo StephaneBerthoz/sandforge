@@ -1469,6 +1469,130 @@ describe('FrozenDatasetExtractor — the catalog a dossier draws on', () => {
   });
 });
 
+describe('FrozenDatasetExtractor — the selling model options its prices need', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const BOOK = to18('01sA00000000bok');
+  const STANDARD_BOOK = to18('01sA00000000std');
+  const PRODUCT = to18('01tA00000000prd');
+  const UNSOLD_PRODUCT = to18('01tA00000000uns');
+  const MODEL = to18('0jPA00000000one');
+  const OTHER_MODEL = to18('0jPA00000000trm');
+  const PRICE = to18('01uA00000000prc');
+  const STANDARD_PRICE = to18('01uA00000000std');
+  const LINE = to18('00kA00000000lin');
+  const OPTION = to18('0iOA00000000opt');
+  const OPTION_UNDER_OTHER_MODEL = to18('0iOA00000000oth');
+  const OPTION_OF_UNSOLD_PRODUCT = to18('0iOA00000000uns');
+
+  /**
+   * An opportunity with one line, priced under a selling model from its book;
+   * the standard price under the same model; and the options the source
+   * holds: the one the prices need, and two no price of the dossier names.
+   */
+  const tables: Record<string, FakeRow[]> = {
+    Opportunity: [{ Id: OPPORTUNITY, Pricebook2Id: BOOK }],
+    OpportunityLineItem: [{ Id: LINE, OpportunityId: OPPORTUNITY, PricebookEntryId: PRICE }],
+    Pricebook2: [
+      { Id: BOOK, IsStandard: false },
+      { Id: STANDARD_BOOK, IsStandard: true },
+    ],
+    Product2: [{ Id: PRODUCT }, { Id: UNSOLD_PRODUCT }],
+    ProductSellingModel: [{ Id: MODEL }, { Id: OTHER_MODEL }],
+    PricebookEntry: [
+      {
+        Id: PRICE,
+        Pricebook2Id: BOOK,
+        Product2Id: PRODUCT,
+        ProductSellingModelId: MODEL,
+        IsActive: true,
+      },
+      {
+        Id: STANDARD_PRICE,
+        Pricebook2Id: STANDARD_BOOK,
+        Product2Id: PRODUCT,
+        ProductSellingModelId: MODEL,
+        IsActive: true,
+      },
+    ],
+    ProductSellingModelOption: [
+      { Id: OPTION, Product2Id: PRODUCT, ProductSellingModelId: MODEL },
+      { Id: OPTION_UNDER_OTHER_MODEL, Product2Id: PRODUCT, ProductSellingModelId: OTHER_MODEL },
+      { Id: OPTION_OF_UNSOLD_PRODUCT, Product2Id: UNSOLD_PRODUCT, ProductSellingModelId: MODEL },
+    ],
+  };
+  const fields: Record<string, ScopableField[]> = {
+    Opportunity: [id, lookup('Pricebook2Id', ['Pricebook2'])],
+    OpportunityLineItem: [
+      id,
+      lookup('OpportunityId', ['Opportunity'], false),
+      lookup('PricebookEntryId', ['PricebookEntry']),
+    ],
+    Pricebook2: [id, { name: 'IsStandard', type: 'boolean', referenceTo: [] }],
+    PricebookEntry: [
+      id,
+      lookup('Pricebook2Id', ['Pricebook2'], false),
+      lookup('Product2Id', ['Product2'], false),
+      lookup('ProductSellingModelId', ['ProductSellingModel']),
+      { name: 'IsActive', type: 'boolean', referenceTo: [] },
+    ],
+    ProductSellingModelOption: [
+      id,
+      lookup('Product2Id', ['Product2'], false),
+      lookup('ProductSellingModelId', ['ProductSellingModel'], false),
+    ],
+  };
+  /** Discovery stopped at the lines, as it does at the default cap: the catalog is past it. */
+  const upToTheLines = (...more: ForgeGraphNode[]): ForgeGraph =>
+    graphOf(
+      [makeNode('Opportunity', 0), makeNode('OpportunityLineItem', 1), ...more],
+      [edge('Opportunity', 'OpportunityLineItem', 'OpportunityLineItems')],
+    );
+
+  it('carries the option each price needs to sell its product under its model', async () => {
+    // The platform takes no price for a product under a model the product
+    // has no option for, standard price included, and nothing points at an
+    // option: the dataset carried the model and both prices, and not the
+    // option, so every price under the model would have been refused.
+    const dataset = await extractorOver(tables, fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(),
+    });
+
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(sourceIdsOf(dataset, 'ProductSellingModel')).toEqual([MODEL]);
+    expect(sourceIdsOf(dataset, 'ProductSellingModelOption')).toEqual([OPTION]);
+  });
+
+  it('leaves the options out where the graph leaves them out', async () => {
+    const excluded = { ...makeNode('ProductSellingModelOption', 3), included: false };
+    const dataset = await extractorOver(tables, fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(excluded),
+    });
+
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(sourceIdsOf(dataset, 'ProductSellingModelOption')).toEqual([]);
+  });
+
+  it('carries no option for a model the dataset leaves out', async () => {
+    // An option is written with its model, and the load has none to write.
+    const excluded = { ...makeNode('ProductSellingModel', 3), included: false };
+    const dataset = await extractorOver(tables, fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(excluded),
+    });
+
+    expect(sourceIdsOf(dataset, 'ProductSellingModel')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'ProductSellingModelOption')).toEqual([]);
+  });
+});
+
 describe('FrozenDatasetExtractor — the parents it fetches by id', () => {
   const OPPORTUNITY = to18('006A00000000opp');
 
