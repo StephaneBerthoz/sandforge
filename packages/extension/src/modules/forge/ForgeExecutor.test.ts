@@ -2667,9 +2667,9 @@ describe('ForgeExecutor', () => {
         expect(summary.errors).toEqual([]);
       });
 
-      it('holds price book entries to the standard book it matches, when the graph has no price book', async () => {
+      it('holds price book entries to the standard book it matches, when the graph leaves price books out', async () => {
         // The standard book is never read, only matched, and the entries in
-        // it can be written. A custom book outside the graph cannot be: its
+        // it can be written. A custom book the graph leaves out cannot be: its
         // entries stay out, as they did while every cached id narrowed.
         const PRODUCT = '01t000000000001AAA';
         const STANDARD_BOOK = '01s000000000001AAA';
@@ -2707,7 +2707,11 @@ describe('ForgeExecutor', () => {
           },
         );
         const graph = makeGraph(
-          [makeNode('Product2'), makeNode('PricebookEntry')],
+          [
+            makeNode('Product2'),
+            makeNode('PricebookEntry'),
+            makeNode('Pricebook2', { included: false }),
+          ],
           [edge('Product2', 'PricebookEntry')],
         );
 
@@ -4345,6 +4349,157 @@ describe('ForgeExecutor', () => {
         );
         expect(summary.errors).toEqual([]);
       });
+
+      describe('when discovery stopped before the catalog', () => {
+        /**
+         * The graph the default cap of fifty objects left around an
+         * opportunity: its book, its quote and its lines, and none of the
+         * prices they name. Discovery drew the edge from a price to the line
+         * whose lookups it walked, and never reached the price.
+         */
+        function cappedGraph(): ForgeGraph {
+          return makeGraph(
+            [
+              makeNode('Opportunity'),
+              makeNode('Pricebook2'),
+              makeNode('Quote'),
+              makeNode('QuoteLineItem'),
+              makeNode('OpportunityLineItem'),
+            ],
+            [
+              edge('Pricebook2', 'Opportunity'),
+              edge('Opportunity', 'Quote'),
+              { ...edge('Quote', 'QuoteLineItem'), required: true },
+              edge('Opportunity', 'OpportunityLineItem'),
+              { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+            ],
+          );
+        }
+        const rooted = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+        it('clones the prices its lines use, with their products, selling models and options', async () => {
+          // Run for real at the default cap: the clone read three line items
+          // and not one of their prices, and a real run would have sent every
+          // line without the price the platform refuses a line without.
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+          const refused = platform(orgDeps, inserted);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            cappedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(refused).toEqual([]);
+          expect(inserted['Product2'].map((r) => r['Name'])).toEqual([
+            'Widget 1',
+            'Widget 2',
+            'Widget 3',
+          ]);
+          expect(inserted['ProductSellingModel'].map((r) => r['Name'])).toEqual(['One time']);
+          expect(inserted['ProductSellingModelOption']).toHaveLength(3);
+          expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+            'Widget 1 standard none',
+            'Widget 1 standard once',
+            'Widget 2 standard once',
+            'Widget 3 standard none',
+            'Widget 1 custom none',
+            'Widget 1 custom once',
+            'Widget 2 custom once',
+            'Widget 3 custom none',
+          ]);
+          expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 1 custom once',
+            'PricebookEntry:Widget 2 custom once',
+            'PricebookEntry:Widget 3 custom none',
+            'PricebookEntry:Widget 1 custom none',
+          ]);
+          expect(inserted['QuoteLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 2 custom once',
+          ]);
+          // The standard book is matched, as in a graph that reached it.
+          expect(inserted['Pricebook2'].map((r) => r['Name'])).toEqual(['Custom']);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('says in a dry run the prices, products and selling models a real run writes', async () => {
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            cappedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          expect(inserted).toEqual({});
+          expect(progressEvents.map((e) => e.message)).toEqual(
+            expect.arrayContaining([
+              '[dry-run] PricebookEntry: 8 record(s) would be inserted',
+              '[dry-run] Product2: 3 record(s) would be inserted',
+              '[dry-run] ProductSellingModel: 1 record(s) would be inserted',
+              '[dry-run] ProductSellingModelOption: 3 record(s) would be inserted',
+            ]),
+          );
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('leaves out an object of the catalog the graph holds and leaves out', async () => {
+          // Prices unchecked, or empty in the whole org: the selling models
+          // are reached through them alone, and stay out with them.
+          const { orgDeps } = fakeOrgs(tables(), fields);
+          const read = recordReads(orgDeps);
+          const withoutPrices = cappedGraph();
+          withoutPrices.nodes.push(makeNode('PricebookEntry', { included: false }));
+
+          await new ForgeExecutor(orgDeps).execute(withoutPrices, 'src', 'tgt', onProgress, {
+            ...rooted,
+            dryRun: true,
+          });
+
+          expect(read['PricebookEntry']).toBeUndefined();
+          expect(read['ProductSellingModel']).toBeUndefined();
+          // A quote line cannot be written without its product, which comes:
+          // read, as the catalog is, by what the lines name.
+          expect(read['Product2']).toEqual(new Set([1, 2, 3].map(product)));
+        });
+
+        it('brings nothing of the catalog through a lookup that can name several objects', async () => {
+          // A feed item's parent can be a product or a price, and says nothing
+          // of which: its rows name what they name.
+          const feedParent: FieldInfo = {
+            ...lookup('ParentId', 'Opportunity', true),
+            referenceTo: ['Opportunity', 'Product2', 'PricebookEntry'],
+          };
+          const { orgDeps } = fakeOrgs(
+            {
+              ...tables(),
+              FeedItem: [{ Id: '0D5000000000001AAA', Body: 'On the deal', ParentId: OPPORTUNITY }],
+            },
+            { ...fields, FeedItem: [idField, text('Body'), feedParent] },
+          );
+          const read = recordReads(orgDeps);
+          const graph = makeGraph(
+            [makeNode('Opportunity'), makeNode('FeedItem')],
+            [{ ...edge('Opportunity', 'FeedItem'), type: 'master-detail', required: true }],
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+            ...rooted,
+            dryRun: true,
+          });
+
+          expect(Object.keys(read).sort()).toEqual(['FeedItem', 'Opportunity']);
+          expect(
+            progressEvents.filter(
+              (e) => e.objectName !== 'Opportunity' && e.objectName !== 'FeedItem',
+            ),
+          ).toEqual([]);
+        });
+      });
     });
 
     describe('a required lookup that can point at several objects', () => {
@@ -4648,6 +4803,143 @@ describe('ForgeExecutor', () => {
         expect(
           summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__'),
         ).toBeUndefined();
+      });
+    });
+
+    describe('an id a lookup naming several objects holds', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const PROCEDURE = '0mc000000000001AAA';
+      /** The source org's key prefixes, as the describe the run holds of each object gives them. */
+      const KEY_PREFIXES: Record<string, string> = {
+        Opportunity: '006',
+        Quote: '0Q0',
+        EmailMessage: '02s',
+        CalculationProcedure: '0mc',
+        CalculationProcedureVersion: '0md',
+      };
+      /** What an email is related to: nearly any object, a calculation procedure among them. */
+      const relatedTo: FieldInfo = {
+        ...lookup('RelatedToId', 'Opportunity'),
+        referenceTo: ['Opportunity', 'Quote', 'CalculationProcedure'],
+      };
+      const fields: Record<string, FieldInfo[]> = {
+        Opportunity: [idField, text('Name')],
+        Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+        EmailMessage: [idField, text('Subject'), relatedTo],
+        CalculationProcedure: [idField, text('Name')],
+        CalculationProcedureVersion: [
+          idField,
+          text('Name'),
+          lookup('CalculationProcedureId', 'CalculationProcedure', true),
+        ],
+      };
+      const tables = (): Record<string, FakeRow[]> => ({
+        Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+        Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+        EmailMessage: [{ Id: '02s000000000001AAA', Subject: 'The offer', RelatedToId: QUOTE }],
+        CalculationProcedure: [{ Id: PROCEDURE, Name: 'Discounts' }],
+        CalculationProcedureVersion: [
+          { Id: '0md000000000001AAA', Name: 'Discounts 1', CalculationProcedureId: PROCEDURE },
+        ],
+      });
+      /** The graph discovery draws around the opportunity: each object the email names is its parent. */
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Quote'),
+            makeNode('EmailMessage'),
+            makeNode('CalculationProcedure'),
+            makeNode('CalculationProcedureVersion'),
+          ],
+          [
+            edge('Opportunity', 'Quote'),
+            edge('Opportunity', 'EmailMessage'),
+            edge('Quote', 'EmailMessage'),
+            edge('CalculationProcedure', 'EmailMessage'),
+            { ...edge('CalculationProcedure', 'CalculationProcedureVersion'), required: true },
+          ],
+        );
+      const scoped = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+      /** The fake orgs, which describe each object with its key prefix, and the statements sent. */
+      function orgs() {
+        const run = fakeOrgs(tables(), fields);
+        run.orgDeps.describeObject = async (_org, object) => ({
+          keyPrefix: KEY_PREFIXES[object] ?? null,
+          recordTypes: [],
+        });
+        const sent: string[] = [];
+        const query = run.orgDeps.queryRecords;
+        run.orgDeps.queryRecords = async (org, soql, onTruncated) => {
+          sent.push(soql);
+          return query(org, soql, onTruncated);
+        };
+        return { ...run, sent };
+      }
+      const askedOfProcedures = (sent: string[]): string[] =>
+        sent.filter((soql) => /FROM CalculationProcedure(Version)? /.test(soql));
+
+      it('asks no object for an id its key prefix gives to another, in a dry run', async () => {
+        // Run for real, the quote an email was related to was asked of every
+        // object the email's lookup could name — a calculation procedure, a
+        // document template, an expression set — and of their children: some
+        // forty statements a run, each bound to come back empty.
+        const { orgDeps, sent } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            ...scoped,
+            dryRun: true,
+          },
+        );
+
+        expect(askedOfProcedures(sent)).toEqual([]);
+        expect(progressEvents.map((e) => e.message)).toEqual(
+          expect.arrayContaining([
+            '[dry-run] EmailMessage: 1 record(s) would be inserted',
+            'Skipped CalculationProcedure (out of scope: no parent in cache and not the root)',
+          ]),
+        );
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('writes the email against the quote it is related to, and nothing of the procedures', async () => {
+        const { orgDeps, inserted, sent } = orgs();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['EmailMessage']).toEqual([
+          { Subject: 'The offer', RelatedToId: 'Quote:Offer' },
+        ]);
+        expect(inserted['CalculationProcedure']).toBeUndefined();
+        expect(askedOfProcedures(sent)).toEqual([]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('tells the object of an id by the rows read of it when no describe gives its prefix', async () => {
+        // A dry run keeps none of the rows it reads, and asked of the
+        // describe alone, the prefixes of a source that gives none are unknown.
+        const { orgDeps, sent } = orgs();
+        delete orgDeps.describeObject;
+
+        await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+          ...scoped,
+          dryRun: true,
+        });
+
+        expect(askedOfProcedures(sent)).toEqual([]);
       });
     });
 

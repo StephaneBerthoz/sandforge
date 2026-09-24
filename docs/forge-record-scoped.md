@@ -28,7 +28,11 @@ model, those products and their selling model options, the selling models
 and the books the prices belong to. It writes them in the order the platform
 takes them: products and selling models, their options, standard prices,
 custom prices, then the lines. A clone rooted at a price book or a product
-still reads the prices under it.
+still reads the prices under it. The catalog comes whatever discovery reached:
+when it stops at its cap before the catalog, the run adds the objects its
+records cannot be written without — a line's price, and that price's product,
+book and selling model — and reads them the same way. One the graph holds and
+leaves out stays out.
 
 ## Pipeline
 
@@ -57,7 +61,9 @@ ForgeOrchestrator.execute(graph, config)
        │       statements when the ID lists outgrow one query URI)
        │    3. queryRecords(source) per statement, rows merged by Id
        │    4. (if reference-data object) ReferenceDataMapper.resolve(target by Name)
-       │    5. seed cache (own IDs + FK values from results)
+       │    5. seed cache (own IDs + FK values from results; an ID a lookup
+       │       that can name several objects holds goes to the object its key
+       │       prefix names)
        │    6. clean records:
        │         - strip non-createable
        │         - strip Person Account __pc on Business Accounts

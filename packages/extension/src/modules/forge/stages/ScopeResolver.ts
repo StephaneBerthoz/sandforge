@@ -11,9 +11,11 @@
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
+  isRequiredLookup,
 } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
@@ -55,6 +57,67 @@ export const CATALOG_READ_ORDER: readonly string[] = [
 
 /** The objects of {@link CATALOG_READ_ORDER}. */
 export const CATALOG_OBJECTS: ReadonlySet<string> = new Set(CATALOG_READ_ORDER);
+
+/**
+ * Whether a copy follows a lookup of `objectApiName` to the record it names,
+ * wherever discovery stopped: one its rows cannot be written without —
+ * required as the platform has it, which is not always as the describe says:
+ * an opportunity's line reads as nullable and is refused without its price
+ * (`platform-required-fields.ts` in shared) — or the selling model of a price,
+ * optional as that lookup is. A book prices a product once per model it is
+ * sold under, and a price written without its model is the product's other
+ * price over again.
+ */
+export function followsToItsParent(
+  objectApiName: string,
+  field: { readonly name: string; readonly nillable?: boolean },
+): boolean {
+  return (
+    isRequiredLookup(objectApiName, field.name, field.nillable) ||
+    (objectApiName === PRICEBOOK_ENTRY_OBJECT && field.name === PRICEBOOK_ENTRY_SELLING_MODEL_FIELD)
+  );
+}
+
+/**
+ * The objects of the catalog a graph does not hold at all: neither among the
+ * objects it reads nor among those it leaves out.
+ *
+ * Discovery stops at a cap, and the catalog sits past the records that price
+ * from it: run for real at the default cap of fifty objects, a clone of an
+ * opportunity held its three line items and not one of their prices. A
+ * record's price, its product, its book and its selling model are part of the
+ * copy wherever discovery stopped — unless the graph holds the object and
+ * leaves it out: excluded, or empty in the whole org.
+ */
+export function catalogBeyond(graph: Pick<ForgeGraph, 'nodes'>): Set<string> {
+  const held = new Set(graph.nodes.map((n) => n.objectApiName));
+  return new Set(CATALOG_READ_ORDER.filter((objectApiName) => !held.has(objectApiName)));
+}
+
+/**
+ * The objects among `targets` — those a lookup can name — that a record id it
+ * holds can belong to, told by the three characters every id of an object
+ * begins with: the object known to have the id's key prefix, or, when none of
+ * them is known to have it, each of them whose prefix is not known.
+ *
+ * A lookup that can name several objects holds the id of one of them. Taken
+ * for an id of each, the quote an email was related to was asked of every
+ * object of the graph the lookup could name, and of their children: some
+ * forty statements a clone of an opportunity sent, every one empty.
+ *
+ * @param keyPrefixes - The key prefix of each object known so far, by object.
+ */
+export function objectsOfId(
+  id: string,
+  targets: readonly string[],
+  keyPrefixes: ReadonlyMap<string, string>,
+): readonly string[] {
+  if (targets.length < 2) return targets;
+  const prefix = id.slice(0, 3);
+  const owner = targets.find((target) => keyPrefixes.get(target) === prefix);
+  if (owner !== undefined) return [owner];
+  return targets.filter((target) => !keyPrefixes.has(target));
+}
 
 /**
  * Order graph nodes for execution: parents before children (Kahn's
@@ -535,6 +598,12 @@ export interface SeedOptions {
    * then is one that read fetches. Defaults to true.
    */
   settle?: boolean;
+  /**
+   * The key prefix of each object known so far, by object: an ID a lookup
+   * naming several objects holds goes to the one it can belong to (see
+   * {@link objectsOfId}). Left out, it goes to each of them.
+   */
+  keyPrefixes?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -565,6 +634,13 @@ export function seedOwnIds(
 /**
  * Seed the cache with this node's IDs and extract FK values for downstream
  * multi-hop scoping (e.g. Case.AccountId → Account, then Account.OwnerId → User).
+ *
+ * An ID a lookup naming several objects holds goes to the objects it can
+ * belong to, as far as `keyPrefixes` tells. Put in scope as an ID of each, the
+ * quote an email was related to was asked of every object of the graph the
+ * lookup could name — a calculation procedure, a document template, an
+ * expression set — each in a statement bound to come back empty, and the
+ * children of each were asked for it again.
  */
 export function seedScopeCache(
   scopeCache: RecordScopeCache,
@@ -575,6 +651,7 @@ export function seedScopeCache(
 ): void {
   seedOwnIds(scopeCache, objectApiName, records, options);
 
+  const keyPrefixes = options.keyPrefixes ?? new Map<string, string>();
   const refFieldsWithTargets = fieldInfos.filter(
     (f) => f.isReference && f.referenceTo && f.referenceTo.length > 0,
   );
@@ -583,7 +660,7 @@ export function seedScopeCache(
     for (const rec of records) {
       const value = rec[field.name];
       if (typeof value !== 'string' || !value) continue;
-      for (const target of targets) {
+      for (const target of objectsOfId(value, targets, keyPrefixes)) {
         scopeCache.add(target, [value]);
       }
     }

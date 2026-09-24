@@ -24,7 +24,9 @@ import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageCo
 import {
   buildNodeQuery,
   CATALOG_OBJECTS,
+  catalogBeyond,
   catalogWriteEdges,
+  followsToItsParent,
   PRODUCT_OBJECT,
   queryNodeRecords,
   readsFromAbove,
@@ -722,6 +724,12 @@ interface ExecutionState {
   /** Per object, the key prefix of its ids in the source org, once the run has told it. */
   readonly sourceKeyPrefixes: Map<string, string>;
   /**
+   * The objects whose key prefix a read has asked for, told or not: an object
+   * whose describe fails is not asked again for each read after. See
+   * `keyPrefixesNamedBy`.
+   */
+  readonly keyPrefixesAsked: Set<string>;
+  /**
    * Objects this run reads or maps, the only ones a required lookup may hold
    * a scoped read to: the included nodes, and the standard price book's
    * object once that book is matched.
@@ -773,6 +781,39 @@ interface ExecutionState {
   wouldInsertCount: number;
   failedCount: number;
   skippedCount: number;
+}
+
+/**
+ * A node the run adds to the graph discovery built, for an object its records
+ * cannot be written without that discovery never reached. Unmeasured: what
+ * the run reads of it is what it counts.
+ *
+ * @param fields - The object's source fields, as far as they were described.
+ * @param level - One past the node whose records need it.
+ */
+function nodeTheRunAdds(
+  objectApiName: string,
+  fields: readonly FieldInfo[],
+  level: number,
+): ForgeGraphNode {
+  return {
+    objectApiName,
+    recordCount: 0,
+    fieldCount: fields.length,
+    status: 'idle',
+    progress: 0,
+    included: true,
+    piiFields: [],
+    anonymizeFields: [],
+    level,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: fields.filter((f) => f.createable).length,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 0,
+    batchStrategy: 'auto',
+  };
 }
 
 /** Whether an object with these fields prices from the catalog: one of them points at a price. */
@@ -1161,7 +1202,10 @@ export class ForgeExecutor {
         this.fileCopyUnwired();
       if (refusal) throw new ForgeFilesRefusedError(refusal);
     }
-    const runGraph = await this.withSellingModelOptions(graph, sourceOrgId);
+    const runGraph = await this.withSellingModelOptions(
+      await this.withTheCatalogItNeeds(graph, sourceOrgId),
+      sourceOrgId,
+    );
     const state: ExecutionState = {
       config,
       sourceOrgId,
@@ -1192,6 +1236,7 @@ export class ForgeExecutor {
       readByObject: new Map<string, number>(),
       failedReads: new Set<string>(),
       sourceKeyPrefixes: new Map<string, string>(),
+      keyPrefixesAsked: new Set<string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       sellingModels: runGraph.nodes.some(
         (n) => n.included && n.objectApiName === SELLING_MODEL_OBJECT,
@@ -1945,6 +1990,36 @@ export class ForgeExecutor {
   }
 
   /**
+   * The key prefix of each object the run knows one of, once it has asked for
+   * those of the objects of the graph that a lookup of these fields names
+   * among several: what tells, of an id such a lookup holds, which of them it
+   * belongs to (`objectsOfId`). Each object is asked once a run; its rows,
+   * once read, tell it too.
+   *
+   * The objects of the graph only: they are the ones read, and those under
+   * which a read looks for rows. Their describes are the ones discovery made.
+   */
+  private async keyPrefixesNamedBy(
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+  ): Promise<ReadonlyMap<string, string>> {
+    const inGraph = new Set(state.graph.nodes.map((n) => n.objectApiName));
+    const unasked = new Set<string>();
+    for (const field of fieldInfos) {
+      const targets = field.isReference ? (field.referenceTo ?? []) : [];
+      if (targets.length < 2) continue;
+      for (const target of targets) {
+        if (inGraph.has(target) && !state.keyPrefixesAsked.has(target)) unasked.add(target);
+      }
+    }
+    if (unasked.size > 0) {
+      for (const objectApiName of unasked) state.keyPrefixesAsked.add(objectApiName);
+      await this.sourceKeyPrefixes(state, unasked);
+    }
+    return state.sourceKeyPrefixes;
+  }
+
+  /**
    * The object among `candidates` a source id belongs to, told by its key
    * prefix as `sourceKeyPrefixes` tells it; nothing when none of them has it.
    *
@@ -2075,6 +2150,85 @@ export class ForgeExecutor {
   }
 
   /**
+   * The graph of a run, with the objects of the catalog its records cannot go
+   * without when discovery never reached them: the price a line names, and
+   * the product, book and selling model of that price, as
+   * `followsToItsParent` follows the lookups of the objects the run reads.
+   * The selling model options come after, with `withSellingModelOptions`.
+   *
+   * Discovery stops at a cap — fifty objects by default, the Forge page's and
+   * the clone command's — and around an opportunity it reached the most that
+   * cap allows before it reached the catalog. Run for real at that cap, a
+   * clone of an opportunity read its three line items and not one of their
+   * prices: a real run would have sent each line without the price the
+   * platform refuses a line without. The catalog is read by what the records
+   * name, so what the run adds of it is those rows, the prices its lines use
+   * and what they name — as Frozen fetches the ones its dossier's lines name.
+   *
+   * Only a lookup that names one object brings it: one that can name several
+   * says nothing of which, and a feed item's parent can be a product. An
+   * object the graph holds and leaves out stays out, and one whose describe
+   * fails brings nothing: its own read says why.
+   */
+  private async withTheCatalogItNeeds(graph: ForgeGraph, sourceOrgId: string): Promise<ForgeGraph> {
+    const beyond = catalogBeyond(graph);
+    if (beyond.size === 0) return graph;
+    const pairs = new Set(graph.edges.map((e) => `${e.sourceObject}|${e.targetObject}`));
+    /** The objects added, and the level of each: one past the record that named it. */
+    const added = new Map<string, number>();
+    const fieldsOf = new Map<string, FieldInfo[]>();
+    const edges: ForgeGraphEdge[] = [];
+    type Named = Pick<ForgeGraphNode, 'objectApiName' | 'level'>;
+    let frontier: Named[] = graph.nodes.filter((n) => n.included);
+    while (frontier.length > 0 && !this.isAborted) {
+      const next: Named[] = [];
+      for (let i = 0; i < frontier.length && !this.isAborted; i += CONCURRENT_DESCRIBE_LIMIT) {
+        const wave = frontier.slice(i, i + CONCURRENT_DESCRIBE_LIMIT);
+        const settled = await Promise.allSettled(
+          wave.map(({ objectApiName }) => this.deps.describeFields(sourceOrgId, objectApiName)),
+        );
+        settled.forEach((described, j) => {
+          if (described.status !== 'fulfilled') return;
+          const { objectApiName: child, level } = wave[j];
+          fieldsOf.set(child, described.value);
+          for (const field of described.value) {
+            const targets = field.referenceTo ?? [];
+            if (!field.isReference || targets.length !== 1) continue;
+            const [parent] = targets;
+            if (parent === child || !(beyond.has(parent) || added.has(parent))) continue;
+            if (!followsToItsParent(child, field)) continue;
+            if (beyond.delete(parent)) {
+              added.set(parent, level + 1);
+              next.push({ objectApiName: parent, level: level + 1 });
+            }
+            if (pairs.has(`${parent}|${child}`)) continue;
+            pairs.add(`${parent}|${child}`);
+            edges.push({
+              sourceObject: parent,
+              targetObject: child,
+              relationshipName: field.name,
+              type: 'lookup',
+              required: isRequiredLookup(child, field.name, field.nillable),
+            });
+          }
+        });
+      }
+      frontier = next;
+    }
+    if (added.size === 0) return graph;
+    return {
+      ...graph,
+      nodes: [
+        ...graph.nodes,
+        ...[...added].map(([objectApiName, level]) =>
+          nodeTheRunAdds(objectApiName, fieldsOf.get(objectApiName) ?? [], level),
+        ),
+      ],
+      edges: [...graph.edges, ...edges],
+    };
+  }
+
+  /**
    * The graph of a run, with the selling model options its prices need when
    * it carries prices, products and selling models and discovery left the
    * options out.
@@ -2103,24 +2257,11 @@ export class ForgeExecutor {
     } catch {
       return graph;
     }
-    const option: ForgeGraphNode = {
-      objectApiName: SELLING_MODEL_OPTION_OBJECT,
-      recordCount: 0,
-      fieldCount: fields.length,
-      status: 'idle',
-      progress: 0,
-      included: true,
-      piiFields: [],
-      anonymizeFields: [],
-      level: Math.max(product.level, model.level) + 1,
-      successCount: 0,
-      failureCount: 0,
-      errors: [],
-      createableFieldCount: fields.filter((f) => f.createable).length,
-      estimatedSizeMB: 0,
-      estimatedApiCalls: 0,
-      batchStrategy: 'auto',
-    };
+    const option = nodeTheRunAdds(
+      SELLING_MODEL_OPTION_OBJECT,
+      fields,
+      Math.max(product.level, model.level) + 1,
+    );
     const joins = (parent: string, field: string): ForgeGraphEdge => ({
       sourceObject: parent,
       targetObject: SELLING_MODEL_OPTION_OBJECT,
@@ -2440,6 +2581,12 @@ export class ForgeExecutor {
         reached,
       );
       if (reached) state.scopeCache?.addReached(node.objectApiName, reached);
+      // Every id of an object begins with its key prefix, and the rows read
+      // tell it without a describe — a dry run keeps none of them for later.
+      const firstId = records.find((r) => typeof r['Id'] === 'string')?.['Id'];
+      if (typeof firstId === 'string' && !state.sourceKeyPrefixes.has(node.objectApiName)) {
+        state.sourceKeyPrefixes.set(node.objectApiName, firstId.slice(0, 3));
+      }
 
       // Reference-data branch: resolve source IDs against target rows by
       // Name/DeveloperName instead of cloning. Adds entries to the IdRemapper
@@ -2527,7 +2674,10 @@ export class ForgeExecutor {
       // books, and it read one book.
       const scopeCache = state.scopeCache;
       if (allowDefer && scopeCache && CATALOG_OBJECTS.has(node.objectApiName)) {
-        seedScopeCache(scopeCache, node.objectApiName, records, fieldInfos, { settle: false });
+        seedScopeCache(scopeCache, node.objectApiName, records, fieldInfos, {
+          settle: false,
+          keyPrefixes: await this.keyPrefixesNamedBy(state, fieldInfos),
+        });
         state.catalogNodes.push({ node, fieldInfos });
         return false;
       }
@@ -2550,7 +2700,9 @@ export class ForgeExecutor {
       }
 
       if (state.scopeCache) {
-        seedScopeCache(state.scopeCache, node.objectApiName, records, fieldInfos);
+        seedScopeCache(state.scopeCache, node.objectApiName, records, fieldInfos, {
+          keyPrefixes: await this.keyPrefixesNamedBy(state, fieldInfos),
+        });
       }
 
       // The records whose files the run copies: the ones it read to clone,

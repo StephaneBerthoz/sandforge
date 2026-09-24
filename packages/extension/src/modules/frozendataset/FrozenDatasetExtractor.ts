@@ -37,12 +37,16 @@ import {
   SELLING_MODEL_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   dedupePricebookEntries,
-  isRequiredLookup,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
-import { CATALOG_OBJECTS } from '../forge/stages/ScopeResolver.js';
+import {
+  CATALOG_OBJECTS,
+  catalogBeyond,
+  followsToItsParent,
+  objectsOfId,
+} from '../forge/stages/ScopeResolver.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { renderQueryTemplate } from './queryTemplates.js';
 import type { ExtractedDataset, ExtractedRecord, RecordTypeMapEntry } from './types.js';
@@ -105,7 +109,10 @@ function withoutEnvelope(row: Record<string, unknown>): Record<string, unknown> 
  * its prefix, and for a prefix none of them has, from the org, asked once.
  */
 class KeyPrefixOwners {
-  private readonly owners = new Map<string, string>();
+  /** The key prefix of each object known so far, by object. */
+  private readonly prefixes = new Map<string, string>();
+  /** The prefixes of {@link prefixes}. */
+  private readonly known = new Set<string>();
   private fromOrg: Promise<void> | undefined;
 
   constructor(private readonly keyPrefixes: FrozenExtractorDeps['keyPrefixes']) {}
@@ -114,27 +121,35 @@ class KeyPrefixOwners {
   learnFrom(recordsByObject: ReadonlyMap<string, ReadonlyMap<string, unknown>>): void {
     for (const [objectApiName, bucket] of recordsByObject) {
       const first = bucket.keys().next();
-      if (!first.done) this.owners.set(first.value.slice(0, 3), objectApiName);
+      if (!first.done) this.note(objectApiName, first.value.slice(0, 3));
     }
   }
 
-  /** The object `id` belongs to, or `undefined` when neither the rows held nor the org says. */
-  async ownerOf(id: string): Promise<string | undefined> {
-    const prefix = id.slice(0, 3);
-    if (!this.owners.has(prefix) && this.keyPrefixes) {
+  /**
+   * The objects among `targets`, those a lookup names, that an id the lookup
+   * holds can belong to: see `objectsOfId`. Unanswered by the org, an id
+   * stays unplaced, and is looked for in each of them whose prefix is not
+   * known.
+   */
+  async objectsOf(id: string, targets: readonly string[]): Promise<readonly string[]> {
+    if (targets.length < 2) return targets;
+    if (!this.known.has(id.slice(0, 3)) && this.keyPrefixes) {
       this.fromOrg ??= this.keyPrefixes().then(
         (prefixes) => {
           for (const [objectApiName, keyPrefix] of prefixes) {
-            if (!this.owners.has(keyPrefix)) this.owners.set(keyPrefix, objectApiName);
+            if (!this.prefixes.has(objectApiName)) this.note(objectApiName, keyPrefix);
           }
         },
-        // Unanswered, an id stays unplaced, and is looked for in each object
-        // its lookup names.
         () => undefined,
       );
       await this.fromOrg;
     }
-    return this.owners.get(prefix);
+    return objectsOfId(id, targets, this.prefixes);
+  }
+
+  private note(objectApiName: string, prefix: string): void {
+    this.prefixes.set(objectApiName, prefix);
+    this.known.add(prefix);
   }
 }
 
@@ -257,6 +272,9 @@ export class FrozenDatasetExtractor {
     /** Per object, the fields that hold a file's bytes (`base64`). */
     const fileFields: Record<string, string[]> = {};
 
+    /** Which object an id met through a lookup naming several belongs to. */
+    const owners = new KeyPrefixOwners(this.deps.keyPrefixes);
+
     /** Described fields per object, asked once. */
     const fieldsByObject = new Map<string, ScopableField[]>();
     /** The fields of an object, described once, with what they say of its reads. */
@@ -353,26 +371,28 @@ export class FrozenDatasetExtractor {
       // opportunity with them, fetched as the parent they require.
       cache.addRead(node.objectApiName, ids);
       cache.addReached(node.objectApiName, reached);
+      owners.learnFrom(recordsByObject);
       // Seed parent objects referenced by lookups so their own wave can
-      // use the 'self-cached' branch (mirrors ForgeExecutor behavior).
+      // use the 'self-cached' branch (mirrors ForgeExecutor behavior). An id
+      // a lookup naming several objects holds goes to the one it belongs to:
+      // put in scope as an id of each, the quote an email was related to was
+      // asked of every object of the graph the lookup could name, each in a
+      // statement bound to come back empty.
       for (const field of fields) {
         if (field.type !== 'reference') {
           continue;
         }
-        const refIds: string[] = [];
         for (const row of rows) {
           const value = row[field.name];
-          if (typeof value === 'string' && value !== '') {
-            refIds.push(value);
+          if (typeof value !== 'string' || value === '') continue;
+          for (const target of await owners.objectsOf(value, field.referenceTo)) {
+            cache.add(target, [value]);
           }
-        }
-        for (const target of field.referenceTo) {
-          cache.add(target, refIds);
         }
       }
     }
 
-    await this.completeRequiredParents(options, recordsByObject, describe, asOfWhere);
+    await this.completeRequiredParents(options, recordsByObject, describe, asOfWhere, owners);
 
     const standardPricebookSourceId = await this.addStandardPrices(
       options,
@@ -444,7 +464,8 @@ export class FrozenDatasetExtractor {
    * (`platform-required-fields.ts` in shared). And a price keeps its selling
    * model, optional as that lookup is: a book prices a product once per model
    * it is sold under, and a price loaded without its model is the product's
-   * other price over again.
+   * other price over again. Forge follows the same lookups
+   * (`followsToItsParent`).
    *
    * The parents are looked for among the objects the extraction reads, and
    * in the catalog whatever the graph holds: a line whose price, product or
@@ -452,7 +473,7 @@ export class FrozenDatasetExtractor {
    * cap of fifty objects, discovery stopped before it reached the catalog, and
    * a dossier with three priced lines came out without a single price. An
    * object the graph holds and leaves out — excluded, or empty in the whole
-   * org — stays out.
+   * org — stays out (`catalogBeyond`).
    *
    * An id a lookup naming several objects holds is looked for in the one
    * object its key prefix says it belongs to. Asked of each of them, a feed
@@ -464,17 +485,14 @@ export class FrozenDatasetExtractor {
     recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
     describe: (objectApiName: string) => Promise<ScopableField[]>,
     asOfWhere: string,
+    owners: KeyPrefixOwners,
   ): Promise<void> {
     const included = new Set(
       options.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
     );
-    const leftOut = new Set(
-      options.graph.nodes.filter((n) => !n.included).map((n) => n.objectApiName),
-    );
+    const beyond = catalogBeyond(options.graph);
     const fetched = (objectApiName: string): boolean =>
-      included.has(objectApiName) ||
-      (CATALOG_OBJECTS.has(objectApiName) && !leftOut.has(objectApiName));
-    const owners = new KeyPrefixOwners(this.deps.keyPrefixes);
+      included.has(objectApiName) || beyond.has(objectApiName);
 
     const asked = new Map<string, Set<string>>();
     for (let round = 0; round < MAX_PARENT_ROUNDS; round++) {
@@ -482,21 +500,14 @@ export class FrozenDatasetExtractor {
       const missing = new Map<string, Set<string>>();
       for (const [objectApiName, bucket] of recordsByObject) {
         const followed = (await describe(objectApiName)).filter(
-          (f) =>
-            f.type === 'reference' &&
-            (isRequiredLookup(objectApiName, f.name, f.nillable) ||
-              (objectApiName === PRICEBOOK_ENTRY_OBJECT &&
-                f.name === PRICEBOOK_ENTRY_SELLING_MODEL_FIELD)),
+          (f) => f.type === 'reference' && followsToItsParent(objectApiName, f),
         );
         for (const row of bucket.values()) {
           for (const field of followed) {
             const id = row[field.name];
             if (typeof id !== 'string' || id === '') continue;
-            let targets = field.referenceTo.filter(fetched);
-            if (field.referenceTo.length > 1 && targets.length > 0) {
-              const owner = await owners.ownerOf(id);
-              if (owner !== undefined) targets = targets.includes(owner) ? [owner] : [];
-            }
+            if (!field.referenceTo.some(fetched)) continue;
+            const targets = (await owners.objectsOf(id, field.referenceTo)).filter(fetched);
             for (const target of targets) {
               if (recordsByObject.get(target)?.has(id) || asked.get(target)?.has(id)) continue;
               missing.set(target, (missing.get(target) ?? new Set()).add(id));

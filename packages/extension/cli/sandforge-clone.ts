@@ -125,9 +125,11 @@ Options:
                          Answers "why was my object not cloned?" — an object
                          absent from this list was never in the graph.
   --max-nodes <n>        objects discovery may reach            (default: 50)
-                         Raise it when the summary says TRUNCATED and the run
-                         fails on a dependency, e.g. an Opportunity's line
-                         items needing their PricebookEntry.
+                         Raise it when the summary says TRUNCATED and an
+                         object you expected is missing, e.g. the lines of an
+                         Opportunity's quotes. The prices, products, price
+                         books and selling models the lines use come whatever
+                         the cap.
   --anonymize            anonymize PII fields                   (default: off)
   --dry-run              skip writes, surface scoped queries    (default: off)
   --upsert               use external Id upsert when available  (default: insert)
@@ -305,9 +307,9 @@ export function parseArgs(argv: string[]): CliArgs {
   const customDepth = customDepthRaw ? Number(customDepthRaw) : 5;
   const maxRecordsPerObject = maxRaw ? Number(maxRaw) : undefined;
   // Discovery stops at fifty objects by default, which a CRM graph exceeds
-  // long before it has reached everything a write needs: an Opportunity's
-  // line items cannot be written without the price book entries behind them,
-  // and those sit past the cap on any org with a real catalogue.
+  // long before it has reached everything the clone could hold: an
+  // Opportunity's fifty-odd children fill it before its quotes' lines are
+  // reached. The catalog the lines price from comes whatever the cap.
   const maxNodes = maxNodesRaw ? Number(maxNodesRaw) : undefined;
   if (maxNodes !== undefined && (!Number.isInteger(maxNodes) || maxNodes < 1)) {
     process.stderr.write('--max-nodes takes a whole number of objects, 1 or more.\n');

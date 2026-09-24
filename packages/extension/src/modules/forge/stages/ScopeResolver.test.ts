@@ -3,7 +3,10 @@ import {
   buildNodeQuery,
   CATALOG_OBJECTS,
   CATALOG_READ_ORDER,
+  catalogBeyond,
   catalogWriteEdges,
+  followsToItsParent,
+  objectsOfId,
   queryNodeRecords,
   readsFromAbove,
   seedOwnIds,
@@ -880,5 +883,107 @@ describe('seedOwnIds / seedScopeCache', () => {
     expect(cache.isRead('PricebookEntry')).toBe(false);
     expect([...(cache.scopeOf('PricebookEntry') ?? [])]).toEqual(['01uA', '01uB']);
     expect([...(cache.get('Pricebook2') ?? [])]).toEqual(['01sA']);
+  });
+
+  it('puts an id a lookup naming several objects holds in scope for the one its key prefix names', () => {
+    // An email related to a quote, by a lookup that can name a calculation
+    // procedure as well: taken for one, the quote's id was asked of every
+    // calculation procedure, and of their versions, in statements that could
+    // only come back empty.
+    const cache = new RecordScopeCache();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'RelatedToId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Opportunity', 'Quote', 'CalculationProcedure'],
+      },
+    ];
+    seedScopeCache(
+      cache,
+      'EmailMessage',
+      [
+        { Id: '02sA', RelatedToId: '0Q0Q' },
+        { Id: '02sB', RelatedToId: '006O' },
+      ],
+      fields,
+      {
+        keyPrefixes: new Map([
+          ['Opportunity', '006'],
+          ['Quote', '0Q0'],
+          ['CalculationProcedure', '0mc'],
+        ]),
+      },
+    );
+
+    expect([...(cache.get('Quote') ?? [])]).toEqual(['0Q0Q']);
+    expect([...(cache.get('Opportunity') ?? [])]).toEqual(['006O']);
+    expect(cache.has('CalculationProcedure')).toBe(false);
+  });
+});
+
+describe('objectsOfId', () => {
+  const prefixes = new Map([
+    ['Opportunity', '006'],
+    ['Quote', '0Q0'],
+  ]);
+
+  it('names the one object a lookup names, whatever the id', () => {
+    expect(objectsOfId('0Q0Q', ['Account'], prefixes)).toEqual(['Account']);
+  });
+
+  it('names the object whose key prefix the id carries, among those a lookup names', () => {
+    expect(objectsOfId('0Q0Q', ['Opportunity', 'Quote', 'Order'], prefixes)).toEqual(['Quote']);
+  });
+
+  it('names each object whose prefix is not known when none known carries the id', () => {
+    // A user's id, where neither users nor leads have been read or described:
+    // it can be either, and not an opportunity.
+    expect(objectsOfId('005U', ['Opportunity', 'Lead', 'User'], prefixes)).toEqual([
+      'Lead',
+      'User',
+    ]);
+  });
+
+  it('names none when every object named has another prefix', () => {
+    expect(objectsOfId('005U', ['Opportunity', 'Quote'], prefixes)).toEqual([]);
+  });
+});
+
+describe('the catalog a copy follows wherever discovery stopped', () => {
+  it('names the catalog objects a graph does not hold, and none it holds or leaves out', () => {
+    const graph = makeGraph([
+      makeNode('Opportunity'),
+      makeNode('Pricebook2'),
+      makeNode('ProductSellingModel', { included: false }),
+    ]);
+
+    expect([...catalogBeyond(graph)]).toEqual([
+      'PricebookEntry',
+      'Product2',
+      'ProductSellingModelOption',
+    ]);
+  });
+
+  it('follows a lookup the rows cannot go without, as the describe or the platform has it', () => {
+    expect(followsToItsParent('PricebookEntry', { name: 'Product2Id', nillable: false })).toBe(
+      true,
+    );
+    // Nullable in the describe, and refused at insert without it.
+    expect(
+      followsToItsParent('OpportunityLineItem', { name: 'PricebookEntryId', nillable: true }),
+    ).toBe(true);
+    expect(followsToItsParent('Opportunity', { name: 'Pricebook2Id', nillable: true })).toBe(false);
+  });
+
+  it('follows the selling model of a price, and of nothing else', () => {
+    expect(
+      followsToItsParent('PricebookEntry', { name: 'ProductSellingModelId', nillable: true }),
+    ).toBe(true);
+    expect(followsToItsParent('OrderItem', { name: 'ProductSellingModelId', nillable: true })).toBe(
+      false,
+    );
   });
 });

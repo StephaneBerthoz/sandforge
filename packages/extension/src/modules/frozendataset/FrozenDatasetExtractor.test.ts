@@ -1598,3 +1598,100 @@ describe('FrozenDatasetExtractor — the parents it fetches by id', () => {
     expect(sent.filter((soql) => encodeURIComponent(soql).length > 16_000)).toEqual([]);
   });
 });
+
+describe('FrozenDatasetExtractor — the ids a lookup naming several objects holds', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const QUOTE = to18('0Q0A00000000quo');
+  /** A record of the sixth of the forty other objects an email can be related to. */
+  const RECORD = to18('a15A00000000rec');
+  const others = Array.from({ length: 40 }, (_, i) => `Record${String(i).padStart(2, '0')}__c`);
+
+  /** The extractor, and the statements it sends; with `prefixes`, the org says its key prefixes. */
+  function extraction(prefixes: boolean) {
+    const tables: Record<string, FakeRow[]> = {
+      Opportunity: [{ Id: OPPORTUNITY }],
+      Quote: [{ Id: QUOTE, OpportunityId: OPPORTUNITY }],
+      EmailMessage: [
+        { Id: to18('02sA00000000eml'), Opportunity__c: OPPORTUNITY, RelatedToId: QUOTE },
+        { Id: to18('02sA00000000rec'), Opportunity__c: OPPORTUNITY, RelatedToId: RECORD },
+      ],
+      Record05__c: [{ Id: RECORD }],
+    };
+    const fields: Record<string, ScopableField[]> = {
+      Quote: [id, lookup('OpportunityId', ['Opportunity'])],
+      EmailMessage: [
+        id,
+        lookup('Opportunity__c', ['Opportunity']),
+        // What an email is related to: nearly any object, forty of them in the graph.
+        lookup('RelatedToId', ['Opportunity', 'Quote', ...others]),
+      ],
+    };
+    const sent: string[] = [];
+    const extractor = new FrozenDatasetExtractor({
+      query: async (soql) => {
+        sent.push(soql);
+        return soql.includes('FROM RecordType') ? [] : selectRows(tables, soql);
+      },
+      describeFields: async (objectApiName) => fields[objectApiName] ?? [id],
+      ...(prefixes
+        ? {
+            keyPrefixes: async () =>
+              new Map([
+                ['Opportunity', '006'],
+                ['Quote', '0Q0'],
+                ['EmailMessage', '02s'],
+                ...others.map((name, i): [string, string] => [name, `a${String(i + 10)}`]),
+              ]),
+          }
+        : {}),
+    });
+    return { extractor, sent };
+  }
+
+  const options = (): FrozenExtractionOptions => ({
+    ...makeOptions(makeTmpDir(), []),
+    rootObject: 'Opportunity',
+    rootRecordIds: [OPPORTUNITY],
+    graph: graphOf(
+      [
+        makeNode('Opportunity', 0),
+        makeNode('Quote', 1),
+        makeNode('EmailMessage', 2),
+        ...others.map((name) => makeNode(name, 3)),
+      ],
+      [
+        edge('Opportunity', 'Quote', 'Quotes'),
+        edge('Opportunity', 'EmailMessage', 'Emails'),
+        edge('Quote', 'EmailMessage', 'Emails'),
+      ],
+    ),
+  });
+  const askedOfOthers = (sent: string[]): string[] =>
+    sent.flatMap((soql) => /FROM (Record\d\d__c) /.exec(soql)?.[1] ?? []);
+
+  it('asks each id of the one object it belongs to', async () => {
+    // Put in scope as an id of each object the lookup can name, the quote an
+    // email is related to was asked of every one of them the graph held, in
+    // forty statements bound to come back empty.
+    const { extractor, sent } = extraction(true);
+
+    const dataset = await extractor.extract(options());
+
+    expect(sourceIdsOf(dataset, 'EmailMessage')).toHaveLength(2);
+    expect(sourceIdsOf(dataset, 'Record05__c')).toEqual([RECORD]);
+    expect(askedOfOthers(sent)).toEqual(['Record05__c']);
+  });
+
+  it('places an id by the rows it holds, and one nothing places in each object it can be', async () => {
+    // Without the org's prefixes, the quote read before the email says what
+    // a quote's id begins with; the other record's prefix nothing says.
+    const { extractor, sent } = extraction(false);
+
+    await extractor.extract(options());
+
+    expect(askedOfOthers(sent)).toEqual(others);
+    expect(sent.filter((soql) => /FROM Record\d\d__c /.test(soql) && soql.includes(QUOTE))).toEqual(
+      [],
+    );
+  });
+});
