@@ -685,7 +685,10 @@ interface ExecutionState {
   readonly existingRecords: ExistingRecordReport[];
   /** Per lifecycle object, the target's statuses and their categories, read once. */
   readonly lifecycles: Map<string, Promise<StatusCategories | undefined>>;
-  /** Records written as drafts, and the status to give them back at the end of the run. */
+  /**
+   * Records written as drafts, and the status each is still owed: given back
+   * at the end of the run, or reported when the run stops before it.
+   */
   readonly deferredStatuses: Array<{ objectApiName: string; id: string; status: string }>;
   /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
@@ -745,6 +748,19 @@ function requiredParentsOf(
   }
   parents.delete(objectApiName);
   return [...parents];
+}
+
+/** Statuses owed to records written as drafts, by object, in the order they were written. */
+function statusesByObject(
+  owed: ExecutionState['deferredStatuses'],
+): Map<string, Array<{ id: string; status: string }>> {
+  const byObject = new Map<string, Array<{ id: string; status: string }>>();
+  for (const { objectApiName, id, status } of owed) {
+    const entries = byObject.get(objectApiName) ?? [];
+    entries.push({ id, status });
+    byObject.set(objectApiName, entries);
+  }
+  return byObject;
 }
 
 /**
@@ -994,6 +1010,7 @@ export class ForgeExecutor {
       // with it, and the run was recorded as failed with nothing written.
       // Dated by the target first: removing what it created goes by those dates.
       await this.readWrittenBetween(state);
+      this.reportDraftsLeft(state);
       keepPartialSummary(err, this.summaryOf(state));
       throw err;
     }
@@ -1431,11 +1448,9 @@ export class ForgeExecutor {
   private async restoreStatuses(state: ExecutionState): Promise<void> {
     const update = this.deps.updateRecords;
     if (!update || state.deferredStatuses.length === 0) return;
-    const byObject = new Map<string, Array<{ id: string; status: string }>>();
-    for (const { objectApiName, id, status } of state.deferredStatuses) {
-      byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), { id, status }]);
-    }
-    for (const [objectApiName, entries] of byObject) {
+    // Taken off the list: a run that stops from here on owes none of them.
+    const owed = state.deferredStatuses.splice(0, state.deferredStatuses.length);
+    for (const [objectApiName, entries] of statusesByObject(owed)) {
       let failed = 0;
       const samples: ExecutionErrorSample[] = [];
       for (let at = 0; at < entries.length; at += WRITE_API_MAX_BATCH.rest) {
@@ -1483,6 +1498,35 @@ export class ForgeExecutor {
           samples,
         });
       }
+    }
+  }
+
+  /**
+   * Say, of a run that stopped before its end, which records it wrote as
+   * drafts and never gave their status back.
+   *
+   * The statuses go back once every node is written, and a cancel, or a
+   * failure that ends the run, can come first: during a later node, or during
+   * the file copy. A stopped run writes nothing more, so the records stay the
+   * drafts the target holds — reported here as a refused restore is, with the
+   * status each had in the source, which its errors did not say and which was
+   * kept nowhere else.
+   */
+  private reportDraftsLeft(state: ExecutionState): void {
+    const owed = state.deferredStatuses.splice(0, state.deferredStatuses.length);
+    for (const [objectApiName, entries] of statusesByObject(owed)) {
+      state.errors.push({
+        objectApiName,
+        stage: 'insert',
+        failedCount: entries.length,
+        attemptedCount: entries.length,
+        samples: entries.slice(0, 3).map(({ id, status }) => ({
+          recordSummary: `${objectApiName} ${id} Status=${status}`,
+          messages: [
+            'Written as a draft, and the run stopped before giving it this status back: it stays a draft.',
+          ],
+        })),
+      });
     }
   }
 
@@ -2381,40 +2425,46 @@ export class ForgeExecutor {
         errorSamples: [] as ExecutionErrorSample[],
         pendingFkUpdates: [] as PendingFkUpdate[],
       };
-      for (const round of rounds) {
-        const partial = await state.batchWriter.writeNode({
-          node,
-          records: round.records,
-          cleanedRecords: round.cleaned,
-          fieldInfos,
-          creatableFields: effectiveCreatableSet,
-          upsertMode: config.upsertMode,
-          targetOrgId,
-          targetKeyPrefix: targetObject?.keyPrefix,
-          remapper,
-          waitIfPaused: () => this.waitIfPaused(),
-          onProgress,
-        });
-        writeResult.successCount += partial.successCount;
-        writeResult.updatedCount += partial.updatedCount;
-        writeResult.linkedExistingCount += partial.linkedExistingCount;
-        writeResult.failureCount += partial.failureCount;
-        writeResult.alreadyExistsCount += partial.alreadyExistsCount;
-        writeResult.unidentifiedExistingCount += partial.unidentifiedExistingCount;
-        writeResult.pendingFkUpdates.push(...partial.pendingFkUpdates);
-        for (const sample of partial.errorSamples) {
-          if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
+      try {
+        for (const round of rounds) {
+          const partial = await state.batchWriter.writeNode({
+            node,
+            records: round.records,
+            cleanedRecords: round.cleaned,
+            fieldInfos,
+            creatableFields: effectiveCreatableSet,
+            upsertMode: config.upsertMode,
+            targetOrgId,
+            targetKeyPrefix: targetObject?.keyPrefix,
+            remapper,
+            waitIfPaused: () => this.waitIfPaused(),
+            onProgress,
+          });
+          writeResult.successCount += partial.successCount;
+          writeResult.updatedCount += partial.updatedCount;
+          writeResult.linkedExistingCount += partial.linkedExistingCount;
+          writeResult.failureCount += partial.failureCount;
+          writeResult.alreadyExistsCount += partial.alreadyExistsCount;
+          writeResult.unidentifiedExistingCount += partial.unidentifiedExistingCount;
+          writeResult.pendingFkUpdates.push(...partial.pendingFkUpdates);
+          for (const sample of partial.errorSamples) {
+            if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
+          }
         }
-      }
-      // Only a record this run created gets its status back: one it linked to,
-      // or wrote over through its external id, was the target's already.
-      const updatedSources = new Set(remapper.updatedSourceIds());
-      for (const [index, status] of startedAsDrafts) {
-        const sourceId = cleanedRecords[index]?.source['Id'];
-        if (typeof sourceId !== 'string') continue;
-        const targetId = remapper.get(sourceId);
-        if (!targetId || remapper.isExisting(sourceId) || updatedSources.has(sourceId)) continue;
-        state.deferredStatuses.push({ objectApiName: node.objectApiName, id: targetId, status });
+      } finally {
+        // Noted however the node ends: a call that throws, or a cancel between
+        // two, stops it after the calls before had written drafts, and those
+        // are owed their status like the rest. Every record the run wrote gets
+        // it back. One linked to was never written and keeps its own; one an
+        // upsert matched by its external id went over as a draft all the same,
+        // and gets back the status the upsert would have written.
+        for (const [index, status] of startedAsDrafts) {
+          const sourceId = cleanedRecords[index]?.source['Id'];
+          if (typeof sourceId !== 'string') continue;
+          const targetId = remapper.get(sourceId);
+          if (!targetId || remapper.isExisting(sourceId)) continue;
+          state.deferredStatuses.push({ objectApiName: node.objectApiName, id: targetId, status });
+        }
       }
 
       const nodeSuccess = writeResult.successCount;

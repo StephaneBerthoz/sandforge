@@ -1581,23 +1581,49 @@ describe('ForgeExecutor', () => {
 
     describe('an order past Draft', () => {
       const ORDER = '801000000000001AAA';
+      const SECOND_ORDER = '801000000000002AAA';
+      const ITEM = '802000000000001AAA';
+      /** What a run that stopped says of each record it left a draft. */
+      const LEFT_A_DRAFT =
+        'Written as a draft, and the run stopped before giving it this status back: it stays a draft.';
+
+      /** A batch strategy that writes one record per call, so a node takes several. */
+      const oneRecordPerCall: NonNullable<ForgeExecutorDeps['batchStrategy']> = {
+        resolve: (_strategy, recordCount) => ({
+          api: 'rest',
+          batchSize: 1,
+          batchCount: recordCount,
+        }),
+      };
 
       /**
        * An account with one activated order and its item, and a target that
        * refuses what the platform refuses: an order born past Draft — "for a
        * new or cloned order, choose Draft" — and an item under an order that
        * is not a draft.
+       *
+       * @param rows - Orders or items the source holds in place of the one of each.
+       * @param orderFields - Fields of the order besides its name, account and status.
        */
-      function activatedOrder() {
+      function activatedOrder(
+        rows: { Order?: FakeRow[]; OrderItem?: FakeRow[] } = {},
+        orderFields: FieldInfo[] = [],
+      ) {
         const orgs = fakeOrgs(
           {
             Account: [{ Id: ACCOUNT, Name: 'Acme' }],
-            Order: [{ Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' }],
-            OrderItem: [{ Id: '802000000000001AAA', Name: 'Item', OrderId: ORDER }],
+            Order: rows.Order ?? [{ Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' }],
+            OrderItem: rows.OrderItem ?? [{ Id: ITEM, Name: 'Item', OrderId: ORDER }],
           },
           {
             Account: [idField, text('Name')],
-            Order: [idField, text('Name'), lookup('AccountId', 'Account', true), text('Status')],
+            Order: [
+              idField,
+              text('Name'),
+              lookup('AccountId', 'Account', true),
+              text('Status'),
+              ...orderFields,
+            ],
             OrderItem: [idField, text('Name'), lookup('OrderId', 'Order', true)],
           },
         );
@@ -1686,6 +1712,163 @@ describe('ForgeExecutor', () => {
                 messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: an order needs a billing address'],
               },
             ],
+          },
+        ]);
+      });
+
+      it('gives an order an upsert wrote over through its external id its status back', async () => {
+        // Only the target decides whether an upsert creates or writes over, so
+        // the order it matched went over as a draft like any other. Left out of
+        // the restore as a record the target already held, an order activated
+        // there was turned back into a draft by the run, and nothing said so.
+        const { orgDeps, inserted, updated, graph } = activatedOrder(
+          {
+            Order: [
+              {
+                Id: ORDER,
+                Name: 'First',
+                AccountId: ACCOUNT,
+                Status: 'Live',
+                Ext__c: 'order-first',
+              },
+            ],
+          },
+          [{ ...text('Ext__c'), externalId: true }],
+        );
+        const insert = orgDeps.insertRecords;
+        orgDeps.upsertRecords = async (org, object, _field, rows) =>
+          (await insert(org, object, rows)).map((result) => ({ ...result, created: false }));
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+          upsertMode: 'auto',
+        });
+
+        expect(inserted['Order']).toEqual([
+          { Name: 'First', AccountId: 'Account:Acme', Status: 'Open', Ext__c: 'order-first' },
+        ]);
+        expect(summary.updatedCount).toBe(1);
+        expect(updated).toEqual([
+          { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('gives an order written before a later call of its node threw its status back', async () => {
+        // The statuses owed were only noted once every call of the node had
+        // answered: a call that threw took the node down before that, and the
+        // orders the calls before it had written stayed drafts, unreported.
+        const { orgDeps, updated, graph } = activatedOrder({
+          Order: [
+            { Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' },
+            { Id: SECOND_ORDER, Name: 'Second', AccountId: ACCOUNT, Status: 'Live' },
+          ],
+        });
+        orgDeps.batchStrategy = oneRecordPerCall;
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, rows) => {
+          if (rows.some((row) => row['Name'] === 'Second')) throw new Error('ECONNRESET');
+          return insert(org, object, rows);
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(summary.createdByObject).toEqual([
+          { objectApiName: 'Account', sourceIds: [ACCOUNT] },
+          { objectApiName: 'Order', sourceIds: [ORDER] },
+        ]);
+        expect(updated).toEqual([
+          { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
+        ]);
+      });
+
+      it('says which orders a run cancelled while writing their items left as drafts, and writes nothing more', async () => {
+        const { orgDeps, inserted, updated, graph } = activatedOrder({
+          OrderItem: [
+            { Id: ITEM, Name: 'Item', OrderId: ORDER },
+            { Id: '802000000000002AAA', Name: 'Other item', OrderId: ORDER },
+          ],
+        });
+        orgDeps.batchStrategy = oneRecordPerCall;
+        const executor = new ForgeExecutor(orgDeps);
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, rows) => {
+          // Cancelled while the first item is written: the second never is.
+          if (object === 'OrderItem') executor.abort();
+          return insert(org, object, rows);
+        };
+
+        const error = await executor
+          .execute(graph, 'src', 'tgt', onProgress, {
+            rootRecordId: ACCOUNT,
+            rootObjectApiName: 'Account',
+          })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(inserted['OrderItem']).toEqual([{ Name: 'Item', OrderId: 'Order:First' }]);
+        // A cancel writes nothing more: the order stays the draft it went in as.
+        expect(updated).toEqual([]);
+        expect(partialSummaryOf(error)?.errors).toEqual([
+          {
+            objectApiName: 'Order',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 1,
+            samples: [{ recordSummary: 'Order Order:First Status=Live', messages: [LEFT_A_DRAFT] }],
+          },
+        ]);
+      });
+
+      it('says which orders a run cancelled while copying their files left as drafts', async () => {
+        // The files go after the records and before the statuses, and their
+        // copy stops on a cancel before each file.
+        const { orgDeps, updated, graph } = activatedOrder();
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) =>
+          org === 'src' && soql.includes(' FROM Attachment ')
+            ? ['00P000000000001AAA', '00P000000000002AAA'].map((Id, i) => ({
+                Id,
+                ParentId: ORDER,
+                Name: `note${i + 1}.txt`,
+                ContentType: 'text/plain',
+                BodyLength: 3,
+                IsPrivate: false,
+              }))
+            : query(org, soql, onTruncated);
+        const executor = new ForgeExecutor(orgDeps);
+        orgDeps.readFileBody = async () => Buffer.from('abc').toString('base64');
+        orgDeps.insertFile = async () => {
+          // Cancelled while the first file is written: the second never is.
+          executor.abort();
+          return { id: '00P000000000501AAA', success: true, errors: [] };
+        };
+        orgDeps.remainingFileStorageMB = async () => 100;
+
+        const error = await executor
+          .execute(graph, 'src', 'tgt', onProgress, {
+            rootRecordId: ACCOUNT,
+            rootObjectApiName: 'Account',
+            files: { maxFileBytes: 1_000 },
+          })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(partialSummaryOf(error)?.files?.objects).toEqual([
+          { objectApiName: 'Attachment', planned: 2, plannedBytes: 6, copied: 1, failed: 0 },
+        ]);
+        expect(updated).toEqual([]);
+        expect(partialSummaryOf(error)?.errors).toEqual([
+          {
+            objectApiName: 'Order',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 1,
+            samples: [{ recordSummary: 'Order Order:First Status=Live', messages: [LEFT_A_DRAFT] }],
           },
         ]);
       });

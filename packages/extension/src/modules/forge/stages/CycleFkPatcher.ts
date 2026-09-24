@@ -60,6 +60,11 @@ export interface CycleFkPatchInput {
   stillPending?: PendingFkUpdate[];
 }
 
+/** The lookups one update fills in: every field it carries but the record's Id. */
+function lookupsIn(update: Record<string, unknown>): number {
+  return Object.keys(update).filter((field) => field !== 'Id').length;
+}
+
 /**
  * Patch nullified cycle FKs whose targets are now cloned. Emits the
  * synthetic `__pass2__` progress event and returns the error entry for
@@ -121,6 +126,9 @@ export async function patchCycleFkUpdates(
     }
     resolvedCount++;
   }
+  // Counted by lookup, as the resolved ones are: a record owing two goes in
+  // one update, and counted once when that update was refused, it read as one
+  // lookup of two resolved when neither was written.
   let pass2Failed = 0;
   const pass2Samples: ExecutionErrorSample[] = [];
   const maxPerCall = WRITE_API_MAX_BATCH['rest'];
@@ -132,7 +140,7 @@ export async function patchCycleFkUpdates(
         for (let i = 0; i < updateResults.length; i++) {
           const r = updateResults[i];
           if (!r.success) {
-            pass2Failed++;
+            pass2Failed += lookupsIn(batch[i]);
             if (pass2Samples.length < 3) {
               pass2Samples.push({
                 recordSummary: summarizeRecordForError(batch[i]),
@@ -144,7 +152,7 @@ export async function patchCycleFkUpdates(
       } catch (err) {
         // One rejected batch does not abandon the rest: the records in the
         // other batches are independent FK patches.
-        pass2Failed += batch.length;
+        for (const record of batch) pass2Failed += lookupsIn(record);
         if (pass2Samples.length < 3) {
           pass2Samples.push({
             recordSummary: `${objectApiName} batch failed`,

@@ -235,6 +235,54 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].status).toBe('error');
   });
 
+  it('counts every lookup of a refused update as left empty, not the one record that carried them', async () => {
+    // Both lookups of the account go in one update. Counted by the record,
+    // its refusal read as one lookup of two resolved, when neither was written.
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockResolvedValue([
+        { id: '001NEW1', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'] },
+      ]);
+    const input = makeInput({
+      remapper,
+      updateRecords,
+      pendingFkUpdates: [
+        makePending({ fieldName: 'PrimaryContactId' }),
+        makePending({ fieldName: 'Backup_Contact__c' }),
+      ],
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(updateRecords).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ failedCount: 2, attemptedCount: 2 });
+    const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+    expect(progress[0].message).toBe('Pass 2 (cycle FK update): 0/2 resolved');
+  });
+
+  it('counts every lookup of a batch that threw as left empty', async () => {
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    const updateRecords = vi.fn<UpdateRecordsFn>().mockRejectedValue(new Error('ECONNRESET'));
+    const input = makeInput({
+      remapper,
+      updateRecords,
+      pendingFkUpdates: [
+        makePending({ fieldName: 'PrimaryContactId' }),
+        makePending({ fieldName: 'Backup_Contact__c' }),
+        makePending({ newId: '001NEW2', fieldName: 'PrimaryContactId' }),
+      ],
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(error).toMatchObject({ failedCount: 3, attemptedCount: 3 });
+    const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+    expect(progress[0].message).toBe('Pass 2 (cycle FK update): 0/3 resolved');
+  });
+
   it('counts a thrown batch as failed for every record in it', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
