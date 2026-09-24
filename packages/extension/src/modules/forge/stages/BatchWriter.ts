@@ -17,10 +17,12 @@ import type {
   FieldInfo,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  InsertResult,
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
 import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
+import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
   NATURAL_KEYS,
@@ -272,10 +274,27 @@ export class BatchWriter {
       await input.waitIfPaused();
 
       const batch = records.slice(b * batchSize, (b + 1) * batchSize);
-      const results =
-        upsertField && this.deps.upsertRecords
-          ? await this.deps.upsertRecords(targetOrgId, node.objectApiName, upsertField, batch)
-          : await this.deps.insertRecords(targetOrgId, node.objectApiName, batch);
+      let results: InsertResult[];
+      try {
+        results =
+          upsertField && this.deps.upsertRecords
+            ? await this.deps.upsertRecords(targetOrgId, node.objectApiName, upsertField, batch)
+            : await this.deps.insertRecords(targetOrgId, node.objectApiName, batch);
+      } catch (err) {
+        // A call that throws stops the node there, and what failed is its rows
+        // and those of the calls it leaves unsent. Thrown on, it took down what
+        // the calls before had written: counted as failed with the whole node,
+        // and the lookups those rows owe lost before pass 2 could fill them in.
+        const notWritten = records.length - recordOffset;
+        nodeFailure += notWritten;
+        if (nodeErrorSamples.length < 3) {
+          nodeErrorSamples.push({
+            recordSummary: `${node.objectApiName} batch ${b + 1}/${batchCount}: ${notWritten} record${notWritten === 1 ? '' : 's'} not written`,
+            messages: [extractErrorMessage(err)],
+          });
+        }
+        break;
+      }
 
       // Register new IDs for this batch + capture failure samples.
       // Use cleanedRecords (post required-FK skip) for the source-ID
@@ -386,12 +405,22 @@ export class BatchWriter {
 
     const keyFields = NATURAL_KEYS[node.objectApiName];
     if (keyFields && byNaturalKey.length > 0) {
-      const found = await this.recordsByNaturalKey(
-        targetOrgId,
-        node.objectApiName,
-        keyFields,
-        byNaturalKey.map((d) => d.payload),
-      );
+      let found: Array<string | undefined>;
+      let lookupFailed: string | undefined;
+      try {
+        found = await this.recordsByNaturalKey(
+          targetOrgId,
+          node.objectApiName,
+          keyFields,
+          byNaturalKey.map((d) => d.payload),
+        );
+      } catch (err) {
+        // A lookup that could not be read finds nothing: each duplicate stays
+        // a failure the run could not identify, and its sample says why, while
+        // what the calls wrote stays theirs, as it does when a call throws.
+        found = byNaturalKey.map(() => undefined);
+        lookupFailed = `The record the target holds under the same key could not be looked up: ${extractErrorMessage(err)}`;
+      }
       byNaturalKey.forEach((duplicate, i) => {
         const id = found[i];
         if (id && typeof duplicate.sourceId === 'string') {
@@ -405,7 +434,7 @@ export class BatchWriter {
         if (nodeErrorSamples.length < 3) {
           nodeErrorSamples.push({
             recordSummary: summarizeRecordForError(duplicate.payload),
-            messages: duplicate.errors,
+            messages: lookupFailed ? [...duplicate.errors, lookupFailed] : duplicate.errors,
           });
         }
       });

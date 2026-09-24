@@ -149,6 +149,21 @@ export async function patchCycleFkUpdates(
             }
           }
         }
+        // An answer shorter than its batch says nothing of the records past
+        // its end, and nothing is not success: left uncounted, their lookups
+        // read as resolved. Counted as left empty, as the insert of a batch
+        // counts the rows its answer leaves out.
+        for (let i = updateResults.length; i < batch.length; i++) {
+          pass2Failed += lookupsIn(batch[i]);
+          if (pass2Samples.length < 3) {
+            pass2Samples.push({
+              recordSummary: summarizeRecordForError(batch[i]),
+              messages: [
+                `No result returned for record (API truncated batch: ${updateResults.length}/${batch.length})`,
+              ],
+            });
+          }
+        }
       } catch (err) {
         // One rejected batch does not abandon the rest: the records in the
         // other batches are independent FK patches.

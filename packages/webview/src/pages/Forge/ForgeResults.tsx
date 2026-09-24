@@ -922,8 +922,11 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
         </span>
       </div>
       <ul className="divide-y divide-status-error/10">
-        {errors.map((err) => {
-          const key = `${err.objectApiName}__${err.stage}`;
+        {errors.map((err, index) => {
+          // An object can have two reports at one stage — its rows refused at
+          // insert, and the statuses it was not given back — so its name and
+          // the stage do not tell the rows apart; their place in the list does.
+          const key = `${err.objectApiName}__${err.stage}__${index}`;
           const isOpen = expanded.has(key);
           const stage = stageStyles[err.stage];
           return (

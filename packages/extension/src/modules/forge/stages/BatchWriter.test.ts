@@ -131,6 +131,47 @@ describe('BatchWriter', () => {
     ]);
   });
 
+  it('stops at a call that throws, keeping what the calls before it wrote and the lookups those rows owe', async () => {
+    // Thrown on, the error took the node down whole: the row the first call
+    // had written was counted as failed, and its lookup never reached pass 2.
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 3 }),
+    };
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([{ id: '001NEW0', success: true, errors: [] }])
+      .mockRejectedValueOnce(new Error('ECONNRESET'));
+    const records = [0, 1, 2].map((i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+    const cleanedRecords: CleanedRecord[] = records.map((r, i) => ({
+      source: r,
+      cleaned: { Name: r.Name },
+      nullifiedFks:
+        i === 0 ? [{ field: 'ParentId', sourceRefId: '001OLD9', targetObjects: ['Account'] }] : [],
+    }));
+    const input = makeInput(records, { cleanedRecords });
+
+    const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(input.remapper.get('001OLD0')).toBe('001NEW0');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 2 });
+    expect(result.pendingFkUpdates).toEqual([
+      {
+        objectApiName: 'Account',
+        newId: '001NEW0',
+        sourceId: '001OLD0',
+        fieldName: 'ParentId',
+        sourceRefId: '001OLD9',
+      },
+    ]);
+    expect(result.errorSamples).toEqual([
+      {
+        recordSummary: 'Account batch 2/3: 2 records not written',
+        messages: ['ECONNRESET'],
+      },
+    ]);
+  });
+
   it('counts API-truncated results as failures with an explicit sample', async () => {
     const deps = makeDeps(async () => [{ id: '001NEW0', success: true, errors: [] }]);
     const input = makeInput([
@@ -591,6 +632,43 @@ describe('BatchWriter — duplicates found by their natural key', () => {
     // The run's lineage counts the link under its object.
     expect(input.remapper.countsByObject()).toEqual([
       { objectApiName: 'ProductSellingModel', created: 0, linked: 1 },
+    ]);
+  });
+
+  it('keeps the duplicate a failure it could not identify when the lookup of its key throws, and what the call wrote', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
+      { id: '0jPNEW', success: true, errors: [] },
+      { id: '', success: false, errors: ['DUPLICATE_VALUE: already exists'] },
+    ]);
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => {
+      throw new Error('REQUEST_LIMIT_EXCEEDED');
+    });
+    const monthly = { SellingModelType: 'TermDefined', PricingTerm: 1, PricingTermUnit: 'Months' };
+    const once = { SellingModelType: 'OneTime', PricingTerm: null, PricingTermUnit: null };
+    const input = makeInput([], {
+      node: makeNode('ProductSellingModel', 2),
+      records: [monthly, once],
+      cleanedRecords: [
+        { source: { Id: '0jPMONTHLY' }, cleaned: monthly, nullifiedFks: [] },
+        { source: { Id: '0jPONCE' }, cleaned: once, nullifiedFks: [] },
+      ],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(input.remapper.get('0jPMONTHLY')).toBe('0jPNEW');
+    expect(input.remapper.get('0jPONCE')).toBeUndefined();
+    // Still the target holding the row, which takes no child down.
+    expect(result).toMatchObject({
+      successCount: 1,
+      linkedExistingCount: 0,
+      failureCount: 1,
+      alreadyExistsCount: 1,
+      unidentifiedExistingCount: 1,
+    });
+    expect(result.errorSamples[0]?.messages).toEqual([
+      'DUPLICATE_VALUE: already exists',
+      'The record the target holds under the same key could not be looked up: REQUEST_LIMIT_EXCEEDED',
     ]);
   });
 

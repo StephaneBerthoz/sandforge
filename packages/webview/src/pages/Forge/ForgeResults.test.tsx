@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -734,5 +734,42 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
 
     expect(screen.queryByTestId('forge-results-file-content')).toBeNull();
+  });
+
+  it('opens one report at a time when an object has two at the same stage', () => {
+    // The orders the target refused and the orders left drafts are two
+    // reports on one object at one stage. Keyed by the object and the stage,
+    // the two rows shared React's key and their open state: opening one
+    // opened both.
+    mockResult = Object.assign(makeMockResult(), {
+      errors: [
+        {
+          objectApiName: 'Order',
+          stage: 'insert' as const,
+          failedCount: 1,
+          attemptedCount: 2,
+          samples: [
+            { recordSummary: 'Name=Second', messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION'] },
+          ],
+        },
+        {
+          objectApiName: 'Order',
+          stage: 'insert' as const,
+          failedCount: 1,
+          attemptedCount: 1,
+          samples: [{ recordSummary: 'Order 801 Status=Activated', messages: ['Left a draft'] }],
+        },
+      ],
+    });
+    render(<ForgeResults />);
+
+    const [refused, drafts] = screen
+      .getAllByTestId('forge-errors-row')
+      .map((row) => within(row).getByRole('button'));
+    fireEvent.click(refused);
+
+    expect(refused.getAttribute('aria-expanded')).toBe('true');
+    expect(drafts.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getAllByTestId('forge-errors-samples')).toHaveLength(1);
   });
 });

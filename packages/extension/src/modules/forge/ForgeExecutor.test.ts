@@ -533,6 +533,36 @@ describe('ForgeExecutor', () => {
       });
     });
 
+    it('counts the rows it read as failed when a node fails before any is written, not the count on the graph', async () => {
+      // The graph's count is discovery's: zero on a template's graph, the
+      // whole table for an object a scoped clone reads a few rows of.
+      deps.anonymize = () => {
+        throw new Error('The anonymizer stopped');
+      };
+      const graph = makeGraph([makeNode('Account', { recordCount: 50 })]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        anonymization: { fields: { Account: ['Name'] }, methods: {} },
+      });
+
+      expect(vi.mocked(deps.insertRecords)).not.toHaveBeenCalled();
+      expect(summary.failedCount).toBe(2);
+      expect(summary.errors).toEqual([
+        {
+          objectApiName: 'Account',
+          stage: 'query',
+          failedCount: 2,
+          attemptedCount: 2,
+          samples: [
+            {
+              recordSummary: '(stage failed before insert)',
+              messages: ['The anonymizer stopped'],
+            },
+          ],
+        },
+      ]);
+    });
+
     it('should handle thrown errors during query', async () => {
       vi.mocked(deps.queryRecords).mockRejectedValue(new Error('Connection lost'));
 
@@ -1269,6 +1299,15 @@ describe('ForgeExecutor', () => {
     const ELSEWHERE_ACCOUNT = '001000000000009AAA';
     const ELSEWHERE_CONTACT = '003000000000009AAA';
 
+    /** A batch strategy that writes one record per call, so a node takes several. */
+    const oneRecordPerCall: NonNullable<ForgeExecutorDeps['batchStrategy']> = {
+      resolve: (_strategy, recordCount) => ({
+        api: 'rest',
+        batchSize: 1,
+        batchCount: recordCount,
+      }),
+    };
+
     describe('an object several edges of the graph reach', () => {
       it('clones every contact of the root account, the key contact once, when the account names one', async () => {
         // Account carries a lookup to Contact, so Contact is a child of the root
@@ -1579,6 +1618,71 @@ describe('ForgeExecutor', () => {
       expect(inserted['AccountContactRelation'].some((r) => r['Name'] === 'Elsewhere')).toBe(false);
     });
 
+    it('keeps what a node wrote before one of its calls threw, and fills in the lookups those rows owe', async () => {
+      // Thrown out of the node, the error made it fail whole: the contacts the
+      // calls before had written were counted among the failed, their case
+      // was skipped for want of them, and the lookup the first owed its case
+      // never reached pass 2.
+      const CASE = '500000000000001AAA';
+      const { orgDeps, updated } = fakeOrgs(
+        {
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          Contact: [
+            { Id: KEY_CONTACT, LastName: 'First', AccountId: ACCOUNT, Last_Case__c: CASE },
+            { Id: OTHER_CONTACT, LastName: 'Second', AccountId: ACCOUNT, Last_Case__c: null },
+            { Id: '003000000000003AAA', LastName: 'Third', AccountId: ACCOUNT, Last_Case__c: null },
+          ],
+          Case: [{ Id: CASE, Name: 'Help', ContactId: KEY_CONTACT }],
+        },
+        {
+          Account: [idField, text('Name')],
+          Contact: [
+            idField,
+            text('LastName'),
+            lookup('AccountId', 'Account', true),
+            lookup('Last_Case__c', 'Case'),
+          ],
+          Case: [idField, text('Name'), lookup('ContactId', 'Contact', true)],
+        },
+      );
+      orgDeps.batchStrategy = oneRecordPerCall;
+      const insert = orgDeps.insertRecords;
+      orgDeps.insertRecords = async (org, object, rows) => {
+        if (rows.some((row) => row['LastName'] === 'Third')) throw new Error('ECONNRESET');
+        return insert(org, object, rows);
+      };
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact'), makeNode('Case')],
+        [
+          { ...edge('Account', 'Contact'), required: true },
+          { ...edge('Contact', 'Case'), required: true },
+          edge('Case', 'Contact'),
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT,
+        rootObjectApiName: 'Account',
+      });
+
+      expect(summary.successCount).toBe(4);
+      expect(summary.failedCount).toBe(1);
+      expect(summary.errors).toEqual([
+        {
+          objectApiName: 'Contact',
+          stage: 'insert',
+          failedCount: 1,
+          attemptedCount: 3,
+          samples: [
+            { recordSummary: 'Contact batch 3/3: 1 record not written', messages: ['ECONNRESET'] },
+          ],
+        },
+      ]);
+      expect(updated).toEqual([
+        { object: 'Contact', rows: [{ Id: 'Contact:First', Last_Case__c: 'Case:Help' }] },
+      ]);
+    });
+
     describe('an order past Draft', () => {
       const ORDER = '801000000000001AAA';
       const SECOND_ORDER = '801000000000002AAA';
@@ -1587,33 +1691,27 @@ describe('ForgeExecutor', () => {
       const LEFT_A_DRAFT =
         'Written as a draft, and the run stopped before giving it this status back: it stays a draft.';
 
-      /** A batch strategy that writes one record per call, so a node takes several. */
-      const oneRecordPerCall: NonNullable<ForgeExecutorDeps['batchStrategy']> = {
-        resolve: (_strategy, recordCount) => ({
-          api: 'rest',
-          batchSize: 1,
-          batchCount: recordCount,
-        }),
-      };
-
       /**
        * An account with one activated order and its item, and a target that
        * refuses what the platform refuses: an order born past Draft — "for a
        * new or cloned order, choose Draft" — and an item under an order that
        * is not a draft.
        *
-       * @param rows - Orders or items the source holds in place of the one of each.
+       * @param rows - Rows the source holds in place of, or besides, these.
        * @param orderFields - Fields of the order besides its name, account and status.
+       * @param fields - Fields of the other objects the source holds.
        */
       function activatedOrder(
-        rows: { Order?: FakeRow[]; OrderItem?: FakeRow[] } = {},
+        rows: Record<string, FakeRow[]> = {},
         orderFields: FieldInfo[] = [],
+        fields: Record<string, FieldInfo[]> = {},
       ) {
         const orgs = fakeOrgs(
           {
             Account: [{ Id: ACCOUNT, Name: 'Acme' }],
-            Order: rows.Order ?? [{ Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' }],
-            OrderItem: rows.OrderItem ?? [{ Id: ITEM, Name: 'Item', OrderId: ORDER }],
+            Order: [{ Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' }],
+            OrderItem: [{ Id: ITEM, Name: 'Item', OrderId: ORDER }],
+            ...rows,
           },
           {
             Account: [idField, text('Name')],
@@ -1625,6 +1723,7 @@ describe('ForgeExecutor', () => {
               ...orderFields,
             ],
             OrderItem: [idField, text('Name'), lookup('OrderId', 'Order', true)],
+            ...fields,
           },
         );
         const { orgDeps } = orgs;
@@ -1777,9 +1876,12 @@ describe('ForgeExecutor', () => {
           rootObjectApiName: 'Account',
         });
 
+        // One order of two written is a node half written, not a failed one:
+        // the item of the order written goes in under it, still a draft.
         expect(summary.createdByObject).toEqual([
           { objectApiName: 'Account', sourceIds: [ACCOUNT] },
           { objectApiName: 'Order', sourceIds: [ORDER] },
+          { objectApiName: 'OrderItem', sourceIds: [ITEM] },
         ]);
         expect(updated).toEqual([
           { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
@@ -1871,6 +1973,91 @@ describe('ForgeExecutor', () => {
             samples: [{ recordSummary: 'Order Order:First Status=Live', messages: [LEFT_A_DRAFT] }],
           },
         ]);
+      });
+
+      describe('fetched as the parent of a record the run writes', () => {
+        const DELIVERY = 'a01000000000001AAA';
+
+        /**
+         * A delivery of the account that cannot be written without its order,
+         * an order the graph does not reach: copied as an orphan parent, it
+         * went over activated and was refused, and the delivery with it.
+         */
+        function deliveries(rows: FakeRow[]) {
+          const orgs = activatedOrder({ Delivery__c: rows }, [], {
+            Delivery__c: [
+              idField,
+              text('Name'),
+              lookup('Account__c', 'Account'),
+              lookup('Order__c', 'Order', true),
+            ],
+          });
+          const graph = makeGraph(
+            [makeNode('Account'), makeNode('Delivery__c')],
+            [edge('Account', 'Delivery__c')],
+          );
+          return { ...orgs, graph };
+        }
+
+        it('writes it as a draft, and gives it its status back with the orders the run cloned', async () => {
+          const { orgDeps, inserted, updated, graph } = deliveries([
+            { Id: DELIVERY, Name: 'Truck', Account__c: ACCOUNT, Order__c: ORDER },
+          ]);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: ACCOUNT, rootObjectApiName: 'Account', expandOrphanParents: true },
+          );
+
+          expect(inserted['Order']).toEqual([{ Name: 'First', Status: 'Open' }]);
+          expect(inserted['Delivery__c']).toEqual([
+            { Name: 'Truck', Account__c: 'Account:Acme', Order__c: 'Order:First' },
+          ]);
+          expect(updated).toEqual([
+            { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
+          ]);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('says so when a cancelled run leaves it a draft', async () => {
+          const { orgDeps, updated, graph } = deliveries([
+            { Id: DELIVERY, Name: 'Truck', Account__c: ACCOUNT, Order__c: ORDER },
+            { Id: 'a01000000000002AAA', Name: 'Van', Account__c: ACCOUNT, Order__c: ORDER },
+          ]);
+          orgDeps.batchStrategy = oneRecordPerCall;
+          const executor = new ForgeExecutor(orgDeps);
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, rows) => {
+            // Cancelled while the first delivery is written: the second never is.
+            if (object === 'Delivery__c') executor.abort();
+            return insert(org, object, rows);
+          };
+
+          const error = await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+              expandOrphanParents: true,
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(ForgeAbortedError);
+          expect(updated).toEqual([]);
+          expect(partialSummaryOf(error)?.errors).toEqual([
+            {
+              objectApiName: 'Order',
+              stage: 'insert',
+              failedCount: 1,
+              attemptedCount: 1,
+              samples: [
+                { recordSummary: 'Order Order:First Status=Live', messages: [LEFT_A_DRAFT] },
+              ],
+            },
+          ]);
+        });
       });
     });
 

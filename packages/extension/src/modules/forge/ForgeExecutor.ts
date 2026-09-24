@@ -2375,6 +2375,13 @@ export class ForgeExecutor {
           : undefined,
         withoutFileContent: (objectApiName, parentFields) =>
           this.withoutFileContent(state, objectApiName, parentFields, true),
+        // A parent order or contract past Draft takes the path the node's own
+        // records do: in as a draft, its status given back — or reported —
+        // with theirs.
+        startAsDraft: async (objectApiName, payload) =>
+          (await this.startAsDrafts(state, objectApiName, [payload])).get(0),
+        oweStatus: (objectApiName, id, status) =>
+          state.deferredStatuses.push({ objectApiName, id, status }),
       });
 
       const cleanedRecords = cleanNodeRecords({
@@ -2582,13 +2589,18 @@ export class ForgeExecutor {
       if (err instanceof ForgeAbortedError) {
         throw err;
       }
+      // A call that throws is settled by the batch writer, which keeps what
+      // the calls before it wrote; what reaches here stopped the node before
+      // any of its rows went out. Those are the rows read, not the graph's
+      // count, which is discovery's: zero on a template, and the whole table
+      // for an object a scoped clone reads a few rows of.
       state.failedObjects.add(node.objectApiName);
-      state.failedCount += node.recordCount;
+      state.failedCount += records.length;
       state.errors.push({
         objectApiName: node.objectApiName,
         stage: 'query',
-        failedCount: node.recordCount,
-        attemptedCount: node.recordCount,
+        failedCount: records.length,
+        attemptedCount: records.length,
         samples: [
           { recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] },
         ],

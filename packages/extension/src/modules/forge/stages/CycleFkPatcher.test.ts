@@ -283,6 +283,37 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].message).toBe('Pass 2 (cycle FK update): 0/3 resolved');
   });
 
+  it('counts the updates an answer leaves out as left empty, not as resolved', async () => {
+    // One result for two records: the second was read as patched.
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
+    const input = makeInput({
+      remapper,
+      updateRecords,
+      pendingFkUpdates: [makePending(), makePending({ newId: '001NEW2', sourceId: '001OLD2' })],
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(error).toEqual({
+      objectApiName: '__pass2__',
+      stage: 'insert',
+      failedCount: 1,
+      attemptedCount: 2,
+      samples: [
+        {
+          recordSummary: 'Id=001NEW2 PrimaryContactId=003NEW1',
+          messages: ['No result returned for record (API truncated batch: 1/2)'],
+        },
+      ],
+    });
+    const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+    expect(progress[0].message).toBe('Pass 2 (cycle FK update): 1/2 resolved');
+  });
+
   it('counts a thrown batch as failed for every record in it', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');

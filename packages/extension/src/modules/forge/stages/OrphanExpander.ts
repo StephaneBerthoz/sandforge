@@ -84,6 +84,21 @@ export interface OrphanExpansionInput {
    * run's summary. Absent, the parent is read with every field.
    */
   withoutFileContent?: (objectApiName: string, fields: FieldInfo[]) => FieldInfo[];
+  /**
+   * The run's own start as a draft, for a parent with a status lifecycle — an
+   * order, a contract: puts a status past Draft back to the target's Draft
+   * one, and returns the status it had; nothing when the parent goes in as it
+   * is. Absent, a parent is written with the status it was read with.
+   */
+  startAsDraft?: (
+    objectApiName: string,
+    payload: Record<string, unknown>,
+  ) => Promise<string | undefined>;
+  /**
+   * Owes a parent written as a draft the status it had, given back — or
+   * reported — with the records of the run written as drafts.
+   */
+  oweStatus?: (objectApiName: string, targetId: string, status: string) => void;
 }
 
 /**
@@ -172,14 +187,20 @@ export class OrphanExpander {
               input.recordTypeMapper,
               input.anonymize,
               input.withoutFileContent,
+              input.startAsDraft,
             );
             if (parent) {
               // Count only successful expansions toward the cap
               // so a string of misses doesn't silently exhaust the budget
               // before the eligible list has had a chance to succeed.
               this.expansionsUsed++;
-              if (parent.existing) remapper.addExisting(entry.sourceId, parent.id, entry.object);
-              else remapper.add(entry.sourceId, parent.id, entry.object);
+              if (parent.existing) {
+                remapper.addExisting(entry.sourceId, parent.id, entry.object);
+              } else {
+                remapper.add(entry.sourceId, parent.id, entry.object);
+                if (parent.owedStatus)
+                  input.oweStatus?.(entry.object, parent.id, parent.owedStatus);
+              }
               // Register the parent in scopeCache so multi-hop
               // children that pivot through this object include the
               // newly cloned row in their scope query (otherwise the
@@ -233,8 +254,9 @@ export class OrphanExpander {
    * only, RecordType remapped if applicable, orphan FKs nullified), and
    * returns the target ID it now has — the new record's, or the existing
    * one's when the target refuses the copy as a duplicate and names the
-   * record it holds. Returns `null` when the parent can't be fetched or the
-   * insert fails any other way.
+   * record it holds — and, for a new one written as a draft, the status it
+   * is owed. Returns `null` when the parent can't be fetched or the insert
+   * fails any other way.
    *
    * Intentionally non-recursive — the fetched parent's *own* required FKs
    * are nullified rather than expanded further. Callers must respect the
@@ -249,7 +271,8 @@ export class OrphanExpander {
     recordTypeMapper: RecordTypeMapper | null,
     anonymize: OrphanExpansionInput['anonymize'],
     withoutFileContent: OrphanExpansionInput['withoutFileContent'],
-  ): Promise<{ id: string; existing: boolean } | null> {
+    startAsDraft: OrphanExpansionInput['startAsDraft'],
+  ): Promise<{ id: string; existing: boolean; owedStatus?: string } | null> {
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
     // via crafted source-org data (e.g. a managed package supplying a
@@ -311,10 +334,14 @@ export class OrphanExpander {
           )[0]
         : cleaned;
     const payload = anonymize ? anonymize(objectName, mapped, sourceRecordId, fields) : mapped;
+    // Copied as read, an activated order or contract was refused — "choose
+    // Draft" — and the child that needed it with it. It goes in as a draft,
+    // as the run's own do, and gets its status back with theirs.
+    const owedStatus = startAsDraft ? await startAsDraft(objectName, payload) : undefined;
     const result = await this.deps.insertRecords(targetOrgId, objectName, [payload]);
     const written = result[0];
     if (!written) return null;
-    if (written.success) return { id: written.id, existing: false };
+    if (written.success) return { id: written.id, existing: false, owedStatus };
     // The parent is often in the target already — which is why it was not in
     // the graph's reach to begin with. When the refusal names it, the child
     // links to it; it is never written to.

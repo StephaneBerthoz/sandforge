@@ -132,6 +132,95 @@ describe('OrphanExpander', () => {
     expect(expander.buildErrorReport()).toBeNull();
   });
 
+  describe('a parent the run writes as a draft', () => {
+    /** A contract the child cannot be written without, read activated from the source. */
+    const CHILD_FIELDS: FieldInfo[] = [
+      {
+        name: 'ContractId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Contract'],
+        nillable: false,
+      },
+    ];
+
+    function contractDeps(insertRecords: ExpanderDeps['insertRecords']) {
+      return {
+        ...makeDeps({
+          describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Status', queryable: true, createable: true, isReference: false },
+          ]),
+          queryRecords: vi
+            .fn<ExpanderDeps['queryRecords']>()
+            .mockResolvedValue([{ Id: ORPHAN_ID, Status: 'Activated' }]),
+          insertRecords,
+        }),
+        describeObject: vi.fn(async () => ({ keyPrefix: '800', recordTypes: [] })),
+      };
+    }
+
+    /** The run's own start as a draft: the status goes to Draft, and the one it had comes back. */
+    const startAsDraft = async (
+      _objectApiName: string,
+      payload: Record<string, unknown>,
+    ): Promise<string> => {
+      const had = String(payload['Status']);
+      payload['Status'] = 'Draft';
+      return had;
+    };
+
+    it('writes it as a draft, and owes it the status it had once it is written', async () => {
+      // Copied as read, an activated contract or order is refused by the
+      // target — "choose Draft" — and the child that needed it with it.
+      const deps = contractDeps(
+        vi
+          .fn<ExpanderDeps['insertRecords']>()
+          .mockResolvedValue([{ id: '800NEW', success: true, errors: [] }]),
+      );
+      const oweStatus = vi.fn<(objectApiName: string, id: string, status: string) => void>();
+      const { input } = makeInput(deps, {
+        fieldInfos: CHILD_FIELDS,
+        records: [{ Id: '02iOLD1', ContractId: ORPHAN_ID }],
+        startAsDraft,
+        oweStatus,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([{ Status: 'Draft' }]);
+      expect(input.remapper.get(ORPHAN_ID)).toBe('800NEW');
+      expect(oweStatus).toHaveBeenCalledWith('Contract', '800NEW', 'Activated');
+    });
+
+    it('owes nothing to a parent the target already held, which the run never wrote', async () => {
+      const deps = contractDeps(
+        vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([
+          {
+            id: '',
+            success: false,
+            errors: [
+              'DUPLICATE_VALUE: duplicate value found: ContractNumber duplicates value on record with id: 800Fk00000AbCdE',
+            ],
+          },
+        ]),
+      );
+      const oweStatus = vi.fn<(objectApiName: string, id: string, status: string) => void>();
+      const { input } = makeInput(deps, {
+        fieldInfos: CHILD_FIELDS,
+        records: [{ Id: '02iOLD1', ContractId: ORPHAN_ID }],
+        startAsDraft,
+        oweStatus,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(input.remapper.isExisting(ORPHAN_ID)).toBe(true);
+      expect(oweStatus).not.toHaveBeenCalled();
+    });
+  });
+
   it('reports the expansion as failed when the refusal names a record of another object', async () => {
     const deps: Pick<
       ForgeExecutorDeps,
