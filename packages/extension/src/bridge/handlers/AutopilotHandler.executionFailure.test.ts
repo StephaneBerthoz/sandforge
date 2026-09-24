@@ -351,4 +351,38 @@ describe('AutopilotHandler — what each node came to', () => {
       statusRefusals: [refusedStatus],
     });
   });
+
+  it('ends a node on the records it left to the platform, which it neither wrote nor failed', async () => {
+    const tracked = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Account: {
+          written: 2,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          leftToThePlatform: [
+            { objectApiName: 'Account', why: { rows: tracked }, count: 3 },
+            { objectApiName: 'Account', why: { rows: tracked, through: 'FeedItemId' }, count: 1 },
+          ],
+        },
+      },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({
+      status: 'completed',
+      recordCount: 2,
+      failureCount: 0,
+      leftToThePlatform: 4,
+    });
+  });
 });

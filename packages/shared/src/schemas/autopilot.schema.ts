@@ -123,6 +123,7 @@ export const autopilotNodeSchema = z.object({
   refusals: z.array(autopilotRefusalSchema).optional(),
   statusesApplied: z.number().int().nonnegative().optional(),
   statusRefusals: z.array(autopilotRefusalSchema).optional(),
+  leftToThePlatform: z.number().int().nonnegative().optional(),
 });
 
 /** Zod schema for AutopilotEdge */

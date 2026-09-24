@@ -466,6 +466,12 @@ export class AutopilotHandler implements DomainHandler {
           // figures and its refusals with a clean "all written".
           const outcome = result.objectOutcomes?.[name];
           const statuses = result.statuses?.[name];
+          // Read and never sent: the platform writes them itself, or they
+          // hang from one it does. Neither written nor failed, so said apart.
+          const leftToThePlatform = (outcome?.leftToThePlatform ?? []).reduce(
+            (sum, left) => sum + left.count,
+            0,
+          );
           const settled = {
             ...(outcome
               ? {
@@ -473,6 +479,7 @@ export class AutopilotHandler implements DomainHandler {
                   failureCount: outcome.failed,
                   linkedCount: outcome.linked,
                   refusals: outcome.refusals,
+                  ...(leftToThePlatform > 0 ? { leftToThePlatform } : {}),
                 }
               : {}),
             ...(statuses
@@ -558,6 +565,8 @@ export class AutopilotHandler implements DomainHandler {
       statusesApplied?: number;
       /** Why a status could not be given back. */
       statusRefusals?: AutopilotRefusal[];
+      /** Records read and never sent: the platform writes them, or what they hang from, itself. */
+      leftToThePlatform?: number;
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

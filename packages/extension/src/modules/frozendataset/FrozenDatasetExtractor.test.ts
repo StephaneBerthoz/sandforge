@@ -1819,3 +1819,92 @@ describe('FrozenDatasetExtractor — the ids a lookup naming several objects hol
     );
   });
 });
+
+describe('FrozenDatasetExtractor — a feed item the platform writes itself', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const POST = to18('0D5A00000000pst');
+  const CHANGE = to18('0D5A00000000chg');
+  const ON_POST = to18('0D7A00000000onp');
+  const ON_CHANGE = to18('0D7A00000000onc');
+  const TRACKED = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+  const tables = (): Record<string, FakeRow[]> => ({
+    Opportunity: [{ Id: OPPORTUNITY }],
+    FeedItem: [
+      { Id: POST, Type: 'TextPost', ParentId: OPPORTUNITY },
+      { Id: CHANGE, Type: 'TrackedChange', ParentId: OPPORTUNITY },
+    ],
+    FeedComment: [
+      { Id: ON_POST, FeedItemId: POST, ParentId: OPPORTUNITY },
+      { Id: ON_CHANGE, FeedItemId: CHANGE, ParentId: OPPORTUNITY },
+    ],
+  });
+  // As the org describes them: a comment's feed item may be a feed item or
+  // the feed of any object, and may not be left empty; the comment names the
+  // record the feed item is on as well.
+  const fields: Record<string, ScopableField[]> = {
+    FeedItem: [
+      id,
+      { name: 'Type', type: 'picklist', referenceTo: [] },
+      lookup('ParentId', ['Opportunity', 'Order'], false),
+    ],
+    FeedComment: [
+      id,
+      lookup('FeedItemId', ['FeedItem', 'OpportunityFeed'], false),
+      lookup('ParentId', ['Opportunity', 'Order']),
+    ],
+  };
+
+  /** An extraction of the opportunity, its feed and the comments on it, read in `order`. */
+  async function extractFeed(
+    order: string[],
+    rows: Record<string, FakeRow[]> = tables(),
+  ): Promise<ExtractedDataset> {
+    return extractorOver(rows, fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [makeNode('Opportunity', 0), ...order.map((name) => makeNode(name, 1))],
+        [
+          edge('Opportunity', 'FeedComment', 'FeedComments'),
+          edge('Opportunity', 'FeedItem', 'Feeds'),
+          edge('FeedItem', 'FeedComment', 'FeedComments'),
+        ],
+      ),
+    });
+  }
+
+  it('leaves out a tracked change and the comment on it, and says so', async () => {
+    // Loaded, the platform refuses a tracked change — "Cannot directly insert
+    // FeedItem with type TrackedChange" — and the comment on it, which cannot
+    // go in without the feed item it answers. The comments are read first,
+    // as discovery meets them first under the opportunity: every one of them.
+    const dataset = await extractFeed(['FeedComment', 'FeedItem']);
+
+    expect(sourceIdsOf(dataset, 'FeedItem')).toEqual([POST]);
+    expect(sourceIdsOf(dataset, 'FeedComment')).toEqual([ON_POST]);
+    expect(dataset.leftToThePlatform).toEqual([
+      { objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 },
+      { objectApiName: 'FeedComment', why: { rows: TRACKED, through: 'FeedItemId' }, count: 1 },
+    ]);
+  });
+
+  it('leaves out a comment on the one feed item of a record, a tracked change, read under the record', async () => {
+    // With no feed item of the record in the dataset, nothing holds the
+    // comments read under it to the feed items it keeps.
+    const onTheChange = (row: FakeRow): boolean =>
+      row['Type'] === 'TrackedChange' || row['FeedItemId'] === CHANGE;
+    const rows = tables();
+    rows['FeedItem'] = rows['FeedItem'].filter(onTheChange);
+    rows['FeedComment'] = rows['FeedComment'].filter(onTheChange);
+
+    const dataset = await extractFeed(['FeedItem', 'FeedComment'], rows);
+
+    expect(sourceIdsOf(dataset, 'FeedItem')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'FeedComment')).toEqual([]);
+    expect(dataset.leftToThePlatform).toEqual([
+      { objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 },
+      { objectApiName: 'FeedComment', why: { rows: TRACKED, through: 'FeedItemId' }, count: 1 },
+    ]);
+  });
+});

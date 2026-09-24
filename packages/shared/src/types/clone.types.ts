@@ -46,6 +46,13 @@ export interface CloneObjectResult {
    * inserted nor failed. Optional for results produced before it existed.
    */
   linkedCount?: number;
+  /**
+   * Records found and never sent: the platform writes them itself and refuses
+   * one from a copy — a tracked change — or they cannot go in without one it
+   * does. Neither inserted nor failed. Optional for results produced before it
+   * existed.
+   */
+  leftToThePlatform?: number;
   /** Mapping of source record IDs to target record IDs, linked records included */
   idMappings: Array<{ sourceId: string; targetId: string }>;
   /** Errors encountered during insertion */
@@ -66,6 +73,8 @@ export interface CloneExecutionResult {
   totalInserted: number;
   /** Total records linked to one the target already held. Optional for older results. */
   totalLinked?: number;
+  /** Total records left to the platform, never sent. Optional for older results. */
+  totalLeftToThePlatform?: number;
   /** Total records that failed to insert */
   totalFailed: number;
   /** Total duration in milliseconds */

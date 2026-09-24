@@ -1773,3 +1773,120 @@ describe('FrozenDatasetLoader — a cancel', () => {
     expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
   });
 });
+
+describe('FrozenDatasetLoader — a feed item the platform writes itself', () => {
+  /**
+   * An opportunity, a post and a tracked change on its feed, and a comment on
+   * each: a dataset frozen before extractions left tracked changes out, by
+   * rules that kept the type of a feed item.
+   */
+  function feedDataset(feed: 'post and change' | 'change only' = 'post and change'): FrozenDataset {
+    const post = {
+      referenceId: 'FeedItem-000001',
+      fields: { Type: 'TextPost', Body: 'Kick-off', ParentId: 'Opportunity-000001' },
+    };
+    const change = {
+      referenceId: 'FeedItem-000002',
+      fields: { Type: 'TrackedChange', ParentId: 'Opportunity-000001' },
+    };
+    const onPost = {
+      referenceId: 'FeedComment-000001',
+      fields: { CommentBody: 'On the post', FeedItemId: 'FeedItem-000001' },
+    };
+    const onChange = {
+      referenceId: 'FeedComment-000002',
+      fields: { CommentBody: 'On the change', FeedItemId: 'FeedItem-000002' },
+    };
+    return {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Opportunity',
+          records: [{ referenceId: 'Opportunity-000001', fields: { Name: 'Deal' } }],
+        },
+        {
+          objectApiName: 'FeedItem',
+          records: feed === 'change only' ? [change] : [post, change],
+        },
+        {
+          objectApiName: 'FeedComment',
+          records: feed === 'change only' ? [onChange] : [onPost, onChange],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+  }
+
+  /** The target as it describes a comment: it may not leave its feed item empty. */
+  function describesOf(dataset: FrozenDataset): Record<string, TargetObjectDescribe> {
+    const describes = describeFromDataset(dataset);
+    describes.FeedComment.fields = describes.FeedComment.fields.map((f) =>
+      f.name === 'FeedItemId' ? { ...f, nillable: false, referenceTo: ['FeedItem'] } : f,
+    );
+    return describes;
+  }
+
+  /** What each insert of an object sent, in order. */
+  function insertedOf(calls: DmlCall[], objectApiName: string): Array<Record<string, unknown>> {
+    return calls
+      .filter((c) => c.op === 'insert' && c.objectApiName === objectApiName)
+      .flatMap((c) => c.payload as Array<Record<string, unknown>>);
+  }
+
+  it('leaves out a tracked change a dataset carries, and the comment on it, and says so', async () => {
+    // Sent, the platform refuses a tracked change — "Cannot directly insert
+    // FeedItem with type TrackedChange" — and the comment on it, which cannot
+    // go in without the feed item it answers.
+    const dataset = feedDataset();
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, describes: describesOf(dataset), writer: makeWriter(calls) });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'FeedItem').map((r) => r.Type)).toEqual(['TextPost']);
+    expect(insertedOf(calls, 'FeedComment').map((r) => r.CommentBody)).toEqual(['On the post']);
+    expect(report.status).toBe('completed');
+    expect(report.leftToThePlatform).toEqual([
+      {
+        objectApiName: 'FeedItem',
+        count: 1,
+        note: '1 tracked change left out: the platform writes them itself',
+      },
+      {
+        objectApiName: 'FeedComment',
+        count: 1,
+        note: '1 left out: FeedItemId names a tracked change, which the platform writes itself',
+      },
+    ]);
+    const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
+    for (const objectApiName of ['FeedItem', 'FeedComment']) {
+      expect(contract.objects[objectApiName]).toEqual({
+        fromFiles: 2,
+        exclusionReasons: { 'left-to-the-platform': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 1,
+      });
+    }
+  });
+
+  it('counts in the contract an object whose every record it left to the platform', async () => {
+    const dataset = feedDataset('change only');
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, describes: describesOf(dataset), writer: makeWriter(calls) });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'FeedItem')).toEqual([]);
+    expect(insertedOf(calls, 'FeedComment')).toEqual([]);
+    const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
+    expect(contract.objects['FeedItem']).toEqual({
+      fromFiles: 1,
+      exclusionReasons: { 'left-to-the-platform': 1 },
+      excluded: 1,
+      added: 0,
+      expected: 0,
+    });
+  });
+});

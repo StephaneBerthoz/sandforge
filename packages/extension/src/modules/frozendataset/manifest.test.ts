@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFrozenManifest,
+  leftToThePlatformCoverage,
   ManifestError,
   parseManifest,
   serializeManifest,
@@ -106,5 +107,59 @@ describe('manifest serialization', () => {
     const manifest = buildValid();
     manifest.status = 'draft' as unknown as 'frozen';
     expect(() => validateManifest(manifest)).toThrow(/frozen/);
+  });
+});
+
+describe('what a manifest says was left to the platform', () => {
+  const tracked = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+  const coverage = {
+    objects: 3,
+    truncated: false,
+    maxNodes: 50,
+    unboundedObjects: [],
+    filesLeftOut: [],
+  };
+
+  it('names each object with how many records were left out, and why in words', () => {
+    expect(
+      leftToThePlatformCoverage([
+        { objectApiName: 'FeedItem', why: { rows: tracked }, count: 2 },
+        { objectApiName: 'FeedComment', why: { rows: tracked, through: 'FeedItemId' }, count: 1 },
+      ]),
+    ).toEqual([
+      {
+        objectApiName: 'FeedItem',
+        count: 2,
+        note: '2 tracked changes left out: the platform writes them itself',
+      },
+      {
+        objectApiName: 'FeedComment',
+        count: 1,
+        note: '1 left out: FeedItemId names a tracked change, which the platform writes itself',
+      },
+    ]);
+  });
+
+  it('keeps the list through a round trip, and reads a manifest written before it', () => {
+    const leftToThePlatform = [{ objectApiName: 'FeedItem', count: 1, note: 'one' }];
+    const manifest = buildFrozenManifest({
+      ...buildValid(),
+      nonReidentification: passingControl,
+      author: 'stephane',
+      coverage: { ...coverage, leftToThePlatform },
+      now: () => NOW,
+    });
+
+    expect(parseManifest(JSON.parse(serializeManifest(manifest))).coverage).toEqual({
+      ...coverage,
+      leftToThePlatform,
+    });
+    expect(() => validateManifest({ ...manifest, coverage })).not.toThrow();
+    expect(() =>
+      validateManifest({
+        ...manifest,
+        coverage: { ...coverage, leftToThePlatform: 'FeedItem' as never },
+      }),
+    ).toThrow(ManifestError);
   });
 });

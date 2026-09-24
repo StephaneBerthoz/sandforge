@@ -4,6 +4,7 @@ import { IdRemapper } from '../IdRemapper.js';
 import { RecordScopeCache } from '../RecordScopeCache.js';
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
+import { RowsLeftToThePlatform } from '../../../core/common/platformRecords.js';
 
 const ORPHAN_ID = '001AP00ORPHAN12'; // 15 alnum — passes SF_RECORD_ID_RE
 
@@ -611,6 +612,68 @@ describe('OrphanExpander', () => {
     expect(payload[0]).toEqual({ Name: 'Acme' });
     expect(vi.mocked(deps.queryRecords).mock.calls[0][1]).not.toContain('Logo__c');
     expect(leftOut).toEqual(['Account.Logo__c']);
+  });
+
+  describe('a parent the platform writes itself', () => {
+    const CHANGE = '0D5AP0000CHANGE'; // 15 alnum — passes SF_RECORD_ID_RE
+    const COMMENT_FIELDS: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'FeedItemId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['FeedItem'],
+        nillable: false,
+      },
+    ];
+    const feedItemDeps = (): ExpanderDeps =>
+      makeDeps({
+        describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Type', queryable: true, createable: true, isReference: false },
+        ]),
+        queryRecords: vi
+          .fn<ExpanderDeps['queryRecords']>()
+          .mockResolvedValue([{ Id: CHANGE, Type: 'TrackedChange' }]),
+      });
+
+    it('never sends a tracked change it reads, notes it, and reports nothing failed', async () => {
+      // Sent, the platform refuses it: "Cannot directly insert FeedItem with
+      // type TrackedChange".
+      const deps = feedItemDeps();
+      const leftToThePlatform = new RowsLeftToThePlatform();
+      const { input } = makeInput(deps, {
+        node: makeNode('FeedComment'),
+        fieldInfos: COMMENT_FIELDS,
+        records: [{ Id: '0D7AP0000COMMENT', FeedItemId: CHANGE }],
+        leftToThePlatform,
+      });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(leftToThePlatform.has(CHANGE)).toBe(true);
+      expect(input.remapper.get(CHANGE)).toBeUndefined();
+      expect(expander.buildErrorReport()).toBeNull();
+    });
+
+    it('does not read again a parent already left to the platform', async () => {
+      const deps = feedItemDeps();
+      const leftToThePlatform = new RowsLeftToThePlatform();
+      leftToThePlatform.keep('FeedItem', [{ Id: CHANGE, Type: 'TrackedChange' }]);
+      const { input } = makeInput(deps, {
+        node: makeNode('FeedComment'),
+        fieldInfos: COMMENT_FIELDS,
+        records: [{ Id: '0D7AP0000COMMENT', FeedItemId: CHANGE }],
+        leftToThePlatform,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(deps.queryRecords).not.toHaveBeenCalled();
+    });
   });
 
   it('expands more than one wave of orphans (concurrency 4)', async () => {

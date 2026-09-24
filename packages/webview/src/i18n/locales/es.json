@@ -792,6 +792,7 @@
         "summary": "Registros de origen",
         "inserted": "Insertados",
         "linked": "Vinculados a existentes",
+        "leftToThePlatform": "Excluidos (la plataforma los escribe ella misma, o aquello de lo que dependen)",
         "failed": "Fallidos",
         "duration": "Duración",
         "idMapping": "Mapeo de IDs",
@@ -2731,6 +2732,7 @@
       "errors": "Errores",
       "piiFields": "Campos PII",
       "linked": "Vinculados a registros existentes",
+      "leftToThePlatform": "Excluidos: la plataforma los escribe ella misma, o aquello de lo que dependen",
       "refusals": "Por qué se rechazaron registros",
       "statusesApplied": "Estados aplicados después de sus registros secundarios",
       "statusRefusals": "Por qué no se aplicó un estado",
@@ -2926,12 +2928,14 @@
       "skippedList": "Registros omitidos (anti-duplicados nativo)",
       "errors": "Errores",
       "postLoad": "Pase 2: {{pass2}} enlaces de ciclo resueltos — PersonContact: {{personContact}} restaurados",
-      "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}"
+      "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}",
+      "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}"
     },
     "coverage": {
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
-      "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}"
+      "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
+      "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}"
     }
   },
   "grappe": {

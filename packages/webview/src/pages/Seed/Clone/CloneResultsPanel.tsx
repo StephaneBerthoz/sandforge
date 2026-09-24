@@ -103,6 +103,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
             {t('seed.clone.results.linked')}: {objResult.linkedCount}
           </span>
         )}
+        {(objResult.leftToThePlatform ?? 0) > 0 && (
+          <span
+            className="text-xs text-[var(--sf-text-secondary)]"
+            data-testid="clone-object-left-to-the-platform"
+          >
+            {t('seed.clone.results.leftToThePlatform')}: {objResult.leftToThePlatform}
+          </span>
+        )}
         {/* ID Mappings */}
         {paginatedMappings.length > 0 && (
           <>
@@ -191,6 +199,15 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {(result.totalLinked ?? 0) > 0 && (
           <span className="text-status-success" data-testid="clone-results-linked">
             {t('seed.clone.results.linked')}: {result.totalLinked}
+          </span>
+        )}
+        {/* Records read and never sent: neither inserted nor failed. */}
+        {(result.totalLeftToThePlatform ?? 0) > 0 && (
+          <span
+            className="text-[var(--sf-text-secondary)]"
+            data-testid="clone-results-left-to-the-platform"
+          >
+            {t('seed.clone.results.leftToThePlatform')}: {result.totalLeftToThePlatform}
           </span>
         )}
         {result.totalFailed > 0 && (

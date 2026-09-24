@@ -49,11 +49,13 @@ import {
 import {
   ACCOUNT_CONTACT_RELATION,
   NATURAL_KEYS,
+  RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   directAccountContactRelations,
   draftStartOf,
   recordsByNaturalKey,
   statusCategories,
+  type RowsLeftOut,
   type SoqlQuery,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -152,6 +154,12 @@ export interface ObjectOutcome {
    * the lookups that held a value are listed.
    */
   leftToDefault?: DefaultedLookup[];
+  /**
+   * Records read and never sent, by reason: the platform writes them itself
+   * and refuses one from a copy — a tracked change — or they cannot go in
+   * without one it does, a comment on it. Neither written nor failed.
+   */
+  leftToThePlatform?: RowsLeftOut[];
 }
 
 /**
@@ -427,6 +435,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly owedLookups: OwedLookup[] = [];
   /** Source record types the target has no match for, reported once each. */
   private readonly unmappedRecordTypes = new Set<string>();
+  /** The records read and left to the platform, kept for the run: what hangs from them goes too. */
+  private readonly leftToThePlatform = new RowsLeftToThePlatform();
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -650,12 +660,14 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.totalSuccess += objResult.success;
         result.totalFailure += objResult.failure;
         result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
+        const leftToThePlatform = this.leftToThePlatform.counts(objectApiName);
         objectOutcomes[objectApiName] = {
           written: objResult.success,
           linked: objResult.linked,
           failed: objResult.failure,
           refusals: objResult.refusals,
           ...(objResult.leftToDefault.length > 0 ? { leftToDefault: objResult.leftToDefault } : {}),
+          ...(leftToThePlatform.length > 0 ? { leftToThePlatform } : {}),
         };
 
         // A node that wrote nothing is still whole when every record it
@@ -976,9 +988,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         const batch = await this.deps.query(objectApiName, offset, this.batchSize);
         state.apiCallsUsed++;
         if (batch.length === 0) break;
-        this.deps.anonymizer.anonymize(batch, rules, objectApiName);
-        rows.push(...batch);
         offset += batch.length;
+        const kept = this.leaveToThePlatform(objectApiName, batch, edges);
+        this.deps.anonymizer.anonymize(kept, rules, objectApiName);
+        rows.push(...kept);
       }
       const { standard, custom } = splitStandardPricebookEntries(rows, standardBook.source);
       let processed = 0;
@@ -998,12 +1011,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       await this.checkPause();
 
       // 1. Query from source
-      const batch = await this.deps.query(objectApiName, offset, this.batchSize);
+      const read = await this.deps.query(objectApiName, offset, this.batchSize);
       state.apiCallsUsed++;
 
-      if (batch.length === 0) {
+      if (read.length === 0) {
         break;
       }
+
+      // What the platform writes itself never goes further than the read.
+      const batch = this.leaveToThePlatform(objectApiName, read, edges);
 
       // 2. Anonymize
       this.deps.anonymizer.anonymize(batch, rules, objectApiName);
@@ -1011,13 +1027,39 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // 3. Remap, link and insert
       await this.writeBatch(objectApiName, batch, edges, state);
 
-      offset += batch.length;
+      offset += read.length;
 
       // 4. Emit node-progress
       progress(offset);
     }
 
     return finish();
+  }
+
+  /**
+   * The records of a page a copy may send: those the platform writes itself
+   * are left out — see `writtenByThePlatform` — and so are those that name
+   * one left out in a lookup they may not leave empty, noted for the run.
+   *
+   * Autopilot reads whole tables. Sent, a tracked change is refused, "Cannot
+   * directly insert FeedItem with type TrackedChange", and a comment on it
+   * goes without the feed item it answers, which it may not leave empty.
+   */
+  private leaveToThePlatform(
+    objectApiName: string,
+    records: Record<string, unknown>[],
+    edges: readonly AutopilotEdge[],
+  ): Record<string, unknown>[] {
+    const required = new Set(
+      edges
+        .filter(
+          (edge) =>
+            edge.to === objectApiName &&
+            (edge.required || isPlatformRequiredField(edge.to, edge.fieldApiName)),
+        )
+        .map((edge) => edge.fieldApiName),
+    );
+    return this.leftToThePlatform.keep(objectApiName, records, [...required]);
   }
 
   /**

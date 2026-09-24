@@ -10,6 +10,8 @@ interface DescribeField {
   name: string;
   type: string;
   referenceTo?: string[];
+  /** Whether a record may leave it empty; unknown reads as nullable. */
+  nillable?: boolean;
 }
 
 /** Describe result shape for buildEdgesFromDescribe. */

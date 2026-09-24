@@ -370,6 +370,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   personContact: loadReport.personContact.restored,
                 })}
               </p>
+              {/* Never sent, so neither inserted nor failed: said on their own. */}
+              {(loadReport.leftToThePlatform?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-report-left-to-the-platform"
+                >
+                  {t('frozen.report.leftToThePlatform', {
+                    objects: (loadReport.leftToThePlatform ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {loadReport.statuses &&
                 loadReport.statuses.restored + loadReport.statuses.refused.length > 0 && (
                   <div data-testid="frozen-report-statuses">

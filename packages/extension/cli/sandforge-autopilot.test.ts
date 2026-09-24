@@ -109,6 +109,48 @@ describe('sandforge-autopilot — the run summary', () => {
     ]);
   });
 
+  it('prints the records left out because the platform writes them, or what they hang from, itself', () => {
+    const tracked = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+    const lines = outcomeLines({
+      totalSuccess: 3,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['FeedItem', 'FeedComment'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        FeedItem: {
+          written: 2,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          leftToThePlatform: [{ objectApiName: 'FeedItem', why: { rows: tracked }, count: 3 }],
+        },
+        FeedComment: {
+          written: 1,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          leftToThePlatform: [
+            {
+              objectApiName: 'FeedComment',
+              why: { rows: tracked, through: 'FeedItemId' },
+              count: 1,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'FeedItem'.padEnd(28)} written 2  linked 0  refused 0`,
+      '      3 tracked changes left out: the platform writes them itself',
+      `  ${'FeedComment'.padEnd(28)} written 1  linked 0  refused 0`,
+      '      1 left out: FeedItemId names a tracked change, which the platform writes itself',
+    ]);
+  });
+
   it('prints a node that died before writing with the error it died with', () => {
     const lines = outcomeLines({
       totalSuccess: 0,

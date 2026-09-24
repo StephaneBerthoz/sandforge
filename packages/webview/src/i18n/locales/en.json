@@ -792,6 +792,7 @@
         "summary": "Source records",
         "inserted": "Inserted",
         "linked": "Linked to existing",
+        "leftToThePlatform": "Left out (the platform writes them, or what they depend on, itself)",
         "failed": "Failed",
         "duration": "Duration",
         "idMapping": "ID Mapping",
@@ -2731,6 +2732,7 @@
       "errors": "Errors",
       "piiFields": "PII Fields",
       "linked": "Linked to existing records",
+      "leftToThePlatform": "Left out: the platform writes them, or what they depend on, itself",
       "refusals": "Why records were refused",
       "statusesApplied": "Statuses applied after their children",
       "statusRefusals": "Why a status was not applied",
@@ -2926,12 +2928,14 @@
       "skippedList": "Records skipped (native anti-duplicate)",
       "errors": "Errors",
       "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored",
-      "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}"
+      "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
+      "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}"
     },
     "coverage": {
       "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
       "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",
-      "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}"
+      "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}",
+      "leftToThePlatform": "Left out — the platform writes these records, or what they depend on, itself: {{objects}}"
     }
   },
   "grappe": {

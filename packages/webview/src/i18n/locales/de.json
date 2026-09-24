@@ -792,6 +792,7 @@
         "summary": "Quelldatensätze",
         "inserted": "Eingefügt",
         "linked": "Mit Vorhandenem verknüpft",
+        "leftToThePlatform": "Ausgelassen (die Plattform schreibt sie oder das, wovon sie abhängen, selbst)",
         "failed": "Fehlgeschlagen",
         "duration": "Dauer",
         "idMapping": "ID-Zuordnung",
@@ -2731,6 +2732,7 @@
       "errors": "Fehler",
       "piiFields": "PII-Felder",
       "linked": "Mit vorhandenen Datensätzen verknüpft",
+      "leftToThePlatform": "Ausgelassen: Die Plattform schreibt sie oder das, wovon sie abhängen, selbst",
       "refusals": "Warum Datensätze abgelehnt wurden",
       "statusesApplied": "Nach den untergeordneten Datensätzen gesetzte Status",
       "statusRefusals": "Warum ein Status nicht gesetzt wurde",
@@ -2926,12 +2928,14 @@
       "skippedList": "Übersprungene Datensätze (native Duplikaterkennung)",
       "errors": "Fehler",
       "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt",
-      "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}"
+      "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
+      "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}"
     },
     "coverage": {
       "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
       "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",
-      "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}"
+      "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}",
+      "leftToThePlatform": "Ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}"
     }
   },
   "grappe": {

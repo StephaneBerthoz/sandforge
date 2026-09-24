@@ -38,7 +38,8 @@ import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenc
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { isUncopyableObject } from '@sandforge/shared';
+import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
+import { RowsLeftToThePlatform } from '../../core/common/platformRecords.js';
 import {
   carriesRecordType,
   findUnavailableRecordTypes,
@@ -474,6 +475,8 @@ export class SeedCloneHandler implements DomainHandler {
 
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
+      /** The records read and left to the platform, across objects: what hangs from them goes too. */
+      const leftToThePlatform = new RowsLeftToThePlatform();
       let objectLevelFailures = 0;
       /**
        * Whether the cancel stopped the clone before one of its objects, or
@@ -507,13 +510,9 @@ export class SeedCloneHandler implements DomainHandler {
           `Cloning ${objectApiName}`,
         );
 
-        let sourceRecords: Record<string, unknown>[];
+        let read: Record<string, unknown>[];
         try {
-          sourceRecords = await fetcher.fetchRecords(
-            sourceConn,
-            objectApiName,
-            objectConfig.whereClause,
-          );
+          read = await fetcher.fetchRecords(sourceConn, objectApiName, objectConfig.whereClause);
         } catch (fetchErr: unknown) {
           objectLevelFailures++;
           objectResults.push({
@@ -526,6 +525,24 @@ export class SeedCloneHandler implements DomainHandler {
           });
           continue;
         }
+
+        // What the platform writes itself is never sent — see
+        // `writtenByThePlatform` — and neither is what cannot go in without
+        // it. Sent, a tracked change is refused, "Cannot directly insert
+        // FeedItem with type TrackedChange", and a comment on it goes without
+        // the feed item it answers, which it may not leave empty.
+        const sourceRecords = leftToThePlatform.keep(
+          objectApiName,
+          read,
+          (describeMap.get(objectApiName)?.fields ?? [])
+            .filter(
+              (field) =>
+                field.type === 'reference' &&
+                isRequiredLookup(objectApiName, field.name, field.nillable),
+            )
+            .map((field) => field.name),
+        );
+        const leftOut = read.length - sourceRecords.length;
 
         const writeRecords = sourceRecords.map((record) =>
           prepareRecordForWrite(record, describeMap.get(objectApiName), objectSet, globalIdMap),
@@ -547,9 +564,10 @@ export class SeedCloneHandler implements DomainHandler {
           objectLevelFailures++;
           objectResults.push({
             objectApiName,
-            sourceCount: sourceRecords.length,
+            sourceCount: read.length,
             insertedCount: 0,
             failedCount: sourceRecords.length,
+            ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
             idMappings: [],
             // Keyed on the first record of each type: the error table needs a
             // distinct row key, and the message counts the rest.
@@ -594,10 +612,11 @@ export class SeedCloneHandler implements DomainHandler {
 
         const objectResult: CloneObjectResult = {
           objectApiName,
-          sourceCount: sourceRecords.length,
+          sourceCount: read.length,
           insertedCount: 0,
           failedCount: 0,
           linkedCount: 0,
+          ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
           idMappings: [],
           errors: [],
         };
@@ -634,6 +653,10 @@ export class SeedCloneHandler implements DomainHandler {
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
       const totalLinked = objectResults.reduce((sum, r) => sum + (r.linkedCount ?? 0), 0);
+      const totalLeftToThePlatform = objectResults.reduce(
+        (sum, r) => sum + (r.leftToThePlatform ?? 0),
+        0,
+      );
       const totalFailed = objectResults.reduce((sum, r) => sum + r.failedCount, 0);
       const reached: CloneExecutionResult['status'] =
         totalFailed === 0 && objectLevelFailures === 0
@@ -648,6 +671,7 @@ export class SeedCloneHandler implements DomainHandler {
         totalSourceRecords,
         totalInserted,
         totalLinked,
+        ...(totalLeftToThePlatform > 0 ? { totalLeftToThePlatform } : {}),
         totalFailed,
         durationMs: Date.now() - startedAt,
         ...(cancelled ? { cancelled: true } : {}),

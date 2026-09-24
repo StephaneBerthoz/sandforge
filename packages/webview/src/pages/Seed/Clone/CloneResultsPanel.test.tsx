@@ -179,6 +179,31 @@ describe('CloneResultsPanel', () => {
     expect(screen.queryByTestId('clone-results-linked')).toBeNull();
   });
 
+  it('counts apart the records left out because the platform writes them, or what they depend on, itself', () => {
+    // A tracked change is never sent — the platform refuses one from a copy —
+    // and neither inserted nor failed, it would count nowhere else.
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      totalSourceRecords: 203,
+      totalLeftToThePlatform: 3,
+      objectResults: [
+        { ...mockSuccessResult.objectResults[0], sourceCount: 53, leftToThePlatform: 3 },
+        mockSuccessResult.objectResults[1],
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-results-left-to-the-platform').textContent).toBe(
+      'Left out (the platform writes them, or what they depend on, itself): 3',
+    );
+  });
+
+  it('shows no such count for a clone that left nothing to the platform', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    expect(screen.queryByTestId('clone-results-left-to-the-platform')).toBeNull();
+  });
+
   it('should call onDone when clicking Done button', () => {
     const onDone = vi.fn();
     render(<CloneResultsPanel result={mockSuccessResult} onDone={onDone} />);

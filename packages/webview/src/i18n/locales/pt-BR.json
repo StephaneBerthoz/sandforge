@@ -792,6 +792,7 @@
         "summary": "Registros de origem",
         "inserted": "Inseridos",
         "linked": "Vinculados a existentes",
+        "leftToThePlatform": "Deixados de fora (a própria plataforma os grava, ou aquilo de que dependem)",
         "failed": "Falhados",
         "duration": "Duração",
         "idMapping": "Mapeamento de IDs",
@@ -2731,6 +2732,7 @@
       "errors": "Erros",
       "piiFields": "Campos PII",
       "linked": "Vinculados a registros existentes",
+      "leftToThePlatform": "Deixados de fora: a própria plataforma os grava, ou aquilo de que dependem",
       "refusals": "Por que registros foram recusados",
       "statusesApplied": "Status aplicados após seus registros filhos",
       "statusRefusals": "Por que um status não foi aplicado",
@@ -2926,12 +2928,14 @@
       "skippedList": "Registros ignorados (anti-duplicado nativo)",
       "errors": "Erros",
       "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos — PersonContact: {{personContact}} restaurados",
-      "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}"
+      "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}",
+      "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}"
     },
     "coverage": {
       "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",
       "unbounded": "Lidos sem o limite de data, por não terem CreatedDate: {{objects}}",
-      "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}"
+      "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}",
+      "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}"
     }
   },
   "grappe": {

@@ -5035,8 +5035,8 @@ describe('ForgeExecutor', () => {
       const scoped = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
 
       /** The fake orgs of `tables`, whose target refuses a tracked change as the platform does. */
-      function orgs() {
-        const run = fakeOrgs(tables(), fields);
+      function orgs(described: Record<string, FieldInfo[]> = fields, rows = tables()) {
+        const run = fakeOrgs(rows, described);
         const insert = run.orgDeps.insertRecords;
         run.orgDeps.insertRecords = async (org, object, records) => {
           const results = await insert(org, object, records);
@@ -5128,6 +5128,196 @@ describe('ForgeExecutor', () => {
         // The opportunity, the post and the comment on it.
         expect(summary.wouldInsertCount).toBe(3);
         expect(summary.errors).toEqual([leftOut]);
+      });
+
+      describe('a comment on one', () => {
+        // As the org describes it: a comment's feed item may be a feed item or
+        // the feed of any object, and the comment names the record the feed
+        // item is on, which it cannot set.
+        const described: Record<string, FieldInfo[]> = {
+          ...fields,
+          FeedComment: [
+            idField,
+            text('CommentBody'),
+            {
+              ...lookup('FeedItemId', 'FeedItem', true),
+              referenceTo: ['FeedItem', 'OpportunityFeed'],
+            },
+            {
+              ...lookup('ParentId', 'Opportunity'),
+              referenceTo: ['Account', 'Opportunity'],
+              createable: false,
+            },
+          ],
+        };
+        const withParents = (rows: Record<string, FakeRow[]>): Record<string, FakeRow[]> => ({
+          ...rows,
+          FeedComment: (rows['FeedComment'] ?? []).map((row) => ({
+            ...row,
+            ParentId: OPPORTUNITY,
+          })),
+        });
+        const KEY_PREFIXES: Record<string, string> = {
+          Opportunity: '006',
+          FeedItem: '0D5',
+          FeedComment: '0D7',
+        };
+        /** The graph discovery draws: a comment hangs from its feed item and from the record. */
+        const describedGraph = (): ForgeGraph => {
+          const drawn = graph();
+          drawn.edges.push(edge('Opportunity', 'FeedComment'));
+          return drawn;
+        };
+
+        /**
+         * The fake orgs, read whole when a run reads whole tables, telling each
+         * object's key prefix as a describe does.
+         */
+        function describedOrgs(rows = withParents(tables())) {
+          const run = orgs(described, rows);
+          run.orgDeps.queryRecords = async (_org, soql) => {
+            const whole = /^SELECT .+ FROM (\w+)$/.exec(soql)?.[1];
+            return whole ? (rows[whole] ?? []).map((row) => ({ ...row })) : selectRows(rows, soql);
+          };
+          run.orgDeps.describeObject = async (_org, object) => ({
+            keyPrefix: KEY_PREFIXES[object] ?? null,
+            recordTypes: [],
+          });
+          return run;
+        }
+
+        const commentLeftOut = {
+          objectApiName: 'FeedComment',
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: 'FeedItemId → tracked change (1 record)',
+              messages: [
+                'Not written: FeedItemId may not be left empty, and the tracked change it names ' +
+                  'is one the platform writes itself, which no copy sends.',
+              ],
+            },
+          ],
+        };
+
+        it('leaves out a comment on a tracked change in a run that reads whole tables, and says so', async () => {
+          // Read whole, the comments come with the rest, the one on the tracked
+          // change among them: it names a feed item the run never writes, and
+          // was held back as a failure for want of its parent.
+          const { orgDeps, inserted } = describedOrgs();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            describedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+          );
+
+          expect(inserted['FeedComment']).toEqual([
+            { CommentBody: 'On the post', FeedItemId: 'FeedItem:1' },
+          ]);
+          expect(summary.failedCount).toBe(0);
+          expect(summary.errors).toEqual([leftOut, commentLeftOut]);
+          expect(progressEvents.filter((e) => e.objectName === 'FeedComment').pop()).toMatchObject({
+            status: 'done',
+            message:
+              'Completed FeedComment: 1 succeeded, 0 failed, 1 left out: FeedItemId names a ' +
+              'tracked change, which the platform writes itself',
+          });
+        });
+
+        it('says in a dry run of whole tables that a comment on a tracked change would be left out', async () => {
+          const { orgDeps } = describedOrgs();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            describedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            { dryRun: true },
+          );
+
+          expect(
+            progressEvents.find((e) => e.objectName === 'FeedComment' && e.status === 'done')
+              ?.message,
+          ).toBe(
+            '[dry-run] FeedComment: 1 record(s) would be inserted, 1 left out: FeedItemId names ' +
+              'a tracked change, which the platform writes itself',
+          );
+          expect(summary.errors).toEqual([leftOut, commentLeftOut]);
+        });
+
+        it('does not read a comment on a tracked change through the record while a post of it is in scope', async () => {
+          // Read under the record, the comments are held to the feed items in
+          // scope, which the tracked change never enters.
+          const { orgDeps } = describedOrgs();
+          const read = recordReads(orgDeps);
+
+          await new ForgeExecutor(orgDeps).execute(
+            describedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            scoped,
+          );
+
+          expect([...(read['FeedComment'] ?? [])]).toEqual(['0D7000000000001AAA']);
+        });
+
+        it('leaves out a comment on the one feed item of a record, a tracked change, reached through the record', async () => {
+          // Scope reaches a comment through its feed item and through the
+          // record. With no feed item in scope, nothing held the read to them:
+          // the comment on the opportunity's tracked change was read under the
+          // opportunity, and held back as a failure for want of its parent.
+          const onTheChange = (row: FakeRow): boolean =>
+            row['Type'] === 'TrackedChange' || row['FeedItemId'] === CHANGE;
+          const rows = withParents({
+            ...tables(),
+            FeedItem: tables()['FeedItem'].filter(onTheChange),
+            FeedComment: tables()['FeedComment'].filter(onTheChange),
+          });
+          const { orgDeps, inserted } = describedOrgs(rows);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            describedGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            scoped,
+          );
+
+          expect(inserted['FeedComment'] ?? []).toEqual([]);
+          expect(summary.failedCount).toBe(0);
+          expect(summary.errors).toEqual([leftOut, commentLeftOut]);
+        });
+
+        it('sends no tracked change it finds as a missing parent, and leaves out the comment on it', async () => {
+          // With the feed items left out of the graph, the comments' feed
+          // items are parents the run copies on its way. Fetched by id, the
+          // tracked change was sent like the post, and refused.
+          const { orgDeps, inserted } = describedOrgs();
+          const withoutFeedItems = describedGraph();
+          withoutFeedItems.nodes = withoutFeedItems.nodes.map((n) =>
+            n.objectApiName === 'FeedItem' ? { ...n, included: false } : n,
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            withoutFeedItems,
+            'src',
+            'tgt',
+            onProgress,
+            { expandOrphanParents: true },
+          );
+
+          expect(inserted['FeedItem']).toEqual([{ Body: 'Kick-off', Type: 'TextPost' }]);
+          expect(inserted['FeedComment']).toEqual([
+            { CommentBody: 'On the post', FeedItemId: 'FeedItem:1' },
+          ]);
+          expect(summary.failedCount).toBe(0);
+          expect(summary.errors).toEqual([leftOut, commentLeftOut]);
+        });
       });
     });
 

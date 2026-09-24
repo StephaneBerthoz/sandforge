@@ -1652,3 +1652,105 @@ describe('AutopilotExecutor — lookups at objects the run does not copy', () =>
     expect(result.objectOutcomes?.['Order']).not.toHaveProperty('leftToDefault');
   });
 });
+
+describe('AutopilotExecutor — a feed item the platform writes itself', () => {
+  const TRACKED = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+  const rows = {
+    Opportunity: [{ Id: '006SRC', Name: 'Deal' }],
+    FeedItem: [
+      { Id: '0D5POST', Type: 'TextPost', Body: 'Kick-off', ParentId: '006SRC' },
+      { Id: '0D5CHANGE', Type: 'TrackedChange', Body: null, ParentId: '006SRC' },
+    ],
+    FeedComment: [
+      { Id: '0D7POST', CommentBody: 'On the post', FeedItemId: '0D5POST' },
+      { Id: '0D7CHANGE', CommentBody: 'On the change', FeedItemId: '0D5CHANGE' },
+    ],
+  };
+  // As the scan draws them: a feed item's parent and a comment's feed item
+  // may each be one of several objects, and neither may be left empty.
+  const edges = [
+    makeEdge({
+      from: 'Opportunity' as ApiName,
+      to: 'FeedItem' as ApiName,
+      fieldApiName: 'ParentId',
+      relationshipType: 'polymorphic',
+      required: true,
+    }),
+    makeEdge({
+      from: 'FeedItem' as ApiName,
+      to: 'FeedComment' as ApiName,
+      fieldApiName: 'FeedItemId',
+      relationshipType: 'polymorphic',
+      required: true,
+    }),
+  ];
+
+  /** The source ids of the records of an object the target was sent. */
+  function sentIds(deps: AutopilotExecutorDeps, objectApiName: string): unknown[] {
+    return vi
+      .mocked(deps.insert)
+      .mock.calls.filter(([name]) => name === objectApiName)
+      .flatMap(([, records]) => records.map((record) => record['Id']));
+  }
+
+  it('leaves out a tracked change and the comment on it, and says so', async () => {
+    // Sent, the platform refuses a tracked change — "Cannot directly insert
+    // FeedItem with type TrackedChange" — and the comment on it, which
+    // cannot go in without it.
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Opportunity: '006T', FeedItem: '0D5T', FeedComment: '0D7T' }),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Opportunity', 'FeedItem', 'FeedComment'),
+      edges,
+      [],
+      countsOf(rows),
+    );
+
+    expect(sentIds(deps, 'FeedItem')).toEqual(['0D5POST']);
+    expect(sentIds(deps, 'FeedComment')).toEqual(['0D7POST']);
+    expect(result.totalFailure).toBe(0);
+    expect(result.failedObjects).toEqual([]);
+    expect(result.objectOutcomes?.['FeedItem']).toEqual({
+      written: 1,
+      linked: 0,
+      failed: 0,
+      refusals: [],
+      leftToThePlatform: [{ objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 }],
+    });
+    expect(result.objectOutcomes?.['FeedComment']?.leftToThePlatform).toEqual([
+      {
+        objectApiName: 'FeedComment',
+        why: { rows: TRACKED, through: 'FeedItemId' },
+        count: 1,
+      },
+    ]);
+  });
+
+  it('writes nothing of a page whose every feed item is a tracked change, and fails nothing', async () => {
+    const changes = { FeedItem: [rows.FeedItem[1]] };
+    const deps = makeDeps({
+      query: sourceOf(changes),
+      insert: insertAs({ FeedItem: '0D5T' }),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('FeedItem'),
+      [],
+      [],
+      countsOf(changes),
+    );
+
+    expect(deps.insert).not.toHaveBeenCalled();
+    expect(result.completedObjects).toEqual(['FeedItem']);
+    expect(result.objectOutcomes?.['FeedItem']?.leftToThePlatform).toEqual([
+      { objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 },
+    ]);
+  });
+});

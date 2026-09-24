@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  RowsLeftToThePlatform,
   directAccountContactRelations,
   draftStartOf,
   existingSellingModelOptions,
+  leftToThePlatformNote,
+  leftToThePlatformReason,
+  leftToThePlatformSummary,
   recordsByNaturalKey,
   standardPriceIds,
   statusCategories,
@@ -49,6 +53,107 @@ describe('writtenByThePlatform', () => {
     expect(writtenByThePlatform('FeedItem', { Id: '0D5A', Type: 'CallLogPost' })).toBeUndefined();
     expect(writtenByThePlatform('FeedItem', { Id: '0D5A' })).toBeUndefined();
     expect(writtenByThePlatform('Task', { Id: '00TA', Type: 'TrackedChange' })).toBeUndefined();
+  });
+});
+
+describe('RowsLeftToThePlatform', () => {
+  const TRACKED = { field: 'Type', value: 'TrackedChange', noun: 'tracked change' };
+
+  it('keeps a post and leaves out a tracked change, counted once however often it is read', () => {
+    const left = new RowsLeftToThePlatform();
+    const rows = [
+      { Id: '0D5POST', Type: 'TextPost' },
+      { Id: '0D5CHANGE', Type: 'TrackedChange' },
+    ];
+
+    expect(left.keep('FeedItem', rows)).toEqual([{ Id: '0D5POST', Type: 'TextPost' }]);
+    left.keep('FeedItem', rows);
+
+    expect(left.has('0D5CHANGE')).toBe(true);
+    expect(left.has('0D5POST')).toBe(false);
+    expect(left.counts()).toEqual([
+      { objectApiName: 'FeedItem', why: { rows: TRACKED }, count: 1 },
+    ]);
+  });
+
+  it('leaves out what hangs from a row left out through a lookup it may not leave empty, and what hangs from that', () => {
+    const left = new RowsLeftToThePlatform();
+    left.keep('FeedItem', [{ Id: '0D5CHANGE', Type: 'TrackedChange' }]);
+
+    const comments = left.keep(
+      'FeedComment',
+      [
+        { Id: '0D7ON', FeedItemId: '0D5CHANGE' },
+        { Id: '0D7OFF', FeedItemId: '0D5POST' },
+      ],
+      ['FeedItemId'],
+    );
+    const attachments = left.keep(
+      'FeedAttachment',
+      [{ Id: '0D6ON', FeedEntityId: '0D7ON' }],
+      ['FeedEntityId'],
+    );
+
+    expect(comments).toEqual([{ Id: '0D7OFF', FeedItemId: '0D5POST' }]);
+    expect(attachments).toEqual([]);
+    expect(left.counts('FeedComment')).toEqual([
+      { objectApiName: 'FeedComment', why: { rows: TRACKED, through: 'FeedItemId' }, count: 1 },
+    ]);
+    expect(left.counts('FeedAttachment')).toEqual([
+      {
+        objectApiName: 'FeedAttachment',
+        why: { rows: TRACKED, through: 'FeedEntityId' },
+        count: 1,
+      },
+    ]);
+  });
+
+  it('keeps a row that names a row left out through a lookup it may leave empty', () => {
+    const left = new RowsLeftToThePlatform();
+    left.keep('FeedItem', [{ Id: '0D5CHANGE', Type: 'TrackedChange' }]);
+
+    expect(left.keep('Task', [{ Id: '00TA', WhatId: '0D5CHANGE' }])).toEqual([
+      { Id: '00TA', WhatId: '0D5CHANGE' },
+    ]);
+    expect(left.counts('Task')).toEqual([]);
+  });
+
+  it('notes a row under the id it is given, when the row carries none of its own', () => {
+    const left = new RowsLeftToThePlatform();
+
+    expect(left.leaveOut('FeedItem', 'FeedItem-000001', { Type: 'TrackedChange' })).toEqual({
+      rows: TRACKED,
+    });
+    expect(
+      left.leaveOut('FeedComment', 'FeedComment-000001', { FeedItemId: 'FeedItem-000001' }, [
+        'FeedItemId',
+      ]),
+    ).toEqual({ rows: TRACKED, through: 'FeedItemId' });
+    expect(left.leaveOut('FeedItem', 'FeedItem-000002', { Type: 'TextPost' })).toBeUndefined();
+  });
+
+  it('words a tracked change and what hangs from one, one or several', () => {
+    const own = { rows: TRACKED };
+    const hanging = { rows: TRACKED, through: 'FeedItemId' };
+
+    expect(leftToThePlatformNote(1, own)).toBe(
+      '1 tracked change left out: the platform writes them itself',
+    );
+    expect(leftToThePlatformNote(2, own)).toBe(
+      '2 tracked changes left out: the platform writes them itself',
+    );
+    expect(leftToThePlatformNote(2, hanging)).toBe(
+      '2 left out: FeedItemId names a tracked change, which the platform writes itself',
+    );
+    expect(leftToThePlatformSummary(1, own)).toBe('Type=TrackedChange (1 record)');
+    expect(leftToThePlatformSummary(3, hanging)).toBe('FeedItemId → tracked change (3 records)');
+    expect(leftToThePlatformReason(own)).toBe(
+      'Not written: the platform writes each tracked change itself, and refuses one a copy sends.',
+    );
+    expect(leftToThePlatformReason(hanging)).toBe(
+      'Not written: FeedItemId may not be left empty, and the tracked change it names is one ' +
+        'the platform writes itself, which no copy sends.',
+    );
   });
 });
 

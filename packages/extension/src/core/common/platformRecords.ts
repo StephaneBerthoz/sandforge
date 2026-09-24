@@ -67,6 +67,158 @@ export function writtenByThePlatform(
 }
 
 /**
+ * Why a copy leaves a row it read to the platform: the row is one of the rows
+ * the platform writes itself, or it cannot go in without one.
+ */
+export interface LeftToThePlatform {
+  /** The rows the platform writes itself the row is one of, or hangs from. */
+  readonly rows: PlatformWrittenRows;
+  /**
+   * The lookup the row may not leave empty and that names the row it hangs
+   * from. None for a row the platform writes itself.
+   */
+  readonly through?: string;
+}
+
+/** How many rows of one object a copy left to the platform, for one reason. */
+export interface RowsLeftOut {
+  readonly objectApiName: string;
+  readonly why: LeftToThePlatform;
+  readonly count: number;
+}
+
+/** One reason's rows of an object, by id. */
+interface LeftOutGroup {
+  readonly why: LeftToThePlatform;
+  readonly ids: Set<string>;
+}
+
+/**
+ * The rows a copy leaves to the platform, noted as it reads them: those the
+ * platform writes itself (`writtenByThePlatform`), and those that hang from
+ * one of them through a lookup they may not leave empty.
+ *
+ * A comment on a tracked change names, in a lookup it may not leave empty, the
+ * feed item it answers, which no copy writes: a copy that reads comments whole
+ * reads it with the rest, and it goes to the target without its feed item.
+ * Read parents first, a row that hangs from a row left out is left out in
+ * turn, and so is what hangs from it. Rows are told apart by their id: a row
+ * read twice is counted once.
+ */
+export class RowsLeftToThePlatform {
+  /** Why each row left out was, by its id. */
+  private readonly reasons = new Map<string, LeftToThePlatform>();
+  /** Per object, the rows left out by reason, in the order first met. */
+  private readonly byObject = new Map<string, Map<string, LeftOutGroup>>();
+
+  /**
+   * Why `row` is left to the platform, noted under `id` — or nothing, when a
+   * copy may write it.
+   *
+   * @param requiredLookups - The lookups the row may not leave empty.
+   */
+  leaveOut(
+    objectApiName: string,
+    id: string,
+    row: Record<string, unknown>,
+    requiredLookups: readonly string[] = [],
+  ): LeftToThePlatform | undefined {
+    const known = this.reasons.get(id);
+    if (known) return known;
+    const why = this.reasonFor(objectApiName, row, requiredLookups);
+    if (!why) return undefined;
+    this.reasons.set(id, why);
+    const groups = this.byObject.get(objectApiName) ?? new Map<string, LeftOutGroup>();
+    const key = `${why.rows.field}=${why.rows.value}|${why.through ?? ''}`;
+    const group = groups.get(key) ?? { why, ids: new Set<string>() };
+    group.ids.add(id);
+    groups.set(key, group);
+    this.byObject.set(objectApiName, groups);
+    return why;
+  }
+
+  /**
+   * The rows of `records` a copy may write, in their order: each of the others
+   * is noted with why, by its `Id`.
+   *
+   * @param requiredLookups - The lookups the rows may not leave empty.
+   */
+  keep<T extends Record<string, unknown>>(
+    objectApiName: string,
+    records: readonly T[],
+    requiredLookups: readonly string[] = [],
+  ): T[] {
+    return records.filter(
+      (row) => !this.leaveOut(objectApiName, String(row['Id']), row, requiredLookups),
+    );
+  }
+
+  /** Whether the row of this id was left to the platform. */
+  has(id: string): boolean {
+    return this.reasons.has(id);
+  }
+
+  /** How many rows were left out, per object and reason — of one object when it is named. */
+  counts(objectApiName?: string): RowsLeftOut[] {
+    const objects =
+      objectApiName === undefined
+        ? [...this.byObject]
+        : [[objectApiName, this.byObject.get(objectApiName)] as const];
+    return objects.flatMap(([object, groups]) =>
+      [...(groups?.values() ?? [])].map(({ why, ids }) => ({
+        objectApiName: object,
+        why,
+        count: ids.size,
+      })),
+    );
+  }
+
+  private reasonFor(
+    objectApiName: string,
+    row: Record<string, unknown>,
+    requiredLookups: readonly string[],
+  ): LeftToThePlatform | undefined {
+    const rows = writtenByThePlatform(objectApiName, row);
+    if (rows) return { rows };
+    for (const through of requiredLookups) {
+      const value = row[through];
+      const parent = typeof value === 'string' ? this.reasons.get(value) : undefined;
+      if (parent) return { rows: parent.rows, through };
+    }
+    return undefined;
+  }
+}
+
+/**
+ * What an object's last word says of `count` of its rows left to the
+ * platform: `1 tracked change left out: the platform writes them itself`, or
+ * for rows that hang from one, `1 left out: FeedItemId names a tracked
+ * change, which the platform writes itself`.
+ */
+export function leftToThePlatformNote(count: number, why: LeftToThePlatform): string {
+  if (why.through) {
+    return `${count} left out: ${why.through} names a ${why.rows.noun}, which the platform writes itself`;
+  }
+  return `${count} ${why.rows.noun}${count === 1 ? '' : 's'} left out: the platform writes them itself`;
+}
+
+/** The rows a report says `count` rows left to the platform are: `Type=TrackedChange (1 record)`. */
+export function leftToThePlatformSummary(count: number, why: LeftToThePlatform): string {
+  const records = `${count} record${count === 1 ? '' : 's'}`;
+  return why.through
+    ? `${why.through} → ${why.rows.noun} (${records})`
+    : `${why.rows.field}=${why.rows.value} (${records})`;
+}
+
+/** Why a report says rows left to the platform were not written. */
+export function leftToThePlatformReason(why: LeftToThePlatform): string {
+  return why.through
+    ? `Not written: ${why.through} may not be left empty, and the ${why.rows.noun} it names ` +
+        'is one the platform writes itself, which no copy sends.'
+    : `Not written: the platform writes each ${why.rows.noun} itself, and refuses one a copy sends.`;
+}
+
+/**
  * Objects whose status follows a lifecycle, and the object listing each
  * status with its category. A record is born in the Draft category and moves
  * on afterwards — run for real, an activated order was refused: "for a new

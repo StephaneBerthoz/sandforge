@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FrozenGraphCoverage } from '@sandforge/shared';
+import type { FrozenGraphCoverage, FrozenLeftToThePlatform } from '@sandforge/shared';
 
 /** Props for {@link FrozenCoverageNotes}. */
 export interface FrozenCoverageNotesProps {
@@ -10,6 +10,8 @@ export interface FrozenCoverageNotesProps {
   unboundedObjects?: readonly string[];
   /** Objects left out because they carry files the rules do not keep. */
   filesLeftOut?: readonly string[];
+  /** Records left out because the platform writes them, or what they depend on, itself. */
+  leftToThePlatform?: readonly FrozenLeftToThePlatform[];
   /** Test id of the list. */
   testId: string;
 }
@@ -26,11 +28,19 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
   graph,
   unboundedObjects = [],
   filesLeftOut = [],
+  leftToThePlatform = [],
   testId,
 }) => {
   const { t } = useTranslation();
   const truncated = graph?.truncated === true;
-  if (!truncated && unboundedObjects.length === 0 && filesLeftOut.length === 0) return null;
+  if (
+    !truncated &&
+    unboundedObjects.length === 0 &&
+    filesLeftOut.length === 0 &&
+    leftToThePlatform.length === 0
+  ) {
+    return null;
+  }
   return (
     <ul className="flex flex-col gap-0.5" data-testid={testId}>
       {truncated && graph && (
@@ -46,6 +56,13 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
       {filesLeftOut.length > 0 && (
         <li className="text-[11px] text-text-secondary">
           {t('frozen.coverage.filesLeftOut', { objects: filesLeftOut.join(', ') })}
+        </li>
+      )}
+      {leftToThePlatform.length > 0 && (
+        <li className="text-[11px] text-text-secondary">
+          {t('frozen.coverage.leftToThePlatform', {
+            objects: leftToThePlatform.map((l) => `${l.objectApiName} (${l.count})`).join(', '),
+          })}
         </li>
       )}
     </ul>

@@ -14,6 +14,7 @@ import type { IncrementalTracker } from './IncrementalTracker';
 import type { CoreServices } from '../../services.js';
 import { SyncRunFailure } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
+import { RowsLeftToThePlatform, leftToThePlatformNote } from '../../core/common/platformRecords.js';
 
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
@@ -250,10 +251,34 @@ export class SyncOrchestrator {
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const sourceRecords = await this.deps.querySource(config.sourceOrgId, objectConfig);
+    const read = await this.deps.querySource(config.sourceOrgId, objectConfig);
+
+    // What the platform writes itself is left out of a write that creates
+    // records, and said: see `writtenByThePlatform`. Sent, a tracked change is
+    // refused — "Cannot directly insert FeedItem with type TrackedChange". An
+    // update or a delete creates none, and the target says whether it takes
+    // it. What hangs from one is left to the write: a sync copies ids as it
+    // reads them, and the target may hold the change a comment answers.
+    const leftOut = new RowsLeftToThePlatform();
+    const sourceRecords =
+      objectConfig.operation === 'insert' || objectConfig.operation === 'upsert'
+        ? leftOut.keep(objectConfig.objectApiName, read)
+        : read;
+    const withLeftOut = (result: SyncObjectResult): SyncObjectResult => {
+      const counts = leftOut.counts();
+      if (counts.length === 0) return result;
+      return {
+        ...result,
+        skipped: result.skipped + counts.reduce((sum, { count }) => sum + count, 0),
+        errors: [
+          ...result.errors,
+          ...counts.map(({ why, count }) => leftToThePlatformNote(count, why)),
+        ],
+      };
+    };
 
     if (sourceRecords.length === 0) {
-      return createEmptyResult(objectConfig);
+      return withLeftOut(createEmptyResult(objectConfig));
     }
 
     const mappedRecords = sourceRecords.map((record) => {
@@ -302,9 +327,11 @@ export class SyncOrchestrator {
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
     // formula found nothing there and wrote its field empty.
-    return this.deps.dataSync.sync(
-      { ...objectConfig, fieldMappings: [], addOnFields: [] },
-      finalRecords,
+    return withLeftOut(
+      await this.deps.dataSync.sync(
+        { ...objectConfig, fieldMappings: [], addOnFields: [] },
+        finalRecords,
+      ),
     );
   }
 }

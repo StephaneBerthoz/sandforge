@@ -78,6 +78,7 @@ import {
   buildFrozenManifest,
   createBulkDmlWriter,
   datasetRecordCount,
+  leftToThePlatformCoverage,
   loadTokensFromSas,
   parseManifest,
   parsePseudonymRules,
@@ -293,8 +294,11 @@ function graphCoverage(graph: ForgeGraph, maxNodes: number): FrozenGraphCoverage
   return { objects: graph.nodes.length, truncated: graph.truncated === true, maxNodes };
 }
 
-/** Map an engine load report to its bridge DTO (alignedRecords dropped). */
-function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
+/**
+ * Map an engine load report to its bridge DTO (alignedRecords dropped).
+ * Exported so it can be tested.
+ */
+export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
   return {
     status: report.status,
     orgId: report.orgId,
@@ -314,6 +318,7 @@ function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
     personContact: report.personContact,
     statuses: report.statuses,
     purge: report.purge,
+    ...(report.leftToThePlatform ? { leftToThePlatform: report.leftToThePlatform } : {}),
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
   };
@@ -1159,6 +1164,11 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...graphCoverage(graph, discoveryOptions.maxNodes),
           unboundedObjects: extracted.unboundedObjects,
           filesLeftOut: frozen.filesLeftOut ?? [],
+          // What the dataset does not hold because no load could write it: a
+          // tracked change, and what cannot go in without one.
+          ...((extracted.leftToThePlatform ?? []).length > 0
+            ? { leftToThePlatform: leftToThePlatformCoverage(extracted.leftToThePlatform ?? []) }
+            : {}),
         },
       });
 

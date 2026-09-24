@@ -250,6 +250,18 @@ describe('ControlPanel node detail — what the node came to', () => {
     expect(statusRefusals.textContent).toContain('1 record');
   });
 
+  it('shows the records left out because the platform writes them, or what they depend on, itself', () => {
+    // A tracked change is never sent — the platform refuses one from a copy —
+    // and neither written nor refused, it would count nowhere else.
+    mockStoreState.selectedNode = () => settledOrder({ leftToThePlatform: 3 });
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    const leftOut = screen.getByTestId('node-left-to-the-platform');
+    expect(leftOut.textContent).toContain('the platform writes them');
+    expect(leftOut.textContent).toContain('3');
+  });
+
   it('shows none of it for a node that wrote everything', () => {
     mockStoreState.selectedNode = () =>
       settledOrder({
@@ -265,5 +277,6 @@ describe('ControlPanel node detail — what the node came to', () => {
     expect(screen.queryByTestId('node-refusals')).toBeNull();
     expect(screen.queryByTestId('node-linked')).toBeNull();
     expect(screen.queryByTestId('node-statuses')).toBeNull();
+    expect(screen.queryByTestId('node-left-to-the-platform')).toBeNull();
   });
 });

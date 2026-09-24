@@ -44,13 +44,16 @@ import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlV
 import {
   ACCOUNT_CONTACT_RELATION,
   NATURAL_KEYS,
+  RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   draftStartOf,
   existingSellingModelOptions,
+  leftToThePlatformNote,
   recordsByNaturalKey,
   statusCategories,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
+import { leftToThePlatformCoverage } from './manifest.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
 import { SasPathGuard } from './SasPathGuard.js';
@@ -286,6 +289,24 @@ export class FrozenDatasetLoader {
     const groups = insertionGroups(dependencies);
     const groupOrder = groups.flat();
 
+    // What the platform writes itself is never sent: see
+    // `writtenByThePlatform`. A dataset frozen before extractions left them
+    // out can carry a tracked change, whose type its rules kept, and the
+    // platform refuses one from a copy — "Cannot directly insert FeedItem with
+    // type TrackedChange". Its reference stays known, so a lookup that names
+    // it is told apart from a value; what cannot go in without it goes with
+    // it once the target says which lookups a record may not leave empty.
+    const leftToThePlatform = new RowsLeftToThePlatform();
+    const loading: FrozenDataset = {
+      ...working,
+      objects: working.objects.map((objectData) => ({
+        ...objectData,
+        records: objectData.records.filter(
+          (r) => !leftToThePlatform.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
+        ),
+      })),
+    };
+
     // 3. Reload: reuse by identity keys, then purge residuals (children
     //    before parents — reverse insertion order; unknown objects last).
     const mapping = new Map<string, string>();
@@ -319,14 +340,14 @@ export class FrozenDatasetLoader {
 
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
-      await this.reuseByIdentityKeys(options, working, mapping, reused);
+      await this.reuseByIdentityKeys(options, loading, mapping, reused);
     }
     // What the target already holds and keeps one of is linked on every load,
     // and before a reload purges, as the standard book is: the purge takes
     // whatever the last load mapped and this one has not, and a model linked
     // last time would otherwise go as a record the last load wrote.
-    await this.matchByNaturalKey(orgId, working, mapping, reused);
-    await this.matchSellingModelOptions(orgId, working, mapping, reused);
+    await this.matchByNaturalKey(orgId, loading, mapping, reused);
+    await this.matchSellingModelOptions(orgId, loading, mapping, reused);
     if (options.reload) {
       if (!options.pilot) {
         await this.purgeResiduals(
@@ -347,7 +368,7 @@ export class FrozenDatasetLoader {
     const recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'] = [];
     const rtResolved = new Map<string, FrozenRecord[]>();
     const resolvedRecordTypes = new Map<string, string>();
-    for (const objectData of working.objects) {
+    for (const objectData of loading.objects) {
       const records: FrozenRecord[] = [];
       for (const record of objectData.records) {
         records.push(
@@ -379,7 +400,7 @@ export class FrozenDatasetLoader {
     >();
     /** Lookups the target will not take empty, per object — from its describe. */
     const requiredLookups = new Map<string, Set<string>>();
-    for (const objectData of working.objects) {
+    for (const objectData of loading.objects) {
       const objectApiName = objectData.objectApiName;
       // An extraction writes a file for every object of the graph, and most
       // hold nothing for the dossiers kept: of a real Opportunity dataset's 69
@@ -432,6 +453,7 @@ export class FrozenDatasetLoader {
       );
     }
     emit({ phase: 'align', status: 'done', progress: 20, message: 'Schema aligned' });
+    leaveWhatHangsFromThePlatform(alignedByObject, requiredLookups, leftToThePlatform);
 
     // 6. Placeholders for required lookups absent from the dataset.
     emit({
@@ -540,12 +562,16 @@ export class FrozenDatasetLoader {
         objectResult = await insert(startingRecords, fromFiles);
       }
       perObject.push(objectResult);
+      const leftOutNote = leftToThePlatform
+        .counts(objectApiName)
+        .map(({ why, count }) => `, ${leftToThePlatformNote(count, why)}`)
+        .join('');
       emit({
         phase: 'insert',
         objectName: objectApiName,
         status: objectResult.failed.length > 0 ? 'error' : 'done',
         progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-        message: `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed`,
+        message: `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${leftOutNote}`,
       });
     }
 
@@ -600,7 +626,15 @@ export class FrozenDatasetLoader {
       message: 'Persisting mapping and contract',
     });
     await this.deps.mappingStore.persist(mapping);
-    const contractPath = this.writeContract(options, working, perObject, placeholders, now);
+    const leftOut = leftToThePlatform.counts();
+    const contractPath = this.writeContract(
+      options,
+      working,
+      perObject,
+      placeholders,
+      now,
+      leftOut,
+    );
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
     const hasErrors =
@@ -624,6 +658,7 @@ export class FrozenDatasetLoader {
       personContact,
       statuses,
       purge,
+      ...(leftOut.length > 0 ? { leftToThePlatform: leftToThePlatformCoverage(leftOut) } : {}),
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
     };
@@ -1514,16 +1549,38 @@ export class FrozenDatasetLoader {
     return { restored, unresolved };
   }
 
-  /** Write the counting contract (files minus exclusions) into the sas. */
+  /**
+   * Write the counting contract (files minus exclusions) into the sas. The
+   * records left to the platform are an exclusion of their own, and an object
+   * all of whose records were is counted too: none of it is expected.
+   */
   private writeContract(
     options: FrozenLoadOptions,
     working: FrozenDataset,
     perObject: PerObjectLoadResult[],
     placeholders: PlaceholderCreation[],
     now: () => Date,
+    leftOut: ReadonlyArray<{ objectApiName: string; count: number }>,
   ): string {
+    const leftOf = new Map<string, number>();
+    for (const { objectApiName, count } of leftOut) {
+      leftOf.set(objectApiName, (leftOf.get(objectApiName) ?? 0) + count);
+    }
+    const results = [...perObject];
+    for (const [objectApiName, count] of leftOf) {
+      if (results.some((r) => r.objectApiName === objectApiName)) continue;
+      results.push({
+        objectApiName,
+        fromFiles:
+          working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ?? count,
+        inserted: 0,
+        reused: 0,
+        skippedDuplicates: [],
+        failed: [],
+      });
+    }
     const objects: Record<string, CountingContractEntry> = {};
-    for (const result of perObject) {
+    for (const result of results) {
       const exclusionReasons: Record<string, number> = {};
       if (result.skippedDuplicates.length > 0) {
         exclusionReasons['duplicate-skipped'] = result.skippedDuplicates.length;
@@ -1531,7 +1588,11 @@ export class FrozenDatasetLoader {
       if (result.failed.length > 0) {
         exclusionReasons['dml-failed'] = result.failed.length;
       }
-      const excluded = result.skippedDuplicates.length + result.failed.length;
+      const left = leftOf.get(result.objectApiName) ?? 0;
+      if (left > 0) {
+        exclusionReasons['left-to-the-platform'] = left;
+      }
+      const excluded = result.skippedDuplicates.length + result.failed.length + left;
       const added = placeholders.filter(
         (p) => p.placeholderObjectApiName === result.objectApiName,
       ).length;
@@ -1563,6 +1624,30 @@ export class FrozenDatasetLoader {
   /** Exposed for tests/docs: the contract path inside a sas directory. */
   contractPath(sasDir: string): string {
     return countingContractPath(this.sasGuard, sasDir);
+  }
+}
+
+/**
+ * Leave out of what is loaded every record whose lookup the target will not
+ * take empty names one left to the platform — a comment on a tracked change
+ * names the feed item it answers — and what hangs from those, until none is.
+ */
+function leaveWhatHangsFromThePlatform(
+  alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
+  requiredLookups: ReadonlyMap<string, ReadonlySet<string>>,
+  leftToThePlatform: RowsLeftToThePlatform,
+): void {
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [objectApiName, aligned] of alignedByObject) {
+      const lookups = [...(requiredLookups.get(objectApiName) ?? [])];
+      const kept = aligned.filter(
+        (r) => !leftToThePlatform.leaveOut(objectApiName, r.referenceId, r.fields, lookups),
+      );
+      if (kept.length === aligned.length) continue;
+      alignedByObject.set(objectApiName, kept);
+      changed = true;
+    }
   }
 }
 

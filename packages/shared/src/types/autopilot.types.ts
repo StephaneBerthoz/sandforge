@@ -67,6 +67,12 @@ export interface AutopilotNode {
   statusesApplied?: number;
   /** Why a status could not be given back: those records stay drafts. */
   statusRefusals?: AutopilotRefusal[];
+  /**
+   * Records read and never sent: the platform writes them itself and refuses
+   * one from a copy — a tracked change — or they cannot go in without one it
+   * does. Neither written nor failed.
+   */
+  leftToThePlatform?: number;
 }
 
 /**

@@ -38,8 +38,10 @@ import {
   SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   dedupePricebookEntries,
+  isRequiredLookup,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { RowsLeftToThePlatform } from '../../core/common/platformRecords.js';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
 import {
@@ -155,6 +157,13 @@ class KeyPrefixOwners {
   }
 }
 
+/** The lookups of an object's records they may not leave empty, by its described fields. */
+function requiredLookupsOf(objectApiName: string, fields: readonly ScopableField[]): string[] {
+  return fields
+    .filter((f) => f.type === 'reference' && isRequiredLookup(objectApiName, f.name, f.nillable))
+    .map((f) => f.name);
+}
+
 /** Strict ISO instant — validated before interpolation into SOQL literals. */
 const ISO_INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
@@ -255,6 +264,16 @@ export class FrozenDatasetExtractor {
     const readObjects = new Set(nodes.map((n) => n.objectApiName));
 
     const recordsByObject = new Map<string, Map<string, Record<string, unknown>>>();
+    /**
+     * The records the dataset leaves to the platform: those it writes itself
+     * (`writtenByThePlatform`) and those that cannot go in without one.
+     *
+     * A load sends every record of the dataset, and the platform refuses a
+     * tracked change from a copy: "Cannot directly insert FeedItem with type
+     * TrackedChange". Nor does a comment on one go in without the feed item it
+     * answers. Left out as they are read, they put nothing in scope.
+     */
+    const leftToThePlatform = new RowsLeftToThePlatform();
 
     /**
      * Objects read without the freeze, because they have no `CreatedDate`.
@@ -341,14 +360,19 @@ export class FrozenDatasetExtractor {
       // statements; the bucket below already keeps one row per Id. The
       // statements past the first `byIdCount` read rows under a parent in
       // scope: rows reached from above.
-      const rows: Record<string, unknown>[] = [];
+      const read: Record<string, unknown>[] = [];
       const reached: string[] = [];
       for (const [index, soql] of built.statements.entries()) {
         const answered = await this.deps.query(soql);
-        rows.push(...answered);
+        read.push(...answered);
         if (index < built.byIdCount) continue;
         for (const row of answered) if (typeof row.Id === 'string') reached.push(row.Id);
       }
+      const rows = leftToThePlatform.keep(
+        node.objectApiName,
+        read,
+        requiredLookupsOf(node.objectApiName, fields),
+      );
       let bucket = recordsByObject.get(node.objectApiName);
       if (!bucket) {
         bucket = new Map();
@@ -372,7 +396,10 @@ export class FrozenDatasetExtractor {
       // and read under that opportunity's id, its line items came in, and the
       // opportunity with them, fetched as the parent they require.
       cache.addRead(node.objectApiName, ids);
-      cache.addReached(node.objectApiName, reached);
+      cache.addReached(
+        node.objectApiName,
+        reached.filter((id) => !leftToThePlatform.has(id)),
+      );
       owners.learnFrom(recordsByObject);
       // Seed parent objects referenced by lookups so their own wave can
       // use the 'self-cached' branch (mirrors ForgeExecutor behavior). An id
@@ -394,7 +421,15 @@ export class FrozenDatasetExtractor {
       }
     }
 
-    await this.completeRequiredParents(options, recordsByObject, describe, asOfWhere, owners);
+    await this.completeRequiredParents(
+      options,
+      recordsByObject,
+      describe,
+      asOfWhere,
+      owners,
+      leftToThePlatform,
+    );
+    await leaveWhatHangsFromThePlatform(recordsByObject, describe, leftToThePlatform);
 
     const standardPricebookSourceId = await this.addStandardPrices(
       options,
@@ -444,6 +479,7 @@ export class FrozenDatasetExtractor {
       unboundedObjects: [...unbounded],
       fileFields,
       ...(standardPricebookSourceId ? { standardPricebookSourceId } : {}),
+      leftToThePlatform: leftToThePlatform.counts(),
     };
   }
 
@@ -482,6 +518,10 @@ export class FrozenDatasetExtractor {
    * object its key prefix says it belongs to. Asked of each of them, a feed
    * item's parent and an error log's record cost some fifty queries a pass,
    * every one bound to come back empty.
+   *
+   * A parent left to the platform is not asked for again, and one fetched is
+   * left out as it would have been read: a comment on a tracked change,
+   * read before the feed items, names one in a lookup it may not leave empty.
    */
   private async completeRequiredParents(
     options: FrozenExtractionOptions,
@@ -489,6 +529,7 @@ export class FrozenDatasetExtractor {
     describe: (objectApiName: string) => Promise<ScopableField[]>,
     asOfWhere: string,
     owners: KeyPrefixOwners,
+    leftToThePlatform: RowsLeftToThePlatform,
   ): Promise<void> {
     const included = new Set(
       options.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
@@ -508,7 +549,7 @@ export class FrozenDatasetExtractor {
         for (const row of bucket.values()) {
           for (const field of followed) {
             const id = row[field.name];
-            if (typeof id !== 'string' || id === '') continue;
+            if (typeof id !== 'string' || id === '' || leftToThePlatform.has(id)) continue;
             if (!field.referenceTo.some(fetched)) continue;
             const targets = (await owners.objectsOf(id, field.referenceTo)).filter(fetched);
             for (const target of targets) {
@@ -535,8 +576,9 @@ export class FrozenDatasetExtractor {
           ids,
           extraWhere: fields.some((f) => f.name === 'CreatedDate') ? asOfWhere : undefined,
         });
+        const lookups = requiredLookupsOf(target, fields);
         for (const soql of statements) {
-          for (const row of await this.deps.query(soql)) {
+          for (const row of leftToThePlatform.keep(target, await this.deps.query(soql), lookups)) {
             if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
               bucket.set(row.Id, withoutEnvelope(row));
             }
@@ -765,5 +807,34 @@ export class FrozenDatasetExtractor {
       }
     }
     return entries;
+  }
+}
+
+/**
+ * Leave out of the dataset every record that hangs from one left to the
+ * platform through a lookup it may not leave empty, and what hangs from
+ * those, until none is left.
+ *
+ * An object of the dossier is read once, in an order scope sets, not the
+ * order records depend on each other: the comments of an opportunity can be
+ * read under it before its feed items are, and every comment then comes in,
+ * one on a tracked change among them.
+ */
+async function leaveWhatHangsFromThePlatform(
+  recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
+  describe: (objectApiName: string) => Promise<ScopableField[]>,
+  leftToThePlatform: RowsLeftToThePlatform,
+): Promise<void> {
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [objectApiName, bucket] of recordsByObject) {
+      const rows = [...bucket.values()];
+      const lookups = requiredLookupsOf(objectApiName, await describe(objectApiName));
+      const kept = leftToThePlatform.keep(objectApiName, rows, lookups);
+      if (kept.length === rows.length) continue;
+      changed = true;
+      const keptIds = new Set(kept.map((row) => row.Id));
+      for (const id of bucket.keys()) if (!keptIds.has(id)) bucket.delete(id);
+    }
   }
 }

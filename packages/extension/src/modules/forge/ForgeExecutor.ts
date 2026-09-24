@@ -54,11 +54,13 @@ import {
   type PendingFkUpdate,
 } from './stages/BatchWriter.js';
 import {
+  RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   draftStartOf,
+  leftToThePlatformNote as leftOutNote,
+  leftToThePlatformReason,
+  leftToThePlatformSummary,
   statusCategories,
-  writtenByThePlatform,
-  type PlatformWrittenRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
@@ -769,10 +771,10 @@ interface ExecutionState {
   /** Per object, the fields left out of its records because they hold a file's content. */
   readonly fileContentFieldsLeftOut: Map<string, Set<string>>;
   /**
-   * Per object, the rows read and left out because the platform writes them
-   * itself, by kind, with the source id of each.
+   * The rows read and left out because the platform writes them itself, or
+   * they cannot go in without one it does, by source id.
    */
-  readonly leftToThePlatform: Map<string, Map<PlatformWrittenRows, Set<string>>>;
+  readonly leftToThePlatform: RowsLeftToThePlatform;
   /** When the target dated the run's writes, once read back at its end. */
   writtenBetween?: ForgeWrittenBetween;
   successCount: number;
@@ -957,37 +959,49 @@ function parentNotWrittenSamples(
 
 /**
  * What an object's last word says of its rows left out because the platform
- * writes them itself — `, 1 tracked change left out: …` — or nothing.
+ * writes them itself — `, 1 tracked change left out: …` — or because they
+ * cannot go in without one it does, or nothing.
  */
 function leftToThePlatformNote(state: ExecutionState, objectApiName: string): string {
-  return [...(state.leftToThePlatform.get(objectApiName) ?? [])]
-    .map(
-      ([rows, ids]) =>
-        `, ${ids.size} ${rows.noun}${ids.size === 1 ? '' : 's'} left out: the platform writes them itself`,
-    )
+  return state.leftToThePlatform
+    .counts(objectApiName)
+    .map(({ why, count }) => `, ${leftOutNote(count, why)}`)
     .join('');
 }
 
 /**
- * The rows left out because the platform writes them itself, one report per
- * object and one sample per kind. Not written, and not counted as failed: no
- * copy can write them, and the target writes its own.
+ * The rows left out because the platform writes them itself, or they cannot
+ * go in without one it does, one report per object and one sample per kind.
+ * Not written, and not counted as failed: no copy can write them, and the
+ * target writes its own.
  */
 function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[] {
-  return [...state.leftToThePlatform].map(
+  const samples = new Map<string, ExecutionErrorSample[]>();
+  for (const { objectApiName, why, count } of state.leftToThePlatform.counts()) {
+    samples.set(objectApiName, [
+      ...(samples.get(objectApiName) ?? []),
+      {
+        recordSummary: leftToThePlatformSummary(count, why),
+        messages: [leftToThePlatformReason(why)],
+      },
+    ]);
+  }
+  return [...samples].map(
     ([objectApiName, kinds]): ExecutionObjectError => ({
       objectApiName,
       stage: 'scope',
       failedCount: 0,
       attemptedCount: 0,
-      samples: [...kinds].map(([rows, ids]) => ({
-        recordSummary: `${rows.field}=${rows.value} (${ids.size} record${ids.size === 1 ? '' : 's'})`,
-        messages: [
-          `Not written: the platform writes each ${rows.noun} itself, and refuses one a copy sends.`,
-        ],
-      })),
+      samples: kinds,
     }),
   );
+}
+
+/** The lookups of an object's rows they may not leave empty, by the fields read of it. */
+function requiredLookupsOf(objectApiName: string, fieldInfos: readonly FieldInfo[]): string[] {
+  return fieldInfos
+    .filter((f) => f.isReference && isRequiredLookup(objectApiName, f.name, f.nillable))
+    .map((f) => f.name);
 }
 
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
@@ -1263,7 +1277,7 @@ export class ForgeExecutor {
       fileScope: new Map<string, string[]>(),
       files: null,
       fileContentFieldsLeftOut: new Map<string, Set<string>>(),
-      leftToThePlatform: new Map<string, Map<PlatformWrittenRows, Set<string>>>(),
+      leftToThePlatform: new RowsLeftToThePlatform(),
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -2650,8 +2664,10 @@ export class ForgeExecutor {
       // relation waits for the write, as it is found in the target by the ids
       // the write makes. A tracked change needs nothing of the target, and
       // kept until the write it put what hangs from it in scope: a comment on
-      // it, which cannot go in without it.
-      this.leaveToThePlatform(state, node.objectApiName, records);
+      // it, which cannot go in without it. Such a row is left out with it, as
+      // it is read: a run of whole tables reads every comment, and one scope
+      // reaches through the record the feed item is on.
+      this.leaveToThePlatform(state, node.objectApiName, records, fieldInfos);
 
       // The standard price book is matched, never cloned: every org has
       // exactly one, it cannot be created, and the two were registered with
@@ -2797,30 +2813,50 @@ export class ForgeExecutor {
 
   /**
    * Take out of `records` the rows the platform writes itself
-   * (`writtenByThePlatform`), keeping the source id of each by kind: what
-   * the object's last word and the summary say was left out. Kept by id, the
-   * rows of a node read twice are counted once.
+   * (`writtenByThePlatform`), and those that hang from a row left out through
+   * a lookup they may not leave empty, keeping the source id of each by kind:
+   * what the object's last word and the summary say was left out. Kept by
+   * id, the rows of a node read twice are counted once.
+   *
+   * @returns How many rows were taken out.
    */
   private leaveToThePlatform(
     state: ExecutionState,
     objectApiName: string,
     records: Record<string, unknown>[],
-  ): void {
-    const kept = records.filter((row) => {
-      const rows = writtenByThePlatform(objectApiName, row);
-      if (!rows) return true;
-      const kinds =
-        state.leftToThePlatform.get(objectApiName) ?? new Map<PlatformWrittenRows, Set<string>>();
-      const ids = kinds.get(rows) ?? new Set<string>();
-      ids.add(String(row['Id']));
-      kinds.set(rows, ids);
-      state.leftToThePlatform.set(objectApiName, kinds);
-      return false;
-    });
-    if (kept.length !== records.length) {
+    fieldInfos: readonly FieldInfo[],
+  ): number {
+    const kept = state.leftToThePlatform.keep(
+      objectApiName,
+      records,
+      requiredLookupsOf(objectApiName, fieldInfos),
+    );
+    const taken = records.length - kept.length;
+    if (taken > 0) {
       records.length = 0;
       records.push(...kept);
     }
+    return taken;
+  }
+
+  /**
+   * The rows of `rows` still to be written once those that hang from a row
+   * left to the platform since they were read are left out with it. The rows
+   * the run clones of the object are fewer by as many.
+   */
+  private leaveWhatHangsFromThePlatform(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    fieldInfos: readonly FieldInfo[],
+    rows: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    const kept = [...rows];
+    const taken = this.leaveToThePlatform(state, node.objectApiName, kept, fieldInfos);
+    const read = state.readByObject.get(node.objectApiName);
+    if (taken > 0 && read !== undefined) {
+      state.readByObject.set(node.objectApiName, read - taken);
+    }
+    return kept;
   }
 
   /**
@@ -3170,13 +3206,18 @@ export class ForgeExecutor {
         return;
       }
 
+      // A row that hangs from one left to the platform after it was read — a
+      // run that reads every object before it writes one — goes with it, and
+      // is not held back below as a row whose parent failed.
+      toWrite = this.leaveWhatHangsFromThePlatform(state, node, fieldInfos, toWrite);
+
       // A lookup the rows may not leave empty and that can name several
       // objects decides row by row: see `rowsWithoutTheirParent`. Counted as
       // failed, as the rows of a record type held back are — the run read
       // them to clone them — and said why, per lookup and parent object.
-      const withoutParent = await this.rowsWithoutTheirParent(node, state, fieldInfos, records);
+      const withoutParent = await this.rowsWithoutTheirParent(node, state, fieldInfos, toWrite);
       if (withoutParent.size > 0) {
-        toWrite = records.filter((_, index) => !withoutParent.has(index));
+        toWrite = toWrite.filter((_, index) => !withoutParent.has(index));
         state.failedCount += withoutParent.size;
         state.errors.push({
           objectApiName: node.objectApiName,
@@ -3228,7 +3269,11 @@ export class ForgeExecutor {
         oweStatus: (objectApiName, id, status) =>
           state.deferredStatuses.push({ objectApiName, id, status }),
         objectOf: (id, candidates) => this.objectOfSourceId(state, id, candidates),
+        leftToThePlatform: state.leftToThePlatform,
       });
+      // A parent the expansion found to be one the platform writes itself was
+      // not sent: the rows that cannot go in without it go with it.
+      toWrite = this.leaveWhatHangsFromThePlatform(state, node, fieldInfos, toWrite);
 
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,

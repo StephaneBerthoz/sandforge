@@ -283,6 +283,14 @@ describe('autopilotNodeSchema', () => {
       autopilotNodeSchema.parse({ ...createValidAutopilotNode(), recordCount: -1 }),
     ).toThrow();
   });
+
+  it('keeps the records a node left to the platform, and refuses a count below zero', () => {
+    const node = { ...createValidAutopilotNode(), leftToThePlatform: 3 };
+    expect(autopilotNodeSchema.parse(node).leftToThePlatform).toBe(3);
+    expect(() =>
+      autopilotNodeSchema.parse({ ...createValidAutopilotNode(), leftToThePlatform: -1 }),
+    ).toThrow();
+  });
 });
 
 describe('autopilotEdgeSchema', () => {

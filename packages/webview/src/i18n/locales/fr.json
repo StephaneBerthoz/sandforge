@@ -792,6 +792,7 @@
         "summary": "Enregistrements source",
         "inserted": "Insérés",
         "linked": "Rattachés à l'existant",
+        "leftToThePlatform": "Laissés de côté (la plateforme les écrit elle-même, ou ce dont ils dépendent)",
         "failed": "Échoués",
         "duration": "Durée",
         "idMapping": "Correspondance des IDs",
@@ -2731,6 +2732,7 @@
       "errors": "Erreurs",
       "piiFields": "Champs PII",
       "linked": "Liés à des enregistrements existants",
+      "leftToThePlatform": "Laissés de côté : la plateforme les écrit elle-même, ou ce dont ils dépendent",
       "refusals": "Pourquoi des enregistrements ont été refusés",
       "statusesApplied": "Statuts appliqués après leurs enregistrements enfants",
       "statusRefusals": "Pourquoi un statut n'a pas été appliqué",
@@ -2926,12 +2928,14 @@
       "skippedList": "Enregistrements ignorés (anti-doublon natif)",
       "errors": "Erreurs",
       "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus — PersonContact : {{personContact}} restaurés",
-      "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}"
+      "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
+      "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}"
     },
     "coverage": {
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
       "unbounded": "Lus sans la borne de date, faute de CreatedDate : {{objects}}",
-      "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}"
+      "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}",
+      "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}"
     }
   },
   "grappe": {

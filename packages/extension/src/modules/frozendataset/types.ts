@@ -17,6 +17,8 @@
  * the referenceId mapping in the sas. FrozenDatasetHandler wires both.
  */
 
+import type { RowsLeftOut } from '../../core/common/platformRecords.js';
+
 /** A raw record as extracted from the source org, keyed by referenceId. */
 export interface ExtractedRecord {
   /**
@@ -77,6 +79,12 @@ export interface ExtractedDataset {
   fileFields: Record<string, string[]>;
   /** The source org's standard price book, when the dataset carries prices. */
   standardPricebookSourceId?: string;
+  /**
+   * The records read and left out, by object and reason: the platform writes
+   * them itself and refuses one from a copy — a tracked change — or they
+   * cannot go in without one it does.
+   */
+  leftToThePlatform?: RowsLeftOut[];
 }
 
 /** A pseudonymized record of the frozen dataset. */

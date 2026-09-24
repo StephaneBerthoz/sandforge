@@ -11,7 +11,7 @@ import {
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
-import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
+import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -128,13 +128,14 @@ function posted(
 
 /**
  * A small org that answers what discovery, the extractor and the selector
- * ask: two opportunities of one stage, one of them with a line item.
+ * ask: two opportunities of one stage, one of them with a line item — and,
+ * `withFeed`, a post and a tracked change on its feed.
  *
  * Discovery here behaves as the real one does — the record id only picks the
  * root object, counts are org-wide — which is the property the first health
  * check was built without.
  */
-function fakeOrg(): { conn: unknown; soqls: string[] } {
+function fakeOrg(withFeed = false): { conn: unknown; soqls: string[] } {
   const created = '2026-01-01T00:00:00.000Z';
   const rows: Record<string, Array<Record<string, unknown>>> = {
     Opportunity: [
@@ -149,6 +150,22 @@ function fakeOrg(): { conn: unknown; soqls: string[] } {
         CreatedDate: created,
       },
     ],
+    FeedItem: withFeed
+      ? [
+          {
+            Id: '0D5000000000001AAA',
+            Type: 'TextPost',
+            ParentId: '006000000000002AAA',
+            CreatedDate: created,
+          },
+          {
+            Id: '0D5000000000002AAA',
+            Type: 'TrackedChange',
+            ParentId: '006000000000002AAA',
+            CreatedDate: created,
+          },
+        ]
+      : [],
   };
   const describes: Record<string, unknown> = {
     Opportunity: {
@@ -166,7 +183,34 @@ function fakeOrg(): { conn: unknown; soqls: string[] } {
           relationshipName: 'OpportunityLineItems',
           cascadeDelete: true,
         },
+        ...(withFeed
+          ? [
+              {
+                childSObject: 'FeedItem',
+                field: 'ParentId',
+                relationshipName: null,
+                cascadeDelete: true,
+              },
+            ]
+          : []),
       ],
+    },
+    FeedItem: {
+      name: 'FeedItem',
+      fields: [
+        { name: 'Id', type: 'id', nillable: false },
+        { name: 'Type', type: 'picklist', nillable: true },
+        {
+          name: 'ParentId',
+          type: 'reference',
+          referenceTo: ['Opportunity'],
+          relationshipName: 'Parent',
+          nillable: false,
+          cascadeDelete: true,
+        },
+        { name: 'CreatedDate', type: 'datetime', nillable: false },
+      ],
+      childRelationships: [],
     },
     OpportunityLineItem: {
       name: 'OpportunityLineItem',
@@ -197,6 +241,7 @@ function fakeOrg(): { conn: unknown; soqls: string[] } {
       sobjects: [
         { name: 'Opportunity', keyPrefix: '006' },
         { name: 'OpportunityLineItem', keyPrefix: '00k' },
+        ...(withFeed ? [{ name: 'FeedItem', keyPrefix: '0D5' }] : []),
       ],
     }),
     describe: async (name: string) => describes[name],
@@ -1090,6 +1135,53 @@ describe('FrozenDatasetHandler', () => {
         filesLeftOut: [],
       });
     });
+
+    it('records in the manifest the tracked change it left out, which no load could write', async () => {
+      // Loaded, the platform refuses a tracked change from a copy: "Cannot
+      // directly insert FeedItem with type TrackedChange".
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const { conn } = fakeOrg(true);
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig();
+      const sasDir = config.sasDir as string;
+      await writeSelectionToSas(sasDir, {
+        roots: [
+          {
+            rootRecordId: '006000000000002AAA',
+            combinationKey: 'stage=Won',
+            axisValues: { stage: 'Won' },
+          },
+        ],
+        uncovered: [],
+        volumetry: { measured: { Opportunity: 1 }, total: 1, budgetMax: 2500 },
+        selectedAt: '2026-09-01T08:00:00.000Z',
+      });
+      fs.writeFileSync(
+        path.join(sasDir, 'rules.json'),
+        JSON.stringify({
+          rulesVersion: '1.0.0',
+          rules: { 'Opportunity.Name': { generator: 'companyName' } },
+        }),
+      );
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { leftToThePlatform?: unknown };
+        volumetry: { measured: Record<string, number> };
+      };
+      expect(manifest.volumetry.measured['FeedItem']).toBe(1);
+      expect(manifest.coverage.leftToThePlatform).toEqual([
+        {
+          objectApiName: 'FeedItem',
+          count: 1,
+          note: '1 tracked change left out: the platform writes them itself',
+        },
+      ]);
+    });
   });
 
   describe('frozen:manifest:get', () => {
@@ -1101,5 +1193,46 @@ describe('FrozenDatasetHandler', () => {
       expect(responses).toHaveLength(1);
       expect(responses[0].payload.manifest).toBeNull();
     });
+  });
+});
+
+describe('toLoadReportInfo', () => {
+  const report = {
+    status: 'completed' as const,
+    orgId: 'org-2',
+    mode: { pilot: false, reload: false },
+    startedAt: '2026-09-01T08:00:00.000Z',
+    durationMs: 1,
+    alignment: {
+      objectResults: [],
+      excludedObjects: [],
+      removals: [],
+      adjustments: [],
+      recordTypeIssues: [],
+    },
+    placeholders: [],
+    requiredDefaults: [],
+    perObject: [],
+    pass2: { resolved: 0, unresolved: [] },
+    personContact: { restored: 0, unresolved: [] },
+    statuses: { restored: 0, refused: [] },
+    purge: { deleted: {}, deactivated: {}, failures: [] },
+    mappingPath: '/sas/mapping.json',
+    contractPath: '/sas/contract.json',
+  };
+
+  it('hands the panel the records the load left to the platform', () => {
+    const leftToThePlatform = [
+      {
+        objectApiName: 'FeedItem',
+        count: 1,
+        note: '1 tracked change left out: the platform writes them itself',
+      },
+    ];
+
+    expect(toLoadReportInfo({ ...report, leftToThePlatform }).leftToThePlatform).toEqual(
+      leftToThePlatform,
+    );
+    expect(toLoadReportInfo(report)).not.toHaveProperty('leftToThePlatform');
   });
 });

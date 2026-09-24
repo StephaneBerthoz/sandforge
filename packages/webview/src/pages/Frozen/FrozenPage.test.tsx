@@ -294,6 +294,44 @@ describe('FrozenPage', () => {
     expect(statuses.textContent).toContain('Order-000003 → Activated');
   });
 
+  it('names the records the load left out because the platform writes them itself', () => {
+    // A tracked change is never sent — the platform refuses one from a copy —
+    // and neither inserted nor failed, it would count nowhere else.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: {
+          excludedObjects: [],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        leftToThePlatform: [
+          { objectApiName: 'FeedItem', count: 2, note: '2 tracked changes left out' },
+          { objectApiName: 'FeedComment', count: 1, note: '1 left out' },
+        ],
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const leftOut = screen.getByTestId('frozen-report-left-to-the-platform');
+    expect(leftOut.textContent).toContain('the platform writes these records');
+    expect(leftOut.textContent).toContain('FeedItem (2), FeedComment (1)');
+  });
+
   it('renders the load report with removals and skipped duplicates', () => {
     useFrozenStore.setState({
       tab: 'load',

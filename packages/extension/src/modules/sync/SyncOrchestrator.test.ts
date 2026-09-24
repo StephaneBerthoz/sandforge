@@ -585,3 +585,74 @@ describe('a cancel stops the run before what it has not reached', () => {
     });
   });
 });
+
+describe('a feed item the platform writes itself', () => {
+  const POST = { Id: '0D5000000000001AAA', Type: 'TextPost', Body: 'Kick-off' };
+  const CHANGE = { Id: '0D5000000000002AAA', Type: 'TrackedChange', Body: null };
+
+  /** A run of feed items whose writer keeps what each call was sent. */
+  function feedRun(operation: SyncObjectConfig['operation'], rows: Array<Record<string, unknown>>) {
+    const sent: Array<Record<string, unknown>> = [];
+    const write = vi.fn(async (_object: string, ...args: unknown[]) => {
+      const records = args.find(Array.isArray) as Array<Record<string, unknown>>;
+      sent.push(...records);
+      return records.map(() => ({ success: true, errors: [] }));
+    });
+    const deps: SyncOrchestratorDeps = {
+      ...createMockDeps(),
+      dataSync: new DataSync({ insert: write, upsert: write, update: write, delete: write }),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: vi.fn().mockResolvedValue(rows.map((row) => ({ ...row }))),
+    };
+    const config = createConfig({
+      objects: [createObjectConfig({ objectApiName: 'FeedItem', operation })],
+    });
+    return { deps, config, sent, write };
+  }
+
+  it('leaves out a tracked change, which the platform refuses from a copy, and says so', async () => {
+    // Sent, the target refuses it: "Cannot directly insert FeedItem with type
+    // TrackedChange".
+    const { deps, config, sent } = feedRun('insert', [POST, CHANGE]);
+
+    const result = await new SyncOrchestrator(deps).execute(config);
+
+    expect(sent.map((row) => row['Type'])).toEqual(['TextPost']);
+    expect(result.status).toBe('success');
+    expect(result.objectResults[0]).toMatchObject({
+      objectApiName: 'FeedItem',
+      processed: 1,
+      success: 1,
+      failed: 0,
+      skipped: 1,
+      errors: ['1 tracked change left out: the platform writes them itself'],
+    });
+    expect(result.totalSkipped).toBe(1);
+  });
+
+  it('writes nothing of an object whose every row is one, and says so', async () => {
+    const { deps, config, write } = feedRun('upsert', [CHANGE]);
+
+    const result = await new SyncOrchestrator(deps).execute(config);
+
+    expect(write).not.toHaveBeenCalled();
+    expect(result.objectResults[0]).toMatchObject({
+      processed: 0,
+      success: 0,
+      failed: 0,
+      skipped: 1,
+      errors: ['1 tracked change left out: the platform writes them itself'],
+    });
+  });
+
+  it('leaves an update of a tracked change the target holds to the target', async () => {
+    // It creates none: the target says whether it takes the change.
+    const { deps, config, sent } = feedRun('update', [CHANGE]);
+
+    const result = await new SyncOrchestrator(deps).execute(config);
+
+    expect(sent.map((row) => row['Id'])).toEqual([CHANGE.Id]);
+    expect(result.objectResults[0]).toMatchObject({ skipped: 0, errors: [] });
+  });
+});

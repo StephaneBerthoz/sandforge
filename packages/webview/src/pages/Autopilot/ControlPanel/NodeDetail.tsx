@@ -111,6 +111,15 @@ export const NodeDetail: React.FC = () => {
         </div>
       )}
 
+      {(selectedNode.leftToThePlatform ?? 0) > 0 && (
+        <div className="flex flex-col gap-0.5 text-xs" data-testid="node-left-to-the-platform">
+          <span className="text-text-secondary">{t('autopilot.control.leftToThePlatform')}</span>
+          <span className="font-medium text-text-primary">
+            {(selectedNode.leftToThePlatform ?? 0).toLocaleString(uiLocale())}
+          </span>
+        </div>
+      )}
+
       {selectedNode.refusals && selectedNode.refusals.length > 0 && (
         <RefusalList
           title={t('autopilot.control.refusals')}

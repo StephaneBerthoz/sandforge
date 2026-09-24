@@ -286,7 +286,7 @@ describe('useAutopilotStore', () => {
     expect(getState().graph).toBeNull();
   });
 
-  it('keeps what a node came to: its refusals by code, its linked records, its statuses', () => {
+  it('keeps what a node came to: its refusals by code, its linked records, its statuses, what it left to the platform', () => {
     getState().setGraph(createMockGraph());
     const refusal = {
       statusCode: 'REQUIRED_FIELD_MISSING',
@@ -301,6 +301,7 @@ describe('useAutopilotStore', () => {
       refusals: [refusal],
       statusesApplied: 3,
       statusRefusals: [],
+      leftToThePlatform: 4,
     });
 
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Contact')).toMatchObject({
@@ -309,6 +310,7 @@ describe('useAutopilotStore', () => {
       refusals: [refusal],
       statusesApplied: 3,
       statusRefusals: [],
+      leftToThePlatform: 4,
     });
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')?.refusals).toBe(
       undefined,

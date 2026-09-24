@@ -2830,7 +2830,8 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('execute-button').click();
       await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
       // A node as the handler settles it: written, linked, refused by code and
-      // fields, and the statuses given back once its children were in.
+      // fields, left to the platform, and the statuses given back once its
+      // children were in.
       await bridge.stream([
         {
           type: 'autopilot:node-progress',
@@ -2842,6 +2843,7 @@ for (const theme of STATE_THEMES) {
             recordCount: 1180,
             failureCount: 20,
             linkedCount: 3,
+            leftToThePlatform: 4,
             refusals: [
               {
                 statusCode: 'REQUIRED_FIELD_MISSING',
@@ -2876,6 +2878,9 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('control-tab-node').click();
       await page.getByTestId('node-status-refusals').waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('node-left-to-the-platform')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

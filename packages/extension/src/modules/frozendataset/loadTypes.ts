@@ -9,6 +9,7 @@
  * exactly like the forge/sync dep functions.
  */
 
+import type { FrozenLeftToThePlatform } from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import type { PersonContactLink } from './types.js';
@@ -334,6 +335,12 @@ export interface FrozenLoadReport {
     refused: Array<{ objectApiName: string; referenceId: string; status: string; detail: string }>;
   };
   purge: PurgeReport;
+  /**
+   * Records the dataset carries and the load left out, by object: the
+   * platform writes them itself and refuses one from a copy — a tracked
+   * change — or they cannot go in without one it does. Absent when none was.
+   */
+  leftToThePlatform?: FrozenLeftToThePlatform[];
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */

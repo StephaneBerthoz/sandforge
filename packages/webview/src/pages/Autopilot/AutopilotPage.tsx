@@ -67,6 +67,7 @@ export const AutopilotPage: React.FC = () => {
         refusals?: AutopilotRefusal[];
         statusesApplied?: number;
         statusRefusals?: AutopilotRefusal[];
+        leftToThePlatform?: number;
         apiCallsUsed?: number;
         error?: string;
       };
@@ -83,14 +84,16 @@ export const AutopilotPage: React.FC = () => {
     if (msg.payload.recordCount !== undefined) {
       store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
     }
-    // Why records were refused, by code and fields, and what the target
-    // already held: what the node detail shows once the node has settled.
+    // Why records were refused, by code and fields, what the target already
+    // held, and what was left to the platform: what the node detail shows
+    // once the node has settled.
     store.updateNodeOutcome(msg.payload.objectName, {
       failureCount: msg.payload.failureCount,
       linkedCount: msg.payload.linkedCount,
       refusals: msg.payload.refusals,
       statusesApplied: msg.payload.statusesApplied,
       statusRefusals: msg.payload.statusRefusals,
+      leftToThePlatform: msg.payload.leftToThePlatform,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);

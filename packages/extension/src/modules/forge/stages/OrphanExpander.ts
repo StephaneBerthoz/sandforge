@@ -28,6 +28,7 @@ import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
 import { isExcludedFromCopy } from '../excludedObjects.js';
+import type { RowsLeftToThePlatform } from '../../../core/common/platformRecords.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
 import {
@@ -106,7 +107,17 @@ export interface OrphanExpansionInput {
    * a parent is not looked for.
    */
   objectOf?: (id: string, candidates: readonly string[]) => Promise<string | undefined>;
+  /**
+   * The rows the run leaves to the platform. A parent it writes itself — a
+   * tracked change a comment answers — is noted there when it is read, and
+   * never sent; one noted already is not read. Absent, a parent is sent as it
+   * is read.
+   */
+  leftToThePlatform?: RowsLeftToThePlatform;
 }
+
+/** What the expansion of a parent the platform writes itself comes to: nothing sent, nothing failed. */
+const LEFT_TO_THE_PLATFORM = Symbol('left to the platform');
 
 /**
  * Single-hop orphan parent expander. Holds the per-`execute()` expansion
@@ -152,6 +163,7 @@ export class OrphanExpander {
         const value = r[field.name];
         if (typeof value !== 'string' || !value) continue;
         if (remapper.get(value)) continue;
+        if (input.leftToThePlatform?.has(value)) continue;
         const target = await this.parentObjectOf(input, field, value);
         if (!target) continue;
         const key = `${target}::${value}`;
@@ -188,7 +200,11 @@ export class OrphanExpander {
               input.anonymize,
               input.withoutFileContent,
               input.startAsDraft,
+              input.leftToThePlatform,
             );
+            // Noted among the rows left to the platform, whose children the
+            // run leaves out with it: nothing to map, and nothing failed.
+            if (parent === LEFT_TO_THE_PLATFORM) return;
             if (parent) {
               // Count only successful expansions toward the cap
               // so a string of misses doesn't silently exhaust the budget
@@ -284,7 +300,9 @@ export class OrphanExpander {
    * one's when the target refuses the copy as a duplicate and names the
    * record it holds — and, for a new one written as a draft, the status it
    * is owed. Returns `null` when the parent can't be fetched or the insert
-   * fails any other way.
+   * fails any other way, and {@link LEFT_TO_THE_PLATFORM} for a parent the
+   * platform writes itself, noted in `leftToThePlatform` and never sent: run
+   * for real, the platform refuses a tracked change from a copy.
    *
    * Intentionally non-recursive — the fetched parent's *own* required FKs
    * are nullified rather than expanded further. Callers must respect the
@@ -300,7 +318,10 @@ export class OrphanExpander {
     anonymize: OrphanExpansionInput['anonymize'],
     withoutFileContent: OrphanExpansionInput['withoutFileContent'],
     startAsDraft: OrphanExpansionInput['startAsDraft'],
-  ): Promise<{ id: string; existing: boolean; owedStatus?: string } | null> {
+    leftToThePlatform: OrphanExpansionInput['leftToThePlatform'],
+  ): Promise<
+    { id: string; existing: boolean; owedStatus?: string } | null | typeof LEFT_TO_THE_PLATFORM
+  > {
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
     // via crafted source-org data (e.g. a managed package supplying a
@@ -321,6 +342,9 @@ export class OrphanExpander {
     const soql = `SELECT ${queryFields.join(', ')} FROM ${objectName} WHERE Id = '${sanitizeSoqlValue(sourceRecordId)}'`;
     const records = await this.deps.queryRecords(sourceOrgId, soql);
     if (records.length === 0) return null;
+    if (leftToThePlatform && leftToThePlatform.keep(objectName, records).length === 0) {
+      return LEFT_TO_THE_PLATFORM;
+    }
 
     let targetCreatable: Set<string> | null = null;
     try {

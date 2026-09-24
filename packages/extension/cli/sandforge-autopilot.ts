@@ -48,6 +48,7 @@ import {
   type RecordTypeAvailability,
 } from '../src/core/metadata/recordTypeAvailability.js';
 import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
+import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -312,11 +313,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 /**
  * One line per object — written, linked, refused — then one per reason the
- * target gave, by status code and fields, and one per lookup left to the
- * target's default; then the lookups the second pass filled and the statuses
- * applied once the children were in. The code is printed rather than read
- * from the message: the message is in the language of the target's running
- * user.
+ * target gave, by status code and fields, one per lookup left to the target's
+ * default, and one per kind of record left to the platform; then the lookups
+ * the second pass filled and the statuses applied once the children were in.
+ * The code is printed rather than read from the message: the message is in
+ * the language of the target's running user.
  */
 export function outcomeLines(result: ExecutionResult): string[] {
   const lines: string[] = [];
@@ -335,6 +336,10 @@ export function outcomeLines(result: ExecutionResult): string[] {
     // Not sent: the target filled each in itself — the running user as owner.
     for (const lookup of outcome.leftToDefault ?? []) {
       lines.push(`      left to the target's default: ${lookup.field} x${lookup.count}`);
+    }
+    // Not sent either: rows the platform writes itself, and what hangs from them.
+    for (const left of outcome.leftToThePlatform ?? []) {
+      lines.push(`      ${leftToThePlatformNote(left.count, left.why)}`);
     }
   }
   for (const name of result.failedObjects) {

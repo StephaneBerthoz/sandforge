@@ -335,6 +335,105 @@ describe('SeedCloneHandler', () => {
       });
     });
 
+    describe('a feed item the platform writes itself', () => {
+      /** Fake ids: a post and a tracked change, and the comment on each. */
+      const POST = '0D5Fk00000PoStAIAV';
+      const CHANGE = '0D5Fk00000ChNgEIAV';
+      const NEW_POST = '0D5Fk00000NeWpOIAV';
+
+      /** Target describes as the org gives them: a comment may not leave its feed item empty. */
+      function targetWithFeeds(): void {
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async (name: string) => ({
+            keyPrefix: name === 'FeedItem' ? '0D5' : '0D7',
+            fields:
+              name === 'FeedComment'
+                ? [
+                    {
+                      name: 'FeedItemId',
+                      type: 'reference',
+                      referenceTo: ['FeedItem', 'OpportunityFeed'],
+                      nillable: false,
+                    },
+                  ]
+                : [{ name: 'Type', type: 'picklist', nillable: true }],
+            recordTypeInfos: [],
+          })),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      }
+
+      it('leaves out a tracked change and the comment on it, counts them apart, and says so', async () => {
+        // Sent, the target refuses a tracked change — "Cannot directly insert
+        // FeedItem with type TrackedChange" — and the comment on it, which
+        // cannot go in without the feed item it answers.
+        targetWithFeeds();
+        linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'FeedItem'
+            ? [
+                { Id: POST, Type: 'TextPost', Body: 'Kick-off' },
+                { Id: CHANGE, Type: 'TrackedChange', Body: null },
+              ]
+            : [
+                { Id: '0D7Fk00000CmNtAIAV', CommentBody: 'On the post', FeedItemId: POST },
+                { Id: '0D7Fk00000CmNtBIAV', CommentBody: 'On the change', FeedItemId: CHANGE },
+              ],
+        );
+        writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+          records.map(() => ({
+            id: name === 'FeedItem' ? NEW_POST : '0D7Fk00000NeWcMIAV',
+            success: true,
+            errors: [],
+          })),
+        );
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({
+              objects: [{ objectApiName: 'FeedItem' }, { objectApiName: 'FeedComment' }],
+            }),
+          ),
+        );
+
+        expect(writer.insert).toHaveBeenCalledWith(
+          'FeedItem',
+          [{ Type: 'TextPost', Body: 'Kick-off' }],
+          200,
+        );
+        expect(writer.insert).toHaveBeenLastCalledWith(
+          'FeedComment',
+          [{ CommentBody: 'On the post', FeedItemId: NEW_POST }],
+          200,
+        );
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(response.payload as unknown).toMatchObject({
+          status: 'success',
+          totalSourceRecords: 4,
+          totalInserted: 2,
+          totalFailed: 0,
+          totalLeftToThePlatform: 2,
+          objectResults: [
+            {
+              objectApiName: 'FeedItem',
+              sourceCount: 2,
+              insertedCount: 1,
+              failedCount: 0,
+              leftToThePlatform: 1,
+            },
+            {
+              objectApiName: 'FeedComment',
+              sourceCount: 2,
+              insertedCount: 1,
+              failedCount: 0,
+              leftToThePlatform: 1,
+            },
+          ],
+        });
+      });
+    });
+
     it('reports execute failures on operation:failed as retryable', async () => {
       writer.insert.mockRejectedValue(new Error('bulk write exploded'));
 

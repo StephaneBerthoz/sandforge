@@ -150,12 +150,32 @@ export interface FrozenGraphCoverage {
   maxNodes: number;
 }
 
+/**
+ * Records of one object a frozen dataset leaves out because the platform
+ * writes them itself and refuses one from a copy — a tracked change — or they
+ * cannot go in without one it does.
+ */
+export interface FrozenLeftToThePlatform {
+  /** The object of the records. */
+  objectApiName: string;
+  /** How many were left out. */
+  count: number;
+  /** Why, in words: `1 tracked change left out: the platform writes them itself`. */
+  note: string;
+}
+
 /** Manifest coverage: the graph, plus what was read without the time bound. */
 export interface FrozenManifestCoverage extends FrozenGraphCoverage {
   /** Objects read without `CreatedDate <= asOf`, having no such field. */
   unboundedObjects: string[];
   /** Objects left out because they carry files the rules do not keep. */
   filesLeftOut: string[];
+  /**
+   * Records left out because the platform writes them, or what they depend
+   * on, itself. Absent when none was, and from manifests written before it
+   * was recorded.
+   */
+  leftToThePlatform?: FrozenLeftToThePlatform[];
 }
 
 /** Selection summary returned to the webview (sas IDs redacted). */
@@ -342,6 +362,11 @@ export interface FrozenLoadReportInfo {
     deactivated: Record<string, number>;
     failures: Array<{ objectApiName: string; recordId: string; errors: string[] }>;
   };
+  /**
+   * Records the dataset carries and the load left out, by object: the
+   * platform writes them, or what they depend on, itself. Absent when none was.
+   */
+  leftToThePlatform?: FrozenLeftToThePlatform[];
   mappingPath: string;
   contractPath: string;
 }

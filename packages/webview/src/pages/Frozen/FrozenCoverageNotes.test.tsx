@@ -38,4 +38,19 @@ describe('FrozenCoverageNotes', () => {
     expect(text).toContain('DashboardComponent');
     expect(text).toContain('QuoteDocument, ContentVersion');
   });
+
+  it('names what was left out because the platform writes it, or what it depends on, itself', () => {
+    render(
+      <FrozenCoverageNotes
+        leftToThePlatform={[
+          { objectApiName: 'FeedItem', count: 2, note: '2 tracked changes left out' },
+          { objectApiName: 'FeedComment', count: 1, note: '1 left out' },
+        ]}
+        testId="coverage"
+      />,
+    );
+    const text = screen.getByTestId('coverage').textContent ?? '';
+    expect(text).toContain('the platform writes these records');
+    expect(text).toContain('FeedItem (2), FeedComment (1)');
+  });
 });

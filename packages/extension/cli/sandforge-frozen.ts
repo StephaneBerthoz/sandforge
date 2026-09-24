@@ -192,8 +192,11 @@ function graphLine(graph: { objects: number; truncated: boolean; maxNodes: numbe
   );
 }
 
-/** One line per thing the panel would have shown, for a person reading along. */
-function describe(message: Posted): string[] {
+/**
+ * One line per thing the panel would have shown, for a person reading along.
+ * Exported so it can be tested.
+ */
+export function messageLines(message: Posted): string[] {
   const type = String(message.type ?? '');
   const p = message.payload ?? {};
   if (type.endsWith(':error')) {
@@ -240,6 +243,7 @@ function describe(message: Posted): string[] {
           truncated: boolean;
           maxNodes: number;
           unboundedObjects: string[];
+          leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         };
       };
       return [
@@ -248,6 +252,10 @@ function describe(message: Posted): string[] {
         ...(m.coverage && m.coverage.unboundedObjects.length > 0
           ? [`read without the time bound: ${m.coverage.unboundedObjects.join(', ')}`]
           : []),
+        // Not in the dataset: no load could write them.
+        ...(m.coverage?.leftToThePlatform ?? []).map(
+          (left) => `${left.objectApiName}: ${left.note}`,
+        ),
         ...Object.entries(m.volumetry.measured)
           .filter(([, n]) => n > 0)
           .map(([name, n]) => `  ${name}: ${n}`),
@@ -279,6 +287,7 @@ function describe(message: Posted): string[] {
           deleted: Record<string, number>;
           failures: Array<{ objectApiName: string; errors: string[] }>;
         };
+        leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -293,6 +302,10 @@ function describe(message: Posted): string[] {
         );
         const first = o.failed[0];
         if (first) lines.push(`      first refusal: ${first.errors?.[0] ?? first.error ?? '?'}`);
+      }
+      // Never sent: no load could write them.
+      for (const left of r.leftToThePlatform ?? []) {
+        lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
       lines.push(`pass 2: ${r.pass2.resolved} resolved, ${r.pass2.unresolved.length} unresolved`);
       for (const u of r.pass2.unresolved.slice(0, 5)) {
@@ -360,7 +373,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         if (message.type === 'frozen:load:progress') return;
         posted.push(message);
         if (String(message.type ?? '').endsWith(':error')) failed = true;
-        for (const line of describe(message)) log(line);
+        for (const line of messageLines(message)) log(line);
       },
     },
     orgManager: { getOrg: (id: string) => orgs.get(id)?.org },
