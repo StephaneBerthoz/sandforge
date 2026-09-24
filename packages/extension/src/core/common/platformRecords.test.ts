@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   RowsLeftToThePlatform,
+  STATUS_LIFECYCLES,
+  STATUS_NEEDS_CHILDREN,
   directAccountContactRelations,
   draftStartOf,
   existingSellingModelOptions,
@@ -339,6 +341,16 @@ describe('statusCategories', () => {
     });
 
     await expect(statusCategories(query, 'ContractStatus')).resolves.toBeUndefined();
+  });
+});
+
+describe('STATUS_NEEDS_CHILDREN', () => {
+  it('names only objects a copy writes as drafts and gives their status back', () => {
+    // Rows are brought for the records written as drafts, told by the
+    // lifecycle: an object without one would bring none.
+    for (const objectApiName of Object.keys(STATUS_NEEDS_CHILDREN)) {
+      expect(STATUS_LIFECYCLES[objectApiName]).toBeDefined();
+    }
   });
 });
 

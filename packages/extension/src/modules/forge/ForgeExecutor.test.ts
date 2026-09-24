@@ -2184,6 +2184,140 @@ describe('ForgeExecutor', () => {
         ]);
       });
 
+      describe('whose items discovery never reached', () => {
+        const DRAFT_ORDER = '801000000000003AAA';
+        const DRAFT_ITEM = '802000000000003AAA';
+        /** What the target answers an order activated with nothing on it. */
+        const NO_PRODUCT = 'FAILED_ACTIVATION: an order must include at least one product';
+
+        /**
+         * The graph the default cap left around an account: its orders and
+         * none of their items. The source holds an activated order with an
+         * item and a draft with another, and the target activates no order
+         * without an item on it, as the platform does not.
+         */
+        function capped({
+          firstStatus = 'Live',
+          graphNodes = [],
+        }: { firstStatus?: string; graphNodes?: ForgeGraphNode[] } = {}) {
+          const run = activatedOrder({
+            Order: [
+              { Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: firstStatus },
+              { Id: DRAFT_ORDER, Name: 'Pending', AccountId: ACCOUNT, Status: 'Open' },
+            ],
+            OrderItem: [
+              { Id: ITEM, Name: 'Item', OrderId: ORDER },
+              { Id: DRAFT_ITEM, Name: 'Pending item', OrderId: DRAFT_ORDER },
+            ],
+          });
+          const { orgDeps, inserted } = run;
+          const update = orgDeps.updateRecords;
+          if (!update) throw new Error('the fake org updates');
+          orgDeps.updateRecords = async (org, object, rows) =>
+            (await update(org, object, rows)).map((result, i) =>
+              object === 'Order' &&
+              !(inserted['OrderItem'] ?? []).some((item) => item['OrderId'] === rows[i]['Id'])
+                ? { ...result, success: false, errors: [NO_PRODUCT] }
+                : result,
+            );
+          const graph = makeGraph(
+            [makeNode('Account'), makeNode('Order'), ...graphNodes],
+            [{ ...edge('Account', 'Order'), required: true }],
+          );
+          return { ...run, graph };
+        }
+        const rooted = { rootRecordId: ACCOUNT, rootObjectApiName: 'Account' };
+
+        it('activates an order past Draft with the items the cap left out, and them alone', async () => {
+          // Run for real at the default cap, discovery reached an
+          // opportunity's orders and not their items: the two activated
+          // orders went in as drafts and the target refused them their
+          // status back — "an order must include at least one product".
+          const { orgDeps, inserted, updated, graph } = capped();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['OrderItem']).toEqual([{ Name: 'Item', OrderId: 'Order:First' }]);
+          expect(updated).toEqual([
+            { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
+          ]);
+          // A draft goes in as it is and needs no item: the cap left its
+          // items out, and out they stay.
+          expect(summary.readByObject).toContainEqual({ objectApiName: 'OrderItem', read: 1 });
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('says in a dry run the items a real run writes for the orders it activates', async () => {
+          const { orgDeps, inserted, graph } = capped();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          expect(inserted).toEqual({});
+          expect(progressEvents.map((e) => e.message)).toContain(
+            '[dry-run] OrderItem: 1 record(s) would be inserted',
+          );
+          expect(summary.wouldInsertCount).toBe(4);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('leaves out the items of a graph that holds them and leaves them out', async () => {
+          // Unchecked, or empty in the whole org: the restore says what it
+          // could not give back.
+          const { orgDeps, inserted, graph } = capped({
+            graphNodes: [makeNode('OrderItem', { included: false })],
+          });
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(read['OrderItem']).toBeUndefined();
+          expect(inserted['OrderItem']).toBeUndefined();
+          expect(summary.errors).toEqual([
+            expect.objectContaining({
+              objectApiName: 'Order',
+              failedCount: 1,
+              samples: [{ recordSummary: 'Order Order:First Status=Live', messages: [NO_PRODUCT] }],
+            }),
+          ]);
+        });
+
+        it('brings no item when no order it reads is past Draft', async () => {
+          const { orgDeps, inserted, updated, graph } = capped({ firstStatus: 'Open' });
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Order']).toHaveLength(2);
+          expect(inserted['OrderItem'] ?? []).toEqual([]);
+          expect(summary.readByObject).toContainEqual({ objectApiName: 'OrderItem', read: 0 });
+          expect(updated).toEqual([]);
+          expect(summary.errors).toEqual([]);
+        });
+      });
+
       describe('fetched as the parent of a record the run writes', () => {
         const DELIVERY = 'a01000000000001AAA';
 
@@ -4171,7 +4305,9 @@ describe('ForgeExecutor', () => {
               }
             }
             if (
-              (object === 'OpportunityLineItem' || object === 'QuoteLineItem') &&
+              (object === 'OpportunityLineItem' ||
+                object === 'QuoteLineItem' ||
+                object === 'OrderItem') &&
               !String(row['PricebookEntryId'] ?? '').startsWith('PricebookEntry:')
             ) {
               return 'FIELD_INTEGRITY_EXCEPTION: must specify pricebook entry id';
@@ -4551,6 +4687,86 @@ describe('ForgeExecutor', () => {
               (e) => e.objectName !== 'Opportunity' && e.objectName !== 'FeedItem',
             ),
           ).toEqual([]);
+        });
+
+        it('prices the items it brings for an order it activates, when no other record names the catalog', async () => {
+          // The items come for the order's status, and a price is what an
+          // item cannot be written without: the fourth widget is sold on no
+          // line of this opportunity, only on its order.
+          const ORDER = '801000000000001AAA';
+          const { orgDeps, inserted, updated } = fakeOrgs(
+            {
+              ...tables(),
+              Order: [{ Id: ORDER, Name: 'Order', OpportunityId: OPPORTUNITY, Status: 'Live' }],
+              OrderItem: [
+                {
+                  Id: '802000000000001AAA',
+                  Name: 'Item',
+                  OrderId: ORDER,
+                  PricebookEntryId: price('custom', 'once', 4),
+                  Product2Id: product(4),
+                },
+              ],
+            },
+            {
+              ...fields,
+              Order: [
+                idField,
+                text('Name'),
+                lookup('OpportunityId', 'Opportunity'),
+                text('Status'),
+              ],
+              OrderItem: [
+                idField,
+                text('Name'),
+                lookup('OrderId', 'Order', true),
+                lookup('PricebookEntryId', 'PricebookEntry', true),
+                lookup('Product2Id', 'Product2'),
+              ],
+            },
+          );
+          const refused = platform(orgDeps, inserted);
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) =>
+            soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+              ? [
+                  { ApiName: 'Open', StatusCode: 'Draft' },
+                  { ApiName: 'Live', StatusCode: 'Activated' },
+                ]
+              : query(org, soql, onTruncated);
+          const graph = makeGraph(
+            [makeNode('Opportunity'), makeNode('Order')],
+            [edge('Opportunity', 'Order')],
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(refused).toEqual([]);
+          expect(inserted['Product2'].map((r) => r['Name'])).toEqual(['Widget 4']);
+          expect(inserted['ProductSellingModelOption']).toHaveLength(1);
+          expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+            'Widget 4 standard once',
+            'Widget 4 custom once',
+          ]);
+          expect(inserted['OrderItem']).toEqual([
+            {
+              Name: 'Item',
+              OrderId: 'Order:Order',
+              PricebookEntryId: 'PricebookEntry:Widget 4 custom once',
+              Product2Id: 'Product2:Widget 4',
+            },
+          ]);
+          expect(updated).toContainEqual({
+            object: 'Order',
+            rows: [{ Id: 'Order:Order', Status: 'Live' }],
+          });
+          expect(summary.errors).toEqual([]);
         });
       });
     });

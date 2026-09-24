@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
 import { SyncRunFailure } from './SyncRunFailure';
 import { WriteCancelledError } from './WriteCancelledError';
-import { DataSync } from './DataSync';
+import { DataSync, type OperationOutcome } from './DataSync';
 import { FieldMappingService } from './FieldMapping';
 import { TransformPipeline } from './TransformPipeline';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
@@ -654,5 +654,98 @@ describe('a feed item the platform writes itself', () => {
 
     expect(sent.map((row) => row['Id'])).toEqual([CHANGE.Id]);
     expect(result.objectResults[0]).toMatchObject({ skipped: 0, errors: [] });
+  });
+
+  describe('on an object the run stopped on', () => {
+    const LEFT_OUT = '1 tracked change left out: the platform writes them itself';
+    /** A run of a post and a tracked change whose writer does what `write` does. */
+    function stoppedRun(write: () => Promise<OperationOutcome[]>) {
+      const run = feedRun('insert', [POST, CHANGE]);
+      const writer = vi.fn(write);
+      run.deps.dataSync = new DataSync({
+        insert: writer,
+        upsert: writer,
+        update: writer,
+        delete: writer,
+      });
+      return run;
+    }
+
+    it('counts the tracked change it left out when a cancel stopped the write between two batches', async () => {
+      // Built from what the write had sent alone, the object's result dropped
+      // the tracked change the read had left out, and the note saying why.
+      const { deps, config } = stoppedRun(async () => {
+        throw new WriteCancelledError('FeedItem', [
+          { id: '0D5000000000901AAA', success: true, errors: [] },
+        ]);
+      });
+
+      const result = await new SyncOrchestrator(deps).execute(config);
+
+      expect(result).toMatchObject({ cancelled: true, totalProcessed: 1, totalSkipped: 1 });
+      expect(result.objectResults).toEqual([
+        expect.objectContaining({
+          objectApiName: 'FeedItem',
+          processed: 1,
+          success: 1,
+          skipped: 1,
+          errors: [LEFT_OUT],
+        }),
+      ]);
+    });
+
+    it('counts the tracked change it left out when a cancel stopped the write before any record went', async () => {
+      const { deps, config } = stoppedRun(async () => {
+        throw new WriteCancelledError('FeedItem');
+      });
+
+      const result = await new SyncOrchestrator(deps).execute(config);
+
+      expect(result).toMatchObject({
+        cancelled: true,
+        totalProcessed: 0,
+        totalSkipped: 1,
+        error: 'Cancelled before FeedItem was synced.',
+      });
+      expect(result.objectResults).toEqual([
+        expect.objectContaining({ processed: 0, skipped: 1, errors: [LEFT_OUT] }),
+      ]);
+    });
+
+    it('counts the tracked change it left out when the cancel came between the read and the write', async () => {
+      const stop = new AbortController();
+      const { deps, config, write } = feedRun('insert', [POST, CHANGE]);
+      deps.signal = stop.signal;
+      const read = deps.querySource;
+      deps.querySource = vi.fn(async (org: string, object: SyncObjectConfig) => {
+        stop.abort();
+        return read(org, object);
+      });
+
+      const result = await new SyncOrchestrator(deps).execute(config);
+
+      expect(write).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ cancelled: true, totalProcessed: 0, totalSkipped: 1 });
+      expect(result.objectResults).toEqual([
+        expect.objectContaining({ processed: 0, skipped: 1, errors: [LEFT_OUT] }),
+      ]);
+    });
+
+    it('counts the tracked change it left out on an object whose write failed', async () => {
+      const { deps, config } = stoppedRun(async () => {
+        throw new Error('ECONNRESET');
+      });
+
+      const failure = await new SyncOrchestrator(deps).execute(config).then(
+        () => undefined,
+        (err: unknown) => err as SyncRunFailure,
+      );
+
+      expect(failure).toBeInstanceOf(SyncRunFailure);
+      expect(failure?.result.totalSkipped).toBe(1);
+      expect(failure?.result.objectResults).toEqual([
+        expect.objectContaining({ failed: 1, skipped: 1, errors: ['ECONNRESET', LEFT_OUT] }),
+      ]);
+    });
   });
 });

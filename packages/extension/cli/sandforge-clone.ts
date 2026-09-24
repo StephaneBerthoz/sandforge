@@ -130,7 +130,7 @@ Options:
                          object you expected is missing, e.g. the lines of an
                          Opportunity's quotes. The prices, products, price
                          books and selling models the lines use come whatever
-                         the cap.
+                         the cap, as do the items of an activated order.
   --anonymize            anonymize PII fields                   (default: off)
   --dry-run              skip writes, surface scoped queries    (default: off)
   --upsert               use external Id upsert when available  (default: insert)
@@ -465,6 +465,34 @@ export async function loadRecordTypes(
 }
 
 /**
+ * The describe of an object in an org, asked of the org once a run: discovery,
+ * the run's catalog step and each object's read and write all answer from one
+ * request for the same object, as the extension's describe cache has them do.
+ * Asked afresh each time, a dry run of an opportunity at the default cap sent
+ * 223 describes, 85 of them for an object the org had already described — the
+ * catalog step describes every object of the graph once more before the first
+ * row is read. A describe under way is shared; one that failed is asked
+ * again. Exported so it can be tested.
+ */
+export function describeOnce(
+  describe: (orgId: string, objectName: string) => Promise<DescribeSObjectResult>,
+): (orgId: string, objectName: string) => Promise<DescribeSObjectResult> {
+  const described = new Map<string, Promise<DescribeSObjectResult>>();
+  return (orgId, objectName) => {
+    const key = `${orgId}::${objectName}`;
+    const known = described.get(key);
+    if (known) return known;
+    const asked = describe(orgId, objectName);
+    described.set(key, asked);
+    // Not kept when it fails: the next step that needs the object asks again.
+    asked.catch(() => {
+      if (described.get(key) === asked) described.delete(key);
+    });
+    return asked;
+  };
+}
+
+/**
  * The key prefix and record types of an object, read from the describe the
  * connection already holds — `describe$` answers from jsforce's cache, which
  * the field describe of the same object filled. Exported so it can be tested.
@@ -774,16 +802,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   const piiDetector = new PIIDetector();
-  const fullDescribes = new Map<string, ObjectDescribe>();
+  const describe = describeOnce(async (orgId, name) => {
+    const c = conns.get(orgId);
+    if (!c) throw new Error(`No connection for ${orgId}`);
+    return c.sobject(name).describe();
+  });
   const discoveryDeps: GraphDiscoveryDeps = {
-    describeObject: async (orgId, name) => {
-      const c = conns.get(orgId);
-      if (!c) throw new Error(`No connection for ${orgId}`);
-      const raw = await c.sobject(name).describe();
-      const adapted = adaptDescribe(raw);
-      fullDescribes.set(name, adapted);
-      return adapted;
-    },
+    describeObject: async (orgId, name) => adaptDescribe(await describe(orgId, name)),
     queryCount: async (orgId, soql) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
@@ -874,9 +899,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }));
     },
     describeFields: async (orgId, name) => {
-      const c = conns.get(orgId);
-      if (!c) throw new Error(`No connection for ${orgId}`);
-      const meta = await c.sobject(name).describe();
+      const meta = await describe(orgId, name);
       return meta.fields.map<FieldInfo>((f) => ({
         name: f.name,
         type: f.type,
@@ -890,12 +913,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           .map((p) => p.value as string),
       }));
     },
-    isObjectCreatable: async (orgId, name) => {
-      const c = conns.get(orgId);
-      if (!c) throw new Error(`No connection for ${orgId}`);
-      const meta = await c.sobject(name).describe();
-      return meta.createable !== false;
-    },
+    isObjectCreatable: async (orgId, name) => (await describe(orgId, name)).createable !== false,
     // The key prefix a duplicate's id must carry, and the record types the
     // running user may use, from the describe already cached for the object.
     describeObject: async (orgId, name) => {

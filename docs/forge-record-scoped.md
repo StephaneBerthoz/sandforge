@@ -32,7 +32,10 @@ still reads the prices under it. The catalog comes whatever discovery reached:
 when it stops at its cap before the catalog, the run adds the objects its
 records cannot be written without — a line's price, and that price's product,
 book and selling model — and reads them the same way. One the graph holds and
-leaves out stays out.
+leaves out stays out. The items of an activated order come the same way: the
+order is written as a draft and activated once the rest is written, and the
+platform activates no order without a product, so when discovery stopped before
+the items the run adds them — those of the orders past Draft, and their prices.
 
 ## Pipeline
 

@@ -4,11 +4,19 @@ import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+// The sessions stay the real ones unless a test gives the orgs it runs against.
+vi.mock('./sfSession.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sfSession.js')>();
+  return { ...actual, loadOrg: vi.fn(actual.loadOrg), makeConn: vi.fn(actual.makeConn) };
+});
 
 import { execFileSync } from 'node:child_process';
+import { loadOrg, makeConn } from './sfSession.js';
+import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
   adaptDescribe,
   describeObjectInfo,
+  describeOnce,
   executeOptions,
   failedOutright,
   jsonResult,
@@ -748,6 +756,148 @@ describe('sandforge-clone anonymization', () => {
     const options = executeOptions(parseArgs(argv()), graph, []);
 
     expect(options.anonymization).toBeUndefined();
+  });
+});
+
+describe('sandforge-clone describes', () => {
+  describe('describeOnce', () => {
+    const account = { name: 'Account' } as DescribeSObjectResult;
+
+    it('asks an org for an object once, and shares the answer still to come', async () => {
+      const describe = vi.fn(async () => account);
+      const described = describeOnce(describe);
+
+      const answers = await Promise.all([
+        described('SRC', 'Account'),
+        described('SRC', 'Account'),
+        described('TGT', 'Account'),
+      ]);
+      await described('SRC', 'Account');
+
+      expect(answers).toEqual([account, account, account]);
+      expect(describe.mock.calls).toEqual([
+        ['SRC', 'Account'],
+        ['TGT', 'Account'],
+      ]);
+    });
+
+    it('asks again for a describe that failed', async () => {
+      const describe = vi
+        .fn<(orgId: string, objectName: string) => Promise<DescribeSObjectResult>>()
+        .mockRejectedValueOnce(new Error('ECONNRESET'))
+        .mockResolvedValue(account);
+      const described = describeOnce(describe);
+
+      await expect(described('SRC', 'Account')).rejects.toThrow('ECONNRESET');
+      await expect(described('SRC', 'Account')).resolves.toBe(account);
+      expect(describe).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('of a run', () => {
+    const ACCOUNT = '001000000000001AAA';
+    /** An object as both fake orgs describe it. */
+    const object = (
+      name: string,
+      keyPrefix: string,
+      fields: Array<Record<string, unknown>>,
+      childRelationships: Array<Record<string, unknown>> = [],
+    ) =>
+      ({
+        name,
+        keyPrefix,
+        createable: true,
+        recordTypeInfos: [],
+        childRelationships,
+        fields: [
+          { name: 'Id', type: 'id', createable: false, nillable: false },
+          ...fields.map((f) => ({ type: 'string', createable: true, nillable: true, ...f })),
+        ].map((f) => ({ referenceTo: [], relationshipName: null, cascadeDelete: false, ...f })),
+      }) as unknown as DescribeSObjectResult;
+    const DESCRIBES: Record<string, DescribeSObjectResult> = {
+      Account: object(
+        'Account',
+        '001',
+        [{ name: 'Name' }],
+        [{ childSObject: 'Contact', field: 'AccountId', relationshipName: 'Contacts' }],
+      ),
+      Contact: object('Contact', '003', [
+        { name: 'LastName' },
+        { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+      ]),
+    };
+    const ROWS: Record<string, FakeRow[]> = {
+      Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+      Contact: [{ Id: '003000000000001AAA', LastName: 'Key', AccountId: ACCOUNT }],
+    };
+
+    /** An org holding an account and its contact, and the objects it was asked to describe. */
+    function fakeOrg() {
+      const asked: string[] = [];
+      const conn = {
+        sobject: (name: string) => ({
+          describe: async () => {
+            asked.push(name);
+            return DESCRIBES[name];
+          },
+        }),
+        // jsforce's cache, which the describe of the object filled.
+        describe$: async (name: string) => DESCRIBES[name],
+        describeGlobal: async () => ({
+          sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
+        }),
+        query: async (soql: string) => {
+          const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
+          if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, records: [] };
+          if (soql.includes(' FROM RecordType ')) return { totalSize: 0, records: [] };
+          const records = selectRows(ROWS, soql);
+          return { totalSize: records.length, records };
+        },
+      };
+      return { conn: conn as unknown as Connection, asked };
+    }
+
+    let realLoadOrg: typeof loadOrg;
+    let realMakeConn: typeof makeConn;
+    let printed: string[];
+
+    beforeEach(async () => {
+      ({ loadOrg: realLoadOrg, makeConn: realMakeConn } =
+        await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js'));
+      printed = [];
+      vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+        printed.push(String(line));
+      });
+      vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+        throw new ExitCalled(typeof code === 'number' ? code : undefined);
+      });
+    });
+
+    afterEach(() => {
+      vi.mocked(loadOrg).mockImplementation(realLoadOrg);
+      vi.mocked(makeConn).mockImplementation(realMakeConn);
+      vi.restoreAllMocks();
+    });
+
+    it('asks each org to describe an object once, whichever steps of the run read it', async () => {
+      // Discovery, the catalog step and each object's read described the
+      // same objects of the source again: three requests an object on a dry
+      // run, where the extension, which caches its describes, sent one.
+      const orgs = { SRC: fakeOrg(), TGT: fakeOrg() };
+      vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+        alias,
+        username: '',
+        instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+        accessToken: 'token',
+      }));
+      vi.mocked(makeConn).mockImplementation((org) => orgs[org.alias as keyof typeof orgs].conn);
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain('  [dry-run] Contact: 1 record(s) would be inserted');
+      expect(orgs.SRC.asked.sort()).toEqual(['Account', 'Contact']);
+      expect(orgs.TGT.asked.sort()).toEqual(['Account', 'Contact']);
+    });
   });
 });
 

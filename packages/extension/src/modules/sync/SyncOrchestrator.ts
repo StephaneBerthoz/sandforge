@@ -146,20 +146,26 @@ export class SyncOrchestrator {
     let partitionIndex = 0;
     for (const [index, objectConfig] of sortedObjects.entries()) {
       if (this.deps.signal?.aborted) return stopHere(sortedObjects.slice(index));
+      // The rows the object's read leaves to the platform, kept out here: its
+      // result says them however it ends — written, stopped by a cancel, or
+      // failed. Held inside the read, they reached the result of a write that
+      // went through alone, and a cancel during the write dropped the tracked
+      // change it had left out, and the note saying why.
+      const leftOut = new RowsLeftToThePlatform();
       let result: SyncObjectResult | typeof NOT_WRITTEN;
       try {
-        result = await this.syncObject(config, objectConfig);
+        result = await this.syncObject(config, objectConfig, leftOut);
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
         // of it, and a REST write stopped between two batches wrote the
         // records before. What it wrote stays in the org, so it is counted;
         // the object is not synced in full, like the ones after it.
         if (err instanceof WriteCancelledError) {
-          if (err.written.length > 0) {
-            objectResults.push(
-              buildObjectResult(objectConfig.objectApiName, objectConfig.operation, err.written),
-            );
-          }
+          const stopped = withRowsLeftOut(
+            buildObjectResult(objectConfig.objectApiName, objectConfig.operation, err.written),
+            leftOut,
+          );
+          if (stopped.processed > 0 || stopped.skipped > 0) objectResults.push(stopped);
           return stopHere(sortedObjects.slice(index));
         }
         /*
@@ -171,18 +177,28 @@ export class SyncOrchestrator {
          * "failure, 0 objects, 0 ms", with no way to tell it from a run that
          * never started.
          */
-        objectResults.push({
-          ...createEmptyResult(objectConfig),
-          failed: 1,
-          errors: [err instanceof Error ? err.message : String(err)],
-        });
+        objectResults.push(
+          withRowsLeftOut(
+            {
+              ...createEmptyResult(objectConfig),
+              failed: 1,
+              errors: [err instanceof Error ? err.message : String(err)],
+            },
+            leftOut,
+          ),
+        );
         throw new SyncRunFailure(
           err instanceof Error ? err.message : String(err),
           buildResult(config.id, operationId, objectResults, startTime, 'failure'),
           err,
         );
       }
-      if (result === NOT_WRITTEN) return stopHere(sortedObjects.slice(index));
+      if (result === NOT_WRITTEN) {
+        // Nothing of it was written; the rows its read left out are said all the same.
+        const stopped = withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
+        if (stopped.skipped > 0) objectResults.push(stopped);
+        return stopHere(sortedObjects.slice(index));
+      }
       objectResults.push(result);
 
       if (grappeActive) {
@@ -246,10 +262,13 @@ export class SyncOrchestrator {
   /**
    * Read, map and write one object: its result, or {@link NOT_WRITTEN} when a
    * cancel came while it was being read, before anything of it was written.
+   *
+   * @param leftOut - Receives the rows the read leaves to the platform.
    */
   private async syncObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
+    leftOut: RowsLeftToThePlatform,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const read = await this.deps.querySource(config.sourceOrgId, objectConfig);
 
@@ -259,26 +278,13 @@ export class SyncOrchestrator {
     // update or a delete creates none, and the target says whether it takes
     // it. What hangs from one is left to the write: a sync copies ids as it
     // reads them, and the target may hold the change a comment answers.
-    const leftOut = new RowsLeftToThePlatform();
     const sourceRecords =
       objectConfig.operation === 'insert' || objectConfig.operation === 'upsert'
         ? leftOut.keep(objectConfig.objectApiName, read)
         : read;
-    const withLeftOut = (result: SyncObjectResult): SyncObjectResult => {
-      const counts = leftOut.counts();
-      if (counts.length === 0) return result;
-      return {
-        ...result,
-        skipped: result.skipped + counts.reduce((sum, { count }) => sum + count, 0),
-        errors: [
-          ...result.errors,
-          ...counts.map(({ why, count }) => leftToThePlatformNote(count, why)),
-        ],
-      };
-    };
 
     if (sourceRecords.length === 0) {
-      return withLeftOut(createEmptyResult(objectConfig));
+      return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
     }
 
     const mappedRecords = sourceRecords.map((record) => {
@@ -327,13 +333,34 @@ export class SyncOrchestrator {
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
     // formula found nothing there and wrote its field empty.
-    return withLeftOut(
+    return withRowsLeftOut(
       await this.deps.dataSync.sync(
         { ...objectConfig, fieldMappings: [], addOnFields: [] },
         finalRecords,
       ),
+      leftOut,
     );
   }
+}
+
+/**
+ * An object's result, with the rows its read left to the platform counted as
+ * skipped and each kind said, as `leftToThePlatformNote` words it.
+ */
+function withRowsLeftOut(
+  result: SyncObjectResult,
+  leftOut: RowsLeftToThePlatform,
+): SyncObjectResult {
+  const counts = leftOut.counts();
+  if (counts.length === 0) return result;
+  return {
+    ...result,
+    skipped: result.skipped + counts.reduce((sum, { count }) => sum + count, 0),
+    errors: [
+      ...result.errors,
+      ...counts.map(({ why, count }) => leftToThePlatformNote(count, why)),
+    ],
+  };
 }
 
 /**

@@ -56,6 +56,7 @@ import {
 import {
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
+  STATUS_NEEDS_CHILDREN,
   draftStartOf,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
@@ -633,6 +634,14 @@ export interface ExecutionSummary {
   writtenBetween?: ForgeWrittenBetween;
 }
 
+/** A node the run adds for the status of its parent's records, and how its rows name them. */
+interface ChildOfAStatus {
+  /** The object whose records past Draft take their status back only with its rows under them. */
+  readonly parent: string;
+  /** The lookup of its rows that names the parent. */
+  readonly lookup: string;
+}
+
 /**
  * Per-`execute()` shared state threaded through the node pipeline. The
  * stages receive the slices they need; the executor stays the single owner
@@ -757,6 +766,18 @@ interface ExecutionState {
    * at the end of the run, or reported when the run stops before it.
    */
   readonly deferredStatuses: Array<{ objectApiName: string; id: string; status: string }>;
+  /**
+   * The nodes the run adds for the status of their parent's records, by
+   * object: of their rows, only those under a record past Draft are cloned.
+   * See `withWhatStatusesNeed`.
+   */
+  readonly statusChildren: ReadonlyMap<string, ChildOfAStatus>;
+  /**
+   * Per object whose status needs the rows of a node the run adds, the source
+   * ids of its records read past Draft: those written as drafts and given
+   * their status back once the rest is written.
+   */
+  readonly pastDraft: Map<string, Set<string>>;
   /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
   /** Per object no node knows the fields of, the personal fields the detector named. */
@@ -787,8 +808,8 @@ interface ExecutionState {
 
 /**
  * A node the run adds to the graph discovery built, for an object its records
- * cannot be written without that discovery never reached. Unmeasured: what
- * the run reads of it is what it counts.
+ * cannot be written, or given their status back, without that discovery never
+ * reached. Unmeasured: what the run reads of it is what it counts.
  *
  * @param fields - The object's source fields, as far as they were described.
  * @param level - One past the node whose records need it.
@@ -1229,8 +1250,10 @@ export class ForgeExecutor {
         this.fileCopyUnwired();
       if (refusal) throw new ForgeFilesRefusedError(refusal);
     }
+    // The items of an order come before the catalog: they price from it too.
+    const forStatuses = await this.withWhatStatusesNeed(graph, sourceOrgId);
     const runGraph = await this.withSellingModelOptions(
-      await this.withTheCatalogItNeeds(graph, sourceOrgId),
+      await this.withTheCatalogItNeeds(forStatuses.graph, sourceOrgId),
       sourceOrgId,
     );
     const state: ExecutionState = {
@@ -1272,6 +1295,8 @@ export class ForgeExecutor {
       existingRecords: [],
       lifecycles: new Map(),
       deferredStatuses: [],
+      statusChildren: forStatuses.added,
+      pastDraft: new Map<string, Set<string>>(),
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
       detectedPersonalFields: new Map<string, string[]>(),
       fileScope: new Map<string, string[]>(),
@@ -1762,17 +1787,8 @@ export class ForgeExecutor {
     records: Record<string, unknown>[],
   ): Promise<Map<number, string>> {
     const drafts = new Map<number, string>();
-    const lifecycle = STATUS_LIFECYCLES[objectApiName];
-    if (!lifecycle || state.config.dryRun || !this.deps.updateRecords) return drafts;
-    let categories = state.lifecycles.get(objectApiName);
-    if (!categories) {
-      categories = statusCategories(
-        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
-        lifecycle,
-      );
-      state.lifecycles.set(objectApiName, categories);
-    }
-    const known = await categories;
+    if (state.config.dryRun) return drafts;
+    const known = await this.lifecycleOf(state, objectApiName);
     if (!known) return drafts;
     records.forEach((record, index) => {
       const draft = draftStartOf(record['Status'], known);
@@ -1781,6 +1797,55 @@ export class ForgeExecutor {
       record['Status'] = draft;
     });
     return drafts;
+  }
+
+  /**
+   * The target's statuses of an object with a status lifecycle, and their
+   * categories, read once a run — or nothing when the run gives no record of
+   * it a status back: the object has no lifecycle, the target will not say
+   * which statuses are drafts, or the run cannot write a status back.
+   */
+  private async lifecycleOf(
+    state: ExecutionState,
+    objectApiName: string,
+  ): Promise<StatusCategories | undefined> {
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    if (!lifecycle || !this.deps.updateRecords) return undefined;
+    let categories = state.lifecycles.get(objectApiName);
+    if (!categories) {
+      categories = statusCategories(
+        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        lifecycle,
+      );
+      state.lifecycles.set(objectApiName, categories);
+    }
+    return categories;
+  }
+
+  /**
+   * Note, of the rows read of an object whose status needs the rows of a node
+   * the run adds, the ones past Draft: those `startAsDrafts` writes as drafts
+   * and `restoreStatuses` gives their status back, and the only ones the
+   * node's rows are read for. A dry run notes them as a real one does, to say
+   * what it would write.
+   */
+  private async notePastDraft(
+    state: ExecutionState,
+    objectApiName: string,
+    records: readonly Record<string, unknown>[],
+  ): Promise<void> {
+    const needed = [...state.statusChildren.values()].some(
+      ({ parent }) => parent === objectApiName,
+    );
+    if (!needed) return;
+    const known = await this.lifecycleOf(state, objectApiName);
+    if (!known) return;
+    const ids = state.pastDraft.get(objectApiName) ?? new Set<string>();
+    for (const record of records) {
+      const id = record['Id'];
+      if (typeof id === 'string' && draftStartOf(record['Status'], known)) ids.add(id);
+    }
+    state.pastDraft.set(objectApiName, ids);
   }
 
   /**
@@ -2174,6 +2239,71 @@ export class ForgeExecutor {
       });
     }
     return this.orderByFields(state, fieldsByObject);
+  }
+
+  /**
+   * The graph of a run, with the rows its records past Draft cannot be given
+   * their status back without, when discovery never reached their object:
+   * an activated order's items (`STATUS_NEEDS_CHILDREN`). Returns the graph,
+   * and the nodes added with the object whose status each is added for.
+   *
+   * Discovery stops at a cap, and around an opportunity the default cap of
+   * fifty objects reached its orders and not their items. An order past Draft
+   * is written as a draft and activated once the rest is written, and the
+   * platform activates no order without a product on it: run for real, the
+   * two activated orders of such a clone were refused their status back and
+   * stayed drafts. The node added is read under the records in scope as any
+   * child is, and keeps only the rows of those past Draft
+   * (`keepWhatStatusesNeed`): an order that goes in as it is needs none, and
+   * the cap is what left its items out. The prices the rows name come with
+   * the catalog, after this.
+   *
+   * An object the graph holds and leaves out stays out, as does one whose
+   * describe fails or has no such lookup: the restore then says what it
+   * could not give back.
+   */
+  private async withWhatStatusesNeed(
+    graph: ForgeGraph,
+    sourceOrgId: string,
+  ): Promise<{ graph: ForgeGraph; added: Map<string, ChildOfAStatus> }> {
+    const held = new Set(graph.nodes.map((n) => n.objectApiName));
+    const added = new Map<string, ChildOfAStatus>();
+    const nodes: ForgeGraphNode[] = [];
+    const edges: ForgeGraphEdge[] = [];
+    for (const parent of graph.nodes) {
+      if (this.isAborted) break;
+      const child = STATUS_NEEDS_CHILDREN[parent.objectApiName];
+      if (!parent.included || !child || held.has(child.object) || added.has(child.object)) {
+        continue;
+      }
+      let fields: FieldInfo[];
+      try {
+        fields = await this.deps.describeFields(sourceOrgId, child.object);
+      } catch {
+        continue;
+      }
+      const lookup = fields.find(
+        (f) =>
+          f.name === child.lookup &&
+          f.isReference &&
+          (f.referenceTo ?? []).includes(parent.objectApiName),
+      );
+      if (!lookup) continue;
+      added.set(child.object, { parent: parent.objectApiName, lookup: child.lookup });
+      nodes.push(nodeTheRunAdds(child.object, fields, parent.level + 1));
+      edges.push({
+        sourceObject: parent.objectApiName,
+        targetObject: child.object,
+        relationshipName: lookup.name,
+        type: 'lookup',
+        required: isRequiredLookup(child.object, lookup.name, lookup.nillable),
+      });
+    }
+    if (added.size === 0) return { graph, added };
+    return {
+      graph: { ...graph, nodes: [...graph.nodes, ...nodes], edges: [...graph.edges, ...edges] },
+      added,
+    };
   }
 
   /**
@@ -2607,6 +2737,7 @@ export class ForgeExecutor {
           ),
         reached,
       );
+      this.keepWhatStatusesNeed(state, node, records, reached);
       if (reached) state.scopeCache?.addReached(node.objectApiName, reached);
       // Every id of an object begins with its key prefix, and the rows read
       // tell it without a describe — a dry run keeps none of them for later.
@@ -2733,6 +2864,7 @@ export class ForgeExecutor {
           keyPrefixes: await this.keyPrefixesNamedBy(state, fieldInfos),
         });
       }
+      await this.notePastDraft(state, node.objectApiName, records);
 
       // The records whose files the run copies: the ones it read to clone,
       // never those of an object mapped by name or of the standard book.
@@ -2809,6 +2941,36 @@ export class ForgeExecutor {
       });
       return false;
     }
+  }
+
+  /**
+   * Keep, of the rows read of a node the run added for the status of its
+   * parent's records, those under a record past Draft: the rows its status
+   * cannot be given back without, and the only ones the node was added for.
+   * The others are no part of the clone — not read into any scope, not
+   * counted — as when discovery stopped before the object. Rows of any other
+   * node are left as they are.
+   *
+   * @param reached - The ids of the rows read from above, taken out with them.
+   */
+  private keepWhatStatusesNeed(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    records: Record<string, unknown>[],
+    reached: Set<string> | undefined,
+  ): void {
+    const child = state.statusChildren.get(node.objectApiName);
+    if (!child) return;
+    const pastDraft = state.pastDraft.get(child.parent);
+    const kept: Record<string, unknown>[] = [];
+    for (const row of records) {
+      const parent = row[child.lookup];
+      if (typeof parent === 'string' && pastDraft?.has(parent) === true) kept.push(row);
+      else if (typeof row['Id'] === 'string') reached?.delete(row['Id']);
+    }
+    if (kept.length === records.length) return;
+    records.length = 0;
+    records.push(...kept);
   }
 
   /**
