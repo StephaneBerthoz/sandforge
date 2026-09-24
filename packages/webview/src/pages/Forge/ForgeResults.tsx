@@ -110,6 +110,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       ? runError.message
       : null;
 
+  /**
+   * Whether the run shown stopped before its end: an error ended it, or a
+   * cancel. Its time is when it stopped, and what it never reached is still
+   * to write.
+   */
+  const stoppedBeforeItsEnd = stoppedOn !== null || result?.cancelled === true;
+
   const nodes = useMemo(() => graph?.nodes ?? [], [graph]);
 
   // Sort/filter state
@@ -262,6 +269,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** Whether the run failed an object, of the graph or beyond it: what Retry failed is for. */
   const failedObjects = useMemo(() => rows.some((r) => r.status === 'error'), [rows]);
+
+  /*
+   * A run that stopped before its end left objects it never reached, which no
+   * row shows failed: the retry was offered only for a failed one, and the
+   * rest of a cancelled clone could only be written again from the start.
+   */
+  const retryable = failedObjects || stoppedBeforeItsEnd;
 
   /** Sorted and filtered rows for the results table. */
   const sortedFilteredRows = useMemo(() => {
@@ -588,7 +602,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             </strong>
           </span>
           <span data-testid="forge-results-timestamp">
-            {t('forge.executionTimestamp')}:{' '}
+            {/* When it stopped, for a run that did not complete. */}
+            {t(stoppedBeforeItsEnd ? 'forge.executionStoppedAt' : 'forge.executionTimestamp')}:{' '}
             <strong className="text-text-primary">
               {/* A stored time that is not a date read "Invalid Date". */}
               {formatStoredDate(result.timestamp, (date) => date.toLocaleString(uiLocale())) ??
@@ -925,7 +940,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forge.exportJson')}
         </Button>
-        {failedObjects && result && (
+        {retryable && result && (
           <Button
             variant="secondary"
             size="md"
@@ -934,7 +949,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             aria-describedby="forge-retry-failed-hint"
             data-testid="forge-retry-failed"
           >
-            {t('forge.retryFailed')}
+            {t(stoppedBeforeItsEnd ? 'forge.retryStopped' : 'forge.retryFailed')}
           </Button>
         )}
         <Button
@@ -949,13 +964,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       </m.div>
       {/* What the retry writes, and what it does not write twice: a clone run
           again would otherwise be read as writing everything a second time. */}
-      {failedObjects && result && (
+      {retryable && result && (
         <p
           id="forge-retry-failed-hint"
           className="text-xs text-text-secondary"
           data-testid="forge-retry-failed-hint"
         >
-          {t('forge.retryFailedHint')}
+          {t(stoppedBeforeItsEnd ? 'forge.retryStoppedHint' : 'forge.retryFailedHint')}
         </p>
       )}
 

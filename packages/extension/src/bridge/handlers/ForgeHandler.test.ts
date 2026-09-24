@@ -670,6 +670,162 @@ describe('ForgeHandler', () => {
     });
   });
 
+  describe('forge:execute of an object left out of the graph, through a real run', () => {
+    /** Fake ids: the project cloned, its two tasks, and the team each task is staffed by. */
+    const PROJECT = 'a01000000000001';
+    const TASKS = ['a02000000000001', 'a02000000000002'];
+    const TEAM = 'a03000000000001';
+
+    const field = (name: string, referenceTo?: string) => ({
+      name,
+      queryable: true,
+      createable: name !== 'Id',
+      isReference: referenceTo !== undefined,
+      ...(referenceTo !== undefined ? { referenceTo: [referenceTo], nillable: false } : {}),
+    });
+    const FIELDS: Record<string, ReturnType<typeof field>[]> = {
+      Project__c: [field('Id'), field('Name')],
+      // A task cannot be written without its project, nor without its team.
+      Task__c: [
+        field('Id'),
+        field('Name'),
+        field('Project__c', 'Project__c'),
+        field('Squad__c', 'Team__c'),
+      ],
+      Team__c: [field('Id'), field('Name')],
+    };
+    const ROWS: Record<string, Array<Record<string, unknown>>> = {
+      Project__c: [{ Id: PROJECT, Name: 'Launch' }],
+      Task__c: TASKS.map((Id, i) => ({
+        Id,
+        Name: `Task ${String(i + 1)}`,
+        Project__c: PROJECT,
+        Squad__c: TEAM,
+      })),
+      Team__c: [{ Id: TEAM, Name: 'Crew' }],
+    };
+
+    /** A graph of the project, its tasks, and their team, the team as `team` leaves it. */
+    function projectGraph(team: Partial<ForgeGraph['nodes'][number]>): ForgeGraph {
+      const [root] = createMockGraph().nodes;
+      return {
+        ...createMockGraph(),
+        nodes: [
+          { ...root, objectApiName: 'Project__c', recordCount: 1 },
+          { ...root, objectApiName: 'Task__c', recordCount: 2, level: 1 },
+          { ...root, objectApiName: 'Team__c', recordCount: 1, level: 2, ...team },
+        ],
+        edges: [
+          {
+            sourceObject: 'Project__c',
+            targetObject: 'Task__c',
+            relationshipName: 'Tasks__r',
+            type: 'master-detail',
+            required: true,
+          },
+          {
+            sourceObject: 'Team__c',
+            targetObject: 'Task__c',
+            relationshipName: 'Squad__r',
+            type: 'lookup',
+            required: true,
+          },
+        ],
+      };
+    }
+
+    /** A real run over a source holding the rows above; what the target was sent, per object. */
+    function realRun(): Record<string, Array<Record<string, unknown>>> {
+      const inserted: Record<string, Array<Record<string, unknown>>> = {};
+      let created = 0;
+      const executorDeps: ForgeExecutorDeps = {
+        describeFields: async (_org, object) => FIELDS[object] ?? [field('Id')],
+        queryRecords: async (org, soql) => {
+          const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+          // Copies: a run takes out of what it read the rows it holds back.
+          return org === 'src-org' ? (ROWS[object] ?? []).map((row) => ({ ...row })) : [];
+        },
+        insertRecords: async (_org, object, rows) => {
+          (inserted[object] ??= []).push(...rows);
+          return rows.map(() => ({
+            id: `${object.slice(0, 3)}TGT${String(++created).padStart(9, '0')}`,
+            success: true,
+            errors: [],
+          }));
+        },
+      };
+      handler.setForgeOrchestrator(
+        new ForgeOrchestrator({
+          discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+          executor: new ForgeExecutor(executorDeps),
+        }),
+      );
+      return inserted;
+    }
+
+    /** The result the handler posted back. */
+    function postedResult(): ForgeExecutionResult | undefined {
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          (call) => call[0] as BaseMessage & { payload?: { result?: ForgeExecutionResult } },
+        )
+        .find((m) => m.type === 'forge:execute:response');
+      return response?.payload?.result;
+    }
+
+    it('holds back what cannot be written without an object unchecked on the page, and says so', async () => {
+      // Unchecked on the page, the team was skipped as a node discovery left
+      // out: the tasks were sent without it, and the target refused each.
+      const inserted = realRun();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: projectGraph({ included: false, leftOutByUser: true }),
+          config: createMockConfig({ recordId: PROJECT }),
+        }),
+      );
+
+      expect(inserted['Project__c']).toHaveLength(1);
+      expect(inserted['Task__c']).toBeUndefined();
+      expect(inserted['Team__c']).toBeUndefined();
+      expect(postedResult()?.errors).toContainEqual({
+        objectApiName: 'Task__c',
+        stage: 'scope',
+        failedCount: 2,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'Squad__c → Team__c (2 records)',
+            messages: [
+              'Not written: Squad__c may not be left empty, and Team__c is excluded from this run.',
+            ],
+          },
+        ],
+      });
+    });
+
+    it('still sends the rows under an object discovery could not read, which nobody left out', async () => {
+      const inserted = realRun();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: projectGraph({
+            included: false,
+            recordCount: 0,
+            status: 'error',
+            errors: ['Describe unavailable: INSUFFICIENT_ACCESS'],
+          }),
+          config: createMockConfig({ recordId: PROJECT }),
+        }),
+      );
+
+      expect(inserted['Task__c']).toHaveLength(2);
+      const said = JSON.stringify(postedResult()?.errors ?? []);
+      expect(said).not.toContain('excluded from this run');
+    });
+  });
+
   describe('forge:execute', () => {
     it('calls orchestrator.execute and posts result with correlationId', async () => {
       const graph = createMockGraph();

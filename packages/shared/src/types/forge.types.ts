@@ -115,6 +115,17 @@ export interface ForgeGraphNode {
   progress: number;
   /** Whether this node is included in the current operation */
   included: boolean;
+  /**
+   * Whether the user took this node out of the run on the Forge page.
+   *
+   * Discovery leaves nodes out too — the empty tables, the objects it could
+   * not describe or count — and never marks them. A run treats a node the user
+   * left out as an object excluded by name: it holds back the rows that cannot
+   * be written without one of its records, and says so. Unmarked, those rows
+   * were sent, and the target refused each. Absent on a graph built before
+   * the page marked them, and on every node the user did not take out.
+   */
+  leftOutByUser?: boolean;
   /** API names of fields detected as containing PII */
   piiFields: string[];
   /** API names of fields selected for anonymization */

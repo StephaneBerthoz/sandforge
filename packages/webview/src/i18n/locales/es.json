@@ -2250,6 +2250,8 @@
     "finishing": "FINALIZANDO...",
     "finishingNote": "Todos los objetos del grafo están resueltos. La ejecución está terminando; sus resultados llegarán en cuanto acabe.",
     "aborted": "CANCELADO",
+    "stopping": "DETENIENDO...",
+    "stoppingNote": "Cancelación solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
     "stopped": "DETENIDO",
     "done": "Hecho",
     "running": "En ejecución",
@@ -2258,7 +2260,7 @@
     "pause": "Pausar",
     "resume": "Reanudar",
     "abort": "Cancelar",
-    "abortConfirm": "¿Está seguro de que desea cancelar? Se perderá el progreso.",
+    "abortConfirm": "¿Cancelar la ejecución? Se detiene en cuanto termina el paso en curso, y lo que ya escribió se queda en la org de destino.",
     "elapsed": "Transcurrido",
     "discovery": "Descubrimiento de grafo",
     "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
@@ -2330,6 +2332,8 @@
     "exportJson": "Exportar JSON",
     "retryFailed": "Reintentar fallidos",
     "retryFailedHint": "Reintentar fallidos vuelve a ejecutar el clon: lo que esta ejecución no pudo escribir se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",
+    "retryStopped": "Escribir el resto",
+    "retryStoppedHint": "Escribir el resto vuelve a ejecutar el clon: lo que esta ejecución no escribió antes de detenerse se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",
     "anonymizedFields": "Campos anonimizados",
     "fields": "Campos",
     "swapOrgs": "Intercambiar origen y destino",
@@ -2366,6 +2370,7 @@
     "filterByStatus": "Todos los estados",
     "executionDuration": "Duración",
     "executionTimestamp": "Completado",
+    "executionStoppedAt": "Detenido",
     "showLogs": "Mostrar logs",
     "hideLogs": "Ocultar logs",
     "copyAllLogs": "Copiar todo",
@@ -2449,7 +2454,11 @@
       "skippedExcluded": "Omitido (excluido)",
       "skippedEmpty": "Omitido (vacío)",
       "cycleCount_one": "{{count}} ciclo (UPDATE en 2 pasadas)",
-      "cycleCount_other": "{{count}} ciclos (UPDATE en 2 pasadas)"
+      "cycleCount_other": "{{count}} ciclos (UPDATE en 2 pasadas)",
+      "leftOutCost": "Lo que cuestan los objetos dejados fuera",
+      "leftOutLookup": "{{object}}: los registros que necesitan un registro de {{leftOut}} no se escriben, salvo que el destino ya lo tenga.",
+      "leftOutStatus": "{{object}}: los registros más allá de Borrador se escriben como borradores y lo siguen siendo: la plataforma solo les da su estado con registros de {{leftOut}} debajo.",
+      "leftOutSellingModel": "{{object}}: los precios vendidos con un modelo de venta no se escriben: cada uno necesita el objeto {{leftOut}} de su producto para ese modelo."
     },
     "errorsPanel": {
       "title": "Errores de ejecución"

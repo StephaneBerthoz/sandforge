@@ -2250,6 +2250,8 @@
     "finishing": "FINISHING...",
     "finishingNote": "Every object on the graph has settled. The run is finishing; its results follow once it is done.",
     "aborted": "ABORTED",
+    "stopping": "STOPPING...",
+    "stoppingNote": "Abort asked: the run stops once the step under way is done, then says what it wrote.",
     "stopped": "STOPPED",
     "done": "Done",
     "running": "Running",
@@ -2258,7 +2260,7 @@
     "pause": "Pause",
     "resume": "Resume",
     "abort": "Abort",
-    "abortConfirm": "Are you sure you want to abort? Progress will be lost.",
+    "abortConfirm": "Abort the run? It stops once the step under way is done, and what it has written stays in the target org.",
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
@@ -2330,6 +2332,8 @@
     "exportJson": "Export JSON",
     "retryFailed": "Retry Failed",
     "retryFailedHint": "Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.",
+    "retryStopped": "Write the rest",
+    "retryStoppedHint": "Write the rest runs the clone again: what this run did not write before it stopped is written, linked to what it did write, which is not written a second time.",
     "anonymizedFields": "Anonymized Fields",
     "fields": "Fields",
     "swapOrgs": "Swap source and target",
@@ -2366,6 +2370,7 @@
     "filterByStatus": "All statuses",
     "executionDuration": "Duration",
     "executionTimestamp": "Completed",
+    "executionStoppedAt": "Stopped",
     "showLogs": "Show Logs",
     "hideLogs": "Hide Logs",
     "copyAllLogs": "Copy All",
@@ -2449,7 +2454,11 @@
       "skippedExcluded": "Skipped (excluded)",
       "skippedEmpty": "Skipped (empty)",
       "cycleCount_one": "{{count}} cycle (2-pass UPDATE)",
-      "cycleCount_other": "{{count}} cycles (2-pass UPDATE)"
+      "cycleCount_other": "{{count}} cycles (2-pass UPDATE)",
+      "leftOutCost": "What the objects left out cost",
+      "leftOutLookup": "{{object}}: records that need a record of {{leftOut}} are not written, unless the target already holds it.",
+      "leftOutStatus": "{{object}}: records past Draft are written as drafts and stay drafts: the platform gives them their status only with {{leftOut}} records under them.",
+      "leftOutSellingModel": "{{object}}: prices sold under a selling model are not written: each needs its product's {{leftOut}} for that model."
     },
     "errorsPanel": {
       "title": "Execution errors"

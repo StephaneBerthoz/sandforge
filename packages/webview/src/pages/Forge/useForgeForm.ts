@@ -272,6 +272,21 @@ export function useForgeForm(): ForgeFormState {
   const historyQuery = useBridgeQuery<{ history: ForgeExecutionResult[] }>('forge:history:list');
   const runHistory = useMemo(() => historyQuery.data?.history ?? [], [historyQuery.data]);
 
+  /*
+   * Read again whenever a run ends, this panel's or another's: the extension
+   * keeps each in its history before it answers. Read once as the form came,
+   * the list missed a run that ended while it was open — the one a cancel had
+   * just stopped, kept a moment after the form had asked.
+   */
+  const runsEnded = useForgeStore((s) => s.runsEnded);
+  const refetchHistory = historyQuery.refetch;
+  const runsEndedSeen = useRef(runsEnded);
+  useEffect(() => {
+    if (runsEndedSeen.current === runsEnded) return;
+    runsEndedSeen.current = runsEnded;
+    refetchHistory();
+  }, [runsEnded, refetchHistory]);
+
   /* ---- Derived state ---- */
   const sourceOrg = useMemo(() => orgs.find((o) => o.id === sourceOrgId), [orgs, sourceOrgId]);
   const targetOrg = useMemo(() => orgs.find((o) => o.id === targetOrgId), [orgs, targetOrgId]);

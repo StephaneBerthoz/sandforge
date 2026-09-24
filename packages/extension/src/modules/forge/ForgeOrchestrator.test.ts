@@ -244,6 +244,44 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[1]?.writtenBefore).toEqual(writtenBefore);
     });
 
+    it('leaves out by name the objects unchecked on the page, not those discovery left out, in both input modes', async () => {
+      // Unchecked on the page, the prices were skipped as a node discovery
+      // left out is: the line items were sent all the same, and the target
+      // refused each for want of its price.
+      const [account] = createMockGraph().nodes;
+      const graph: ForgeGraph = {
+        ...createMockGraph(),
+        nodes: [
+          account,
+          { ...account, objectApiName: 'PricebookEntry', included: false, leftOutByUser: true },
+          // An empty table, and a table discovery could not count.
+          { ...account, objectApiName: 'Asset', included: false, recordCount: 0 },
+          {
+            ...account,
+            objectApiName: 'EmailStatus',
+            included: false,
+            leftOutByUser: true,
+            status: 'error',
+            errors: ['Record count unavailable: INVALID_TYPE_FOR_OPERATION'],
+          },
+        ],
+      };
+      const bare = createMockConfig({
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+      });
+
+      await orchestrator.execute(graph, createMockConfig());
+      await orchestrator.execute(graph, bare);
+      await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(optionsPassed[0]?.excludedObjects).toEqual(['PricebookEntry']);
+      expect(optionsPassed[1]?.excludedObjects).toEqual(['PricebookEntry']);
+      expect(optionsPassed[2]?.excludedObjects).toBeUndefined();
+    });
+
     it('carries what the run did with the files into its result', async () => {
       const files = {
         maxFileBytes: 1_048_576,

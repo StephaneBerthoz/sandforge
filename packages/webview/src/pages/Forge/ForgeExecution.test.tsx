@@ -3,7 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 import '../../i18n';
-import type { ForgeLogEntry, ForgeRunError } from '../../stores/useForgeStore';
+import type { ForgeLogEntry, ForgeRunClock, ForgeRunError } from '../../stores/useForgeStore';
 import { ForgeExecution } from './ForgeExecution';
 
 /* ---- Mocks ---- */
@@ -44,6 +44,36 @@ const mockReviewAgain = vi.fn();
 let mockLogs: ForgeLogEntry[] = [];
 /** Why the run stopped, when an error ended it. */
 let mockRunError: ForgeRunError | null = null;
+/** The run's clock, as the store keeps it. */
+let mockRunClock: ForgeRunClock | null = null;
+/** Whether an abort was asked of the run, and it has not answered. */
+let mockStopRequested = false;
+// The store's own moves, as it makes them: the screen draws what they leave.
+const mockPauseRun = vi.fn(() => {
+  if (mockRunClock) mockRunClock = { ...mockRunClock, pausedSince: Date.now() };
+});
+const mockResumeRun = vi.fn(() => {
+  if (mockRunClock?.pausedSince != null) {
+    mockRunClock = {
+      ...mockRunClock,
+      pausedMs: mockRunClock.pausedMs + Date.now() - mockRunClock.pausedSince,
+      pausedSince: null,
+    };
+  }
+});
+const mockRequestStop = vi.fn(() => {
+  mockStopRequested = true;
+});
+
+/** A run started `secondsAgo` seconds ago, by this machine's clock. */
+function startedAgo(secondsAgo: number): ForgeRunClock {
+  return {
+    startedAt: Date.now() - secondsAgo * 1000,
+    pausedMs: 0,
+    pausedSince: null,
+    endedAt: null,
+  };
+}
 
 // Typed as the real graph, so a test can set any node status the union
 // allows without the fixture's literal types getting in the way.
@@ -141,9 +171,14 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     graph: mockGraph,
     logs: mockLogs,
     runError: mockRunError,
+    runClock: mockRunClock,
+    stopRequested: mockStopRequested,
     setPhase: mockSetPhase,
     setStoppedAt: mockSetStoppedAt,
     addLog: mockAddLog,
+    pauseRun: mockPauseRun,
+    resumeRun: mockResumeRun,
+    requestStop: mockRequestStop,
     showStoppedRun: mockShowStoppedRun,
     reviewAgain: mockReviewAgain,
   });
@@ -184,6 +219,8 @@ describe('ForgeExecution', () => {
     mockGraph = makeMockGraph();
     mockLogs = [];
     mockRunError = null;
+    mockRunClock = startedAgo(0);
+    mockStopRequested = false;
   });
 
   describe('a run whose objects have all settled', () => {
@@ -285,6 +322,31 @@ describe('ForgeExecution', () => {
     expect(envelope.payload.type).toBe('forge:resume');
   });
 
+  it("reads the time elapsed off the run's clock, not off its own mount", () => {
+    // Counted by the screen, it started again at 00:00 whenever the page came back.
+    mockRunClock = startedAgo(65);
+    render(<ForgeExecution />);
+    expect(screen.getByTestId('forge-execution-timer').textContent).toBe('Elapsed: 01:05');
+  });
+
+  it('comes back as the run was left: paused, with Resume, its clock standing still', () => {
+    // A paused run came back reading FORGING..., with Pause to press again.
+    vi.useFakeTimers();
+    try {
+      mockRunClock = { ...startedAgo(30), pausedSince: Date.now() - 20_000 };
+      render(<ForgeExecution />);
+
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('PAUSED');
+      expect(screen.getByTestId('forge-pause-button').textContent).toContain('Resume');
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByTestId('forge-execution-timer').textContent).toBe('Elapsed: 00:10');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('should post an enveloped forge:abort when abort is confirmed', () => {
     render(<ForgeExecution />);
 
@@ -296,22 +358,39 @@ describe('ForgeExecution', () => {
     const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
     expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(envelope.payload.type).toBe('forge:abort');
-    expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
   });
 
-  it('records where a run the user aborted stopped, before it leaves the screen', () => {
-    // The abort goes back to the input screen at once, and this screen's
-    // announcer goes with it: the page says the run stopped from the store.
+  it('stays on its screen once the abort is sent, saying the run is stopping, until it answers', () => {
+    // It left for the input screen at once: the answer that said what the
+    // run had written, and the way to see it, came to no screen.
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
-    expect(mockSetStoppedAt).toHaveBeenCalledWith(50);
-    expect(mockSetStoppedAt.mock.invocationCallOrder[0]).toBeLessThan(
-      mockSetPhase.mock.invocationCallOrder[0],
+    expect(mockRequestStop).toHaveBeenCalledTimes(1);
+    expect(mockSetPhase).not.toHaveBeenCalled();
+    // Where it stopped is the answer's to say, once it has stopped.
+    expect(mockSetStoppedAt).not.toHaveBeenCalled();
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPING...');
+    expect(screen.getByTestId('forge-execution-stopping').textContent).toBe(
+      'Abort asked: the run stops once the step under way is done, then says what it wrote.',
     );
+    expect(screen.getByTestId('forge-progress-status').textContent).toBe(
+      'Abort asked: the run stops once the step under way is done, then says what it wrote.',
+    );
+    // Nothing left to pause or abort again, and no time left to estimate.
+    expect(screen.getByTestId('forge-pause-button').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('forge-abort-button').hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByTestId('forge-execution-eta')).toBeNull();
+  });
+
+  it('says it is stopping when it comes back while the abort is not answered', () => {
+    mockStopRequested = true;
+    render(<ForgeExecution />);
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPING...');
+    expect(screen.getByTestId('forge-abort-button').hasAttribute('disabled')).toBe(true);
   });
 
   it('should not post forge:abort when the confirm text does not match', () => {
@@ -474,14 +553,15 @@ describe('ForgeExecution', () => {
       vi.useFakeTimers();
       try {
         mockRunError = { message: 'Insert failed', stoppedRun: null };
+        mockRunClock = { ...startedAgo(12), endedAt: Date.now() };
         render(<ForgeExecution />);
-        const before = screen.getByTestId('forge-execution-timer').textContent;
+        expect(screen.getByTestId('forge-execution-timer').textContent).toBe('Elapsed: 00:12');
 
         act(() => {
           vi.advanceTimersByTime(5_000);
         });
 
-        expect(screen.getByTestId('forge-execution-timer').textContent).toBe(before);
+        expect(screen.getByTestId('forge-execution-timer').textContent).toBe('Elapsed: 00:12');
       } finally {
         vi.useRealTimers();
       }
@@ -495,6 +575,8 @@ describe('ForgeExecution progress for assistive technology', () => {
     mockGraph = makeMockGraph();
     mockLogs = [];
     mockRunError = null;
+    mockRunClock = startedAgo(0);
+    mockStopRequested = false;
   });
 
   it('draws the run progress with a named progress bar', () => {

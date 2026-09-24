@@ -105,6 +105,7 @@ export {
   isPlatformRequiredField,
   isRequiredLookup,
 } from './constants/platform-required-fields.js';
+export { STATUS_NEEDS_CHILDREN, type ChildrenAStatusNeeds } from './constants/status-children.js';
 export {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -140,7 +141,12 @@ export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export { forgeRunCreatedRecords, type ForgeRunObjectRecords } from './utils/forge-run-records.js';
-export { leftOutAsEmptyTable, objectsBeyondTheGraph } from './utils/forge-graph-nodes.js';
+export {
+  leftOutAsEmptyTable,
+  leftOutByTheUser,
+  objectsBeyondTheGraph,
+} from './utils/forge-graph-nodes.js';
+export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
 export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
 
 // Barrel exports — Templates

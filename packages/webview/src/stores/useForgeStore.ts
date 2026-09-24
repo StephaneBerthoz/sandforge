@@ -71,6 +71,36 @@ export interface ForgeRunError {
   stoppedRun: ForgeExecutionResult | null;
 }
 
+/**
+ * How long the run on screen has gone, by this machine's clock: when it
+ * started, how long it was held paused, and whether it is paused now or has
+ * ended.
+ */
+export interface ForgeRunClock {
+  /** When the run was started, in milliseconds. */
+  startedAt: number;
+  /** How long it was held paused before the pause under way, in milliseconds. */
+  pausedMs: number;
+  /** When the pause under way began, or null while the run is not paused. */
+  pausedSince: number | null;
+  /** When the run ended — answered, or stopped by its error — or null while it goes on. */
+  endedAt: number | null;
+}
+
+/**
+ * How long a run has gone at `now`, in whole seconds, its pauses not counted:
+ * frozen while it is paused, and once it has ended.
+ */
+export function runElapsedSeconds(clock: ForgeRunClock, now: number): number {
+  const at = clock.pausedSince ?? clock.endedAt ?? now;
+  return Math.max(0, Math.floor((at - clock.startedAt - clock.pausedMs) / 1000));
+}
+
+/** `clock` stopped now, unless it had stopped already. */
+function endedClock(clock: ForgeRunClock | null): ForgeRunClock | null {
+  return clock && clock.endedAt === null ? { ...clock, endedAt: Date.now() } : clock;
+}
+
 /** A `forge:progress` event of a run, as the store takes it. */
 export interface ForgeProgressUpdate {
   /** The object the event is about. */
@@ -137,6 +167,23 @@ export function settledPercent(nodes: readonly ForgeGraphNode[]): number {
   return Math.round((settled / nodes.length) * 100);
 }
 
+/**
+ * `node` put into the run or taken out of it by the user.
+ *
+ * Taken out, it is marked as the user's: the run then holds back what cannot
+ * be written without it and says what that costs, where a node discovery left
+ * out is only skipped. Put back, the mark goes. A node already where the user
+ * puts it — an empty table discovery left out, under Deselect All — is left
+ * as it is, so discovery's stay unmarked.
+ */
+function includedByUser(node: ForgeGraphNode, included: boolean): ForgeGraphNode {
+  if (node.included === included) return node;
+  if (!included) return { ...node, included: false, leftOutByUser: true };
+  const back: ForgeGraphNode = { ...node, included: true };
+  delete back.leftOutByUser;
+  return back;
+}
+
 /** Every node back to idle, keeping what discovery said went wrong with each. */
 function idleNodes(nodes: ForgeGraphNode[]): ForgeGraphNode[] {
   return nodes.map((n: ForgeGraphNode) => ({
@@ -198,6 +245,9 @@ const INITIAL_STATE = {
   executionRequestId: null as string | null,
   stoppedAt: null as number | null,
   runError: null as ForgeRunError | null,
+  runClock: null as ForgeRunClock | null,
+  stopRequested: false,
+  runsEnded: 0,
 };
 
 /** Forge state machine store — state and actions. */
@@ -299,9 +349,38 @@ export interface ForgeState {
    */
   reviewAgain: () => void;
   /**
+   * How long the run on screen has gone, or null while none was started.
+   *
+   * Kept here, not by the execution screen: left and come back to, the
+   * screen's own clock started again at 0:00, and a paused run read as
+   * forging, with Pause to press again.
+   */
+  runClock: ForgeRunClock | null;
+  /** Hold the run on screen: its clock stands still until it is resumed. */
+  pauseRun: () => void;
+  /** Let the run on screen go on: its clock goes on from where it stood. */
+  resumeRun: () => void;
+  /**
+   * Whether the user asked the run on screen to stop, and it has not answered.
+   *
+   * A run stops once the step under way is done, then says what it wrote. The
+   * screen used to leave for the input screen as the abort was sent: the
+   * answer that said what the run had written came to no screen, and the
+   * recent runs, read as that screen came, were read before the run was kept.
+   */
+  stopRequested: boolean;
+  /** Ask the run on screen to stop, while it goes on; nothing once it has ended. */
+  requestStop: () => void;
+  /**
+   * How many runs this panel has heard end — its own or another panel's,
+   * answered or stopped by an error. Each is in the extension's history by
+   * then: the recent runs are read again at every change.
+   */
+  runsEnded: number;
+  /**
    * How far the last run had gone when it was stopped, in percent, or null.
    *
-   * Kept here because an aborted run leaves the screen that ran it at once:
+   * Kept here because the screen that ran it can be left and come back to:
    * the page says it stopped from a region that outlives the phase, as the
    * results screen says a run finished.
    */
@@ -397,9 +476,9 @@ export interface ForgeState {
 /*
  * Whether a message correlated to `requestId` is the run on screen's. Every
  * panel receives every forge message, so it is only when it correlates to the
- * request that started the run; and a run left before it ended — aborted,
- * back on the input screen, or its results already shown — has no screen to
- * show it on.
+ * request that started the run; and a run left before it ended — back on
+ * the input screen, or its results already shown — has no screen to show it
+ * on.
  */
 function ofRunOnScreen(state: ForgeState, requestId: unknown): boolean {
   return (
@@ -447,7 +526,50 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
    * starts here, once.
    */
   setExecutionRequestId(executionRequestId: string | null): void {
-    set({ executionRequestId, logs: [], runError: null, stoppedAt: null });
+    set({
+      executionRequestId,
+      logs: [],
+      runError: null,
+      stoppedAt: null,
+      stopRequested: false,
+      runClock:
+        executionRequestId === null
+          ? null
+          : { startedAt: Date.now(), pausedMs: 0, pausedSince: null, endedAt: null },
+    });
+  },
+
+  pauseRun(): void {
+    set((state) => {
+      const clock = state.runClock;
+      if (!clock || clock.pausedSince !== null || clock.endedAt !== null) return state;
+      if (state.phase !== 'execution' || state.runError || state.stopRequested) return state;
+      return { runClock: { ...clock, pausedSince: Date.now() } };
+    });
+  },
+
+  resumeRun(): void {
+    set((state) => {
+      const clock = state.runClock;
+      if (!clock || clock.pausedSince === null || clock.endedAt !== null) return state;
+      return {
+        runClock: {
+          ...clock,
+          pausedMs: clock.pausedMs + (Date.now() - clock.pausedSince),
+          pausedSince: null,
+        },
+      };
+    });
+  },
+
+  requestStop(): void {
+    set((state) => {
+      if (state.phase !== 'execution' || state.executionRequestId === null) return state;
+      if (state.runError || (state.runClock !== null && state.runClock.endedAt !== null)) {
+        return state;
+      }
+      return { stopRequested: true };
+    });
   },
 
   /*
@@ -485,6 +607,9 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         // Said by the page, whose region outlives the screen: where it stopped.
         stoppedAt: settledPercent(state.graph?.nodes ?? []),
         logs: withLogLine(state.logs, forgeLogEntry('error', message)),
+        // An abort asked for is answered here, with what the run wrote.
+        stopRequested: false,
+        runClock: endedClock(state.runClock),
       };
     });
   },
@@ -517,6 +642,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       return {
         phase: 'review' as ForgePhase,
         runError: null,
+        runClock: null,
         ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
         statusesBeyondGraph: {},
       };
@@ -620,7 +746,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         graph: {
           ...state.graph,
           nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
-            n.objectApiName === objectName ? { ...n, included: !n.included } : n,
+            n.objectApiName === objectName ? includedByUser(n, !n.included) : n,
           ),
         },
       };
@@ -635,7 +761,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         graph: {
           ...state.graph,
           nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
-            names.has(n.objectApiName) ? { ...n, included } : n,
+            names.has(n.objectApiName) ? includedByUser(n, included) : n,
           ),
         },
       };
@@ -695,10 +821,13 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set((state) => {
       if (!ofRunOnScreen(state, requestId)) return state;
       // An answer with no result leaves none on screen: a retry's would
-      // otherwise show the run it retried.
+      // otherwise show the run it retried. One that comes after an abort was
+      // asked for is of a run that finished before the abort reached it.
       return {
         phase: 'results' as ForgePhase,
         result: result ?? null,
+        stopRequested: false,
+        runClock: endedClock(state.runClock),
         ...(result ? { history: [result, ...state.history].slice(0, MAX_HISTORY) } : {}),
       };
     });
@@ -791,6 +920,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       logs: [],
       stoppedAt: null,
       runError: null,
+      runClock: null,
+      stopRequested: false,
       fileCopy: { ...NO_FILE_COPY },
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
@@ -852,10 +983,16 @@ function takeRunMessage(event: MessageEvent): void {
   if (data.type === 'forge:progress') {
     const update = progressUpdate(data.payload);
     if (update) store.takeProgress(data.correlationId, update);
-  } else if (data.type === 'forge:execute:response') {
+    return;
+  }
+  if (data.type !== 'forge:execute:response' && data.type !== 'forge:execute:error') return;
+  // Whichever run it ends, this panel's or another's, the extension keeps it
+  // in its history before it says so: the recent runs are read again.
+  useForgeStore.setState((state) => ({ runsEnded: state.runsEnded + 1 }));
+  if (data.type === 'forge:execute:response') {
     const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
     store.finishRun(data.correlationId, payload?.result);
-  } else if (data.type === 'forge:execute:error') {
+  } else {
     const payload = (data.payload ?? {}) as { message?: unknown; result?: unknown };
     const message =
       typeof payload.message === 'string' && payload.message !== ''

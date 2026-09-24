@@ -49,7 +49,11 @@ What that costs is said, not written: a record that cannot be written without
 one of its records — a line whose price is excluded, a price whose product is —
 is held back, named per object in the run's errors and counted as failed, in a
 dry run too; and an order past Draft left with no item the run writes stays a
-draft, said so instead of refused its status.
+draft, said so instead of refused its status. An object unchecked on the Forge
+page is excluded the same way (the node carries `leftOutByUser`), and Review
+says before the run what it costs, as far as the graph can tell before a row is
+read; the objects discovery left out itself — its empty tables, and those it
+could not describe or count — are only skipped.
 
 ## Pipeline
 

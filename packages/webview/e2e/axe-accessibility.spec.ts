@@ -1180,6 +1180,112 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
     });
 
+    test('Forge run the user aborts, stopping until it answers, then the rest of it to write', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await page.getByTestId('forge-abort-button').click();
+      await page.getByTestId('danger-input').fill('Abort');
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
+
+      // The screen stays, saying the run is stopping: it went to the input
+      // screen, and the answer carrying what the run wrote reached none.
+      await page.getByTestId('forge-execution-stopping').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('STOPPING...');
+      const stopping = await checkAccessibility(page);
+      expectNoViolations(stopping);
+      expect(
+        await contrastMeasuredIn(page, stopping, '[data-testid="forge-execution-stopping"]'),
+      ).toBeGreaterThan(0);
+
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-cancelled',
+        correlationId: request,
+        payload: {
+          message:
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          code: 'EXECUTE_ERROR',
+          retryable: true,
+          result: {
+            forgeId: 'forge-run-cancelled',
+            status: 'partial',
+            cancelled: true,
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 2_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            idRemapCreated: [{ objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] }],
+            readByObject: [{ objectApiName: 'Account', read: 1 }],
+            failedReads: [],
+          },
+        },
+      });
+      await page.getByTestId('forge-execution-see-stopped').click();
+
+      // Dated as stopped, and what it never reached offered to write.
+      await page.getByTestId('forge-retry-failed-hint').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-timestamp')).toContainText('Stopped');
+      await expect(page.getByTestId('forge-retry-failed')).toHaveText('Write the rest');
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-retry-failed-hint"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge Review saying what an object left out costs, and the run marking it the user’s', async ({
+      page,
+    }) => {
+      /** An account's contacts, which cannot be written without it, and the account left to uncheck. */
+      const graph = {
+        ...FORGE_TWO_NODE_GRAPH,
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+            required: true,
+          },
+        ],
+      };
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', { graph });
+      await page.getByTestId('forge-view-table').click();
+      await page.getByTestId('forge-table-include-Account').click();
+      await page.getByTestId('forge-execute-btn').click();
+
+      await page.getByTestId('forge-left-out-cost').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-left-out-cost-row')).toHaveText(
+        'Contact: records that need a record of Account are not written, unless the target already holds it.',
+      );
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      expect(
+        await contrastMeasuredIn(page, review, '[data-testid="forge-left-out-cost"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('execute-button').click();
+      const run = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+      const nodes = (run.payload as { graph: { nodes: Array<Record<string, unknown>> } }).graph
+        .nodes;
+      expect(nodes.find((n) => n.objectApiName === 'Account')).toMatchObject({
+        included: false,
+        leftOutByUser: true,
+      });
+    });
+
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
       page,
     }) => {

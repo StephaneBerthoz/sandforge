@@ -16,13 +16,39 @@ import type { ForgeExecutionResult, ForgeGraphNode } from '../types/forge.types.
  * skipped, as it reports every node left out. The Forge page's graph takes the
  * run's statuses, and read by its status alone a node whose count failed was
  * one more empty table there.
+ *
+ * A node the user left out is not one of them, whatever it counts: a starter
+ * template's graph counts every table 0 until the run reads it, and a table
+ * unchecked there read as one discovery had found empty.
  */
 export function leftOutAsEmptyTable(
-  node: Pick<ForgeGraphNode, 'included' | 'recordCount' | 'status' | 'errors'>,
+  node: Pick<ForgeGraphNode, 'included' | 'recordCount' | 'status' | 'errors' | 'leftOutByUser'>,
 ): boolean {
   return (
-    !node.included && node.recordCount === 0 && node.status !== 'error' && node.errors.length === 0
+    !node.included &&
+    node.leftOutByUser !== true &&
+    node.recordCount === 0 &&
+    node.status !== 'error' &&
+    node.errors.length === 0
   );
+}
+
+/**
+ * Whether the user left a node out of the run on the Forge page, rather than
+ * discovery leaving it out for an empty table or an error.
+ *
+ * A run holds back the rows that cannot be written without such an object, as
+ * it does for an object excluded by name, and says what leaving it out cost;
+ * a node discovery left out it only skips. Unmarked, a node unchecked on the
+ * page was skipped the same way, its dependents sent, and each refused by the
+ * target. A node discovery could not describe or count stays discovery's
+ * even once the user checked and unchecked it again: the run could not read
+ * it either way, and its error says why.
+ */
+export function leftOutByTheUser(
+  node: Pick<ForgeGraphNode, 'included' | 'leftOutByUser' | 'errors'>,
+): boolean {
+  return !node.included && node.leftOutByUser === true && node.errors.length === 0;
 }
 
 /**

@@ -2144,6 +2144,8 @@
     "finishing": "仕上げ中...",
     "finishingNote": "グラフ上のすべてのオブジェクトの処理が終わりました。実行は仕上げ中です。完了すると結果が表示されます。",
     "aborted": "中止",
+    "stopping": "停止中...",
+    "stoppingNote": "中止を要求しました。実行中のステップが終わると実行は停止し、書き込んだ内容を表示します。",
     "stopped": "停止",
     "done": "完了",
     "running": "実行中",
@@ -2152,7 +2154,7 @@
     "pause": "一時停止",
     "resume": "再開",
     "abort": "中止",
-    "abortConfirm": "中止してもよろしいですか？進捗は失われます。",
+    "abortConfirm": "実行を中止しますか？実行中のステップが終わると停止し、書き込み済みのレコードはターゲット組織に残ります。",
     "elapsed": "経過時間",
     "discovery": "グラフ検出",
     "discoveryProgress": "検出中… {{discovered}} オブジェクトをスキャン済み、{{queued}} 件待機中",
@@ -2223,6 +2225,8 @@
     "exportJson": "JSONをエクスポート",
     "retryFailed": "失敗を再試行",
     "retryFailedHint": "「失敗を再試行」はクローンをもう一度実行します。この実行で書き込めなかったものを、書き込めたものにリンクして書き込みます。書き込み済みのものは二度書き込みません。",
+    "retryStopped": "残りを書き込む",
+    "retryStoppedHint": "「残りを書き込む」はクローンをもう一度実行します。この実行が停止する前に書き込まなかったものを、書き込めたものにリンクして書き込みます。書き込み済みのものは二度書き込みません。",
     "anonymizedFields": "匿名化した項目",
     "fields": "項目",
     "swapOrgs": "ソースとターゲットを入れ替え",
@@ -2258,6 +2262,7 @@
     "filterByStatus": "すべてのステータス",
     "executionDuration": "所要時間",
     "executionTimestamp": "完了日時",
+    "executionStoppedAt": "停止日時",
     "showLogs": "ログを表示",
     "hideLogs": "ログを非表示",
     "copyAllLogs": "すべてコピー",
@@ -2337,7 +2342,11 @@
       "willMap": "マッピングされる",
       "skippedExcluded": "スキップ (除外)",
       "skippedEmpty": "スキップ (空)",
-      "cycleCount_other": "{{count}}個の循環（2 パスの UPDATE）"
+      "cycleCount_other": "{{count}}個の循環（2 パスの UPDATE）",
+      "leftOutCost": "除外したオブジェクトによる影響",
+      "leftOutLookup": "{{object}}：{{leftOut}} のレコードを必要とするレコードは書き込まれません（そのレコードをターゲットがすでに保持している場合を除きます）。",
+      "leftOutStatus": "{{object}}：ドラフトより先の状態のレコードはドラフトとして書き込まれ、ドラフトのまま残ります。プラットフォームは、配下に {{leftOut}} のレコードがある場合にのみ状態を与えるためです。",
+      "leftOutSellingModel": "{{object}}：販売モデルで販売される価格は書き込まれません。各価格には、そのモデル用の商品の {{leftOut}} が必要です。"
     },
     "errorsPanel": {
       "title": "実行エラー"

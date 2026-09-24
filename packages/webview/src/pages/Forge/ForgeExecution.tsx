@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
@@ -12,28 +12,31 @@ import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
-import { forgeLogEntry, settledPercent, useForgeStore } from '../../stores/useForgeStore';
+import {
+  forgeLogEntry,
+  runElapsedSeconds,
+  settledPercent,
+  useForgeStore,
+} from '../../stores/useForgeStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
 
-/** Where the run stands, as the controls set it. */
-type ExecutionStatus = 'forging' | 'paused' | 'aborted';
-
 /**
- * What the top bar says: the run's status; that it stopped, once an error
- * ended it; or, once every object on the graph has settled and the run has
- * not answered, that it is finishing.
+ * What the top bar says: that the run is forging, or held paused; that it is
+ * stopping, once an abort was asked for and the run has not answered; that it
+ * stopped, once an error ended it; or, once every object on the graph has
+ * settled and the run has not answered, that it is finishing.
  */
-type ShownStatus = ExecutionStatus | 'finishing' | 'stopped';
+type ShownStatus = 'forging' | 'paused' | 'finishing' | 'stopping' | 'stopped';
 
 /** Maps the shown status to the i18n key. */
 const STATUS_KEYS: Record<ShownStatus, string> = {
   forging: 'forge.forging',
   paused: 'forge.paused',
   finishing: 'forge.finishing',
-  aborted: 'forge.aborted',
+  stopping: 'forge.stopping',
   stopped: 'forge.stopped',
 };
 
@@ -47,49 +50,42 @@ export const ForgeExecution: React.FC = () => {
   const { save } = useFileSave();
   const { t } = useTranslation();
 
-  // The run's progress, its log and its error are the store's: they go on
-  // while this screen is away, and are here when it comes back.
+  // The run's progress, its log, its error, its clock, its pause and the
+  // abort asked of it are the store's: they go on while this screen is away,
+  // and are here when it comes back.
   const graph = useForgeStore((s) => s.graph);
   const logs = useForgeStore((s) => s.logs);
   const runError = useForgeStore((s) => s.runError);
-  const setPhase = useForgeStore((s) => s.setPhase);
+  const runClock = useForgeStore((s) => s.runClock);
+  const stopRequested = useForgeStore((s) => s.stopRequested);
   const addLog = useForgeStore((s) => s.addLog);
-  const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
+  const pauseRun = useForgeStore((s) => s.pauseRun);
+  const resumeRun = useForgeStore((s) => s.resumeRun);
+  const requestStop = useForgeStore((s) => s.requestStop);
   const showStoppedRun = useForgeStore((s) => s.showStoppedRun);
   const reviewAgain = useForgeStore((s) => s.reviewAgain);
   /** Whether an error ended the run: nothing is left to pause or abort. */
   const stopped = Boolean(runError);
+  /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
+  const stopping = !stopped && stopRequested;
+  /** Whether the run is held paused: its clock stands still until it is resumed. */
+  const isPaused = runClock !== null && runClock.pausedSince !== null && runClock.endedAt === null;
 
-  const [isPaused, setIsPaused] = useState(false);
-  const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
   const [logFilter, setLogFilter] = useState<LogFilter>('all');
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ---- Timer ----
+  // Read off the run's clock at each tick: counted by the screen, it started
+  // again at 0:00 each time the screen came back.
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = runClock !== null && runClock.endedAt === null && runClock.pausedSince === null;
   useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setElapsed((prev) => prev + 1);
-    }, 1000);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
-
-  // Pause/resume timer when execution status changes
-  useEffect(() => {
-    if (isPaused || executionStatus === 'aborted' || stopped) {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    } else if (!timerRef.current && executionStatus === 'forging') {
-      timerRef.current = setInterval(() => {
-        setElapsed((prev) => prev + 1);
-      }, 1000);
-    }
-  }, [isPaused, executionStatus, stopped]);
+    if (!ticking) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  const elapsed = runClock ? runElapsedSeconds(runClock, now) : 0;
 
   // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
   const kpis = useMemo(() => {
@@ -122,8 +118,16 @@ export const ForgeExecution: React.FC = () => {
    * it simply stops arriving, and no node reaches a terminal status.
    */
   const finishing =
-    !stopped && executionStatus === 'forging' && kpis.total > 0 && kpis.settled === kpis.total;
-  const shownStatus: ShownStatus = stopped ? 'stopped' : finishing ? 'finishing' : executionStatus;
+    !stopped && !stopping && !isPaused && kpis.total > 0 && kpis.settled === kpis.total;
+  const shownStatus: ShownStatus = stopped
+    ? 'stopped'
+    : stopping
+      ? 'stopping'
+      : isPaused
+        ? 'paused'
+        : finishing
+          ? 'finishing'
+          : 'forging';
 
   /*
    * Time remaining, from the rate the run has achieved so far.
@@ -142,30 +146,31 @@ export const ForgeExecution: React.FC = () => {
 
   // ---- Pause / Abort handlers ----
   const handlePauseToggle = useCallback(() => {
-    setIsPaused((prev) => {
-      const next = !prev;
-      setExecutionStatus(next ? 'paused' : 'forging');
-      // Routed through the broker: the envelope is mandatory since 1.5.0.
-      sendBridgeMessage(next ? 'forge:pause' : 'forge:resume');
-      return next;
-    });
-  }, []);
+    if (isPaused) resumeRun();
+    else pauseRun();
+    // Read now, not at the next tick: the clock stands where the pause left it.
+    setNow(Date.now());
+    // Routed through the broker: the envelope is mandatory since 1.5.0.
+    sendBridgeMessage(isPaused ? 'forge:resume' : 'forge:pause');
+  }, [isPaused, pauseRun, resumeRun]);
 
   const handleAbort = useCallback(() => {
     setShowAbortConfirm(true);
   }, []);
 
+  /*
+   * The screen stays until the run answers: it stops once the step under way
+   * is done, and its answer says what it wrote. It used to leave for the input
+   * screen at once, and the answer — the records the run had left in the
+   * target, and the way to see them — came to no screen at all.
+   */
   const handleAbortConfirm = useCallback(() => {
     setShowAbortConfirm(false);
-    setExecutionStatus('aborted');
+    requestStop();
     addLog(forgeLogEntry('warn', t('forge.aborted')));
     // Routed through the broker: the envelope is mandatory since 1.5.0.
     sendBridgeMessage('forge:abort');
-    // This screen and its announcer leave with the phase change: the page
-    // says the run stopped, from where it stood.
-    setStoppedAt(kpis.progress);
-    setPhase('input');
-  }, [t, addLog, setPhase, setStoppedAt, kpis.progress]);
+  }, [t, addLog, requestStop]);
 
   return (
     <div data-testid="forge-execution" className="flex flex-col gap-4 h-full">
@@ -228,8 +233,8 @@ export const ForgeExecution: React.FC = () => {
             </span>
             {/* Measured on the objects, it has nothing left to count once they
                 have all settled — it read 0:00 while the run went on — and no
-                time is left to a run that stopped. */}
-            {!finishing && !stopped && (
+                time is left to a run that stopped, or is stopping. */}
+            {!finishing && !stopped && !stopping && (
               <span data-testid="forge-execution-eta" className="text-hue-forge">
                 {t('forge.eta')}:{' '}
                 {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
@@ -249,23 +254,30 @@ export const ForgeExecution: React.FC = () => {
             {t('forge.finishingNote')}
           </p>
         )}
+        {stopping && (
+          <p className="text-xs text-text-secondary" data-testid="forge-execution-stopping">
+            {t('forge.stoppingNote')}
+          </p>
+        )}
         <ProgressAnnouncer
           message={
             stopped
               ? ''
-              : finishing
-                ? t('forge.finishingNote')
-                : t('a11y.progressAnnouncement', {
-                    name: t('nav.forge'),
-                    percent: kpis.progress,
-                  })
+              : stopping
+                ? t('forge.stoppingNote')
+                : finishing
+                  ? t('forge.finishingNote')
+                  : t('a11y.progressAnnouncement', {
+                      name: t('nav.forge'),
+                      percent: kpis.progress,
+                    })
           }
-          // Said at once: at 100% the bar would otherwise be heard as the end.
-          // A stopped run is said by the page, where it stopped, and by the
-          // alert above, why: its last percentage, said again from here as
-          // the screen came back, told nothing more. A finished run is said
-          // by the results.
-          immediate={finishing || stopped}
+          // Said at once: at 100% the bar would otherwise be heard as the end,
+          // and an abort as nothing at all. A stopped run is said by the page,
+          // where it stopped, and by the alert above, why: its last
+          // percentage, said again from here as the screen came back, told
+          // nothing more. A finished run is said by the results.
+          immediate={finishing || stopping || stopped}
           testId="forge-progress-status"
         />
       </m.div>
@@ -364,7 +376,8 @@ export const ForgeExecution: React.FC = () => {
         </div>
 
         {/* Control buttons: a run that stopped has nothing left to pause or
-            abort, and its way on is with its error, above. */}
+            abort, and its way on is with its error, above; one that is
+            stopping has nothing left to do but answer. */}
         {!stopped && (
           <div className={cn('flex items-center gap-3')}>
             <Button
@@ -372,7 +385,7 @@ export const ForgeExecution: React.FC = () => {
               size="md"
               icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
               onClick={handlePauseToggle}
-              disabled={executionStatus === 'aborted'}
+              disabled={stopping}
               data-testid="forge-pause-button"
             >
               {isPaused ? t('forge.resume') : t('forge.pause')}
@@ -382,7 +395,7 @@ export const ForgeExecution: React.FC = () => {
               size="md"
               icon={<Square size={14} />}
               onClick={handleAbort}
-              disabled={executionStatus === 'aborted'}
+              disabled={stopping}
               data-testid="forge-abort-button"
             >
               {t('forge.abort')}

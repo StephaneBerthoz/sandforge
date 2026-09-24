@@ -267,6 +267,15 @@ describe('forgeGraphNodeSchema', () => {
   it('should reject missing required fields', () => {
     expect(() => forgeGraphNodeSchema.parse({ objectApiName: 'Account' })).toThrow();
   });
+
+  it('keeps that the user left a node out, which the run holds back rows for', () => {
+    // Dropped by the parse, a node unchecked on the page reached the run as
+    // one discovery left out, and its dependents were sent to be refused.
+    const leftOut = { ...createValidForgeGraphNode(), included: false, leftOutByUser: true };
+    expect(forgeGraphNodeSchema.parse(leftOut).leftOutByUser).toBe(true);
+    expect(forgeGraphNodeSchema.parse(createValidForgeGraphNode()).leftOutByUser).toBeUndefined();
+    expect(() => forgeGraphNodeSchema.parse({ ...leftOut, leftOutByUser: 'yes' })).toThrow();
+  });
 });
 
 // ─── Edge Schema Tests ───────────────────────────────────────────────────────

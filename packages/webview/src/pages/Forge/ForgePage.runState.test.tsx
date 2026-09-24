@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import type { ForgeExecutionResult, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import '../../i18n';
@@ -230,6 +230,167 @@ describe('ForgePage — a run that stops on an error', () => {
     expect(screen.getByTestId('forge-run-stopped-status').textContent).toBe(
       'Forge stopped at 50%.',
     );
+  });
+});
+
+describe('ForgePage — a run the user aborts', () => {
+  /** What the executor says of a run a cancel stopped. */
+  const ABORTED =
+    'Forge execution was aborted by user request. Remaining objects were not processed.';
+
+  /** The run as the history keeps it once a cancel stopped it: the opportunity it created. */
+  const CANCELLED_RUN: ForgeExecutionResult = {
+    ...STOPPED_RUN,
+    forgeId: 'forge-cancelled',
+    status: 'partial',
+    cancelled: true,
+    idRemapCount: 1,
+    idRemapTable: { '006000000000001SRC': '006000000000001TGT' },
+    idRemapCreated: [{ objectApiName: 'Opportunity', sourceIds: ['006000000000001SRC'] }],
+    createdCount: 1,
+    readByObject: [{ objectApiName: 'Opportunity', read: 1 }],
+  };
+
+  /** Abort the run from its screen, confirmed as the dialog asks. */
+  function abort(): void {
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+  }
+
+  /** The types of the messages the page posted to the extension. */
+  function posted(): string[] {
+    return stableApi.postMessage.mock.calls.map(
+      (call) => (call[0] as { payload: { type: string } }).payload.type,
+    );
+  }
+
+  beforeEach(() => {
+    stableApi.postMessage.mockClear();
+  });
+
+  it('stays on its screen saying it is stopping, then says what the run wrote and shows it', async () => {
+    // The abort went back to the input screen at once: the answer, which
+    // carries what the run had written, came to no screen.
+    render(<ForgePage />);
+    host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+
+    abort();
+
+    expect(posted()).toContain('forge:abort');
+    expect(screen.queryByTestId('forge-input')).toBeNull();
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPING...');
+    expect(screen.getByTestId('forge-execution-stopping')).toBeTruthy();
+
+    stopped(ABORTED, CANCELLED_RUN);
+
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPED');
+    expect(screen.getByTestId('forge-execution-error').textContent).toContain(ABORTED);
+    expect(screen.getByTestId('forge-execution-error-written').textContent).toBe(
+      'Before it stopped, it had created 1 record in the target org.',
+    );
+    expect(screen.getByTestId('forge-run-stopped-status').textContent).toBe(
+      'Forge stopped at 50%.',
+    );
+
+    fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
+
+    const results = await screen.findByTestId('forge-results');
+    expect(within(results).getAllByTestId('forge-id-mapping-row')).toHaveLength(1);
+    // Stopped, not completed, and what it never reached is still to write:
+    // no object of it reads failed.
+    expect(within(results).getByTestId('forge-results-timestamp').textContent).toMatch(
+      /^Stopped: /,
+    );
+    expect(within(results).getByTestId('forge-retry-failed').textContent).toBe('Write the rest');
+  });
+
+  it('keeps saying it is stopping when the page is left, and has the answer that came meanwhile', () => {
+    const { unmount } = render(<ForgePage />);
+    abort();
+    unmount();
+
+    const again = render(<ForgePage />);
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPING...');
+    expect(screen.getByTestId('forge-abort-button').hasAttribute('disabled')).toBe(true);
+    again.unmount();
+
+    stopped(ABORTED, CANCELLED_RUN);
+    render(<ForgePage />);
+
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPED');
+    expect(screen.getByTestId('forge-execution-see-stopped')).toBeTruthy();
+  });
+
+  it('goes back to the Review of a run the abort stopped before it wrote', async () => {
+    render(<ForgePage />);
+    abort();
+
+    stopped('Forge execution was aborted before it started. Nothing was written.');
+
+    expect(screen.queryByTestId('forge-execution-see-stopped')).toBeNull();
+    fireEvent.click(screen.getByTestId('forge-execution-back-to-review'));
+    await screen.findByTestId('forge-review');
+  });
+});
+
+describe('ForgePage — the clock and the pause of a run left and come back to', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A run on screen started now, by a clock the test moves. */
+  function startedNow(): void {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-24T10:00:00.000Z'));
+    useForgeStore.getState().setExecutionRequestId(RUN_REQUEST);
+  }
+
+  /** Let `seconds` pass. */
+  function later(seconds: number): void {
+    act(() => {
+      vi.advanceTimersByTime(seconds * 1000);
+    });
+  }
+
+  function timer(): string {
+    return screen.getByTestId('forge-execution-timer').textContent ?? '';
+  }
+
+  it('goes on counting from when the run started, not from when the page came back', () => {
+    // Counted by the screen, Elapsed started again at 00:00.
+    startedNow();
+    const { unmount } = render(<ForgePage />);
+    later(5);
+    expect(timer()).toBe('Elapsed: 00:05');
+    unmount();
+
+    later(10);
+    render(<ForgePage />);
+
+    expect(timer()).toBe('Elapsed: 00:15');
+  });
+
+  it('comes back paused, with Resume, its clock having stood still while it was held', () => {
+    // A paused run came back reading FORGING..., with Pause to press again.
+    startedNow();
+    const { unmount } = render(<ForgePage />);
+    later(4);
+    fireEvent.click(screen.getByTestId('forge-pause-button'));
+    unmount();
+
+    later(60);
+    render(<ForgePage />);
+
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('PAUSED');
+    expect(screen.getByTestId('forge-pause-button').textContent).toContain('Resume');
+    expect(timer()).toBe('Elapsed: 00:04');
+
+    fireEvent.click(screen.getByTestId('forge-pause-button'));
+    later(3);
+
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
+    expect(timer()).toBe('Elapsed: 00:07');
   });
 });
 

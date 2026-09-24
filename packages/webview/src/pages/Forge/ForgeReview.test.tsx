@@ -224,6 +224,41 @@ describe('ForgeReview', () => {
     }
   });
 
+  it('says before the run what the objects the user left out cost it', () => {
+    mockGraph = {
+      ...defaultGraph,
+      nodes: [
+        makeNode({ objectApiName: 'Opportunity' }),
+        makeNode({ objectApiName: 'OpportunityLineItem', level: 1 }),
+        makeNode({
+          objectApiName: 'PricebookEntry',
+          level: 2,
+          included: false,
+          leftOutByUser: true,
+        }),
+      ],
+      edges: [
+        {
+          sourceObject: 'PricebookEntry',
+          targetObject: 'OpportunityLineItem',
+          relationshipName: 'PricebookEntry',
+          type: 'lookup',
+          required: true,
+        },
+      ],
+    };
+    render(<ForgeReview />);
+
+    expect(screen.getByTestId('forge-left-out-cost-row').textContent).toBe(
+      'OpportunityLineItem: records that need a record of PricebookEntry are not written, unless the target already holds it.',
+    );
+  });
+
+  it('says nothing of a cost while the user left nothing out', () => {
+    render(<ForgeReview />);
+    expect(screen.queryByTestId('forge-left-out-cost')).toBeNull();
+  });
+
   it('should not send forge:execute when the graph is missing', () => {
     mockGraph = null;
     render(<ForgeReview />);

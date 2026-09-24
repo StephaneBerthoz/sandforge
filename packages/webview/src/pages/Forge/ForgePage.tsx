@@ -56,10 +56,10 @@ export const ForgePage: React.FC = () => {
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('forge.subtitle')} icon="flame" />
-      {/* A finished run is spoken from the results screen. An aborted run goes
-          back to the input screen in the same instant, and a failed one stays
-          on the execution screen: this region outlives both, and says where
-          the run stopped. */}
+      {/* A finished run is spoken from the results screen. One an error or an
+          abort stopped stays on the execution screen, which the page can
+          leave and come back to: this region outlives it, and says where the
+          run stopped. */}
       <ProgressAnnouncer
         message={
           stoppedAt === null

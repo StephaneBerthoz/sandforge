@@ -6,7 +6,7 @@ import type {
   ForgeExecutionResult,
   ForgePlan,
 } from '@sandforge/shared';
-import { BYTES_PER_MB } from '@sandforge/shared';
+import { BYTES_PER_MB, leftOutByTheUser } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
@@ -254,6 +254,13 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
           }
         : undefined;
       const writtenBefore = runOptions?.writtenBefore;
+      // The objects unchecked on the Forge page leave the run as objects
+      // excluded by name: the rows that cannot be written without one of
+      // their records are held back and said, not sent for the target to
+      // refuse. Discovery's own — the empty tables, what it could not read —
+      // stay nodes the run skips.
+      const leftOut = graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName);
+      const excludedObjects = leftOut.length > 0 ? leftOut : undefined;
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
@@ -262,6 +269,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               expandOrphanParents: config.expandOrphanParents,
               maxRecordsPerObject: config.maxRecordsPerObject,
               fieldExclusions: config.fieldExclusions,
+              excludedObjects,
               ownerMappings: config.ownerMappings,
               objectSoqlFilters: config.objectSoqlFilters,
               fieldMappings: config.fieldMappings,
@@ -272,6 +280,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
+              excludedObjects ||
               config.ownerMappings ||
               config.objectSoqlFilters ||
               config.fieldMappings ||
@@ -282,6 +291,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
+                excludedObjects,
                 ownerMappings: config.ownerMappings,
                 objectSoqlFilters: config.objectSoqlFilters,
                 fieldMappings: config.fieldMappings,

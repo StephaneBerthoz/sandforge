@@ -2250,6 +2250,8 @@
     "finishing": "WIRD ABGESCHLOSSEN...",
     "finishingNote": "Alle Objekte im Graphen sind abgeschlossen. Der Lauf wird beendet; die Ergebnisse folgen, sobald er fertig ist.",
     "aborted": "ABGEBROCHEN",
+    "stopping": "WIRD ANGEHALTEN...",
+    "stoppingNote": "Abbruch angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
     "stopped": "ANGEHALTEN",
     "done": "Fertig",
     "running": "Läuft",
@@ -2258,7 +2260,7 @@
     "pause": "Pause",
     "resume": "Fortsetzen",
     "abort": "Abbrechen",
-    "abortConfirm": "Möchten Sie wirklich abbrechen? Der Fortschritt geht verloren.",
+    "abortConfirm": "Lauf abbrechen? Er hält an, sobald der laufende Schritt beendet ist, und was er geschrieben hat, bleibt in der Ziel-Org.",
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
@@ -2330,6 +2332,8 @@
     "exportJson": "JSON exportieren",
     "retryFailed": "Fehlgeschlagene wiederholen",
     "retryFailedHint": "„Fehlgeschlagene wiederholen“ führt den Klon erneut aus: Was dieser Lauf nicht schreiben konnte, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
+    "retryStopped": "Rest schreiben",
+    "retryStoppedHint": "„Rest schreiben“ führt den Klon erneut aus: Was dieser Lauf vor dem Anhalten nicht geschrieben hat, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "anonymizedFields": "Anonymisierte Felder",
     "fields": "Felder",
     "swapOrgs": "Quelle und Ziel tauschen",
@@ -2366,6 +2370,7 @@
     "filterByStatus": "Alle Status",
     "executionDuration": "Dauer",
     "executionTimestamp": "Abgeschlossen",
+    "executionStoppedAt": "Angehalten",
     "showLogs": "Protokolle anzeigen",
     "hideLogs": "Protokolle ausblenden",
     "copyAllLogs": "Alle kopieren",
@@ -2449,7 +2454,11 @@
       "skippedExcluded": "Übersprungen (ausgeschlossen)",
       "skippedEmpty": "Übersprungen (leer)",
       "cycleCount_one": "{{count}} Zyklus (UPDATE in 2 Durchläufen)",
-      "cycleCount_other": "{{count}} Zyklen (UPDATE in 2 Durchläufen)"
+      "cycleCount_other": "{{count}} Zyklen (UPDATE in 2 Durchläufen)",
+      "leftOutCost": "Was die ausgelassenen Objekte kosten",
+      "leftOutLookup": "{{object}}: Datensätze, die einen Datensatz von {{leftOut}} benötigen, werden nicht geschrieben, es sei denn, das Ziel enthält ihn bereits.",
+      "leftOutStatus": "{{object}}: Datensätze jenseits von Entwurf werden als Entwürfe geschrieben und bleiben es: Die Plattform gibt ihnen ihren Status nur mit {{leftOut}}-Datensätzen darunter.",
+      "leftOutSellingModel": "{{object}}: Preise, die nach einem Verkaufsmodell verkauft werden, werden nicht geschrieben: Jeder benötigt das Objekt {{leftOut}} seines Produkts für dieses Modell."
     },
     "errorsPanel": {
       "title": "Ausführungsfehler"

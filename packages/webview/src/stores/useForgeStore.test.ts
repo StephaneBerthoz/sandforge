@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { settledPercent, useForgeStore } from './useForgeStore';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { runElapsedSeconds, settledPercent, useForgeStore } from './useForgeStore';
 import type {
   ForgeConfig,
   ForgeGraph,
@@ -303,6 +303,41 @@ describe('useForgeStore', () => {
   it('should not modify state when toggleNodeIncluded is called with null graph', () => {
     getState().toggleNodeIncluded('Account');
     expect(getState().graph).toBeNull();
+  });
+
+  describe('a node the user leaves out', () => {
+    // Unmarked, a node unchecked on the page reached the run as one discovery
+    // left out: skipped, and what could not be written without it sent all
+    // the same, for the target to refuse.
+    it('is marked as the user left it out, and unmarked when put back', () => {
+      getState().setGraph(createMockGraph());
+
+      getState().toggleNodeIncluded('Contact');
+      expect(getState().graph?.nodes[1]).toMatchObject({ included: false, leftOutByUser: true });
+
+      getState().toggleNodeIncluded('Contact');
+      expect(getState().graph?.nodes[1].included).toBe(true);
+      expect(getState().graph?.nodes[1]).not.toHaveProperty('leftOutByUser');
+    });
+
+    it('marks under Deselect All only the nodes it takes out, never those discovery left out', () => {
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account' }),
+          // An empty table discovery left out.
+          createMockNode({ objectApiName: 'Asset', included: false, recordCount: 0 }),
+        ]),
+      );
+
+      getState().setNodesIncluded(['Account', 'Asset'], false);
+      expect(getState().graph?.nodes.map((n) => [n.objectApiName, n.leftOutByUser])).toEqual([
+        ['Account', true],
+        ['Asset', undefined],
+      ]);
+
+      getState().setNodesIncluded(['Account', 'Asset'], true);
+      expect(getState().graph?.nodes.map((n) => n.leftOutByUser)).toEqual([undefined, undefined]);
+    });
   });
 
   it('should add a field to anonymizeFields via toggleAnonymizeField', () => {
@@ -942,7 +977,7 @@ describe('useForgeStore', () => {
       expect(getState().stoppedAt).toBeNull();
     });
 
-    it('takes no error once the run was left for the input screen, as an abort leaves it', () => {
+    it('takes no error once the run was left for the input screen', () => {
       runOnScreen();
       getState().setPhase('input');
       stopped('Forge execution was aborted by user request.');
@@ -1037,6 +1072,172 @@ describe('useForgeStore', () => {
       stopped('INVALID_SESSION_ID');
       getState().forgeAgain();
       expect(getState().runError).toBeNull();
+    });
+  });
+
+  describe('an abort asked of the run on screen', () => {
+    /** The run as the history keeps it once a cancel stopped it. */
+    const cancelled = (): ForgeExecutionResult =>
+      createMockResult({
+        forgeId: 'forge-cancelled',
+        status: 'partial',
+        cancelled: true,
+        createdCount: 1,
+      });
+
+    it('keeps the run on its screen until it answers, then keeps what it wrote', () => {
+      // The screen left for the input screen as the abort was sent, and the
+      // answer that said what the run had written came to none.
+      runOnScreen();
+      getState().requestStop();
+      expect(getState().stopRequested).toBe(true);
+      expect(getState().phase).toBe('execution');
+
+      const kept = cancelled();
+      stopped('Forge execution was aborted by user request.', kept);
+
+      expect(getState().stopRequested).toBe(false);
+      expect(getState().runError?.stoppedRun).toEqual(kept);
+      expect(getState().phase).toBe('execution');
+    });
+
+    it('shows the results of a run that finished before the abort reached it', () => {
+      runOnScreen();
+      getState().requestStop();
+      post('forge:execute:response', 'wv-run-1', { result: createMockResult() });
+      expect(getState().phase).toBe('results');
+      expect(getState().stopRequested).toBe(false);
+    });
+
+    it('is asked of nothing once the run has ended, or when no run is on screen', () => {
+      runOnScreen();
+      stopped('INVALID_SESSION_ID');
+      getState().requestStop();
+      expect(getState().stopRequested).toBe(false);
+
+      getState().reset();
+      getState().setPhase('execution');
+      getState().requestStop();
+      expect(getState().stopRequested).toBe(false);
+    });
+
+    it('is forgotten by the next run', () => {
+      runOnScreen();
+      getState().requestStop();
+      getState().setExecutionRequestId('wv-run-2');
+      expect(getState().stopRequested).toBe(false);
+    });
+  });
+
+  describe('the clock of the run on screen', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** A run on screen started at 10:00:00 by this machine's clock. */
+    function startedAtTen(): void {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-24T10:00:00.000Z'));
+      runOnScreen();
+    }
+
+    /** Move this machine's clock `seconds` on. */
+    function later(seconds: number): void {
+      vi.setSystemTime(Date.now() + seconds * 1000);
+    }
+
+    /** How long the run has gone now, by its clock. */
+    function elapsed(): number {
+      const clock = getState().runClock;
+      if (!clock) throw new Error('no clock');
+      return runElapsedSeconds(clock, Date.now());
+    }
+
+    it('counts from when the run started', () => {
+      startedAtTen();
+      later(65);
+      expect(elapsed()).toBe(65);
+    });
+
+    it('stands still while the run is paused, and goes on from there once it is resumed', () => {
+      startedAtTen();
+      later(10);
+      getState().pauseRun();
+      later(300);
+      expect(elapsed()).toBe(10);
+      expect(getState().runClock?.pausedSince).not.toBeNull();
+
+      getState().resumeRun();
+      later(5);
+      expect(elapsed()).toBe(15);
+      expect(getState().runClock?.pausedSince).toBeNull();
+    });
+
+    it('stops when the run ends, answered or stopped by its error', () => {
+      startedAtTen();
+      later(20);
+      stopped('INVALID_SESSION_ID');
+      later(60);
+      expect(elapsed()).toBe(20);
+
+      startedAtTen();
+      later(7);
+      post('forge:execute:response', 'wv-run-1', { result: createMockResult() });
+      later(60);
+      expect(elapsed()).toBe(7);
+    });
+
+    it('counts no pause that went on past the end of the run', () => {
+      startedAtTen();
+      later(30);
+      getState().pauseRun();
+      later(40);
+      stopped('INVALID_SESSION_ID');
+      later(60);
+      expect(elapsed()).toBe(30);
+      // Nothing is left to resume.
+      getState().resumeRun();
+      expect(elapsed()).toBe(30);
+    });
+
+    it('is not paused once the run has stopped, nor while an abort is asked of it', () => {
+      startedAtTen();
+      stopped('INVALID_SESSION_ID');
+      getState().pauseRun();
+      expect(getState().runClock?.pausedSince).toBeNull();
+
+      startedAtTen();
+      getState().requestStop();
+      getState().pauseRun();
+      expect(getState().runClock?.pausedSince).toBeNull();
+    });
+
+    it('starts again with the next run, and goes with Forge Again', () => {
+      startedAtTen();
+      later(90);
+      getState().setExecutionRequestId('wv-run-2');
+      expect(elapsed()).toBe(0);
+      getState().forgeAgain();
+      expect(getState().runClock).toBeNull();
+    });
+  });
+
+  describe('the runs that end', () => {
+    it("counts the end of every run, this panel's or another's, answered or stopped", () => {
+      // The recent runs are read again at each: the extension keeps a run in
+      // its history before it says it ended.
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-other', { message: 'Other run failed' });
+      post('forge:execute:response', 'wv-run-another', { result: createMockResult() });
+      stopped('Forge execution was aborted by user request.');
+      expect(getState().runsEnded).toBe(3);
+    });
+
+    it('counts nothing a run reports while it goes on, nor a message from another origin', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done' });
+      post('forge:execute:error', 'wv-run-1', { message: 'x' }, 'https://example.invalid');
+      expect(getState().runsEnded).toBe(0);
     });
   });
 

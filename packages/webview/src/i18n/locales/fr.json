@@ -2250,6 +2250,8 @@
     "finishing": "FINALISATION...",
     "finishingNote": "Tous les objets du graphe sont traités. L'exécution se termine ; ses résultats suivront dès qu'elle aura fini.",
     "aborted": "ANNULÉ",
+    "stopping": "ARRÊT EN COURS...",
+    "stoppingNote": "Annulation demandée : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
     "stopped": "ARRÊTÉ",
     "done": "Terminés",
     "running": "En cours",
@@ -2258,7 +2260,7 @@
     "pause": "Pause",
     "resume": "Reprendre",
     "abort": "Annuler",
-    "abortConfirm": "Voulez-vous vraiment annuler ? La progression sera perdue.",
+    "abortConfirm": "Annuler l'exécution ? Elle s'arrête une fois l'étape en cours terminée, et ce qu'elle a écrit reste dans l'org cible.",
     "elapsed": "Écoulé",
     "discovery": "Découverte du graphe",
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
@@ -2330,6 +2332,8 @@
     "exportJson": "Exporter JSON",
     "retryFailed": "Retenter les échecs",
     "retryFailedHint": "Retenter les échecs relance le clone : ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
+    "retryStopped": "Écrire le reste",
+    "retryStoppedHint": "Écrire le reste relance le clone : ce que cette exécution n'a pas écrit avant de s'arrêter est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "anonymizedFields": "Champs anonymisés",
     "fields": "Champs",
     "swapOrgs": "Inverser source et cible",
@@ -2366,6 +2370,7 @@
     "filterByStatus": "Tous les statuts",
     "executionDuration": "Durée",
     "executionTimestamp": "Terminé le",
+    "executionStoppedAt": "Arrêté le",
     "showLogs": "Afficher les logs",
     "hideLogs": "Masquer les logs",
     "copyAllLogs": "Tout copier",
@@ -2449,7 +2454,11 @@
       "skippedExcluded": "Ignoré (exclu)",
       "skippedEmpty": "Ignoré (vide)",
       "cycleCount_one": "{{count}} cycle (UPDATE en 2 passes)",
-      "cycleCount_other": "{{count}} cycles (UPDATE en 2 passes)"
+      "cycleCount_other": "{{count}} cycles (UPDATE en 2 passes)",
+      "leftOutCost": "Ce que coûtent les objets laissés de côté",
+      "leftOutLookup": "{{object}} : les enregistrements qui ont besoin d'un enregistrement de {{leftOut}} ne sont pas écrits, sauf si la cible le détient déjà.",
+      "leftOutStatus": "{{object}} : les enregistrements au-delà de Brouillon sont écrits en brouillon et le restent : la plateforme ne leur donne leur statut qu'avec des enregistrements de {{leftOut}} sous eux.",
+      "leftOutSellingModel": "{{object}} : les prix vendus selon un modèle de vente ne sont pas écrits : chacun a besoin de l'objet {{leftOut}} de son produit pour ce modèle."
     },
     "errorsPanel": {
       "title": "Erreurs d'exécution"

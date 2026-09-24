@@ -11,6 +11,7 @@ import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
+import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 
 /** Tabs available in the Review phase right panel. */
@@ -195,6 +196,7 @@ export const ForgeReview: React.FC = () => {
           truncated={graph.truncated === true}
         />
       )}
+      {graph && <ReviewLeftOutCost graph={graph} />}
       <div className="flex gap-4 min-h-[500px]">
         {/* Graph panel (60%) */}
         <div className="w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">

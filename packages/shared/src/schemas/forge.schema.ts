@@ -187,6 +187,9 @@ export const forgeGraphNodeSchema = z.object({
   status: forgeNodeStatusSchema,
   progress: z.number().min(0).max(100),
   included: z.boolean(),
+  // Parsing drops what the schema does not name: without it, a node the user
+  // left out reached the run as one discovery left out.
+  leftOutByUser: z.boolean().optional(),
   piiFields: z.array(z.string().max(80)).max(500),
   anonymizeFields: z.array(z.string().max(80)).max(500),
   level: z.number().int().nonnegative().max(20),

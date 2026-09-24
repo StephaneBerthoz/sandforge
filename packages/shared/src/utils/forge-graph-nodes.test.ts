@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { leftOutAsEmptyTable, objectsBeyondTheGraph } from './forge-graph-nodes.js';
+import {
+  leftOutAsEmptyTable,
+  leftOutByTheUser,
+  objectsBeyondTheGraph,
+} from './forge-graph-nodes.js';
 
 describe('leftOutAsEmptyTable', () => {
   it('holds for a node discovery left out because it counted no row', () => {
@@ -52,6 +56,47 @@ describe('leftOutAsEmptyTable', () => {
     expect(
       leftOutAsEmptyTable({ included: true, recordCount: 0, status: 'idle', errors: [] }),
     ).toBe(false);
+  });
+
+  it('does not hold for a node the user left out, whatever it counts', () => {
+    // A starter template's graph counts every table 0 until the run reads it:
+    // a table unchecked there read as one discovery had found empty.
+    expect(
+      leftOutAsEmptyTable({
+        included: false,
+        leftOutByUser: true,
+        recordCount: 0,
+        status: 'idle',
+        errors: [],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('leftOutByTheUser', () => {
+  it('holds for a node the user unchecked', () => {
+    expect(leftOutByTheUser({ included: false, leftOutByUser: true, errors: [] })).toBe(true);
+  });
+
+  it('does not hold for a node discovery left out, empty or not', () => {
+    expect(leftOutByTheUser({ included: false, errors: [] })).toBe(false);
+    expect(leftOutByTheUser({ included: false, leftOutByUser: false, errors: [] })).toBe(false);
+  });
+
+  it('does not hold for a node discovery could not describe or count, unchecked again or not', () => {
+    // The run could not read it either way: its error says why, and nothing is
+    // held back in its name.
+    expect(
+      leftOutByTheUser({
+        included: false,
+        leftOutByUser: true,
+        errors: ['Describe unavailable: INSUFFICIENT_ACCESS'],
+      }),
+    ).toBe(false);
+  });
+
+  it('does not hold for a node the run reads', () => {
+    expect(leftOutByTheUser({ included: true, leftOutByUser: true, errors: [] })).toBe(false);
   });
 });
 

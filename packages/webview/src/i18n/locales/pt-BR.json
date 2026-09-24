@@ -2250,6 +2250,8 @@
     "finishing": "FINALIZANDO...",
     "finishingNote": "Todos os objetos do grafo foram resolvidos. A execução está terminando; os resultados virão assim que ela acabar.",
     "aborted": "CANCELADO",
+    "stopping": "INTERROMPENDO...",
+    "stoppingNote": "Cancelamento solicitado: a execução para assim que a etapa em andamento terminar e depois diz o que gravou.",
     "stopped": "INTERROMPIDO",
     "done": "Concluído",
     "running": "Em execução",
@@ -2258,7 +2260,7 @@
     "pause": "Pausar",
     "resume": "Retomar",
     "abort": "Cancelar",
-    "abortConfirm": "Tem certeza de que deseja cancelar? O progresso será perdido.",
+    "abortConfirm": "Cancelar a execução? Ela para assim que a etapa em andamento terminar, e o que já gravou fica na org de destino.",
     "elapsed": "Decorrido",
     "discovery": "Descoberta do grafo",
     "discoveryProgress": "Descobrindo… {{discovered}} objetos analisados, {{queued}} na fila",
@@ -2330,6 +2332,8 @@
     "exportJson": "Exportar JSON",
     "retryFailed": "Repetir falhos",
     "retryFailedHint": "Repetir falhos executa o clone de novo: o que esta execução não conseguiu gravar é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",
+    "retryStopped": "Gravar o restante",
+    "retryStoppedHint": "Gravar o restante executa o clone de novo: o que esta execução não gravou antes de ser interrompida é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",
     "anonymizedFields": "Campos anonimizados",
     "fields": "Campos",
     "swapOrgs": "Trocar origem e destino",
@@ -2366,6 +2370,7 @@
     "filterByStatus": "Todos os status",
     "executionDuration": "Duração",
     "executionTimestamp": "Concluído",
+    "executionStoppedAt": "Interrompido",
     "showLogs": "Mostrar logs",
     "hideLogs": "Ocultar logs",
     "copyAllLogs": "Copiar tudo",
@@ -2449,7 +2454,11 @@
       "skippedExcluded": "Ignorado (excluído)",
       "skippedEmpty": "Ignorado (vazio)",
       "cycleCount_one": "{{count}} ciclo (UPDATE em 2 passagens)",
-      "cycleCount_other": "{{count}} ciclos (UPDATE em 2 passagens)"
+      "cycleCount_other": "{{count}} ciclos (UPDATE em 2 passagens)",
+      "leftOutCost": "O que custam os objetos deixados de fora",
+      "leftOutLookup": "{{object}}: os registros que precisam de um registro de {{leftOut}} não são gravados, a menos que o destino já o tenha.",
+      "leftOutStatus": "{{object}}: os registros além de Rascunho são gravados como rascunhos e continuam assim: a plataforma só lhes dá o status com registros de {{leftOut}} sob eles.",
+      "leftOutSellingModel": "{{object}}: os preços vendidos sob um modelo de venda não são gravados: cada um precisa do objeto {{leftOut}} do seu produto para esse modelo."
     },
     "errorsPanel": {
       "title": "Erros de execução"

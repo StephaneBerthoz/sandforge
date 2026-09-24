@@ -256,6 +256,37 @@ describe('useForgeForm run history', () => {
     expect(sentTypes()).toEqual(['forge:history:list']);
   });
 
+  it("asks for the runs again whenever a run ends, this panel's or another's", () => {
+    // Asked once as the form came, the list missed the run a cancel had just
+    // stopped: the extension kept it a moment after.
+    renderHook(() => useForgeForm());
+    mockPostMessage.mockClear();
+
+    act(() => {
+      simulateResponse(
+        'forge:execute:error',
+        { message: 'Forge execution was aborted by user request.' },
+        'wv-run-cancelled',
+      );
+    });
+    act(() => {
+      simulateResponse('forge:execute:response', { result: SOQL_RUN }, 'wv-run-other-panel');
+    });
+
+    expect(sentTypes()).toEqual(['forge:history:list', 'forge:history:list']);
+  });
+
+  it('asks nothing more while a run only reports its progress', () => {
+    renderHook(() => useForgeForm());
+    mockPostMessage.mockClear();
+
+    act(() => {
+      simulateResponse('forge:progress', { objectName: 'Account', status: 'done' }, 'wv-run');
+    });
+
+    expect(sentTypes()).toEqual([]);
+  });
+
   it('exposes the entries the reply carried, newest first', () => {
     const { result } = renderHook(() => useForgeForm());
 

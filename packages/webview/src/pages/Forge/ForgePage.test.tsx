@@ -57,6 +57,10 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     logs: [],
     addLog: vi.fn(),
     clearLogs: vi.fn(),
+    runError: null,
+    runClock: null,
+    stopRequested: false,
+    runsEnded: 0,
     forgeAgain: vi.fn(),
     reset: vi.fn(),
     fileCopy: { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false },
@@ -196,9 +200,10 @@ describe('ForgePage', () => {
       mockSetStoppedAt.mockClear();
     });
 
-    it('says where the run stopped, from the screen the abort goes back to', () => {
+    it('says where the run stopped, from a region that outlives the screens', () => {
       // A finished run is spoken from the results screen. An aborted one went
-      // back to the input screen in the same instant, and nothing said so.
+      // back to the input screen in the same instant, and nothing said so; the
+      // page's region says it whichever screen shows.
       mockPhase = 'input';
       mockStoppedAt = 75;
       render(<ForgePage />);

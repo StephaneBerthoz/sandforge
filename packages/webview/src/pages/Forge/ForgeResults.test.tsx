@@ -1052,6 +1052,35 @@ describe('ForgeResults', () => {
       render(<ForgeResults />);
       expect(screen.getByTestId('forge-retry-failed')).toBeTruthy();
     });
+
+    describe('of a run that stopped before its end', () => {
+      // No object of it shows failed: those it never reached are not, and the
+      // retry was offered only for a failed one.
+      it('writes the rest of a run an error stopped, against what it wrote', () => {
+        mockResult = Object.assign(makeMockResult(), { forgeId: 'forge-stopped' });
+        mockRunError = { message: 'INVALID_SESSION_ID', stoppedRun: { forgeId: 'forge-stopped' } };
+        render(<ForgeResults />);
+
+        const button = screen.getByTestId('forge-retry-failed');
+        expect(button.textContent).toBe('Write the rest');
+        expect(screen.getByTestId('forge-retry-failed-hint').textContent).toBe(
+          'Write the rest runs the clone again: what this run did not write before it stopped is written, linked to what it did write, which is not written a second time.',
+        );
+        fireEvent.click(button);
+        expect(sent<Record<string, unknown>>('forge:execute')[0]).toMatchObject({
+          retryOf: 'forge-stopped',
+        });
+      });
+
+      it('writes the rest of a run a cancel stopped', () => {
+        mockResult = Object.assign(makeMockResult(), {
+          forgeId: 'forge-cancelled',
+          cancelled: true,
+        });
+        render(<ForgeResults />);
+        expect(screen.getByTestId('forge-retry-failed').textContent).toBe('Write the rest');
+      });
+    });
   });
 
   /* ---- Duration + Timestamp ---- */
@@ -1065,6 +1094,21 @@ describe('ForgeResults', () => {
     const timestamp = screen.getByTestId('forge-results-timestamp');
     expect(timestamp).toBeDefined();
     expect(timestamp.textContent).toContain('2026');
+    expect(timestamp.textContent).toMatch(/^Completed: /);
+  });
+
+  it('dates a run that stopped before its end by when it stopped, not as completed', () => {
+    mockResult = Object.assign(makeMockResult(), { forgeId: 'forge-stopped' });
+    mockRunError = { message: 'INVALID_SESSION_ID', stoppedRun: { forgeId: 'forge-stopped' } };
+    const { unmount } = render(<ForgeResults />);
+    expect(screen.getByTestId('forge-results-timestamp').textContent).toMatch(/^Stopped: /);
+    unmount();
+
+    // A cancelled run, as the history keeps it.
+    mockRunError = null;
+    mockResult = Object.assign(makeMockResult(), { cancelled: true });
+    render(<ForgeResults />);
+    expect(screen.getByTestId('forge-results-timestamp').textContent).toMatch(/^Stopped: /);
   });
 
   it('says when the run ended is unknown when its stored time is not a date', () => {
