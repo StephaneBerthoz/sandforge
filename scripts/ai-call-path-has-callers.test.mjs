@@ -299,7 +299,7 @@ test('every AIAssistant method that reaches the provider has a caller', () => {
 
   /** Methods that hand a prompt to the provider, directly or through one another. */
   const callsProvider = new Set();
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const method of methods) {
       const name = method.name.text;

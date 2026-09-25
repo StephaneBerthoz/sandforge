@@ -16,13 +16,7 @@ export type ForgeDepth = 'direct' | 'full' | 'custom';
  * the cancel reached before its write began keeps the status it had.
  */
 export type ForgeNodeStatus =
-  | 'idle'
-  | 'scanning'
-  | 'running'
-  | 'done'
-  | 'error'
-  | 'skipped'
-  | 'stopped';
+  'idle' | 'scanning' | 'running' | 'done' | 'error' | 'skipped' | 'stopped';
 
 /**
  * Configuration for a Forge operation.
@@ -762,13 +756,7 @@ export interface ForgeTemplate {
 
 /** PII category for anonymization UI grouping. */
 export type ForgeAnonymizationCategory =
-  | 'email'
-  | 'phone'
-  | 'name'
-  | 'address'
-  | 'ssn_id'
-  | 'financial'
-  | 'other';
+  'email' | 'phone' | 'name' | 'address' | 'ssn_id' | 'financial' | 'other';
 
 /** Batch strategy for an object during execution. */
 export type ForgeBatchStrategy = 'rest' | 'bulk' | 'auto';
@@ -779,10 +767,7 @@ export type ForgeBatchStrategy = 'rest' | 'bulk' | 'auto';
  * through the cycle and those records are refused.
  */
 export type ForgeCycleStrategy =
-  | 'two_pass'
-  | 'upsert_external_id'
-  | 'nullable_lookup'
-  | 'unbreakable';
+  'two_pass' | 'upsert_external_id' | 'nullable_lookup' | 'unbreakable';
 
 /** A group of objects that can be processed in parallel. */
 export interface ForgeWave {

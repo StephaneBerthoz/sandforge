@@ -223,14 +223,12 @@ function parseAIResolution(response: string): ErrorResolution {
   const reply = parseModelJson(ErrorResolutionReplySchema, response);
   return {
     explanation: reply.explanation,
-    suggestions: reply.suggestions.map(
-      (suggestion): ErrorSuggestion => ({
-        title: suggestion.title,
-        description: suggestion.description,
-        probability: suggestion.probability,
-        ...(suggestion.action !== undefined ? { action: suggestion.action } : {}),
-      }),
-    ),
+    suggestions: reply.suggestions.map((suggestion): ErrorSuggestion => ({
+      title: suggestion.title,
+      description: suggestion.description,
+      probability: suggestion.probability,
+      ...(suggestion.action !== undefined ? { action: suggestion.action } : {}),
+    })),
     autoFixable: reply.autoFixable,
     ...(reply.autoFixAction !== undefined ? { autoFixAction: reply.autoFixAction } : {}),
     confidence: reply.confidence,

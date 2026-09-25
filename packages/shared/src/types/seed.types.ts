@@ -239,12 +239,7 @@ export interface ERDEdge {
 
 /** Field generation mode carried by a {@link FieldGenerationConfig}. */
 export type FieldGenerationMode =
-  | 'auto'
-  | 'faker'
-  | 'fixed'
-  | 'sequence'
-  | 'null'
-  | 'picklist_random';
+  'auto' | 'faker' | 'fixed' | 'sequence' | 'null' | 'picklist_random';
 
 /** Configuration for generating a single field */
 export interface FieldGenerationConfig {

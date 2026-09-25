@@ -48,8 +48,7 @@ export type AutomaticTrigger = 'schedule' | 'sandbox_refresh';
 
 /** A run a trigger asked for: started, or not, because a run of the pipeline is going. */
 export type TriggeredStart =
-  | { started: true; run: Promise<PipelineRun | undefined> }
-  | { started: false; busy: RunHolder };
+  { started: true; run: Promise<PipelineRun | undefined> } | { started: false; busy: RunHolder };
 
 /**
  * What the user is told: a start a trigger owed and did not make, or a run a

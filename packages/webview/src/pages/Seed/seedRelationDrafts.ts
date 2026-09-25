@@ -24,11 +24,7 @@ export interface RelationLookup {
 
 /** Why a relation row cannot be sent as it stands. */
 export type RelationProblem =
-  | 'incomplete'
-  | 'duplicate'
-  | 'generatedParent'
-  | 'numbers'
-  | 'noChildren';
+  'incomplete' | 'duplicate' | 'generatedParent' | 'numbers' | 'noChildren';
 
 /** A relation row checked against the rest of the wizard. */
 export interface CheckedRelation {

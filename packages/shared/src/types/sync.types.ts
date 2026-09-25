@@ -11,13 +11,7 @@ export type ConflictStrategy = 'source_wins' | 'target_wins' | 'newest_wins' | '
 
 /** Field mapping type */
 export type MappingType =
-  | 'direct'
-  | 'rename'
-  | 'transform'
-  | 'constant'
-  | 'formula'
-  | 'exclude'
-  | 'add_on';
+  'direct' | 'rename' | 'transform' | 'constant' | 'formula' | 'exclude' | 'add_on';
 
 /** Transform rule type */
 export type TransformRuleType =
@@ -291,12 +285,7 @@ export interface CDCEvent {
 
 /** Status of a real-time sync session */
 export type RealTimeSyncStatus =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'syncing'
-  | 'paused'
-  | 'error';
+  'disconnected' | 'connecting' | 'connected' | 'syncing' | 'paused' | 'error';
 
 /** Metrics for a real-time sync session */
 export interface RealTimeSyncMetrics {

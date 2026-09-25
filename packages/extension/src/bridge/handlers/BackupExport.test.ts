@@ -68,8 +68,7 @@ describe('backup:export', () => {
     );
 
     const result = deps.posted.find((m) => m.type === 'backup:export:result') as
-      | { payload: { filename: string; data: string } }
-      | undefined;
+      { payload: { filename: string; data: string } } | undefined;
     expect(result).toBeDefined();
     expect(result?.payload.filename).toContain('op-1');
 

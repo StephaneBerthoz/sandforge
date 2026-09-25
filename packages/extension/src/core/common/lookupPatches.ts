@@ -25,8 +25,7 @@ export interface LookupPatch {
 
 /** Whether a patch was taken, and what the record owes instead when it was not. */
 export type PatchTaken =
-  | { readonly taken: true }
-  | { readonly taken: false; readonly kept: unknown };
+  { readonly taken: true } | { readonly taken: false; readonly kept: unknown };
 
 /** The lookups owed by the records of a run, gathered into one update per record. */
 export class LookupPatchSet {

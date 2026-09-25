@@ -57,9 +57,8 @@ function org(describe: unknown = contactDescribe) {
   const update = vi.fn(async (_name: string, records: Array<Record<string, unknown>>) =>
     records.map((r) => ({ success: true, id: r.Id })),
   );
-  const destroy = vi.fn(
-    async (_name: string, ids: string[]): Promise<unknown[]> =>
-      ids.map((id) => ({ success: true, id })),
+  const destroy = vi.fn(async (_name: string, ids: string[]): Promise<unknown[]> =>
+    ids.map((id) => ({ success: true, id })),
   );
   const query = vi.fn(async (soql: string) => {
     if (soql.startsWith('SELECT COUNT() FROM Task')) return { totalSize: 3, records: [] };

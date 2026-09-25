@@ -3,14 +3,7 @@ import { cn } from '../../theme';
 
 /** Module identifier for contextual illustrations. */
 export type EmptyStateModule =
-  | 'seed'
-  | 'sync'
-  | 'monitor'
-  | 'compare'
-  | 'dataops'
-  | 'automation'
-  | 'forge'
-  | 'autopilot';
+  'seed' | 'sync' | 'monitor' | 'compare' | 'dataops' | 'automation' | 'forge' | 'autopilot';
 
 /** EmptyState component props. */
 export interface EmptyStateProps {

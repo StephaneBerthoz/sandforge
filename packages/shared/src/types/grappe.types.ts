@@ -12,14 +12,7 @@ export type GrappePartitionStrategy =
 
 /** Grappe partition status */
 export type GrappeStatus =
-  | 'pending'
-  | 'queued'
-  | 'running'
-  | 'paused'
-  | 'completed'
-  | 'failed'
-  | 'retrying'
-  | 'cancelled';
+  'pending' | 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'retrying' | 'cancelled';
 
 /** Back-pressure strategy */
 export type BackPressureStrategy = 'pause' | 'throttle' | 'drop_priority';

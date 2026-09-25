@@ -14,9 +14,8 @@ describe('ScopedDossierHealthChecker', () => {
   it('tells two candidates of the same object apart', async () => {
     // What the graph-based check could not do: its graph was the schema's,
     // identical for every candidate, so every candidate got one verdict.
-    const measure = vi.fn(
-      async ([id]: string[]): Promise<Record<string, number>> =>
-        id === 'withLines' ? { Opportunity: 1, OpportunityLineItem: 2 } : { Opportunity: 1 },
+    const measure = vi.fn(async ([id]: string[]): Promise<Record<string, number>> =>
+      id === 'withLines' ? { Opportunity: 1, OpportunityLineItem: 2 } : { Opportunity: 1 },
     );
     const checker = new ScopedDossierHealthChecker(measure, ['OpportunityLineItem']);
 

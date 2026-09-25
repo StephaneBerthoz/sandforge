@@ -79,8 +79,7 @@ describe('ExtensionHandlers — failed runs with AI turned off', () => {
       return { dispose: () => undefined };
     };
     broker.registerPanel({ webview: { onDidReceiveMessage, postMessage } } as unknown as
-      | vscode.WebviewPanel
-      | vscode.WebviewView);
+      vscode.WebviewPanel | vscode.WebviewView);
 
     provider = vi
       .fn<AIProvider>()

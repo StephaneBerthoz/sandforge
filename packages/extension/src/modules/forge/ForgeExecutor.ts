@@ -1255,15 +1255,13 @@ function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[]
       },
     ]);
   }
-  return [...samples].map(
-    ([objectApiName, kinds]): ExecutionObjectError => ({
-      objectApiName,
-      stage: 'scope',
-      failedCount: 0,
-      attemptedCount: 0,
-      samples: kinds,
-    }),
-  );
+  return [...samples].map(([objectApiName, kinds]): ExecutionObjectError => ({
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: kinds,
+  }));
 }
 
 /** Why a row held back for an object the user excluded is not written. */
@@ -4140,7 +4138,7 @@ export class ForgeExecutor {
   private holdBackWhatHeldRowsCost(state: ExecutionState): void {
     const { config } = state;
     if (state.heldForExclusions.size === 0) return;
-    for (let found = true; found && !this.isAborted; ) {
+    for (let found = true; found && !this.isAborted;) {
       found = false;
       for (const [objectApiName, read] of [...state.preread]) {
         const required = read.fieldInfos.filter(

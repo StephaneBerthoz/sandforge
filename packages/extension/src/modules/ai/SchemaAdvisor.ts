@@ -19,10 +19,7 @@ export interface ObjectDescribe {
 
 /** Issue type classification. */
 export type SchemaIssueType =
-  | 'missing_index'
-  | 'duplicate_field'
-  | 'missing_relationship'
-  | 'naming_convention';
+  'missing_index' | 'duplicate_field' | 'missing_relationship' | 'naming_convention';
 
 /** Severity level for schema issues. */
 export type SchemaIssueSeverity = 'low' | 'medium' | 'high';

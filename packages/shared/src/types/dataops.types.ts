@@ -354,9 +354,7 @@ export interface SubjectSearchObjectFailure {
 }
 
 export type SubjectSearchObject =
-  | SubjectSearchObjectResult
-  | SubjectSearchObjectSkipped
-  | SubjectSearchObjectFailure;
+  SubjectSearchObjectResult | SubjectSearchObjectSkipped | SubjectSearchObjectFailure;
 
 /**
  * What `dataops:dsr:search` answers. The identifiers searched are not echoed:

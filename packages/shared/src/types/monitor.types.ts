@@ -46,11 +46,7 @@ export interface AlertCondition {
 
 /** Notification channel type */
 export type NotificationChannel =
-  | 'toast'
-  | 'vscode_notification'
-  | 'status_bar'
-  | 'sound'
-  | 'webhook';
+  'toast' | 'vscode_notification' | 'status_bar' | 'sound' | 'webhook';
 
 /** Triggered alert instance */
 export interface AlertInstance {
@@ -103,13 +99,7 @@ export interface DashboardWidget {
 
 /** Dashboard widget types */
 export type WidgetType =
-  | 'gauge'
-  | 'line_chart'
-  | 'bar_chart'
-  | 'stat_card'
-  | 'table'
-  | 'alert_list'
-  | 'heatmap';
+  'gauge' | 'line_chart' | 'bar_chart' | 'stat_card' | 'table' | 'alert_list' | 'heatmap';
 
 /** Widget position in the grid layout */
 export interface WidgetPosition {

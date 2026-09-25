@@ -1194,7 +1194,7 @@ async function leaveWhatHangsFromThePlatform(
   describe: (objectApiName: string) => Promise<ScopableField[]>,
   leftToThePlatform: RowsLeftToThePlatform,
 ): Promise<void> {
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const [objectApiName, bucket] of recordsByObject) {
       const rows = [...bucket.values()];

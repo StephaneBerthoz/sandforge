@@ -133,8 +133,7 @@ function isAuditEntry(value: unknown): value is AuditLogEntry {
 
 /** Where the records of a run came from. */
 export type RunSource =
-  | { origin: 'org'; orgId: string }
-  | { origin: Exclude<LineageOrigin, 'org'>; label?: string };
+  { origin: 'org'; orgId: string } | { origin: Exclude<LineageOrigin, 'org'>; label?: string };
 
 /** One run that wrote to an org, as its write path reports it when it ends. */
 export interface WriteRun {

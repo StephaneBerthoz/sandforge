@@ -1534,8 +1534,7 @@ describe('DataOpsHandler', () => {
       );
 
       const meta = set.mock.calls.find(([key]) => key === 'backup:bk-no-org-id')?.[1] as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       expect(meta).toMatchObject({ orgId: 'org-1', totalRecords: 1 });
       expect(meta).not.toHaveProperty('organizationId');
       expect(posted().filter((m) => m.type === 'dataops:backup:response')).toHaveLength(1);

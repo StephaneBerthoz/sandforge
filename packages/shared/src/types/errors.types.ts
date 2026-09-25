@@ -13,10 +13,7 @@ export interface ErrorClassification {
 
 /** Retry strategy type */
 export type RetryStrategyType =
-  | 'exponential'
-  | 'fixed_delay'
-  | 'reauth_then_retry'
-  | 'reduce_batch';
+  'exponential' | 'fixed_delay' | 'reauth_then_retry' | 'reduce_batch';
 
 /** Structured Salesforce API error */
 export interface SalesforceApiError {

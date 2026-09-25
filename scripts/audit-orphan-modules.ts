@@ -673,7 +673,7 @@ function main(): void {
     return grew;
   };
 
-  for (let growing = true; growing; ) {
+  for (let growing = true; growing;) {
     growing = false;
     for (const path of [...runtimeReachable]) {
       if (path.endsWith('.json')) continue;

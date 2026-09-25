@@ -17,11 +17,7 @@ export interface QueuedOperation {
 
 /** Event types emitted by OfflineManager */
 export type OfflineEventType =
-  | 'statusChanged'
-  | 'operationQueued'
-  | 'operationExecuted'
-  | 'operationFailed'
-  | 'queueDrained';
+  'statusChanged' | 'operationQueued' | 'operationExecuted' | 'operationFailed' | 'queueDrained';
 
 /** Offline manager event */
 export interface OfflineEvent {

@@ -258,15 +258,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }));
     if (!result) return ofGraph;
     const unread = new Set(result.failedReads ?? []);
-    const beyond = objectsBeyondTheGraph(result, nodes).map(
-      (objectApiName): ObjectRow => ({
-        objectApiName,
-        records: readByObject?.get(objectApiName),
-        status:
-          statusesBeyondGraph[objectApiName] ?? (unread.has(objectApiName) ? 'error' : 'done'),
-        errors: [],
-      }),
-    );
+    const beyond = objectsBeyondTheGraph(result, nodes).map((objectApiName): ObjectRow => ({
+      objectApiName,
+      records: readByObject?.get(objectApiName),
+      status: statusesBeyondGraph[objectApiName] ?? (unread.has(objectApiName) ? 'error' : 'done'),
+      errors: [],
+    }));
     return [...ofGraph, ...beyond];
   }, [nodes, result, readByObject, recordsOf, statusesBeyondGraph]);
 

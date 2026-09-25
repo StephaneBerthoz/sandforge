@@ -3101,7 +3101,7 @@ function leaveWhatHangsFrom(
   requiredLookups: ReadonlyMap<string, ReadonlySet<string>>,
   leftOut: readonly RowsLeftToThePlatform[],
 ): void {
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const [objectApiName, aligned] of alignedByObject) {
       const lookups = [...(requiredLookups.get(objectApiName) ?? [])];

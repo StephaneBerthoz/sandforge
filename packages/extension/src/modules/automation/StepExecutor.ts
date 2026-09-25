@@ -67,8 +67,7 @@ export class StepCancelledError extends Error {
  * (see {@link StepCancelledError}), which no retry follows either.
  */
 type Attempt =
-  | { result: PipelineStepResult }
-  | { error: string; final: boolean; cancelled?: boolean };
+  { result: PipelineStepResult } | { error: string; final: boolean; cancelled?: boolean };
 
 /** What a try settles with when its signal aborts before the handler answers. */
 const STOPPED: unique symbol = Symbol('stopped');

@@ -75,9 +75,7 @@ export interface SaveOutcome {
  * - `none`: not refused as a duplicate at all.
  */
 export type ExistingRecordVerdict =
-  | { kind: 'linked'; id: string }
-  | { kind: 'unidentified' }
-  | { kind: 'none' };
+  { kind: 'linked'; id: string } | { kind: 'unidentified' } | { kind: 'none' };
 
 /**
  * The record a unique index names, in any of the forms the message reaches us

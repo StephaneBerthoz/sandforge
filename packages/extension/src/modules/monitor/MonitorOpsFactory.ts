@@ -337,8 +337,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const conn = await deps.getConnection(orgId);
       const limitsRaw = await getOrFetchLimits(orgId, conn);
       const apiEntry = limitsRaw['DailyApiRequests'] as
-        | { Max: number; Remaining: number }
-        | undefined;
+        { Max: number; Remaining: number } | undefined;
       // A limit the org did not report is not a limit at 0%.
       if (!apiEntry || !apiEntry.Max) {
         return { name: 'apiLimits', status: 'unknown', score: 0, message: 'No API limit reported' };
@@ -368,8 +367,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const conn = await deps.getConnection(orgId);
       const limitsRaw = await getOrFetchLimits(orgId, conn);
       const storageEntry = limitsRaw['DataStorageMB'] as
-        | { Max: number; Remaining: number }
-        | undefined;
+        { Max: number; Remaining: number } | undefined;
       if (!storageEntry || !storageEntry.Max) {
         return {
           name: 'storage',

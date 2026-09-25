@@ -206,8 +206,7 @@ async function advanceToReview(page: Page, bridge: MockBridge): Promise<void> {
 async function enterExecutionState(page: Page): Promise<void> {
   await page.evaluate((graph) => {
     const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-      | { setState: (state: Record<string, unknown>) => void }
-      | undefined;
+      { setState: (state: Record<string, unknown>) => void } | undefined;
     store?.setState({ step: 'executing', executionStatus: 'executing', graph });
   }, buildMockGraph());
   await page.waitForSelector('[data-testid="autopilot-graph-area"]', { timeout: 10_000 });
@@ -223,8 +222,7 @@ async function enterCompletedState(page: Page): Promise<void> {
   });
   await page.evaluate((g) => {
     const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-      | { setState: (state: Record<string, unknown>) => void }
-      | undefined;
+      { setState: (state: Record<string, unknown>) => void } | undefined;
     store?.setState({ step: 'completed', executionStatus: 'completed', graph: g });
   }, graph);
   await page.waitForSelector('[data-testid="view-compliance-report"]', { timeout: 10_000 });

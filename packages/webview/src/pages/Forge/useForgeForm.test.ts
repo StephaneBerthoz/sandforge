@@ -675,8 +675,7 @@ describe('a built-in template clones from a record', () => {
     const discover = mockPostMessage.mock.calls
       .map(([envelope]) => (envelope as { payload?: Record<string, unknown> })?.payload)
       .find((m) => (m as { type?: string })?.type === 'forge:discover') as
-      | { payload: { config: { inputMode: string; recordId?: string } } }
-      | undefined;
+      { payload: { config: { inputMode: string; recordId?: string } } } | undefined;
     expect(discover, 'no forge:discover was sent').toBeDefined();
     expect(discover?.payload.config.inputMode).toBe('record');
     expect(discover?.payload.config.recordId).toBe('001AB00000ABCDEFGH');

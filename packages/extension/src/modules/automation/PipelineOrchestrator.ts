@@ -20,12 +20,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
  * the second for a step the run passed over.
  */
 export type PipelineEvent =
-  | 'started'
-  | 'stepStarted'
-  | 'stepCompleted'
-  | 'stepSkipped'
-  | 'completed'
-  | 'failed';
+  'started' | 'stepStarted' | 'stepCompleted' | 'stepSkipped' | 'completed' | 'failed';
 
 /** Handler function for pipeline events */
 export type PipelineEventHandler = (event: PipelineEvent, data: unknown) => void;

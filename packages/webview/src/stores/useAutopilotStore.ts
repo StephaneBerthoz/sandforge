@@ -29,22 +29,11 @@ export type NodeOutcome = Partial<
 
 /** Autopilot wizard step */
 export type AutopilotStep =
-  | 'connect'
-  | 'objects'
-  | 'compliance'
-  | 'review'
-  | 'executing'
-  | 'completed';
+  'connect' | 'objects' | 'compliance' | 'review' | 'executing' | 'completed';
 
 /** Execution status */
 export type ExecutionStatus =
-  | 'idle'
-  | 'scanning'
-  | 'planning'
-  | 'executing'
-  | 'paused'
-  | 'completed'
-  | 'failed';
+  'idle' | 'scanning' | 'planning' | 'executing' | 'paused' | 'completed' | 'failed';
 
 /** Live statistics during execution */
 export interface LiveStats {

@@ -193,8 +193,7 @@ export function useMessageResponse<T>(
             return;
           }
           const eventData = event.data as
-            | (BaseMessage & { payload?: { message?: unknown } })
-            | undefined;
+            (BaseMessage & { payload?: { message?: unknown } }) | undefined;
           if (!eventData || eventData.type !== errorType) {
             return;
           }
@@ -240,8 +239,7 @@ export function useMessageResponse<T>(
           return;
         }
         const eventData = event.data as
-          | (BaseMessage & { payload?: { reason?: unknown } })
-          | undefined;
+          (BaseMessage & { payload?: { reason?: unknown } }) | undefined;
         if (!eventData || eventData.type !== 'bridge:error') {
           return;
         }

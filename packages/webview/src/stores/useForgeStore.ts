@@ -1013,9 +1013,7 @@ function takeRunMessage(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview host.
   if (event.origin && !event.origin.startsWith('vscode-webview://')) return;
   const data = event.data as
-    | { type?: unknown; correlationId?: unknown; payload?: unknown }
-    | null
-    | undefined;
+    { type?: unknown; correlationId?: unknown; payload?: unknown } | null | undefined;
   if (!data || typeof data !== 'object') return;
   const store = useForgeStore.getState();
   if (data.type === 'forge:progress') {

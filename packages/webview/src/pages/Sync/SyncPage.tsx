@@ -506,12 +506,10 @@ export const SyncPage: React.FC = () => {
               <FieldMapper
                 sourceFields={sourceFields.map((f) => f.apiName)}
                 targetFields={targetFields.map((f) => f.apiName)}
-                mappings={mappings.map(
-                  (m): FieldMapperMapping => ({
-                    sourceField: m.sourceField,
-                    targetField: m.targetField,
-                  }),
-                )}
+                mappings={mappings.map((m): FieldMapperMapping => ({
+                  sourceField: m.sourceField,
+                  targetField: m.targetField,
+                }))}
                 onMappingChange={(fmMappings) => {
                   setMappings(
                     fmMappings.map((fm) => ({

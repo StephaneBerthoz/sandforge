@@ -189,7 +189,7 @@ function stripComments(f: SourceFile): string {
   const { src } = f;
   const out = src.split('');
   let next = 0;
-  for (let i = 0; i < src.length; ) {
+  for (let i = 0; i < src.length;) {
     while (next < literals.length && literals[next][1] <= i) next++;
     if (next < literals.length && literals[next][0] <= i) {
       i = literals[next][1];

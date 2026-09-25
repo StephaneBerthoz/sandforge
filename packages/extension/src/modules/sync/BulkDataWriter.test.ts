@@ -405,8 +405,7 @@ describe('BulkDataWriter', () => {
       await h.writer.update('Account', [{ Id: '001000', Name: 'Renamed' }], 200);
 
       const updateOptions = h.sobject.update.mock.calls[0][1] as
-        | { headers?: Record<string, string> }
-        | undefined;
+        { headers?: Record<string, string> } | undefined;
       expect(updateOptions?.headers?.['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
     });
   });

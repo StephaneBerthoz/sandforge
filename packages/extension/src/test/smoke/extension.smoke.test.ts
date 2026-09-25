@@ -19,8 +19,7 @@ const EXTENSION_ID = 'StephaneBerthoz.sandforge';
 /** Commands the manifest contributes, read back from the installed extension. */
 function contributedCommands(extension: vscode.Extension<unknown>): string[] {
   const contributes = extension.packageJSON.contributes as
-    | { commands?: Array<{ command: string }> }
-    | undefined;
+    { commands?: Array<{ command: string }> } | undefined;
   return (contributes?.commands ?? []).map((entry) => entry.command);
 }
 

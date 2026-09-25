@@ -627,7 +627,7 @@ export async function removeRunRecords(
   // Once the rest of the pass is gone, what waited for it — refused while
   // records still hung from it, or held by one of those — goes again, until
   // a round takes nothing more. Settled already, it is not counted twice.
-  for (let progress = removals.some((r) => r.result.deleted > 0); progress; ) {
+  for (let progress = removals.some((r) => r.result.deleted > 0); progress;) {
     progress = false;
     for (const removal of removals) {
       const waiting = removal.waiting();
@@ -1183,9 +1183,7 @@ function runSpan(
 
 /** What a delete did to one record. */
 type DeleteOutcome =
-  | { kind: 'deleted' }
-  | { kind: 'gone' }
-  | { kind: 'refused'; reason: string; dependency: boolean };
+  { kind: 'deleted' } | { kind: 'gone' } | { kind: 'refused'; reason: string; dependency: boolean };
 
 /**
  * Delete one batch and say what became of each record: deleted, already gone

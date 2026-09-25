@@ -416,8 +416,7 @@ export async function themeContrastShortfalls(
 
   for (const node of results.violations.flatMap((violation) => violation.nodes)) {
     const data = node.any[0]?.data as
-      | { fgColor?: string; bgColor?: string; expectedContrastRatio?: string }
-      | undefined;
+      { fgColor?: string; bgColor?: string; expectedContrastRatio?: string } | undefined;
     if (!data?.fgColor || !data.bgColor || !data.expectedContrastRatio) {
       shortfalls.push(`${node.html.slice(0, 120)}: ${node.any[0]?.message ?? 'unmeasured'}`);
       continue;

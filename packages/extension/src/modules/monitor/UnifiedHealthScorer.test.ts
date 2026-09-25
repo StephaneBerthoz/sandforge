@@ -13,15 +13,13 @@ function makeLimit(name: string, max: number, usedPercent: number): ApiLimit {
 /** Helper to create a mock TrendStorage with controlled responses. */
 function makeMockTrendStorage(trendMap: Record<string, Partial<TrendData>>): TrendStorage {
   return {
-    getTrendData: vi.fn(
-      ((_orgId: string, limitName: string): TrendData => ({
-        limitName,
-        direction: 'stable',
-        changePercent: 0,
-        sparklineData: [],
-        ...trendMap[limitName],
-      })) as TrendStorage['getTrendData'],
-    ),
+    getTrendData: vi.fn(((_orgId: string, limitName: string): TrendData => ({
+      limitName,
+      direction: 'stable',
+      changePercent: 0,
+      sparklineData: [],
+      ...trendMap[limitName],
+    })) as TrendStorage['getTrendData']),
     record: vi.fn(),
     getHistory: vi.fn().mockReturnValue([]),
     purge: vi.fn(),

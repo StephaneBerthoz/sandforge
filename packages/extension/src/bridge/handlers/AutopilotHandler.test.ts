@@ -511,11 +511,9 @@ describe('AutopilotHandler', () => {
 
       const messages = postedMessages(deps);
       const responseA = messages.find((m) => m.correlationId === 'scan-A') as
-        | (BaseMessage & { payload: { graph: unknown } })
-        | undefined;
+        (BaseMessage & { payload: { graph: unknown } }) | undefined;
       const responseB = messages.find((m) => m.correlationId === 'scan-B') as
-        | (BaseMessage & { payload: { graph: unknown } })
-        | undefined;
+        (BaseMessage & { payload: { graph: unknown } }) | undefined;
       expect(responseA?.type).toBe('autopilot:schema-result');
       expect(responseB?.type).toBe('autopilot:schema-result');
       expect(responseA?.payload.graph).toBe(graphA);

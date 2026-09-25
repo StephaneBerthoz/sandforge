@@ -349,13 +349,11 @@ describe('copyFiles', () => {
         return [{ ContentDocumentId: `069NEW${versionId.slice(-3)}` }];
       }),
       readFileBody: vi.fn(async (_orgId: string, _object: string, _id: string) => contentOf(4)),
-      insertFile: vi.fn(
-        async (): Promise<InsertResult> => ({
-          id: `068NEW${String(++written).padStart(3, '0')}`,
-          success: true,
-          errors: [],
-        }),
-      ),
+      insertFile: vi.fn(async (): Promise<InsertResult> => ({
+        id: `068NEW${String(++written).padStart(3, '0')}`,
+        success: true,
+        errors: [],
+      })),
       insertRecords: vi.fn(async (_orgId: string, _object: string, records: unknown[]) =>
         records.map((_, i) => ({ id: `06ANEW${i}`, success: true, errors: [] })),
       ),

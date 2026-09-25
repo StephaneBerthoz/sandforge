@@ -2,11 +2,7 @@ import type { PipelineCondition } from '@sandforge/shared';
 
 /** Category of a pipeline template */
 export type TemplateCategory =
-  | 'environment'
-  | 'migration'
-  | 'maintenance'
-  | 'compliance'
-  | 'monitoring';
+  'environment' | 'migration' | 'maintenance' | 'compliance' | 'monitoring';
 
 /** A step definition within a pipeline template */
 export interface TemplateStep {

@@ -14,9 +14,7 @@ import type { RealTimeSyncMetrics } from '../sync.types.js';
  *   same two orgs — its external id, mappings, transforms and add-on fields.
  */
 export type RealTimeMatch =
-  | { kind: 'id' }
-  | { kind: 'externalId'; field: string }
-  | { kind: 'syncConfig'; configId: string };
+  { kind: 'id' } | { kind: 'externalId'; field: string } | { kind: 'syncConfig'; configId: string };
 
 /** A watched object whose changes are written to the target org. */
 export interface RealTimeApplyObject {
@@ -42,13 +40,7 @@ export interface RealTimeApplyObject {
  *   the same org, or another session writes back — so it is not applied again.
  */
 export type RealTimeEventOutcome =
-  | 'applied'
-  | 'failed'
-  | 'watched'
-  | 'kept-target'
-  | 'held'
-  | 'deletes-off'
-  | 'own-write';
+  'applied' | 'failed' | 'watched' | 'kept-target' | 'held' | 'deletes-off' | 'own-write';
 
 /** An object of the source org that publishes change events. */
 export interface RealTimePublishingObject {

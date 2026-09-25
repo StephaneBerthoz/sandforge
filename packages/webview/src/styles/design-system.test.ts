@@ -2434,7 +2434,7 @@ class RenderWalker {
       this.drain();
     }
     const roots = components.filter((fn) => !this.model.isRendered(fn));
-    for (let pending = roots; pending.length > 0; ) {
+    for (let pending = roots; pending.length > 0;) {
       for (const fn of pending) {
         this.walkedComponents.add(fn);
         if (fn.body) this.schedule(fn.body, ROOT_CONTEXT, null);

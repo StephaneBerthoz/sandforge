@@ -2,13 +2,7 @@ import type { UUID, ISODateString } from './common.types.js';
 
 /** Pipeline run status */
 export type PipelineRunStatus =
-  | 'idle'
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'completed_with_warnings'
-  | 'failed'
-  | 'cancelled';
+  'idle' | 'queued' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled';
 
 /** Pipeline step type — the building blocks of a pipeline */
 export type PipelineStepType =
@@ -30,12 +24,7 @@ export type PipelineStepType =
 
 /** Trigger type for automated pipeline execution */
 export type TriggerType =
-  | 'manual'
-  | 'schedule'
-  | 'event'
-  | 'webhook'
-  | 'sandbox_refresh'
-  | 'deployment_complete';
+  'manual' | 'schedule' | 'event' | 'webhook' | 'sandbox_refresh' | 'deployment_complete';
 
 /** Condition operator for conditional routing */
 export type ConditionOperator =

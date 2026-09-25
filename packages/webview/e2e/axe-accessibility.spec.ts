@@ -4343,8 +4343,7 @@ for (const theme of STATE_THEMES) {
       ]);
       await page.evaluate(() => {
         const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-          | { getState: () => { selectNode: (name: string) => void } }
-          | undefined;
+          { getState: () => { selectNode: (name: string) => void } } | undefined;
         store?.getState().selectNode('Contact');
       });
       await page.getByTestId('control-tab-node').click();

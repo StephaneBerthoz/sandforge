@@ -340,9 +340,7 @@ export interface FrozenSkippedRecord {
  * record the load wrote: the record went, and the link with it.
  */
 export type FrozenUnresolvedLinkCause =
-  | 'record-not-loaded'
-  | 'target-not-loaded'
-  | 'update-refused';
+  'record-not-loaded' | 'target-not-loaded' | 'update-refused';
 
 /** Per-object load accounting. */
 export interface FrozenPerObjectLoadResult {

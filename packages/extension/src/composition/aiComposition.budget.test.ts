@@ -11,8 +11,7 @@ const host = vi.hoisted(() => ({
   /** Command handlers the code under test registered, by command id. */
   commands: new Map<string, () => unknown>(),
   configListener: undefined as
-    | ((event: { affectsConfiguration: (section: string) => boolean }) => void)
-    | undefined,
+    ((event: { affectsConfiguration: (section: string) => boolean }) => void) | undefined,
   sdkCreate: vi.fn(),
 }));
 
