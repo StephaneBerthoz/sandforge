@@ -37,7 +37,7 @@
  * when there is none.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,68 +87,79 @@ export function collectRequested(sources) {
   return byPath;
 }
 
-const fail = [];
-const note = (message) => fail.push(message);
+/** Judges the build on disk, and the VSIX with `--vsix`; exits 1 on a gap. */
+function main() {
+  const fail = [];
+  const note = (message) => fail.push(message);
 
-const requested = collectRequested(providerSources());
+  const requested = collectRequested(providerSources());
 
-if (requested.size < 4) {
-  note(
-    `only ${requested.size} webview-dist path(s) found in ${PROVIDERS_DIR} — expected at least 4 ` +
-      '(two bundles, two stylesheets). Has the resolution moved out of joinPath()?',
-  );
-}
-
-// 1. Every requested path exists in the build, and carries bytes.
-for (const [path, askers] of [...requested].sort()) {
-  const onDisk = join(repoRoot, BUILT_DIR, path);
-  if (!existsSync(onDisk)) {
-    const siblings = existsSync(join(repoRoot, BUILT_DIR, 'assets'))
-      ? readdirSync(join(repoRoot, BUILT_DIR, 'assets')).join(', ')
-      : '(no assets directory)';
+  if (requested.size < 4) {
     note(
-      `${BUILT_DIR}/${path} does not exist, and ${askers.join(', ')} links to it — ` +
-        `the webview would load it as a 404. Built instead: ${siblings}`,
+      `only ${requested.size} webview-dist path(s) found in ${PROVIDERS_DIR} — expected at least 4 ` +
+        '(two bundles, two stylesheets). Has the resolution moved out of joinPath()?',
     );
-  } else if (statSync(onDisk).size === 0) {
-    note(`${BUILT_DIR}/${path} is empty, and ${askers.join(', ')} links to it`);
   }
-}
 
-// 2. The panel and the sidebar link different stylesheets.
-const stylesheets = [...requested.keys()].filter((path) => path.endsWith('.css'));
-if (stylesheets.length < 2) {
-  note(
-    `the providers link ${stylesheets.length} stylesheet(s) (${stylesheets.join(', ') || 'none'}) — ` +
-      'the panels and the sidebar each need their own, since both Vite passes write into one dist',
-  );
-}
+  // 1. Every requested path exists in the build, and carries bytes.
+  for (const [path, askers] of [...requested].sort()) {
+    const onDisk = join(repoRoot, BUILT_DIR, path);
+    if (!existsSync(onDisk)) {
+      const siblings = existsSync(join(repoRoot, BUILT_DIR, 'assets'))
+        ? readdirSync(join(repoRoot, BUILT_DIR, 'assets')).join(', ')
+        : '(no assets directory)';
+      note(
+        `${BUILT_DIR}/${path} does not exist, and ${askers.join(', ')} links to it — ` +
+          `the webview would load it as a 404. Built instead: ${siblings}`,
+      );
+    } else if (statSync(onDisk).size === 0) {
+      note(`${BUILT_DIR}/${path} is empty, and ${askers.join(', ')} links to it`);
+    }
+  }
 
-// 3. The VSIX carries them too, for a caller that just packaged one.
-const checkVsix = process.argv.includes('--vsix');
-if (checkVsix) {
-  if (!existsSync(join(repoRoot, VSIX))) {
+  // 2. The panel and the sidebar link different stylesheets.
+  const stylesheets = [...requested.keys()].filter((path) => path.endsWith('.css'));
+  if (stylesheets.length < 2) {
     note(
-      `--vsix was asked for and ${VSIX} is not there — nothing was checked against the artifact`,
+      `the providers link ${stylesheets.length} stylesheet(s) (${stylesheets.join(', ') || 'none'}) — ` +
+        'the panels and the sidebar each need their own, since both Vite passes write into one dist',
     );
-  } else {
-    const listing = execFileSync('unzip', ['-l', join(repoRoot, VSIX)], { encoding: 'utf8' });
-    for (const path of [...requested.keys()].sort()) {
-      if (!listing.includes(`extension/webview-dist/${path}`)) {
-        note(`${VSIX} has no extension/webview-dist/${path} — an install would render without it`);
+  }
+
+  // 3. The VSIX carries them too, for a caller that just packaged one.
+  const checkVsix = process.argv.includes('--vsix');
+  if (checkVsix) {
+    if (!existsSync(join(repoRoot, VSIX))) {
+      note(
+        `--vsix was asked for and ${VSIX} is not there — nothing was checked against the artifact`,
+      );
+    } else {
+      const listing = execFileSync('unzip', ['-l', join(repoRoot, VSIX)], { encoding: 'utf8' });
+      for (const path of [...requested.keys()].sort()) {
+        if (!listing.includes(`extension/webview-dist/${path}`)) {
+          note(
+            `${VSIX} has no extension/webview-dist/${path} — an install would render without it`,
+          );
+        }
       }
     }
   }
+
+  if (fail.length > 0) {
+    console.error('FAIL: the webview shell links files the build does not produce\n');
+    for (const message of fail) console.error(`  - ${message}`);
+    process.exit(1);
+  }
+
+  console.log(
+    `PASS: webview assets — ${requested.size} path(s) linked by the providers, all built` +
+      (checkVsix ? ' and present in the VSIX' : '') +
+      `: ${[...requested.keys()].sort().join(', ')}`,
+  );
 }
 
-if (fail.length > 0) {
-  console.error('FAIL: the webview shell links files the build does not produce\n');
-  for (const message of fail) console.error(`  - ${message}`);
-  process.exit(1);
-}
-
-console.log(
-  `PASS: webview assets — ${requested.size} path(s) linked by the providers, all built` +
-    (checkVsix ? ' and present in the VSIX' : '') +
-    `: ${[...requested.keys()].sort().join(', ')}`,
-);
+// Run, not imported: the test imports the reader above, and the check judges
+// a build. Run on import, it judged whatever build was on disk from the test,
+// which `validate` runs before `pnpm build`: a tree never built failed there,
+// and a tree built earlier passed on its old build.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main();

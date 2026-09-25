@@ -12,10 +12,11 @@
  * Run: node --test scripts/check-webview-assets.test.mjs
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { collectRequested, requestedAssets } from './check-webview-assets.mjs';
 
@@ -105,4 +106,22 @@ test('the providers on disk still use a shape it reads', () => {
     'assets/sidepanel.css',
     'assets/sidepanel.js',
   ]);
+});
+
+test('importing the gate judges no build, and running it does', () => {
+  // This file imports the reader, and the check used to run on import: it
+  // judged whatever build was on disk, from a test `validate` runs before
+  // `pnpm build`. A tree never built failed there, a tree built earlier
+  // passed on its old build, and neither said anything of this tree.
+  const gate = join(repoRoot, 'scripts', 'check-webview-assets.mjs');
+  const imported = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(gate).href)});`],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.equal(`${imported.stdout}${imported.stderr}`, '');
+
+  const run = spawnSync(process.execPath, [gate], { cwd: repoRoot, encoding: 'utf8' });
+  assert.match(`${run.stdout}${run.stderr}`, /^(PASS|FAIL): /m);
 });
