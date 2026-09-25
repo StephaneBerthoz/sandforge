@@ -79,12 +79,17 @@ describe('ReviewPlanTab', () => {
     expect(screen.getByTestId('wave-1')).toBeDefined();
   });
 
-  it('should display total records and API calls in summary', () => {
+  it('gives the plan’s records, and its calls as the estimate they are, in its summary and on each wave', () => {
+    // The plan puts a call on each batch of the rows discovery counted, before
+    // anything is read: "6 API calls" read as calls counted, where the
+    // execution and results tiles already said theirs were estimated.
     mockPlan = makePlan();
     render(<ReviewPlanTab />);
-    const tab = screen.getByTestId('review-plan-tab');
-    expect(tab.textContent).toContain('350');
-    expect(tab.textContent).toContain('6 API calls');
+    const summary = screen.getByTestId('review-plan-summary').textContent;
+    expect(summary).toContain('350');
+    expect(summary).toContain('6 estimated API calls');
+    expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~10.5s');
+    expect(screen.getByTestId('wave-1').textContent).toContain('2 estimated API calls · ~3.2s');
   });
 
   it('should display object names inside wave cards', () => {
@@ -168,7 +173,7 @@ describe('ReviewPlanTab', () => {
       render(<ReviewPlanTab />);
 
       expect(screen.getByTestId('review-plan-summary').textContent).toBe('records not counted');
-      expect(screen.getByTestId('wave-0').textContent).toContain('4 API calls · ~10.5s');
+      expect(screen.getByTestId('wave-0').textContent).toContain('4 estimated API calls · ~10.5s');
       expect(screen.getByTestId('wave-1').textContent).not.toContain('API call');
     });
   });

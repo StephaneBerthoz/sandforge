@@ -259,8 +259,14 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({ onExecute, isE
               onSourceSelect={(id) => useAutopilotStore.getState().setSourceOrg(id)}
               onTargetSelect={(id) => useAutopilotStore.getState().setTargetOrg(id)}
             />
+            {/* A status, here and below: Next waits on the scan or the plan,
+                and nothing else tells a screen reader why. */}
             {scanMutation.loading && (
-              <p className="text-xs text-text-secondary" data-testid="autopilot-scan-loading">
+              <p
+                role="status"
+                className="text-xs text-text-secondary"
+                data-testid="autopilot-scan-loading"
+              >
                 {t('autopilot.status.scanning')}
               </p>
             )}
@@ -279,7 +285,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({ onExecute, isE
               onToggleAll={handleToggleAll}
             />
             {scanMutation.loading && (
-              <p className="text-xs text-text-secondary" data-testid="autopilot-scan-loading">
+              <p
+                role="status"
+                className="text-xs text-text-secondary"
+                data-testid="autopilot-scan-loading"
+              >
                 {t('autopilot.status.scanning')}
               </p>
             )}
@@ -297,7 +307,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({ onExecute, isE
               }
             />
             {planMutation.loading && (
-              <p className="text-xs text-text-secondary" data-testid="autopilot-plan-loading">
+              <p
+                role="status"
+                className="text-xs text-text-secondary"
+                data-testid="autopilot-plan-loading"
+              >
                 {t('autopilot.status.planning')}
               </p>
             )}

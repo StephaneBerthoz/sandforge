@@ -99,4 +99,64 @@ describe('Button', () => {
     const btn = screen.getByRole('button');
     expect(btn.className).toContain('my-custom');
   });
+
+  describe('kept focusable while disabled', () => {
+    // A focused button that takes the `disabled` attribute hands the focus to
+    // the page; one that says it is disabled keeps it.
+
+    it('says it is disabled instead of taking the attribute, looks it, and ignores its click', () => {
+      const handler = vi.fn();
+      render(
+        <Button disabled focusableWhenDisabled onClick={handler}>
+          Next
+        </Button>,
+      );
+      const btn = screen.getByRole('button') as HTMLButtonElement;
+
+      expect(btn.disabled).toBe(false);
+      expect(btn.getAttribute('aria-disabled')).toBe('true');
+      expect(btn.className).toContain('opacity-50');
+      fireEvent.click(btn);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('does the same while it loads', () => {
+      const handler = vi.fn();
+      render(
+        <Button loading focusableWhenDisabled onClick={handler}>
+          Next
+        </Button>,
+      );
+      const btn = screen.getByRole('button') as HTMLButtonElement;
+
+      expect(btn.disabled).toBe(false);
+      expect(btn.getAttribute('aria-disabled')).toBe('true');
+      expect(btn.getAttribute('aria-busy')).toBe('true');
+      fireEvent.click(btn);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('is an ordinary button while it can be used', () => {
+      const handler = vi.fn();
+      render(
+        <Button focusableWhenDisabled onClick={handler}>
+          Next
+        </Button>,
+      );
+      const btn = screen.getByRole('button') as HTMLButtonElement;
+
+      expect(btn.getAttribute('aria-disabled')).toBeNull();
+      expect(btn.className).not.toContain('opacity-50');
+      fireEvent.click(btn);
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('takes the attribute as before without being asked to stay focusable', () => {
+      render(<Button disabled>Next</Button>);
+      const btn = screen.getByRole('button') as HTMLButtonElement;
+
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute('aria-disabled')).toBeNull();
+    });
+  });
 });

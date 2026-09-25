@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { AutopilotGraph, ExecutionPlan } from '@sandforge/shared';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
 import { AutopilotWizard } from './AutopilotWizard';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 
@@ -151,7 +152,7 @@ describe('AutopilotWizard', () => {
 
   it('should disable next when no orgs are selected', () => {
     render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    expect(screen.getByTestId('seed-wizard-next')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should post autopilot:scan-schema when both orgs selected and next clicked', () => {
@@ -276,6 +277,34 @@ describe('AutopilotWizard', () => {
 
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(onExecute).toHaveBeenCalled();
+  });
+
+  it('says why Next waits while the scan runs, as a status a screen reader reads out', () => {
+    // Next is unavailable while the scan runs, and the line saying why was
+    // drawn alone: a screen reader on Next heard nothing of it.
+    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    connectOrgsAndScan();
+
+    scanState = { ...scanState, loading: true };
+    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+
+    expect(screen.getByRole('status').textContent).toBe(en.autopilot.status.scanning);
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('says why Next waits while the plan is built, as a status a screen reader reads out', () => {
+    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    connectOrgsAndScan();
+    scanState = { ...scanState, data: { graph: GRAPH } };
+    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+
+    planState = { ...planState, loading: true };
+    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+
+    expect(screen.getByRole('status').textContent).toBe(en.autopilot.status.planning);
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should go back to step 1 from step 2 (store-backed navigation)', () => {

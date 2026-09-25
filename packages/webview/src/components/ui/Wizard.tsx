@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { Check } from 'lucide-react';
@@ -66,9 +66,52 @@ export const Wizard: React.FC<WizardProps> = ({
 
   const isFirst = currentStep === 0;
   const isLast = currentStep === steps.length - 1;
+  const current = steps[currentStep];
+
+  const wizardRef = useRef<HTMLDivElement>(null);
+  const stepRef = useRef<HTMLDivElement>(null);
+  /** Next, or Confirm on the last step. */
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+
+  /*
+   * On a new step the keyboard goes to the step, which says its name, and not
+   * to a button whose action changed under it. Left on Next, a second Enter
+   * pressed while Seed Clone's preview was prepared ran the clone as soon as
+   * the preview came; on Autopilot, whose review step turns Next into
+   * Confirm, it started the run once the plan was built. The focus is taken
+   * from a control of the wizard, or from one the step took off the page (the
+   * preview's Execute), never from a control outside it.
+   */
+  const stepShown = useRef(currentStep);
+  useEffect(() => {
+    if (stepShown.current === currentStep) return;
+    stepShown.current = currentStep;
+    const focused = document.activeElement;
+    const inWizard =
+      focused === null ||
+      focused === document.body ||
+      wizardRef.current?.contains(focused) === true;
+    if (inWizard) stepRef.current?.focus();
+  }, [currentStep]);
+
+  // The same when what Next waited for comes on the step it is on, while the
+  // keyboard waited on Next: the step now shows it, and Next may now do what
+  // it could not before (run the clone of the preview that came).
+  const couldGoNext = useRef(canGoNext);
+  useEffect(() => {
+    const could = couldGoNext.current;
+    couldGoNext.current = canGoNext;
+    if (!could && canGoNext && document.activeElement === nextButtonRef.current) {
+      stepRef.current?.focus();
+    }
+  }, [canGoNext]);
 
   return (
-    <div className={cn('flex gap-4', className)} data-testid={tid(testIdPrefix, 'wizard')}>
+    <div
+      ref={wizardRef}
+      className={cn('flex gap-4', className)}
+      data-testid={tid(testIdPrefix, 'wizard')}
+    >
       {/* Vertical step sidebar */}
       <nav
         className="w-48 shrink-0 flex flex-col gap-1"
@@ -152,7 +195,16 @@ export const Wizard: React.FC<WizardProps> = ({
 
       {/* Content area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex-1 min-h-0" data-testid={tid(testIdPrefix, 'step-content')}>
+        {/* Named after the step it shows: focused, it tells a screen reader
+            which step the keyboard is on. */}
+        <div
+          ref={stepRef}
+          className="flex-1 min-h-0"
+          role="group"
+          aria-label={current ? t(current.labelKey) : undefined}
+          tabIndex={-1}
+          data-testid={tid(testIdPrefix, 'step-content')}
+        >
           {/* One step at a time: the next is drawn once the last has left. */}
           <AnimatePresence mode="wait">
             <m.div
@@ -168,7 +220,11 @@ export const Wizard: React.FC<WizardProps> = ({
           </AnimatePresence>
         </div>
 
-        {/* Navigation */}
+        {/* Navigation. Back, Next and Confirm stay focusable while they cannot
+            be used: Next turns unavailable under the Enter that asks for a
+            scan or a plan, and a button that takes the `disabled` attribute
+            hands the focus to the page, where the keyboard started again from
+            the top. */}
         {!isFinished && (
           <div className="flex justify-between items-center pt-2 border-t border-[var(--vscode-panel-border,#3c3c3c)]">
             <div className="flex items-center gap-2">
@@ -177,6 +233,7 @@ export const Wizard: React.FC<WizardProps> = ({
                 size="sm"
                 onClick={() => onStepChange(currentStep - 1)}
                 disabled={isFirst || !canGoBack}
+                focusableWhenDisabled
                 data-testid={tid(testIdPrefix, 'wizard-back')}
               >
                 {t('common.back')}
@@ -194,20 +251,24 @@ export const Wizard: React.FC<WizardProps> = ({
             </div>
             {isLast ? (
               <Button
+                ref={nextButtonRef}
                 variant="primary"
                 size="sm"
                 onClick={onFinish}
                 disabled={!canGoNext}
+                focusableWhenDisabled
                 data-testid={tid(testIdPrefix, 'wizard-finish')}
               >
                 {t('common.confirm')}
               </Button>
             ) : (
               <Button
+                ref={nextButtonRef}
                 variant="primary"
                 size="sm"
                 onClick={() => onStepChange(currentStep + 1)}
                 disabled={!canGoNext}
+                focusableWhenDisabled
                 data-testid={tid(testIdPrefix, 'wizard-next')}
               >
                 {t('common.next')}

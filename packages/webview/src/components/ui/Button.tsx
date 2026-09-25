@@ -28,6 +28,15 @@ export interface ButtonProps extends Omit<
   size?: ButtonSize;
   loading?: boolean;
   icon?: React.ReactNode;
+  /**
+   * Keep the button focusable while it is disabled or loading: it says so with
+   * `aria-disabled` and ignores its clicks, instead of taking the `disabled`
+   * attribute. A button that has the focus when it takes that attribute hands
+   * the focus to the page, and the keyboard starts again from the top. For a
+   * button that turns unavailable under the Enter that pressed it, as a
+   * wizard's Next does.
+   */
+  focusableWhenDisabled?: boolean;
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
@@ -53,9 +62,22 @@ const sizeClasses: Record<ButtonSize, string> = {
 /** Styled button component matching VSCode theme. */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { variant = 'primary', size = 'md', loading, icon, className, children, disabled, ...props },
+    {
+      variant = 'primary',
+      size = 'md',
+      loading,
+      icon,
+      focusableWhenDisabled = false,
+      className,
+      children,
+      disabled,
+      onClick,
+      ...props
+    },
     ref,
   ) => {
+    /** Disabled or loading, and kept focusable: a click, Enter and Space included, does nothing. */
+    const focusableDisabled = (disabled || loading) && focusableWhenDisabled;
     return (
       <m.button
         ref={ref}
@@ -67,8 +89,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           (disabled || loading) && 'opacity-50 cursor-not-allowed',
           className,
         )}
-        disabled={disabled || loading}
+        disabled={(disabled || loading) && !focusableWhenDisabled}
+        aria-disabled={focusableDisabled || undefined}
         aria-busy={loading || undefined}
+        onClick={focusableDisabled ? (event) => event.preventDefault() : onClick}
         {...props}
       >
         {loading ? (

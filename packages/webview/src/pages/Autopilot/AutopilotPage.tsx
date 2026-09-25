@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
@@ -8,6 +8,7 @@ import type {
   ExecutionPlan,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
+import type { AutopilotStep } from '../../stores/useAutopilotStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -30,6 +31,9 @@ const AutopilotGrappePanel: React.FC = () => {
     </div>
   );
 };
+
+/** The steps the wizard shows; the others are the running view's. */
+const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'compliance', 'review'];
 
 /** Main Autopilot page layout. */
 export const AutopilotPage: React.FC = () => {
@@ -191,6 +195,19 @@ export const AutopilotPage: React.FC = () => {
     store.setStep('review');
   }, [executeMutation.error]);
 
+  // Execute leaves with the wizard, and the focus it held fell to the page:
+  // the running view takes it, announced by its heading. A page opened on a
+  // run already under way has nothing to hand on, and leaves the focus alone.
+  const executionHeading = useRef<HTMLHeadingElement>(null);
+  const stepBefore = useRef(step);
+  useEffect(() => {
+    const before = stepBefore.current;
+    stepBefore.current = step;
+    if (step !== 'executing' || !WIZARD_STEPS.includes(before)) return;
+    const focused = document.activeElement;
+    if (focused === null || focused === document.body) executionHeading.current?.focus();
+  }, [step]);
+
   if (!selectedOrgId || orgs.length === 0) {
     return (
       <EmptyState
@@ -203,8 +220,7 @@ export const AutopilotPage: React.FC = () => {
     );
   }
 
-  const isWizardStep =
-    step === 'connect' || step === 'objects' || step === 'compliance' || step === 'review';
+  const isWizardStep = WIZARD_STEPS.includes(step);
   const isExecutionStep = step === 'executing' || step === 'completed';
 
   if (showReport) {
@@ -240,7 +256,13 @@ export const AutopilotPage: React.FC = () => {
       <div className="flex flex-col h-full" data-testid="autopilot-page">
         {/* Header with title and optional report button */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--sf-border)]">
-          <h2 className="text-sm font-semibold text-text-primary">{t('autopilot.title')}</h2>
+          <h2
+            ref={executionHeading}
+            tabIndex={-1}
+            className="text-sm font-semibold text-text-primary"
+          >
+            {t('autopilot.title')}
+          </h2>
           {step === 'completed' && (
             <button
               className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] transition-colors"

@@ -123,10 +123,13 @@ describe('ForgePreviewCard', () => {
     expect(screen.getByTestId('forge-preview-not-counted').textContent).toBe(
       'Record counts come with discovery, and this graph skipped it: the run counts the records as it reads them.',
     );
-    expect(screen.queryByText('0 API calls')).toBeNull();
+    expect(screen.queryByText(/API call/)).toBeNull();
   });
 
-  it('counts the records of a graph discovery counted, and the plan’s calls, without the note', () => {
+  it('counts the records of a graph discovery counted, and gives the plan’s calls as the estimate they are, without the note', () => {
+    // The plan puts a call on each batch of the rows discovery counted, before
+    // anything is read: "2 API calls" read as calls counted, where the
+    // execution and results tiles already said theirs were estimated.
     const plan: ForgePlan = {
       waves: [],
       totalRecords: 15,
@@ -144,7 +147,7 @@ describe('ForgePreviewCard', () => {
     );
 
     expect(tile('forge-preview-clone')).toBe('Will clone2 objects · 15 recordsOpportunity, Quote');
-    expect(screen.getByText('2 API calls')).toBeDefined();
+    expect(screen.getByText('2 estimated API calls')).toBeDefined();
     expect(screen.queryByTestId('forge-preview-not-counted')).toBeNull();
   });
 

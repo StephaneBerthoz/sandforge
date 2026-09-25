@@ -152,7 +152,7 @@ describe('CloneWizard', () => {
     render(<CloneWizard onBack={vi.fn()} />);
 
     const nextBtn = screen.getByTestId('clone-wizard-next');
-    expect(nextBtn).toHaveProperty('disabled', true);
+    expect(nextBtn.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should render wizard with correct test ID prefix', () => {
@@ -180,7 +180,7 @@ describe('CloneWizard', () => {
       pickSourceAndAccount();
 
       const next = screen.getByTestId('clone-wizard-next');
-      expect(next).toHaveProperty('disabled', true);
+      expect(next.getAttribute('aria-disabled')).toBe('true');
       fireEvent.click(next);
       expect(mockPreviewMutate).not.toHaveBeenCalled();
       expect(screen.getByTestId('clone-needs-both-orgs').textContent).toBe(
@@ -211,8 +211,8 @@ describe('CloneWizard', () => {
 
       const loading = screen.getByTestId('clone-preview-loading');
       expect(within(loading).getByRole('status').textContent).toBe(en.seed.clone.preview.loading);
-      expect(screen.getByTestId('clone-wizard-next')).toHaveProperty('disabled', true);
-      expect(screen.getByTestId('clone-wizard-back')).toHaveProperty('disabled', false);
+      expect(screen.getByTestId('clone-wizard-next').getAttribute('aria-disabled')).toBe('true');
+      expect(screen.getByTestId('clone-wizard-back').getAttribute('aria-disabled')).toBeNull();
 
       previewAnswer = {
         objects: [
@@ -224,6 +224,30 @@ describe('CloneWizard', () => {
 
       expect(screen.queryByTestId('clone-preview-loading')).toBeNull();
       expect(screen.getByTestId('clone-preview-panel')).toBeDefined();
+    });
+
+    it('takes the keyboard off Next to the preview step, where Next would run the clone once the preview came', () => {
+      // Left on Next, a second Enter ran the clone as soon as the preview came,
+      // before anyone had read it.
+      const view = render(<CloneWizard onBack={vi.fn()} />);
+      pickSourceAndAccount();
+      const next = screen.getByTestId('clone-wizard-next');
+      next.focus();
+
+      fireEvent.click(next);
+
+      const previewStep = screen.getByRole('group', { name: en.seed.clone.wizard.stepPreview });
+      expect(document.activeElement).toBe(previewStep);
+      previewAnswer = {
+        objects: [
+          { objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] },
+        ],
+        insertOrder: ['Account'],
+      };
+      view.rerender(<CloneWizard onBack={vi.fn()} />);
+      expect(screen.getByTestId('clone-preview-panel')).toBeDefined();
+      expect(document.activeElement).toBe(previewStep);
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
     });
 
     it('sets the preview being prepared aside on Back, and stays on the objects', () => {
@@ -239,7 +263,7 @@ describe('CloneWizard', () => {
       expect(mockPreviewReset).toHaveBeenCalled();
       expect(screen.queryByTestId('clone-preview-loading')).toBeNull();
       expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
-      expect(screen.getByTestId('clone-wizard-next')).toHaveProperty('disabled', false);
+      expect(screen.getByTestId('clone-wizard-next').getAttribute('aria-disabled')).toBeNull();
     });
 
     it('dismisses only the banner of a failed preview: the objects stay picked', () => {
@@ -257,7 +281,7 @@ describe('CloneWizard', () => {
 
       expect(screen.queryByTestId('clone-error')).toBeNull();
       expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
-      expect(screen.getByTestId('clone-wizard-next')).toHaveProperty('disabled', false);
+      expect(screen.getByTestId('clone-wizard-next').getAttribute('aria-disabled')).toBeNull();
     });
   });
 
@@ -368,11 +392,26 @@ describe('CloneWizard', () => {
       expect(screen.getByTestId('clone-executing')).toBeDefined();
     });
 
+    it('hands the keyboard to the running step when the preview’s Execute starts the clone', () => {
+      // Execute goes with the preview, and the focus it held fell to the page.
+      previewShown();
+      const execute = screen.getByTestId('clone-preview-execute');
+      execute.focus();
+
+      fireEvent.click(execute);
+
+      expect(screen.getByTestId('clone-executing')).toBeDefined();
+      expect(document.activeElement).toBe(
+        screen.getByRole('group', { name: en.seed.clone.wizard.stepExecute }),
+      );
+    });
+
     it('stays on a run while it runs: neither Back nor the steps leave it', () => {
       previewShown();
       fireEvent.click(screen.getByTestId('clone-preview-execute'));
 
-      expect(screen.getByTestId('clone-wizard-back')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('clone-wizard-back').getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(screen.getByTestId('clone-wizard-back'));
       fireEvent.click(screen.getByTestId('clone-step-preview'));
       fireEvent.click(screen.getByTestId('clone-step-objects'));
 

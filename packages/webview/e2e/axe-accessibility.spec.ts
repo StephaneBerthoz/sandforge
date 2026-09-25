@@ -2576,6 +2576,36 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(step4);
     });
 
+    test('Autopilot wizard while its scan runs, then while its plan is built, saying so', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      // Not answered yet: the scan stays under way while the page is scanned.
+      await page.getByTestId('autopilot-scan-loading').waitFor({ timeout: 5000 });
+      const scanning = await checkAccessibility(page);
+      expectNoViolations(scanning);
+      expect(
+        await contrastMeasuredIn(page, scanning, '[data-testid="autopilot-scan-loading"]'),
+      ).toBeGreaterThan(0);
+
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('autopilot-plan-loading').waitFor({ timeout: 5000 });
+      const planning = await checkAccessibility(page);
+      expectNoViolations(planning);
+      expect(
+        await contrastMeasuredIn(page, planning, '[data-testid="autopilot-plan-loading"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('AI chat after conversation creation', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
 

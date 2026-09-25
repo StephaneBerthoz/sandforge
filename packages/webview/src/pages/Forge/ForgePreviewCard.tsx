@@ -179,12 +179,13 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           {/* The plan reckons its calls and its duration from the counts: from
               counts nobody took, it said "0 API calls · ~0s" of a run that
-              reads every object of the template. */}
+              reads every object of the template. From counts taken, its calls
+              are a guess all the same, and are said to be one. */}
           {!buckets.cloneRecordsUnknown && (
             <>
               <span className="flex items-center gap-1.5">
                 <Zap size={11} />
-                {t('common.apiCallCount', { count: plan.totalApiCalls })}
+                {t('common.estimatedApiCallCount', { count: plan.totalApiCalls })}
               </span>
               <span className="flex items-center gap-1.5">
                 <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s

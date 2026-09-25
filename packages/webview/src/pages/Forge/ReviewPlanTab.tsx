@@ -7,7 +7,7 @@ import { uiLocale } from '../../utils/formatters';
  * Plan tab within the Forge Review phase.
  *
  * Displays execution waves as cards, each showing the wave number,
- * participating objects, estimated duration, and API calls.
+ * participating objects, estimated duration, and estimated API calls.
  * Also renders cycle resolutions when detected.
  */
 /** Props for {@link ReviewPlanTab}. */
@@ -63,7 +63,10 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
 
   return (
     <div data-testid="review-plan-tab" className="flex flex-col gap-3">
-      {/* Summary */}
+      {/* Summary. Its calls, and each wave's, are the plan's guess — a call for
+          each batch of the rows discovery counted, before anything is read —
+          and are said to be one, as the execution and results tiles say
+          theirs: "6 API calls" read as calls counted. */}
       <div data-testid="review-plan-summary" className="flex gap-4 text-xs text-text-secondary">
         {plan.waves.every((wave) => counted(wave.objectApiNames)) ? (
           <>
@@ -73,7 +76,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
                 formatted: plan.totalRecords.toLocaleString(uiLocale()),
               })}
             </span>
-            <span>{t('common.apiCallCount', { count: plan.totalApiCalls })}</span>
+            <span>{t('common.estimatedApiCallCount', { count: plan.totalApiCalls })}</span>
             <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
           </>
         ) : (
@@ -94,7 +97,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             </span>
             {counted(wave.objectApiNames) && (
               <span className="text-[10px] text-text-secondary">
-                {t('common.apiCallCount', { count: wave.estimatedApiCalls })} · ~
+                {t('common.estimatedApiCallCount', { count: wave.estimatedApiCalls })} · ~
                 {wave.estimatedDurationSeconds.toFixed(1)}s
               </span>
             )}

@@ -313,7 +313,7 @@ describe('SyncPage', () => {
   it('should disable next when no orgs selected', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
-    expect(screen.getByTestId('sync-wizard-next')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('sync-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should show direction and conflict selectors', () => {

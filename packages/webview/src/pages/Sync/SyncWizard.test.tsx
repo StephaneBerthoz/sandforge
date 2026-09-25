@@ -58,7 +58,7 @@ describe('SyncWizard', () => {
         <div>Content</div>
       </SyncWizard>,
     );
-    expect(screen.getByTestId('sync-wizard-back')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('sync-wizard-back').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should show finish on last step', () => {

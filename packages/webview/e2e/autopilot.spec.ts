@@ -336,6 +336,82 @@ test.describe('Autopilot — Wizard Flow', () => {
     await expect(page.getByTestId('step1-connect')).toBeVisible({ timeout: 10_000 });
   });
 
+  test('keeps the keyboard on Next while the scan it asked for runs, sends one scan, and takes the keyboard to the step it brings', async ({
+    page,
+  }) => {
+    // Next turned disabled under the Enter that started the scan, and a
+    // focused button that turns disabled hands the focus to the page: the
+    // keyboard started again from the top of the panel.
+    await page.getByTestId('source-org-org-src-1').click();
+    await page.getByTestId('target-org-org-tgt-1').click();
+    const next = page.getByTestId('seed-wizard-next');
+
+    await next.focus();
+    await page.keyboard.press('Enter');
+    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+
+    const scanning = page.getByTestId('autopilot-scan-loading');
+    await expect(scanning).toHaveRole('status');
+    await expect(scanning).toHaveText('Scanning schemas...');
+    await expect(next).toBeDisabled();
+    await expect(next).toBeFocused();
+    // Pressed again while the scan runs, Next asks for no second one.
+    await page.keyboard.press('Enter');
+    expect(await outgoing(page, 'autopilot:scan-schema')).toHaveLength(1);
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+      graph: buildMockGraph(),
+    });
+    await expect(page.getByTestId('step2-objects')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Select Objects', exact: true })).toBeFocused();
+  });
+
+  test('takes the keyboard to the review once the plan is built, where a second Enter starts nothing', async ({
+    page,
+  }) => {
+    // The review turns Next into Confirm, which starts the run. Left on it, a
+    // second Enter pressed while the plan was built started a run nobody had
+    // reviewed, as soon as the plan came.
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
+    const next = page.getByTestId('seed-wizard-next');
+
+    await next.focus();
+    await page.keyboard.press('Enter');
+    await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
+    const planning = page.getByTestId('autopilot-plan-loading');
+    await expect(planning).toHaveRole('status');
+    await expect(planning).toHaveText('Generating plan...');
+    await expect(next).toBeFocused();
+    await page.keyboard.press('Enter');
+    expect(await outgoing(page, 'autopilot:generate-plan')).toHaveLength(1);
+    await respondToAll(page, 'autopilot:generate-plan', 'autopilot:plan-ready', {
+      plan: MOCK_PLAN,
+      graph: buildMockGraph(),
+    });
+    await expect(page.getByTestId('step4-review')).toBeVisible();
+    await page.keyboard.press('Enter');
+
+    expect(await outgoing(page, 'autopilot:execute')).toEqual([]);
+    await expect(page.getByTestId('autopilot-graph-area')).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+  });
+
+  test('hands the keyboard to the running view’s heading when Execute starts the run', async ({
+    page,
+  }) => {
+    // Execute leaves with the wizard, and the focus it held fell to the page.
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
+    await advanceToReview(page, bridge);
+
+    await page.getByTestId('execute-button').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByTestId('autopilot-graph-area')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Autopilot', exact: true })).toBeFocused();
+    expect(await outgoing(page, 'autopilot:execute')).toHaveLength(1);
+  });
+
   test('execute starts the run and leaves the wizard for the execution view', async ({ page }) => {
     await advanceToObjects(page, bridge);
     await advanceToCompliance(page);

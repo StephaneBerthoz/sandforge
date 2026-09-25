@@ -652,23 +652,24 @@ describe('SeedPage', () => {
 
     it('waits for every describe before it lets the run go, and says so', () => {
       const { rerender } = pickAndMoveOn(THREE);
-      const next = (): HTMLButtonElement =>
-        screen.getByTestId('seed-wizard-next') as HTMLButtonElement;
+      /** Whether Next says it cannot be used yet. */
+      const nextUnavailable = (): boolean =>
+        screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled') === 'true';
 
       expect(screen.getByTestId('seed-fields-status').textContent).toBe(
         'Reading the fields of the selected objects...',
       );
-      expect(next().disabled).toBe(true);
+      expect(nextUnavailable()).toBe(true);
 
       answerDescribe(rerender, 'Account', THREE_OBJECT_DESCRIBES.Account);
       answerDescribe(rerender, 'Contact', THREE_OBJECT_DESCRIBES.Contact);
-      expect(next().disabled).toBe(true);
+      expect(nextUnavailable()).toBe(true);
 
       answerDescribe(rerender, 'Opportunity', THREE_OBJECT_DESCRIBES.Opportunity);
       expect(screen.getByTestId('seed-fields-status').textContent).toBe(
         'Using default field rules.',
       );
-      expect(next().disabled).toBe(false);
+      expect(nextUnavailable()).toBe(false);
     });
 
     it('offers the relations on the execute step, and sends the one added there', () => {
@@ -705,7 +706,7 @@ describe('SeedPage', () => {
       expect(screen.getByTestId('seed-fields-status').textContent).toBe(
         'The fields of the selected objects could not be read: INVALID_SESSION_ID',
       );
-      expect((screen.getByTestId('seed-wizard-next') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
 
       mockDescribeFieldsMutate.mockClear();
       // As the mutation does: a reset clears the failure it holds.

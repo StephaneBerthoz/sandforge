@@ -926,6 +926,42 @@ describe('sandforge-clone describes', () => {
       return orgs;
     }
 
+    it('counts the record types it reads for the run among the calls the run made, as the extension does', async () => {
+      // The extension adds the record types it reads before the run to the
+      // calls it says the run made. The command counted from the executor's
+      // start: "calls: 2" of a run that read both orgs' record types as well.
+      // Discovery's counts and the preflight's are the run's in neither.
+      const orgs = withFakeOrgs();
+      const sent: string[] = [];
+      for (const { conn } of Object.values(orgs)) {
+        const fake = conn as unknown as {
+          query: (soql: string) => Promise<unknown>;
+          request: (request: unknown) => Promise<unknown>;
+        };
+        const answer = fake.query;
+        // As on a real connection: a query goes out through `request`, where
+        // the command counts what it sends.
+        fake.query = async (soql: string) => {
+          sent.push(soql);
+          await fake.request(soql);
+          return answer(soql);
+        };
+      }
+
+      expect(await run(argv('--dry-run'))).toBeUndefined();
+
+      const recordTypes = sent.filter((soql) => soql.includes(' FROM RecordType '));
+      const reads = sent.filter(
+        (soql) => !soql.startsWith('SELECT COUNT()') && !soql.includes(' FROM RecordType '),
+      );
+      expect(recordTypes).toHaveLength(2);
+      expect(reads.length).toBeGreaterThan(0);
+      expect(sent.length).toBeGreaterThan(recordTypes.length + reads.length);
+      expect(printed).toContain(
+        `calls:   ${recordTypes.length + reads.length} (requests the run sent to both orgs)`,
+      );
+    });
+
     it('reads every page of a query, not the first alone', async () => {
       // A query answers with 2 000 records at most and a cursor to the rest:
       // the command read the first page and cloned a bigger scope short.

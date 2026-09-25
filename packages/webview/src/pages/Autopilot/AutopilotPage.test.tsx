@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { AutopilotPage } from './AutopilotPage';
 
 /** Mock message bus hooks used by AutopilotPage. */
@@ -167,6 +168,35 @@ describe('AutopilotPage', () => {
     };
     expect(state.setExecutionStatus).toHaveBeenCalledWith('executing');
     expect(state.setStep).toHaveBeenCalledWith('executing');
+  });
+
+  it('hands the keyboard to the running view’s heading when Execute takes the wizard away', () => {
+    // Execute leaves with the wizard, and the focus it held fell to the page.
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'review',
+      selectedObjects: ['Account'],
+    };
+    const { rerender } = render(<AutopilotPage />);
+    const execute = screen.getByTestId('execute-button');
+    execute.focus();
+    fireEvent.click(execute);
+
+    mockAutopilotState = { ...mockAutopilotState, step: 'executing', executionStatus: 'executing' };
+    rerender(<AutopilotPage />);
+
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: en.autopilot.title }));
+  });
+
+  it('leaves the focus alone when the page opens on a run already under way', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'executing',
+      executionStatus: 'executing',
+    };
+    render(<AutopilotPage />);
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('should render the execution view (graph + control panel) when executing', () => {

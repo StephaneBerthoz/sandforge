@@ -795,6 +795,70 @@ test.describe('Seed Clone — a preview on its way', () => {
     await expect(page.getByTestId('clone-obj-check-Account')).toBeVisible();
     expect(await outgoing(page, 'seed:clone:preview')).toHaveLength(1);
   });
+
+  /** The Clone wizard on its objects step, the accounts of the second sandbox checked. */
+  async function accountsChecked(page: Page): Promise<MockBridge> {
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await page.getByTestId('mode-card-clone').click();
+    await page.getByTestId('clone-source-select').selectOption(MOCK_ORGS[1].id);
+    await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+    await respondToAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+      objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+    });
+    await page.getByTestId('clone-wizard-next').click();
+    await page.getByTestId('clone-obj-check-Account').check();
+    return bridge;
+  }
+
+  /** The extension's preview of three accounts, for every preview asked for. */
+  async function answerThePreview(page: Page): Promise<void> {
+    await respondToAll(page, 'seed:clone:preview', 'seed:clone:preview:response', {
+      objects: [{ objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] }],
+      insertOrder: ['Account'],
+    });
+  }
+
+  test('takes the keyboard to the preview step, where a second Enter runs nothing once the preview comes', async ({
+    page,
+  }) => {
+    // Next on the preview step runs the clone. Left on it, a second Enter
+    // pressed while the preview was prepared wrote to the target as soon as
+    // the preview came, before anyone had read it.
+    await accountsChecked(page);
+
+    await page.getByTestId('clone-wizard-next').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('clone-preview-loading')).toBeVisible();
+    await answerThePreview(page);
+    await expect(page.getByTestId('clone-preview-panel')).toBeVisible();
+    await page.keyboard.press('Enter');
+
+    expect(await outgoing(page, 'seed:clone:execute')).toEqual([]);
+    await expect(page.getByTestId('clone-executing')).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Preview', exact: true })).toBeFocused();
+  });
+
+  test('hands the keyboard to the running step when the preview’s Execute starts the clone', async ({
+    page,
+  }) => {
+    // Execute goes with the preview, and the focus it held fell to the page.
+    await accountsChecked(page);
+    await page.getByTestId('clone-wizard-next').click();
+    await answerThePreview(page);
+
+    await page.getByTestId('clone-preview-execute').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByTestId('clone-executing')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Execute', exact: true })).toBeFocused();
+    expect(await outgoing(page, 'seed:clone:execute')).toHaveLength(1);
+  });
 });
 
 /** The graph a discovery of one Account and its Contacts answers with. */

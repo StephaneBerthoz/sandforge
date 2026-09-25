@@ -50,7 +50,9 @@
     "dependencyCount_one": "{{count}} dependency",
     "dependencyCount_other": "{{count}} dependencies",
     "apiCallCount_one": "{{count}} API call",
-    "apiCallCount_other": "{{count}} API calls"
+    "apiCallCount_other": "{{count}} API calls",
+    "estimatedApiCallCount_one": "{{count}} estimated API call",
+    "estimatedApiCallCount_other": "{{count}} estimated API calls"
   },
   "status": {
     "apiUsage": "API usage",

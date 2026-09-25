@@ -69,7 +69,7 @@ describe('SeedWizard', () => {
         <div>Content</div>
       </SeedWizard>,
     );
-    expect(screen.getByTestId('seed-wizard-back')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('seed-wizard-back').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should show finish button on last step', () => {
@@ -90,7 +90,7 @@ describe('SeedWizard', () => {
         <div>Content</div>
       </SeedWizard>,
     );
-    expect(screen.getByTestId('seed-wizard-next')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should hide navigation when isFinished is true', () => {

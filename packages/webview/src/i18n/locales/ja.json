@@ -43,7 +43,8 @@
     "fieldCount_other": "{{count}}個の項目",
     "itemCount_other": "{{count}}項目",
     "dependencyCount_other": "{{count}}件の依存関係",
-    "apiCallCount_other": "APIコール {{count}}回"
+    "apiCallCount_other": "APIコール {{count}}回",
+    "estimatedApiCallCount_other": "推定APIコール {{count}}回"
   },
   "status": {
     "apiUsage": "API使用量",
