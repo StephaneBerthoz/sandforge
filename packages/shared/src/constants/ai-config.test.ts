@@ -16,11 +16,6 @@ describe('AI_CONFIG', () => {
     expect(AI_CONFIG.MODEL.length).toBeGreaterThan(0);
   });
 
-  it('should have temperature between 0 and 1', () => {
-    expect(AI_CONFIG.TEMPERATURE).toBeGreaterThanOrEqual(0);
-    expect(AI_CONFIG.TEMPERATURE).toBeLessThanOrEqual(1);
-  });
-
   it('should have a positive max tokens value', () => {
     expect(AI_CONFIG.MAX_TOKENS).toBeGreaterThan(0);
     expect(Number.isInteger(AI_CONFIG.MAX_TOKENS)).toBe(true);
@@ -40,14 +35,7 @@ describe('AI_CONFIG', () => {
   });
 
   it('should define all expected keys', () => {
-    const keys = [
-      'MODEL',
-      'TEMPERATURE',
-      'MAX_TOKENS',
-      'TIMEOUT_MS',
-      'BASE_URL',
-      'API_VERSION',
-    ] as const;
+    const keys = ['MODEL', 'MAX_TOKENS', 'TIMEOUT_MS', 'BASE_URL', 'API_VERSION'] as const;
     for (const key of keys) {
       expect(AI_CONFIG[key]).toBeDefined();
     }

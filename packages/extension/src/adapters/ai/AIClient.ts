@@ -43,6 +43,10 @@ export interface AIClient {
    * undefined, the adapter is unmetered.
    */
   budget?: SessionBudget;
+  /**
+   * Ask the model. Resolves only with an answer a feature can use: one the
+   * model declined, cut off or left empty rejects, with a message for the user.
+   */
   chat(opts: AIChatOpts): Promise<AIChatResult>;
   /**
    * Optional breaker state-change feed — present on the Anthropic adapter,

@@ -468,6 +468,51 @@ describe('services', () => {
       },
     );
 
+    // An answer the model declined, cut off or left empty fails the call, and
+    // the chat, NL2SOQL, pipeline drafts and Seed personas show its message as
+    // it is. Written in English only, a French user read English there.
+    it.each(['en', 'fr', 'de', 'es', 'ja', 'pt-br'])(
+      'rejects a refused, cut-off or empty answer in the %s display language',
+      async (locale) => {
+        const suffix = locale === 'en' ? '' : `.${locale}`;
+        displayLanguage.bundle = JSON.parse(
+          readFileSync(join(__dirname, '..', `l10n/bundle.l10n${suffix}.json`), 'utf8'),
+        ) as Record<string, string>;
+        const english = [
+          'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+          'The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.',
+          'The model returned an empty answer. Try again.',
+        ];
+        const reply = (stopReason: string, text: string) => ({
+          content: [{ type: 'text', text }],
+          usage: { input_tokens: 10, output_tokens: 10 },
+          model: 'claude-sonnet-5',
+          stop_reason: stopReason,
+        });
+        sdkHoisted.sharedCreate
+          .mockResolvedValueOnce(reply('refusal', ''))
+          .mockResolvedValueOnce(reply('max_tokens', '{"soql": "SELECT'))
+          .mockResolvedValueOnce(reply('end_turn', ''));
+        const context = createMockContext({}, { 'sandforge.ai.anthropic.key': 'sk-ant-test' });
+        const client = createServices(context).aiClient('anthropic');
+
+        const messages: string[] = [];
+        for (let i = 0; i < english.length; i++) {
+          messages.push(
+            await client
+              .chat({ messages: [{ role: 'user', content: 'hello' }] })
+              .then(() => 'answered')
+              .catch((err: Error) => err.message),
+          );
+        }
+
+        expect(messages).toEqual(english.map((text) => displayLanguage.bundle[text] ?? text));
+        if (locale !== 'en') {
+          expect(messages.filter((message) => english.includes(message))).toEqual([]);
+        }
+      },
+    );
+
     // `minimum` in the manifest guards the settings editor, not a file edited by
     // hand. SessionBudget refuses a budget that is not a positive number, and
     // this factory runs while the assistant is wired: a throw here used to leave

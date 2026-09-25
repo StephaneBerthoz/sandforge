@@ -6,6 +6,7 @@ import { AnthropicAdapter } from './AnthropicAdapter.js';
 import { OpenAIAdapter } from './OpenAIAdapter.js';
 import { CustomAdapter } from './CustomAdapter.js';
 import { AINotImplementedError, type AIClient, type AIProviderType } from './AIClient.js';
+import type { AIAnswerProblem } from './errorClassifier.js';
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 export interface AIClientFactoryDeps {
@@ -21,6 +22,8 @@ export interface AIClientFactoryDeps {
   budget?: SessionBudget;
   /** The error text of a call the budget refuses, in the UI language. */
   budgetRefusalMessage?: (state: TokenBudgetState) => string;
+  /** The error text of an answer refused, cut off or empty, in the UI language. */
+  answerProblemMessage?: (problem: AIAnswerProblem) => string;
   /** Reads the current provider from VSCode settings. */
   getProvider: () => AIProviderType;
   /** Reads the current model override from VSCode settings. */
@@ -72,6 +75,7 @@ export function createAIClientFactory(deps: AIClientFactoryDeps): AIClientFactor
           model: deps.getModel?.(),
           budget: deps.budget,
           budgetRefusalMessage: deps.budgetRefusalMessage,
+          answerProblemMessage: deps.answerProblemMessage,
         });
         break;
       case 'openai':

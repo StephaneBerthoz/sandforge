@@ -12,6 +12,9 @@
  *
  * APIUserAbortError is special: NEVER trips the breaker (cancel is a user
  * action, not a provider failure).
+ *
+ * An answer that came back with HTTP 200 can fail too — declined, cut off or
+ * empty. `classifyAnswer` gives it a verdict of the same shape.
  */
 
 export type AIErrorKind =
@@ -21,15 +24,34 @@ export type AIErrorKind =
   | 'cancelled'
   | 'transient'
   | 'invalid-request'
-  | 'unknown';
+  | 'unknown'
+  | AIAnswerProblem;
+
+/**
+ * What can be wrong with an answer the API sent back with HTTP 200: the model
+ * declined to give it, it ran out of room before it was complete, or it holds
+ * no text. The provider did its job, so none of them trips the breaker; the
+ * call they answer fails instead of handing on text no feature can use.
+ */
+export type AIAnswerProblem = 'refused' | 'truncated' | 'empty';
 
 export interface AIErrorVerdict {
   kind: AIErrorKind;
   shouldTripBreaker: boolean;
   shouldRetry: boolean;
   retryAfterMs?: number;
-  userMessageKey: string;
+  /**
+   * The catalogue key of the provider-status banner's copy. An answer problem
+   * carries none: it fails the call it answers, with a message the host writes
+   * in the editor's language, and never reaches the banner.
+   */
+  userMessageKey?: string;
   rawStatus?: number;
+}
+
+/** The verdict on an answer that came back but cannot be used. */
+export interface AIAnswerVerdict extends AIErrorVerdict {
+  kind: AIAnswerProblem;
 }
 
 interface AnthropicErrorLike {
@@ -169,4 +191,34 @@ export function classifyAnthropicError(err: unknown): AIErrorVerdict {
     userMessageKey: 'ai.error.unknown',
     rawStatus: status,
   };
+}
+
+/**
+ * The verdict on an answer the API returned, or undefined when it can be used.
+ *
+ * The stop reasons are those of
+ * https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons.
+ * `refusal` comes back as a normal HTTP 200, which is how Claude Sonnet 5's
+ * safeguards decline a request. `max_tokens` and `model_context_window_exceeded`
+ * both end a response before it is complete, and on a model that thinks, the
+ * thinking counts against `max_tokens` too. Handed on as they came, a cut-off
+ * JSON reply made NL2SOQL and Seed personas say the model had answered in the
+ * wrong format, left a pipeline draft with no step, and failed a Seed run on a
+ * JSON error; a cut-off chat answer read as the whole answer, and an empty one
+ * was kept in the conversation as the assistant's turn.
+ */
+export function classifyAnswer(
+  stopReason: string | null,
+  text: string,
+): AIAnswerVerdict | undefined {
+  if (stopReason === 'refusal') {
+    return { kind: 'refused', shouldTripBreaker: false, shouldRetry: false };
+  }
+  if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
+    return { kind: 'truncated', shouldTripBreaker: false, shouldRetry: false };
+  }
+  if (text.trim() === '') {
+    return { kind: 'empty', shouldTripBreaker: false, shouldRetry: true };
+  }
+  return undefined;
 }

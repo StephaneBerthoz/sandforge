@@ -9,14 +9,20 @@ import { EventEmitter } from 'node:events';
 // Node16 a plain `import type` resolves to the .d.ts twin whose #private field
 // is nominal-incompatible with it.
 import type Anthropic from '@anthropic-ai/sdk' with { 'resolution-mode': 'import' };
-import type { AIUsage, TokenBudgetState } from '@sandforge/shared';
+import { AI_CONFIG, type AIUsage, type TokenBudgetState } from '@sandforge/shared';
 
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { CircuitBreaker } from '../../core/connection/CircuitBreaker.js';
-import { classifyAnthropicError, type AIErrorVerdict } from './errorClassifier.js';
+import {
+  classifyAnswer,
+  classifyAnthropicError,
+  type AIAnswerProblem,
+  type AIAnswerVerdict,
+  type AIErrorVerdict,
+} from './errorClassifier.js';
 import type { AIChatOpts, AIChatResult, AIClient, AIProviderType } from './AIClient.js';
 
 // Re-exported for backward compatibility — the canonical declarations live in
@@ -24,8 +30,50 @@ import type { AIChatOpts, AIChatResult, AIClient, AIProviderType } from './AICli
 export type { BreakerState, BreakerStateChangeEvent } from './AIClient.js';
 import type { BreakerState, BreakerStateChangeEvent } from './AIClient.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 const SECRET_KEY = 'sandforge.ai.anthropic.key';
+
+/**
+ * The models documented to accept `thinking: {type: "disabled"}`, from the
+ * table of thinking support by model at
+ * https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
+ *
+ * Claude Sonnet 5 thinks unless told not to, and its thinking counts against
+ * `max_tokens`: the 4 096 tokens every feature was sized for under Claude
+ * Sonnet 4.5 could be spent before the answer was written. Its migration guide
+ * gives `disabled` as the way to keep Sonnet 4.5's behaviour, and the models
+ * listed here take it without complaint.
+ *
+ * Every other model is sent no `thinking` at all. Claude Opus 5.5 and the Fable
+ * and Mythos models always think and answer `disabled` with a 400; Claude Opus
+ * 5 takes it only below effort `xhigh`, and the same page reports it sometimes
+ * writing XML tags into its text with thinking off, in replies these features
+ * parse as JSON. A model released after this list may think always: leaving
+ * the parameter out is the one request no model refuses.
+ */
+const THINKING_OFF_MODELS: ReadonlySet<string> = new Set([
+  'claude-sonnet-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-opus-4-5',
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-5-20250929',
+  'claude-haiku-4-5',
+  'claude-haiku-4-5-20251001',
+]);
+
+const THINKING_OFF: Anthropic.ThinkingConfigDisabled = { type: 'disabled' };
+
+/** English text of an answer the adapter does not hand on, when the host supplies none. */
+const ANSWER_PROBLEM_MESSAGES: Record<AIAnswerProblem, string> = {
+  refused:
+    'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+  truncated:
+    'The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.',
+  empty: 'The model returned an empty answer. Try again.',
+};
 
 export interface AnthropicAdapterDeps {
   storage: StorageAdapter;
@@ -39,6 +87,11 @@ export interface AnthropicAdapterDeps {
    * supplies it; left undefined, the text is English.
    */
   budgetRefusalMessage?: (state: TokenBudgetState) => string;
+  /**
+   * The error text of an answer that came back refused, cut off or empty, in
+   * the UI language. The host supplies it; left undefined, the text is English.
+   */
+  answerProblemMessage?: (problem: AIAnswerProblem) => string;
 }
 
 /**
@@ -95,6 +148,7 @@ export class AnthropicAdapter implements AIClient {
   private readonly logger?: Logger;
   private readonly model: string;
   private readonly budgetRefusalMessage?: (state: TokenBudgetState) => string;
+  private readonly answerProblemMessage?: (problem: AIAnswerProblem) => string;
   private readonly inFlight = new Set<AbortController>();
 
   /** Last reported state — used to debounce state-change events. */
@@ -104,7 +158,7 @@ export class AnthropicAdapter implements AIClient {
     this.storage = deps.storage;
     this.telemetry = deps.telemetry;
     this.logger = deps.logger;
-    this.model = deps.model ?? DEFAULT_MODEL;
+    this.model = deps.model ?? AI_CONFIG.MODEL;
     this.breaker =
       deps.breaker ??
       new CircuitBreaker({
@@ -114,6 +168,7 @@ export class AnthropicAdapter implements AIClient {
       });
     this.budget = deps.budget;
     this.budgetRefusalMessage = deps.budgetRefusalMessage;
+    this.answerProblemMessage = deps.answerProblemMessage;
   }
 
   /**
@@ -137,18 +192,33 @@ export class AnthropicAdapter implements AIClient {
 
   // ── public AIClient surface ──────────────────────────────────────────────
 
+  /**
+   * Ask the model, and resolve with an answer a feature can use.
+   *
+   * The request carries the model, its token cap, the system prompt and the
+   * messages, plus `thinking: {type: "disabled"}` for the models documented to
+   * take it (see {@link THINKING_OFF_MODELS}). It carries no `temperature`,
+   * `top_p` or `top_k`: every model from Claude Opus 4.7 on, Claude Sonnet 5
+   * among them, answers a non-default value of any of them with a 400.
+   *
+   * An answer the model declined, one cut off before it was complete, and one
+   * with no text are rejected here rather than handed on (see
+   * {@link classifyAnswer}). Their tokens were spent, so the budget counts
+   * them; the provider answered, so the breaker counts a success.
+   */
   async chat(opts: AIChatOpts): Promise<AIChatResult> {
     this.budgetPreflight({ messages: opts.messages, system: opts.system });
-    return this.runWithBreaker(
+    const result = await this.runWithBreaker(
       'chat',
       async (signal) => {
         const client = await this.getClient();
         const resp = await client.messages.create(
           {
             model: this.model,
-            max_tokens: opts.maxTokens ?? 4096,
+            max_tokens: opts.maxTokens ?? AI_CONFIG.MAX_TOKENS,
             system: opts.system,
             messages: opts.messages,
+            ...(THINKING_OFF_MODELS.has(this.model) ? { thinking: THINKING_OFF } : {}),
           },
           { signal },
         );
@@ -168,6 +238,26 @@ export class AnthropicAdapter implements AIClient {
       },
       opts.signal,
     );
+    const problem = classifyAnswer(result.stopReason, result.text);
+    if (problem) throw this.answerProblemError(problem, result);
+    return result;
+  }
+
+  /**
+   * The error an unusable answer fails its call with. Its message is written
+   * for the user and shown as it is by the page that asked, so it carries no
+   * `[ai:kind]` prefix; the kind travels on `aiErrorVerdict`.
+   */
+  private answerProblemError(verdict: AIAnswerVerdict, result: AIChatResult): Error {
+    this.logger?.warn(
+      { model: result.model, stopReason: result.stopReason, problem: verdict.kind },
+      'anthropic answer not used',
+    );
+    const err = new Error(
+      this.answerProblemMessage?.(verdict.kind) ?? ANSWER_PROBLEM_MESSAGES[verdict.kind],
+    );
+    (err as Error & { aiErrorVerdict?: AIErrorVerdict }).aiErrorVerdict = verdict;
+    return err;
   }
 
   /**

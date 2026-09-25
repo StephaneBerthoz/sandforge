@@ -198,6 +198,22 @@ export function createServices(
         'AI token budget exceeded for this session ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession in Settings, or run SandForge: Reset AI Token Budget, to continue.',
         `${state.used.total}/${state.budget}`,
       ),
+    // Shown as it is by the chat, NL2SOQL, Forge's query draft, pipeline drafts
+    // and Seed personas, so it is written in the user's language here.
+    answerProblemMessage: (problem) => {
+      switch (problem) {
+        case 'refused':
+          return vscode.l10n.t(
+            'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+          );
+        case 'truncated':
+          return vscode.l10n.t(
+            'The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.',
+          );
+        case 'empty':
+          return vscode.l10n.t('The model returned an empty answer. Try again.');
+      }
+    },
     getProvider: () => {
       const cfg = vscode.workspace.getConfiguration('sandforge.ai');
       return (cfg.get<AIProviderType>('provider') ?? 'anthropic') as AIProviderType;

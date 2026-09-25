@@ -1,13 +1,18 @@
 /** AI provider type. */
 export type AIProviderType = 'anthropic' | 'openai' | 'custom' | 'none';
 
-/** AI model configuration. */
+/**
+ * AI model configuration.
+ *
+ * It holds no temperature: every model from Claude Opus 4.7 on, Claude Sonnet 5
+ * among them, answers a non-default `temperature`, `top_p` or `top_k` with a
+ * 400, and no request ever carried the one this held.
+ */
 export interface AIModelConfig {
   provider: AIProviderType;
   model: string;
   apiKey: string;
   maxTokens: number;
-  temperature: number;
   baseUrl?: string;
 }
 

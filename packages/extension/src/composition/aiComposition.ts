@@ -49,18 +49,29 @@ export interface AICompositionDeps {
  * Post an unsolicited `ai:status:response` so the webview learns about an AI
  * state change it never asked about. It tracks availability by message type,
  * not by correlation, so no request has to be behind this.
+ *
+ * @param model - The model AI answers with, or undefined when AI is off.
  */
-function postAIStatus(broker: MessageBroker | undefined, enabled: boolean): void {
+function postAIStatus(broker: MessageBroker | undefined, model?: string): void {
   broker?.postToWebview({
     id: `ai-status-${Date.now()}`,
     type: 'ai:status:response',
     timestamp: Date.now(),
     payload: {
-      enabled,
-      provider: enabled ? AI_PROVIDER : 'none',
-      model: enabled ? AI_CONFIG.MODEL : '',
+      enabled: model !== undefined,
+      provider: model !== undefined ? AI_PROVIDER : 'none',
+      model: model ?? '',
     },
   } as BaseMessage);
+}
+
+/**
+ * The model `sandforge.ai.model` names, the one every AI call asks. The status
+ * reported the default instead, so the Settings page named a model the user
+ * had replaced.
+ */
+function configuredModel(services: Services): string {
+  return services.getSandforgeSetting('ai.model', AI_CONFIG.MODEL);
 }
 
 /**
@@ -72,7 +83,7 @@ function postAIStatus(broker: MessageBroker | undefined, enabled: boolean): void
 function teardownAI(deps: AICompositionDeps, reason: string): void {
   deps.handlers.setAIAssistant(undefined);
   deps.handlers.setAIModules(undefined);
-  postAIStatus(deps.broker, false);
+  postAIStatus(deps.broker);
   deps.log(reason);
 }
 
@@ -166,10 +177,9 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
 
   const aiAssistant = new AIAssistant(aiCallFn, {
     provider: AI_PROVIDER,
-    model: AI_CONFIG.MODEL,
+    model: configuredModel(services),
     apiKey,
     maxTokens: AI_CONFIG.MAX_TOKENS,
-    temperature: AI_CONFIG.TEMPERATURE,
   });
 
   // Wire up the AI modules using the same unified client
@@ -212,7 +222,7 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     log('Error resolution disabled (sandforge.ai.errorResolution=false) — no failure is sent.');
   }
   log('AI modules initialized.');
-  postAIStatus(broker, true);
+  postAIStatus(broker, configuredModel(services));
 
   // Forward breaker state changes to the webview as `ai:provider:status` —
   // the provider-status banner (cooldown countdown etc.) had been listening

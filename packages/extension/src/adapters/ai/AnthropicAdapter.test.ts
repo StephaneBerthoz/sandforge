@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { AI_CONFIG } from '@sandforge/shared';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 
@@ -132,7 +135,7 @@ describe('AnthropicAdapter — happy path', () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
     mockMessagesCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '' }],
+      content: [{ type: 'text', text: 'ok' }],
       usage: {
         input_tokens: 10,
         output_tokens: 5,
@@ -496,5 +499,208 @@ describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → pre
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
     // the refusal itself is not announced a second time
     expect(notices).toEqual(['warn', 'exceeded']);
+  });
+});
+
+// ── The request each model is sent ────────────────────────────────────────
+
+/** Ask `model` one question and return the body of the one request it sent. */
+async function bodySentTo(model?: string): Promise<Record<string, unknown>> {
+  const { storage } = makeStorage();
+  const adapter = new AnthropicAdapter({ storage, ...(model ? { model } : {}) });
+  mockMessagesCreate.mockResolvedValue(mkOkChat());
+  await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+  expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+  return mockMessagesCreate.mock.calls[0][0] as Record<string, unknown>;
+}
+
+describe('AnthropicAdapter — the request each model is sent', () => {
+  // The default was written here, in the shared constant and in the manifest,
+  // three strings nothing held together.
+  it('asks claude-sonnet-5 when no model is configured, the default the manifest declares', async () => {
+    const manifest = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),
+    ) as {
+      contributes: { configuration: { properties: Record<string, { default?: unknown }> } };
+    };
+
+    const body = await bodySentTo();
+
+    expect(body.model).toBe('claude-sonnet-5');
+    expect(AI_CONFIG.MODEL).toBe('claude-sonnet-5');
+    expect(manifest.contributes.configuration.properties['sandforge.ai.model'].default).toBe(
+      AI_CONFIG.MODEL,
+    );
+  });
+
+  it('asks the model it is configured with', async () => {
+    expect((await bodySentTo('claude-opus-4-8')).model).toBe('claude-opus-4-8');
+  });
+
+  // Claude Sonnet 5 thinks unless told not to, and its thinking counts against
+  // max_tokens: the 4 096 tokens the features ask for could all go to thinking.
+  it.each([
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+    'claude-opus-4-5',
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5',
+    'claude-sonnet-4-5-20250929',
+    'claude-haiku-4-5',
+    'claude-haiku-4-5-20251001',
+  ])('tells %s, which is documented to take it, that thinking is off', async (model) => {
+    expect((await bodySentTo(model)).thinking).toEqual({ type: 'disabled' });
+  });
+
+  // The first six answer `disabled` with a 400. Claude Opus 5 takes it only
+  // below effort xhigh, and a model named after the list was written may think
+  // always: a request without the parameter is refused by none of them.
+  it.each([
+    'claude-opus-5-5',
+    'claude-fable-5-1',
+    'claude-fable-5',
+    'claude-mythos-5-1',
+    'claude-mythos-5',
+    'claude-mythos-preview',
+    'claude-opus-5',
+    'claude-sonnet-6',
+  ])('sends %s no thinking setting at all', async (model) => {
+    expect(await bodySentTo(model)).not.toHaveProperty('thinking');
+  });
+
+  // Every model from Claude Opus 4.7 on, Claude Sonnet 5 among them, answers a
+  // non-default temperature, top_p or top_k with a 400.
+  it.each([
+    ['the default model', undefined],
+    ['claude-sonnet-4-5-20250929', 'claude-sonnet-4-5-20250929'],
+    ['claude-opus-5-5', 'claude-opus-5-5'],
+  ])('sends no temperature, top_p or top_k to %s', async (_label, model) => {
+    const body = await bodySentTo(model);
+
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('top_p');
+    expect(body).not.toHaveProperty('top_k');
+  });
+});
+
+// ── An answer that cannot be used ─────────────────────────────────────────
+
+/** A response the API sends back with HTTP 200, 100 tokens spent. */
+function answer(stopReason: string, content: Array<Record<string, unknown>>) {
+  return {
+    content,
+    usage: { input_tokens: 40, output_tokens: 60 },
+    model: 'claude-sonnet-5',
+    stop_reason: stopReason,
+  };
+}
+
+describe('AnthropicAdapter — an answer that cannot be used', () => {
+  // Claude Sonnet 5's safeguards decline with an HTTP 200. The empty text of
+  // one was handed on as the answer: an empty chat bubble, kept as the
+  // assistant's turn, and a JSON error from every feature that parses one.
+  it.each([
+    ['no text', []],
+    ['the text written before the refusal', [{ type: 'text', text: 'Here are the first' }]],
+  ])('rejects an answer the model declined to give, with %s', async (_label, content) => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockResolvedValue(answer('refusal', content));
+
+    const call = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    await expect(call).rejects.toThrow(
+      'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+    );
+    await expect(call).rejects.toMatchObject({
+      aiErrorVerdict: { kind: 'refused', shouldTripBreaker: false },
+    });
+  });
+
+  // Cut off, a JSON reply is not JSON: NL2SOQL and Seed personas then said the
+  // model had answered in the wrong format, and a pipeline draft lost every step.
+  it.each([
+    ['max_tokens', [{ type: 'text', text: '{"soql": "SELECT Id, Name FROM Acc' }]],
+    ['max_tokens', [{ type: 'thinking', thinking: '', signature: 'sig' }]],
+    ['model_context_window_exceeded', [{ type: 'text', text: '[{"Description": "A long' }]],
+  ])(
+    'rejects an answer cut off by %s instead of handing on the part that came',
+    async (stopReason, content) => {
+      const { storage } = makeStorage();
+      const adapter = new AnthropicAdapter({ storage });
+      mockMessagesCreate.mockResolvedValue(answer(stopReason, content));
+
+      const call = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+      await expect(call).rejects.toThrow(
+        'The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.',
+      );
+      await expect(call).rejects.toMatchObject({ aiErrorVerdict: { kind: 'truncated' } });
+    },
+  );
+
+  it.each([
+    ['no content block', []],
+    ['blank text', [{ type: 'text', text: ' \n ' }]],
+    ['only a thinking block', [{ type: 'thinking', thinking: '', signature: 'sig' }]],
+  ])('rejects an answer that ended normally with %s', async (_label, content) => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockResolvedValue(answer('end_turn', content));
+
+    const call = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    await expect(call).rejects.toThrow('The model returned an empty answer. Try again.');
+    await expect(call).rejects.toMatchObject({ aiErrorVerdict: { kind: 'empty' } });
+  });
+
+  it('writes the message in the words the host supplies', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({
+      storage,
+      answerProblemMessage: (problem) => `translated ${problem}`,
+    });
+    mockMessagesCreate
+      .mockResolvedValueOnce(answer('refusal', []))
+      .mockResolvedValueOnce(answer('max_tokens', [{ type: 'text', text: '[' }]))
+      .mockResolvedValueOnce(answer('end_turn', []));
+
+    const messages: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      messages.push(
+        await adapter
+          .chat({ messages: [{ role: 'user', content: 'hi' }] })
+          .then(() => 'answered')
+          .catch((err: Error) => err.message),
+      );
+    }
+
+    expect(messages).toEqual(['translated refused', 'translated truncated', 'translated empty']);
+  });
+
+  // The provider answered each time: an answer it declined or cut off is no
+  // outage, and three in a row must not lock every AI feature out for 5 min.
+  it('counts the tokens a rejected answer spent, and keeps the breaker closed', async () => {
+    const { SessionBudget } = await import('./tokenBudget/SessionBudget.js');
+    const budget = new SessionBudget({ sessionId: 'panel-1', budget: 10_000 });
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage, budget });
+    mockMessagesCreate.mockResolvedValue(answer('refusal', []));
+
+    for (let i = 0; i < 3; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(
+        /declined/,
+      );
+    }
+
+    expect(budget.getState().used.total).toBe(300);
+    expect(adapter.breaker.getState()).toBe('closed');
+    mockMessagesCreate.mockResolvedValue(mkOkChat());
+    await expect(
+      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).resolves.toMatchObject({ text: 'hello' });
   });
 });

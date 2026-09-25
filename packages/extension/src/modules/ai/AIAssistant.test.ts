@@ -6,7 +6,6 @@ const mockConfig: AIModelConfig = {
   model: 'claude-3-sonnet',
   apiKey: 'test-key',
   maxTokens: 1024,
-  temperature: 0.7,
 };
 
 const mockResult: AICallResult = {

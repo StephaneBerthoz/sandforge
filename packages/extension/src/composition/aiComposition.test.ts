@@ -57,15 +57,19 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     aiEnabled?: boolean;
     hasKey?: boolean;
     provider?: string;
+    model?: string;
   }): AICompositionDeps {
     const aiEnabled = overrides?.aiEnabled ?? true;
     const hasKey = overrides?.hasKey ?? true;
-    const provider = overrides?.provider;
+    const configured: Record<string, unknown> = {
+      ...(overrides?.provider !== undefined ? { 'ai.provider': overrides.provider } : {}),
+      ...(overrides?.model !== undefined ? { 'ai.model': overrides.model } : {}),
+    };
     return {
       services: {
         isAIEnabled: () => aiEnabled,
         getSandforgeSetting: <T>(key: string, fallback: T): T =>
-          key === 'ai.provider' && provider !== undefined ? (provider as T) : fallback,
+          key in configured ? (configured[key] as T) : fallback,
         aiClient: () => fakeClient,
         telemetry: { getLogger: () => ({}) },
       },
@@ -116,6 +120,18 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     expect(payload.cooldownEndsAt).toBe('2026-08-11T12:00:00Z');
     expect(payload.lastErrorKind).toBe('overloaded');
     expect(payload.userMessageKey).toBe('ai.error.overloaded');
+  });
+
+  // The Settings page shows this model next to the status. It named the
+  // default whatever sandforge.ai.model said.
+  it('announces the model sandforge.ai.model names, and the default when it names none', async () => {
+    await initAIComposition(makeDeps({ model: 'claude-opus-4-8' }));
+    await initAIComposition(makeDeps());
+
+    expect(posted.map((m) => (m.payload as { model: string }).model)).toEqual([
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+    ]);
   });
 
   it('subscribes nothing when AI is disabled', async () => {

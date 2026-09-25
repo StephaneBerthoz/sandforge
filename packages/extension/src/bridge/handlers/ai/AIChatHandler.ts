@@ -445,7 +445,12 @@ export class AIChatHandler implements DomainHandler {
     const response = buildResponse(this.deps, request, 'ai:status:response', {
       enabled: !!this.aiAssistant && hasKey,
       provider: this.aiAssistant ? AI_PROVIDER : 'none',
-      model: this.aiAssistant ? AI_CONFIG.MODEL : '',
+      // The model `sandforge.ai.model` names, which every AI call asks: the
+      // Settings page shows it, and named the default after the user changed it.
+      model: this.aiAssistant
+        ? (this.deps.services?.getSandforgeSetting?.('ai.model', AI_CONFIG.MODEL) ??
+          AI_CONFIG.MODEL)
+        : '',
       // One counter for every AI feature, kept for the whole window. The AI
       // page asks for it on mount so its gauge is filled before the next call.
       budget: this.aiAssistant ? this.deps.services?.sessionBudget?.getState() : undefined,

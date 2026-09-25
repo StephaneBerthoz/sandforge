@@ -424,7 +424,6 @@ describe('AIChatHandler', () => {
       model: 'test-model',
       apiKey: 'sk-test',
       maxTokens: 1024,
-      temperature: 0,
     };
 
     /** A conversation written to the store by a previous VS Code session. */
@@ -701,6 +700,25 @@ describe('AIChatHandler', () => {
         .find((m) => m.type === 'ai:status:response');
       expect(response?.payload.budget).toMatchObject({ budget: 50_000, used: { total: 1_000 } });
       expect(response?.payload).not.toHaveProperty('usage');
+    });
+
+    // The Settings page shows this model next to the status. It named the
+    // default whatever sandforge.ai.model said.
+    it('names the model sandforge.ai.model names, which every AI call asks', async () => {
+      deps.services = {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          key === 'ai.model' ? ('claude-opus-4-8' as T) : fallback,
+      } as unknown as HandlerDeps['services'];
+      (deps.secretVault.hasSecret as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      handler.setAIAssistant(createMockAssistant());
+
+      await handler.handle(createMsg('ai:status'));
+
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .find((m) => m.type === 'ai:status:response');
+      expect(response?.payload).toMatchObject({ enabled: true, model: 'claude-opus-4-8' });
     });
   });
 

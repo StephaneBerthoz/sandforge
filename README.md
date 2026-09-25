@@ -156,25 +156,25 @@ On macOS, use `Cmd` instead of `Ctrl`.
 
 ## Configuration
 
-| Setting                                    | Description                                                                                                                          | Default                      |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                     | `false`                      |
-| `sandforge.orgs.validateOnStartup`         | Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI                                                 | `true`                       |
-| `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                          | `200`                        |
-| `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                          | `200`                        |
-| `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                   | `3`                          |
-| `sandforge.ai.enabled`                     | Enable the AI Assistant (requires an API key)                                                                                        | `false`                      |
-| `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                                                        | `anthropic`                  |
-| `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)                                           | `claude-sonnet-4-5-20250929` |
-| `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                   | `true`                       |
-| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `200000`                     |
-| `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`                         |
-| `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`                     |
-| `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`                       |
-| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`                       |
-| `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false`                      |
-| `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                     | `10000`                      |
-| `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                         | `5000`                       |
+| Setting                                    | Description                                                                                                                          | Default           |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                     | `false`           |
+| `sandforge.orgs.validateOnStartup`         | Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI                                                 | `true`            |
+| `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                          | `200`             |
+| `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                          | `200`             |
+| `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                   | `3`               |
+| `sandforge.ai.enabled`                     | Enable the AI Assistant (requires an API key)                                                                                        | `false`           |
+| `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                                                        | `anthropic`       |
+| `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)                                           | `claude-sonnet-5` |
+| `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                   | `true`            |
+| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `200000`          |
+| `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`              |
+| `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`          |
+| `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`            |
+| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`            |
+| `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false`           |
+| `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                     | `10000`           |
+| `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                         | `5000`            |
 
 See the full list of settings in the VSCode Settings UI under "SandForge".
 

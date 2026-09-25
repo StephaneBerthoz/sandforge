@@ -428,9 +428,10 @@ export class SeedOpsHandler implements DomainHandler {
    * Build the AI call function for seed data generation.
    * When AI is enabled, routes prompts through the unified client (breaker +
    * budget). When AI is disabled — or when a call fails (missing key, open
-   * breaker, token budget, network) — returns '[]': FieldMapper then fills
-   * every ai_generate field the call left empty with a generated sentence,
-   * so the run continues and the refusal is only logged.
+   * breaker, token budget, network, or an answer the model declined, cut off
+   * or left empty) — returns '[]': FieldMapper then fills every ai_generate
+   * field the call left empty with a generated sentence, so the run continues
+   * and the refusal is only logged.
    */
   private buildSeedCallAI(): (prompt: string) => Promise<string> {
     const services = this.deps.services;

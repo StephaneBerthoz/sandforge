@@ -13,7 +13,18 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
 
+/** What the model answers, for the tests that run the real AI client. */
+const sdk = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class Anthropic {
+    messages = { create: sdk.create };
+  },
+  APIUserAbortError: class APIUserAbortError extends Error {},
+}));
+
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { createAIClientFactory } from '../../adapters/ai/AIClientFactory.js';
+import type { StorageAdapter } from '../../adapters/storage/StorageAdapter.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -85,6 +96,25 @@ function createMockDeps(): HandlerDeps {
     } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
+}
+
+/**
+ * The AI client the extension builds, with a key stored, over an SDK whose
+ * every call answers `stopReason` with `text`: 100 tokens spent, HTTP 200.
+ */
+function aiClientAnswering(stopReason: string, text: string) {
+  sdk.create.mockResolvedValue({
+    content: text ? [{ type: 'text', text }] : [],
+    usage: { input_tokens: 40, output_tokens: 60 },
+    model: 'claude-sonnet-5',
+    stop_reason: stopReason,
+  });
+  return createAIClientFactory({
+    storage: {
+      getSecret: vi.fn(async () => 'sk-ant-fake-test-key-1234567890'),
+    } as unknown as StorageAdapter,
+    getProvider: () => 'anthropic',
+  });
 }
 
 /** Minimal seed template that passes the seed:execute payload validation. */
@@ -746,6 +776,45 @@ describe('SeedOpsHandler', () => {
       expect(response.type).toBe('seed:error');
       expect(response.payload.message).toContain('API key not configured');
     });
+
+    // Both came back as "AI response is not a valid JSON object. The AI model
+    // returned an unexpected format", which sent the user to check a provider
+    // configuration that had nothing wrong with it.
+    it.each([
+      ['a refusal', 'refusal', '', 'The model declined to answer this request.'],
+      [
+        'an answer cut off at max_tokens',
+        'max_tokens',
+        '{"name": "Veterinary clinic", "dataPatterns": {"Pet_Name__c": {"gen',
+        'The model stopped at its length limit before the answer was complete',
+      ],
+    ])(
+      'reports %s to a custom persona as such, not as a reply in the wrong format',
+      async (_label, stopReason, text, expected) => {
+        deps.services = {
+          isAIEnabled: () => true,
+          aiClient: aiClientAnswering(stopReason, text),
+        } as unknown as HandlerDeps['services'];
+        handler = new SeedOpsHandler(deps);
+
+        await handler.handle(
+          inboundRequest({
+            id: 'req-create-7',
+            type: 'seed:create-persona',
+            timestamp: Date.now(),
+            payload: { description: 'A veterinary clinic in Texas' },
+          }),
+        );
+
+        const response = vi.mocked(deps.broker.postToWebview).mock.calls[0][0] as BaseMessage & {
+          payload: { message: string };
+        };
+        expect(sdk.create).toHaveBeenCalledTimes(1);
+        expect(response.type).toBe('seed:error');
+        expect(response.payload.message).toContain(expected);
+        expect(response.payload.message).not.toContain('not a valid JSON object');
+      },
+    );
   });
 
   describe('background operation registry', () => {
@@ -2327,7 +2396,7 @@ describe('SeedOpsHandler', () => {
   describe('a run the wizard sends, through the orchestrator the extension builds', () => {
     /** The createable fields of the org, by object: what its describe answers. */
     const ORG_FIELDS: Record<string, string[]> = {
-      Account: ['Name', 'Phone'],
+      Account: ['Name', 'Phone', 'Description'],
       Contact: ['LastName', 'Email', 'AccountId'],
       Opportunity: ['Name', 'CloseDate', 'StageName', 'AccountId'],
     };
@@ -2423,18 +2492,21 @@ describe('SeedOpsHandler', () => {
 
     /**
      * Send `template` as the wizard does and return what the run answered. With
-     * `partitioned`, the settings switch the partitioned path on for any size.
+     * `partitioned`, the settings switch the partitioned path on for any size;
+     * with `aiClient`, AI is on and AI rules ask that client.
      */
     async function run(
       template: Record<string, unknown>,
       conn: unknown,
       partitioned = false,
+      aiClient?: unknown,
     ): Promise<SeedExecutionResult | undefined> {
       const settings: Record<string, unknown> = partitioned
         ? { 'grappe.enabled': true, 'grappe.autoActivateThreshold': 1 }
         : {};
       deps.services = {
-        isAIEnabled: () => false,
+        isAIEnabled: () => aiClient !== undefined,
+        aiClient,
         getSandforgeSetting: vi.fn((key: string, fallback: unknown) =>
           key in settings ? settings[key] : fallback,
         ),
@@ -2523,6 +2595,47 @@ describe('SeedOpsHandler', () => {
         'Written without AnnualRevenue: this org does not have that field.',
       ]);
     });
+
+    // Neither is JSON. The run failed on "The AI reply is not valid JSON.",
+    // after writing whatever came before the object that asked.
+    it.each([
+      ['an answer cut off at max_tokens', 'max_tokens', '[{"Description": "A regional clinic tha'],
+      ['a refusal', 'refusal', ''],
+    ])(
+      'writes generated sentences in an AI field after %s, and says so',
+      async (_label, stopReason, text) => {
+        const template = {
+          ...validSeedTemplate(),
+          objects: [wizardObject('Account', [field('Name', 'string', { length: 255 })], 0)],
+        };
+        const [account] = template.objects as Array<{ fieldRules: unknown[] }>;
+        account.fieldRules.push({
+          fieldApiName: 'Description',
+          fieldType: 'textarea',
+          ruleType: 'ai_generate',
+          config: { aiPrompt: 'What the company does, in one line', maxLength: 255 },
+        });
+        const org = fakeOrg();
+
+        const result = await run(template, org.conn, false, aiClientAnswering(stopReason, text));
+
+        expect(sdk.create).toHaveBeenCalledTimes(1);
+        // One user turn: a request ending on the assistant's is refused by Claude Sonnet 5.
+        expect((sdk.create.mock.calls[0][0] as { messages: unknown[] }).messages).toEqual([
+          { role: 'user', content: expect.stringContaining('Description') },
+        ]);
+        expect(result?.status).toBe('success');
+        expect(result?.objectResults[0].aiFallback).toEqual({
+          fields: ['Description'],
+          reason: 'no-answer',
+        });
+        const [accounts] = org.sent.map((call) => call.records);
+        expect(accounts).toHaveLength(2);
+        expect(
+          accounts.every((r) => typeof r['Description'] === 'string' && r['Description']),
+        ).toBe(true);
+      },
+    );
   });
 
   describe('production guard record count', () => {

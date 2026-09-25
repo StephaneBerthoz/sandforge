@@ -324,7 +324,7 @@
         },
         "sandforge.ai.model": {
           "type": "string",
-          "default": "claude-sonnet-4-5-20250929",
+          "default": "claude-sonnet-5",
           "description": "%config.ai.model.description%"
         },
         "sandforge.ai.errorResolution": {
