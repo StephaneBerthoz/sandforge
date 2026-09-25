@@ -797,7 +797,13 @@
       "aiFallbackShort": "AI の応答に値が欠けていたため、次の項目には生成された文が入りました: {{fields}}。"
     },
     "sampleRecordCount_other": "{{count}}件のサンプルレコード",
-    "failedRecordCount_other": "{{count}}件失敗"
+    "failedRecordCount_other": "{{count}}件失敗",
+    "objectStatus": {
+      "pending": "待機中",
+      "running": "実行中",
+      "done": "完了",
+      "error": "失敗"
+    }
   },
   "sync": {
     "title": "データ同期",

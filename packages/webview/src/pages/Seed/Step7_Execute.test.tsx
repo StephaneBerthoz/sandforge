@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type React from 'react';
 import { render, screen } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { Step7Execute } from './Step7_Execute';
 import type { ObjectProgress } from './Step7_Execute';
@@ -34,12 +35,29 @@ describe('Step7Execute', () => {
     expect(screen.getByTestId('progress-Contact')).toBeDefined();
   });
 
-  it('should show status badges', () => {
+  it('names each object’s status in words, not by its code', () => {
+    // The badge printed the code itself: "done", "running".
     render(
       <Step7Execute isRunning objectProgress={progress} overallPercent={73} elapsedMs={5000} />,
     );
-    expect(screen.getByText('done')).toBeDefined();
-    expect(screen.getByText('running')).toBeDefined();
+    expect(screen.getByText('Done')).toBeDefined();
+    expect(screen.getByText('Running')).toBeDefined();
+    expect(screen.queryByText('done')).toBeNull();
+  });
+
+  it('names a status in the language the panel is set to', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(
+        <Step7Execute isRunning objectProgress={progress} overallPercent={73} elapsedMs={5000} />,
+      );
+      expect(screen.getByTestId('progress-Contact').textContent).toContain(
+        fr.seed.objectStatus.running,
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should show failed count', () => {

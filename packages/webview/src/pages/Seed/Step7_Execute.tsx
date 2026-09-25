@@ -85,7 +85,9 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
               )}
               data-testid={`progress-${obj.objectApiName}`}
             >
-              <Badge variant={statusVariant[obj.status]}>{obj.status}</Badge>
+              <Badge variant={statusVariant[obj.status]}>
+                {t(`seed.objectStatus.${obj.status}`)}
+              </Badge>
               <span className="text-(--sf-text-primary) w-40 truncate">{obj.objectApiName}</span>
               <ProgressBar
                 value={percent}

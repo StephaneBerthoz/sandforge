@@ -856,7 +856,13 @@
     "sampleRecordCount_one": "{{count}} sample record",
     "sampleRecordCount_other": "{{count}} sample records",
     "failedRecordCount_one": "{{count}} failed",
-    "failedRecordCount_other": "{{count}} failed"
+    "failedRecordCount_other": "{{count}} failed",
+    "objectStatus": {
+      "pending": "Waiting",
+      "running": "Running",
+      "done": "Done",
+      "error": "Failed"
+    }
   },
   "sync": {
     "title": "Sync Data",

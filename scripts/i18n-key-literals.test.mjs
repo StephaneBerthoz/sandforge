@@ -274,6 +274,14 @@ const UNION_BACKED = [
     from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeNodeStatus' },
   },
   {
+    prefix: 'seed.objectStatus.',
+    from: {
+      file: 'packages/webview/src/pages/Seed/Step7_Execute.tsx',
+      field: 'status',
+      in: 'ObjectProgress',
+    },
+  },
+  {
     prefix: 'home.smartAction.action.',
     from: { file: 'packages/shared/src/types/smart-action.types.ts', union: 'SmartActionType' },
     guarded: {

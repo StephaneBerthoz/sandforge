@@ -856,7 +856,13 @@
     "sampleRecordCount_one": "{{count}} registro de muestra",
     "sampleRecordCount_other": "{{count}} registros de muestra",
     "failedRecordCount_one": "{{count}} fallido",
-    "failedRecordCount_other": "{{count}} fallidos"
+    "failedRecordCount_other": "{{count}} fallidos",
+    "objectStatus": {
+      "pending": "En espera",
+      "running": "En ejecución",
+      "done": "Hecho",
+      "error": "Fallido"
+    }
   },
   "sync": {
     "title": "Sincronizar datos",
