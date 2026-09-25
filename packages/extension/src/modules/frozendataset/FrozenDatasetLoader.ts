@@ -555,9 +555,13 @@ function keptBackByTheCancel(count: number, done = 'inserted'): string {
   return count > 0 ? `, ${count} not ${done}: the load was cancelled first` : '';
 }
 
-/** What an object's line says of the rows a failure of the load kept from the target. */
-function keptBackByTheFailure(notInserted: number): string {
-  return notInserted > 0 ? `, ${notInserted} not inserted: the load failed` : '';
+/**
+ * What a line says of the writes a failure of the load kept from the target:
+ * an object's rows not inserted, or what a step of the load did not do —
+ * `done` names it, as for {@link keptBackByTheCancel}.
+ */
+function keptBackByTheFailure(count: number, done = 'inserted'): string {
+  return count > 0 ? `, ${count} not ${done}: the load failed` : '';
 }
 
 /**
@@ -570,6 +574,67 @@ function keptBackByTheFailure(notInserted: number): string {
 function endOfAStep(refused: number, keptBack: number): FrozenLoadProgressEvent['status'] {
   if (refused > 0) return 'error';
   return keptBack > 0 ? 'stopped' : 'done';
+}
+
+/** A step of the load — a reload's purge, a pass after the inserts — as the line that ends it says it. */
+interface StepEnd {
+  phase: FrozenLoadProgressEvent['phase'];
+  progress: number;
+  /** What it did, and what it could not: `Pass 2: 1 resolved, 0 unresolved`. */
+  did: string;
+  /** How many of its writes the target refused, or it could not make. */
+  refused: number;
+  /** How many of its writes no answer came for: the cancel, or a failure, kept them back. */
+  notDone: number;
+  /** What those would have done, as its line says it: `resolved`, `purged`. */
+  done: string;
+  /** What it says last, of the records it left alone. */
+  notes?: string;
+}
+
+/**
+ * The line that ends a step of the load: what it did, the writes it did not
+ * make — kept from the target by the cancel, or, when a write of its own
+ * threw (`failedOn`), by the failure the load ends on — and, for a failure,
+ * why, as an object whose write threw ends. Left at the step that began it, a
+ * step that threw read as one still going beside the failure, and what it had
+ * done went unsaid.
+ */
+function endOfTheStep(step: StepEnd, failedOn?: { cause: unknown }): FrozenLoadProgressEvent {
+  const { phase, progress, did, refused, notDone, done, notes = '' } = step;
+  if (failedOn) {
+    return {
+      phase,
+      status: 'error',
+      progress,
+      message:
+        `${did}${keptBackByTheFailure(notDone, done)}${notes}` +
+        ` — ${extractErrorMessage(failedOn.cause)}`,
+    };
+  }
+  return {
+    phase,
+    status: endOfAStep(refused, notDone),
+    progress,
+    message: `${did}${keptBackByTheCancel(notDone, done)}${notes}`,
+  };
+}
+
+/**
+ * A pass after the inserts as it goes: its report, filled write by write, and
+ * how many of its writes no answer came for yet — the links, statuses or
+ * records it had to write, all of them until its first answer. Handed to the
+ * pass rather than returned by it: a pass that threw returned nothing, and
+ * its line could say neither what it had done nor what it had not.
+ */
+interface PassSoFar<Report> {
+  report: Report;
+  /**
+   * Once the pass ends, the writes the load's cancel kept from the target —
+   * the load's writer answers every other; once it throws, the ones of the
+   * write that threw and of the writes after it.
+   */
+  unanswered: number;
 }
 
 /** A placeholder the load will create, everything about it already known. */
@@ -968,28 +1033,36 @@ export class FrozenDatasetLoader {
     if (options.reload) {
       /** What the reload's line says of the records it left in place, when it left some. */
       let leftInPlace = '';
-      /** The residuals the load's cancel kept from the purge: see `purgeResiduals`. */
-      const keptFromThePurge = { residuals: 0 };
+      /** The residuals no write of the purge answered for: see `purgeResiduals`. */
+      const notReached = { residuals: 0 };
       /*
-       * The line of a purge the cancel cut short: what it purged, what the
-       * target refused, and how many residuals the cancel kept from it.
-       * Stopped between two of its writes, the reload's line was left at the
-       * step that began the purge; stopped as its last write went out, it
-       * said the pass was done, and the residuals past the writer's answer
-       * were counted nowhere.
+       * The line of a purge that did not do all it had to: what it purged,
+       * what the target refused, and how many residuals it did not reach —
+       * kept from the target by the cancel, or, when a write of its own threw
+       * (`failedOn`), by the failure the load ends on, said with why. Ended
+       * "Reload pass done", a purge the target refused records of read as one
+       * that had done all it had to. Stopped between two of its writes, or at
+       * one that threw, the reload's line was left at the step that began the
+       * purge; stopped as its last write went out, it said the pass was done,
+       * and the residuals past the writer's answer were counted nowhere.
        */
-      const purgeCutShort = (): FrozenLoadProgressEvent => {
+      const purgeLine = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent => {
         const total = (counts: Record<string, number>): number =>
           Object.values(counts).reduce((sum, n) => sum + n, 0);
-        return {
-          phase: 'reload',
-          status: endOfAStep(purge.failures.length, keptFromThePurge.residuals),
-          progress: 24,
-          message:
-            `Purge: ${total(purge.deleted)} deleted, ${total(purge.deactivated)} deactivated, ` +
-            `${purge.failures.length} failed` +
-            `${keptBackByTheCancel(keptFromThePurge.residuals, 'purged')}${leftInPlace}`,
-        };
+        return endOfTheStep(
+          {
+            phase: 'reload',
+            progress: 24,
+            did:
+              `Purge: ${total(purge.deleted)} deleted, ${total(purge.deactivated)} deactivated, ` +
+              `${purge.failures.length} failed`,
+            refused: purge.failures.length,
+            notDone: notReached.residuals,
+            done: 'purged',
+            notes: leftInPlace,
+          },
+          failedOn,
+        );
       };
       if (!options.pilot) {
         emit({
@@ -1019,10 +1092,10 @@ export class FrozenDatasetLoader {
             purge,
             checkpoint,
             settled,
-            keptFromThePurge,
+            notReached,
           );
         } catch (err: unknown) {
-          if (err instanceof FrozenLoadCancelledError) emit(purgeCutShort());
+          emit(purgeLine(err instanceof FrozenLoadCancelledError ? undefined : { cause: err }));
           throw err;
         }
         // Through its purge, the reload has judged every record of a load
@@ -1035,8 +1108,8 @@ export class FrozenDatasetLoader {
         }
       }
       emit(
-        keptFromThePurge.residuals > 0
-          ? purgeCutShort()
+        notReached.residuals > 0 || purge.failures.length > 0
+          ? purgeLine()
           : {
               phase: 'reload',
               status: 'done',
@@ -1142,29 +1215,49 @@ export class FrozenDatasetLoader {
      * why, as the line of an object the cancel stops says what the cancel
      * kept back. Left at the step that began the object's turn, the line read
      * as one still being written beside the failure the load ended on.
+     *
+     * The object is counted for the audit trail as its line counts it, as one
+     * the cancel stops is: the rows the failure kept from the target are the
+     * ones no answer came for, neither written nor refused. Left out of what
+     * the load wrote, the object the load failed on was missing from the
+     * trail, and its rows counted nowhere.
      */
     const endOnItsFailure = (
       objectApiName: string,
+      fromFiles: number,
       rows: ReadonlyArray<{ referenceId: string }>,
       flagsNotKept: string | undefined,
       cause: unknown,
     ): void => {
       // What a first write of it put in: the standard prices, when the
       // custom ones threw.
-      const counted = perObject.find((o) => o.objectApiName === objectApiName);
+      const at = perObject.findIndex((o) => o.objectApiName === objectApiName);
+      const counted = at >= 0 ? perObject[at] : undefined;
       const linked = rows.filter((r) => reused.has(r.referenceId)).length;
       const inserted = counted?.inserted ?? 0;
-      const duplicates = counted?.skippedDuplicates.length ?? 0;
-      const failed = counted?.failed.length ?? 0;
-      const notInserted = rows.length - linked - inserted - duplicates - failed;
+      const skippedDuplicates = counted?.skippedDuplicates ?? [];
+      const failed = counted?.failed ?? [];
+      const notInserted =
+        rows.length - linked - inserted - skippedDuplicates.length - failed.length;
+      const row: PerObjectLoadResult = {
+        objectApiName,
+        fromFiles,
+        inserted,
+        reused: linked,
+        skippedDuplicates,
+        failed,
+        ...(notInserted > 0 ? { notInserted } : {}),
+      };
+      if (counted) perObject[at] = row;
+      else perObject.push(row);
       emit({
         phase: 'insert',
         objectName: objectApiName,
         status: 'error',
         progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
         message:
-          `${objectApiName}: ${inserted} inserted, ${linked} reused, ${duplicates} duplicates ` +
-          `skipped, ${failed} failed${waitingForTheirTask(objectApiName)}` +
+          `${objectApiName}: ${inserted} inserted, ${linked} reused, ${skippedDuplicates.length} ` +
+          `duplicates skipped, ${failed.length} failed${waitingForTheirTask(objectApiName)}` +
           `${keptBackByTheFailure(notInserted)}${leftOutNoteOf(objectApiName, flagsNotKept)}` +
           ` — ${extractErrorMessage(cause)}`,
       });
@@ -1184,17 +1277,19 @@ export class FrozenDatasetLoader {
      * write did — the failure is the load's, which ends on it — unless what
      * threw was the write of those emails, the object's own (`failedOn`): it
      * then ends failed, and says why, as an object whose write threw does.
+     * Whichever stopped the load, the audit trail counts them as the line
+     * does.
      */
     const endOnTheFirstWrite = (
       first: NonNullable<typeof emailsWrittenFirst>,
       stoppedBy: 'cancel' | 'failure',
       failedOn?: { cause: unknown },
     ): void => {
-      const keptByTheCancel = stoppedBy === 'cancel' && first.waiting > 0;
-      if (keptByTheCancel) {
+      if (first.waiting > 0) {
         const row = perObject.find((o) => o.objectApiName === EMAIL_MESSAGE);
         if (row) row.notInserted = (row.notInserted ?? 0) + first.waiting;
       }
+      const keptByTheCancel = stoppedBy === 'cancel' && first.waiting > 0;
       let keptBack = '';
       if (keptByTheCancel) keptBack = keptBackByTheCancel(first.waiting);
       else if (first.waiting > 0) keptBack = keptBackByTheFailure(first.waiting);
@@ -1329,9 +1424,13 @@ export class FrozenDatasetLoader {
        * their row carried, or a field of the answer that goes with it.
        */
       let flagsNotKept: string | undefined;
+      const fromFiles =
+        working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
+        aligned.length;
       // Open until its writes are done: one of them that throws ends it
       // failed. See `running.endOpenLine`.
-      endTheObjectWritten = (cause) => endOnItsFailure(objectApiName, aligned, flagsNotKept, cause);
+      endTheObjectWritten = (cause) =>
+        endOnItsFailure(objectApiName, fromFiles, aligned, flagsNotKept, cause);
       if (objectApiName === ACCOUNT_CONTACT_RELATION) {
         await this.matchDirectRelations(orgId, working, aligned, mapping, reused);
       }
@@ -1348,9 +1447,6 @@ export class FrozenDatasetLoader {
           fixedAtInsert.get(objectApiName) ?? new Set(),
         );
       }
-      const fromFiles =
-        working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
-        aligned.length;
       const lifecycle = STATUS_LIFECYCLES[objectApiName];
       let startingRecords = lifecycle
         ? await this.startAsDrafts(orgId, objectApiName, lifecycle, aligned, deferredStatuses)
@@ -1436,6 +1532,8 @@ export class FrozenDatasetLoader {
         } else {
           const customPrices = await insert(custom, fromFiles).catch((err: unknown) => {
             // Counted, as at a cancel: the standard prices are in the target.
+            // The line that ends the object adds the custom prices the
+            // failure kept from it: see `endOnItsFailure`.
             perObject.push({ ...standardPrices, fromFiles });
             throw err;
           });
@@ -1511,35 +1609,66 @@ export class FrozenDatasetLoader {
     //    ends its line stopped, with what the cancel kept back of it, and the
     //    load at the check that follows. Read against the writer's answers
     //    alone, the writes it kept back were counted nowhere, and the line
-    //    ended done.
+    //    ended done. A write of the pass's own that throws ends its line
+    //    failed, with what it did, what the failure kept back and why, and
+    //    the load fails on it: see `endOfTheStep`.
     await checkpoint();
     emit({ phase: 'pass2', status: 'started', progress: 82, message: 'Patching cycle FKs' });
-    const { pass2, notResolved } = await this.patchCycleFks(options, pendingFk, mapping);
-    emit({
-      phase: 'pass2',
-      status: endOfAStep(pass2.unresolved.length, notResolved),
-      progress: 88,
-      message:
-        `Pass 2: ${pass2.resolved} resolved, ${pass2.unresolved.length} unresolved` +
-        keptBackByTheCancel(notResolved, 'resolved'),
-    });
+    const cyclePass: PassSoFar<FrozenLoadReport['pass2']> = {
+      report: { resolved: 0, unresolved: [] },
+      unanswered: 0,
+    };
+    const endOfPass2 = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
+      endOfTheStep(
+        {
+          phase: 'pass2',
+          progress: 88,
+          did: `Pass 2: ${cyclePass.report.resolved} resolved, ${cyclePass.report.unresolved.length} unresolved`,
+          refused: cyclePass.report.unresolved.length,
+          notDone: cyclePass.unanswered,
+          done: 'resolved',
+        },
+        failedOn,
+      );
+    try {
+      await this.patchCycleFks(options, pendingFk, mapping, cyclePass);
+    } catch (err: unknown) {
+      emit(endOfPass2({ cause: err }));
+      throw err;
+    }
+    emit(endOfPass2());
+    const pass2 = cyclePass.report;
 
     // 8b. Statuses set aside at insert, now that each record's children are in.
+    //     Said nowhere before their write, they have a line only once there is
+    //     something to say: what they applied, what the target refused, what
+    //     the cancel or a failure kept back.
     await checkpoint();
-    const { statuses, notApplied } = await this.applyDeferredStatuses(
-      options,
-      deferredStatuses,
-      mapping,
-    );
-    if (statuses.restored + statuses.refused.length + notApplied > 0) {
-      emit({
-        phase: 'pass2',
-        status: endOfAStep(statuses.refused.length, notApplied),
-        progress: 89,
-        message:
-          `Statuses: ${statuses.restored} applied, ${statuses.refused.length} refused` +
-          keptBackByTheCancel(notApplied, 'applied'),
-      });
+    const statusPass: PassSoFar<FrozenLoadReport['statuses']> = {
+      report: { restored: 0, refused: [] },
+      unanswered: 0,
+    };
+    const endOfTheStatuses = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
+      endOfTheStep(
+        {
+          phase: 'pass2',
+          progress: 89,
+          did: `Statuses: ${statusPass.report.restored} applied, ${statusPass.report.refused.length} refused`,
+          refused: statusPass.report.refused.length,
+          notDone: statusPass.unanswered,
+          done: 'applied',
+        },
+        failedOn,
+      );
+    try {
+      await this.applyDeferredStatuses(options, deferredStatuses, mapping, statusPass);
+    } catch (err: unknown) {
+      emit(endOfTheStatuses({ cause: err }));
+      throw err;
+    }
+    const statuses = statusPass.report;
+    if (statuses.restored + statuses.refused.length + statusPass.unanswered > 0) {
+      emit(endOfTheStatuses());
     }
 
     // 9. PersonContact post-load — sidecar resolved through the mapping.
@@ -1550,19 +1679,30 @@ export class FrozenDatasetLoader {
       progress: 90,
       message: 'Restoring PersonContact links',
     });
-    const { personContact, notRestored } = await this.restorePersonContacts(
-      options,
-      working,
-      mapping,
-    );
-    emit({
-      phase: 'personcontact',
-      status: endOfAStep(personContact.unresolved.length, notRestored),
-      progress: 94,
-      message:
-        `PersonContact: ${personContact.restored} restored, ${personContact.unresolved.length} unresolved` +
-        keptBackByTheCancel(notRestored, 'restored'),
-    });
+    const personContactPass: PassSoFar<FrozenLoadReport['personContact']> = {
+      report: { restored: 0, unresolved: [] },
+      unanswered: 0,
+    };
+    const endOfPersonContact = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
+      endOfTheStep(
+        {
+          phase: 'personcontact',
+          progress: 94,
+          did: `PersonContact: ${personContactPass.report.restored} restored, ${personContactPass.report.unresolved.length} unresolved`,
+          refused: personContactPass.report.unresolved.length,
+          notDone: personContactPass.unanswered,
+          done: 'restored',
+        },
+        failedOn,
+      );
+    try {
+      await this.restorePersonContacts(options, working, mapping, personContactPass);
+    } catch (err: unknown) {
+      emit(endOfPersonContact({ cause: err }));
+      throw err;
+    }
+    emit(endOfPersonContact());
+    const personContact = personContactPass.report;
     // Nor is the contract written after a cancel that came during that pass:
     // an upload the cancel aborted wrote nothing and answered nothing, and
     // the contract would count as loaded what the pass never wrote.
@@ -2093,9 +2233,11 @@ export class FrozenDatasetLoader {
    * back on the way out, as Forge's removal gives it back: see
    * {@link giveStatusesBack}.
    *
-   * @param keptBack - Set, once the load's cancel came, to how many residuals
-   *   it kept from the target: the ones of the writes it stopped the purge
-   *   before, and the ones past the answer of a write it cut short.
+   * @param notReached - Set on the way out to how many residuals no write of
+   *   the purge answered for: at its end, the ones the load's cancel kept
+   *   from the target — those of the writes it stopped the purge before, and
+   *   past the answer of a write it cut short — the load's writer answering
+   *   every other; when a write of its own threw, the ones the failure did.
    */
   private async purgeResiduals(
     options: FrozenLoadOptions,
@@ -2104,7 +2246,7 @@ export class FrozenDatasetLoader {
     purge: PurgeReport,
     checkpoint: () => Promise<void>,
     settled: Set<string>,
-    keptBack: { residuals: number },
+    notReached: { residuals: number },
   ): Promise<void> {
     const residualsByObject = plan.residuals;
     /** Records set to Draft for their delete, until they get their status back. */
@@ -2112,11 +2254,12 @@ export class FrozenDatasetLoader {
     const planned = [...residualsByObject.values()].reduce((sum, ids) => sum + ids.length, 0);
     /**
      * Residuals a write of the purge answered for, and the direct relations
-     * it leaves to go with their contact: what no cancel kept from the target.
+     * it leaves to go with their contact: what no cancel, and no failure,
+     * kept from the target.
      */
     let reached = 0;
-    const countKeptBack = (): void => {
-      if (options.signal?.aborted) keptBack.residuals = planned - reached;
+    const countNotReached = (): void => {
+      notReached.residuals = planned - reached;
     };
     // Every way out once a status was set to Draft — the purge's end, a
     // cancel, a write that failed — first gives what the purge leaves in the
@@ -2192,11 +2335,11 @@ export class FrozenDatasetLoader {
       }
     } catch (err: unknown) {
       await giveBack();
-      countKeptBack();
+      countNotReached();
       throw err;
     }
     await giveBack();
-    countKeptBack();
+    countNotReached();
   }
 
   /**
@@ -3031,18 +3174,17 @@ export class FrozenDatasetLoader {
   }
 
   /**
-   * Apply the statuses {@link startAsDrafts} set aside, record by record, and
-   * count the ones the load's cancel kept from the target (`notApplied`), as
+   * Apply the statuses {@link startAsDrafts} set aside, record by record, into
+   * `pass`, and count the ones no answer came for (`unanswered`), as
    * {@link patchCycleFks} counts its links.
    */
   private async applyDeferredStatuses(
     options: FrozenLoadOptions,
     deferred: readonly DeferredStatus[],
     mapping: ReadonlyMap<string, string>,
-  ): Promise<{ statuses: FrozenLoadReport['statuses']; notApplied: number }> {
-    const refused: FrozenLoadReport['statuses']['refused'] = [];
-    let restored = 0;
-    let notApplied = 0;
+    pass: PassSoFar<FrozenLoadReport['statuses']>,
+  ): Promise<void> {
+    const { refused } = pass.report;
     const byObject = new Map<string, Array<DeferredStatus & { id: string }>>();
     for (const entry of deferred) {
       const id = mapping.get(entry.referenceId);
@@ -3053,17 +3195,15 @@ export class FrozenDatasetLoader {
         { ...entry, id },
       ]);
     }
+    pass.unanswered = [...byObject.values()].reduce((sum, entries) => sum + entries.length, 0);
     for (const [objectApiName, entries] of byObject) {
-      if (options.signal?.aborted) {
-        notApplied += entries.length;
-        continue;
-      }
+      if (options.signal?.aborted) continue;
       const records = entries.map((e) => ({ Id: e.id, Status: e.status }));
       await this.checkGuard(options, 'update', objectApiName, records.length);
       const outcomes = await this.deps.writer.update(options.orgId, objectApiName, records);
       outcomes.forEach((outcome, i) => {
         if (outcome.success) {
-          restored++;
+          pass.report.restored++;
         } else {
           refused.push({
             objectApiName,
@@ -3073,28 +3213,31 @@ export class FrozenDatasetLoader {
           });
         }
       });
-      if (options.signal?.aborted) notApplied += records.length - outcomes.length;
+      pass.unanswered -= outcomes.length;
     }
-    return { statuses: { restored, refused }, notApplied };
   }
 
   /**
-   * Pass 2: patch nullified cycle FKs — updates coalesced per record.
+   * Pass 2: patch nullified cycle FKs — updates coalesced per record — into
+   * `pass`.
    *
    * Each object's patches are a write of their own, and the load's cancel is
    * looked at before each, as before each object of the insert pass: the
    * patches of the objects after it were judged by Production Guard, and
-   * handed to the writer, after the cancel. The links it kept from the target
-   * — those, and the ones past the answer of a write it cut short, which the
-   * writer never sent — are counted apart (`notResolved`): read against the
-   * answers alone, they were neither resolved nor unresolved.
+   * handed to the writer, after the cancel. The links no answer came for —
+   * the ones the cancel kept from the target, and past the answer of a write
+   * it cut short, which the writer never sent; or, when a write threw, its
+   * links and those of the writes after it — are counted apart
+   * (`unanswered`): read against the answers alone, they were neither
+   * resolved nor unresolved.
    */
   private async patchCycleFks(
     options: FrozenLoadOptions,
     pendingFk: PendingFk[],
     mapping: ReadonlyMap<string, string>,
-  ): Promise<{ pass2: FrozenLoadReport['pass2']; notResolved: number }> {
-    const unresolved: FrozenLoadReport['pass2']['unresolved'] = [];
+    pass: PassSoFar<FrozenLoadReport['pass2']>,
+  ): Promise<void> {
+    const { unresolved } = pass.report;
     const updatesByObject = new Map<string, Map<string, Record<string, unknown>>>();
     const refIdByChildId = new Map<string, string>();
     for (const pending of pendingFk) {
@@ -3120,22 +3263,21 @@ export class FrozenDatasetLoader {
       perObject.set(childId, current);
       updatesByObject.set(pending.objectApiName, perObject);
     }
-    let resolved = 0;
-    let notResolved = 0;
     /** The links some patches carry: every field of each but its Id. */
     const linksOf = (records: ReadonlyArray<Record<string, unknown>>): number =>
       records.reduce((sum, record) => sum + Object.keys(record).length - 1, 0);
+    pass.unanswered = [...updatesByObject.values()].reduce(
+      (sum, perObject) => sum + linksOf([...perObject.values()]),
+      0,
+    );
     for (const [objectApiName, perObject] of updatesByObject) {
       const records = [...perObject.values()];
-      if (options.signal?.aborted) {
-        notResolved += linksOf(records);
-        continue;
-      }
+      if (options.signal?.aborted) continue;
       await this.checkGuard(options, 'update', objectApiName, records.length);
       const outcomes = await this.deps.writer.update(options.orgId, objectApiName, records);
       outcomes.forEach((outcome, i) => {
         if (outcome.success) {
-          resolved += Object.keys(records[i]).length - 1; // minus Id
+          pass.report.resolved += Object.keys(records[i]).length - 1; // minus Id
         } else {
           unresolved.push({
             objectApiName,
@@ -3148,23 +3290,24 @@ export class FrozenDatasetLoader {
           });
         }
       });
-      if (options.signal?.aborted) notResolved += linksOf(records.slice(outcomes.length));
+      pass.unanswered -= linksOf(records.slice(0, outcomes.length));
     }
-    return { pass2: { resolved, unresolved }, notResolved };
   }
 
   /**
    * PersonContact post-load: resolve the sidecar pairs and post targeted
-   * updates, and count the links the load's cancel kept from the target
-   * (`notRestored`): the ones past the answer of the write it cut short.
+   * updates into `pass`, and count the links no answer came for
+   * (`unanswered`): the ones past the answer of a write the cancel cut
+   * short, or all of them when the write threw.
    */
   private async restorePersonContacts(
     options: FrozenLoadOptions,
     working: FrozenDataset,
     mapping: ReadonlyMap<string, string>,
-  ): Promise<{ personContact: FrozenLoadReport['personContact']; notRestored: number }> {
+    pass: PassSoFar<FrozenLoadReport['personContact']>,
+  ): Promise<void> {
     const sidecar = working.personContactSidecar ?? [];
-    const unresolved: FrozenLoadReport['personContact']['unresolved'] = [];
+    const { unresolved } = pass.report;
     const updates: Array<Record<string, unknown>> = [];
     /** The link each update posts. By the sidecar's index, a refusal named another link. */
     const linkOfUpdate: PersonContactLink[] = [];
@@ -3190,14 +3333,13 @@ export class FrozenDatasetLoader {
       updates.push({ Id: accountId, PersonContactId: contactId });
       linkOfUpdate.push(link);
     }
-    let restored = 0;
-    let notRestored = 0;
+    pass.unanswered = updates.length;
     if (updates.length > 0) {
       await this.checkGuard(options, 'update', 'Account', updates.length);
       const outcomes = await this.deps.writer.update(options.orgId, 'Account', updates);
       outcomes.forEach((outcome, i) => {
         if (outcome.success) {
-          restored++;
+          pass.report.restored++;
         } else {
           unresolved.push({
             ...linkOfUpdate[i],
@@ -3206,9 +3348,8 @@ export class FrozenDatasetLoader {
           });
         }
       });
-      if (options.signal?.aborted) notRestored = updates.length - outcomes.length;
+      pass.unanswered -= outcomes.length;
     }
-    return { personContact: { restored, unresolved }, notRestored };
   }
 
   /**

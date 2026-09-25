@@ -413,8 +413,8 @@ function cancelledFrozenOutcome(
  * What a load did per object, for the audit trail: records inserted and the
  * placeholders created for them, records a reload deactivated or purged, and
  * the ones the org refused — duplicates it skipped among them, since the org
- * would not take them. Of an object a cancel stopped while it was written,
- * the records it kept from the target, which were neither.
+ * would not take them. Of an object a cancel stopped while it was written, or
+ * the load failed at, the records kept from the target, which were neither.
  */
 function frozenAuditObjects(
   report: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,

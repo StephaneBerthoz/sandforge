@@ -208,8 +208,9 @@ export interface FrozenLoadProgressEvent {
    * from the target. One the target refused a row of ends `error`, as it
    * would have. A reload's purge, and a pass after the inserts, that the
    * cancel cut short end the same way, their line saying what the cancel kept
-   * back of them. `error` also ends an object a write of its own threw at,
-   * with why.
+   * back of them; a purge the target refused records of ends `error`. `error`
+   * also ends an object, a purge or a pass a write of its own threw at, its
+   * line saying what the failure kept back of it, and why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100) within the load. */
@@ -314,9 +315,11 @@ export interface PerObjectLoadResult {
   skippedDuplicates: SkippedDuplicate[];
   failed: FailedRecord[];
   /**
-   * Records the load had to insert and never sent: its cancel came while the
-   * object was written, and kept them from the target. Absent when there was
-   * none — always, in a load that ran to its end.
+   * Records the load had to insert and no answer came for: its cancel came
+   * while the object was written, and kept them from the target — or the
+   * load failed there, at a write of the object's own that threw, or at
+   * another before theirs. Absent when there was none — always, in a load
+   * that ran to its end.
    */
   notInserted?: number;
 }

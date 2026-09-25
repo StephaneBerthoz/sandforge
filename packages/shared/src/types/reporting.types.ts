@@ -80,9 +80,10 @@ export interface AuditObjectCounts {
   upserted?: number;
   /**
    * Records the run had to write and never sent: its cancel came while the
-   * object was written, and kept them from the target. Neither written nor
-   * failed, they were counted nowhere, and an object the cancel cut short
-   * read as written whole. Absent when there are none.
+   * object was written, or the failure it ended on, and kept them from the
+   * target. Neither written nor failed, they were counted nowhere, and an
+   * object the cancel cut short read as written whole. Absent when there are
+   * none.
    */
   notSent?: number;
 }

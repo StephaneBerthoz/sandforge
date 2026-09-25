@@ -2253,6 +2253,37 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     });
   });
 
+  it('ends its line failed when the target refused some of what it purged, saying what it purged and what it refused', async () => {
+    // The line said the reload pass was done, marked done, beside a report
+    // that listed the records the target would not let it purge.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, {
+      'Account-000001': '001OLD-ACCOUNT',
+      'Contact-000001': '003OLD-CONTACT',
+    });
+    const writer = makeWriter([]);
+    writer.delete = vi.fn(async (_org: string, objectApiName: string, ids: string[]) =>
+      ids.map((id) =>
+        objectApiName === 'Account'
+          ? { id, success: false, errors: ['DELETE_FAILED: it has opportunities'] }
+          : { id, success: true, errors: [] },
+      ),
+    );
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset, sasDir, writer });
+
+    await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(
+      progress
+        .filter((e) => e.phase === 'reload' && e.status !== 'started')
+        .map((e) => [e.status, e.message]),
+    ).toEqual([['error', 'Purge: 1 deleted, 0 deactivated, 1 failed']]);
+  });
+
   it('keeps the loads before a pilot, whose reload purges nothing', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
@@ -4028,8 +4059,11 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     const message = (error as Error).message;
     expect(message).toMatch(/^Production guard refused insert on Contact: not on this org\n/);
     expect(message).toContain('The load failed after it had created 1 record(s) (Account: 1).');
+    // The contact the guard refused is counted with what it wrote, as the
+    // audit trail counts it: never sent.
     expect((error as FrozenLoadFailedError).written.perObject).toEqual([
       expect.objectContaining({ objectApiName: 'Account', inserted: 1 }),
+      expect.objectContaining({ objectApiName: 'Contact', inserted: 0, notInserted: 1 }),
     ]);
   });
 
@@ -4180,10 +4214,17 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
 
     expect(error).toBeInstanceOf(FrozenLoadFailedError);
     // The standard price is in the target: counted for the audit trail and
-    // in what the report says the load left.
-    expect((error as FrozenLoadFailedError).written.perObject).toContainEqual(
-      expect.objectContaining({ objectApiName: 'PricebookEntry', fromFiles: 2, inserted: 1 }),
-    );
+    // in what the report says the load left — and the custom price the
+    // failure kept from the target, as the object's line says.
+    expect((error as FrozenLoadFailedError).written.perObject).toContainEqual({
+      objectApiName: 'PricebookEntry',
+      fromFiles: 2,
+      inserted: 1,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [],
+      notInserted: 1,
+    });
     // And said on the line that ends the object, with the custom price the
     // failure kept from the target, and why: the line was left at the step
     // that began the object's turn.
@@ -4530,6 +4571,228 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
           'AccountContactRelation: 0 inserted, 0 reused, 0 duplicates skipped, 0 failed, ' +
             '1 not inserted: the load failed — QUERY_TIMEOUT: Your query request was running ' +
             'for too long.',
+        ],
+      ]);
+    });
+
+    it('counts for the audit trail the rows the failure kept from the target, as its line does', async () => {
+      // Left out of what the load wrote, the object the load failed on was
+      // missing from the audit trail, its rows counted nowhere.
+      const dataset = makeAccountContactDataset();
+      const writer = makeIdWriter([]);
+      const insert = writer.insert;
+      writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+        if (args[1] === 'Contact') throw new Error('Bulk job failed: the connection was reset');
+        return insert(...args);
+      });
+      const deps = makeDeps({ dataset, writer });
+
+      const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect((error as FrozenLoadFailedError).written.perObject).toEqual([
+        expect.objectContaining({ objectApiName: 'Account', inserted: 1 }),
+        {
+          objectApiName: 'Contact',
+          fromFiles: 1,
+          inserted: 0,
+          reused: 0,
+          skippedDuplicates: [],
+          failed: [],
+          notInserted: 1,
+        },
+      ]);
+      // The error says what the load left: what it created, not the rows it never sent.
+      expect((error as Error).message).toContain(
+        'The load failed after it had created 1 record(s) (Account: 1).',
+      );
+    });
+  });
+
+  describe("at a reload's purge, or a pass after the inserts, whose own write throws", () => {
+    // Its line was left at the step that began it, and the statuses, which
+    // say nothing before their write, were said nowhere: what the step had
+    // done, and why it stopped, went unsaid beside the failure.
+
+    /** Each line the load said of `phase`, in order: its status and its words. */
+    const linesOfPhase = (
+      progress: readonly FrozenLoadProgressEvent[],
+      phase: FrozenLoadProgressEvent['phase'],
+    ) => progress.filter((e) => e.phase === phase).map((e) => [e.status, e.message]);
+
+    /** Two cycles of two objects each: pass 2 patches the first object of each. */
+    const twoCycles: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: ['Obj', 'Other'].flatMap((prefix) => [
+        {
+          objectApiName: `${prefix}A__c`,
+          records: [
+            {
+              referenceId: `${prefix}A__c-000001`,
+              fields: { Name: 'A', B__c: `${prefix}B__c-000001` },
+            },
+          ],
+        },
+        {
+          objectApiName: `${prefix}B__c`,
+          records: [
+            {
+              referenceId: `${prefix}B__c-000001`,
+              fields: { Name: 'B', A__c: `${prefix}A__c-000001` },
+            },
+          ],
+        },
+      ]),
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+
+    it('ends the cycle pass failed when a write of it throws, saying what it resolved, what it did not, and why', async () => {
+      const progress: FrozenLoadProgressEvent[] = [];
+      const writer = makeWriter([]);
+      const update = writer.update;
+      let updates = 0;
+      writer.update = vi.fn(async (...args: Parameters<FrozenDmlWriter['update']>) => {
+        if (++updates === 2) {
+          throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record');
+        }
+        return update(...args);
+      });
+      const deps = makeDeps({ dataset: twoCycles, writer });
+
+      const error = await failureOf(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, twoCycles, { onProgress: (e) => progress.push(e) }),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect(linesOfPhase(progress, 'pass2')).toEqual([
+        ['started', 'Patching cycle FKs'],
+        [
+          'error',
+          'Pass 2: 1 resolved, 0 unresolved, 1 not resolved: the load failed — ' +
+            'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record',
+        ],
+      ]);
+    });
+
+    it('ends the statuses failed when a write of them throws, saying what they applied, what they did not, and why', async () => {
+      const dataset: FrozenDataset = {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Contract',
+            records: [{ referenceId: 'Contract-000001', fields: { Status: 'Activated' } }],
+          },
+          {
+            objectApiName: 'Order',
+            records: [{ referenceId: 'Order-000001', fields: { Status: 'Activated' } }],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      };
+      const progress: FrozenLoadProgressEvent[] = [];
+      const writer = makeIdWriter([]);
+      const update = writer.update;
+      let updates = 0;
+      writer.update = vi.fn(async (...args: Parameters<FrozenDmlWriter['update']>) => {
+        if (++updates === 2) {
+          throw new Error('REQUEST_RUNNING_TOO_LONG: Your request was running for too long');
+        }
+        return update(...args);
+      });
+      const deps = makeDeps({
+        dataset,
+        writer,
+        queryImpl: async (_org, soql) =>
+          soql.includes('FROM OrderStatus') || soql.includes('FROM ContractStatus')
+            ? [
+                { ApiName: 'Activated', StatusCode: 'Activated' },
+                { ApiName: 'Draft', StatusCode: 'Draft' },
+              ]
+            : [],
+      });
+
+      const error = await failureOf(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect(linesOfPhase(progress, 'pass2')).toEqual([
+        ['started', 'Patching cycle FKs'],
+        ['done', 'Pass 2: 0 resolved, 0 unresolved'],
+        [
+          'error',
+          'Statuses: 1 applied, 0 refused, 1 not applied: the load failed — ' +
+            'REQUEST_RUNNING_TOO_LONG: Your request was running for too long',
+        ],
+      ]);
+    });
+
+    it('ends the PersonContact pass failed when its write throws, saying what it could not link, what it did not restore, and why', async () => {
+      const dataset = {
+        ...makeAccountContactDataset(),
+        personContactSidecar: [
+          { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+          { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000009' },
+        ],
+      };
+      const progress: FrozenLoadProgressEvent[] = [];
+      const writer = makeIdWriter([]);
+      writer.update = vi.fn(async () => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      });
+      const deps = makeDeps({ dataset, writer });
+
+      const error = await failureOf(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect(linesOfPhase(progress, 'personcontact')).toEqual([
+        ['started', 'Restoring PersonContact links'],
+        [
+          'error',
+          'PersonContact: 0 restored, 1 unresolved, 1 not restored: the load failed — ' +
+            'INVALID_SESSION_ID: Session expired or invalid',
+        ],
+      ]);
+    });
+
+    it("ends a reload's purge failed when Production Guard refuses a delete of it, saying what it purged, what it did not, and why", async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedEarlierLoad(sasDir);
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        sasDir,
+        writer: makeIdWriter([]),
+        guard: refusingGuard(
+          (request) => request.operation === 'delete' && request.objectName === 'Account',
+        ),
+      });
+
+      const error = await failureOf(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect(linesOfPhase(progress, 'reload')).toEqual([
+        ['started', 'Reusing reference data'],
+        ['started', 'Purging what earlier loads created'],
+        [
+          'error',
+          'Purge: 1 deleted, 0 deactivated, 0 failed, 1 not purged: the load failed — ' +
+            'Production guard refused delete on Account: not on this org',
         ],
       ]);
     });
@@ -6665,6 +6928,10 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
             'connection was reset',
         ],
       ]);
+      // The audit trail counts them as the line does.
+      expect((error as FrozenLoadFailedError).written.perObject).toContainEqual(
+        expect.objectContaining({ objectApiName: 'EmailMessage', inserted: 1, notInserted: 2 }),
+      );
     });
 
     it('ends the task object failed, and then the email object with its first write, when the lookup of the tasks written with the emails throws', async () => {
@@ -6699,6 +6966,14 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
             'waiting for their tasks, 2 not inserted: the load failed',
         ],
       ]);
+      // The audit trail counts both as their lines do.
+      const written = (error as FrozenLoadFailedError).written.perObject;
+      expect(written).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Task', inserted: 0, notInserted: 3 }),
+      );
+      expect(written).toContainEqual(
+        expect.objectContaining({ objectApiName: 'EmailMessage', inserted: 1, notInserted: 2 }),
+      );
     });
 
     it('inserts no task after a cancel that came as the tasks written with the emails were looked up', async () => {
