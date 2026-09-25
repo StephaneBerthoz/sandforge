@@ -41,6 +41,13 @@ export interface AIChatPanelProps {
   onNewConversation?: (title: string) => void;
   onSelectConversation?: (conversationId: string) => void;
   onDeleteConversation?: (conversationId: string) => void;
+  /**
+   * The composer's text, when the page keeps it: the page puts back a question
+   * the host could not answer. Given with {@link onDraftChange}; left out, the
+   * panel keeps the text itself.
+   */
+  draft?: string;
+  onDraftChange?: (text: string) => void;
 }
 
 /** AI Chat panel with conversation management and message display. */
@@ -55,9 +62,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
+  draft,
+  onDraftChange,
 }) => {
   const { t } = useTranslation();
-  const [inputValue, setInputValue] = useState('');
+  const [ownDraft, setOwnDraft] = useState('');
+  const inputValue = draft ?? ownDraft;
+  const setInputValue = onDraftChange ?? setOwnDraft;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [providerStatus, setProviderStatus] = useState<{
     provider: 'anthropic' | 'openai' | 'custom';

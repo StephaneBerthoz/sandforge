@@ -225,4 +225,77 @@ describe('AIPage', () => {
       expect(screen.queryByTestId('loading-indicator')).toBeNull();
     });
   });
+
+  // The host keeps a question that got no answer out of the conversation and
+  // out of the next turn. Left in the thread, it read as part of what the next
+  // answer replied to, and a reload made it vanish.
+  describe('a question the host could not answer', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    /** Ask `question` in the conversation open, and return the id of the chat request. */
+    function ask(question: string): string {
+      fireEvent.change(screen.getByTestId('chat-input'), { target: { value: question } });
+      fireEvent.click(screen.getByTestId('send-btn'));
+      return lastSentId();
+    }
+
+    function openConversation(): void {
+      emit('ai:conversation:created', {
+        conversation: { id: 'conv-1', title: 'T', createdAt: '2025-01-01T00:00:00Z' },
+      });
+    }
+
+    const composer = (): string => (screen.getByTestId('chat-input') as HTMLTextAreaElement).value;
+    const bubbles = (role: string): Array<string | null> =>
+      screen.queryAllByTestId(`message-bubble-${role}`).map((bubble) => bubble.textContent);
+
+    it('leaves the thread and goes back to the composer, with the reason shown', () => {
+      render(<AIPage />);
+      openConversation();
+      const chat = ask('which object holds cases');
+      expect(bubbles('user')).toEqual(['which object holds cases']);
+
+      emit('ai:error', { message: 'The model declined to answer this request.' }, chat);
+
+      expect(bubbles('user')).toEqual([]);
+      expect(composer()).toBe('which object holds cases');
+      expect(screen.getByTestId('ai-error-banner').textContent).toContain('declined');
+    });
+
+    it('takes nothing else from the thread', () => {
+      render(<AIPage />);
+      openConversation();
+      emit('ai:conversation:loaded', {
+        conversation: {
+          id: 'conv-1',
+          title: 'T',
+          messages: [
+            { id: 'h1', role: 'user', content: 'first', timestamp: '2025-01-01' },
+            { id: 'h2', role: 'assistant', content: 'answer', timestamp: '2025-01-01' },
+          ],
+        },
+      });
+      const second = ask('second');
+
+      emit('ai:error', { message: 'AI provider circuit breaker open.' }, second);
+
+      expect(bubbles('user')).toEqual(['first']);
+      expect(bubbles('assistant')).toEqual(['answer']);
+      expect(composer()).toBe('second');
+    });
+
+    it('stays in the thread when the error answers another request of the page', () => {
+      render(<AIPage />);
+      const list = lastSentId(); // the conversation list, asked for on mount
+      openConversation();
+      ask('which object holds cases');
+
+      emit('ai:error', { message: 'The conversation list could not be read.' }, list);
+
+      expect(bubbles('user')).toEqual(['which object holds cases']);
+      expect(composer()).toBe('');
+    });
+  });
 });

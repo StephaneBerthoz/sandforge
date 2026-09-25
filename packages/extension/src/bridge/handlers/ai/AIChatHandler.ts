@@ -1,4 +1,4 @@
-import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
+import { AI_CONFIG, AI_PROVIDER, resolveAIModel } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
 import {
@@ -446,10 +446,12 @@ export class AIChatHandler implements DomainHandler {
       enabled: !!this.aiAssistant && hasKey,
       provider: this.aiAssistant ? AI_PROVIDER : 'none',
       // The model `sandforge.ai.model` names, which every AI call asks: the
-      // Settings page shows it, and named the default after the user changed it.
+      // Settings page shows it, and named the default after the user changed
+      // it. Blank, the setting names none, and the calls ask the default.
       model: this.aiAssistant
-        ? (this.deps.services?.getSandforgeSetting?.('ai.model', AI_CONFIG.MODEL) ??
-          AI_CONFIG.MODEL)
+        ? resolveAIModel(
+            this.deps.services?.getSandforgeSetting?.<unknown>('ai.model', AI_CONFIG.MODEL),
+          )
         : '',
       // One counter for every AI feature, kept for the whole window. The AI
       // page asks for it on mount so its gauge is filled before the next call.

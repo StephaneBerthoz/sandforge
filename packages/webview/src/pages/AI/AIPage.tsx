@@ -26,6 +26,12 @@ export const AIPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [localIdCounter, setLocalIdCounter] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [draft, setDraft] = useState('');
+
+  /** The question in flight: the request carrying it, and its bubble in the thread. */
+  const pendingQuestion = useRef<{ requestId: string; message: ChatMessageDisplay } | undefined>(
+    undefined,
+  );
 
   /**
    * Ids of the requests this page sent, so a shared answer can be matched to
@@ -60,6 +66,9 @@ export const AIPage: React.FC = () => {
   useMessageListener<
     BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }
   >('ai:chat:response', (msg) => {
+    if (msg.correlationId === pendingQuestion.current?.requestId) {
+      pendingQuestion.current = undefined;
+    }
     setMessages((prev) => [...prev, msg.payload.message]);
     setIsLoading(false);
   });
@@ -86,6 +95,15 @@ export const AIPage: React.FC = () => {
     if (!msg.correlationId || !ownRequests.current.delete(msg.correlationId)) return;
     setIsLoading(false);
     setErrorMessage(msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.'));
+    // A question that got no answer is not part of the conversation: the host
+    // leaves it out of the next turn and of the history a reload shows. Left
+    // in the thread, it read as part of what the next answer replied to. The
+    // composer gets it back, to ask again or reword as the error says.
+    const failed = pendingQuestion.current;
+    if (failed?.requestId !== msg.correlationId) return;
+    pendingQuestion.current = undefined;
+    setMessages((prev) => prev.filter((m) => m !== failed.message));
+    setDraft((current) => current || failed.message.content);
   });
 
   // Listen for conversation loaded with messages
@@ -105,15 +123,15 @@ export const AIPage: React.FC = () => {
         content: message,
         timestamp: new Date().toISOString(),
       };
+      const request = buildMessage<{ conversationId: string; message: string }>('ai:chat', {
+        conversationId,
+        message,
+      });
+      pendingQuestion.current = { requestId: request.id, message: userMsg };
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
       setErrorMessage(undefined);
-      send(
-        buildMessage<{ conversationId: string; message: string }>('ai:chat', {
-          conversationId,
-          message,
-        }),
-      );
+      send(request);
     },
     [send],
   );
@@ -212,6 +230,8 @@ export const AIPage: React.FC = () => {
       onNewConversation={handleNewConversation}
       onSelectConversation={handleSelectConversation}
       onDeleteConversation={handleDeleteConversation}
+      draft={draft}
+      onDraftChange={setDraft}
     />
   );
 };

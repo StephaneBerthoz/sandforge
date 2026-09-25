@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events';
 // Node16 a plain `import type` resolves to the .d.ts twin whose #private field
 // is nominal-incompatible with it.
 import type Anthropic from '@anthropic-ai/sdk' with { 'resolution-mode': 'import' };
-import { AI_CONFIG, type AIUsage, type TokenBudgetState } from '@sandforge/shared';
+import { AI_CONFIG, resolveAIModel, type AIUsage, type TokenBudgetState } from '@sandforge/shared';
 
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
@@ -158,7 +158,7 @@ export class AnthropicAdapter implements AIClient {
     this.storage = deps.storage;
     this.telemetry = deps.telemetry;
     this.logger = deps.logger;
-    this.model = deps.model ?? AI_CONFIG.MODEL;
+    this.model = resolveAIModel(deps.model);
     this.breaker =
       deps.breaker ??
       new CircuitBreaker({

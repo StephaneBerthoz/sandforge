@@ -17,10 +17,19 @@ export const AI_CONFIG = {
    * an answer costs the tokens it has, and the budget checks what goes in.
    */
   MAX_TOKENS: 8_192,
-  /** Timeout for AI requests in milliseconds (60 seconds). */
-  TIMEOUT_MS: 60_000,
-  /** Default Anthropic API base URL. */
-  BASE_URL: 'https://api.anthropic.com',
-  /** Anthropic API version header value. */
-  API_VERSION: '2023-06-01',
 } as const;
+
+/**
+ * The model a `sandforge.ai.model` value asks: the value, or
+ * {@link AI_CONFIG.MODEL} when it names none.
+ *
+ * Emptied in the Settings editor, the setting holds an empty string rather than
+ * its default, and a settings.json edited by hand can hold anything. An empty
+ * name went out as the model's, and the 400 that came back did not point at the
+ * setting. A value that is not text, or holds only whitespace, names no model.
+ *
+ * @param configured - What the setting holds.
+ */
+export function resolveAIModel(configured: unknown): string {
+  return typeof configured === 'string' && configured.trim() !== '' ? configured : AI_CONFIG.MODEL;
+}

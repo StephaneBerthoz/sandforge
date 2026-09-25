@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { AIAssistant, type AICallFn, type AIModelConfig, type AICallResult } from './AIAssistant';
+import {
+  AIAssistant,
+  type AICallFn,
+  type AIModelConfig,
+  type AICallResult,
+  type ChatMessage,
+  type ChatRole,
+} from './AIAssistant';
 
 const mockConfig: AIModelConfig = {
   provider: 'anthropic',
   model: 'claude-3-sonnet',
-  apiKey: 'test-key',
   maxTokens: 1024,
 };
 
@@ -178,5 +184,57 @@ describe('AIAssistant', () => {
 
     const passedConfig = mockCallFn.mock.calls[0][1];
     expect(passedConfig).toEqual(mockConfig);
+  });
+
+  // --- What a turn sends ---
+
+  /** The turns of the `call`-th request, without the system prompt. */
+  function turnsSent(call: number): Array<{ role: ChatRole; content: string }> {
+    return mockCallFn.mock.calls[call][0].filter((m) => m.role !== 'system');
+  }
+
+  // A question the model declined stayed in the conversation: the next turn
+  // sent it again with the new one, and the answer replied to both.
+  it('keeps a question that got no answer out of the conversation and out of the next turn', async () => {
+    const conv = assistant.createConversation('Declined');
+    mockCallFn.mockRejectedValueOnce(new Error('The model declined to answer this request.'));
+
+    await expect(assistant.chat(conv.id, 'first')).rejects.toThrow('declined');
+    expect(assistant.getConversation(conv.id)?.messages).toEqual([]);
+    await assistant.chat(conv.id, 'second');
+
+    expect(turnsSent(1)).toEqual([{ role: 'user', content: 'second' }]);
+    const kept = assistant.getConversation(conv.id);
+    expect(kept?.messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'second'],
+      ['assistant', 'AI response content'],
+    ]);
+    expect(kept?.totalTokens).toBe(42);
+  });
+
+  // Ten exchanges and a new question make 21 messages: the last 20 opened on
+  // the answer to the first question, which the request no longer carried.
+  it('starts the history it sends on a question, never on an answer cut from its question', async () => {
+    const messages: ChatMessage[] = Array.from({ length: 20 }, (_, i) => ({
+      id: `m${i}`,
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `${i % 2 === 0 ? 'question' : 'answer'} ${Math.floor(i / 2)}`,
+      timestamp: '2025-01-01T10:00:00Z',
+    }));
+    assistant.restoreConversation({
+      id: 'conv-long',
+      title: 'Ten exchanges',
+      messages,
+      createdAt: '2025-01-01T10:00:00Z',
+      updatedAt: '2025-01-01T10:00:00Z',
+      totalTokens: 0,
+    });
+
+    await assistant.chat('conv-long', 'question 10');
+
+    const sent = turnsSent(0);
+    expect(sent[0]).toEqual({ role: 'user', content: 'question 1' });
+    expect(sent).toHaveLength(19);
+    expect(sent.at(-1)).toEqual({ role: 'user', content: 'question 10' });
   });
 });

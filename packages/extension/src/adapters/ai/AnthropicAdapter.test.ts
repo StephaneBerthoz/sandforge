@@ -537,6 +537,23 @@ describe('AnthropicAdapter — the request each model is sent', () => {
     expect((await bodySentTo('claude-opus-4-8')).model).toBe('claude-opus-4-8');
   });
 
+  // A cleared sandforge.ai.model reached the API as the model's name, and the
+  // 400 that came back named no setting.
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', ' \t '],
+  ])('asks the default model when the model it is given is %s', async (_label, model) => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage, model });
+    mockMessagesCreate.mockResolvedValue(mkOkChat());
+
+    await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    const body = mockMessagesCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect(body.model).toBe(AI_CONFIG.MODEL);
+    expect(body.thinking).toEqual({ type: 'disabled' });
+  });
+
   // Claude Sonnet 5 thinks unless told not to, and its thinking counts against
   // max_tokens: the 4 096 tokens the features ask for could all go to thinking.
   it.each([

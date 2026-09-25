@@ -290,7 +290,11 @@ test.describe('AI Module — Chat', () => {
     await expect(page.getByTestId('loading-indicator')).toHaveCount(0);
     await expect(page.getByTestId('chat-input')).toBeEnabled();
     await expect(page.getByTestId('ai-chat-panel')).toBeVisible();
-    await expect(page.getByTestId('message-bubble-user')).toHaveText('Bad query');
+    // The host keeps a question that got no answer out of the conversation and
+    // out of the next turn: it leaves the thread, and the composer holds it
+    // again, to send as it is or reworded.
+    await expect(page.getByTestId('message-bubble-user')).toHaveCount(0);
+    await expect(page.getByTestId('chat-input')).toHaveValue('Bad query');
   });
 });
 

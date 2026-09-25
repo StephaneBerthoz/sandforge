@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { AI_CONFIG, AI_PROVIDER } from './ai-config.js';
+import { AI_CONFIG, AI_PROVIDER, resolveAIModel } from './ai-config.js';
 
 describe('AI_PROVIDER', () => {
   it('should be a non-empty string', () => {
@@ -21,23 +21,26 @@ describe('AI_CONFIG', () => {
     expect(Number.isInteger(AI_CONFIG.MAX_TOKENS)).toBe(true);
   });
 
-  it('should have a positive timeout in milliseconds', () => {
-    expect(AI_CONFIG.TIMEOUT_MS).toBeGreaterThan(0);
+  // A timeout, a base URL and an API version were declared here and read by
+  // nothing but this file: the SDK client is built from the key and
+  // `maxRetries` alone.
+  it('holds only what the extension reads: the default model and the answer cap', () => {
+    expect(Object.keys(AI_CONFIG).sort()).toEqual(['MAX_TOKENS', 'MODEL']);
+  });
+});
+
+describe('resolveAIModel', () => {
+  it('asks the model the setting names, as it is written', () => {
+    expect(resolveAIModel('claude-opus-4-8')).toBe('claude-opus-4-8');
   });
 
-  it('should have a valid base URL', () => {
-    expect(AI_CONFIG.BASE_URL).toMatch(/^https:\/\//);
-  });
-
-  it('should have a non-empty API version string', () => {
-    expect(AI_CONFIG.API_VERSION).toBeTruthy();
-    expect(typeof AI_CONFIG.API_VERSION).toBe('string');
-  });
-
-  it('should define all expected keys', () => {
-    const keys = ['MODEL', 'MAX_TOKENS', 'TIMEOUT_MS', 'BASE_URL', 'API_VERSION'] as const;
-    for (const key of keys) {
-      expect(AI_CONFIG[key]).toBeDefined();
-    }
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['whitespace-only', ' \t\n '],
+    ['a number', 42],
+    ['null', null],
+  ])('asks the default model when the setting is %s', (_label, configured) => {
+    expect(resolveAIModel(configured)).toBe(AI_CONFIG.MODEL);
   });
 });

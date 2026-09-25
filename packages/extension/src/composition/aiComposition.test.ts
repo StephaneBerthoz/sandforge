@@ -29,6 +29,7 @@ vi.mock('../modules/ai/PipelineGenerator.js', () => ({ PipelineGenerator: vi.fn(
 vi.mock('../modules/ai/AnomalyDetector.js', () => ({ AnomalyDetector: vi.fn() }));
 vi.mock('../modules/ai/SchemaAdvisor.js', () => ({ SchemaAdvisor: vi.fn() }));
 
+import { AIAssistant } from '../modules/ai/AIAssistant.js';
 import { AnomalyDetector } from '../modules/ai/AnomalyDetector.js';
 import { initAIComposition, createAIReinit } from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
@@ -132,6 +133,30 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
       'claude-opus-4-8',
       'claude-sonnet-5',
     ]);
+  });
+
+  // Emptied in the Settings editor, the setting holds an empty string, and the
+  // page showed it as the model.
+  it('announces the default model when sandforge.ai.model is blank', async () => {
+    await initAIComposition(makeDeps({ model: '' }));
+    await initAIComposition(makeDeps({ model: ' \t ' }));
+
+    expect(posted.map((m) => (m.payload as { model: string }).model)).toEqual([
+      'claude-sonnet-5',
+      'claude-sonnet-5',
+    ]);
+  });
+
+  // The adapter reads the key from secret storage on its own. The copy the
+  // assistant held in its configuration went to every call function, which
+  // never read it.
+  it('builds the assistant without a copy of the API key', async () => {
+    await initAIComposition(makeDeps());
+
+    expect(AIAssistant).toHaveBeenCalledTimes(1);
+    const [, config] = vi.mocked(AIAssistant).mock.calls[0];
+    expect(config).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(config)).not.toContain('sk-test');
   });
 
   it('subscribes nothing when AI is disabled', async () => {

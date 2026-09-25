@@ -529,4 +529,48 @@ describe('services', () => {
       },
     );
   });
+
+  describe('the model the AI client asks', () => {
+    beforeEach(() => {
+      sdkHoisted.sharedCreate.mockReset();
+    });
+
+    afterEach(() => {
+      configValues.map.clear();
+    });
+
+    /** The model the one request of a question names, sandforge.ai.model holding `value`. */
+    async function modelAskedWith(value: unknown): Promise<unknown> {
+      configValues.map.set('model', value);
+      sdkHoisted.sharedCreate.mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-sonnet-5',
+        stop_reason: 'end_turn',
+      });
+      const context = createMockContext({}, { 'sandforge.ai.anthropic.key': 'sk-ant-test' });
+
+      await createServices(context)
+        .aiClient('anthropic')
+        .chat({ messages: [{ role: 'user', content: 'hello' }] });
+
+      expect(sdkHoisted.sharedCreate).toHaveBeenCalledTimes(1);
+      return (sdkHoisted.sharedCreate.mock.calls[0][0] as { model: unknown }).model;
+    }
+
+    it('asks the model sandforge.ai.model names', async () => {
+      expect(await modelAskedWith('claude-opus-4-8')).toBe('claude-opus-4-8');
+    });
+
+    // Emptied in the Settings editor, the setting holds an empty string rather
+    // than its default. That string went out as the model's name, and the 400
+    // that came back did not point at the setting.
+    it.each([
+      ['empty', ''],
+      ['whitespace-only', '   '],
+      ['a number, from a settings.json edited by hand', 42],
+    ])('asks the default model when sandforge.ai.model is %s', async (_label, value) => {
+      expect(await modelAskedWith(value)).toBe('claude-sonnet-5');
+    });
+  });
 });

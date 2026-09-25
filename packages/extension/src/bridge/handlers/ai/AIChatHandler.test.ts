@@ -422,7 +422,6 @@ describe('AIChatHandler', () => {
     const MODEL_CONFIG: AIModelConfig = {
       provider: 'anthropic',
       model: 'test-model',
-      apiKey: 'sk-test',
       maxTokens: 1024,
     };
 
@@ -582,6 +581,47 @@ describe('AIChatHandler', () => {
     });
   });
 
+  describe('a question the model did not answer', () => {
+    // The AI page drops a failed question from the thread on the strength of
+    // this: reloaded, the conversation is what the next turn sends.
+    it('is neither stored nor shown when the conversation is loaded again', async () => {
+      const callFn = vi
+        .fn<AICallFn>()
+        .mockRejectedValueOnce(new Error('The model declined to answer this request.'))
+        .mockResolvedValueOnce({ content: 'Case', tokenCount: 3, model: 'm', durationMs: 1 });
+      const assistant = new AIAssistant(callFn, {
+        provider: 'anthropic',
+        model: 'test-model',
+        maxTokens: 1024,
+      });
+      handler.setAIAssistant(assistant);
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      const [{ id }] = assistant.listConversations();
+
+      await handler.handle(createMsg('ai:chat', { conversationId: id, message: 'declined' }));
+      await handler.handle(createMsg('ai:chat', { conversationId: id, message: 'which object?' }));
+      await handler.handle(createMsg('ai:conversation:load', { conversationId: id }));
+
+      const stored = deps.configStore.get<{ messages: Array<{ content: string }> }>(
+        `ai:conversation:${id}`,
+      );
+      expect(stored?.messages.map((m) => m.content)).toEqual(['which object?', 'Case']);
+      const loaded = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          ([m]) =>
+            m as BaseMessage & {
+              payload: { conversation?: { messages: Array<{ content: string }> } };
+            },
+        )
+        .find((m) => m.type === 'ai:conversation:loaded');
+      expect(loaded?.payload.conversation?.messages.map((m) => m.content)).toEqual([
+        'which object?',
+        'Case',
+      ]);
+    });
+  });
+
   describe('message cap enforcement', () => {
     it('prunes messages exceeding 200 cap on save', async () => {
       // Create a conversation with 210 messages
@@ -720,6 +760,28 @@ describe('AIChatHandler', () => {
         .find((m) => m.type === 'ai:status:response');
       expect(response?.payload).toMatchObject({ enabled: true, model: 'claude-opus-4-8' });
     });
+
+    // Emptied in the Settings editor, the setting holds an empty string: the
+    // page named no model at all.
+    it.each(['', '   '])(
+      'names the default model when sandforge.ai.model holds %j',
+      async (value) => {
+        deps.services = {
+          getSandforgeSetting: <T>(key: string, fallback: T): T =>
+            key === 'ai.model' ? (value as T) : fallback,
+        } as unknown as HandlerDeps['services'];
+        (deps.secretVault.hasSecret as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+        handler.setAIAssistant(createMockAssistant());
+
+        await handler.handle(createMsg('ai:status'));
+
+        const response = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+          .find((m) => m.type === 'ai:status:response');
+        expect(response?.payload).toMatchObject({ enabled: true, model: 'claude-sonnet-5' });
+      },
+    );
   });
 
   describe('ai:save-key', () => {

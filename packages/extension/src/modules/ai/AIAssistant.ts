@@ -6,12 +6,13 @@ export type AIProviderType = 'anthropic' | 'openai' | 'custom' | 'none';
  *
  * It holds no temperature: every model from Claude Opus 4.7 on, Claude Sonnet 5
  * among them, answers a non-default `temperature`, `top_p` or `top_k` with a
- * 400, and no request ever carried the one this held.
+ * 400, and no request ever carried the one this held. Nor the API key: the
+ * adapter reads it from secret storage, and the copy kept here went to every
+ * call function, which never read it.
  */
 export interface AIModelConfig {
   provider: AIProviderType;
   model: string;
-  apiKey: string;
   maxTokens: number;
   baseUrl?: string;
 }
@@ -52,6 +53,18 @@ export type AICallFn = (
   messages: Array<{ role: ChatRole; content: string }>,
   config: AIModelConfig,
 ) => Promise<AICallResult>;
+
+/**
+ * The messages a turn sends, its new question last: the last 20, opening on a
+ * question. Ten exchanges and a new question opened the window on the first
+ * answer, cut from the question it replied to, and a history whose first turn
+ * is the assistant's is one the API may refuse.
+ */
+function historyToSend(messages: ChatMessage[]): ChatMessage[] {
+  const recent = messages.slice(-20);
+  const firstQuestion = recent.findIndex((m) => m.role === 'user');
+  return firstQuestion > 0 ? recent.slice(firstQuestion) : recent;
+}
 
 /** Default system prompt for SandForge assistant. */
 const SYSTEM_PROMPT = `You are SandForge AI Assistant, an expert in Salesforce data management.
@@ -126,6 +139,12 @@ export class AIAssistant {
 
   /**
    * Send a user message and get an AI response.
+   *
+   * The question joins the conversation with its answer, once the answer has
+   * come. A question that got none — declined, cut off, empty, or a failed
+   * call — is left out: kept, it went out again with the next question, and
+   * the answer that came back replied to both.
+   *
    * @param conversationId - The conversation to continue
    * @param userMessage - The user's message
    * @returns The AI response message
@@ -136,25 +155,20 @@ export class AIAssistant {
       throw new Error(`Conversation ${conversationId} not found`);
     }
 
-    // Add user message
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-user`,
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
     };
-    conversation.messages.push(userMsg);
 
-    // Build message array for API call
     const apiMessages: Array<{ role: ChatRole; content: string }> = [
       { role: 'system', content: this.buildSystemPrompt(conversation.context) },
+      ...historyToSend([...conversation.messages, userMsg]).map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
     ];
-
-    // Add conversation history (trimmed to last 20 messages)
-    const recentMessages = conversation.messages.slice(-20);
-    for (const msg of recentMessages) {
-      apiMessages.push({ role: msg.role, content: msg.content });
-    }
 
     // Call AI provider
     const result = await this.callFn(apiMessages, this.config);
@@ -168,7 +182,7 @@ export class AIAssistant {
       tokenCount: result.tokenCount,
     };
 
-    conversation.messages.push(assistantMsg);
+    conversation.messages.push(userMsg, assistantMsg);
     conversation.totalTokens += result.tokenCount;
     conversation.updatedAt = new Date().toISOString();
 

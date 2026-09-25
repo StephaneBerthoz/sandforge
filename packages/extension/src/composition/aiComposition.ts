@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
+import { AI_CONFIG, AI_PROVIDER, resolveAIModel } from '@sandforge/shared';
 import type { BaseMessage, TokenBudgetState } from '@sandforge/shared';
 import type { Services } from '../services.js';
 import type { SecretVault } from '../core/storage/SecretVault';
@@ -68,10 +68,11 @@ function postAIStatus(broker: MessageBroker | undefined, model?: string): void {
 /**
  * The model `sandforge.ai.model` names, the one every AI call asks. The status
  * reported the default instead, so the Settings page named a model the user
- * had replaced.
+ * had replaced; and a blank setting, which the adapter reads as the default,
+ * was shown as it was.
  */
 function configuredModel(services: Services): string {
-  return services.getSandforgeSetting('ai.model', AI_CONFIG.MODEL);
+  return resolveAIModel(services.getSandforgeSetting<unknown>('ai.model', AI_CONFIG.MODEL));
 }
 
 /**
@@ -178,7 +179,6 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   const aiAssistant = new AIAssistant(aiCallFn, {
     provider: AI_PROVIDER,
     model: configuredModel(services),
-    apiKey,
     maxTokens: AI_CONFIG.MAX_TOKENS,
   });
 

@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe('an answer the model declined, cut off or left empty, as each AI feature meets it', () => {
-  it('fails the chat turn, and keeps no empty assistant turn in the conversation', async () => {
+  it('fails the chat turn, and keeps neither the question nor an empty answer in the conversation', async () => {
     const { assistant } = await wiredStack();
     const conversation = assistant.createConversation('Seed help');
     sdk.create.mockResolvedValue(reply('refusal', ''));
@@ -80,9 +80,27 @@ describe('an answer the model declined, cut off or left empty, as each AI featur
       'The model declined to answer this request.',
     );
 
-    expect(assistant.getConversation(conversation.id)?.messages.map((m) => m.role)).toEqual([
-      'user',
-    ]);
+    expect(assistant.getConversation(conversation.id)?.messages).toEqual([]);
+  });
+
+  // The declined question went out again with the next one, and the answer
+  // that came back replied to both.
+  it('sends the question asked after a declined one on its own', async () => {
+    const { assistant } = await wiredStack();
+    const conversation = assistant.createConversation('Seed help');
+    sdk.create
+      .mockResolvedValueOnce(reply('refusal', ''))
+      .mockResolvedValueOnce(reply('end_turn', 'Open the Seed page and pick Account.'));
+
+    await expect(assistant.chat(conversation.id, 'the question declined')).rejects.toThrow(
+      'The model declined to answer this request.',
+    );
+    await assistant.chat(conversation.id, 'how do I seed accounts?');
+
+    const [, next] = sdk.create.mock.calls.map(
+      ([body]) => (body as { messages: Array<{ role: string; content: string }> }).messages,
+    );
+    expect(next).toEqual([{ role: 'user', content: 'how do I seed accounts?' }]);
   });
 
   it('does not show a chat answer cut off at the length limit as the whole answer', async () => {
