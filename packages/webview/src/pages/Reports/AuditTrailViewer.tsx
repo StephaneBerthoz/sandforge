@@ -61,8 +61,9 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
 };
 
 /**
- * The columns of an object's counts, in the order a line reads them. What a
- * cancel kept from the target comes last: neither written nor failed.
+ * The columns of an object's counts, in the order a line reads them. What
+ * the run never sent comes last — kept from the target by its cancel, or by
+ * the failure it ended on: neither written nor failed.
  */
 const COUNT_COLUMNS = ['created', 'updated', 'upserted', 'deleted', 'failed', 'notSent'] as const;
 

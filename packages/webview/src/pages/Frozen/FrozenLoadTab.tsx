@@ -32,11 +32,13 @@ export interface FrozenLoadTabProps {
 
 /**
  * The mark of a progress line: a step, a step done, one that failed — an
- * object, a reload's purge or a pass a write of its own threw at among them
- * — or one a cancel stopped part way: an object while it was written, a
- * reload's purge, a pass after the inserts. Stopped is a warning, as a load
- * that ended with errors is. Marked as a step, what the cancel stopped read
- * as still going; marked done, as done whole beside what was.
+ * object, a reload's purge, the placeholders or a pass a write of its own
+ * threw at among them, and a check before the first write that refused the
+ * load — or one a cancel stopped part way: an object while it was written, a
+ * reload's purge, the placeholders, a pass after the inserts. Stopped is a
+ * warning, as a load that ended with errors is. Marked as a step, what the
+ * cancel stopped read as still going; marked done, as done whole beside what
+ * was.
  */
 const PROGRESS_VARIANTS: Record<FrozenLoadProgress['status'], BadgeVariant> = {
   started: 'info',

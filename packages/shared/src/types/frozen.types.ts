@@ -448,11 +448,13 @@ export interface FrozenLoadProgress {
    * its rows may be in the target, the others were never sent, and its line
    * says how many. It ended `done` before, and read as written whole beside
    * the objects that were. One the target refused a row of ends `error`. It
-   * ends a reload's purge, or a pass after the inserts, that the cancel cut
-   * short too, their line saying what the cancel kept back of them. `error`
-   * ends a purge the target refused records of, and an object, a purge or a
-   * pass a write of its own threw at, its line saying what the failure kept
-   * back of it, and why.
+   * ends a reload's purge, the placeholders, or a pass after the inserts,
+   * that the cancel cut short too, their line saying what the cancel kept
+   * back of them. `error` ends a purge the target refused records of, and an
+   * object, a purge, the placeholders or a pass a write of its own threw at,
+   * its line saying what the failure kept back of it, and why; and a check
+   * before the first write — the entry guards, the alignment, the required
+   * fields — that refused the load or threw, saying why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100). */

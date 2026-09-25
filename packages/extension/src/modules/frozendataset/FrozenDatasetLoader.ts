@@ -319,10 +319,11 @@ interface RunningLoad {
   /** What a failure keeps, from the load's first write on. */
   load?: LoadInProgress;
   /**
-   * End the lines the load left open when it stopped, from its insert pass
-   * on: the line of the object it was writing, when a write of that object's
-   * own threw, and the email object's, whose first write is said as a step
-   * while some of its emails wait for their task. See `emailsWrittenFirst`.
+   * End the lines the load left open when it stopped: the alignment's, while
+   * it aligns the schema, and from its insert pass on, the line of the object
+   * it was writing, when a write of that object's own threw, and the email
+   * object's, whose first write is said as a step while some of its emails
+   * wait for their task. See `emailsWrittenFirst`.
    */
   endOpenLine?: (stoppedBy: unknown) => void;
 }
@@ -565,18 +566,43 @@ function keptBackByTheFailure(count: number, done = 'inserted'): string {
 }
 
 /**
- * How a step of the load ends — a reload's purge, a pass after the inserts:
- * failed when the target refused one of its writes, which is what there is to
- * act on; stopped when the cancel kept some of them from the target; done
- * otherwise. Ended done, a step the cancel cut short read as one that had
- * done all it had to.
+ * How a step of the load ends — a reload's purge, the placeholders, a pass
+ * after the inserts: failed when the target refused one of its writes, which
+ * is what there is to act on; stopped when the cancel kept some of them from
+ * the target; done otherwise. Ended done, a step the cancel cut short read as
+ * one that had done all it had to.
  */
 function endOfAStep(refused: number, keptBack: number): FrozenLoadProgressEvent['status'] {
   if (refused > 0) return 'error';
   return keptBack > 0 ? 'stopped' : 'done';
 }
 
-/** A step of the load — a reload's purge, a pass after the inserts — as the line that ends it says it. */
+/**
+ * The line that ends a check the load makes before its first write — the
+ * entry guards, the alignment of the schema, the required fields — when it
+ * refuses the load or a read of it throws: what the check could not say
+ * (`notDone`: `Schema not aligned`), and why. Nothing is written by then, so
+ * nothing is kept back. Left at the step that began it, a check that stopped
+ * the load read as one still going beside the error the load ended on.
+ */
+function endOfACheck(
+  phase: FrozenLoadProgressEvent['phase'],
+  progress: number,
+  notDone: string,
+  cause: unknown,
+): FrozenLoadProgressEvent {
+  return {
+    phase,
+    status: 'error',
+    progress,
+    message: `${notDone} — ${extractErrorMessage(cause)}`,
+  };
+}
+
+/**
+ * A step of the load — a reload's purge, the placeholders, a pass after the
+ * inserts — as the line that ends it says it.
+ */
 interface StepEnd {
   phase: FrozenLoadProgressEvent['phase'];
   progress: number;
@@ -676,11 +702,12 @@ export class FrozenDatasetLoader {
     try {
       return await this.loadInto(options, running);
     } catch (err: unknown) {
-      // A write of an object's own that threw left the object's line at the
-      // step that began its turn, and a failure between the email object's
-      // first write and the task object's turn left that object's line open,
-      // its last word the step its first write said: what it inserted, and
-      // what it held back, went unsaid. Each ends on its line.
+      // A read of the alignment that threw left its line at the step that
+      // began it, as a write of an object's own that threw left the object's
+      // line at the step that began its turn; and a failure between the email
+      // object's first write and the task object's turn left that object's
+      // line open, its last word the step its first write said: what it
+      // inserted, and what it held back, went unsaid. Each ends on its line.
       running.endOpenLine?.(err);
       const load = running.load;
       if (err instanceof FrozenLoadCancelledError || !load?.wroteSome()) throw err;
@@ -702,15 +729,21 @@ export class FrozenDatasetLoader {
     const { orgId } = options;
 
     // 1. Entry guards — refusal is actionable, never a DML on the source.
+    //    One that refuses the load ends their line failed, with why.
     emit({ phase: 'guards', status: 'started', progress: 0, message: 'Evaluating entry guards' });
-    await assertLoadGuards({
-      orgId,
-      orgTier: options.orgTier,
-      dataset: options.dataset,
-      manifest: options.manifest,
-      mockDetector: this.deps.mockDetector,
-      protectedOrgIds: this.config.protectedOrgIds,
-    });
+    try {
+      await assertLoadGuards({
+        orgId,
+        orgTier: options.orgTier,
+        dataset: options.dataset,
+        manifest: options.manifest,
+        mockDetector: this.deps.mockDetector,
+        protectedOrgIds: this.config.protectedOrgIds,
+      });
+    } catch (err: unknown) {
+      emit(endOfACheck('guards', 2, 'Entry guards not passed', err));
+      throw err;
+    }
     emit({ phase: 'guards', status: 'done', progress: 2, message: 'Entry guards passed' });
 
     const previousLoads = await this.deps.mappingStore.previousLoads();
@@ -860,6 +893,10 @@ export class FrozenDatasetLoader {
     // 4. RecordType resolution by DeveloperName + PersonContactId strip
     //    (the sidecar restores it post-load — the field does not exist at insert).
     emit({ phase: 'align', status: 'started', progress: 12, message: 'Resolving record types' });
+    // Open until the schema is aligned: a read of the target that throws — a
+    // record type looked up — ends it failed, with why. See `running.endOpenLine`.
+    running.endOpenLine = (stoppedBy) =>
+      emit(endOfACheck('align', 20, 'Schema not aligned', stoppedBy));
     const recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'] = [];
     const rtResolved = new Map<string, FrozenRecord[]>();
     const resolvedRecordTypes = new Map<string, string>();
@@ -1007,6 +1044,7 @@ export class FrozenDatasetLoader {
       );
     }
     emit({ phase: 'align', status: 'done', progress: 20, message: 'Schema aligned' });
+    running.endOpenLine = undefined;
     leaveWhatHangsFrom(alignedByObject, requiredLookups, [leftToThePlatform, untypedFeedItems]);
 
     // 6. Placeholders for required lookups absent from the dataset.
@@ -1022,7 +1060,22 @@ export class FrozenDatasetLoader {
     // placeholders it could, then stopped on the first default nobody had
     // declared: technical records left in the target for a load that did not
     // happen, and one missing entry reported per attempt.
-    const plans = await this.planRequiredFields(options, alignment.objectResults);
+    const plans = await this.planRequiredFields(options, alignment.objectResults).catch(
+      (err: unknown) => {
+        emit(endOfACheck('placeholders', 22, 'Required fields not covered', err));
+        throw err;
+      },
+    );
+    // The check's line ends here, before a reload's purge, which waits for
+    // it; the placeholders it planned have a line of their own once the purge
+    // is done. Ended after them, the check's line held the purge: a purge
+    // that failed or was cancelled left it at the step that began it.
+    emit({
+      phase: 'placeholders',
+      status: 'done',
+      progress: 22,
+      message: 'Required fields checked',
+    });
 
     // 6b. Reload: purge what earlier loads created and this one does not
     //     reuse (children before parents — reverse insertion order; unknown
@@ -1124,31 +1177,66 @@ export class FrozenDatasetLoader {
     // default had gone into the selling model the load had found by its key.
     const written = (objectApiName: string) =>
       (alignedByObject.get(objectApiName) ?? []).filter((r) => !reused.has(r.referenceId));
-    for (const plan of plans) {
-      if (plan.kind === 'placeholder') {
-        await checkpoint();
-        await this.createPlaceholder(
-          options,
-          plan,
-          written(plan.missing.objectApiName),
-          mapping,
-          placeholders,
-          created,
-        );
-      } else {
-        this.applyScalarDefault(
-          plan.missing,
-          written(plan.missing.objectApiName),
-          requiredDefaults,
-        );
-      }
+    /*
+     * The placeholders the check planned, on a line of their own: how many
+     * went in and, when the cancel or a write of theirs that threw stopped
+     * them, how many did not — with why, for a failure. A default writes
+     * nothing, and has no line. Stopped part way, the placeholders were said
+     * nowhere, their line left at the step that began the check; and a
+     * cancel that came as the last one was judged, which kept it from the
+     * target, ended that line done, as if they had all gone in.
+     */
+    const placeholdersPlanned = plans.filter((plan) => plan.kind === 'placeholder').length;
+    const endOfThePlaceholders = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
+      endOfTheStep(
+        {
+          phase: 'placeholders',
+          progress: 25,
+          did: `Placeholders: ${placeholders.length} created`,
+          refused: 0,
+          notDone: placeholdersPlanned - placeholders.length,
+          done: 'created',
+        },
+        failedOn,
+      );
+    if (placeholdersPlanned > 0) {
+      // A cancel that came before them stops the load before their line, as
+      // it stops it before a pass after the inserts.
+      await checkpoint();
+      emit({
+        phase: 'placeholders',
+        status: 'started',
+        progress: 24,
+        message: 'Creating placeholders',
+      });
     }
-    emit({
-      phase: 'placeholders',
-      status: 'done',
-      progress: 25,
-      message: 'Required fields handled',
-    });
+    try {
+      for (const plan of plans) {
+        if (plan.kind === 'placeholder') {
+          await checkpoint();
+          await this.createPlaceholder(
+            options,
+            plan,
+            written(plan.missing.objectApiName),
+            mapping,
+            placeholders,
+            created,
+          );
+        } else {
+          this.applyScalarDefault(
+            plan.missing,
+            written(plan.missing.objectApiName),
+            requiredDefaults,
+          );
+        }
+      }
+    } catch (err: unknown) {
+      emit(
+        endOfThePlaceholders(err instanceof FrozenLoadCancelledError ? undefined : { cause: err }),
+      );
+      throw err;
+    }
+    if (placeholdersPlanned > 0) emit(endOfThePlaceholders());
 
     // 7. Insert pass 1 (topological order; cycle FKs nullified, queued).
     // Inside a cycle, a lookup the target requires cannot wait for pass 2,

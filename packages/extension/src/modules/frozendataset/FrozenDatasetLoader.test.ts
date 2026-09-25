@@ -248,6 +248,29 @@ describe('FrozenDatasetLoader — guards', () => {
     // Refusal happens on the FIRST batch: nothing reached the target org.
     expect(calls).toEqual([]);
   });
+
+  it('ends the line of the entry guards failed when one refuses the load, saying why', async () => {
+    // The line was left at the step that began it: beside the refusal the
+    // load ended on, the Load tab showed the guards still being evaluated.
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(
+        makeOptions(deps, dataset, {
+          orgTier: 'production',
+          onProgress: (e) => progress.push(e),
+        }),
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect(progress.map((e) => [e.phase, e.status, e.message])).toEqual([
+      ['guards', 'started', 'Evaluating entry guards'],
+      ['guards', 'error', `Entry guards not passed — ${(error as Error).message}`],
+    ]);
+  });
 });
 
 describe('FrozenDatasetLoader — fresh load', () => {
@@ -658,6 +681,31 @@ describe('FrozenDatasetLoader — fresh load', () => {
     >;
     expect(accountPayload[0]).not.toHaveProperty('RecordTypeId');
   });
+
+  it('ends the line of the alignment failed when a record type cannot be read, saying why', async () => {
+    // The line was left at the step that began it: beside the error the load
+    // ended on, the Load tab showed the record types still being resolved.
+    const dataset = makeAccountContactDataset();
+    dataset.objects[0].records[0].fields.RecordTypeId = 'Business';
+    dataset.recordTypes = { Account: [{ name: 'Business', developerName: 'Business_Account' }] };
+    const calls: DmlCall[] = [];
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+    deps.recordTypeResolver.resolveByDeveloperName = vi.fn(async () => {
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }))
+      .catch((e: unknown) => e);
+
+    expect((error as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+    expect(calls).toEqual([]);
+    expect(progress.filter((e) => e.phase === 'align').map((e) => [e.status, e.message])).toEqual([
+      ['started', 'Resolving record types'],
+      ['error', 'Schema not aligned — INVALID_SESSION_ID: Session expired or invalid'],
+    ]);
+  });
 });
 
 describe('FrozenDatasetLoader — required lookup placeholder', () => {
@@ -818,6 +866,59 @@ describe('FrozenDatasetLoader — required fields the dataset leaves empty', () 
       /record type Missing_RT is not on Account/,
     );
     expect(calls).toEqual([]);
+  });
+
+  it('ends the line of their check failed when the configuration leaves one uncovered, saying why', async () => {
+    // The line was left at the step that began it, beside the refusal the
+    // load ended on.
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes: describeFromDataset(dataset, {
+        Contact: [field({ name: 'Region__c', nillable: false })],
+      }),
+    });
+
+    const refusal: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }))
+      .catch((e: unknown) => e);
+
+    expect(refusal).toBeInstanceOf(LoadConfigError);
+    expect(
+      progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+    ).toEqual([
+      ['started', 'Checking required fields'],
+      ['error', `Required fields not covered — ${(refusal as Error).message}`],
+    ]);
+  });
+
+  it('says their check alone when they need no placeholder: a default writes nothing', async () => {
+    // A default goes into the records the load sends, with no write of its
+    // own: the check's line is the only one.
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes: describeFromDataset(dataset, {
+        Contact: [field({ name: 'Region__c', nillable: false })],
+      }),
+      config: { requiredFieldDefaults: { 'Contact.Region__c': 'EMEA' } },
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(report.requiredDefaults).toEqual([
+      { objectApiName: 'Contact', field: 'Region__c', value: 'EMEA', affectedRecords: 1 },
+    ]);
+    expect(
+      progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+    ).toEqual([
+      ['started', 'Checking required fields'],
+      ['done', 'Required fields checked'],
+    ]);
   });
 
   describe('of the records it only links', () => {
@@ -2284,6 +2385,59 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     ).toEqual([['error', 'Purge: 1 deleted, 0 deactivated, 1 failed']]);
   });
 
+  it('says the check of the required fields, the purge and the placeholders in the order they run', async () => {
+    // The purge ran inside the line of the required fields, begun before it
+    // and ended after the placeholders: a purge that failed or was cancelled
+    // left that line open.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, {
+      'Account-000001': '001OLD-ACCOUNT',
+      'Contact-000001': '003OLD-CONTACT',
+    });
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      describes: describeFromDataset(dataset, {
+        Contact: [
+          field({
+            name: 'Mandatory_Lookup__c',
+            type: 'reference',
+            nillable: false,
+            referenceTo: ['Account'],
+          }),
+        ],
+      }),
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+        },
+      },
+    });
+
+    await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(
+      progress
+        .filter((e) => e.phase === 'placeholders' || e.phase === 'reload')
+        .map((e) => [e.phase, e.status, e.message]),
+    ).toEqual([
+      ['reload', 'started', 'Reusing reference data'],
+      ['placeholders', 'started', 'Checking required fields'],
+      ['placeholders', 'done', 'Required fields checked'],
+      ['reload', 'started', 'Purging what earlier loads created'],
+      ['reload', 'done', 'Reload pass done'],
+      ['placeholders', 'started', 'Creating placeholders'],
+      ['placeholders', 'done', 'Placeholders: 1 created'],
+    ]);
+    // Read in order on the Load tab: its share done never goes back.
+    const percents = progress.map((e) => e.progress);
+    expect(percents).toEqual([...percents].sort((a, b) => a - b));
+  });
+
   it('keeps the loads before a pilot, whose reload purges nothing', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
@@ -3036,6 +3190,100 @@ describe('FrozenDatasetLoader — a cancel', () => {
     ]);
   });
 
+  it('ends the placeholders stopped when the cancel comes before one, saying what they created and what it kept back', async () => {
+    // Their line was left at the step that began it.
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const progress: FrozenLoadProgressEvent[] = [];
+    const stop = new AbortController();
+    const writer = makeWriter(calls);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      stop.abort();
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      describes: describeFromDataset(dataset, {
+        Contact: ['Mandatory_Lookup__c', 'Second_Lookup__c'].map((name) =>
+          field({ name, type: 'reference', nillable: false, referenceTo: ['Account'] }),
+        ),
+      }),
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_ONE' },
+          'Contact.Second_Lookup__c': { name: 'TECH_PLACEHOLDER_TWO' },
+        },
+      },
+    });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(
+        makeOptions(deps, dataset, { signal: stop.signal, onProgress: (e) => progress.push(e) }),
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['insert:Account']);
+    expect(
+      progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+    ).toEqual([
+      ['started', 'Checking required fields'],
+      ['done', 'Required fields checked'],
+      ['started', 'Creating placeholders'],
+      ['stopped', 'Placeholders: 1 created, 1 not created: the load was cancelled first'],
+    ]);
+  });
+
+  it('begins no line of placeholders when the cancel came before them, as for a pass after the inserts', async () => {
+    // The cancel comes as the schema is aligned, where nothing looks at it:
+    // the load stops before the placeholders begin, and says none of them.
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const progress: FrozenLoadProgressEvent[] = [];
+    const stop = new AbortController();
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls),
+      describes: describeFromDataset(dataset, {
+        Contact: [
+          field({
+            name: 'Mandatory_Lookup__c',
+            type: 'reference',
+            nillable: false,
+            referenceTo: ['Account'],
+          }),
+        ],
+      }),
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+        },
+      },
+    });
+    const describe = deps.orgAccess.describe;
+    deps.orgAccess.describe = vi.fn(async (...args: Parameters<typeof describe>) => {
+      stop.abort();
+      return describe(...args);
+    });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(
+        makeOptions(deps, dataset, { signal: stop.signal, onProgress: (e) => progress.push(e) }),
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(calls).toEqual([]);
+    expect(
+      progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+    ).toEqual([
+      ['started', 'Checking required fields'],
+      ['done', 'Required fields checked'],
+    ]);
+  });
+
   describe('that comes during the standard prices', () => {
     /** A product with a standard price and a custom one, in a book of resellers. */
     const prices: FrozenDataset = {
@@ -3649,6 +3897,43 @@ describe('FrozenDatasetLoader — a cancel', () => {
         ]);
       });
 
+      it('leaves no line of the required fields open when the cancel stops it', async () => {
+        // Their line, begun before the purge, was left at the step that began it.
+        const dataset = makeAccountContactDataset();
+        const sasDir = makeTmpDir();
+        await earlierLoad(sasDir, {
+          'Account-000001': '001OLD-ACCOUNT',
+          'Contact-000001': '003OLD-CONTACT',
+        });
+        const stop = new AbortController();
+        const progress: FrozenLoadProgressEvent[] = [];
+        const writer = makeWriter([]);
+        const remove = writer.delete;
+        writer.delete = vi.fn(async (...args: Parameters<FrozenDmlWriter['delete']>) => {
+          stop.abort();
+          return remove(...args);
+        });
+        const deps = makeDeps({ dataset, sasDir, writer });
+
+        const error: unknown = await new FrozenDatasetLoader(deps)
+          .load(
+            makeOptions(deps, dataset, {
+              reload: true,
+              signal: stop.signal,
+              onProgress: (e) => progress.push(e),
+            }),
+          )
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        expect(
+          progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+        ).toEqual([
+          ['started', 'Checking required fields'],
+          ['done', 'Required fields checked'],
+        ]);
+      });
+
       it('ends the purge stopped when the cancel cuts its last delete short, saying what it purged and what it kept back', async () => {
         // The residuals past the writer's answer were counted nowhere, and the
         // reload said its pass was done.
@@ -3942,6 +4227,51 @@ describe('FrozenDatasetLoader — a cancel', () => {
       expect((error as FrozenLoadCancelledError).written.placeholders).toEqual([]);
       expect(fs.existsSync(path.join(deps.sasDir, 'referenceid-mapping.json'))).toBe(false);
     });
+
+    it('ends the placeholders stopped, not done, when the cancel comes as one is judged', async () => {
+      // The placeholder the cancel kept from the target was said nowhere, and
+      // the line said the required fields were handled.
+      const dataset = makeAccountContactDataset();
+      const stop = new AbortController();
+      const sent: Array<{ objectApiName: string; rows: unknown[] }> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes: describeFromDataset(dataset, {
+          Contact: [
+            field({
+              name: 'Mandatory_Lookup__c',
+              type: 'reference',
+              nillable: false,
+              referenceTo: ['Account'],
+            }),
+          ],
+        }),
+        writer: bulkWriterTo(stop, sent),
+        guard: guardCancellingAt(stop, 'Account'),
+        config: {
+          requiredLookupPlaceholders: {
+            'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+          },
+        },
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(
+          makeOptions(deps, dataset, { signal: stop.signal, onProgress: (e) => progress.push(e) }),
+        )
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect(
+        progress
+          .filter((e) => e.phase === 'placeholders' && e.status !== 'started')
+          .map((e) => [e.status, e.message]),
+      ).toEqual([
+        ['done', 'Required fields checked'],
+        ['stopped', 'Placeholders: 0 created, 1 not created: the load was cancelled first'],
+      ]);
+    });
   });
 });
 
@@ -4122,6 +4452,55 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     ]);
     expect(await removalPlan(deps.sasDir)).toEqual([
       { objectApiName: 'Account', ids: ['001000000000001'] },
+    ]);
+  });
+
+  it('ends the placeholders failed when the insert of one throws, saying what they created, what they did not, and why', async () => {
+    // Their line was left at the step that began it, beside the failure the
+    // load ended on.
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const writer = makeIdWriter([]);
+    const insert = writer.insert;
+    let inserts = 0;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      if (++inserts === 2) throw new Error('Bulk job failed: the connection was reset');
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      describes: describeFromDataset(dataset, {
+        Contact: ['Mandatory_Lookup__c', 'Second_Lookup__c'].map((name) =>
+          field({ name, type: 'reference', nillable: false, referenceTo: ['Account'] }),
+        ),
+      }),
+      config: {
+        requiredLookupPlaceholders: {
+          'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_ONE' },
+          'Contact.Second_Lookup__c': { name: 'TECH_PLACEHOLDER_TWO' },
+        },
+      },
+    });
+
+    const error = await failureOf(
+      new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(FrozenLoadFailedError);
+    expect(
+      progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+    ).toEqual([
+      ['started', 'Checking required fields'],
+      ['done', 'Required fields checked'],
+      ['started', 'Creating placeholders'],
+      [
+        'error',
+        'Placeholders: 1 created, 1 not created: the load failed — ' +
+          'Bulk job failed: the connection was reset',
+      ],
     ]);
   });
 
@@ -4790,6 +5169,65 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
         ['started', 'Reusing reference data'],
         ['started', 'Purging what earlier loads created'],
         [
+          'error',
+          'Purge: 1 deleted, 0 deactivated, 0 failed, 1 not purged: the load failed — ' +
+            'Production guard refused delete on Account: not on this org',
+        ],
+      ]);
+    });
+
+    it("ends the check of the required fields before a reload's purge, whose failure then ends the purge's line alone", async () => {
+      // The check's line, begun before the purge, was left at the step that
+      // began it when the purge failed.
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedEarlierLoad(sasDir);
+      const calls: DmlCall[] = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        sasDir,
+        writer: makeIdWriter(calls),
+        describes: describeFromDataset(dataset, {
+          Contact: [
+            field({
+              name: 'Mandatory_Lookup__c',
+              type: 'reference',
+              nillable: false,
+              referenceTo: ['Account'],
+            }),
+          ],
+        }),
+        config: {
+          requiredLookupPlaceholders: {
+            'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+          },
+        },
+        guard: refusingGuard(
+          (request) => request.operation === 'delete' && request.objectName === 'Account',
+        ),
+      });
+
+      const error = await failureOf(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      // The placeholder was never begun: the purge failed first.
+      expect(calls.filter((c) => c.op === 'insert')).toEqual([]);
+      expect(
+        progress
+          .filter((e) => e.phase === 'placeholders' || e.phase === 'reload')
+          .map((e) => [e.phase, e.status, e.message]),
+      ).toEqual([
+        ['reload', 'started', 'Reusing reference data'],
+        ['placeholders', 'started', 'Checking required fields'],
+        ['placeholders', 'done', 'Required fields checked'],
+        ['reload', 'started', 'Purging what earlier loads created'],
+        [
+          'reload',
           'error',
           'Purge: 1 deleted, 0 deactivated, 0 failed, 1 not purged: the load failed — ' +
             'Production guard refused delete on Account: not on this org',

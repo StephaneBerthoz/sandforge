@@ -206,11 +206,14 @@ export interface FrozenLoadProgressEvent {
    * written — before its rows went out, between two calls, or between the
    * email object's two writes: its line says how many rows the cancel kept
    * from the target. One the target refused a row of ends `error`, as it
-   * would have. A reload's purge, and a pass after the inserts, that the
-   * cancel cut short end the same way, their line saying what the cancel kept
-   * back of them; a purge the target refused records of ends `error`. `error`
-   * also ends an object, a purge or a pass a write of its own threw at, its
-   * line saying what the failure kept back of it, and why.
+   * would have. A reload's purge, the placeholders, and a pass after the
+   * inserts, that the cancel cut short end the same way, their line saying
+   * what the cancel kept back of them; a purge the target refused records of
+   * ends `error`. `error` also ends an object, a purge, the placeholders or a
+   * pass a write of its own threw at, its line saying what the failure kept
+   * back of it, and why; and a check before the first write — the entry
+   * guards, the alignment, the required fields — that refused the load or
+   * threw, saying why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100) within the load. */
