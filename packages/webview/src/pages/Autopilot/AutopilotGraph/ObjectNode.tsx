@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Handle, Position } from 'reactflow';
 import type { NodeProps } from 'reactflow';
-import { m, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion, type Variants } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 import { formatDuration } from '../../../utils/formatters';
@@ -62,7 +62,7 @@ const STATUS_BORDER_COLORS: Record<string, string> = {
 const ACTIVE_STATUSES = new Set(['extracting', 'anonymizing', 'loading']);
 
 /** Framer-motion variants for the pulse animation on active nodes. */
-const pulseVariants = {
+const pulseVariants: Variants = {
   idle: { scale: 1, opacity: 1 },
   active: {
     scale: [1, 1.02, 1],
