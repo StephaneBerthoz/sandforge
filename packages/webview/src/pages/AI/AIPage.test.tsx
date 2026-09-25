@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { AIPage } from './AIPage';
 import { useAppStore } from '../../stores/useAppStore';
@@ -43,6 +43,60 @@ vi.mock('../../bridge/messageHelpers', () => ({
     payload,
   })),
 }));
+
+/** Payloads of the requests of `type` the page sent, oldest first. */
+function sentOfType(type: string): unknown[] {
+  return bus.send.mock.calls
+    .map(([msg]) => msg as { type: string; payload: unknown })
+    .filter((msg) => msg.type === type)
+    .map((msg) => msg.payload);
+}
+
+/** Ask `question` in the conversation open, and return the id of the chat request. */
+function ask(question: string): string {
+  fireEvent.change(screen.getByTestId('chat-input'), { target: { value: question } });
+  fireEvent.click(screen.getByTestId('send-btn'));
+  return lastSentId();
+}
+
+function openConversation(): void {
+  emit('ai:conversation:created', {
+    conversation: { id: 'conv-1', title: 'T', createdAt: '2025-01-01T00:00:00Z' },
+  });
+}
+
+const composer = (): HTMLTextAreaElement => screen.getByTestId('chat-input');
+const bubbles = (role: string): Array<string | null> =>
+  screen.queryAllByTestId(`message-bubble-${role}`).map((bubble) => bubble.textContent);
+
+/** The conversation list, as the host answers it. */
+function listConversations(): void {
+  emit('ai:conversation:list:response', {
+    conversations: [
+      { id: 'conv-1', title: 'Cases', createdAt: '2025-01-01T00:00:00Z', messageCount: 0 },
+      { id: 'conv-2', title: 'Leads', createdAt: '2025-01-02T00:00:00Z', messageCount: 2 },
+    ],
+  });
+}
+
+/** Open `id` from the list, and answer its load with `messages`. */
+function open(id: string, messages: unknown[] = []): void {
+  fireEvent.click(screen.getByTestId(`conversation-item-${id}`));
+  emit('ai:conversation:loaded', { conversation: { id, title: id, messages } });
+}
+
+const LEADS = [
+  { id: 'l1', role: 'user', content: 'where do leads go', timestamp: '2025-01-02' },
+  { id: 'l2', role: 'assistant', content: 'Lead', timestamp: '2025-01-02' },
+];
+
+/** The host's answer in `conversationId`. */
+function answer(conversationId: string, content: string): unknown {
+  return {
+    conversationId,
+    message: { id: `a-${content}`, role: 'assistant', content, timestamp: '2025-01-03' },
+  };
+}
 
 describe('AIPage', () => {
   beforeEach(() => {
@@ -234,23 +288,6 @@ describe('AIPage', () => {
       useAppStore.setState({ aiAvailable: true });
     });
 
-    /** Ask `question` in the conversation open, and return the id of the chat request. */
-    function ask(question: string): string {
-      fireEvent.change(screen.getByTestId('chat-input'), { target: { value: question } });
-      fireEvent.click(screen.getByTestId('send-btn'));
-      return lastSentId();
-    }
-
-    function openConversation(): void {
-      emit('ai:conversation:created', {
-        conversation: { id: 'conv-1', title: 'T', createdAt: '2025-01-01T00:00:00Z' },
-      });
-    }
-
-    const composer = (): string => (screen.getByTestId('chat-input') as HTMLTextAreaElement).value;
-    const bubbles = (role: string): Array<string | null> =>
-      screen.queryAllByTestId(`message-bubble-${role}`).map((bubble) => bubble.textContent);
-
     it('leaves the thread and goes back to the composer, with the reason shown', () => {
       render(<AIPage />);
       openConversation();
@@ -260,7 +297,7 @@ describe('AIPage', () => {
       emit('ai:error', { message: 'The model declined to answer this request.' }, chat);
 
       expect(bubbles('user')).toEqual([]);
-      expect(composer()).toBe('which object holds cases');
+      expect(composer().value).toBe('which object holds cases');
       expect(screen.getByTestId('ai-error-banner').textContent).toContain('declined');
     });
 
@@ -283,7 +320,7 @@ describe('AIPage', () => {
 
       expect(bubbles('user')).toEqual(['first']);
       expect(bubbles('assistant')).toEqual(['answer']);
-      expect(composer()).toBe('second');
+      expect(composer().value).toBe('second');
     });
 
     it('stays in the thread when the error answers another request of the page', () => {
@@ -295,7 +332,200 @@ describe('AIPage', () => {
       emit('ai:error', { message: 'The conversation list could not be read.' }, list);
 
       expect(bubbles('user')).toEqual(['which object holds cases']);
-      expect(composer()).toBe('');
+      expect(composer().value).toBe('');
     });
+  });
+
+  // An answer went to whatever thread was open when it came: asked in one
+  // conversation and answered while another was open, it joined the other.
+  describe('an answer that comes while another conversation is open', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    /** Ask in Cases, then open Leads while the question waits. */
+    function askInCasesThenOpenLeads(): string {
+      render(<AIPage />);
+      listConversations();
+      open('conv-1');
+      const chat = ask('which object holds cases');
+      open('conv-2', LEADS);
+      return chat;
+    }
+
+    it('stays out of the thread open, which says where it went', () => {
+      const chat = askInCasesThenOpenLeads();
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(bubbles('user')).toEqual(['where do leads go']);
+      expect(bubbles('assistant')).toEqual(['Lead']);
+      expect(screen.getByTestId('ai-answered-elsewhere').textContent).toContain('Cases');
+      expect(composer().disabled).toBe(false);
+    });
+
+    it('opens the conversation it names, and the notice goes', () => {
+      const chat = askInCasesThenOpenLeads();
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+      bus.send.mockClear();
+
+      fireEvent.click(screen.getByTestId('ai-answered-elsewhere-open'));
+
+      expect(sentOfType('ai:conversation:load')).toEqual([{ conversationId: 'conv-1' }]);
+      expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
+    });
+
+    it('leaves the conversation open where it is when the notice is dismissed', () => {
+      const chat = askInCasesThenOpenLeads();
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+      bus.send.mockClear();
+
+      fireEvent.click(
+        within(screen.getByTestId('ai-answered-elsewhere')).getByRole('button', {
+          name: /dismiss/i,
+        }),
+      );
+
+      expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
+      expect(sentOfType('ai:conversation:load')).toEqual([]);
+      expect(bubbles('assistant')).toEqual(['Lead']);
+    });
+
+    it('takes the notice away with the conversation it names, once deleted', () => {
+      const chat = askInCasesThenOpenLeads();
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+
+      expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
+    });
+
+    // The host keeps a question out of the conversation until its answer comes:
+    // reopened in the meantime, the thread lost it, and the answer came alone.
+    it('comes after its question in its own conversation, reopened while it was awaited', () => {
+      const chat = askInCasesThenOpenLeads();
+      open('conv-1', []);
+      expect(bubbles('user')).toEqual(['which object holds cases']);
+      expect(screen.getByTestId('loading-indicator')).toBeDefined();
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(bubbles('user')).toEqual(['which object holds cases']);
+      expect(bubbles('assistant')).toEqual(['Case']);
+      expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
+    });
+
+    it('comes after its question when it arrives before the thread reopened for it has loaded', () => {
+      const chat = askInCasesThenOpenLeads();
+      fireEvent.click(screen.getByTestId('conversation-item-conv-1'));
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(bubbles('user')).toEqual(['which object holds cases']);
+      expect(bubbles('assistant')).toEqual(['Case']);
+    });
+
+    // Put back in the composer open, the question was one Send away from
+    // being asked in a conversation it was never part of.
+    it('when it is an error, gives the question back in its own conversation only', () => {
+      const chat = askInCasesThenOpenLeads();
+
+      emit('ai:error', { message: 'The model declined to answer this request.' }, chat);
+
+      expect(composer().value).toBe('');
+      expect(screen.getByTestId('ai-error-banner').textContent).toContain('Cases');
+      expect(screen.getByTestId('ai-error-banner').textContent).toContain('declined');
+      open('conv-1', []);
+      expect(composer().value).toBe('which object holds cases');
+      expect(bubbles('user')).toEqual([]);
+    });
+
+    it('names no conversation the user deleted while it was awaited', () => {
+      const chat = askInCasesThenOpenLeads();
+      fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
+      expect(bubbles('assistant')).toEqual(['Lead']);
+      expect(composer().disabled).toBe(false);
+    });
+  });
+
+  // Any error for one of the page's requests ended the wait of the question
+  // in flight: the composer unlocked, and a second question could go out
+  // beside the first.
+  describe('a question awaiting its answer', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    it('keeps waiting when another request of the page fails', () => {
+      render(<AIPage />);
+      const list = lastSentId(); // the conversation list, asked for on mount
+      openConversation();
+      const chat = ask('which object holds cases');
+
+      emit('ai:error', { message: 'The conversation list could not be read.' }, list);
+
+      expect(screen.getByTestId('ai-error-banner').textContent).toContain('could not be read');
+      expect(screen.getByTestId('loading-indicator')).toBeDefined();
+      expect(composer().disabled).toBe(true);
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(screen.queryByTestId('loading-indicator')).toBeNull();
+      expect(composer().disabled).toBe(false);
+      expect(bubbles('assistant')).toEqual(['Case']);
+    });
+
+    it('keeps waiting when an answer comes to a request it did not send', () => {
+      render(<AIPage />);
+      openConversation();
+      ask('which object holds cases');
+
+      emit('ai:chat:response', answer('conv-1', 'stray'), 'wv-from-another-panel');
+
+      expect(bubbles('assistant')).toEqual([]);
+      expect(screen.getByTestId('loading-indicator')).toBeDefined();
+      expect(composer().disabled).toBe(true);
+    });
+
+    it('keeps the composer of another conversation locked, and says which one waits', () => {
+      render(<AIPage />);
+      listConversations();
+      open('conv-1');
+      ask('which object holds cases');
+      fireEvent.click(screen.getByTestId('conversation-item-conv-2'));
+
+      emit('ai:error', { message: 'Conversation conv-2 not found.' }, lastSentId());
+
+      expect(composer().disabled).toBe(true);
+      expect((screen.getByTestId('send-btn') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByTestId('loading-indicator')).toBeNull();
+      expect(screen.getByTestId('ai-waiting-elsewhere').textContent).toContain('Cases');
+    });
+  });
+
+  // The id of a question's bubble was the clock's millisecond: two made in
+  // the same one shared a React key.
+  it('gives two questions asked in the same millisecond ids of their own', () => {
+    useAppStore.setState({ aiAvailable: true });
+    vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000);
+    try {
+      render(<AIPage />);
+      openConversation();
+      const first = ask('first');
+      emit('ai:chat:response', answer('conv-1', 'one'), first);
+      ask('second');
+
+      const rows = screen
+        .getAllByTestId('message-bubble-user')
+        .map((bubble) => bubble.parentElement?.getAttribute('data-testid'));
+      expect(rows).toHaveLength(2);
+      expect(new Set(rows).size).toBe(2);
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
   });
 });

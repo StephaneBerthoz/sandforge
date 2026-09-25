@@ -169,6 +169,33 @@ describe('AIChatPanel', () => {
     expect(sendBtn.disabled).toBe(true);
   });
 
+  // The page asks one question at a time: while one awaits its answer in
+  // another conversation, the composer of this one sends nothing, Enter
+  // included, and the thread says which conversation the wait is for.
+  it('sends nothing while a question awaits its answer in another conversation', () => {
+    const onSend = vi.fn();
+    render(
+      <AIChatPanel
+        activeConversationId="conv-2"
+        waitingElsewhere="Seed Help"
+        onSendMessage={onSend}
+        draft="Hello"
+        onDraftChange={vi.fn()}
+      />,
+    );
+    const input = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.disabled).toBe(true);
+    expect((screen.getByTestId('send-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('ai-waiting-elsewhere').textContent).toBe(
+      'Waiting for the answer to your question in “Seed Help”.',
+    );
+    expect(screen.queryByTestId('loading-indicator')).toBeNull();
+  });
+
   it('shows the token budget indicator once an ai:budget:state arrives', () => {
     render(<AIChatPanel />);
     expect(screen.queryByTestId('ai-token-budget-indicator')).toBeNull();

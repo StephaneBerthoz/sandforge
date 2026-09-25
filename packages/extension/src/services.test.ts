@@ -562,6 +562,11 @@ describe('services', () => {
       expect(await modelAskedWith('claude-opus-4-8')).toBe('claude-opus-4-8');
     });
 
+    // Pasted with the spaces around it, the name went out as it was written.
+    it('asks the model sandforge.ai.model names without the spaces around it', async () => {
+      expect(await modelAskedWith(' claude-opus-4-8 ')).toBe('claude-opus-4-8');
+    });
+
     // Emptied in the Settings editor, the setting holds an empty string rather
     // than its default. That string went out as the model's name, and the 400
     // that came back did not point at the setting.

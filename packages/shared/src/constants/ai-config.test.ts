@@ -34,6 +34,15 @@ describe('resolveAIModel', () => {
     expect(resolveAIModel('claude-opus-4-8')).toBe('claude-opus-4-8');
   });
 
+  // Pasted into the Settings editor, a name kept the spaces around it and went
+  // out with them: no model has that name.
+  it.each([
+    ['spaces', ' claude-opus-4-8 '],
+    ['tab and line break', '\tclaude-opus-4-8\n'],
+  ])('asks the model the setting names without the %s around it', (_label, configured) => {
+    expect(resolveAIModel(configured)).toBe('claude-opus-4-8');
+  });
+
   it.each([
     ['unset', undefined],
     ['empty', ''],

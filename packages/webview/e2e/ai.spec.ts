@@ -25,12 +25,13 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  *    pass does not re-send: exactly one `org:list` and one `ai:status` per
  *    load, which is what `seedOrgs` / `respondToNext` correlate against.
  *
- * Everything the panel receives afterwards (`ai:conversation:created`,
- * `ai:chat:response`, `ai:error`, `ai:conversation:loaded`,
- * `operation:failed`) arrives through `useMessageListener`, which
- * dispatches on `type` alone and never inspects `correlationId` — those are
- * posted with `sendExtensionMessage` rather than dressed up as replies to a
- * request that was never made.
+ * Everything the panel receives afterwards arrives through
+ * `useMessageListener`, which dispatches on `type` alone, and is posted with
+ * `sendExtensionMessage`. `ai:conversation:created`, `ai:conversation:loaded`
+ * and `operation:failed` are taken as they come. `ai:chat:response` and
+ * `ai:error` reach every open panel, so the page takes one only when it names
+ * a request the page sent: those posted here carry the id of the `ai:chat`
+ * above them, as the host's replies do.
  */
 
 /** Boot the app into the AI panel with the assistant left switched off. */
@@ -99,6 +100,14 @@ async function outgoing(page: Page, type: string): Promise<Record<string, unknow
 async function outgoingPayloads(page: Page, type: string): Promise<Record<string, unknown>[]> {
   const messages = await outgoing(page, type);
   return messages.map((m) => (m.payload as Record<string, unknown> | undefined) ?? {});
+}
+
+/** The id of the last `ai:chat` the page posted, which its answer names. */
+async function lastChatId(page: Page): Promise<string> {
+  const sent = await outgoing(page, 'ai:chat');
+  const id = sent.at(-1)?.id;
+  expect(typeof id).toBe('string');
+  return id as string;
 }
 
 /** Create a conversation and let the host confirm it with a real id. */
@@ -222,6 +231,7 @@ test.describe('AI Module — Chat', () => {
     await sendExtensionMessage(page, {
       type: 'ai:chat:response',
       id: 'evt-chat-3',
+      correlationId: await lastChatId(page),
       payload: {
         conversationId: 'conv-3',
         message: {
@@ -267,20 +277,10 @@ test.describe('AI Module — Chat', () => {
     // `ai:error` answers every AI channel and the host sends it to every open
     // panel: the page only takes the ones that name a request it sent, so the
     // failure has to carry the id of the chat above.
-    const chatId = await page.evaluate(() => {
-      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const sent = msgs.map((m) => {
-        const e = m as Record<string, unknown>;
-        return (e.payload as Record<string, unknown> | undefined) ?? e;
-      });
-      return sent.reverse().find((m) => m.type === 'ai:chat')?.id as string | undefined;
-    });
-    expect(chatId).toBeTruthy();
-
     await sendExtensionMessage(page, {
       type: 'ai:error',
       id: 'evt-err-1',
-      correlationId: chatId,
+      correlationId: await lastChatId(page),
       payload: { message: 'AI service unavailable' },
     });
 
@@ -295,6 +295,56 @@ test.describe('AI Module — Chat', () => {
     // again, to send as it is or reworded.
     await expect(page.getByTestId('message-bubble-user')).toHaveCount(0);
     await expect(page.getByTestId('chat-input')).toHaveValue('Bad query');
+  });
+
+  // An answer went to whatever thread was open when it came: asked in one
+  // conversation and answered while another was open, it joined the other.
+  test('keeps an answer with the conversation its question was asked in', async ({ page }) => {
+    await createConversation(page, 'conv-cases', 'Cases');
+    await page.getByTestId('chat-input').fill('Which object holds cases?');
+    await page.getByTestId('send-btn').click();
+    const chatId = await lastChatId(page);
+
+    // The page asks one question at a time: in the conversation opened while
+    // it waits, the composer stays locked and the thread says where the wait is.
+    await createConversation(page, 'conv-leads', 'Leads');
+    await expect(page.getByTestId('ai-waiting-elsewhere')).toHaveText(
+      'Waiting for the answer to your question in “Cases”.',
+    );
+    await expect(page.getByTestId('loading-indicator')).toHaveCount(0);
+    await expect(page.getByTestId('chat-input')).toBeDisabled();
+
+    await sendExtensionMessage(page, {
+      type: 'ai:chat:response',
+      id: 'evt-chat-cases',
+      correlationId: chatId,
+      payload: {
+        conversationId: 'conv-cases',
+        message: {
+          id: 'msg-cases-1',
+          role: 'assistant',
+          content: 'Case',
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+
+    await expect(page.getByTestId('ai-answered-elsewhere')).toContainText(
+      'Your question in “Cases” has been answered.',
+    );
+    await expect(page.getByTestId('message-bubble-assistant')).toHaveCount(0);
+    await expect(page.getByTestId('ai-waiting-elsewhere')).toHaveCount(0);
+    await expect(page.getByTestId('chat-input')).toBeEnabled();
+
+    await page.getByTestId('ai-answered-elsewhere-open').click();
+
+    const loads = await outgoingPayloads(page, 'ai:conversation:load');
+    expect(loads.at(-1)?.conversationId).toBe('conv-cases');
+    await expect(page.getByTestId('ai-answered-elsewhere')).toHaveCount(0);
+    await expect(page.getByTestId('conversation-item-conv-cases')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
   });
 });
 

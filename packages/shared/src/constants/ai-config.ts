@@ -20,7 +20,7 @@ export const AI_CONFIG = {
 } as const;
 
 /**
- * The model a `sandforge.ai.model` value asks: the value, or
+ * The model a `sandforge.ai.model` value asks: the name it holds, or
  * {@link AI_CONFIG.MODEL} when it names none.
  *
  * Emptied in the Settings editor, the setting holds an empty string rather than
@@ -28,8 +28,15 @@ export const AI_CONFIG = {
  * name went out as the model's, and the 400 that came back did not point at the
  * setting. A value that is not text, or holds only whitespace, names no model.
  *
+ * The spaces around a name are not part of it: pasted with them, the name went
+ * out as it was written, which no model is called, and missed the list of the
+ * models told that thinking is off. The adapter and the status the Settings
+ * page shows both read the setting through here, so the page names the model
+ * the way the calls ask it.
+ *
  * @param configured - What the setting holds.
  */
 export function resolveAIModel(configured: unknown): string {
-  return typeof configured === 'string' && configured.trim() !== '' ? configured : AI_CONFIG.MODEL;
+  const name = typeof configured === 'string' ? configured.trim() : '';
+  return name !== '' ? name : AI_CONFIG.MODEL;
 }

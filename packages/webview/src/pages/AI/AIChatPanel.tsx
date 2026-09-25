@@ -33,7 +33,17 @@ export interface AIChatPanelProps {
   conversations?: ConversationSummary[];
   activeConversationId?: string;
   messages?: ChatMessageDisplay[];
+  /** The conversation open awaits the answer to its question. */
   isLoading?: boolean;
+  /**
+   * The title of another conversation whose question awaits its answer. The
+   * page asks one question at a time, so the composer stays locked here, and
+   * the thread says which conversation the wait is for.
+   */
+  waitingElsewhere?: string;
+  /** A conversation whose question was answered while this one was open. */
+  answeredElsewhere?: { conversationId: string; title: string };
+  onDismissAnsweredElsewhere?: () => void;
   /** Last failure reported by the host, shown until dismissed or superseded. */
   errorMessage?: string;
   onDismissError?: () => void;
@@ -56,6 +66,9 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   activeConversationId,
   messages = [],
   isLoading = false,
+  waitingElsewhere,
+  answeredElsewhere,
+  onDismissAnsweredElsewhere,
   errorMessage,
   onDismissError,
   onSendMessage,
@@ -69,6 +82,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [ownDraft, setOwnDraft] = useState('');
   const inputValue = draft ?? ownDraft;
   const setInputValue = onDraftChange ?? setOwnDraft;
+  const composerLocked = isLoading || waitingElsewhere !== undefined;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [providerStatus, setProviderStatus] = useState<{
     provider: 'anthropic' | 'openai' | 'custom';
@@ -100,7 +114,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   }, [messages]);
 
   const handleSend = () => {
-    if (!inputValue.trim() || !activeConversationId || !onSendMessage) return;
+    if (composerLocked || !inputValue.trim() || !activeConversationId || !onSendMessage) return;
     onSendMessage(activeConversationId, inputValue.trim());
     setInputValue('');
   };
@@ -149,6 +163,36 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           onDismiss={onDismissError}
           data-testid="ai-error-banner"
         />
+      )}
+
+      {answeredElsewhere && (
+        <div
+          role="status"
+          className="flex items-center gap-2 px-3 py-2 text-sm border-l-4 border-(--sf-accent) bg-status-info/10 text-text-primary"
+          data-testid="ai-answered-elsewhere"
+        >
+          <span className="flex-1 min-w-0">
+            {t('ai.answeredIn', { title: answeredElsewhere.title })}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onSelectConversation?.(answeredElsewhere.conversationId)}
+            data-testid="ai-answered-elsewhere-open"
+          >
+            {t('ai.openConversation')}
+          </Button>
+          {onDismissAnsweredElsewhere && (
+            <button
+              type="button"
+              className="shrink-0 px-1"
+              onClick={onDismissAnsweredElsewhere}
+              aria-label={t('common.dismiss', 'Dismiss')}
+            >
+              {'\u2715'}
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex flex-1 gap-(--sf-space-4) min-h-0">
@@ -271,6 +315,15 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                         </div>
                       </div>
                     )}
+                    {waitingElsewhere !== undefined && (
+                      <p
+                        className="text-xs text-text-secondary text-center py-2"
+                        role="status"
+                        data-testid="ai-waiting-elsewhere"
+                      >
+                        {t('ai.waitingIn', { title: waitingElsewhere })}
+                      </p>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 </CardBody>
@@ -297,13 +350,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   data-testid="chat-input"
-                  disabled={isLoading}
+                  disabled={composerLocked}
                 />
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={handleSend}
-                  disabled={!inputValue.trim() || isLoading}
+                  disabled={!inputValue.trim() || composerLocked}
                   data-testid="send-btn"
                 >
                   {t('ai.send', 'Send')}

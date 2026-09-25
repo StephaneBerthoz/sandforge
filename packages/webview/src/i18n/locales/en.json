@@ -1732,6 +1732,10 @@
     "noMessages": "Send a message to start the conversation",
     "placeholder": "Type a message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",
+    "waitingIn": "Waiting for the answer to your question in “{{title}}”.",
+    "answeredIn": "Your question in “{{title}}” has been answered.",
+    "openConversation": "Open conversation",
+    "failedIn": "Your question in “{{title}}” got no answer: {{reason}}",
     "notConfigured": {
       "title": "AI Assistant Not Configured",
       "description": "To use AI features, configure your API key in Settings.",

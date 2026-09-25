@@ -13,6 +13,17 @@ import type {
   BaseMessage,
 } from '@sandforge/shared';
 
+/**
+ * A question awaiting its answer: the request carrying it, the conversation it
+ * was asked in and that conversation's title, and its bubble in the thread.
+ */
+interface PendingQuestion {
+  requestId: string;
+  conversationId: string;
+  title: string;
+  message: ChatMessageDisplay;
+}
+
 /** Main AI page — manages conversations and messages via extension bus. */
 export const AIPage: React.FC = () => {
   const { t } = useTranslation();
@@ -23,15 +34,34 @@ export const AIPage: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [localIdCounter, setLocalIdCounter] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
 
-  /** The question in flight: the request carrying it, and its bubble in the thread. */
-  const pendingQuestion = useRef<{ requestId: string; message: ChatMessageDisplay } | undefined>(
-    undefined,
-  );
+  /**
+   * The question awaiting its answer: one at a time, whichever conversation is
+   * open, and only its own answer or error ends the wait. Any error for another
+   * request of the page ended it, and a second question could go out beside
+   * the first. The ref is what the listeners read, between two renders; the
+   * state mirrors it for what the page shows.
+   */
+  const pendingQuestion = useRef<PendingQuestion | undefined>(undefined);
+  const [waiting, setWaiting] = useState<PendingQuestion | undefined>();
+  const setPending = useCallback((question: PendingQuestion | undefined) => {
+    pendingQuestion.current = question;
+    setWaiting(question);
+  }, []);
+
+  /** The conversation a question was answered in while another was open. */
+  const [answeredElsewhere, setAnsweredElsewhere] = useState<
+    { conversationId: string; title: string } | undefined
+  >();
+
+  /**
+   * A question that got no answer while another conversation was open: the
+   * composer gets it back once its own conversation is open again.
+   */
+  const returnedQuestion = useRef<{ conversationId: string; text: string } | undefined>(undefined);
 
   /**
    * Ids of the requests this page sent, so a shared answer can be matched to
@@ -62,15 +92,29 @@ export const AIPage: React.FC = () => {
     setConversations(msg.payload.conversations);
   });
 
-  // Listen for AI responses
+  // An answer belongs to the conversation its question was asked in. It went to
+  // whatever thread was open when it came: asked in one conversation and
+  // answered while another was open, it joined the other.
   useMessageListener<
     BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }
   >('ai:chat:response', (msg) => {
-    if (msg.correlationId === pendingQuestion.current?.requestId) {
-      pendingQuestion.current = undefined;
+    const question = pendingQuestion.current;
+    if (!question || msg.correlationId !== question.requestId) return;
+    setPending(undefined);
+    if (question.conversationId === activeConversationId) {
+      // The host keeps a question out of its conversation until the answer
+      // comes, so a thread opened again in the meantime was loaded without it.
+      setMessages((prev) => [
+        ...(prev.includes(question.message) ? prev : [...prev, question.message]),
+        msg.payload.message,
+      ]);
+      return;
     }
-    setMessages((prev) => [...prev, msg.payload.message]);
-    setIsLoading(false);
+    // The answer is kept with its conversation, which the host has stored:
+    // the thread open says where it went, unless the user deleted that one.
+    if (conversations.some((c) => c.id === question.conversationId)) {
+      setAnsweredElsewhere({ conversationId: question.conversationId, title: question.title });
+    }
   });
 
   useMessageListener<AIConversationCreatedResponse>('ai:conversation:created', (msg) => {
@@ -93,47 +137,76 @@ export const AIPage: React.FC = () => {
   // that names a request this page sent is this page's to show.
   useMessageListener<BaseMessage & { payload?: { message?: string } }>('ai:error', (msg) => {
     if (!msg.correlationId || !ownRequests.current.delete(msg.correlationId)) return;
-    setIsLoading(false);
-    setErrorMessage(msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.'));
+    const reason = msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.');
+    const failed = pendingQuestion.current;
+    // Another request of the page failed: the question keeps waiting for its own.
+    if (failed?.requestId !== msg.correlationId) {
+      setErrorMessage(reason);
+      return;
+    }
+    setPending(undefined);
     // A question that got no answer is not part of the conversation: the host
     // leaves it out of the next turn and of the history a reload shows. Left
     // in the thread, it read as part of what the next answer replied to. The
     // composer gets it back, to ask again or reword as the error says.
-    const failed = pendingQuestion.current;
-    if (failed?.requestId !== msg.correlationId) return;
-    pendingQuestion.current = undefined;
-    setMessages((prev) => prev.filter((m) => m !== failed.message));
-    setDraft((current) => current || failed.message.content);
+    if (failed.conversationId === activeConversationId) {
+      setErrorMessage(reason);
+      setMessages((prev) => prev.filter((m) => m !== failed.message));
+      setDraft((current) => current || failed.message.content);
+      return;
+    }
+    // Put back in the composer open, it was one Send away from being asked in a
+    // conversation it was never part of: its own conversation's composer gets
+    // it, once that one is open again.
+    setErrorMessage(t('ai.failedIn', { title: failed.title, reason }));
+    returnedQuestion.current = {
+      conversationId: failed.conversationId,
+      text: failed.message.content,
+    };
   });
 
-  // Listen for conversation loaded with messages
   useMessageListener<
     BaseMessage & {
       payload: { conversation: { id: string; title: string; messages: ChatMessageDisplay[] } };
     }
   >('ai:conversation:loaded', (msg) => {
-    setMessages(msg.payload.conversation.messages);
+    const { conversation } = msg.payload;
+    // The host keeps a question out of its conversation until the answer
+    // comes: opened again in the meantime, the thread showed the wait without
+    // the question it waits on.
+    const question = pendingQuestion.current;
+    setMessages(
+      question?.conversationId === conversation.id
+        ? [...conversation.messages, question.message]
+        : conversation.messages,
+    );
   });
 
   const handleSendMessage = useCallback(
     (conversationId: string, message: string) => {
-      const userMsg: ChatMessageDisplay = {
-        id: `local-msg-${Date.now()}`,
-        role: 'user',
-        content: message,
-        timestamp: new Date().toISOString(),
-      };
       const request = buildMessage<{ conversationId: string; message: string }>('ai:chat', {
         conversationId,
         message,
       });
-      pendingQuestion.current = { requestId: request.id, message: userMsg };
+      const userMsg: ChatMessageDisplay = {
+        // The request's id, which no other request has. The clock's millisecond
+        // was the id, and two questions asked in the same one shared a React key.
+        id: `local-msg-${request.id}`,
+        role: 'user',
+        content: message,
+        timestamp: new Date().toISOString(),
+      };
+      setPending({
+        requestId: request.id,
+        conversationId,
+        title: conversations.find((c) => c.id === conversationId)?.title ?? '',
+        message: userMsg,
+      });
       setMessages((prev) => [...prev, userMsg]);
-      setIsLoading(true);
       setErrorMessage(undefined);
       send(request);
     },
-    [send],
+    [conversations, send, setPending],
   );
 
   const handleNewConversation = useCallback(
@@ -160,6 +233,14 @@ export const AIPage: React.FC = () => {
       setActiveConversationId(conversationId);
       setMessages([]);
       setErrorMessage(undefined);
+      setAnsweredElsewhere((notice) =>
+        notice?.conversationId === conversationId ? undefined : notice,
+      );
+      const returned = returnedQuestion.current;
+      if (returned?.conversationId === conversationId) {
+        returnedQuestion.current = undefined;
+        setDraft((current) => current || returned.text);
+      }
       send(buildMessage<{ conversationId: string }>('ai:conversation:load', { conversationId }));
     },
     [send],
@@ -172,6 +253,9 @@ export const AIPage: React.FC = () => {
         setActiveConversationId(undefined);
         setMessages([]);
       }
+      setAnsweredElsewhere((notice) =>
+        notice?.conversationId === conversationId ? undefined : notice,
+      );
       send(buildMessage<{ conversationId: string }>('ai:conversation:delete', { conversationId }));
     },
     [activeConversationId, send],
@@ -218,12 +302,17 @@ export const AIPage: React.FC = () => {
     );
   }
 
+  const waitingHere = waiting !== undefined && waiting.conversationId === activeConversationId;
+
   return (
     <AIChatPanel
       conversations={conversations}
       activeConversationId={activeConversationId}
       messages={messages}
-      isLoading={isLoading}
+      isLoading={waitingHere}
+      waitingElsewhere={waiting && !waitingHere ? waiting.title : undefined}
+      answeredElsewhere={answeredElsewhere}
+      onDismissAnsweredElsewhere={() => setAnsweredElsewhere(undefined)}
       errorMessage={errorMessage}
       onDismissError={() => setErrorMessage(undefined)}
       onSendMessage={handleSendMessage}

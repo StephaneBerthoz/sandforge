@@ -1732,6 +1732,10 @@
     "noMessages": "Senden Sie eine Nachricht, um die Unterhaltung zu starten",
     "placeholder": "Nachricht eingeben... (Enter zum Senden, Shift+Enter für neue Zeile)",
     "send": "Senden",
+    "waitingIn": "Warten auf die Antwort auf Ihre Frage in „{{title}}“.",
+    "answeredIn": "Ihre Frage in „{{title}}“ wurde beantwortet.",
+    "openConversation": "Unterhaltung öffnen",
+    "failedIn": "Ihre Frage in „{{title}}“ wurde nicht beantwortet: {{reason}}",
     "notConfigured": {
       "title": "KI-Assistent nicht konfiguriert",
       "description": "Um KI-Funktionen zu nutzen, konfigurieren Sie Ihren API-Schlüssel in den Einstellungen.",

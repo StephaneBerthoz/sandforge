@@ -554,6 +554,15 @@ describe('AnthropicAdapter — the request each model is sent', () => {
     expect(body.thinking).toEqual({ type: 'disabled' });
   });
 
+  // A name pasted with the spaces around it went out as it was, and matched no
+  // entry of the models told that thinking is off.
+  it('asks a model given with spaces around its name by the name alone, thinking off', async () => {
+    const body = await bodySentTo(' claude-sonnet-5 ');
+
+    expect(body.model).toBe('claude-sonnet-5');
+    expect(body.thinking).toEqual({ type: 'disabled' });
+  });
+
   // Claude Sonnet 5 thinks unless told not to, and its thinking counts against
   // max_tokens: the 4 096 tokens the features ask for could all go to thinking.
   it.each([

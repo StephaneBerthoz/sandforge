@@ -1632,6 +1632,10 @@
     "noMessages": "メッセージを送信して会話を開始してください",
     "placeholder": "メッセージを入力...（Enterで送信、Shift+Enterで改行）",
     "send": "送信",
+    "waitingIn": "「{{title}}」での質問への回答を待っています。",
+    "answeredIn": "「{{title}}」での質問に回答がありました。",
+    "openConversation": "会話を開く",
+    "failedIn": "「{{title}}」での質問に回答はありませんでした: {{reason}}",
     "notConfigured": {
       "title": "AIアシスタントが未設定です",
       "description": "AI機能を使用するには、設定でAPIキーを構成してください。",

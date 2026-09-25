@@ -1732,6 +1732,10 @@
     "noMessages": "Envoyez un message pour démarrer la conversation",
     "placeholder": "Tapez un message... (Entrée pour envoyer, Shift+Entrée pour nouvelle ligne)",
     "send": "Envoyer",
+    "waitingIn": "En attente de la réponse à votre question dans « {{title}} ».",
+    "answeredIn": "Votre question dans « {{title}} » a reçu sa réponse.",
+    "openConversation": "Ouvrir la conversation",
+    "failedIn": "Votre question dans « {{title}} » n'a pas reçu de réponse : {{reason}}",
     "notConfigured": {
       "title": "Assistant IA non configure",
       "description": "Pour utiliser les fonctionnalités IA, configurez votre clé API dans les Paramètres.",

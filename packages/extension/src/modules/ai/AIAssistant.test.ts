@@ -142,6 +142,25 @@ describe('AIAssistant', () => {
     expect(updated?.messages[1].role).toBe('assistant');
   });
 
+  // The ids were made of the clock alone: two exchanges in one millisecond
+  // stored four messages under two ids, and the page keys each bubble by it.
+  it('gives each message of exchanges made in the same millisecond an id of its own', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000);
+    try {
+      const conv = assistant.createConversation('Same millisecond');
+      await assistant.chat(conv.id, 'Q1');
+      await assistant.chat(conv.id, 'Q2');
+
+      const ids = assistant.getConversation(conv.id)?.messages.map((m) => m.id) ?? [];
+      expect(ids).toHaveLength(4);
+      expect(new Set(ids).size).toBe(4);
+      expect(ids[0]).toMatch(/^msg-.+-user$/);
+      expect(ids[1]).toMatch(/^msg-.+-assistant$/);
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
+  });
+
   it('should track total tokens in conversation', async () => {
     const conv = assistant.createConversation('Token Test');
     await assistant.chat(conv.id, 'Q1');

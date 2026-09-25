@@ -761,6 +761,25 @@ describe('AIChatHandler', () => {
       expect(response?.payload).toMatchObject({ enabled: true, model: 'claude-opus-4-8' });
     });
 
+    // The Settings page names the model the calls ask, and they ask it without
+    // the spaces a pasted name kept around it.
+    it('names the model sandforge.ai.model names without the spaces around it', async () => {
+      deps.services = {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          key === 'ai.model' ? (' claude-opus-4-8 ' as T) : fallback,
+      } as unknown as HandlerDeps['services'];
+      (deps.secretVault.hasSecret as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      handler.setAIAssistant(createMockAssistant());
+
+      await handler.handle(createMsg('ai:status'));
+
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .find((m) => m.type === 'ai:status:response');
+      expect(response?.payload).toMatchObject({ enabled: true, model: 'claude-opus-4-8' });
+    });
+
     // Emptied in the Settings editor, the setting holds an empty string: the
     // page named no model at all.
     it.each(['', '   '])(

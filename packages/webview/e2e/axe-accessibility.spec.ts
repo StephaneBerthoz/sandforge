@@ -4451,6 +4451,44 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
     });
 
+    test('AI chat saying where a question awaits its answer, then where the answer went', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'ai', theme);
+      await bridge.respondToNext('ai:status', 'ai:status:response', { enabled: true });
+      await page.getByTestId('ai-chat-panel').waitFor({ timeout: 10_000 });
+      for (const [id, title] of [
+        ['axe-cases', 'Cases'],
+        ['axe-leads', 'Leads'],
+      ]) {
+        await page.getByTestId('new-conversation-btn').click();
+        await bridge.respond('ai:conversation:created', {
+          conversation: { id, title, createdAt: new Date().toISOString() },
+        });
+        await page.getByTestId(`conversation-item-${id}`).waitFor({ timeout: 5000 });
+        if (id === 'axe-cases') {
+          await page.getByTestId('chat-input').fill('Which object holds cases?');
+          await page.getByTestId('send-btn').click();
+        }
+      }
+      // Leads opened while the question in Cases waits: its composer is locked,
+      // and its thread says which conversation the wait is for.
+      await page.getByTestId('ai-waiting-elsewhere').waitFor({ state: 'visible', timeout: 5000 });
+      await expectReadable(page, theme, '[data-testid="ai-chat-panel"]');
+
+      await bridge.respond('ai:chat:response', {
+        conversationId: 'axe-cases',
+        message: {
+          id: 'msg-axe-cases',
+          role: 'assistant',
+          content: 'Case',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      await page.getByTestId('ai-answered-elsewhere').waitFor({ state: 'visible', timeout: 5000 });
+      await expectReadable(page, theme, '[data-testid="ai-chat-panel"]');
+    });
+
     test('CSV drop zone while a file is dragged over it', async ({ page }) => {
       await openCsvImport(bridge, page, theme);
       const dropArea = page.getByTestId('drop-area');

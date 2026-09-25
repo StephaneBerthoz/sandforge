@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 /** AI provider type. */
 export type AIProviderType = 'anthropic' | 'openai' | 'custom' | 'none';
 
@@ -53,6 +55,15 @@ export type AICallFn = (
   messages: Array<{ role: ChatRole; content: string }>,
   config: AIModelConfig,
 ) => Promise<AICallResult>;
+
+/**
+ * An id no other message has, in the stored shape `msg-…-<role>`. It was the
+ * clock's millisecond: two exchanges made in the same one stored four messages
+ * under two ids, and the AI page keys each bubble by its id.
+ */
+function messageId(role: ChatRole): string {
+  return `msg-${randomUUID()}-${role}`;
+}
 
 /**
  * The messages a turn sends, its new question last: the last 20, opening on a
@@ -156,7 +167,7 @@ export class AIAssistant {
     }
 
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}-user`,
+      id: messageId('user'),
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
@@ -175,7 +186,7 @@ export class AIAssistant {
 
     // Create assistant message
     const assistantMsg: ChatMessage = {
-      id: `msg-${Date.now()}-assistant`,
+      id: messageId('assistant'),
       role: 'assistant',
       content: result.content,
       timestamp: new Date().toISOString(),

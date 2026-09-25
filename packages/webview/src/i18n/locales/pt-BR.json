@@ -1732,6 +1732,10 @@
     "noMessages": "Envie uma mensagem para iniciar a conversa",
     "placeholder": "Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)",
     "send": "Enviar",
+    "waitingIn": "Aguardando a resposta à sua pergunta em “{{title}}”.",
+    "answeredIn": "Sua pergunta em “{{title}}” foi respondida.",
+    "openConversation": "Abrir conversa",
+    "failedIn": "Sua pergunta em “{{title}}” não obteve resposta: {{reason}}",
     "notConfigured": {
       "title": "Assistente IA não configurado",
       "description": "Para usar os recursos de IA, configure sua chave de API em Configurações.",
