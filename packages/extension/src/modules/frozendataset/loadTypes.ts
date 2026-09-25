@@ -201,7 +201,14 @@ export interface FrozenLoadProgressEvent {
     | 'verify';
   /** Object concerned, when applicable. */
   objectName?: string;
-  status: 'started' | 'done' | 'error';
+  /**
+   * `stopped` ends an object of the insert pass a cancel stopped while it was
+   * written — before its rows went out, between two calls, or between the
+   * email object's two writes: its line says how many rows the cancel kept
+   * from the target. One the target refused a row of ends `error`, as it
+   * would have.
+   */
+  status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100) within the load. */
   progress: number;
   /** Human-readable status message. */
@@ -303,6 +310,12 @@ export interface PerObjectLoadResult {
   reused: number;
   skippedDuplicates: SkippedDuplicate[];
   failed: FailedRecord[];
+  /**
+   * Records the load had to insert and never sent: its cancel came while the
+   * object was written, and kept them from the target. Absent when there was
+   * none — always, in a load that ran to its end.
+   */
+  notInserted?: number;
 }
 
 /** Purge accounting for reload mode (children before parents). */

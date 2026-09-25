@@ -114,6 +114,36 @@ describe('AuditTrailViewer', () => {
     expect(row.textContent).not.toContain('Case');
   });
 
+  it('counts apart the rows a cancel kept from the target', () => {
+    // Neither written nor failed: the entry of a load cancelled while an
+    // object was written said what it wrote and what failed, and nothing of
+    // the rows it never sent.
+    const cancelledLoad: AuditLogEntry = {
+      id: 'aud-frozen',
+      action: 'frozen_load',
+      module: 'frozen',
+      orgId: '00D000000000001AAA',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Account',
+          created: 200,
+          updated: 0,
+          deleted: 0,
+          failed: 1,
+          notSent: 299,
+        },
+      ],
+      details: {},
+      timestamp: '2026-09-25T08:00:00.000Z',
+    };
+    render(<AuditTrailViewer entries={[cancelledLoad]} />);
+
+    expect(screen.getByTestId('audit-aud-frozen').textContent).toContain(
+      'Account 200 created · 1 failed · 299 not sent',
+    );
+  });
+
   it('should show filters', () => {
     render(<AuditTrailViewer entries={entries} />);
     expect(screen.getByTestId('audit-filters')).toBeDefined();

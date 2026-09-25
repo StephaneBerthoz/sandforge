@@ -445,7 +445,13 @@ export type FrozenLoadPhase =
 export interface FrozenLoadProgress {
   phase: FrozenLoadPhase;
   objectName?: string;
-  status: 'started' | 'done' | 'error';
+  /**
+   * `stopped` ends an object a cancel stopped while it was written: some of
+   * its rows may be in the target, the others were never sent, and its line
+   * says how many. It ended `done` before, and read as written whole beside
+   * the objects that were. One the target refused a row of ends `error`.
+   */
+  status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100). */
   progress: number;
   message: string;

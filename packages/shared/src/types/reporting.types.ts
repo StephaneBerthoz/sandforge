@@ -78,6 +78,13 @@ export interface AuditObjectCounts {
    * created or updated instead. Absent when there are none.
    */
   upserted?: number;
+  /**
+   * Records the run had to write and never sent: its cancel came while the
+   * object was written, and kept them from the target. Neither written nor
+   * failed, they were counted nowhere, and an object the cancel cut short
+   * read as written whole. Absent when there are none.
+   */
+  notSent?: number;
 }
 
 /** Report definition */

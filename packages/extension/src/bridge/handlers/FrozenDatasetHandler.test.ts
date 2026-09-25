@@ -765,6 +765,48 @@ describe('FrozenDatasetHandler', () => {
         ]);
       });
 
+      it('records, of an object the cancel cut short, what it wrote, what failed and what the cancel kept back', async () => {
+        // Recorded with what it inserted and what failed alone, the entry
+        // said nothing of the rows the cancel kept from the target.
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(async () => {
+          throw new FrozenLoadCancelledError({
+            perObject: [
+              {
+                objectApiName: 'Account',
+                fromFiles: 2,
+                inserted: 1,
+                reused: 0,
+                skippedDuplicates: [],
+                failed: [],
+                notInserted: 1,
+              },
+            ],
+            placeholders: [],
+            purge: { deleted: {}, deactivated: {}, failures: [] },
+          });
+        });
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [
+              {
+                objectApiName: 'Account',
+                created: 1,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 1,
+              },
+            ],
+          }),
+        ]);
+      });
+
       describe('a load the cancel stopped before it wrote', () => {
         /** A reload the cancel stops as the loader stops it, with what it had done by then. */
         async function cancelledReload(

@@ -1840,7 +1840,9 @@
       "deleted_one": "{{count}} deleted",
       "deleted_other": "{{count}} deleted",
       "failed_one": "{{count}} failed",
-      "failed_other": "{{count}} failed"
+      "failed_other": "{{count}} failed",
+      "notSent_one": "{{count}} not sent",
+      "notSent_other": "{{count}} not sent"
     },
     "auditShowing": "Showing {{shown}} of {{total}}",
     "showMore": "Show more",

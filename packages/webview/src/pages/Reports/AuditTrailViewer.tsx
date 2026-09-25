@@ -60,8 +60,11 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
   refused: 'error',
 };
 
-/** The columns of an object's counts, in the order a line reads them. */
-const COUNT_COLUMNS = ['created', 'updated', 'upserted', 'deleted', 'failed'] as const;
+/**
+ * The columns of an object's counts, in the order a line reads them. What a
+ * cancel kept from the target comes last: neither written nor failed.
+ */
+const COUNT_COLUMNS = ['created', 'updated', 'upserted', 'deleted', 'failed', 'notSent'] as const;
 
 /** Modules and orgs read off the entries themselves, for a caller that gives none. */
 function facetsOf(entries: readonly AuditLogEntry[]): AuditFacets {

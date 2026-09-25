@@ -413,7 +413,8 @@ function cancelledFrozenOutcome(
  * What a load did per object, for the audit trail: records inserted and the
  * placeholders created for them, records a reload deactivated or purged, and
  * the ones the org refused — duplicates it skipped among them, since the org
- * would not take them.
+ * would not take them. Of an object a cancel stopped while it was written,
+ * the records it kept from the target, which were neither.
  */
 function frozenAuditObjects(
   report: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
@@ -428,6 +429,7 @@ function frozenAuditObjects(
     const counts = countsOf(object.objectApiName);
     counts.created += object.inserted;
     counts.failed += object.failed.length + object.skippedDuplicates.length;
+    if (object.notInserted) counts.notSent = (counts.notSent ?? 0) + object.notInserted;
   }
   for (const placeholder of report.placeholders) {
     countsOf(placeholder.placeholderObjectApiName).created += 1;

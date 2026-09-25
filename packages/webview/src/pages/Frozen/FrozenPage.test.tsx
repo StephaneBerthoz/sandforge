@@ -249,6 +249,39 @@ describe('FrozenPage', () => {
     expect(screen.getByText(/Inserting/)).toBeDefined();
   });
 
+  it('marks an object a cancel stopped while it was written apart from the ones written whole', () => {
+    // Ended done, the object the cancel cut short read as written whole
+    // beside the ones that were; its line alone said otherwise.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      progress: [
+        {
+          phase: 'insert',
+          objectName: 'Account',
+          status: 'done',
+          progress: 40,
+          message: 'Account: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed',
+        },
+        {
+          phase: 'insert',
+          objectName: 'Contact',
+          status: 'stopped',
+          progress: 60,
+          message:
+            'Contact: 200 inserted, 0 reused, 0 duplicates skipped, 0 failed, ' +
+            '99 not inserted: the load was cancelled first',
+        },
+      ],
+    });
+    render(<FrozenPage />);
+
+    const markOf = (line: RegExp): string =>
+      screen.getByText(line).closest('li')?.firstElementChild?.className ?? '';
+    expect(markOf(/1 inserted/)).toContain('bg-status-success');
+    expect(markOf(/99 not inserted/)).toContain('bg-status-warning');
+  });
+
   it('says which statuses were applied after insert, and which were refused', () => {
     // An activated order is created as a draft and activated once its items
     // are in; a refusal there has to show, not vanish into the counts.

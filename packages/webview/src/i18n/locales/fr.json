@@ -1840,7 +1840,9 @@
       "deleted_one": "{{count}} supprimé",
       "deleted_other": "{{count}} supprimés",
       "failed_one": "{{count}} en échec",
-      "failed_other": "{{count}} en échec"
+      "failed_other": "{{count}} en échec",
+      "notSent_one": "{{count}} non envoyé",
+      "notSent_other": "{{count}} non envoyés"
     },
     "auditShowing": "{{shown}} affichées sur {{total}}",
     "showMore": "Afficher plus",

@@ -313,6 +313,18 @@ function failedLoadMessage(
   return `${extractErrorMessage(cause)}\nThe load failed after it had ${left}. ${named}`;
 }
 
+/** What `load` is handed of a load as it runs, to end it however it stops. */
+interface RunningLoad {
+  /** What a failure keeps, from the load's first write on. */
+  load?: LoadInProgress;
+  /**
+   * End the line the load left open when it stopped, from its insert pass
+   * on: the email object's, whose first write is said as a step while some
+   * of its emails wait for their task. See `emailsWrittenFirst`.
+   */
+  endOpenLine?: (stoppedBy: unknown) => void;
+}
+
 /** What a load that fails part way has to keep, handed over by the load before its first write. */
 interface LoadInProgress {
   /** Keep its mapping, with what it created so far and the target's dates of it. */
@@ -520,6 +532,7 @@ function mergeResults(
   first: PerObjectLoadResult,
   second: PerObjectLoadResult,
 ): PerObjectLoadResult {
+  const notInserted = (first.notInserted ?? 0) + (second.notInserted ?? 0);
   return {
     objectApiName: second.objectApiName,
     fromFiles: first.fromFiles + second.fromFiles,
@@ -527,7 +540,13 @@ function mergeResults(
     reused: first.reused + second.reused,
     skippedDuplicates: [...first.skippedDuplicates, ...second.skippedDuplicates],
     failed: [...first.failed, ...second.failed],
+    ...(notInserted > 0 ? { notInserted } : {}),
   };
+}
+
+/** What an object's line says of the rows a cancel kept from the target. */
+function keptBackByTheCancel(notInserted: number): string {
+  return notInserted > 0 ? `, ${notInserted} not inserted: the load was cancelled first` : '';
 }
 
 /** A placeholder the load will create, everything about it already known. */
@@ -565,20 +584,28 @@ export class FrozenDatasetLoader {
    * it was, and ends with what it failed on.
    */
   async load(options: FrozenLoadOptions): Promise<FrozenLoadReport> {
-    const running: { load?: LoadInProgress } = {};
+    const running: RunningLoad = {};
     try {
       return await this.loadInto(options, running);
     } catch (err: unknown) {
+      // A failure between the email object's first write and the task
+      // object's turn left the object's line open, its last word the step its
+      // first write said: what it inserted, and what it held back, went
+      // unsaid. It ends on that line, as a cancel ends it.
+      running.endOpenLine?.(err);
       const load = running.load;
       if (err instanceof FrozenLoadCancelledError || !load?.wroteSome()) throw err;
       throw await keptAfterFailure(err, load);
     }
   }
 
-  /** {@link load}, handing `running` what a failure keeps before its first write. */
+  /**
+   * {@link load}, handing `running` what a failure keeps before its first
+   * write, and the line it leaves open from its insert pass on.
+   */
   private async loadInto(
     options: FrozenLoadOptions,
-    running: { load?: LoadInProgress },
+    running: RunningLoad,
   ): Promise<FrozenLoadReport> {
     const now = options.now ?? (() => new Date());
     const startedAt = now();
@@ -1012,21 +1039,45 @@ export class FrozenDatasetLoader {
      * waited for their task, and the object's notes: said as a step, and
      * again in the line the write of those ends the object with. Said as each
      * write ended, an email on a case beside another ended the object in two
-     * lines, the second with the emails that had waited alone.
+     * lines, the second with the emails that had waited alone. `waiting` is
+     * how many of those the load has to insert — the ones it does not link.
      */
-    let emailsWrittenFirst: { status: 'done' | 'error'; message: string; notes: string } | null =
-      null;
+    let emailsWrittenFirst: {
+      status: 'done' | 'error';
+      message: string;
+      notes: string;
+      waiting: number;
+    } | null = null;
     let objectIndex = 0;
     let taskTurnOver = false;
-    /** End the email object on its first write's line: the emails that waited did not go in. */
-    const endOnTheFirstWrite = (first: NonNullable<typeof emailsWrittenFirst>): void =>
+    /*
+     * End the email object on its first write's line: the emails that waited
+     * for their task did not go in, and the line says so. Kept from the target
+     * by the cancel, they are counted with what it kept back, and the object
+     * ends stopped unless its first write failed: ended done, it read as
+     * written whole. Kept from it by a failure, the object ends as its first
+     * write did — the failure is the load's, which ends on it.
+     */
+    const endOnTheFirstWrite = (
+      first: NonNullable<typeof emailsWrittenFirst>,
+      stoppedBy: 'cancel' | 'failure',
+    ): void => {
+      const keptByTheCancel = stoppedBy === 'cancel' && first.waiting > 0;
+      if (keptByTheCancel) {
+        const row = perObject.find((o) => o.objectApiName === EMAIL_MESSAGE);
+        if (row) row.notInserted = (row.notInserted ?? 0) + first.waiting;
+      }
+      let keptBack = '';
+      if (keptByTheCancel) keptBack = keptBackByTheCancel(first.waiting);
+      else if (first.waiting > 0) keptBack = `, ${first.waiting} not inserted: the load failed`;
       emit({
         phase: 'insert',
         objectName: EMAIL_MESSAGE,
-        status: first.status,
+        status: keptByTheCancel && first.status !== 'error' ? 'stopped' : first.status,
         progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-        message: `${first.message}${first.notes}`,
+        message: `${first.message}${keptBack}${first.notes}`,
       });
+    };
     /*
      * Stop at a cancel before an object of the insert pass, or once an object
      * whose rows the cancel kept from the target has its line. The email
@@ -1039,9 +1090,22 @@ export class FrozenDatasetLoader {
       const first = emailsWrittenFirst;
       if (first && options.signal?.aborted) {
         emailsWrittenFirst = null;
-        endOnTheFirstWrite(first);
+        endOnTheFirstWrite(first, 'cancel');
       }
       await checkpoint();
+    };
+    // Whatever else stops the load from here on — a failure between the
+    // email object's first write and the task object's turn — ends the
+    // object as a cancel ends it: see `load`.
+    running.endOpenLine = (stoppedBy) => {
+      const first = emailsWrittenFirst;
+      emailsWrittenFirst = null;
+      if (first) {
+        endOnTheFirstWrite(
+          first,
+          stoppedBy instanceof FrozenLoadCancelledError ? 'cancel' : 'failure',
+        );
+      }
     };
     const insertEmailsAfterTheirTask = async (): Promise<void> => {
       taskTurnOver = true;
@@ -1050,7 +1114,7 @@ export class FrozenDatasetLoader {
       emailsWrittenFirst = null;
       if (emails.length === 0) return;
       const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
-      let late: PerObjectLoadResult | undefined;
+      let late: PerObjectLoadResult;
       try {
         await checkpoint();
         late = await this.insertObject(
@@ -1065,19 +1129,27 @@ export class FrozenDatasetLoader {
           duplicatePatterns,
           created,
         );
-      } finally {
+      } catch (err: unknown) {
         // Stopped before the emails that waited went in: the first write
         // ends the object.
-        if (!late && first) endOnTheFirstWrite(first);
+        if (first) {
+          endOnTheFirstWrite(first, err instanceof FrozenLoadCancelledError ? 'cancel' : 'failure');
+        }
+        throw err;
       }
       const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
       if (at >= 0) perObject[at] = mergeResults(perObject[at], late);
       else perObject.push(late);
-      const lateCounts = `${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed`;
+      // A cancel that came as they were written kept the rest of them from
+      // the target: the object ends stopped, and the load at its next check.
+      const lateCounts = `${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed${keptBackByTheCancel(late.notInserted ?? 0)}`;
+      let status: FrozenLoadProgressEvent['status'] = 'done';
+      if (late.failed.length > 0 || first?.status === 'error') status = 'error';
+      else if ((late.notInserted ?? 0) > 0) status = 'stopped';
       emit({
         phase: 'insert',
         objectName: EMAIL_MESSAGE,
-        status: late.failed.length > 0 || first?.status === 'error' ? 'error' : 'done',
+        status,
         progress,
         message: first
           ? `${first.message}; after their task: ${lateCounts}${first.notes}`
@@ -1154,8 +1226,6 @@ export class FrozenDatasetLoader {
        */
       const leftToInsert = startingRecords.filter((r) => !reused.has(r.referenceId)).length;
       const stoppedBeforeTheInsert = options.signal?.aborted === true && leftToInsert > 0;
-      /** The rows the cancel kept from the target, said on the object's line before the load stops. */
-      let notInserted = stoppedBeforeTheInsert ? leftToInsert : 0;
       const insert = (
         records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
         count: number,
@@ -1184,6 +1254,7 @@ export class FrozenDatasetLoader {
           reused: startingRecords.length - leftToInsert,
           skippedDuplicates: [],
           failed: [],
+          notInserted: leftToInsert,
         };
       } else if (isPricebookEntry(objectApiName) && standardRef) {
         const standardPrices = await insert(
@@ -1204,13 +1275,16 @@ export class FrozenDatasetLoader {
          */
         if (options.signal?.aborted) {
           const linked = custom.filter((r) => reused.has(r.referenceId)).length;
-          objectResult = { ...standardPrices, fromFiles, reused: standardPrices.reused + linked };
-          notInserted =
+          const counted = { ...standardPrices, fromFiles, reused: standardPrices.reused + linked };
+          // The custom prices it does not link, and the standard ones a call
+          // it stopped before kept back.
+          const notInserted =
             startingRecords.length -
-            objectResult.inserted -
-            objectResult.reused -
-            objectResult.skippedDuplicates.length -
-            objectResult.failed.length;
+            counted.inserted -
+            counted.reused -
+            counted.skippedDuplicates.length -
+            counted.failed.length;
+          objectResult = { ...counted, ...(notInserted > 0 ? { notInserted } : {}) };
         } else {
           const customPrices = await insert(custom, fromFiles).catch((err: unknown) => {
             // Counted, as at a cancel: the standard prices are in the target.
@@ -1222,6 +1296,21 @@ export class FrozenDatasetLoader {
       } else {
         objectResult = await insert(startingRecords, fromFiles);
       }
+      /*
+       * Stopped at the email object — before its insert, or before a call of
+       * it — the load stops once its line is said, before the task object's
+       * turn: the emails that wait for their task are kept from the target
+       * with its other rows, and counted with them.
+       */
+      const waitingToInsert =
+        objectApiName === EMAIL_MESSAGE
+          ? emailsAfterTheirTask.filter((r) => !reused.has(r.referenceId)).length
+          : 0;
+      if ((objectResult.notInserted ?? 0) > 0) {
+        objectResult.notInserted = (objectResult.notInserted ?? 0) + waitingToInsert;
+      }
+      /** The rows the cancel kept from the target, said on the object's line before the load stops. */
+      const notInserted = objectResult.notInserted ?? 0;
       // Stopped before its insert, an object that linked nothing wrote
       // nothing: left out of what the load wrote, as an object it never
       // reached is.
@@ -1241,15 +1330,23 @@ export class FrozenDatasetLoader {
         objectApiName === EMAIL_MESSAGE && emailsAfterTheirTask.length > 0
           ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
           : '';
-      const keptBack =
-        notInserted > 0 ? `, ${notInserted} not inserted: the load was cancelled first` : '';
-      const status = objectResult.failed.length > 0 ? 'error' : 'done';
+      // Stopped, not done: ended done, an object the cancel cut short read as
+      // written whole beside the ones that were. One the target refused a row
+      // of stays a failure, which is what there is to act on.
+      const failedSome = objectResult.failed.length > 0;
+      let status: FrozenLoadProgressEvent['status'] = failedSome ? 'error' : 'done';
+      if (!failedSome && notInserted > 0) status = 'stopped';
       const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
-      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBack}`;
-      if (waiting && !stoppedBeforeTheInsert) {
+      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBackByTheCancel(notInserted)}`;
+      if (waiting && notInserted === 0) {
         // A step on the way: the write of the emails that wait for their task
         // ends the object, in one line with this one. See `emailsWrittenFirst`.
-        emailsWrittenFirst = { status, message, notes: leftOutNote };
+        emailsWrittenFirst = {
+          status: failedSome ? 'error' : 'done',
+          message,
+          notes: leftOutNote,
+          waiting: waitingToInsert,
+        };
         emit({ phase: 'insert', objectName: objectApiName, status: 'started', progress, message });
       } else {
         emit({
@@ -2442,6 +2539,13 @@ export class FrozenDatasetLoader {
         result.failed.push({ objectApiName, referenceId, errors: outcome.errors });
       }
     });
+    // The rows the writer had no answer for were never sent: the load's
+    // cancel came while the object was written, and the writer stopped before
+    // their call, with what the calls before it wrote. Read against the
+    // answers alone, they were counted nowhere, and the object's line ended
+    // as if written whole.
+    const unanswered = toInsert.length - outcomes.length;
+    if (unanswered > 0 && options.signal?.aborted) result.notInserted = unanswered;
     return result;
   }
 

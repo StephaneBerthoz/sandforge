@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ShieldCheck } from 'lucide-react';
 import type {
+  FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
   FrozenVerifyVerdict,
@@ -10,6 +11,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -27,6 +29,19 @@ export interface FrozenLoadTabProps {
   /** Refetch the module status after a mutation completed. */
   onRefetchStatus: () => void;
 }
+
+/**
+ * The mark of a progress line: a step, a step done, one that failed, or an
+ * object a cancel stopped while it was written — a warning, as a load that
+ * ended with errors is. Marked as a step, a stopped object read as one still
+ * going; marked done, as written whole beside the objects that were.
+ */
+const PROGRESS_VARIANTS: Record<FrozenLoadProgress['status'], BadgeVariant> = {
+  started: 'info',
+  done: 'success',
+  error: 'error',
+  stopped: 'warning',
+};
 
 /** Sum a numeric field across per-object load results. */
 function sumPerObject(
@@ -333,17 +348,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     key={index}
                     className="flex items-center gap-2 text-[11px] text-text-secondary"
                   >
-                    <Badge
-                      variant={
-                        event.status === 'error'
-                          ? 'error'
-                          : event.status === 'done'
-                            ? 'success'
-                            : 'info'
-                      }
-                    >
-                      {event.phase}
-                    </Badge>
+                    <Badge variant={PROGRESS_VARIANTS[event.status]}>{event.phase}</Badge>
                     <span className="truncate">
                       {event.objectName ? `${event.objectName} — ` : ''}
                       {event.message}

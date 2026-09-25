@@ -1735,7 +1735,8 @@
       "updated_other": "{{count}}件更新",
       "upserted_other": "{{count}}件をupsertで書き込み",
       "deleted_other": "{{count}}件削除",
-      "failed_other": "{{count}}件失敗"
+      "failed_other": "{{count}}件失敗",
+      "notSent_other": "{{count}}件未送信"
     },
     "auditShowing": "{{total}}件中{{shown}}件を表示",
     "showMore": "さらに表示",

@@ -4345,6 +4345,70 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Frozen dataset load a cancel stopped, marking apart the object it cut short', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      // A line of each mark: an object written whole, one the target refused
+      // a row of, one still going, and the one the cancel cut short.
+      for (const line of [
+        {
+          phase: 'insert',
+          objectName: 'Account',
+          status: 'done',
+          progress: 40,
+          message: 'Account: 3 inserted, 0 reused, 0 duplicates skipped, 0 failed',
+        },
+        {
+          phase: 'insert',
+          objectName: 'Opportunity',
+          status: 'error',
+          progress: 50,
+          message: 'Opportunity: 1 inserted, 0 reused, 0 duplicates skipped, 1 failed',
+        },
+        {
+          phase: 'insert',
+          objectName: 'Contact',
+          status: 'started',
+          progress: 60,
+          message: 'Inserting Contact',
+        },
+        {
+          phase: 'insert',
+          objectName: 'Contact',
+          status: 'stopped',
+          progress: 60,
+          message:
+            'Contact: 200 inserted, 0 reused, 0 duplicates skipped, 0 failed, ' +
+            '99 not inserted: the load was cancelled first',
+        },
+      ]) {
+        await answerAll(page, 'frozen:load', 'frozen:load:progress', line);
+      }
+      await answerAll(page, 'frozen:load', 'frozen:load:error', {
+        message:
+          'The load was cancelled before it had written the whole dataset. What it wrote is ' +
+          'kept in the mapping: a reload reuses or purges it.',
+        code: 'LOAD_CANCELLED',
+        retryable: false,
+      });
+      const lines = page.getByTestId('frozen-load-progress').locator('li');
+      await expect(lines).toHaveCount(4, { timeout: 10_000 });
+      await expect(lines.last().locator('span').first()).toHaveClass(/bg-status-warning/);
+      await page.getByTestId('frozen-error').waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
     test('Frozen dataset extraction naming what it holds and cannot load as it is', async ({
       page,
     }) => {
