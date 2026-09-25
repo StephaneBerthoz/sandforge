@@ -836,6 +836,80 @@ async function forgeProgress(
   });
 }
 
+/** The Forge discovery of that graph, from the SOQL tab, as it first shows it. */
+async function discoverForgeGraph(
+  bridge: MockBridge,
+  page: Page,
+  theme: ScannedTheme,
+): Promise<void> {
+  await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+  await page.getByTestId('forge-tab-soql').click();
+  await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+  await page.getByTestId('forge-target-org').click();
+  await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+  await page.getByTestId('forge-discover-btn').click();
+  await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+  await answerAll(page, 'forge:discover', 'forge:discover:response', {
+    graph: FORGE_TWO_NODE_GRAPH,
+  });
+  await page.getByTestId('forge-discovery').waitFor({ timeout: 10_000 });
+}
+
+/**
+ * Wait until React Flow has fitted the Forge graph to its pane: the viewport
+ * holds still between two reads, and has left where React Flow starts it.
+ */
+async function forgeGraphFitted(page: Page): Promise<void> {
+  const viewport = page.getByTestId('live-graph').locator('.react-flow__viewport');
+  let last: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const now = await viewport.evaluate((element) => (element as HTMLElement).style.transform);
+        const still = now === last && now !== 'translate(0px, 0px) scale(1)';
+        last = now;
+        return still;
+      },
+      { intervals: [250], timeout: 10_000 },
+    )
+    .toBe(true);
+}
+
+/**
+ * The objects of the Forge graph the minimap is drawn over, as Chromium lays
+ * them out: each box cut to the graph's pane, which hides what is drawn past
+ * its edges.
+ */
+async function forgeNodesUnderMinimap(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const graph = document.querySelector('[data-testid="live-graph"]');
+    const minimap = graph?.querySelector('.react-flow__minimap');
+    if (!graph || !minimap) return ['no graph or no minimap'];
+    const pane = graph.getBoundingClientRect();
+    const inPane = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        left: Math.max(box.left, pane.left),
+        top: Math.max(box.top, pane.top),
+        right: Math.min(box.right, pane.right),
+        bottom: Math.min(box.bottom, pane.bottom),
+      };
+    };
+    const map = inPane(minimap);
+    return [...graph.querySelectorAll('.react-flow__node')]
+      .filter((node) => {
+        const box = inPane(node);
+        return (
+          box.left < map.right &&
+          map.left < box.right &&
+          box.top < map.bottom &&
+          map.top < box.bottom
+        );
+      })
+      .map((node) => node.getAttribute('data-id') ?? '');
+  });
+}
+
 /** The Forge page with its recent runs listed: one run whose records can be removed. */
 async function openForgeHistory(
   bridge: MockBridge,
@@ -1436,11 +1510,53 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByTestId('forge-execution-see-stopped').click();
       await page.getByTestId('forge-results-stopped').waitFor({ timeout: 10_000 });
-      await expect(page.getByTestId('forge-results-status-stopped')).toHaveText('stopped');
+      // In words: the badge printed the code itself.
+      await expect(page.getByTestId('forge-results-status-stopped')).toHaveText('Stopped');
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-status-stopped"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge graph fitted clear of its minimap, from discovery to the run', async ({ page }) => {
+      // At 1280×720 the minimap was drawn over the contact, the graph fitted
+      // to the whole of a pane whose right side the minimap takes.
+      await discoverForgeGraph(bridge, page, theme);
+      await forgeGraphFitted(page);
+      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await forgeGraphFitted(page);
+      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('execute-button').click();
+      await page.getByTestId('forge-execution').waitFor({ timeout: 10_000 });
+      await forgeGraphFitted(page);
+      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge discovery naming each object’s status in words, in its table and its detail', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+
+      // The column and the badge printed the code itself: "idle".
+      await page.getByTestId('forge-view-table').click();
+      await expect(page.getByTestId('forge-table-status-Account')).toHaveText('Not started');
+      await page.getByTestId('forge-table-select-Account').click();
+      await expect(page.getByTestId('node-status-badge')).toHaveText('Not started');
+      const discovery = await checkAccessibility(page);
+      expectNoViolations(discovery);
+      expect(
+        await contrastMeasuredIn(page, discovery, '[data-testid="forge-table-status-Account"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, discovery, '[data-testid="node-status-badge"]'),
       ).toBeGreaterThan(0);
     });
 

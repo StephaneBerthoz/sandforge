@@ -1556,6 +1556,30 @@ function waitingForTheirTask(count: number): string {
   return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
 }
 
+/**
+ * How the email object ends when the run stops before the emails that waited
+ * for their task are written: on its first write's line, with how many of
+ * them the target never got, as a node a cancel stops says the rows it never
+ * sent. Ended on the first write's `done`, a cancelled object was drawn
+ * finished beside the objects written whole. A cancel ends it stopped, unless
+ * its first write failed; a failure of the run leaves its status as it was.
+ *
+ * @param first - How the object's first write ended.
+ * @param notSent - The emails that waited for their task.
+ * @param cancelled - Whether a cancel stopped the run.
+ */
+function endedBeforeTheEmailsThatWaited(
+  first: ForgeProgressEvent,
+  notSent: number,
+  cancelled: boolean,
+): ForgeProgressEvent {
+  return {
+    ...first,
+    status: cancelled && first.status !== 'error' ? 'stopped' : first.status,
+    message: `${first.message}; ${cancelled ? 'stopped: ' : ''}${notSent} not sent`,
+  };
+}
+
 /** Whether a row read is one the run this one retries wrote: it is in the target already. */
 function wasWrittenBefore(config: ForgeStageConfig, row: Record<string, unknown>): boolean {
   const id = row['Id'];
@@ -1883,10 +1907,18 @@ export class ForgeExecutor {
       // `writeEmailsAfterTheirTask`. Kept for the write of the emails that
       // waited for their task, that line was never said, and the node's last
       // word was a step on the way: what it wrote and what it held back went
-      // unsaid.
+      // unsaid. The emails that waited are never written.
       const first = state.emailsWrittenFirst;
       state.emailsWrittenFirst = undefined;
-      if (first) state.onProgress(first);
+      if (first) {
+        state.onProgress(
+          endedBeforeTheEmailsThatWaited(
+            first,
+            state.emailsAfterTheirTask.length,
+            err instanceof ForgeAbortedError,
+          ),
+        );
+      }
       // What the run had done before it stopped goes with the error: thrown
       // bare, an abort or a failure past the first object took the tallies
       // with it, and the run was recorded as failed with nothing written.
@@ -4428,10 +4460,12 @@ export class ForgeExecutor {
     const node = state.graph.nodes.find((n) => n.objectApiName === EMAIL_MESSAGE);
     if (node && emails.length > 0 && !this.isAborted) await this.writeNode(node, state, emails);
     // Emails that waited and were not written — the run stopped first —
-    // leave the node's first write to end it.
+    // leave the node's first write to end it, with the emails never sent.
     const first = state.emailsWrittenFirst;
     state.emailsWrittenFirst = undefined;
-    if (first) state.onProgress(first);
+    if (first) {
+      state.onProgress(endedBeforeTheEmailsThatWaited(first, emails.length, this.isAborted));
+    }
   }
 
   /**

@@ -2677,6 +2677,15 @@
       "showDetails": "Details zu {{object}} anzeigen",
       "stopped": "Vor seinem Ende angehalten"
     },
+    "nodeStatus": {
+      "idle": "Nicht gestartet",
+      "scanning": "Wird gescannt",
+      "running": "Läuft",
+      "done": "Fertig",
+      "error": "Fehlgeschlagen",
+      "skipped": "Übersprungen",
+      "stopped": "Angehalten"
+    },
     "statusFilterLabel": "Nach Status filtern",
     "files": {
       "title": "Dateien",

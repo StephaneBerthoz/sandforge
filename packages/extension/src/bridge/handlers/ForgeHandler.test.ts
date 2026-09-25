@@ -13,7 +13,11 @@ import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
-import type { ForgeExecutorDeps, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
+import type {
+  ExecutionSummary,
+  ForgeExecutorDeps,
+  ForgeProgressEvent,
+} from '../../modules/forge/ForgeExecutor.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
@@ -2706,10 +2710,10 @@ describe('ForgeHandler', () => {
     });
 
     it('records what a run that threw had written, per object, and where from', async () => {
-      // Stopped by an abort after the Accounts and the first Contacts: the
+      // Stopped by an error after the Accounts and the first Contacts: the
       // entry said "failed" and nothing else, as if the org had not been touched.
       const store = recordingStore();
-      const stopped = new Error('Forge execution was aborted by user request.');
+      const stopped = new Error('INVALID_SESSION_ID: Session expired or invalid');
       keepPartialSummary(stopped, {
         successCount: 5,
         updatedCount: 0,
@@ -2759,6 +2763,132 @@ describe('ForgeHandler', () => {
         }),
       ]);
       expect(new LineageStore(store).get(entries[0].operationId)).not.toBeNull();
+    });
+
+    /**
+     * A cancel the executor stopped the run on, carrying what the run held
+     * then: `summary` over a run that had written nothing yet.
+     */
+    function cancelledWith(summary: Partial<ExecutionSummary> = {}): ForgeAbortedError {
+      const cancel = new ForgeAbortedError('Forge execution was aborted by user request.');
+      keepPartialSummary(cancel, {
+        successCount: 0,
+        updatedCount: 0,
+        linkedCount: 0,
+        wouldInsertCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+        remapCount: 0,
+        errors: [],
+        truncatedObjects: [],
+        remapTable: {},
+        existingRecords: [],
+        existingSourceIds: [],
+        updatedSourceIds: [],
+        remapByObject: [],
+        createdByObject: [],
+        readByObject: [],
+        failedReads: [],
+        ...summary,
+      });
+      return cancel;
+    }
+
+    it('records a run a cancel stopped after it wrote as partial, with what it wrote', async () => {
+      // Recorded as failed, while the history kept it as partial and Seed
+      // records a cancel so: the trail read a run the user stopped as one
+      // that went wrong.
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        cancelledWith({
+          successCount: 2,
+          remapCount: 2,
+          remapByObject: [{ objectApiName: 'Account', created: 2, linked: 0 }],
+          createdByObject: [{ objectApiName: 'Account', sourceIds: [SOURCE_ID] }],
+          readByObject: [{ objectApiName: 'Account', read: 2 }],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'partial',
+          objects: [{ objectApiName: 'Account', created: 2, updated: 0, deleted: 0, failed: 0 }],
+          details: {},
+        }),
+      ]);
+    });
+
+    it('records a run a cancel stopped before it wrote anything as stopped, under the code that says so', async () => {
+      // The account the run met was already in the target: linked to, not written.
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        cancelledWith({
+          linkedCount: 1,
+          remapCount: 1,
+          remapByObject: [{ objectApiName: 'Account', created: 0, linked: 1 }],
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0 }],
+          details: { code: 'RUN_CANCELLED' },
+        }),
+      ]);
+    });
+
+    it('records a cancel the executor stopped on before it held any tally as stopped', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        new ForgeAbortedError('Forge execution was aborted by user request.'),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          objects: [],
+          details: { code: 'RUN_CANCELLED' },
+        }),
+      ]);
+    });
+
+    it('records a run a cancel stopped after the target refused all it was sent as failed', async () => {
+      // Nothing written, and not for want of trying: what the target refused
+      // is a failure, as a finished run with those tallies is one.
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        cancelledWith({
+          failedCount: 2,
+          errors: [
+            {
+              objectApiName: 'Account',
+              stage: 'insert',
+              failedCount: 2,
+              attemptedCount: 2,
+              samples: [],
+            },
+          ],
+          readByObject: [{ objectApiName: 'Account', read: 2 }],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'failure',
+          objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 2 }],
+          details: {},
+        }),
+      ]);
     });
   });
 

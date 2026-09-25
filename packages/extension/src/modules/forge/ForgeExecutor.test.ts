@@ -9188,11 +9188,22 @@ describe('ForgeExecutor', () => {
           expect(summary.failedCount).toBe(0);
         });
 
-        it('ends the email object on its first write when a cancel stops the run before the tasks', async () => {
+        /** How the email object ended, as each of its ends was said. */
+        const emailEnds = (): Array<[string, string | undefined]> =>
+          progressEvents
+            .filter(
+              (e) =>
+                e.objectName === 'EmailMessage' &&
+                (e.status === 'done' || e.status === 'error' || e.status === 'stopped'),
+            )
+            .map((e) => [e.status, e.message]);
+
+        it('ends the email object stopped, with the emails that waited never sent, when a cancel stops the run before the tasks', async () => {
           // The end of the first write is a step on the way, kept for the
           // write of the emails that wait for their task. The run stopped
-          // before the task node's turn, and the object's last word was that
-          // step: what it wrote, and what it held back, was said nowhere.
+          // before the task node's turn: the object ended on its first
+          // write's line, done, and the graph drew it finished with two of
+          // its emails never sent.
           const { orgDeps, inserted, graph } = mixedRun();
           const executor = new ForgeExecutor(orgDeps);
           const insert = orgDeps.insertRecords;
@@ -9210,17 +9221,101 @@ describe('ForgeExecutor', () => {
 
           expect(error).toBeInstanceOf(ForgeAbortedError);
           expect(inserted['Task'] ?? []).toEqual([]);
-          expect(
-            progressEvents
-              .filter(
-                (e) =>
-                  e.objectName === 'EmailMessage' && (e.status === 'done' || e.status === 'error'),
-              )
-              .map((e) => [e.status, e.message]),
-          ).toEqual([
+          expect(emailEnds()).toEqual([
+            [
+              'stopped',
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                'stopped: 2 not sent',
+            ],
+          ]);
+        });
+
+        it('ends the email object stopped when a cancel comes as the tasks are written, before the emails that waited', async () => {
+          // The cancel comes during the tasks' last call: the tasks go in,
+          // and the emails that waited for them are not sent.
+          const { orgDeps, inserted, graph } = mixedRun();
+          const executor = new ForgeExecutor(orgDeps);
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, records) => {
+            if (object === 'Task') executor.abort();
+            return insert(org, object, records);
+          };
+
+          const error = await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(ForgeAbortedError);
+          expect((inserted['Task'] ?? []).map((t) => t['Subject'])).toEqual([
+            'Unread email',
+            'Second email',
+          ]);
+          expect((inserted['EmailMessage'] ?? []).map((e) => e['Subject'])).toEqual(['Offer']);
+          expect(emailEnds()).toEqual([
+            [
+              'stopped',
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                'stopped: 2 not sent',
+            ],
+          ]);
+        });
+
+        it('keeps the email object a failure when its first write failed and a cancel stops the run before the tasks', async () => {
+          const { orgDeps, graph } = mixedRun();
+          const executor = new ForgeExecutor(orgDeps);
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, records) => {
+            if (object !== 'EmailMessage') return insert(org, object, records);
+            executor.abort();
+            return records.map(() => ({
+              id: '',
+              success: false,
+              errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no offer by email'],
+            }));
+          };
+
+          await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(emailEnds()).toEqual([
+            ['error', 'Failed all EmailMessage records; stopped: 2 not sent'],
+          ]);
+        });
+
+        it('keeps the email object done when a failure, not a cancel, ends the run before the tasks, and says what it never sent', async () => {
+          // Not a cancel: the run fails as the tasks are written — here, on
+          // the listener its progress goes to.
+          const { orgDeps, graph } = mixedRun();
+          let emailsWaiting = false;
+          const failing = (event: ForgeProgressEvent): void => {
+            onProgress(event);
+            if (event.objectName === 'EmailMessage' && event.status === 'running') {
+              emailsWaiting ||= event.message?.startsWith('Completed EmailMessage') === true;
+            }
+            if (emailsWaiting && event.objectName === 'Task') throw new Error('listener gone');
+          };
+
+          const error = await new ForgeExecutor(orgDeps)
+            .execute(graph, 'src', 'tgt', failing, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(Error);
+          expect(error).not.toBeInstanceOf(ForgeAbortedError);
+          expect(emailEnds()).toEqual([
             [
               'done',
-              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks',
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                '2 not sent',
             ],
           ]);
         });

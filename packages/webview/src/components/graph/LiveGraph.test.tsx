@@ -27,12 +27,15 @@ beforeAll(() => {
   }
 });
 
+/** The props React Flow, its minimap and its controls were last given. */
+const received = vi.hoisted(() => ({
+  flow: {} as Record<string, unknown>,
+  minimap: {} as Record<string, unknown>,
+  controls: {} as Record<string, unknown>,
+}));
+
 /** Minimal ReactFlow mock that renders nodes with their data. */
-function MockReactFlow({
-  nodes,
-  onNodeClick,
-  children,
-}: {
+function MockReactFlow(props: {
   nodes: Array<{
     id: string;
     data: { objectApiName: string };
@@ -40,6 +43,8 @@ function MockReactFlow({
   onNodeClick?: (event: React.MouseEvent, node: { data: { objectApiName: string } }) => void;
   children?: React.ReactNode;
 }): React.ReactElement {
+  const { nodes, onNodeClick, children } = props;
+  received.flow = props;
   return (
     <div data-testid="react-flow-mock">
       {nodes.map((n) => (
@@ -55,8 +60,14 @@ function MockReactFlow({
 vi.mock('@xyflow/react', () => ({
   __esModule: true,
   ReactFlow: MockReactFlow,
-  MiniMap: () => React.createElement('div', { 'data-testid': 'minimap' }),
-  Controls: () => React.createElement('div', { 'data-testid': 'controls' }),
+  MiniMap: (props: Record<string, unknown>) => {
+    received.minimap = props;
+    return React.createElement('div', { 'data-testid': 'minimap' });
+  },
+  Controls: (props: Record<string, unknown>) => {
+    received.controls = props;
+    return React.createElement('div', { 'data-testid': 'controls' });
+  },
   Background: () => React.createElement('div', { 'data-testid': 'background' }),
   Handle: () => React.createElement('div'),
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
@@ -147,6 +158,21 @@ describe('LiveGraph', () => {
     expect(screen.getByTestId('minimap')).toBeDefined();
     expect(screen.getByTestId('controls')).toBeDefined();
     expect(screen.getByTestId('background')).toBeDefined();
+  });
+
+  it('fits the graph left of the strip the minimap stands in, on first draw and from the fit button', () => {
+    // Fitted to the whole pane, the nodes on its right lay under the minimap:
+    // at 1280×720 it covered the contact on the execution screen.
+    render(<LiveGraph graph={makeSampleGraph()} />);
+
+    const minimap = received.minimap.style as { width: number; height: number };
+    const fit = received.flow.fitViewOptions as { padding: { right: string } };
+    expect(received.flow.fitView).toBe(true);
+    // The minimap's width and the margin React Flow puts around it, at least.
+    expect(parseFloat(fit.padding.right)).toBeGreaterThanOrEqual(minimap.width + 15);
+    expect(fit.padding.right).toMatch(/px$/);
+    // The fit button fits it the same way.
+    expect(received.controls.fitViewOptions).toBe(received.flow.fitViewOptions);
   });
 
   it('should handle empty graph gracefully', () => {

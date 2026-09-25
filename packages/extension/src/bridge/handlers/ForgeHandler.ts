@@ -1,5 +1,6 @@
 import type {
   AuditObjectCounts,
+  AuditOutcome,
   BaseMessage,
   ForgeConfig,
   ForgeExecutionResult,
@@ -70,7 +71,7 @@ import {
   removalMarks,
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
-import { forgeRunResult } from '../../modules/forge/runResult.js';
+import { finishedRunStatus, forgeRunResult } from '../../modules/forge/runResult.js';
 import type { ExecutionSummary, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
@@ -108,6 +109,9 @@ const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
 
 /** Why a run the user aborted before the executor had it was stopped, as the audit trail records it. */
 const ABORTED_BEFORE_START = 'ABORTED_BEFORE_START';
+
+/** Why a run a cancel stopped once the executor had it, before it wrote anything, was stopped. */
+const RUN_CANCELLED = 'RUN_CANCELLED';
 
 /** What the page is told of a run aborted before the executor had it. */
 const ABORTED_BEFORE_START_MESSAGE =
@@ -356,6 +360,29 @@ function forgeAuditObjects(
     countsOf(error.objectApiName).failed += error.failedCount;
   }
   return [...byObject.values()];
+}
+
+/**
+ * How the audit trail records a run a cancel stopped once the executor had
+ * it. Recorded as failed, it read as a run that went wrong, where the history
+ * keeps it as partial (`keepStoppedRun`) and Seed records a cancel so. Partial
+ * once it wrote a record — created one, or wrote over one an upsert matched;
+ * stopped when it wrote none, as a run stopped before it started is. What its
+ * tallies say otherwise stands, as for a run that finished with them: one
+ * whose rows the target refused, or whose read failed, with nothing settled,
+ * failed.
+ *
+ * @param summary - What the executor held when the cancel stopped it; absent
+ *   when it held nothing yet.
+ * @param objects - What the run's entry says it did, per object.
+ */
+function cancelledRunOutcome(
+  summary: ExecutionSummary | undefined,
+  objects: readonly AuditObjectCounts[],
+): AuditOutcome {
+  if (objects.some((object) => object.created + object.updated > 0)) return 'partial';
+  const reached = summary ? finishedRunStatus(summary) : 'success';
+  return reached === 'success' ? 'stopped' : reached;
 }
 
 /**
@@ -1404,6 +1431,25 @@ export class ForgeHandler implements DomainHandler {
       const tallies = partial
         ? { idRemapByObject: partial.remapByObject, errors: partial.errors }
         : undefined;
+      const objects = tallies ? forgeAuditObjects(tallies) : [];
+      /*
+       * Aborted during the record type lookup, the run never reached the
+       * executor and wrote nothing: stopped, as one aborted while the guard
+       * waited is. Stopped by a cancel once the executor had it: partial when
+       * it had written, stopped under a code of its own when it had not (see
+       * `cancelledRunOutcome`), where the trail read it as a run that failed.
+       * Any other error is the run's failure.
+       */
+      const outcome: AuditOutcome = stoppedBeforeStart
+        ? 'stopped'
+        : cancelled
+          ? cancelledRunOutcome(partial, objects)
+          : 'failure';
+      const code = stoppedBeforeStart
+        ? ABORTED_BEFORE_START
+        : outcome === 'stopped'
+          ? RUN_CANCELLED
+          : undefined;
       // Kept in the history with what it created and where, so those records
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
@@ -1420,16 +1466,12 @@ export class ForgeHandler implements DomainHandler {
         module: 'forge',
         operationId,
         orgId: config.targetOrgId,
-        // Aborted during the record type lookup, the run never reached the
-        // executor and wrote nothing: stopped, as one aborted while the guard
-        // waited is. The trail read it as a run that failed.
-        ...(stoppedBeforeStart
-          ? { outcome: 'stopped' as const, code: ABORTED_BEFORE_START }
-          : { outcome: 'failure' as const }),
+        outcome,
+        ...(code ? { code } : {}),
         guard: guardDecision,
         ...(tallies
           ? {
-              objects: forgeAuditObjects(tallies),
+              objects,
               source: { origin: 'org' as const, orgId: config.sourceOrgId },
               carried: forgeCarried(tallies),
             }

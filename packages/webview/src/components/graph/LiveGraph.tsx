@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ReactFlow, MiniMap, Controls, Background } from '@xyflow/react';
-import type { Node, Edge } from '@xyflow/react';
+import type { Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { ForgeGraph, ForgeGraphEdge } from '@sandforge/shared';
@@ -34,6 +34,27 @@ const NODE_WIDTH = 220;
 
 /** Node height in pixels for Dagre layout. */
 const NODE_HEIGHT = 140;
+
+/** The minimap's size in pixels, React Flow's own, said here for the room the fit leaves it. */
+const MINIMAP_WIDTH = 200;
+const MINIMAP_HEIGHT = 150;
+
+/** The margin React Flow puts around a panel such as the minimap (`.react-flow__panel`). */
+const PANEL_MARGIN = 15;
+
+/**
+ * How the graph is fitted to its pane, on first draw and from the controls'
+ * fit button: React Flow's own padding on every side but the right, where
+ * the strip the minimap stands in is left free, down the pane's whole height.
+ * Fitted to the whole pane, the nodes on its right lay under the minimap: at
+ * 1280×720 the execution graph's pane is 94 px high, less than the minimap,
+ * which covered the contact of an account and its contacts. Left of that
+ * strip, no node is under it however high the pane is. A graph too wide to
+ * fit at the smallest zoom can still reach it, and is panned to as before.
+ */
+const FIT_CLEAR_OF_MINIMAP: FitViewOptions = {
+  padding: { x: 0.1, y: 0.1, right: `${MINIMAP_WIDTH + 2 * PANEL_MARGIN}px` },
+};
 
 /**
  * Find the edge type (master-detail or lookup) for a given node based on
@@ -193,16 +214,21 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         // checkbox are the node's keyboard stops.
         nodesFocusable={false}
         fitView
+        fitViewOptions={FIT_CLEAR_OF_MINIMAP}
         proOptions={{ hideAttribution: true }}
       >
         {/* Nodes in the Forge mark as a class: the minimap sets `nodeColor` as a fill
             attribute, which takes no token and which a class rule overrides. */}
         <MiniMap
-          style={{ backgroundColor: 'var(--sf-bg-primary)' }}
+          style={{
+            backgroundColor: 'var(--sf-bg-primary)',
+            width: MINIMAP_WIDTH,
+            height: MINIMAP_HEIGHT,
+          }}
           nodeClassName="fill-hue-forge"
           maskColor="rgba(0,0,0,0.6)"
         />
-        <Controls />
+        <Controls fitViewOptions={FIT_CLEAR_OF_MINIMAP} />
         <Background color="rgba(255,255,255,0.05)" gap={20} />
       </ReactFlow>
     </div>

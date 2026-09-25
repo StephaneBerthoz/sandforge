@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
@@ -673,18 +674,18 @@ describe('ForgeResults', () => {
       render(<ForgeResults />);
 
       expect(tableRows()).toEqual([
-        ['Account', '1', 'done', '-'],
-        ['Case', '-', 'skipped', '-'],
-        ['Contact', '3', 'done', 'FIELD_INTEGRITY_EXCEPTION'],
+        ['Account', '1', 'Done', '-'],
+        ['Case', '-', 'Skipped', '-'],
+        ['Contact', '3', 'Done', 'FIELD_INTEGRITY_EXCEPTION'],
         [
           'EmailStatus',
           '-',
-          'skipped',
+          'Skipped',
           'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type EmailStatus does not support query',
         ],
-        ['PricebookEntry', '2', 'done', '-'],
-        ['Product2', '-', 'error', '-'],
-        ['ProductSellingModelOption', '2', 'error', '-'],
+        ['PricebookEntry', '2', 'Done', '-'],
+        ['Product2', '-', 'Failed', '-'],
+        ['ProductSellingModelOption', '2', 'Failed', '-'],
       ]);
     });
 
@@ -780,9 +781,9 @@ describe('ForgeResults', () => {
         ['PricebookEntry', 'Product2', 'ProductSellingModelOption'].includes(object),
       );
       expect(beyond.map(([object, , status]) => `${object} ${status}`)).toEqual([
-        'PricebookEntry done',
-        'Product2 error',
-        'ProductSellingModelOption done',
+        'PricebookEntry Done',
+        'Product2 Failed',
+        'ProductSellingModelOption Done',
       ]);
     });
 
@@ -1173,7 +1174,7 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
 
     const badge = screen.getByTestId('forge-results-status-stopped');
-    expect(badge.textContent).toBe('stopped');
+    expect(badge.textContent).toBe('Stopped');
     expect(badge.className).toContain('text-status-warning');
     expect(screen.queryAllByTestId('forge-results-status-done')).toHaveLength(1);
 
@@ -1184,6 +1185,62 @@ describe('ForgeResults', () => {
     expect(
       screen.getAllByTestId('forge-results-row').map((row) => row.querySelector('td')?.textContent),
     ).toEqual(['Contact']);
+  });
+
+  /** Each object's status as its badge says it, in the table's order. */
+  const statusBadges = (): Array<string | null> =>
+    screen
+      .getAllByTestId('forge-results-row')
+      .map(
+        (row) => row.querySelector('[data-testid^="forge-results-status-"]')?.textContent ?? null,
+      );
+
+  it('names the status of each object in words, not by its code', () => {
+    // The badge printed the code itself — "done", "error" — in every language.
+    const graph = makeMockGraphWithError();
+    mockGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.objectApiName === 'Contact' ? { ...node, status: 'stopped' as const } : node,
+      ),
+    };
+    render(<ForgeResults />);
+
+    // Account, Case, Contact, Opportunity: sorted by name.
+    expect(statusBadges()).toEqual(['Done', 'Skipped', 'Stopped', 'Failed']);
+  });
+
+  it('names each status in the language the panel is set to, and keeps the codes in the report it copies', async () => {
+    // The report is written in English, headings and notes alike: the codes
+    // the run gave stay in it, as the tests and scripts that read it expect.
+    mockGraph = makeMockGraphWithError();
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<ForgeResults />);
+
+      expect(statusBadges()).toEqual([
+        fr.forge.nodeStatus.done,
+        fr.forge.nodeStatus.skipped,
+        fr.forge.nodeStatus.done,
+        fr.forge.nodeStatus.error,
+      ]);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+      const report = writeText.mock.calls[0]?.[0] ?? '';
+      expect(report).toContain('| Account | 10 | done | - |');
+      expect(report).toContain('| Opportunity | 8 | error | UNABLE_TO_LOCK_ROW |');
+    } finally {
+      await i18n.changeLanguage('en');
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   /* ---- Collapsible logs toggle ---- */

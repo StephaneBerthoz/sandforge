@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import ja from '../../i18n/locales/ja.json';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
 import type { ForgeGraphNode } from '../../stores/useForgeStore';
 
@@ -48,7 +49,25 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const badge = screen.getByTestId('node-status-badge');
-    expect(badge.textContent).toBe('running');
+    // In words: the badge printed the code itself, in every language.
+    expect(badge.textContent).toBe('Running');
+  });
+
+  it('names the status in the language the panel is set to', async () => {
+    i18n.addResourceBundle('ja', 'translation', ja, true, true);
+    await i18n.changeLanguage('ja');
+    try {
+      render(
+        <ForgeNodeDetail
+          node={makeNode({ status: 'skipped' })}
+          onToggleIncluded={vi.fn()}
+          onToggleAnonymize={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('node-status-badge').textContent).toBe(ja.forge.nodeStatus.skipped);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should display record count', () => {
@@ -206,7 +225,7 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const badge = screen.getByTestId('node-status-badge');
-    expect(badge.textContent).toBe('stopped');
+    expect(badge.textContent).toBe('Stopped');
     expect(badge.className).toContain('text-status-warning');
   });
 

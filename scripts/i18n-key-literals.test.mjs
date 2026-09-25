@@ -270,6 +270,10 @@ const UNION_BACKED = [
     from: { file: 'packages/shared/src/types/compare.types.ts', union: 'CompareRiskReason' },
   },
   {
+    prefix: 'forge.nodeStatus.',
+    from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeNodeStatus' },
+  },
+  {
     prefix: 'home.smartAction.action.',
     from: { file: 'packages/shared/src/types/smart-action.types.ts', union: 'SmartActionType' },
     guarded: {

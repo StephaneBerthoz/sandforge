@@ -59,11 +59,12 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {/* Header: object name + status badge */}
       <m.div variants={slideUp} className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-text-primary">{node.objectApiName}</h3>
+        {/* In words: the badge printed the code — "done", "error" — in every language. */}
         <span
           data-testid="node-status-badge"
           className={cn('rounded-full px-2 py-0.5 text-xs font-medium', statusColors[node.status])}
         >
-          {node.status}
+          {t(`forge.nodeStatus.${node.status}`)}
         </span>
       </m.div>
 

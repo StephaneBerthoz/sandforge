@@ -346,6 +346,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       '|--------|---------|--------|--------|',
     ];
 
+    // Each status as the run gave it, where the page names it in words: the
+    // report is written in English throughout, headings and notes alike.
     for (const row of rows) {
       const errorText = row.errors.length > 0 ? row.errors.join(', ') : '-';
       lines.push(
@@ -727,6 +729,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   <td className="px-4 py-2 font-mono text-text-primary">{row.objectApiName}</td>
                   <td className="px-4 py-2 tabular-nums text-text-primary">{row.records ?? '-'}</td>
                   <td className="px-4 py-2">
+                    {/* In words: the badge printed the code — "done",
+                        "error" — in every language. The copied report keeps
+                        the code: it is written in English throughout. */}
                     <span
                       data-testid={`forge-results-status-${row.status}`}
                       className={cn(
@@ -734,7 +739,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                         statusBadgeStyles[row.status] ?? 'bg-surface-2 text-text-secondary',
                       )}
                     >
-                      {row.status}
+                      {t(`forge.nodeStatus.${row.status}`)}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-text-secondary">

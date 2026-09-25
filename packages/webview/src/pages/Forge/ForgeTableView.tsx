@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronUp, ChevronDown } from 'lucide-react';
+import type { ForgeNodeStatus } from '@sandforge/shared';
 import { cn } from '../../theme';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
 
@@ -10,13 +11,18 @@ type SortField = 'objectApiName' | 'recordCount' | 'fieldCount' | 'status';
 /** Sort direction. */
 type SortDirection = 'asc' | 'desc';
 
-/** Status badge color mapping. */
-const statusColors: Record<string, string> = {
+/**
+ * Status badge colors, one per node status. Keyed by strings, the map held
+ * `failed` and `queued`, which no node has, and no `error`: a node that
+ * failed took the idle style. A status added to the union is a compile error
+ * here until it has its colors.
+ */
+const statusColors: Record<ForgeNodeStatus, string> = {
   idle: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  scanning: 'bg-status-info/10 text-status-info',
   running: 'bg-status-info/10 text-status-info',
   done: 'bg-status-success/10 text-status-success',
-  failed: 'bg-status-error/10 text-status-error',
-  queued: 'bg-status-warning/10 text-status-warning',
+  error: 'bg-status-error/10 text-status-error',
   skipped: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
   stopped: 'bg-status-warning/10 text-status-warning',
 };
@@ -198,13 +204,16 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
               <td className="px-3 py-2 text-text-secondary">{node.recordCount}</td>
               <td className="px-3 py-2 text-text-secondary">{node.fieldCount}</td>
               <td className="px-3 py-2">
+                {/* In words: the column printed the code — "done", "error" —
+                    in every language. */}
                 <span
+                  data-testid={`forge-table-status-${node.objectApiName}`}
                   className={cn(
                     'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                    statusColors[node.status] ?? statusColors.idle,
+                    statusColors[node.status],
                   )}
                 >
-                  {node.status}
+                  {t(`forge.nodeStatus.${node.status}`)}
                 </span>
               </td>
               <td className="px-3 py-2 text-text-secondary">

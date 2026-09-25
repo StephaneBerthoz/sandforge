@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ForgeTableView } from './ForgeTableView';
 import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
 
@@ -228,7 +229,7 @@ describe('ForgeTableView', () => {
         onToggleIncluded={mockOnToggleIncluded}
       />,
     );
-    const badge = screen.getByText('skipped');
+    const badge = screen.getByText('Skipped');
     // text-gray-500 on bg-gray-500/20 read 2.7:1 on Dark Modern.
     expect(badge.className).toContain(
       'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)]',
@@ -247,7 +248,93 @@ describe('ForgeTableView', () => {
         onToggleIncluded={mockOnToggleIncluded}
       />,
     );
-    expect(screen.getByText('stopped').className).toContain('text-status-warning');
+    expect(screen.getByText('Stopped').className).toContain('text-status-warning');
+  });
+
+  it('writes the status of a node that failed in the error token, not the idle one', () => {
+    // `error` had no entry, and a failed node took the idle style.
+    const graph = makeGraph([makeNode({ objectApiName: 'Account', status: 'error' })]);
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    const badge = screen.getByTestId('forge-table-status-Account');
+    expect(badge.className).toContain('bg-status-error/10');
+    expect(badge.className).toContain('text-status-error');
+    expect(badge.className).not.toContain('text-text-primary');
+  });
+
+  it('writes a node being scanned in the info token, as one being written', () => {
+    const graph = makeGraph([
+      makeNode({ objectApiName: 'Account', status: 'scanning' }),
+      makeNode({ objectApiName: 'Contact', status: 'running' }),
+    ]);
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    expect(screen.getByTestId('forge-table-status-Account').className).toContain(
+      'text-status-info',
+    );
+    expect(screen.getByTestId('forge-table-status-Contact').className).toContain(
+      'text-status-info',
+    );
+  });
+
+  it('names each status in words, not by its code', () => {
+    // The column printed the code itself — "done", "error" — in every language.
+    const statuses = [
+      'idle',
+      'scanning',
+      'running',
+      'done',
+      'error',
+      'skipped',
+      'stopped',
+    ] as const;
+    const graph = makeGraph(
+      statuses.map((status, i) => makeNode({ objectApiName: `Object${i}`, status })),
+    );
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    expect(
+      statuses.map((_, i) => screen.getByTestId(`forge-table-status-Object${i}`).textContent),
+    ).toEqual(['Not started', 'Scanning', 'Running', 'Done', 'Failed', 'Skipped', 'Stopped']);
+  });
+
+  it('names a status in the language the panel is set to', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      const graph = makeGraph([makeNode({ objectApiName: 'Account', status: 'error' })]);
+      render(
+        <ForgeTableView
+          graph={graph}
+          selectedNodeName={null}
+          onNodeClick={mockOnNodeClick}
+          onToggleIncluded={mockOnToggleIncluded}
+        />,
+      );
+      expect(screen.getByTestId('forge-table-status-Account').textContent).toBe(
+        fr.forge.nodeStatus.error,
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should display PII count when node has PII fields', () => {
