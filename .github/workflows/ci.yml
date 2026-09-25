@@ -19,8 +19,9 @@ jobs:
     # Windows runs the same `validate` in 28 minutes that ubuntu runs in 7 and
     # macOS in 5. At 30 the Windows job was cancelled mid-validate every time,
     # which is what the run history shows: a wall of "cancelled" at 30m2x for
-    # months.
-    timeout-minutes: 45
+    # months. Ubuntu also runs the E2E suite, on one worker: 33 of 45 minutes
+    # in 1.39.5, and at 45 the 1.39.6 run was cancelled two thirds through it.
+    timeout-minutes: 60
     strategy:
       # Each OS reports its own result. Without this, a failure on one leg
       # cancels the others — including ubuntu, the leg that runs the E2E suite,
