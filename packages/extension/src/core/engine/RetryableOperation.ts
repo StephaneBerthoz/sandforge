@@ -8,6 +8,30 @@ export interface RetryableOperationOptions {
   retryConfig?: Partial<RetryConfig>;
   /** Callback invoked before each retry attempt */
   onRetry?: (attempt: number, error: ClassifiedError, delay: number) => void;
+  /**
+   * The run's cancel. Once it says so, a failed call is not tried again and
+   * its backoff is not waited out: `execute` answers `cancelled`. Without it,
+   * a batch the target failed on went out once more after its backoff, the
+   * run cancelled meanwhile.
+   */
+  signal?: AbortSignal;
+}
+
+/** Wait `ms`, or less when `signal` aborts meanwhile. */
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 /** Result of a batch execution with per-record retry */
@@ -61,10 +85,19 @@ export class RetryableOperation {
         }
 
         if (attempt < config.maxRetries) {
+          const cancelled = {
+            success: false,
+            error: lastError,
+            attempts: attempt + 1,
+            totalDelay,
+            cancelled: true,
+          };
+          if (this.options.signal?.aborted) return cancelled;
           const delay = this.strategy.calculateDelay(attempt);
           this.options.onRetry?.(attempt, classified, delay);
           totalDelay += delay;
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await pause(delay, this.options.signal);
+          if (this.options.signal?.aborted) return { ...cancelled, totalDelay };
         }
       }
     }

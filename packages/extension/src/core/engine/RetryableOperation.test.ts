@@ -148,6 +148,43 @@ describe('RetryableOperation', () => {
       );
     });
 
+    it('sends nothing again once the cancel comes during the wait', async () => {
+      // A batch the target failed on went out once more after its backoff,
+      // the run cancelled meanwhile: a write the cancel had stopped.
+      const cancel = new AbortController();
+      const op = new RetryableOperation({
+        retryConfig: { maxRetries: 3, initialDelay: 1000, jitter: false },
+        signal: cancel.signal,
+      });
+      const fn = vi.fn().mockRejectedValue(createJsforceError('UNABLE_TO_LOCK_ROW'));
+
+      const promise = op.execute(fn);
+      await vi.advanceTimersByTimeAsync(10);
+      cancel.abort();
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ success: false, cancelled: true, attempts: 1 });
+    });
+
+    it('does not wait out the backoff of a call the cancel came during', async () => {
+      const cancel = new AbortController();
+      const op = new RetryableOperation({
+        retryConfig: { maxRetries: 3, initialDelay: 1000, jitter: false },
+        signal: cancel.signal,
+      });
+      const fn = vi.fn().mockImplementation(async () => {
+        cancel.abort();
+        throw createJsforceError('UNABLE_TO_LOCK_ROW');
+      });
+
+      const result = await op.execute(fn);
+
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ success: false, cancelled: true, totalDelay: 0 });
+    });
+
     it('should exhaust all retries for persistent retryable errors', async () => {
       const op = new RetryableOperation({
         retryConfig: { maxRetries: 2, initialDelay: 100, jitter: false },

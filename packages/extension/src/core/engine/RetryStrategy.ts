@@ -14,6 +14,8 @@ export interface RetryResult<T> {
   error?: Error;
   attempts: number;
   totalDelay: number;
+  /** Whether the run's cancel stopped the retries: the last attempt failed, and none followed. */
+  cancelled?: boolean;
 }
 
 /**

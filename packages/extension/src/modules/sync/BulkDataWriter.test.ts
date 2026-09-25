@@ -303,6 +303,26 @@ describe('BulkDataWriter', () => {
       expect(stopped.written.map((o) => o.id)).toEqual(['001000', '001001']);
     });
 
+    it('does not send again a batch the target failed on once the run is cancelled', async () => {
+      // The batch went out once more after its backoff, the cancel come
+      // during the wait: a write after the run had been stopped.
+      const h = createHarness();
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        retryConfig: { maxRetries: 2, initialDelay: 20, jitter: false },
+      });
+      h.sobject.create.mockImplementation(async () => {
+        setTimeout(() => h.abort.abort(), 5);
+        throw Object.assign(new Error('UNABLE_TO_LOCK_ROW'), { errorCode: 'UNABLE_TO_LOCK_ROW' });
+      });
+
+      const writing = writer.insert('Account', makeRecords(3), 3);
+
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Account', written: [] });
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+    });
+
     it('sends no batch of a write the cancel came before, and says it wrote nothing', async () => {
       // A caller looks at the cancel before it writes, then waits on the
       // target; a cancel that came meanwhile still sent the first batch.

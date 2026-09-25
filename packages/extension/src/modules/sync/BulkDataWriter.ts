@@ -96,6 +96,7 @@ export class BulkDataWriter {
   constructor(private readonly deps: BulkDataWriterDeps) {
     this.retryOp = new RetryableOperation({
       retryConfig: deps.retryConfig,
+      signal: deps.signal,
       onRetry: (attempt, classified, delay) => {
         deps.log(
           `[RETRY] sync attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`,
@@ -366,6 +367,9 @@ export class BulkDataWriter {
       if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
       const retryResult = await this.retryOp.execute(() => call(batch));
+      // The batch failed and the cancel came before it was tried again: none
+      // of it was written, and nothing after it is sent.
+      if (retryResult.cancelled) throw new WriteCancelledError(objectName, outcomes);
       if (retryResult.success && retryResult.result) {
         for (const r of Array.isArray(retryResult.result)
           ? retryResult.result
