@@ -44,7 +44,7 @@ export function parseModelJson<S extends z.ZodTypeAny>(schema: S, reply: string)
 /** An array read item by item: the items that fit `item` are kept, the rest dropped. */
 function keepFitting<T extends z.ZodTypeAny>(
   item: T,
-): z.ZodEffects<z.ZodArray<z.ZodUnknown>, Array<z.output<T>>> {
+): z.ZodPipe<z.ZodArray<z.ZodUnknown>, z.ZodTransform<Array<z.output<T>>, unknown[]>> {
   return z.array(z.unknown()).transform((items) =>
     items.flatMap((entry): Array<z.output<T>> => {
       const parsed = item.safeParse(entry);
@@ -54,7 +54,7 @@ function keepFitting<T extends z.ZodTypeAny>(
 }
 
 /** A JSON object, and nothing else: not an array, not null. */
-const JsonObjectSchema = z.record(z.unknown());
+const JsonObjectSchema = z.record(z.string(), z.unknown());
 
 /** One step of a pipeline draft. A step with no name or no type cannot be placed on the canvas. */
 const PipelineDraftStepSchema = z.object({

@@ -86,9 +86,11 @@ const MAX_ISSUES_LENGTH = 500;
  * {@link MAX_ISSUES_LENGTH} chars and appending the total issue count.
  */
 function formatIssues(
-  issues: ReadonlyArray<{ path: (string | number)[]; message: string }>,
+  issues: ReadonlyArray<{ path: readonly PropertyKey[]; message: string }>,
 ): string {
-  const joined = issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+  const joined = issues
+    .map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
+    .join('; ');
   if (joined.length <= MAX_ISSUES_LENGTH) return joined;
   return `${joined.slice(0, MAX_ISSUES_LENGTH)}…(+${issues.length} issues)`;
 }

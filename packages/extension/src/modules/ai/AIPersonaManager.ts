@@ -614,7 +614,7 @@ const PERSONA_PARAM_SCHEMAS = {
     values: z.array(z.union([z.string(), z.number(), z.boolean()]).transform(String)).min(1),
   }),
   weighted_pick: z.object({
-    values: z.record(numericParam).refine((values) => Object.keys(values).length > 0),
+    values: z.record(z.string(), numericParam).refine((values) => Object.keys(values).length > 0),
   }),
   range: z.object({ min: optionalNumber, max: optionalNumber, currency: optionalText }),
   sequence: z.object({

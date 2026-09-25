@@ -3,6 +3,10 @@ import { z } from 'zod';
 /**
  * Zod schema for timeout configuration.
  * All values in milliseconds with sensible minimums to prevent zero/negative timeouts.
+ *
+ * A missing block takes every default below: the three blocks of this file end
+ * on `prefault({})`, since zod 4's `default({})` hands `{}` back as it is
+ * instead of parsing it through the object, and no inner default would apply.
  */
 export const timeoutsConfigSchema = z
   .object({
@@ -15,7 +19,7 @@ export const timeoutsConfigSchema = z
     /** Timeout for a Bulk API 2.0 job to complete (ms) */
     bulkJob: z.number().min(60_000).max(600_000).default(300_000),
   })
-  .default({});
+  .prefault({});
 
 /**
  * Zod schema for retry strategy configuration.
@@ -32,7 +36,7 @@ export const retryConfigSchema = z
     /** Multiplier applied to delay after each retry */
     backoffMultiplier: z.number().min(1).max(5).default(2),
   })
-  .default({});
+  .prefault({});
 
 /**
  * Zod schema for Bulk API configuration.
@@ -47,7 +51,7 @@ export const bulkConfigSchema = z
     /** Maximum number of concurrent bulk jobs */
     maxConcurrentJobs: z.number().int().min(1).max(100).default(5),
   })
-  .default({});
+  .prefault({});
 
 /**
  * Complete robustness configuration schema.

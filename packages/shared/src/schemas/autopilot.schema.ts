@@ -180,7 +180,9 @@ export const executionWaveSchema = z.object({
 export const anonymizationSummarySchema = z.object({
   totalPiiFields: z.number().int().nonnegative(),
   totalFieldsToAnonymize: z.number().int().nonnegative(),
-  methodBreakdown: z.record(anonymizationMethodSchema, z.number().int().nonnegative()),
+  // Partial: zod 4 reads a record keyed by an enum as holding every key, and a
+  // breakdown names only the methods a run used.
+  methodBreakdown: z.partialRecord(anonymizationMethodSchema, z.number().int().nonnegative()),
   objectsWithPii: z.array(z.string().min(1)),
 });
 
@@ -204,7 +206,7 @@ export const autopilotConfigSchema = z.object({
   selectedObjects: z.array(z.string().min(1)),
   complianceFramework: complianceFrameworkTypeSchema,
   maxRecordsPerObject: z.number().int().nonnegative(),
-  objectFilters: z.record(z.string()),
+  objectFilters: z.record(z.string(), z.string()),
   includeStandardObjects: z.boolean(),
   grappeThreshold: z.number().int().positive(),
 });

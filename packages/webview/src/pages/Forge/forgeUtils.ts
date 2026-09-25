@@ -281,9 +281,7 @@ export function soqlObjectFilters(soql: string): Record<string, string> | undefi
  * The rule every object filter value is checked against. The object name has
  * its own rule, and a name it refuses says nothing about the clause.
  */
-const objectSoqlFilterRule = forgeConfigSchema.shape.objectSoqlFilters
-  .unwrap()
-  .innerType().valueSchema;
+const objectSoqlFilterRule = forgeConfigSchema.shape.objectSoqlFilters.unwrap().valueType;
 
 /**
  * Whether the query's WHERE clause breaks the rules the extension checks every
@@ -305,9 +303,7 @@ export function soqlFilterRefused(soql: string): boolean {
 }
 
 /** The rule every object filter KEY is checked against: an SObject API name. */
-const objectSoqlFilterKeyRule = forgeConfigSchema.shape.objectSoqlFilters
-  .unwrap()
-  .innerType().keySchema;
+const objectSoqlFilterKeyRule = forgeConfigSchema.shape.objectSoqlFilters.unwrap().keyType;
 
 /**
  * Whether the name after FROM breaks the rule the extension checks every

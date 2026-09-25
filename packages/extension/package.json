@@ -402,7 +402,7 @@
     "cron-parser": "^5.5.0",
     "jsforce": "^3",
     "pino": "^10",
-    "zod": "^3.25.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

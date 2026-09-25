@@ -126,14 +126,12 @@ export function isSyncFileObject(objectApiName: string): boolean {
  */
 export const syncObjectPayloadSchema = syncObjectConfigSchema
   .extend({
-    objectApiName: sfApiNameSchema.refine(
-      (name) => !isSyncFileObject(name),
-      (name) => ({
-        message:
-          `Sync does not transfer files: "${name}" keeps its content in a file body that no ` +
-          `sync stage moves. Remove it from this configuration; the sync was not started.`,
-      }),
-    ),
+    objectApiName: sfApiNameSchema.refine((name) => !isSyncFileObject(name), {
+      error: (issue) =>
+        `Sync does not transfer files: "${String(issue.input)}" keeps its content in a file ` +
+        `body that no sync stage moves. Remove it from this configuration; the sync was not ` +
+        `started.`,
+    }),
     // The External ID box is shown for every operation and sends what it holds:
     // a box left empty is no key, not a malformed one.
     externalIdField: z.preprocess(
@@ -155,17 +153,14 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
    * it). The run reached Salesforce and failed there, or wrote nothing, and
    * the reason never surfaced. Refused here instead, with the two ways out.
    */
-  .refine(
-    (object) => object.operation !== 'upsert' || (object.externalIdField ?? 'Id') !== 'Id',
-    (object) => ({
-      path: ['externalIdField'],
-      message:
-        `An upsert of "${object.objectApiName}" needs an External ID field: matching on Id cannot ` +
-        `work, because the id belongs to the source org and the target has never issued it. ` +
-        `Name an External ID field both orgs share, or set the operation to insert. ` +
-        `The sync was not started.`,
-    }),
-  );
+  .refine((object) => object.operation !== 'upsert' || (object.externalIdField ?? 'Id') !== 'Id', {
+    path: ['externalIdField'],
+    error: (issue) =>
+      `An upsert of "${String((issue.input as { objectApiName?: unknown }).objectApiName)}" ` +
+      `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
+      `the source org and the target has never issued it. Name an External ID field both ` +
+      `orgs share, or set the operation to insert. The sync was not started.`,
+  });
 
 /**
  * An Apex hook a sync config used to carry. A sync moves data and never runs
@@ -174,14 +169,16 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
  * instead of quietly syncing without the script its author expected. An
  * explicit `undefined` (a stored config round-tripping through JSON) passes.
  */
-function removedScriptField(field: string): z.ZodUndefined {
-  return z.undefined({
-    errorMap: () => ({
-      message:
+function removedScriptField(field: string): z.ZodOptional<z.ZodUndefined> {
+  // Optional: zod 4 no longer treats a key whose schema accepts undefined as
+  // one the object may lack, and every config without the hook was refused.
+  return z
+    .undefined({
+      error: () =>
         `Sync does not run Apex: remove "${field}" from this configuration. ` +
         `The sync was not started so the script cannot be skipped without you knowing.`,
-    }),
-  });
+    })
+    .optional();
 }
 
 /**
@@ -206,12 +203,10 @@ export const syncConfigPayloadSchema = syncConfigSchema
     // carries it with that value, and history reruns replay those snapshots.
     dryRun: z
       .literal(false, {
-        errorMap: () => ({
-          message:
-            `Sync has no dry run: remove "dryRun" from this configuration. ` +
-            `A sync run writes to the target org, and the run was not started ` +
-            `so it cannot write while you believed it was only reporting.`,
-        }),
+        error: () =>
+          `Sync has no dry run: remove "dryRun" from this configuration. ` +
+          `A sync run writes to the target org, and the run was not started ` +
+          `so it cannot write while you believed it was only reporting.`,
       })
       .optional(),
   })
@@ -467,7 +462,7 @@ export const seedDescribeObjectPayloadSchema = z.object({
 });
 export const seedTemplateIdPayloadSchema = z.object({ id: opaqueIdSchema });
 export const seedTemplateSavePayloadSchema = z.object({
-  template: z.record(z.unknown()),
+  template: z.record(z.string(), z.unknown()),
 });
 export const seedCreatePersonaPayloadSchema = z.object({
   // Empty descriptions stay legal here: the handler answers with a graceful
@@ -533,7 +528,7 @@ export const seedCsvPayloadSchema = z.object({
   orgId: orgIdSchema,
   objectApiName: sfApiNameSchema,
   records: z
-    .array(z.record(z.string().max(MAX_FIELD_VALUE_LENGTH)))
+    .array(z.record(z.string(), z.string().max(MAX_FIELD_VALUE_LENGTH)))
     .min(1)
     .max(MAX_CSV_ROWS),
   columnMappings: z.array(csvColumnMappingPayloadSchema).min(1).max(500),
@@ -891,7 +886,7 @@ export const autopilotScanSchemaPayloadSchema = z.object({
 export const autopilotGeneratePlanPayloadSchema = z.object({
   complianceFramework: complianceFrameworkTypeSchema,
   maxRecordsPerObject: z.number().int().nonnegative().max(MAX_SEED_RECORDS_PER_OBJECT).optional(),
-  objectFilters: z.record(whereClauseSchema).optional(),
+  objectFilters: z.record(z.string(), whereClauseSchema).optional(),
   overrides: z
     .array(
       z.object({
@@ -1055,7 +1050,7 @@ export const executionAbortPayloadSchema = z
 
 export const governancePolicyIdPayloadSchema = z.object({ policyId: opaqueIdSchema });
 export const governancePolicySavePayloadSchema = z.object({
-  policy: z.record(z.unknown()),
+  policy: z.record(z.string(), z.unknown()),
 });
 export const governanceEvaluatePayloadSchema = z.object({
   policyId: opaqueIdSchema,
@@ -1249,17 +1244,17 @@ export const pipelineRunPayloadSchema = z.object({
       name: z.string().min(1).max(200),
       // A step saved without a config has none to read; it is read as empty.
       steps: z
-        .array(z.object({ config: z.record(z.unknown()).default({}) }).passthrough())
+        .array(z.object({ config: z.record(z.string(), z.unknown()).default({}) }).passthrough())
         .max(200),
       // A definition that carries no variables or no triggers — one written
       // by hand, drafted elsewhere, or saved before they existed — declares
       // none. Both were iterated as they came, so their absence failed the
       // run on `pipeline:error` with "pipeline.variables is not iterable".
-      variables: z.array(z.record(z.unknown())).max(200).default([]),
-      triggers: z.array(z.record(z.unknown())).max(50).default([]),
+      variables: z.array(z.record(z.string(), z.unknown())).max(200).default([]),
+      triggers: z.array(z.record(z.string(), z.unknown())).max(50).default([]),
     })
     .passthrough(),
-  variables: z.record(z.string().max(2_000)).optional(),
+  variables: z.record(z.string(), z.string().max(2_000)).optional(),
 });
 /**
  * A pipeline `pipeline:save` stored, read back to be started by a trigger: the
@@ -1272,7 +1267,7 @@ export const savedPipelineSchema = pipelineRunPayloadSchema.shape.pipeline.exten
 export const pipelineSavePayloadSchema = z.object({
   // Empty id stays legal: the handler falls back to crypto.randomUUID().
   id: z.string().max(200),
-  config: z.record(z.unknown()),
+  config: z.record(z.string(), z.unknown()),
 });
 export const marketplaceListPayloadSchema = z
   .object({

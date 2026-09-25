@@ -242,13 +242,16 @@ export const forgeGraphSchema = z.object({
 
 /**
  * The method for some PII categories, as Review holds them. Built here rather
- * than by each caller: `z.record` tells its two forms apart with `instanceof`
- * on its second argument, and a package whose zod is another copy of it (the
- * extension's tests load the ES build, this package the CommonJS one) read
- * the method schema as options and checked every method against the
+ * than by each caller: zod 3's `z.record` told its two forms apart with
+ * `instanceof` on its second argument, and a package whose zod was another copy
+ * of it (the extension's tests load the ES build, this package the CommonJS
+ * one) read the method schema as options and checked every method against the
  * categories.
+ *
+ * Partial: zod 4 reads a record keyed by an enum as holding every key, and a
+ * Review that sets a method for two categories out of five is the common case.
  */
-export const forgeAnonymizationRulesSchema = z.record(
+export const forgeAnonymizationRulesSchema = z.partialRecord(
   forgeAnonymizationCategorySchema,
   anonymizationMethodSchema,
 );
@@ -319,7 +322,7 @@ export const forgeCheckpointSchema = z.object({
   currentWaveIndex: z.number().int().nonnegative(),
   currentObjectIndex: z.number().int().nonnegative(),
   currentBatchIndex: z.number().int().nonnegative(),
-  remapperState: z.record(z.string()),
+  remapperState: z.record(z.string(), z.string()),
   completedObjects: z.array(z.string()),
   timestamp: z.string(),
 });
