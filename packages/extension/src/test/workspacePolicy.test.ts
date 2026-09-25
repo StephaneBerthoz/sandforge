@@ -106,19 +106,20 @@ describe('pnpm security overrides', () => {
   const overrides = readBlock('overrides');
   const pins = mapping(overrides);
 
-  it('pins lodash once, globally, rather than under recharts', () => {
-    // 4.18.1 is already the single resolution: narrowing to `recharts>lodash`
-    // would re-resolve a dependency that ships, for no advisory gain.
+  it('pins lodash once, globally', () => {
+    // lodash comes only through vsce's secret linter since Recharts 3: one
+    // global pin covers that path, and whatever path brings it next.
     const lodashKeys = [...pins.keys()].filter((key) => key.includes('lodash'));
     expect(lodashKeys).toEqual(['lodash@<4.18.0']);
     expect(pins.get('lodash@<4.18.0')).toBe('>=4.18.0');
   });
 
-  it('records that lodash ships, unlike the other pinned packages', () => {
-    // The block used to claim every override was devDep-only. recharts pulls
-    // lodash into webview-dist, so a lodash bump changes shipped chart code.
+  it('records that lodash no longer ships', () => {
+    // The block once claimed every override was devDep-only while Recharts 2
+    // put lodash in webview-dist; Recharts 3 does not, and a comment still
+    // saying it ships would send a reviewer after chart code that is gone.
     expect(overrides.comment).not.toMatch(/All devDep-only/);
-    expect(overrides.comment).toMatch(/webview-dist/);
-    expect(overrides.comment).toMatch(/Monitor chart/);
+    expect(overrides.comment).toMatch(/flatted and lodash are devDep-only/);
+    expect(overrides.comment).toMatch(/Recharts 3 does not/);
   });
 });
