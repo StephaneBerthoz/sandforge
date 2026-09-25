@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    /* Vitest 5 clears every mock's calls before each test by default, where
+       Vitest 4 kept them: a test asserting what a module did as it was
+       imported (the i18n boot restore) then read no call at all. */
+    clearMocks: false,
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',

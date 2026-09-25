@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { SidePanel } from './SidePanel';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';

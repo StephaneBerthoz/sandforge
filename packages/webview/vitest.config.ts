@@ -7,6 +7,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    /* Vitest 5 clears every mock's calls before each test by default, where
+       Vitest 4 kept them: a test asserting what a module did as it was
+       imported (the i18n boot restore) then read no call at all. */
+    clearMocks: false,
     include: ['src/**/*.test.{ts,tsx}'],
     /* See packages/extension/vitest.config.ts — absorb event-loop starvation
        when the three suites run in parallel under `pnpm validate`. */

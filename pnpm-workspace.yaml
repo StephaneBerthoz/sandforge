@@ -13,8 +13,8 @@ catalog:
   fast-check: '^3'
   typescript: '~6.0'
   typescript-eslint: '^8.70.1'
-  vitest: '^4.1.11'
-  '@vitest/coverage-v8': '^4.1.11'
+  vitest: '^5.0.1'
+  '@vitest/coverage-v8': '^5.0.1'
 
 # pnpm 11 build-script approvals, the only list pnpm 11 reads: it dropped
 # onlyBuiltDependencies and its siblings and ignores them without a warning

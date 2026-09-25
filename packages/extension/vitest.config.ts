@@ -12,6 +12,10 @@ export default defineConfig({
     root: fileURLToPath(new URL('.', import.meta.url)),
     globals: true,
     environment: 'node',
+    /* Vitest 5 clears every mock's calls before each test by default, where
+       Vitest 4 kept them: a test asserting what a module did as it was
+       imported (the i18n boot restore) then read no call at all. */
+    clearMocks: false,
     include: ['src/**/*.test.ts', 'cli/**/*.test.ts', 'tools/**/*.test.ts'],
     /*
      * The smoke suite matches that glob but imports `vscode`, a module only the
