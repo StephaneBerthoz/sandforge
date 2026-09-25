@@ -100,11 +100,11 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
           {visible.map((error, i) => (
             <div
               key={`${error.row}-${error.column}-${i}`}
-              className="flex gap-2 text-xs py-1 border-b border-[var(--sf-border)] last:border-b-0"
+              className="flex gap-2 text-xs py-1 border-b border-(--sf-border) last:border-b-0"
             >
               <Badge variant="default">{t('seed.csv.validation.row', { row: error.row })}</Badge>
-              <span className="font-medium text-[var(--sf-text-primary)]">{error.column}</span>
-              <span className="text-[var(--sf-text-secondary)] truncate">{error.message}</span>
+              <span className="font-medium text-(--sf-text-primary)">{error.column}</span>
+              <span className="text-(--sf-text-secondary) truncate">{error.message}</span>
               {/* bg-transparent: VS Code paints every <code> with textPreformat.background. */}
               {error.value && (
                 <code className="bg-transparent text-status-error text-[10px]">{error.value}</code>
@@ -113,7 +113,7 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
           ))}
           {remaining > 0 && (
             <span
-              className="text-xs text-[var(--sf-text-secondary)] py-1"
+              className="text-xs text-(--sf-text-secondary) py-1"
               data-testid={`more-errors-${errorType}`}
             >
               {t('seed.csv.validation.andMore', { count: remaining })}

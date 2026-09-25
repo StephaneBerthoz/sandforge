@@ -28,12 +28,12 @@ export const SyncHistoryDetail: React.FC = () => {
 
   return (
     <div
-      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--sf-border)] rounded"
+      className="flex flex-col gap-(--sf-space-3) p-(--sf-space-3) border border-(--sf-border) rounded-sm"
       data-testid="sync-history-detail"
     >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-[var(--sf-space-2)]">
+        <div className="flex items-center gap-(--sf-space-2)">
           <h4 className="text-sm font-semibold text-text-primary">
             {configSnapshot.name ?? t('sync.history.detailTitle')}
           </h4>
@@ -49,7 +49,7 @@ export const SyncHistoryDetail: React.FC = () => {
         </div>
         <button
           type="button"
-          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           onClick={clearSelection}
           data-testid="detail-close-btn"
           aria-label={t('common.close')}
@@ -61,7 +61,7 @@ export const SyncHistoryDetail: React.FC = () => {
       {/* Meta info. The times are read from storage: one that is not a date
           reads as unknown, where formatting it threw and the detail did not
           open. */}
-      <div className="flex gap-[var(--sf-space-3)] text-xs text-text-secondary">
+      <div className="flex gap-(--sf-space-3) text-xs text-text-secondary">
         <span>{formatStoredDate(startTime, 'yyyy-MM-dd HH:mm:ss') ?? t('common.dateUnknown')}</span>
         <span>
           {t('sync.history.triggeredBy')}:{' '}
@@ -76,7 +76,7 @@ export const SyncHistoryDetail: React.FC = () => {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-[var(--sf-space-2)]">
+      <div className="grid grid-cols-4 gap-(--sf-space-2)">
         <Card>
           <CardBody>
             <div className="text-center">
@@ -130,7 +130,7 @@ export const SyncHistoryDetail: React.FC = () => {
       )}
 
       {/* Per-object results */}
-      <div className="flex flex-col gap-[var(--sf-space-2)]">
+      <div className="flex flex-col gap-(--sf-space-2)">
         <h5 className="text-xs font-semibold text-text-primary">
           {t('sync.history.objectResults')}
         </h5>
@@ -141,7 +141,7 @@ export const SyncHistoryDetail: React.FC = () => {
               subtitle={`${t(`sync.operations.${obj.operation}`)} - ${obj.success}/${obj.processed}`}
             />
             <CardBody>
-              <div className="flex gap-[var(--sf-space-3)] text-[10px]">
+              <div className="flex gap-(--sf-space-3) text-[10px]">
                 <span>
                   {t('sync.history.processed')}: {obj.processed}
                 </span>
@@ -170,11 +170,11 @@ export const SyncHistoryDetail: React.FC = () => {
       </div>
 
       {/* Config snapshot summary */}
-      <div className="flex flex-col gap-[var(--sf-space-1)]">
+      <div className="flex flex-col gap-(--sf-space-1)">
         <h5 className="text-xs font-semibold text-text-primary">
           {t('sync.history.configSnapshot')}
         </h5>
-        <div className="flex gap-[var(--sf-space-2)] text-[10px] text-text-secondary flex-wrap">
+        <div className="flex gap-(--sf-space-2) text-[10px] text-text-secondary flex-wrap">
           <Badge variant="default">{t(`sync.directions.${configSnapshot.direction}`)}</Badge>
           <Badge variant="default">{t(`sync.modes.${configSnapshot.mode}`)}</Badge>
           <span>{t('common.objectCount', { count: configSnapshot.objects.length })}</span>
@@ -190,7 +190,7 @@ export const SyncHistoryDetail: React.FC = () => {
       <div className="flex justify-end">
         <button
           type="button"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]"
+          className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover)"
           onClick={() => rerun(selectedEntry.id)}
           data-testid="rerun-btn"
         >

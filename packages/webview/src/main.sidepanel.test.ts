@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
+import tailwindcss from '@tailwindcss/postcss';
 import postcss from 'postcss';
-import tailwindcss from 'tailwindcss';
-import loadConfig from 'tailwindcss/loadConfig';
 import ts from 'typescript';
 import { describe, it, expect } from 'vitest';
 
@@ -21,6 +21,7 @@ import { describe, it, expect } from 'vitest';
 
 const SRC = join(__dirname);
 const ENTRY = join(SRC, 'main.sidepanel.tsx');
+const SIDEPANEL_CSS = join(SRC, 'sidepanel.css');
 const SIDEPANEL_TAILWIND = join(SRC, '..', 'tailwind.sidepanel.config.ts');
 
 /** The file a relative specifier names, or undefined for a non-source import (CSS). */
@@ -90,22 +91,25 @@ describe('sidebar entry', () => {
     expect(reached.filter((file) => file.startsWith('pages/'))).toEqual([]);
   });
 
-  it('scans for classes every file the sidebar renders, and no page', () => {
+  it('scans for classes every file the sidebar renders, and no page', async () => {
     // Tailwind writes a utility for every class in its content, whatever the
     // bundle imports: scanning ./src/** gave the sidebar every page's classes.
-    const content = (loadConfig(SIDEPANEL_TAILWIND).content as string[]).map((file) =>
-      relative(SRC, file),
-    );
+    // Loaded as Tailwind loads the file its `@config` names.
+    const { default: config } = (await import(pathToFileURL(SIDEPANEL_TAILWIND).href)) as {
+      default: { content: string[] };
+    };
+    const content = config.content.map((file) => relative(SRC, file));
     const reached = [...sidebarGraph().files].map((file) => relative(SRC, file));
     expect(reached.filter((file) => !content.includes(file))).toEqual([]);
     expect(content.filter((file) => file.startsWith('pages/'))).toEqual([]);
   });
 
   it('writes the sidebar stylesheet without the utilities only pages use', async () => {
-    const { css } = await postcss([tailwindcss(loadConfig(SIDEPANEL_TAILWIND))]).process(
-      '@tailwind utilities;',
-      { from: undefined },
-    );
+    // Built as the sidebar pass builds it: its own stylesheet, whose `@config`
+    // names the files the sidebar renders.
+    const { css } = await postcss([tailwindcss()]).process(readFileSync(SIDEPANEL_CSS, 'utf8'), {
+      from: SIDEPANEL_CSS,
+    });
     // Written by SidePanel.tsx's section headings.
     expect(css).toContain('.tracking-widest');
     // Written only by pages and by a panel-only component, never the sidebar.

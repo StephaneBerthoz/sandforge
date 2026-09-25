@@ -63,7 +63,7 @@ export const Pagination: React.FC<PaginationProps> = ({
       aria-label={t('pagination.navigation', 'Pagination')}
       className={cn(
         'flex items-center justify-between gap-4 px-2 py-1.5 text-xs',
-        'text-[var(--vscode-descriptionForeground,#999)]',
+        'text-(--vscode-descriptionForeground,#999)',
         className,
       )}
     >
@@ -84,10 +84,10 @@ export const Pagination: React.FC<PaginationProps> = ({
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
             className={cn(
-              'px-1 py-0.5 text-xs rounded',
-              'bg-[var(--vscode-input-background,#3c3c3c)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3c3c3c)]',
+              'px-1 py-0.5 text-xs rounded-sm',
+              'bg-(--vscode-input-background,#3c3c3c)',
+              'text-(--vscode-input-foreground,#d4d4d4)',
+              'border border-(--vscode-input-border,#3c3c3c)',
             )}
             aria-label={t('pagination.rowsPerPage', 'Rows per page')}
           >
@@ -115,8 +115,8 @@ export const Pagination: React.FC<PaginationProps> = ({
             disabled={!canPrev}
             aria-label={t('pagination.previous', 'Previous page')}
             className={cn(
-              'p-0.5 rounded',
-              'hover:bg-[var(--vscode-toolbar-hoverBackground,#ffffff1a)]',
+              'p-0.5 rounded-sm',
+              'hover:bg-(--vscode-toolbar-hoverBackground,#ffffff1a)',
               'disabled:opacity-40 disabled:cursor-not-allowed',
             )}
           >
@@ -128,8 +128,8 @@ export const Pagination: React.FC<PaginationProps> = ({
             disabled={!canNext}
             aria-label={t('pagination.next', 'Next page')}
             className={cn(
-              'p-0.5 rounded',
-              'hover:bg-[var(--vscode-toolbar-hoverBackground,#ffffff1a)]',
+              'p-0.5 rounded-sm',
+              'hover:bg-(--vscode-toolbar-hoverBackground,#ffffff1a)',
               'disabled:opacity-40 disabled:cursor-not-allowed',
             )}
           >

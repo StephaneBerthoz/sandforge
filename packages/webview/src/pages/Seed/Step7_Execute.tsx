@@ -49,7 +49,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
 
   return (
     <div className="flex flex-col gap-4" data-testid="step-execute">
-      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.executeDesc')}</p>
+      <p className="text-xs text-(--sf-text-secondary)">{t('seed.executeDesc')}</p>
 
       {/* Overall progress */}
       <ProgressBar
@@ -68,7 +68,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
         testId="seed-progress-status"
       />
 
-      <div className="text-[10px] text-[var(--sf-text-secondary)]" data-testid="elapsed-time">
+      <div className="text-[10px] text-(--sf-text-secondary)" data-testid="elapsed-time">
         {t('seed.executionTime')}: {(elapsedMs / 1000).toFixed(1)}s
       </div>
 
@@ -80,15 +80,13 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
             <div
               key={obj.objectApiName}
               className={cn(
-                'flex items-center gap-3 px-3 py-2 rounded text-xs',
-                'border border-[var(--sf-border)]',
+                'flex items-center gap-3 px-3 py-2 rounded-sm text-xs',
+                'border border-(--sf-border)',
               )}
               data-testid={`progress-${obj.objectApiName}`}
             >
               <Badge variant={statusVariant[obj.status]}>{obj.status}</Badge>
-              <span className="text-[var(--sf-text-primary)] w-40 truncate">
-                {obj.objectApiName}
-              </span>
+              <span className="text-(--sf-text-primary) w-40 truncate">{obj.objectApiName}</span>
               <ProgressBar
                 value={percent}
                 variant={
@@ -98,7 +96,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
                 className="flex-1"
                 ariaLabel={obj.objectApiName}
               />
-              <span className="text-[var(--sf-text-secondary)] w-20 text-right">
+              <span className="text-(--sf-text-secondary) w-20 text-right">
                 {obj.completed}/{obj.total}
               </span>
               {obj.failed > 0 && (

@@ -27,7 +27,7 @@ describe('Input', () => {
   it('should apply error border class when error is set', () => {
     render(<Input error="Bad" data-testid="input" />);
     const input = screen.getByTestId('input');
-    expect(input.className).toContain('border-[var(--vscode-errorForeground');
+    expect(input.className).toContain('border-(--vscode-errorForeground');
   });
 
   it('should display hint when no error', () => {

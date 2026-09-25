@@ -29,10 +29,10 @@ export interface ForgeAIPanelProps {
 
 const FIELD_CLASSES = cn(
   'w-full px-3 py-2 rounded-md text-sm resize-y',
-  'bg-[var(--sf-bg-input)]',
-  'text-[var(--sf-text-input)]',
-  'border border-[var(--sf-border-input)]',
-  'focus:outline-none focus:border-forge/50',
+  'bg-(--sf-bg-input)',
+  'text-(--sf-text-input)',
+  'border border-(--sf-border-input)',
+  'focus:outline-hidden focus:border-forge/50',
 );
 
 /**

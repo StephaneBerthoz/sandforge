@@ -47,24 +47,22 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
     disabledId: string,
     testIdPrefix: string,
   ): React.ReactNode => (
-    <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid={`${testIdPrefix}-selector`}>
+    <div className="flex flex-col gap-(--sf-space-2)" data-testid={`${testIdPrefix}-selector`}>
       <span className="text-sm font-medium text-text-primary">{label}</span>
       <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
         {orgs.map((org) => {
           const isSelected = org.id === selectedId;
           const isDisabled = org.id === disabledId;
-          const tierClass = org.safetyTier
-            ? tierColors[org.safetyTier]
-            : 'border-[var(--sf-border)]';
+          const tierClass = org.safetyTier ? tierColors[org.safetyTier] : 'border-(--sf-border)';
 
           return (
             <button
               key={org.id}
               className={cn(
-                'flex items-center gap-3 p-3 rounded border-2 text-left transition-colors',
+                'flex items-center gap-3 p-3 rounded-sm border-2 text-left transition-colors',
                 isSelected
-                  ? 'bg-status-info/10 border-[var(--sf-accent)]'
-                  : `bg-[var(--sf-bg-primary)] ${tierClass} hover:bg-[var(--sf-bg-hover)]`,
+                  ? 'bg-status-info/10 border-(--sf-accent)'
+                  : `bg-(--sf-bg-primary) ${tierClass} hover:bg-(--sf-bg-hover)`,
                 'disabled:opacity-40 disabled:cursor-not-allowed',
               )}
               onClick={() => !isDisabled && onSelect(org.id)}
@@ -99,9 +97,9 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
   );
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="step1-connect">
+    <div className="flex flex-col gap-(--sf-space-4)" data-testid="step1-connect">
       <p className="text-sm text-text-secondary">{t('autopilot.step1.description')}</p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--sf-space-4)]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-4)">
         {renderOrgSelector(
           t('autopilot.step1.sourceOrg'),
           sourceOrgId,

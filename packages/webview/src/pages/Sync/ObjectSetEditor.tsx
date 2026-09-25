@@ -66,8 +66,8 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
           <div
             key={entry.objectApiName}
             className={cn(
-              'flex flex-wrap items-center gap-2 px-2 py-2 rounded text-xs',
-              'border border-[var(--sf-border)]',
+              'flex flex-wrap items-center gap-2 px-2 py-2 rounded-sm text-xs',
+              'border border-(--sf-border)',
             )}
             data-testid={`object-entry-${entry.objectApiName}`}
           >

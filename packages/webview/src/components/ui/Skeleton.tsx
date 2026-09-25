@@ -45,7 +45,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   if (variant === 'rect') {
     return (
       <div
-        className={cn('sf-skeleton rounded-[var(--sf-radius-md)]', className)}
+        className={cn('sf-skeleton rounded-(--sf-radius-md)', className)}
         style={{ width: width ?? '100%', height: height ?? '100px' }}
         data-testid="skeleton"
         aria-hidden={true}
@@ -57,14 +57,14 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   if (lines > 1) {
     return (
       <div
-        className={cn('flex flex-col gap-[var(--sf-space-2)]', className)}
+        className={cn('flex flex-col gap-(--sf-space-2)', className)}
         data-testid="skeleton"
         aria-hidden={true}
       >
         {Array.from({ length: lines }, (_, i) => (
           <div
             key={i}
-            className="sf-skeleton rounded-[var(--sf-radius-sm)]"
+            className="sf-skeleton rounded-(--sf-radius-sm)"
             style={{
               width: width ?? lineWidths[i % lineWidths.length],
               height: height ?? '1em',
@@ -78,7 +78,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
 
   return (
     <div
-      className={cn('sf-skeleton rounded-[var(--sf-radius-sm)]', className)}
+      className={cn('sf-skeleton rounded-(--sf-radius-sm)', className)}
       style={{ width: width ?? '100%', height: height ?? '1em' }}
       data-testid="skeleton"
       aria-hidden={true}

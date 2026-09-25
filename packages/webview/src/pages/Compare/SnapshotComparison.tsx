@@ -76,9 +76,9 @@ const OrgTotal: React.FC<{ side: 'source' | 'target'; label: string; counts: Org
   const { t } = useTranslation();
   return (
     <div className="flex flex-1 flex-col gap-0.5" data-testid={`snapshot-${side}`}>
-      <span className="text-[11px] font-medium text-[var(--sf-text-primary)]">{label}</span>
+      <span className="text-[11px] font-medium text-(--sf-text-primary)">{label}</span>
       <span
-        className="font-mono text-xs text-[var(--sf-text-primary)]"
+        className="font-mono text-xs text-(--sf-text-primary)"
         data-testid={`snapshot-${side}-total`}
       >
         {t('common.objectCount', { count: counts.totalObjects })}
@@ -115,7 +115,7 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
       <CardHeader title={t('compare.snapshots')} />
       <CardBody className="max-h-80 overflow-y-auto">
         <div className="flex flex-col gap-3" data-testid="snapshot-comparison">
-          <div className="flex gap-3 rounded bg-[var(--sf-bg-card)] p-2">
+          <div className="flex gap-3 rounded-sm bg-(--sf-bg-card) p-2">
             <OrgTotal side="source" label={sourceLabel} counts={snapshot.source} />
             <OrgTotal side="target" label={targetLabel} counts={snapshot.target} />
           </div>
@@ -127,8 +127,8 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
                 <div
                   key={row.name}
                   className={cn(
-                    'flex items-center gap-2 rounded px-2 py-1 text-xs',
-                    'bg-[var(--sf-bg-card)]',
+                    'flex items-center gap-2 rounded-sm px-2 py-1 text-xs',
+                    'bg-(--sf-bg-card)',
                   )}
                   data-testid={`snapshot-object-${row.name}`}
                 >
@@ -137,14 +137,14 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
                       {t(`compare.change.${row.status}`)}
                     </Badge>
                   </span>
-                  <span className="flex-1 truncate font-mono text-[var(--sf-text-primary)]">
+                  <span className="flex-1 truncate font-mono text-(--sf-text-primary)">
                     {row.name}
                   </span>
                 </div>
               ))}
               {remaining > 0 && (
                 <span
-                  className="text-[10px] text-[var(--sf-text-secondary)]"
+                  className="text-[10px] text-(--sf-text-secondary)"
                   data-testid="snapshot-objects-more"
                 >
                   + {t('common.objectCount', { count: remaining })}
@@ -159,7 +159,7 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
           <div className="flex items-center gap-2" data-testid="snapshot-shared">
             <Badge variant="default">{t('compare.change.unchanged')}</Badge>
             <span
-              className="text-[11px] text-[var(--sf-text-secondary)]"
+              className="text-[11px] text-(--sf-text-secondary)"
               data-testid="snapshot-shared-count"
             >
               {t('common.objectCount', { count: snapshot.diff.sharedCount })}
@@ -168,7 +168,7 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
 
           {snapshot.capturedAt && (
             <span
-              className="font-mono text-[10px] text-[var(--sf-text-secondary)]"
+              className="font-mono text-[10px] text-(--sf-text-secondary)"
               data-testid="snapshot-captured-at"
             >
               {snapshot.capturedAt}

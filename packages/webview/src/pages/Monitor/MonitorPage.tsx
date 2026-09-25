@@ -82,7 +82,7 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
     </div>
     <span
       className={cn(
-        'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
+        'text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0',
         ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
       )}
     >
@@ -300,7 +300,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Header ── */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Org identity */}
-        <div className="flex items-center gap-2 flex-1 min-w-[8rem]">
+        <div className="flex items-center gap-2 flex-1 min-w-32">
           {currentOrg && (
             <>
               <span className="h-2.5 w-2.5 rounded-full bg-status-success shrink-0 animate-pulse" />
@@ -310,7 +310,7 @@ export const MonitorPage: React.FC = () => {
               </h1>
               <span
                 className={cn(
-                  'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
+                  'text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0',
                   ORG_TYPE_STYLES[currentOrg.orgType] ?? '',
                 )}
               >
@@ -642,7 +642,7 @@ export const MonitorPage: React.FC = () => {
                   {anomalyScan.data.anomalies.map((anomaly, idx) => (
                     <div
                       key={`${anomaly.field}-${idx}`}
-                      className="flex items-start gap-2 p-2 rounded bg-surface-2"
+                      className="flex items-start gap-2 p-2 rounded-sm bg-surface-2"
                     >
                       <Badge
                         variant={

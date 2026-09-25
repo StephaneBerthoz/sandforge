@@ -54,9 +54,9 @@ export const Dialog: React.FC<DialogProps> = ({
       ref={dialogRef}
       className={cn(
         'rounded-lg p-0 backdrop:bg-black/50',
-        'bg-[var(--vscode-editor-background,#1e1e1e)]',
-        'text-[var(--vscode-editor-foreground,#d4d4d4)]',
-        'border border-[var(--vscode-panel-border,#3c3c3c)]',
+        'bg-(--vscode-editor-background,#1e1e1e)',
+        'text-(--vscode-editor-foreground,#d4d4d4)',
+        'border border-(--vscode-panel-border,#3c3c3c)',
         'shadow-xl max-w-md w-full',
         className,
       )}
@@ -73,10 +73,7 @@ export const Dialog: React.FC<DialogProps> = ({
           {title}
         </h2>
         {description && (
-          <p
-            id={descId}
-            className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mb-3"
-          >
+          <p id={descId} className="text-xs text-(--vscode-descriptionForeground,#868686) mb-3">
             {description}
           </p>
         )}

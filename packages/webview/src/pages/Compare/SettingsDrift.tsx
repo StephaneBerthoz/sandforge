@@ -118,7 +118,7 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
       <CardBody className="max-h-80 overflow-y-auto">
         <div className="flex flex-col gap-3" data-testid="settings-drift">
           <div className="flex items-center gap-3">
-            <span id={scoreLabelId} className="text-xs text-[var(--sf-text-primary)]">
+            <span id={scoreLabelId} className="text-xs text-(--sf-text-primary)">
               {t('compare.driftScore')}
             </span>
             <div className="flex-1">
@@ -134,7 +134,7 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
           {/* Same shape as the comparison summary bar above: every compared
               setting lands in exactly one of these four counts, so the
               denominator behind the score is on screen. */}
-          <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="drift-summary">
+          <div className="flex gap-(--sf-space-4) text-xs" data-testid="drift-summary">
             <span className={CHANGE_LOOK.removed.textClass} data-testid="drift-removed">
               {CHANGE_LOOK.removed.symbol}
               {t('compare.count.removed', { count: removed })}
@@ -147,14 +147,14 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
               {CHANGE_LOOK.modified.symbol}
               {t('compare.count.modified', { count: modified })}
             </span>
-            <span className="text-[var(--sf-text-secondary)]" data-testid="drift-unchanged">
+            <span className="text-(--sf-text-secondary)" data-testid="drift-unchanged">
               ={t('compare.count.unchanged', { count: unchanged })}
             </span>
           </div>
 
           <table className="w-full text-[10px]" data-testid="drift-settings-table">
             <thead>
-              <tr className="border-b border-[var(--sf-border)] text-[var(--sf-text-secondary)]">
+              <tr className="border-b border-(--sf-border) text-(--sf-text-secondary)">
                 <th className="pb-1 pr-3 text-left font-medium" />
                 <th className="pb-1 pr-3 text-left font-medium" data-testid="drift-header-source">
                   {sourceLabel}
@@ -172,22 +172,22 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
                   <tr
                     key={item.setting}
                     className={cn(
-                      'border-b border-[var(--sf-border)] last:border-0',
+                      'border-b border-(--sf-border) last:border-0',
                       item.status !== 'match' && 'bg-[rgba(245,158,11,0.05)]',
                     )}
                     data-testid={`drift-setting-${item.setting}`}
                   >
-                    <td className="max-w-[160px] truncate py-1 pr-3 font-mono text-[var(--sf-text-primary)]">
+                    <td className="max-w-[160px] truncate py-1 pr-3 font-mono text-(--sf-text-primary)">
                       {item.setting}
                     </td>
                     <td
-                      className="max-w-[120px] truncate py-1 pr-3 text-[var(--sf-text-primary)]"
+                      className="max-w-[120px] truncate py-1 pr-3 text-(--sf-text-primary)"
                       data-testid={`drift-source-${item.setting}`}
                     >
                       {item.sourceValue || t('compare.empty')}
                     </td>
                     <td
-                      className="max-w-[120px] truncate py-1 pr-3 text-[var(--sf-text-primary)]"
+                      className="max-w-[120px] truncate py-1 pr-3 text-(--sf-text-primary)"
                       data-testid={`drift-target-${item.setting}`}
                     >
                       {item.targetValue || t('compare.empty')}
@@ -205,7 +205,7 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
 
           {drift.detectedAt && (
             <span
-              className="font-mono text-[10px] text-[var(--sf-text-secondary)]"
+              className="font-mono text-[10px] text-(--sf-text-secondary)"
               data-testid="drift-detected-at"
             >
               {drift.detectedAt}

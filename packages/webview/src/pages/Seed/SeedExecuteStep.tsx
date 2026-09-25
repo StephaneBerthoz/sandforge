@@ -82,7 +82,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           what it waits for while an object is not described yet */}
       {(configSkipped || !fieldsReady) && (
         <div
-          className="flex items-center gap-2 p-2 rounded text-xs bg-surface-2 text-[var(--sf-text-secondary)] mb-2"
+          className="flex items-center gap-2 p-2 rounded-sm text-xs bg-surface-2 text-(--sf-text-secondary) mb-2"
           data-testid="adaptive-defaults-banner"
         >
           <span role="status" data-testid="seed-fields-status">
@@ -91,7 +91,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           {!fieldsReady && fieldsError && (
             <button
               type="button"
-              className="text-[var(--sf-text-link)] hover:underline"
+              className="text-(--sf-text-link) hover:underline"
               onClick={onRetryFields}
               data-testid="seed-fields-retry"
             >
@@ -100,7 +100,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           )}
           {configSkipped && (
             <button
-              className="text-[var(--sf-text-link)] hover:underline"
+              className="text-(--sf-text-link) hover:underline"
               onClick={onCustomize}
               data-testid="adaptive-customize-link"
             >
@@ -112,7 +112,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
 
       {configSkipped && !isRunning && (
         <div className="flex flex-col gap-1 mb-2" data-testid="seed-execute-relations">
-          <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+          <span className="text-xs font-medium text-(--sf-text-primary)">
             {t('seed.configureRelations')}
           </span>
           <SeedRelationsEditor fieldConfigs={fieldConfigs} volumes={volumes} />

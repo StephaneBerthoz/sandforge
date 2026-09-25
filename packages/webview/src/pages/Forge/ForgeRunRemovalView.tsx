@@ -168,7 +168,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
             {': '}
             {outcomeParts(t, object, subject).join(' · ')}
             {object.reasons.length > 0 && (
-              <ul className="ml-3 mt-0.5 list-disc list-inside break-words">
+              <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
                 {object.reasons.map((reason) => (
                   <li key={reason}>{reason}</li>
                 ))}

@@ -63,16 +63,16 @@ describe('TrendChart', () => {
   it('should default to 24h period', () => {
     render(<TrendChart data={sampleData} />);
     const btn24h = screen.getByTestId('trend-period-24h');
-    expect(btn24h.className).toContain('bg-[var(--sf-button-bg)]');
+    expect(btn24h.className).toContain('bg-(--sf-button-bg)');
   });
 
   it('should switch period on button click', () => {
     render(<TrendChart data={sampleData} />);
     const btn7d = screen.getByTestId('trend-period-7d');
     fireEvent.click(btn7d);
-    expect(btn7d.className).toContain('bg-[var(--sf-button-bg)]');
+    expect(btn7d.className).toContain('bg-(--sf-button-bg)');
     const btn24h = screen.getByTestId('trend-period-24h');
-    expect(btn24h.className).not.toContain('bg-[var(--sf-button-bg)]');
+    expect(btn24h.className).not.toContain('bg-(--sf-button-bg)');
   });
 
   it('should render with empty data without crashing', () => {

@@ -44,10 +44,10 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
             return (
               <button
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded text-left text-xs w-full mb-1',
-                  'border border-[var(--sf-border)]',
-                  'hover:bg-[var(--sf-bg-hover)]',
-                  isSelected && 'border-[var(--sf-accent)] bg-[var(--sf-bg-hover)]',
+                  'flex items-center gap-2 px-3 py-2 rounded-sm text-left text-xs w-full mb-1',
+                  'border border-(--sf-border)',
+                  'hover:bg-(--sf-bg-hover)',
+                  isSelected && 'border-(--sf-accent) bg-(--sf-bg-hover)',
                 )}
                 onClick={() => onToggle(obj.apiName)}
                 role="checkbox"
@@ -56,10 +56,10 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
               >
                 <span
                   className={cn(
-                    'w-4 h-4 rounded border flex items-center justify-center text-[10px]',
+                    'w-4 h-4 rounded-sm border flex items-center justify-center text-[10px]',
                     isSelected
-                      ? 'bg-[var(--sf-button-bg)] border-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
-                      : 'border-[var(--sf-border-input)]',
+                      ? 'bg-(--sf-button-bg) border-(--sf-button-bg) text-(--sf-button-fg)'
+                      : 'border-(--sf-border-input)',
                   )}
                 >
                   {isSelected ? '\u2713' : ''}

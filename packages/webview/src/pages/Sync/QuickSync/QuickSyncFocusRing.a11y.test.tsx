@@ -13,16 +13,16 @@ import { useOrgStore } from '../../../stores/useOrgStore';
  * these back leaves keyboard users with no focus indicator at all.
  */
 const RING_CLASSES = [
-  'focus-visible:outline-none',
+  'focus-visible:outline-hidden',
   'focus-visible:ring-1',
-  'focus-visible:ring-[var(--sf-accent)]',
+  'focus-visible:ring-(--sf-accent)',
 ];
 
 /** Asserts the element replaced the suppressed outline with a focus-visible ring. */
 function expectFocusRing(el: HTMLElement): void {
   const missing = RING_CLASSES.filter((cls) => !el.classList.contains(cls));
   expect(missing).toEqual([]);
-  expect(el.classList.contains('focus:outline-none')).toBe(false);
+  expect(el.classList.contains('focus:outline-hidden')).toBe(false);
 }
 
 const mockSuggestions = [

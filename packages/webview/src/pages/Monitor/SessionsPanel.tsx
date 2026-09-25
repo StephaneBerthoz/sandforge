@@ -121,7 +121,7 @@ export const SessionsPanel: React.FC = () => {
         {sessions.map((session) => (
           <div
             key={session.sessionId}
-            className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
             data-testid={`session-row-${session.sessionId}`}
           >
             <span className="text-xs font-medium text-text-primary flex-1 truncate">

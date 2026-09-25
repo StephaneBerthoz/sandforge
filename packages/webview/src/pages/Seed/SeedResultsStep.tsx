@@ -61,9 +61,9 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   }, [template, saveTemplate]);
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-results-content">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-results-content">
       {!executionResult ? (
-        <div className="text-center py-8 text-xs text-[var(--sf-text-secondary)]">
+        <div className="text-center py-8 text-xs text-(--sf-text-secondary)">
           {t('common.noData')}
         </div>
       ) : (
@@ -83,7 +83,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                     : t('seed.failed')}
               </Badge>
             )}
-            <span className="text-[var(--sf-text-primary)]">
+            <span className="text-(--sf-text-primary)">
               {t('seed.recordsCreated')}: <strong>{executionResult.totalRecordsCreated}</strong>
             </span>
             {executionResult.totalRecordsFailed > 0 && (
@@ -91,7 +91,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                 {t('seed.recordsFailed')}: <strong>{executionResult.totalRecordsFailed}</strong>
               </span>
             )}
-            <span className="text-[var(--sf-text-secondary)]">
+            <span className="text-(--sf-text-secondary)">
               {t('seed.executionTime')}: {(executionResult.duration / 1000).toFixed(1)}s
             </span>
           </div>
@@ -156,7 +156,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             </Button>
             {saveTemplate.data?.success === true && (
               <span
-                className="self-center text-[10px] text-[var(--sf-text-secondary)]"
+                className="self-center text-[10px] text-(--sf-text-secondary)"
                 data-testid="seed-template-saved"
               >
                 {t('seed.templateSaved')}

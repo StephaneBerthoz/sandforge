@@ -1,13 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { Config } from 'tailwindcss';
-
-import panel from './tailwind.config';
-
 /**
- * Tailwind for `vite build --mode sidepanel`: the panel's theme, scanned over
- * the files the sidebar can render and nothing else.
+ * The files Tailwind scans for the sidebar's stylesheet (src/sidepanel.css,
+ * which names this file with `@config`): those the sidebar can render and
+ * nothing else. The theme is the panel's, in src/styles/theme.css.
  *
  * Tailwind emits a utility for every class it finds in `content`, whatever the
  * bundle imports. With the panel's `./src/**` the sidebar stylesheet carried
@@ -54,6 +51,4 @@ export function sidepanelSources(entry: string = ENTRY): string[] {
   return [...seen].sort();
 }
 
-const config: Config = { ...panel, content: sidepanelSources() };
-
-export default config;
+export default { content: sidepanelSources() };

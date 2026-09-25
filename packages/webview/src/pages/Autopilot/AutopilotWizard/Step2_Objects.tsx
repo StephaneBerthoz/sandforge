@@ -42,10 +42,10 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
   const formatCount = (count: number): string => count.toLocaleString(uiLocale());
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="step2-objects">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="step2-objects">
       <p className="text-sm text-text-secondary">{t('autopilot.step2.description')}</p>
 
-      <div className="flex items-center gap-[var(--sf-space-3)]">
+      <div className="flex items-center gap-(--sf-space-3)">
         <Input
           placeholder={t('autopilot.step2.searchPlaceholder')}
           value={filter}
@@ -57,7 +57,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
             type="checkbox"
             checked={selectAll}
             onChange={onToggleAll}
-            className="accent-[var(--sf-accent)]"
+            className="accent-(--sf-accent)"
             data-testid="select-all-checkbox"
           />
           {t('autopilot.step2.selectAll')}
@@ -71,8 +71,8 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
             <label
               key={obj.apiName}
               className={cn(
-                'flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors',
-                isSelected ? 'bg-status-info/10' : 'hover:bg-[var(--sf-bg-hover)]',
+                'flex items-center gap-3 px-3 py-2 rounded-sm cursor-pointer transition-colors',
+                isSelected ? 'bg-status-info/10' : 'hover:bg-(--sf-bg-hover)',
               )}
               data-testid={`object-${obj.apiName}`}
             >
@@ -80,7 +80,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
                 type="checkbox"
                 checked={isSelected}
                 onChange={() => onToggleObject(obj.apiName)}
-                className="accent-[var(--sf-accent)]"
+                className="accent-(--sf-accent)"
               />
               <span className="text-sm text-text-primary flex-1">
                 {obj.label}

@@ -239,7 +239,7 @@ export const CommandPalette: React.FC = () => {
         <>
           {/* Overlay backdrop */}
           <m.div
-            className={cn('fixed inset-0 z-[200] glass-overlay')}
+            className={cn('fixed inset-0 z-200 glass-overlay')}
             variants={fadeIn}
             initial="hidden"
             animate="visible"
@@ -251,7 +251,7 @@ export const CommandPalette: React.FC = () => {
           {/* Dialog container — cmdk exposes combobox/listbox roles but never a
               dialog, so the modal semantics live on this wrapper. */}
           <m.div
-            className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-[201] w-full max-w-lg"
+            className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-201 w-full max-w-lg"
             variants={dialogVariants}
             initial="hidden"
             animate="visible"
@@ -283,7 +283,7 @@ export const CommandPalette: React.FC = () => {
                   autoFocus
                   value={search}
                   onValueChange={setSearch}
-                  className="flex-1 bg-transparent text-sm text-text-primary placeholder-[var(--sf-text-secondary)] outline-none"
+                  className="flex-1 bg-transparent text-sm text-text-primary placeholder-(--sf-text-secondary) outline-hidden"
                   placeholder={t('commandPalette.placeholder')}
                   data-testid="command-palette-input"
                 />
@@ -305,7 +305,7 @@ export const CommandPalette: React.FC = () => {
                   <Command.Group
                     key={group}
                     heading={groupHeading(group)}
-                    className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-text-secondary"
+                    className="**:[[cmdk-group-heading]]:px-4 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-wider **:[[cmdk-group-heading]]:text-text-secondary"
                   >
                     {items.map((item) => (
                       <Command.Item
@@ -313,7 +313,7 @@ export const CommandPalette: React.FC = () => {
                         value={item.label}
                         keywords={item.keywords}
                         onSelect={() => handleSelect(item)}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-[var(--sf-bg-hover)] data-[selected=true]:shadow-[inset_2px_0_0_var(--sf-accent)] hover:bg-[var(--sf-bg-hover)]"
+                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-(--sf-bg-hover) data-[selected=true]:shadow-[inset_2px_0_0_var(--sf-accent)] hover:bg-(--sf-bg-hover)"
                         data-testid={`command-palette-item-${item.id}`}
                       >
                         {item.icon && <Icon name={item.icon} />}
@@ -338,7 +338,7 @@ export const CommandPalette: React.FC = () => {
                       {t('commandPalette.recentSearches')}
                     </span>
                     <button
-                      className="text-[10px] text-[var(--sf-text-link)] hover:underline"
+                      className="text-[10px] text-(--sf-text-link) hover:underline"
                       onClick={clearRecentSearches}
                       data-testid="clear-recent-btn"
                     >
@@ -349,7 +349,7 @@ export const CommandPalette: React.FC = () => {
                     {recentSearches.map((rs) => (
                       <button
                         key={rs}
-                        className="px-2 py-0.5 text-xs rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)] hover:underline"
+                        className="px-2 py-0.5 text-xs rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg) hover:underline"
                         onClick={() => setSearch(rs)}
                         data-testid="recent-search-item"
                       >

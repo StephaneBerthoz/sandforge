@@ -106,7 +106,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             {wave.objectApiNames.map((obj) => (
               <span
                 key={obj}
-                className="text-[10px] bg-surface-3 text-text-primary px-2 py-0.5 rounded"
+                className="text-[10px] bg-surface-3 text-text-primary px-2 py-0.5 rounded-sm"
               >
                 {obj}
               </span>

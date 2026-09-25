@@ -1,7 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import autoprefixer from 'autoprefixer';
-import tailwindcss from 'tailwindcss';
 import path from 'path';
 import { readFileSync } from 'fs';
 
@@ -74,26 +72,6 @@ export default defineConfig(({ mode }) => {
       },
       cssCodeSplit: false,
     },
-    /*
-     * The panel pass reads postcss.config.cjs, whose Tailwind scans all of
-     * src. The sidebar pass scans only what the sidebar renders
-     * (tailwind.sidepanel.config.ts): otherwise every page's utilities ship
-     * in the stylesheet the activity bar loads at every start.
-     */
-    ...(isSidepanel
-      ? {
-          css: {
-            postcss: {
-              plugins: [
-                tailwindcss({
-                  config: path.resolve(import.meta.dirname, 'tailwind.sidepanel.config.ts'),
-                }),
-                autoprefixer(),
-              ],
-            },
-          },
-        }
-      : {}),
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),

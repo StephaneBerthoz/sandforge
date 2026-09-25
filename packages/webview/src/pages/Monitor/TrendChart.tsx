@@ -109,9 +109,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
             data-testid={`trend-period-${p.key}`}
             onClick={() => setPeriod(p.key)}
             className={cn(
-              'px-2 py-0.5 text-xs rounded border border-subtle cursor-pointer transition-colors',
+              'px-2 py-0.5 text-xs rounded-sm border border-subtle cursor-pointer transition-colors',
               period === p.key
-                ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
+                ? 'bg-(--sf-button-bg) text-(--sf-button-fg)'
                 : 'bg-transparent text-text-secondary hover:bg-surface-2',
             )}
           >

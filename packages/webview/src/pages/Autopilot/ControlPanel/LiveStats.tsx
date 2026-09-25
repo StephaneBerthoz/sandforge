@@ -17,7 +17,7 @@ export const LiveStats: React.FC = () => {
   return (
     <div className="grid grid-cols-2 gap-3" data-testid="live-stats">
       {/* Records Processed */}
-      <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]">
+      <div className="flex flex-col gap-1 p-3 rounded-sm bg-(--sf-bg-primary)">
         <span className="text-[10px] uppercase tracking-wider text-text-secondary">
           {t('autopilot.control.recordsProcessed')}
         </span>
@@ -37,7 +37,7 @@ export const LiveStats: React.FC = () => {
           to be one. Written "10 / 50", the guess read as the calls the run
           would make, where the review had called it an estimate. */}
       <div
-        className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]"
+        className="flex flex-col gap-1 p-3 rounded-sm bg-(--sf-bg-primary)"
         data-testid="live-stats-api-calls"
       >
         <span className="text-[10px] uppercase tracking-wider text-text-secondary">
@@ -57,7 +57,7 @@ export const LiveStats: React.FC = () => {
       </div>
 
       {/* Elapsed Time */}
-      <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]">
+      <div className="flex flex-col gap-1 p-3 rounded-sm bg-(--sf-bg-primary)">
         <span className="text-[10px] uppercase tracking-wider text-text-secondary">
           {t('autopilot.control.elapsed')}
         </span>
@@ -67,7 +67,7 @@ export const LiveStats: React.FC = () => {
       </div>
 
       {/* Current Wave */}
-      <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]">
+      <div className="flex flex-col gap-1 p-3 rounded-sm bg-(--sf-bg-primary)">
         <span className="text-[10px] uppercase tracking-wider text-text-secondary">
           {t('autopilot.control.currentWave')}
         </span>

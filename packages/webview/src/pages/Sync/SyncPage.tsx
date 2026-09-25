@@ -279,16 +279,13 @@ export const SyncPage: React.FC = () => {
     }));
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
-      data-testid="sync-page"
-    >
+    <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
       <PageHeader
         title={t('sync.title')}
         subtitle={t('sync.selectOrgsDesc')}
         icon="sync"
         actions={
-          <div className="flex items-center gap-[var(--sf-space-2)]">
+          <div className="flex items-center gap-(--sf-space-2)">
             {sourceOrg && (
               <OrgBadge
                 alias={sourceOrg.alias || sourceOrg.username}
@@ -299,7 +296,7 @@ export const SyncPage: React.FC = () => {
             )}
             {sourceOrg && targetOrg && (
               <span
-                className="codicon codicon-arrow-right text-[var(--sf-text-secondary)]"
+                className="codicon codicon-arrow-right text-(--sf-text-secondary)"
                 aria-hidden="true"
               />
             )}
@@ -319,7 +316,7 @@ export const SyncPage: React.FC = () => {
 
       {/* Tab navigation */}
       <div
-        className="flex gap-0 border-b border-[var(--sf-border)]"
+        className="flex gap-0 border-b border-(--sf-border)"
         role="tablist"
         data-testid="sync-tabs"
       >
@@ -331,7 +328,7 @@ export const SyncPage: React.FC = () => {
             aria-selected={activeTab === tab}
             className={`text-xs px-4 py-2 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === tab
-                ? 'border-[var(--sf-accent)] text-text-primary font-semibold'
+                ? 'border-(--sf-accent) text-text-primary font-semibold'
                 : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
             onClick={() => setActiveTab(tab)}
@@ -442,7 +439,7 @@ export const SyncPage: React.FC = () => {
               {sourceOrgId &&
                 (objectsLoading ? (
                   <div
-                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    className="flex flex-col gap-(--sf-space-3)"
                     data-testid="sync-objects-skeleton"
                   >
                     <Skeleton variant="text" width="30%" height="1em" />
@@ -463,12 +460,9 @@ export const SyncPage: React.FC = () => {
 
           {/* Step 1: Field mapping */}
           {currentStep === 1 && fieldsLoading && (
-            <div
-              className="flex flex-col gap-[var(--sf-space-3)]"
-              data-testid="sync-fields-skeleton"
-            >
+            <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-fields-skeleton">
               <Skeleton variant="text" width="25%" height="1em" />
-              <div className="grid grid-cols-2 gap-[var(--sf-space-4)]">
+              <div className="grid grid-cols-2 gap-(--sf-space-4)">
                 <Skeleton variant="rect" height="200px" />
                 <Skeleton variant="rect" height="200px" />
               </div>
@@ -496,7 +490,7 @@ export const SyncPage: React.FC = () => {
                     data-testid="sync-mapped-object"
                     value={mappedObject}
                     onChange={(e) => setMappedObject(e.target.value)}
-                    className="px-3 py-2 rounded-md text-sm bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] focus:outline-none focus:border-sync/50"
+                    className="px-3 py-2 rounded-md text-sm bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input) focus:outline-hidden focus:border-sync/50"
                   >
                     {objectEntries.map((entry) => (
                       <option key={entry.objectApiName} value={entry.objectApiName}>
@@ -600,10 +594,10 @@ export const SyncPage: React.FC = () => {
               {/* A schedule runs a saved configuration by id, so this is where
                   one is created: the review step holds the configuration the
                   user has just read through. */}
-              <div className="flex items-center gap-[var(--sf-space-2)]">
+              <div className="flex items-center gap-(--sf-space-2)">
                 <button
                   type="button"
-                  className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)] disabled:opacity-50"
+                  className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover) disabled:opacity-50"
                   onClick={() => handleSaveConfig(configName)}
                   disabled={!sourceOrgId || !targetOrgId}
                   data-testid="sync-save-config"

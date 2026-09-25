@@ -239,7 +239,7 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-3 rounded-lg border border-[var(--sf-border)] p-3"
+      className="flex flex-col gap-3 rounded-lg border border-(--sf-border) p-3"
       data-testid="dsr-section"
     >
       <h2 id={headingId} className="text-sm font-semibold text-text-primary">
@@ -501,7 +501,7 @@ const SubjectObject: React.FC<SubjectObjectProps> = ({ object, limit, selection,
       {object.records.length > 0 && (
         <table className="w-full text-xs" aria-labelledby={headingId}>
           <thead>
-            <tr className="border-b border-[var(--sf-border)]">
+            <tr className="border-b border-(--sf-border)">
               <th scope="col" className="py-1 pr-3 text-left font-medium text-text-secondary">
                 {t('dataops.dsr.selectColumn')}
               </th>
@@ -520,7 +520,7 @@ const SubjectObject: React.FC<SubjectObjectProps> = ({ object, limit, selection,
             {object.records.map((record) => {
               const key = recordKey(object.objectApiName, record.id);
               return (
-                <tr key={record.id} className="border-b border-[var(--sf-border)] last:border-0">
+                <tr key={record.id} className="border-b border-(--sf-border) last:border-0">
                   <td className="py-1 pr-3">
                     <input
                       type="checkbox"

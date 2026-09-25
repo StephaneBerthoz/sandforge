@@ -45,7 +45,7 @@ const EMPTY_EDGE: EdgeCaseDraft = { name: '', label: '', whereFragment: '' };
  * colour for. On the card's own surface Light Modern's placeholder read 4.27:1.
  */
 const inputClass =
-  'w-full bg-surface-3 border border-subtle rounded px-2 py-1 text-xs text-text-primary';
+  'w-full bg-surface-3 border border-subtle rounded-sm px-2 py-1 text-xs text-text-primary';
 
 /** Split a saved config into form fields + the advanced JSON remainder. */
 function splitConfig(config: FrozenProjectConfig): {

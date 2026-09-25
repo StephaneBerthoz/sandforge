@@ -105,9 +105,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
 
   return (
     <div className="flex flex-col gap-2" data-testid="pipeline-history">
-      <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
-        {t('automation.history')}
-      </h3>
+      <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.history')}</h3>
       {entries.map((entry) => (
         <div key={entry.runId} data-testid={`history-${entry.runId}`}>
           <Card hoverable onClick={() => onSelectRun?.(entry.runId)}>
@@ -121,7 +119,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
               }
             />
             <CardBody>
-              <div className="flex gap-4 text-xs text-[var(--sf-text-secondary)]">
+              <div className="flex gap-4 text-xs text-(--sf-text-secondary)">
                 <span>
                   {t('automation.triggeredBy')}: {t(`automation.triggerTypes.${entry.triggeredBy}`)}
                 </span>
@@ -142,7 +140,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
               </div>
               {entry.missed && (
                 <p
-                  className="mt-2 text-xs text-[var(--sf-text-secondary)]"
+                  className="mt-2 text-xs text-(--sf-text-secondary)"
                   data-testid={`history-missed-${entry.runId}`}
                 >
                   {missedLine(entry, t)}
@@ -162,11 +160,9 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                       // Steps have no id of their own here, and a name can
                       // repeat; the list is written once, in run order.
                       key={`${index}:${step.stepName}`}
-                      className="flex flex-wrap items-center gap-2 text-xs text-[var(--sf-text-secondary)]"
+                      className="flex flex-wrap items-center gap-2 text-xs text-(--sf-text-secondary)"
                     >
-                      <span className="font-medium text-[var(--sf-text-primary)]">
-                        {step.stepName}
-                      </span>
+                      <span className="font-medium text-(--sf-text-primary)">{step.stepName}</span>
                       <Badge variant={STEP_STATUS_VARIANT[step.status]}>
                         {t(`automation.runStatuses.${step.status}`)}
                       </Badge>

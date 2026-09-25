@@ -309,7 +309,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
             id={reviewHeadingId}
             ref={reviewHeading}
             tabIndex={-1}
-            className="text-sm font-semibold text-text-primary focus:outline-none"
+            className="text-sm font-semibold text-text-primary focus:outline-hidden"
           >
             {recommendationText(review)}
           </h3>

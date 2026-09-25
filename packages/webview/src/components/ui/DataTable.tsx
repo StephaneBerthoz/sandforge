@@ -164,12 +164,12 @@ export function DataTable<T extends Record<string, unknown>>({
 
   const renderHeader = () => (
     <thead>
-      <tr className={cn('bg-[var(--sf-bg-secondary)]', stickyHeader && 'sticky top-0 z-10')}>
+      <tr className={cn('bg-(--sf-bg-secondary)', stickyHeader && 'sticky top-0 z-10')}>
         {columns.map((col) => (
           <th
             key={col.key}
             className={cn(
-              'font-semibold border-b border-[var(--sf-border)]',
+              'font-semibold border-b border-(--sf-border)',
               alignClass(col.align),
               col.sortable && 'select-none',
             )}
@@ -238,7 +238,7 @@ export function DataTable<T extends Record<string, unknown>>({
     return (
       <div
         data-testid="data-table"
-        className={cn('rounded-[var(--sf-radius-md)] border border-[var(--sf-border)]', className)}
+        className={cn('rounded-(--sf-radius-md) border border-(--sf-border)', className)}
       >
         <table
           className="w-full border-collapse"
@@ -275,10 +275,10 @@ export function DataTable<T extends Record<string, unknown>>({
                       <tr
                         key={keyExtractor(row, rowIndex)}
                         className={cn(
-                          'transition-colors hover:bg-[var(--sf-bg-hover)]',
+                          'transition-colors hover:bg-(--sf-bg-hover)',
                           onRowClick && 'cursor-pointer',
-                          striped && rowIndex % 2 === 1 && 'bg-[var(--sf-bg-secondary)]',
-                          focusedRow === rowIndex && 'ring-1 ring-[var(--sf-accent)] outline-none',
+                          striped && rowIndex % 2 === 1 && 'bg-(--sf-bg-secondary)',
+                          focusedRow === rowIndex && 'ring-1 ring-(--sf-accent) outline-hidden',
                         )}
                         style={{
                           transitionDuration: 'var(--sf-transition-fast)',
@@ -304,7 +304,7 @@ export function DataTable<T extends Record<string, unknown>>({
                           <td
                             key={col.key}
                             className={cn(
-                              'border-b border-[var(--sf-border-subtle)]',
+                              'border-b border-(--sf-border-subtle)',
                               alignClass(col.align),
                             )}
                             style={{
@@ -331,7 +331,7 @@ export function DataTable<T extends Record<string, unknown>>({
     <div
       data-testid="data-table"
       className={cn(
-        'overflow-auto rounded-[var(--sf-radius-md)] border border-[var(--sf-border)]',
+        'overflow-auto rounded-(--sf-radius-md) border border-(--sf-border)',
         className,
       )}
     >
@@ -356,10 +356,10 @@ export function DataTable<T extends Record<string, unknown>>({
                   key={keyExtractor(row, rowIndex)}
                   variants={useStagger ? fadeIn : undefined}
                   className={cn(
-                    'transition-colors hover:bg-[var(--sf-bg-hover)]',
+                    'transition-colors hover:bg-(--sf-bg-hover)',
                     onRowClick && 'cursor-pointer',
-                    striped && rowIndex % 2 === 1 && 'bg-[var(--sf-bg-secondary)]',
-                    focusedRow === rowIndex && 'ring-1 ring-[var(--sf-accent)] outline-none',
+                    striped && rowIndex % 2 === 1 && 'bg-(--sf-bg-secondary)',
+                    focusedRow === rowIndex && 'ring-1 ring-(--sf-accent) outline-hidden',
                   )}
                   style={{
                     transitionDuration: 'var(--sf-transition-fast)',
@@ -377,10 +377,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   {columns.map((col) => (
                     <td
                       key={col.key}
-                      className={cn(
-                        'border-b border-[var(--sf-border-subtle)]',
-                        alignClass(col.align),
-                      )}
+                      className={cn('border-b border-(--sf-border-subtle)', alignClass(col.align))}
                       style={{
                         padding: 'var(--sf-space-2) var(--sf-space-3)',
                         color: 'var(--sf-text-primary)',

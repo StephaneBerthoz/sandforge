@@ -55,17 +55,17 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
       className={cn(
         'flex items-center justify-between gap-2',
         'text-xs text-status-error',
-        'px-2 py-1.5 rounded',
-        'bg-[var(--vscode-inputValidation-errorBackground,#5a1d1d)]',
+        'px-2 py-1.5 rounded-sm',
+        'bg-(--vscode-inputValidation-errorBackground,#5a1d1d)',
         className,
       )}
       data-testid={testId}
       role="alert"
     >
       {/* whitespace-pre-wrap keeps the line breaks of a multi-row Bulk API
-          failure; break-words keeps a long unbroken id or URL inside the
+          failure; wrap-break-word keeps a long unbroken id or URL inside the
           banner instead of spilling out of the sidebar. */}
-      <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">{message}</span>
+      <span className="flex-1 min-w-0 whitespace-pre-wrap wrap-break-word">{message}</span>
       {/* flex-row-reverse: the dismiss cross keeps its far-right position while
           staying the first button in the DOM, so callers that reach for the
           banner's first button still find dismiss. */}

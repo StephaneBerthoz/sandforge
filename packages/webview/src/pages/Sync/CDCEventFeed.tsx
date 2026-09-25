@@ -26,11 +26,11 @@ const RING_BUFFER_CAPACITY = 5000;
 const OUTCOME_ICONS: Record<RealTimeEventOutcome, string> = {
   applied: 'codicon-check text-status-success',
   failed: 'codicon-error text-status-error',
-  watched: 'codicon-eye text-[var(--sf-text-secondary)]',
+  watched: 'codicon-eye text-(--sf-text-secondary)',
   'kept-target': 'codicon-shield text-status-warning',
   held: 'codicon-question text-status-warning',
-  'deletes-off': 'codicon-circle-slash text-[var(--sf-text-secondary)]',
-  'own-write': 'codicon-reply text-[var(--sf-text-secondary)]',
+  'deletes-off': 'codicon-circle-slash text-(--sf-text-secondary)',
+  'own-write': 'codicon-reply text-(--sf-text-secondary)',
 };
 
 /**
@@ -53,20 +53,17 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
 
   return (
     <div
-      className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[11px] border-b border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]"
+      className="flex items-center gap-(--sf-space-2) px-2 py-1 text-[11px] border-b border-(--sf-border) hover:bg-(--sf-bg-hover)"
       data-testid={`cdc-event-row-${index}`}
       data-outcome={outcome}
     >
       {/* Timestamp */}
-      <span
-        className="w-[60px] shrink-0 text-[var(--sf-text-primary)]"
-        title={event.commitTimestamp}
-      >
+      <span className="w-[60px] shrink-0 text-(--sf-text-primary)" title={event.commitTimestamp}>
         {formatRelativeTime(new Date(event.commitTimestamp))}
       </span>
 
       {/* Object name */}
-      <span className="w-[100px] shrink-0 font-medium text-[var(--sf-text-primary)] truncate">
+      <span className="w-[100px] shrink-0 font-medium text-(--sf-text-primary) truncate">
         {event.objectApiName}
       </span>
 
@@ -78,13 +75,10 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       </span>
 
       {/* Record IDs */}
-      <span
-        className="flex-1 truncate text-[var(--sf-text-primary)]"
-        title={event.recordIds.join(', ')}
-      >
+      <span className="flex-1 truncate text-(--sf-text-primary)" title={event.recordIds.join(', ')}>
         {visibleIds.join(', ')}
         {hiddenCount > 0 && (
-          <span className="ml-1 text-[var(--sf-text-primary)]">
+          <span className="ml-1 text-(--sf-text-primary)">
             {t('sync.realtime.nMore', { count: hiddenCount })}
           </span>
         )}
@@ -117,7 +111,7 @@ export const CDCEventFeed: React.FC = () => {
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="cdc-event-feed">
       {/* Header */}
-      <div className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[10px] font-semibold text-[var(--sf-text-secondary)] border-b border-[var(--sf-border)] uppercase tracking-wider">
+      <div className="flex items-center gap-(--sf-space-2) px-2 py-1 text-[10px] font-semibold text-(--sf-text-secondary) border-b border-(--sf-border) uppercase tracking-wider">
         <span className="w-[60px] shrink-0">{t('common.time', 'Time')}</span>
         <span className="w-[100px] shrink-0">{t('common.object', 'Object')}</span>
         <span className="w-[70px] shrink-0">{t('common.type', 'Type')}</span>
@@ -127,7 +121,7 @@ export const CDCEventFeed: React.FC = () => {
 
       {/* Event list */}
       {events.length === 0 ? (
-        <div className="flex items-center justify-center py-8 text-xs text-[var(--sf-text-secondary)]">
+        <div className="flex items-center justify-center py-8 text-xs text-(--sf-text-secondary)">
           {t('sync.realtime.noEvents')}
         </div>
       ) : (
@@ -146,7 +140,7 @@ export const CDCEventFeed: React.FC = () => {
 
       {/* Footer */}
       <div
-        className="flex items-center justify-between px-2 py-1 text-[10px] text-[var(--sf-text-secondary)] border-t border-[var(--sf-border)]"
+        className="flex items-center justify-between px-2 py-1 text-[10px] text-(--sf-text-secondary) border-t border-(--sf-border)"
         data-testid="cdc-event-count"
       >
         <span>{t('sync.realtime.eventCount', { count: eventCount })}</span>

@@ -61,11 +61,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
           role="tooltip"
           aria-live="polite"
           className={cn(
-            'absolute z-50 px-2 py-1 text-xs rounded shadow-lg whitespace-nowrap',
+            'absolute z-50 px-2 py-1 text-xs rounded-sm shadow-lg whitespace-nowrap',
             dismissible ? 'pointer-events-auto' : 'pointer-events-none',
-            'bg-[var(--vscode-editorHoverWidget-background,#2d2d30)]',
-            'text-[var(--vscode-editorHoverWidget-foreground,#d4d4d4)]',
-            'border border-[var(--vscode-editorHoverWidget-border,#454545)]',
+            'bg-(--vscode-editorHoverWidget-background,#2d2d30)',
+            'text-(--vscode-editorHoverWidget-foreground,#d4d4d4)',
+            'border border-(--vscode-editorHoverWidget-border,#454545)',
             side === 'top'
               ? 'bottom-full left-1/2 -translate-x-1/2 mb-1'
               : 'top-full left-1/2 -translate-x-1/2 mt-1',
@@ -78,7 +78,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
               <button
                 type="button"
                 onClick={onDismiss}
-                className="inline-flex items-center justify-center w-3 h-3 rounded-sm hover:bg-[var(--vscode-toolbar-hoverBackground,#5a5d5e)] transition-colors"
+                className="inline-flex items-center justify-center w-3 h-3 rounded-xs hover:bg-(--vscode-toolbar-hoverBackground,#5a5d5e) transition-colors"
                 aria-label={t('common.dismiss', 'Dismiss')}
                 data-testid="tooltip-dismiss"
               >

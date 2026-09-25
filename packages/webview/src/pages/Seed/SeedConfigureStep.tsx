@@ -51,16 +51,13 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
   const selectedObjects = useSeedWizardStore((s) => s.selectedObjects);
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-3)]"
-      data-testid="seed-step-configure-content"
-    >
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-configure-content">
       <div className="flex items-center gap-1.5">
         <InfoTooltip id="help.seed.configureFields" content={t('help.seed.configureFields')} />
       </div>
       {/* Collapsible field tree per object */}
       {piiLoading && (
-        <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="pii-scan-loading">
+        <div className="flex flex-col gap-(--sf-space-2)" data-testid="pii-scan-loading">
           <Skeleton variant="text" width="40%" height="1em" />
           <Skeleton variant="rect" height="80px" />
         </div>
@@ -81,12 +78,12 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
               <div className="flex flex-col gap-3" data-testid="seed-advanced-settings">
                 {/* Batch size per object */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+                  <span className="text-xs font-medium text-(--sf-text-primary)">
                     {t('seed.batchSize')}
                   </span>
                   {selectedObjects.map((obj) => (
                     <div key={obj} className="flex items-center gap-2 text-xs">
-                      <span className="w-40 truncate text-[var(--sf-text-primary)]">{obj}</span>
+                      <span className="w-40 truncate text-(--sf-text-primary)">{obj}</span>
                       <Input
                         type="number"
                         min={1}
@@ -107,7 +104,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
 
                 {/* Relations handling */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+                  <span className="text-xs font-medium text-(--sf-text-primary)">
                     {t('seed.configureRelations')}
                   </span>
                   <SeedRelationsEditor fieldConfigs={fieldConfigs} volumes={volumes} />

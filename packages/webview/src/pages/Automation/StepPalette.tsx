@@ -68,19 +68,17 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-palette">
-      <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
-        {t('automation.steps')}
-      </h3>
+      <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.steps')}</h3>
       <p
         id={noteId}
-        className="text-[10px] text-[var(--sf-text-secondary)]"
+        className="text-[10px] text-(--sf-text-secondary)"
         data-testid="palette-runnable-note"
       >
         {t('automation.runnability.paletteNote')}
       </p>
       {grouped.map(({ category, steps }) => (
         <div key={category}>
-          <span className="text-[10px] uppercase text-[var(--sf-text-secondary)]">
+          <span className="text-[10px] uppercase text-(--sf-text-secondary)">
             {t(`automation.stepCategories.${category}`)}
           </span>
           <div className="flex flex-wrap gap-1 mt-1">
@@ -90,10 +88,10 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
                 <button
                   key={entry.type}
                   type="button"
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors bg-[var(--sf-bg-primary)] ${
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors bg-(--sf-bg-primary) ${
                     blocker === undefined
-                      ? 'border-[var(--sf-border)] hover:border-[var(--sf-accent)]'
-                      : 'border-dashed border-[var(--sf-border)] cursor-not-allowed'
+                      ? 'border-(--sf-border) hover:border-(--sf-accent)'
+                      : 'border-dashed border-(--sf-border) cursor-not-allowed'
                   }`}
                   onClick={() => onAddStep?.(entry.type)}
                   disabled={blocker !== undefined}
@@ -106,7 +104,7 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
                   </Badge>
                   {blocker !== undefined && (
                     <span
-                      className="text-[9px] text-[var(--sf-text-secondary)]"
+                      className="text-[9px] text-(--sf-text-secondary)"
                       data-testid={`palette-${entry.type}-soon`}
                     >
                       {blocker === 'writesToOrg'

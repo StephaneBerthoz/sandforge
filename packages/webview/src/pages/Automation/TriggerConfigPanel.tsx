@@ -108,7 +108,7 @@ const TriggerState: React.FC<{
   sandboxName: string | undefined;
 }> = ({ trigger, status, unsaved, pipelineBlocked, sandboxName }) => {
   const { t } = useTranslation();
-  const line = 'text-xs text-[var(--sf-text-secondary)]';
+  const line = 'text-xs text-(--sf-text-secondary)';
 
   // The page knows before the extension does: a step it marks as one that
   // cannot run keeps every trigger from starting the pipeline.
@@ -214,7 +214,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="trigger-config">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
+        <h3 className="text-xs font-semibold text-(--sf-text-primary)">
           {t('automation.triggers')}
         </h3>
         <div className="flex items-center gap-2">
@@ -244,7 +244,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
       </div>
 
       {/* What starts a pipeline, said where triggers are configured. */}
-      <p className="text-xs text-[var(--sf-text-secondary)]" data-testid="trigger-note">
+      <p className="text-xs text-(--sf-text-secondary)" data-testid="trigger-note">
         {t('automation.triggerNote')}
       </p>
 
@@ -299,7 +299,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
               {startsNothing(trigger.type) && (
                 <CardBody>
                   <p
-                    className="text-xs text-[var(--sf-text-secondary)]"
+                    className="text-xs text-(--sf-text-secondary)"
                     data-testid={`trigger-soon-reason-${trigger.id}`}
                   >
                     {t(`automation.triggerSoon.${trigger.type}`)}
@@ -309,11 +309,11 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
               {trigger.type === 'schedule' && (
                 <CardBody>
                   <div className="flex flex-col gap-2">
-                    <p className="text-xs text-[var(--sf-text-secondary)]">
+                    <p className="text-xs text-(--sf-text-secondary)">
                       {t('automation.triggerHint.schedule')}
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-[var(--sf-text-secondary)]">
+                      <span className="text-xs text-(--sf-text-secondary)">
                         {t('automation.cronExpression')}:
                       </span>
                       <Input
@@ -351,7 +351,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
               {trigger.type === 'sandbox_refresh' && (
                 <CardBody>
                   <div className="flex flex-col gap-2">
-                    <p className="text-xs text-[var(--sf-text-secondary)]">
+                    <p className="text-xs text-(--sf-text-secondary)">
                       {t('automation.triggerHint.sandbox_refresh')}
                     </p>
                     <Select
@@ -365,7 +365,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                     />
                     {sandboxes.length === 0 && (
                       <p
-                        className="text-xs text-[var(--sf-text-secondary)]"
+                        className="text-xs text-(--sf-text-secondary)"
                         data-testid={`trigger-no-sandbox-${trigger.id}`}
                       >
                         {t('automation.triggerNoSandboxes')}

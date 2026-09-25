@@ -235,16 +235,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
       {/* Custom icon fallback */}
       {!module && icon && (
-        <div className="text-3xl text-[var(--vscode-descriptionForeground,#868686)] mb-3">
-          {icon}
-        </div>
+        <div className="text-3xl text-(--vscode-descriptionForeground,#868686) mb-3">{icon}</div>
       )}
 
-      <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-        {title}
-      </h3>
+      <h3 className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4)">{title}</h3>
       {description && (
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-1 max-w-xs">
+        <p className="text-xs text-(--vscode-descriptionForeground,#868686) mt-1 max-w-xs">
           {description}
         </p>
       )}
@@ -255,7 +251,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           {steps.map((step, index) => (
             <li
               key={index}
-              className="flex items-start gap-2 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+              className="flex items-start gap-2 text-xs text-(--vscode-descriptionForeground,#868686)"
               data-testid={`empty-step-${String(index)}`}
             >
               <span
@@ -285,7 +281,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {/* Primary action button */}
       {actionLabel && onAction && (
         <button
-          className="mt-4 px-3 py-1.5 text-sm rounded font-medium"
+          className="mt-4 px-3 py-1.5 text-sm rounded-sm font-medium"
           style={{
             background: 'var(--vscode-button-background, #0e639c)',
             color: 'var(--vscode-button-foreground, #fff)',

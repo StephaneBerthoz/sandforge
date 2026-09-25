@@ -172,10 +172,7 @@ export const ComparePage: React.FC = () => {
   }
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
-      data-testid="compare-page"
-    >
+    <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="compare-page">
       {/* Header */}
       <PageHeader
         title={t('compare.title')}
@@ -183,7 +180,7 @@ export const ComparePage: React.FC = () => {
         subtitle={result ? undefined : t('compare.noResults')}
         icon="git-compare"
         actions={
-          <div className="flex items-center gap-[var(--sf-space-3)]">
+          <div className="flex items-center gap-(--sf-space-3)">
             <Button
               variant="ghost"
               size="sm"
@@ -365,7 +362,7 @@ export const ComparePage: React.FC = () => {
           {/* Summary bar, read as a deployment from the source would read it:
               it counted "added" in green over what only the target holds,
               which a deployment does not add. */}
-          <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="compare-summary">
+          <div className="flex gap-(--sf-space-4) text-xs" data-testid="compare-summary">
             {CHANGE_ORDER.map((kind) => (
               <span
                 key={kind}
@@ -376,22 +373,19 @@ export const ComparePage: React.FC = () => {
                 {t(`compare.count.${kind}`, { count: result.summary[kind] })}
               </span>
             ))}
-            <span className="text-[var(--sf-text-secondary)]">
+            <span className="text-(--sf-text-secondary)">
               ={t('compare.count.unchanged', { count: result.summary.unchanged })}
             </span>
             {result.summary.notCompared > 0 && (
               <span
-                className="text-[var(--sf-text-secondary)]"
+                className="text-(--sf-text-secondary)"
                 data-testid="compare-summary-not-compared"
               >
                 ?{t('compare.count.notCompared', { count: result.summary.notCompared })}
               </span>
             )}
           </div>
-          <p
-            className="text-xs text-[var(--sf-text-secondary)]"
-            data-testid="compare-change-legend"
-          >
+          <p className="text-xs text-(--sf-text-secondary)" data-testid="compare-change-legend">
             {t('compare.changeLegend')}
           </p>
 
@@ -471,9 +465,9 @@ export const ComparePage: React.FC = () => {
 
       {/* Skeleton loading state while comparison runs */}
       {isRunning && !result && (
-        <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="compare-skeleton">
+        <div className="flex flex-col gap-(--sf-space-4)" data-testid="compare-skeleton">
           <Skeleton variant="rect" height="80px" />
-          <div className="flex gap-[var(--sf-space-4)]">
+          <div className="flex gap-(--sf-space-4)">
             <Skeleton variant="text" width="15%" height="1em" />
             <Skeleton variant="text" width="15%" height="1em" />
             <Skeleton variant="text" width="15%" height="1em" />
@@ -486,7 +480,7 @@ export const ComparePage: React.FC = () => {
 
       {/* No results state */}
       {!result && !isRunning && (
-        <p className="text-xs text-[var(--sf-text-secondary)] text-center py-8">
+        <p className="text-xs text-(--sf-text-secondary) text-center py-8">
           {t('compare.noResults')}
         </p>
       )}

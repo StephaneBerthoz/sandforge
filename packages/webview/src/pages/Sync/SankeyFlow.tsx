@@ -38,7 +38,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
   if (nodes.length === 0) {
     return (
       <div
-        className={cn('text-xs text-center text-[var(--sf-text-secondary)] py-4', className)}
+        className={cn('text-xs text-center text-(--sf-text-secondary) py-4', className)}
         data-testid="sankey-flow"
       >
         {t('common.noData')}
@@ -70,7 +70,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
 
   return (
     <div className={className} data-testid="sankey-flow">
-      <span className="text-xs font-medium text-[var(--sf-text-primary)] block mb-2">
+      <span className="text-xs font-medium text-(--sf-text-primary) block mb-2">
         {t('sync.dataFlow')}
       </span>
       <svg

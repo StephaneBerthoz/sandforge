@@ -590,7 +590,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           run read as a complete one. */}
       {readFailedNote && (
         <div
-          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
+          className="rounded-sm border border-(--sf-warning) px-4 py-2 text-xs text-status-warning"
           role="status"
           data-testid="forge-results-read-failed"
         >
@@ -628,10 +628,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className={cn(
-              'px-2 py-1 rounded text-xs',
-              'bg-[var(--sf-bg-input)]',
-              'text-[var(--sf-text-input)]',
-              'border border-[var(--sf-border-input)]',
+              'px-2 py-1 rounded-sm text-xs',
+              'bg-(--sf-bg-input)',
+              'text-(--sf-text-input)',
+              'border border-(--sf-border-input)',
             )}
           >
             <option value="all">{t('forge.filterByStatus')}</option>
@@ -819,7 +819,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           and the per-object table has no word for either. */}
       {existingRecords.length > 0 && (
         <div
-          className="rounded border border-subtle px-4 py-2 text-xs text-text-secondary"
+          className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
           role="status"
           data-testid="forge-results-existing"
         >
@@ -849,7 +849,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           never the file: the clone left each one empty, and says which. */}
       {result?.fileContentFieldsLeftOut && result.fileContentFieldsLeftOut.length > 0 && (
         <div
-          className="rounded border border-subtle px-4 py-2 text-xs text-text-secondary"
+          className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
           role="status"
           data-testid="forge-results-file-content"
         >
@@ -869,7 +869,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           the wizard showing an unqualified success for a partial clone. */}
       {result?.truncatedObjects && result.truncatedObjects.length > 0 && (
         <div
-          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
+          className="rounded-sm border border-(--sf-warning) px-4 py-2 text-xs text-status-warning"
           role="status"
           data-testid="forge-results-truncated"
         >
@@ -1012,10 +1012,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             }}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm',
-              'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',
+              'bg-(--sf-bg-input) text-(--sf-text-input)',
               'border',
-              nameMissing ? 'border-status-error/40' : 'border-[var(--sf-border-input)]',
-              'focus:outline-none focus:border-forge/50',
+              nameMissing ? 'border-status-error/40' : 'border-(--sf-border-input)',
+              'focus:outline-hidden focus:border-forge/50',
             )}
           />
           {nameMissing && (
@@ -1040,9 +1040,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             onChange={(e) => setTemplateDescription(e.target.value)}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm',
-              'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',
-              'border border-[var(--sf-border-input)]',
-              'focus:outline-none focus:border-forge/50',
+              'bg-(--sf-bg-input) text-(--sf-text-input)',
+              'border border-(--sf-border-input)',
+              'focus:outline-hidden focus:border-forge/50',
             )}
           />
           <div className="flex items-center gap-2">
@@ -1197,7 +1197,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                   {err.samples.map((sample, idx) => (
                     <div
                       key={idx}
-                      className="rounded border border-status-error/20 bg-surface-1 px-3 py-2"
+                      className="rounded-sm border border-status-error/20 bg-surface-1 px-3 py-2"
                     >
                       <div className="font-mono text-text-secondary mb-1 break-all">
                         {sample.recordSummary}
@@ -1207,12 +1207,14 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                           const translated = translateForgeError(msg);
                           return (
                             <li key={mi} className="space-y-1">
-                              <div className="text-status-error break-words font-mono">└ {msg}</div>
+                              <div className="text-status-error wrap-break-word font-mono">
+                                └ {msg}
+                              </div>
                               {translated && (
                                 <div
                                   data-testid="forge-error-translation"
                                   className={cn(
-                                    'ml-4 px-2 py-1 rounded border text-text-primary',
+                                    'ml-4 px-2 py-1 rounded-sm border text-text-primary',
                                     translated.severity === 'error' &&
                                       'border-status-error/30 bg-status-error/5',
                                     translated.severity === 'warning' &&

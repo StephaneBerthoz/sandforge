@@ -140,11 +140,11 @@ export const Wizard: React.FC<WizardProps> = ({
             <button
               key={step.id}
               className={cn(
-                'flex items-start gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors w-full',
-                status === 'current' && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
+                'flex items-start gap-2 px-2 py-1.5 rounded-sm text-left text-xs transition-colors w-full',
+                status === 'current' && 'bg-(--vscode-list-activeSelectionBackground,#094771)',
                 status === 'completed' &&
                   (canRevisitSteps
-                    ? 'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer'
+                    ? 'hover:bg-(--vscode-list-hoverBackground,#2a2d2e) cursor-pointer'
                     : 'cursor-default'),
                 status === 'future' && 'cursor-default',
               )}
@@ -157,10 +157,10 @@ export const Wizard: React.FC<WizardProps> = ({
                 className={cn(
                   'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5',
                   status === 'current'
-                    ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)]'
+                    ? 'bg-(--vscode-button-background,#0e639c) text-(--vscode-button-foreground,#fff)'
                     : status === 'completed'
-                      ? 'bg-status-success text-[var(--sf-bg-primary)]'
-                      : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)]',
+                      ? 'bg-status-success text-(--sf-bg-primary)'
+                      : 'bg-(--vscode-input-background,#3c3c3c) text-(--vscode-input-foreground,#d4d4d4)',
                 )}
               >
                 {status === 'completed' ? (
@@ -177,9 +177,9 @@ export const Wizard: React.FC<WizardProps> = ({
                     // selection's own foreground; a completed step takes the list
                     // hover, on which description text falls under AA.
                     status === 'current' &&
-                      'font-semibold text-[var(--vscode-list-activeSelectionForeground,#fff)]',
+                      'font-semibold text-(--vscode-list-activeSelectionForeground,#fff)',
                     status === 'completed' && 'text-text-primary',
-                    status === 'future' && 'text-[var(--vscode-descriptionForeground,#868686)]',
+                    status === 'future' && 'text-(--vscode-descriptionForeground,#868686)',
                   )}
                 >
                   {t(step.labelKey)}
@@ -188,10 +188,9 @@ export const Wizard: React.FC<WizardProps> = ({
                   <span
                     className={cn(
                       'text-[10px] truncate',
-                      status === 'current' &&
-                        'text-[var(--vscode-list-activeSelectionForeground,#fff)]',
+                      status === 'current' && 'text-(--vscode-list-activeSelectionForeground,#fff)',
                       status === 'completed' && 'text-text-primary',
-                      status === 'future' && 'text-[var(--vscode-descriptionForeground,#868686)]',
+                      status === 'future' && 'text-(--vscode-descriptionForeground,#868686)',
                     )}
                   >
                     {t(step.descriptionKey)}
@@ -236,7 +235,7 @@ export const Wizard: React.FC<WizardProps> = ({
             hands the focus to the page, where the keyboard started again from
             the top. */}
         {!isFinished && (
-          <div className="flex justify-between items-center pt-2 border-t border-[var(--vscode-panel-border,#3c3c3c)]">
+          <div className="flex justify-between items-center pt-2 border-t border-(--vscode-panel-border,#3c3c3c)">
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"

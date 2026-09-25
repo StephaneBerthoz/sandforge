@@ -140,7 +140,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
 
   // The Schedule Builder's fields, so the two editors read alike.
   const inputClass =
-    'w-full px-2 py-1 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] focus:outline-none focus:border-[var(--sf-accent)]';
+    'w-full px-2 py-1 text-xs rounded-sm border border-(--sf-border-input) bg-(--sf-bg-input) text-(--sf-text-input) focus:outline-hidden focus:border-(--sf-accent)';
 
   return (
     <form
@@ -188,7 +188,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
           return (
             <fieldset
               key={row.key}
-              className="flex flex-col gap-1 rounded border border-subtle p-2"
+              className="flex flex-col gap-1 rounded-sm border border-subtle p-2"
               data-testid={`template-rule-${index}`}
             >
               <legend className="sr-only">
@@ -233,7 +233,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
                 </label>
                 <button
                   type="button"
-                  className="rounded px-2 py-1 text-xs bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+                  className="rounded-sm px-2 py-1 text-xs bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
                   onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
                   aria-label={t('dataops.templateEditor.removeRule', { n: index + 1 })}
                   data-testid={`template-rule-remove-${index}`}

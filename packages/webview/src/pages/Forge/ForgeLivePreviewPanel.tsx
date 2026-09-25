@@ -50,7 +50,7 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
           data-testid="forge-record-preview"
         >
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-forge/20 text-hue-forge">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-sm bg-forge/20 text-hue-forge">
               {preview.objectLabel}
             </span>
             <span className="text-[10px] font-mono text-text-secondary">
@@ -71,7 +71,7 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
                 <span className="text-text-secondary">{f.name}</span>
                 <span className="text-text-primary font-mono truncate flex items-center gap-1">
                   {isPiiField(f.name) && (
-                    <span className="shrink-0 text-[9px] px-1 py-px rounded bg-status-error/10 text-status-error font-sans">
+                    <span className="shrink-0 text-[9px] px-1 py-px rounded-sm bg-status-error/10 text-status-error font-sans">
                       PII
                     </span>
                   )}

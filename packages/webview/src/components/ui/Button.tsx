@@ -41,16 +41,16 @@ export interface ButtonProps extends Omit<
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)]',
+    'bg-(--vscode-button-background,#0e639c) text-(--vscode-button-foreground,#fff) hover:bg-(--vscode-button-hoverBackground,#1177bb)',
   secondary:
-    'bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]',
+    'bg-(--vscode-button-secondaryBackground,#3a3d41) text-(--vscode-button-secondaryForeground,#fff) hover:bg-(--vscode-button-secondaryHoverBackground,#45494e)',
   ghost:
-    'bg-transparent text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+    'bg-transparent text-(--vscode-editor-foreground,#d4d4d4) hover:bg-(--vscode-list-hoverBackground,#2a2d2e)',
   // The severity token as the fill and the editor background as the label: the
   // token is sized to read against that background on every measured theme but
   // Solarized Light, so the pair holds both ways round, where white on
   // errorForeground reads 2.4:1 on Dark+.
-  danger: 'bg-status-error text-[var(--sf-bg-primary)]',
+  danger: 'bg-status-error text-(--sf-bg-primary)',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -83,7 +83,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         whileTap={!(disabled || loading) ? buttonPress.whileTap : undefined}
         className={cn(
-          'inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]',
+          'inline-flex items-center justify-center gap-1.5 rounded-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--vscode-focusBorder,#007fd4)',
           variantClasses[variant],
           sizeClasses[size],
           (disabled || loading) && 'opacity-50 cursor-not-allowed',

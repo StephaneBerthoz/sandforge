@@ -198,7 +198,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
 
       {targetRefused && (
         <p
-          className="rounded border border-status-error/50 px-3 py-2 text-xs text-status-error"
+          className="rounded-sm border border-status-error/50 px-3 py-2 text-xs text-status-error"
           data-testid="deploy-target-refused"
         >
           {t('compare.deployment.targetRefused', { target: targetLabel })}
@@ -242,14 +242,14 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
               </Button>
             </div>
             <ul
-              className="flex max-h-72 flex-col gap-0.5 overflow-y-auto rounded border border-[var(--sf-border)] p-1"
+              className="flex max-h-72 flex-col gap-0.5 overflow-y-auto rounded-sm border border-(--sf-border) p-1"
               data-testid="deploy-candidate-list"
             >
               {suggestion.deployable.map((c) => {
                 const key = candidateKey(c);
                 return (
                   <li key={key}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-[var(--sf-bg-hover)]">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs hover:bg-(--sf-bg-hover)">
                       <input
                         type="checkbox"
                         checked={picked.has(key)}

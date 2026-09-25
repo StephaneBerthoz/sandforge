@@ -51,10 +51,10 @@ export const OrgCard: React.FC<OrgCardProps> = ({
     <div
       className={cn(
         'rounded-lg border p-3 cursor-pointer transition-all',
-        'bg-[var(--sf-bg-primary)]',
+        'bg-(--sf-bg-primary)',
         selected
-          ? 'border-[var(--sf-accent)] ring-1 ring-[var(--sf-accent)]'
-          : 'border-[var(--sf-border)] hover:border-[var(--sf-accent)]',
+          ? 'border-(--sf-accent) ring-1 ring-(--sf-accent)'
+          : 'border-(--sf-border) hover:border-(--sf-accent)',
       )}
       onClick={() => onSelect(org.id)}
       role="button"
@@ -67,7 +67,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       {/* Row 1: Env badge + alias + status */}
       <div className="flex items-center gap-2">
         <span
-          className={cn('px-2 py-0.5 text-[10px] font-bold rounded border shrink-0', typeStyle)}
+          className={cn('px-2 py-0.5 text-[10px] font-bold rounded-sm border shrink-0', typeStyle)}
           data-testid={`org-type-badge-${org.id}`}
         >
           {envLabel}
@@ -99,7 +99,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           {org.tags.map((tag) => (
             <span
               key={tag}
-              className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
+              className="px-1.5 py-0.5 text-[10px] rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg)"
             >
               {tag}
             </span>
@@ -111,7 +111,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       <div className="mt-2 flex gap-2 justify-end">
         {canReconnect && (
           <button
-            className="text-xs text-[var(--sf-text-link)] hover:underline"
+            className="text-xs text-(--sf-text-link) hover:underline"
             onClick={(e) => {
               e.stopPropagation();
               onReconnect(org);
@@ -122,7 +122,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           </button>
         )}
         <button
-          className="text-xs text-[var(--sf-text-link)] hover:underline"
+          className="text-xs text-(--sf-text-link) hover:underline"
           onClick={(e) => {
             e.stopPropagation();
             onEdit(org);

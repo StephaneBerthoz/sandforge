@@ -124,7 +124,7 @@ export const SyncHistoryPanel: React.FC = () => {
   const hasData = entries.length > 0;
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-history-panel">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-history-panel">
       {isLoading && <SkeletonTable rows={5} columns={6} />}
 
       {isEmpty && (
@@ -139,13 +139,13 @@ export const SyncHistoryPanel: React.FC = () => {
         <>
           {/* Header bar */}
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[var(--sf-text-primary)]">
+            <h3 className="text-sm font-semibold text-(--sf-text-primary)">
               {t('sync.history.title')}
             </h3>
-            <div className="flex items-center gap-[var(--sf-space-2)]">
+            <div className="flex items-center gap-(--sf-space-2)">
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+                className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
                 onClick={() => exportHistory('csv')}
                 data-testid="export-csv-btn"
               >
@@ -153,7 +153,7 @@ export const SyncHistoryPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+                className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
                 onClick={() => exportHistory('json')}
                 data-testid="export-json-btn"
               >
@@ -161,7 +161,7 @@ export const SyncHistoryPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+                className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
                 onClick={() => fetchHistory()}
                 aria-label={t('common.reload')}
                 data-testid="refresh-btn"

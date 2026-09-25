@@ -108,7 +108,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
   return (
     <div
-      className="flex flex-col h-full gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      className="flex flex-col h-full gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="ai-chat-panel"
     >
       <PageHeader
@@ -140,10 +140,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         />
       )}
 
-      <div className="flex flex-1 gap-[var(--sf-space-4)] min-h-0">
+      <div className="flex flex-1 gap-(--sf-space-4) min-h-0">
         {/* Conversation sidebar */}
         <div
-          className="w-56 shrink-0 flex flex-col gap-[var(--sf-space-2)]"
+          className="w-56 shrink-0 flex flex-col gap-(--sf-space-2)"
           data-testid="conversation-sidebar"
         >
           <Button
@@ -179,8 +179,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 key={conv.id}
                 className={`flex items-center justify-between w-full rounded transition-colors ${
                   conv.id === activeConversationId
-                    ? 'bg-[var(--sf-bg-active)] text-[var(--sf-text-active)]'
-                    : 'text-text-primary hover:bg-[var(--sf-bg-hover)]'
+                    ? 'bg-(--sf-bg-active) text-(--sf-text-active)'
+                    : 'text-text-primary hover:bg-(--sf-bg-hover)'
                 }`}
               >
                 <button
@@ -221,10 +221,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           ) : (
             <>
               {/* Messages */}
-              <Card className="flex-1 min-h-0 overflow-y-auto mb-[var(--sf-space-2)]">
+              <Card className="flex-1 min-h-0 overflow-y-auto mb-(--sf-space-2)">
                 <CardBody>
                   <div
-                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    className="flex flex-col gap-(--sf-space-3)"
                     data-testid="messages-container"
                   >
                     {messages.length === 0 && (
@@ -244,8 +244,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                         <div
                           className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap ${
                             msg.role === 'user'
-                              ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
-                              : 'bg-[var(--sf-bg-inactive-selection)] text-text-primary'
+                              ? 'bg-(--sf-button-bg) text-(--sf-button-fg)'
+                              : 'bg-(--sf-bg-inactive-selection) text-text-primary'
                           }`}
                           data-testid={`message-bubble-${msg.role}`}
                         >
@@ -266,13 +266,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               </Card>
 
               {/* Input area */}
-              <div className="flex gap-[var(--sf-space-2)]" data-testid="chat-input-area">
+              <div className="flex gap-(--sf-space-2)" data-testid="chat-input-area">
                 <textarea
                   className="flex-1 px-3 py-2 text-sm rounded border resize-none
-                    bg-[var(--sf-bg-input)]
-                    text-[var(--sf-text-input)]
-                    border-[var(--sf-border-input)]
-                    focus:border-[var(--sf-accent)] outline-none"
+                    bg-(--sf-bg-input)
+                    text-(--sf-text-input)
+                    border-(--sf-border-input)
+                    focus:border-(--sf-accent) outline-hidden"
                   rows={2}
                   placeholder={t(
                     'ai.placeholder',

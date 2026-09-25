@@ -94,7 +94,7 @@ const JsonNode: React.FC<{
   return (
     <div>
       <div
-        className="leading-5 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
+        className="leading-5 cursor-pointer hover:bg-(--vscode-list-hoverBackground,#2a2d2e)"
         style={{ paddingLeft: depth * 16 }}
         onClick={toggle}
         role="button"
@@ -162,10 +162,10 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   return (
     <div
       className={cn(
-        'font-mono text-xs p-2 rounded',
-        'bg-[var(--vscode-editor-background,#1e1e1e)]',
-        'text-[var(--vscode-editor-foreground,#d4d4d4)]',
-        'border border-[var(--vscode-panel-border,#3c3c3c)]',
+        'font-mono text-xs p-2 rounded-sm',
+        'bg-(--vscode-editor-background,#1e1e1e)',
+        'text-(--vscode-editor-foreground,#d4d4d4)',
+        'border border-(--vscode-panel-border,#3c3c3c)',
         'overflow-auto',
         className,
       )}

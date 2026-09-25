@@ -17,9 +17,9 @@ export interface OrgBadgeProps {
 }
 
 const statusColors: Record<string, string> = {
-  connected: 'bg-[var(--sf-success)]',
-  expired: 'bg-[var(--sf-warning)]',
-  error: 'bg-[var(--sf-error)]',
+  connected: 'bg-(--sf-success)',
+  expired: 'bg-(--sf-warning)',
+  error: 'bg-(--sf-error)',
 };
 
 /**
@@ -62,12 +62,12 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-[var(--sf-space-2)] px-[var(--sf-space-2)] py-[var(--sf-space-1)]',
-        'rounded-[var(--sf-radius-md)]',
-        'bg-[var(--sf-bg-card)]',
-        'border border-[var(--sf-border-subtle)]',
+        'inline-flex items-center gap-(--sf-space-2) px-(--sf-space-2) py-(--sf-space-1)',
+        'rounded-(--sf-radius-md)',
+        'bg-(--sf-bg-card)',
+        'border border-(--sf-border-subtle)',
         // `length:` says it is a size: bare, the value compiled to a text colour.
-        'text-[length:var(--sf-font-size)]',
+        'text-(length:--sf-font-size)',
         className,
       )}
       data-testid="org-badge"
@@ -84,7 +84,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
 
       {/* Alias */}
       <span
-        className="font-semibold text-[var(--sf-text-primary)] truncate"
+        className="font-semibold text-(--sf-text-primary) truncate"
         data-testid="org-badge-alias"
       >
         {alias}
@@ -95,8 +95,8 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
         className={cn(
           'inline-flex items-center px-1.5 py-0.5',
           'text-[10px] font-bold leading-none',
-          'rounded-[var(--sf-radius-sm)]',
-          'text-[var(--sf-bg-primary)]',
+          'rounded-(--sf-radius-sm)',
+          'text-(--sf-bg-primary)',
           typeInfo.bg,
         )}
         data-testid="org-badge-type"
@@ -107,7 +107,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
       {/* Instance URL */}
       {truncatedUrl && (
         <span
-          className="text-text-secondary text-[length:var(--sf-font-size-sm)] truncate max-w-[160px]"
+          className="text-text-secondary text-(length:--sf-font-size-sm) truncate max-w-[160px]"
           data-testid="org-badge-url"
           title={instanceUrl}
         >

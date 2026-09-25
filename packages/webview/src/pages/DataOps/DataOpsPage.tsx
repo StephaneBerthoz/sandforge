@@ -291,7 +291,7 @@ export const DataOpsPage: React.FC = () => {
 
   return (
     <m.div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="dataops-page"
       variants={fadeIn}
       initial="hidden"
@@ -367,7 +367,7 @@ export const DataOpsPage: React.FC = () => {
       <BentoTile className="p-0">
         <div className="p-4" data-testid="dataops-content">
           {tabLoading && (
-            <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="dataops-skeleton">
+            <div className="flex flex-col gap-(--sf-space-3)" data-testid="dataops-skeleton">
               <Skeleton variant="text" width="30%" height="1em" />
               <Skeleton variant="rect" height="120px" />
               <Skeleton variant="text" width="50%" height="1em" />

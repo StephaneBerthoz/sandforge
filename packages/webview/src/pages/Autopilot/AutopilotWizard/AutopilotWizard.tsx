@@ -243,10 +243,10 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
 
   return (
     <div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="autopilot-wizard"
     >
-      <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">
+      <h2 className="text-lg font-semibold text-(--sf-text-primary)">
         {t('autopilot.wizard.title')}
       </h2>
 

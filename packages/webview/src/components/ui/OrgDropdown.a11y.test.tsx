@@ -8,12 +8,12 @@ import type { SalesforceOrg } from '@sandforge/shared';
  * The trigger is a custom control: keyboard users get no native listbox
  * semantics and no native focus ring, so both have to be declared here.
  * Ring tokens are the ones Button.tsx applies, kept literal so a silent
- * drift back to a bare `focus:outline-none` fails loudly.
+ * drift back to a bare `focus:outline-hidden` fails loudly.
  */
 const RING_CLASSES = [
-  'focus-visible:outline-none',
+  'focus-visible:outline-hidden',
   'focus-visible:ring-1',
-  'focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]',
+  'focus-visible:ring-(--vscode-focusBorder,#007fd4)',
 ];
 
 const mockOrgs: SalesforceOrg[] = [
@@ -61,6 +61,6 @@ describe('OrgDropdown accessibility', () => {
   });
 
   it('does not suppress the outline for every focus source', () => {
-    expect(renderDropdown().classList.contains('focus:outline-none')).toBe(false);
+    expect(renderDropdown().classList.contains('focus:outline-hidden')).toBe(false);
   });
 });

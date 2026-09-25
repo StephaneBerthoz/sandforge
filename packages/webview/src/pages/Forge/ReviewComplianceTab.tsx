@@ -70,7 +70,7 @@ export const ReviewComplianceTab: React.FC = () => {
           data-testid="framework-select"
           value={framework}
           onChange={(e) => setFramework(e.target.value)}
-          className="bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"
+          className="bg-surface-3 text-text-primary text-xs rounded-sm px-2 py-1 border border-subtle"
         >
           {FRAMEWORKS.map((f) => (
             <option key={f} value={f}>

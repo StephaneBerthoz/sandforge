@@ -35,7 +35,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            className="text-xs font-medium text-(--vscode-editor-foreground,#d4d4d4)"
           >
             {label}
           </label>
@@ -47,13 +47,13 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           aria-label={resolvedAriaLabel}
           aria-labelledby={ariaLabelledBy}
           className={cn(
-            'w-full px-2 py-1.5 text-sm rounded',
-            'bg-[var(--vscode-input-background,#3c3c3c)]',
-            'text-[var(--vscode-input-foreground,#d4d4d4)]',
-            'border border-[var(--vscode-input-border,#3c3c3c)]',
-            'placeholder:text-[var(--vscode-input-placeholderForeground,#6b6b6b)]',
-            'focus:outline-none focus:border-[var(--vscode-focusBorder,#007fd4)]',
-            error && 'border-[var(--vscode-errorForeground,#f48771)]',
+            'w-full px-2 py-1.5 text-sm rounded-sm',
+            'bg-(--vscode-input-background,#3c3c3c)',
+            'text-(--vscode-input-foreground,#d4d4d4)',
+            'border border-(--vscode-input-border,#3c3c3c)',
+            'placeholder:text-(--vscode-input-placeholderForeground,#6b6b6b)',
+            'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
+            error && 'border-(--vscode-errorForeground,#f48771)',
             className,
           )}
           aria-invalid={error ? true : undefined}
@@ -68,7 +68,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {!error && hint && (
           <span
             id={`${inputId}-hint`}
-            className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+            className="text-xs text-(--vscode-descriptionForeground,#868686)"
           >
             {hint}
           </span>

@@ -129,7 +129,7 @@ export const GrappePage: React.FC = () => {
                 <ProgressBar
                   value={overallProgress}
                   ariaLabel={t('a11y.runProgress', { name: t('nav.grappe', 'Grappe') })}
-                  barClassName="bg-gradient-to-r from-hue-indigo to-hue-purple"
+                  barClassName="bg-linear-to-r from-hue-indigo to-hue-purple"
                 />
               </div>
               <div className="flex items-center justify-between mt-2">

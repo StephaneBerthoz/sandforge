@@ -61,7 +61,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
       {/* Toggle button */}
       <button
         type="button"
-        className="relative z-10 flex items-center justify-center w-6 shrink-0 hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors"
+        className="relative z-10 flex items-center justify-center w-6 shrink-0 hover:bg-(--vscode-list-hoverBackground,#2a2d2e) transition-colors"
         onClick={onToggleRight}
         data-testid="splitview-toggle"
         aria-label={rightCollapsed ? t('a11y.expandRightPanel') : t('a11y.collapseRightPanel')}

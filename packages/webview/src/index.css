@@ -1,54 +1,12 @@
-@import './styles/design-system.css';
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 /*
- * Placeholders in the theme's own placeholder colour. Preflight paints them in
- * its gray-400 (#9ca3af), a colour no theme picked: 2.54:1 on a white input. A
- * `placeholder:` class still takes precedence.
+ * The panel's stylesheet: Tailwind over every source file of the webview, as
+ * Tailwind 3 scanned `./src/**` and index.html. The sidebar has its own
+ * (sidepanel.css), over the files it renders alone.
  */
-@layer base {
-  input::placeholder,
-  textarea::placeholder {
-    color: var(--sf-text-placeholder);
-  }
-}
+@import './styles/design-system.css' layer(base);
+@import 'tailwindcss' source(none);
+@import './styles/theme.css';
+@import './styles/globals.css';
 
-:root {
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Scrollbars VSCode-style */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
-}
-
-::-webkit-scrollbar-thumb:active {
-  background: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
-}
-
-/* Focus and selection */
-*:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder, #007fd4);
-  outline-offset: -1px;
-}
-
-::selection {
-  background: var(--vscode-editor-selectionBackground, #264f78);
-}
+@source './**/*.{ts,tsx}';
+@source '../index.html';

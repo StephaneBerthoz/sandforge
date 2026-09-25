@@ -112,7 +112,7 @@ export const AutomationPage: React.FC = () => {
 
   return (
     <m.div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="automation-page"
       variants={fadeIn}
       initial="hidden"
@@ -123,7 +123,7 @@ export const AutomationPage: React.FC = () => {
         subtitle={subtitle}
         icon="circuit-board"
         actions={
-          <div className="flex items-center gap-[var(--sf-space-2)]">
+          <div className="flex items-center gap-(--sf-space-2)">
             {!pipeline && (
               <Button
                 variant="primary"
@@ -279,7 +279,7 @@ export const AutomationPage: React.FC = () => {
       <BentoTile className="p-0">
         <div className="p-4" data-testid="automation-content">
           {activeTab === 'canvas' && (
-            <div className="flex flex-col gap-[var(--sf-space-4)]">
+            <div className="flex flex-col gap-(--sf-space-4)">
               {/* The steps that write to an org, and the control steps not
                   built yet, are refused before a pipeline's first step. Say so
                   before anyone builds one. */}
@@ -288,7 +288,7 @@ export const AutomationPage: React.FC = () => {
                 data-testid="automation-steps-soon"
                 description={t('automation.soon.steps')}
               />
-              <div className="flex items-center gap-[var(--sf-space-2)]">
+              <div className="flex items-center gap-(--sf-space-2)">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -299,7 +299,7 @@ export const AutomationPage: React.FC = () => {
                   {t('automation.generatePipeline')}
                 </Button>
               </div>
-              <div className="flex gap-[var(--sf-space-4)]">
+              <div className="flex gap-(--sf-space-4)">
                 <div className="flex-1">
                   {isRunning ? (
                     <PipelineExecutionView execution={executionData} onCancel={handleCancelRun} />
@@ -345,10 +345,7 @@ export const AutomationPage: React.FC = () => {
           {activeTab === 'history' && <PipelineHistoryView entries={historyEntries} />}
 
           {activeTab === 'marketplace' && (
-            <div
-              data-testid="marketplace-content"
-              className="flex flex-col gap-[var(--sf-space-3)]"
-            >
+            <div data-testid="marketplace-content" className="flex flex-col gap-(--sf-space-3)">
               <h2 className="text-sm font-semibold text-text-primary">
                 {t('automation.marketplace')}
               </h2>
@@ -374,7 +371,7 @@ export const AutomationPage: React.FC = () => {
                 <ErrorBanner message={marketplaceError} data-testid="marketplace-error" />
               )}
               {marketplaceTemplates.length > 0 ? (
-                <div className="grid gap-[var(--sf-space-2)]">
+                <div className="grid gap-(--sf-space-2)">
                   {marketplaceTemplates.map((tpl) => {
                     const blockedTypes = [
                       ...new Set(
@@ -384,7 +381,7 @@ export const AutomationPage: React.FC = () => {
                     return (
                       <div
                         key={tpl.id}
-                        className="p-[var(--sf-space-3)] rounded-xl border border-subtle bg-surface-2"
+                        className="p-(--sf-space-3) rounded-xl border border-subtle bg-surface-2"
                         data-testid={`marketplace-template-${tpl.id}`}
                       >
                         <div className="flex items-center justify-between">
@@ -492,7 +489,7 @@ const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
           {t('automation.generatePipeline')}
         </h3>
         <input
-          className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-active"
+          className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:outline-hidden focus:border-active"
           placeholder={t('automation.generatePipelinePrompt')}
           aria-label={t('automation.generatePipelinePrompt')}
           value={description}

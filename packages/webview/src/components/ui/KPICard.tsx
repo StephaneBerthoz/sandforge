@@ -43,7 +43,7 @@ export interface KPICardProps {
 
 /** Maps variant to the text colour class of its icon. */
 const variantColorMap: Record<KPICardVariant, string> = {
-  default: 'text-[var(--sf-accent)]',
+  default: 'text-(--sf-accent)',
   success: 'text-status-success',
   warning: 'text-status-warning',
   error: 'text-status-error',

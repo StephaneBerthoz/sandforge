@@ -324,7 +324,7 @@ export const ForgeDiscovery: React.FC = () => {
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
               viewMode === 'graph'
-                ? 'bg-hue-forge text-[var(--sf-bg-primary)]'
+                ? 'bg-hue-forge text-(--sf-bg-primary)'
                 : 'text-text-secondary hover:text-text-primary',
             )}
             aria-pressed={viewMode === 'graph'}
@@ -339,7 +339,7 @@ export const ForgeDiscovery: React.FC = () => {
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
               viewMode === 'table'
-                ? 'bg-hue-forge text-[var(--sf-bg-primary)]'
+                ? 'bg-hue-forge text-(--sf-bg-primary)'
                 : 'text-text-secondary hover:text-text-primary',
             )}
             aria-pressed={viewMode === 'table'}
@@ -361,10 +361,10 @@ export const ForgeDiscovery: React.FC = () => {
             placeholder={t('forge.searchNodes')}
             className={cn(
               'w-full pl-8 pr-3 py-1.5 rounded-md text-xs',
-              'bg-[var(--sf-bg-input)]',
-              'text-[var(--sf-text-input)]',
-              'border border-[var(--sf-border-input)]',
-              'focus:outline-none focus:border-forge/50',
+              'bg-(--sf-bg-input)',
+              'text-(--sf-text-input)',
+              'border border-(--sf-border-input)',
+              'focus:outline-hidden focus:border-forge/50',
             )}
           />
         </div>

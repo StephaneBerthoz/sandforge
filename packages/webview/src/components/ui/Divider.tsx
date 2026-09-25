@@ -24,7 +24,7 @@ export const Divider: React.FC<DividerProps> = ({
         role="separator"
         aria-orientation="vertical"
         className={cn(
-          'inline-block w-px self-stretch bg-[var(--vscode-panel-border,#3c3c3c)]',
+          'inline-block w-px self-stretch bg-(--vscode-panel-border,#3c3c3c)',
           className,
         )}
       />
@@ -38,11 +38,11 @@ export const Divider: React.FC<DividerProps> = ({
         aria-orientation="horizontal"
         className={cn('flex items-center gap-3', className)}
       >
-        <div className="flex-1 h-px bg-[var(--vscode-panel-border,#3c3c3c)]" />
-        <span className="text-[11px] text-[var(--vscode-descriptionForeground,#868686)] shrink-0">
+        <div className="flex-1 h-px bg-(--vscode-panel-border,#3c3c3c)" />
+        <span className="text-[11px] text-(--vscode-descriptionForeground,#868686) shrink-0">
           {label}
         </span>
-        <div className="flex-1 h-px bg-[var(--vscode-panel-border,#3c3c3c)]" />
+        <div className="flex-1 h-px bg-(--vscode-panel-border,#3c3c3c)" />
       </div>
     );
   }
@@ -51,7 +51,7 @@ export const Divider: React.FC<DividerProps> = ({
     <div
       role="separator"
       aria-orientation="horizontal"
-      className={cn('h-px w-full bg-[var(--vscode-panel-border,#3c3c3c)]', className)}
+      className={cn('h-px w-full bg-(--vscode-panel-border,#3c3c3c)', className)}
     />
   );
 };

@@ -44,13 +44,13 @@ describe('Button', () => {
   it('should apply primary variant classes by default', () => {
     render(<Button>Primary</Button>);
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('bg-[var(--vscode-button-background');
+    expect(btn.className).toContain('bg-(--vscode-button-background');
   });
 
   it('should apply secondary variant classes', () => {
     render(<Button variant="secondary">Sec</Button>);
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('bg-[var(--vscode-button-secondaryBackground');
+    expect(btn.className).toContain('bg-(--vscode-button-secondaryBackground');
   });
 
   it('should apply danger variant classes', () => {
@@ -59,7 +59,7 @@ describe('Button', () => {
     // The severity token as fill, the editor background as label: white on
     // errorForeground read 2.5:1 on Dark+.
     expect(btn.className).toContain('bg-status-error');
-    expect(btn.className).toContain('text-[var(--sf-bg-primary)]');
+    expect(btn.className).toContain('text-(--sf-bg-primary)');
     expect(btn.className).not.toContain('text-white');
   });
 

@@ -37,7 +37,7 @@ const RefusalList: React.FC<{ title: string; refusals: AutopilotRefusal[]; testI
                 {t('common.recordCount', { count: refusal.count })}
               </span>
             </span>
-            <span className="break-words text-text-secondary">{refusal.message}</span>
+            <span className="wrap-break-word text-text-secondary">{refusal.message}</span>
           </li>
         ))}
       </ul>
@@ -155,7 +155,7 @@ export const NodeDetail: React.FC = () => {
             {piiFields.map((field) => (
               <span
                 key={field}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
+                className="px-1.5 py-0.5 text-[10px] rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg)"
               >
                 {field}
               </span>

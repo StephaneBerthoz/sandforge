@@ -98,7 +98,7 @@ interface PresenceRow {
 const PresenceCell: React.FC<{ present: boolean; testId: string }> = ({ present, testId }) => (
   <span
     className={cn(
-      'inline-block h-4 w-4 rounded-sm text-center text-[10px] font-bold leading-4',
+      'inline-block h-4 w-4 rounded-xs text-center text-[10px] font-bold leading-4',
       present ? 'bg-status-success/10 text-status-success' : 'bg-status-error/10 text-status-error',
     )}
     data-testid={testId}
@@ -170,7 +170,7 @@ export const PermissionPresence: React.FC<PermissionPresenceProps> = ({
             rendered matrix always carries at least one real row. */}
         <table className="w-full text-[10px]" data-testid="perm-presence-matrix">
           <thead>
-            <tr className="border-b border-[var(--sf-border)] text-[var(--sf-text-secondary)]">
+            <tr className="border-b border-(--sf-border) text-(--sf-text-secondary)">
               <th className="pb-1 pr-3 text-left font-medium" />
               <th className="w-16 pb-1 text-center font-medium" data-testid="perm-header-source">
                 {sourceLabel}
@@ -188,7 +188,7 @@ export const PermissionPresence: React.FC<PermissionPresenceProps> = ({
                 <tr
                   key={`${row.kind}-${row.name}`}
                   className={cn(
-                    'border-b border-[var(--sf-border)] last:border-0',
+                    'border-b border-(--sf-border) last:border-0',
                     row.status !== 'unchanged' && 'bg-status-warning/5',
                   )}
                   data-testid={`perm-row-${row.kind}-${row.name}`}
@@ -197,7 +197,7 @@ export const PermissionPresence: React.FC<PermissionPresenceProps> = ({
                     <span className="mr-2 align-middle">
                       <Badge variant="info">{row.kind}</Badge>
                     </span>
-                    <span className="truncate align-middle font-mono text-[var(--sf-text-primary)]">
+                    <span className="truncate align-middle font-mono text-(--sf-text-primary)">
                       {row.label}
                     </span>
                   </td>

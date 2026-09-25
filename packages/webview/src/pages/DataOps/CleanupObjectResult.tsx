@@ -51,7 +51,7 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
     return (
       <section
         aria-labelledby={headingId}
-        className="flex flex-col gap-1 rounded-lg border border-[var(--sf-border)] p-3"
+        className="flex flex-col gap-1 rounded-lg border border-(--sf-border) p-3"
         data-testid={`cleanup-object-${result.objectApiName}`}
       >
         <h3 id={headingId} className="font-mono text-sm font-semibold text-text-primary">
@@ -103,7 +103,7 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-3 rounded-lg border border-[var(--sf-border)] p-3"
+      className="flex flex-col gap-3 rounded-lg border border-(--sf-border) p-3"
       data-testid={`cleanup-object-${result.objectApiName}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">

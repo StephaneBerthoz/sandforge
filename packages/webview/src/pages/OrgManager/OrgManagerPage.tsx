@@ -496,7 +496,7 @@ export const OrgManagerPage: React.FC = () => {
     <div className="flex flex-col gap-4" data-testid="org-manager-page">
       {/* Banner with integrated auth methods */}
       <div
-        className="rounded-lg border border-[var(--sf-border)] bg-[var(--sf-bg-primary)] overflow-hidden"
+        className="rounded-lg border border-(--sf-border) bg-(--sf-bg-primary) overflow-hidden"
         data-testid="org-connect-banner"
       >
         {/* Header row */}
@@ -523,8 +523,8 @@ export const OrgManagerPage: React.FC = () => {
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium',
                   'border transition-all',
                   isActive
-                    ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
-                    : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] border-transparent hover:bg-[var(--sf-button-secondary-hover)]',
+                    ? 'bg-(--sf-button-bg) text-(--sf-button-fg) border-(--sf-button-bg)'
+                    : 'bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) border-transparent hover:bg-(--sf-button-secondary-hover)',
                   'disabled:pointer-events-none disabled:opacity-60',
                 )}
                 onClick={() => handleMethodClick(card)}
@@ -545,7 +545,7 @@ export const OrgManagerPage: React.FC = () => {
 
         {updateMutation.error && (
           <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-status-error"
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-status-error"
             role="alert"
             data-testid="org-update-error"
           >
@@ -557,7 +557,7 @@ export const OrgManagerPage: React.FC = () => {
             form-less methods (sfdx_import) too. `mutate` clears it on retry. */}
         {connectError && (
           <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-status-error"
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-status-error"
             role="alert"
             data-testid="org-connect-error"
           >
@@ -572,7 +572,7 @@ export const OrgManagerPage: React.FC = () => {
                   href={SF_CLI_INSTALL_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="underline text-[var(--sf-text-link)]"
+                  className="underline text-(--sf-text-link)"
                   data-testid="org-connect-error-cli-install"
                 >
                   {t('org.installCli')}
@@ -585,7 +585,7 @@ export const OrgManagerPage: React.FC = () => {
         {/* Inline form — expands when a method with form is selected */}
         {activeMethod && activeMethod !== 'sfdx_import' && (
           <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-3"
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-3"
             data-testid="org-inline-form"
           >
             <div className="flex items-center justify-between mb-3">

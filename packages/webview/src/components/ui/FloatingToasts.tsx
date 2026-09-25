@@ -7,10 +7,10 @@ import type { Notification } from '../../stores/useNotificationStore';
 const MAX_VISIBLE_TOASTS = 3;
 
 const levelStyles: Record<Notification['level'], string> = {
-  info: 'border-l-[var(--vscode-notificationsInfoIcon-foreground,#75beff)]',
+  info: 'border-l-(--vscode-notificationsInfoIcon-foreground,#75beff)',
   success: 'border-l-status-success',
-  warning: 'border-l-[var(--vscode-notificationsWarningIcon-foreground,#cca700)]',
-  error: 'border-l-[var(--vscode-notificationsErrorIcon-foreground,#f14c4c)]',
+  warning: 'border-l-(--vscode-notificationsWarningIcon-foreground,#cca700)',
+  error: 'border-l-(--vscode-notificationsErrorIcon-foreground,#f14c4c)',
 };
 
 /**
@@ -76,10 +76,10 @@ export const FloatingToasts: React.FC = () => {
           key={n.id}
           role="status"
           className={cn(
-            'pointer-events-auto rounded px-3 py-2 border-l-4 shadow-lg',
-            'bg-[var(--vscode-notifications-background,#252526)]',
-            'text-[var(--vscode-notifications-foreground,#cccccc)]',
-            'border border-[var(--vscode-notifications-border,#3c3c3c)]',
+            'pointer-events-auto rounded-sm px-3 py-2 border-l-4 shadow-lg',
+            'bg-(--vscode-notifications-background,#252526)',
+            'text-(--vscode-notifications-foreground,#cccccc)',
+            'border border-(--vscode-notifications-border,#3c3c3c)',
             levelStyles[n.level],
           )}
           data-testid={`floating-toast-${n.id}`}
@@ -101,7 +101,7 @@ export const FloatingToasts: React.FC = () => {
                         href={action.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-sm bg-(--vscode-button-background,#0e639c) text-(--vscode-button-foreground,#ffffff) hover:bg-(--vscode-button-hoverBackground,#1177bb) transition-colors"
                         data-testid={`toast-action-${action.command}`}
                       >
                         {action.label}
@@ -109,7 +109,7 @@ export const FloatingToasts: React.FC = () => {
                     ) : (
                       <button
                         key={action.command}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-sm bg-(--vscode-button-background,#0e639c) text-(--vscode-button-foreground,#ffffff) hover:bg-(--vscode-button-hoverBackground,#1177bb) transition-colors"
                         onClick={() => {
                           action.onAction?.();
                           removeNotification(n.id);

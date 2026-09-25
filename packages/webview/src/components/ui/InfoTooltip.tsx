@@ -83,7 +83,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
     >
       <button
         type="button"
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[var(--vscode-descriptionForeground,#868686)] hover:ring-1 hover:ring-[var(--sf-info,#3B82F6)] transition-shadow"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-(--vscode-descriptionForeground,#868686) hover:ring-1 hover:ring-(--sf-info,#3B82F6) transition-shadow"
         aria-label={content}
         data-testid={`info-tooltip-${id}`}
       >

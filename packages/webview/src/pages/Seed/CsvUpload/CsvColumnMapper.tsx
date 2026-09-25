@@ -88,7 +88,7 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
     <div className="flex flex-col gap-3" data-testid="csv-column-mapper">
       {/* Summary */}
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-[var(--sf-text-primary)]">
+        <span className="text-sm font-medium text-(--sf-text-primary)">
           {t('seed.csv.mapper.title')}
         </span>
         <Badge variant={mappedCount === headers.length ? 'success' : 'warning'}>
@@ -105,19 +105,19 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
           return (
             <div
               key={header}
-              className="flex items-center gap-3 px-3 py-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]"
+              className="flex items-center gap-3 px-3 py-2 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
               data-testid={`mapping-row-${header}`}
             >
               {/* CSV column name */}
               <div className="w-40 shrink-0">
-                <span className="text-sm font-medium text-[var(--sf-text-primary)] truncate block">
+                <span className="text-sm font-medium text-(--sf-text-primary) truncate block">
                   {header}
                 </span>
               </div>
 
               {/* Arrow */}
               <ArrowRight
-                className="w-4 h-4 text-[var(--sf-text-secondary)] shrink-0"
+                className="w-4 h-4 text-(--sf-text-secondary) shrink-0"
                 aria-hidden="true"
               />
 

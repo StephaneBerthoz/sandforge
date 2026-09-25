@@ -362,9 +362,9 @@ export const ForgeExecution: React.FC = () => {
                   aria-pressed={logFilter === 'all'}
                   onClick={() => setLogFilter('all')}
                   className={cn(
-                    'px-2 py-0.5 text-xs rounded transition-colors',
+                    'px-2 py-0.5 text-xs rounded-sm transition-colors',
                     logFilter === 'all'
-                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      ? 'bg-hue-forge text-(--sf-bg-primary) font-semibold'
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
@@ -376,9 +376,9 @@ export const ForgeExecution: React.FC = () => {
                   aria-pressed={logFilter === 'error'}
                   onClick={() => setLogFilter('error')}
                   className={cn(
-                    'px-2 py-0.5 text-xs rounded transition-colors',
+                    'px-2 py-0.5 text-xs rounded-sm transition-colors',
                     logFilter === 'error'
-                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      ? 'bg-hue-forge text-(--sf-bg-primary) font-semibold'
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
@@ -390,9 +390,9 @@ export const ForgeExecution: React.FC = () => {
                   aria-pressed={logFilter === 'warn'}
                   onClick={() => setLogFilter('warn')}
                   className={cn(
-                    'px-2 py-0.5 text-xs rounded transition-colors',
+                    'px-2 py-0.5 text-xs rounded-sm transition-colors',
                     logFilter === 'warn'
-                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      ? 'bg-hue-forge text-(--sf-bg-primary) font-semibold'
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >

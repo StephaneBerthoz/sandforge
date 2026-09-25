@@ -42,7 +42,7 @@ describe('PageTabs', () => {
   it('should apply accent border on active tab', () => {
     render(<PageTabs tabs={tabs} activeTab="overview" onTabChange={vi.fn()} />);
     const activeTab = screen.getByTestId('page-tab-overview');
-    expect(activeTab.className).toContain('border-[var(--sf-accent)]');
+    expect(activeTab.className).toContain('border-(--sf-accent)');
   });
 
   it('should apply transparent border on inactive tab', () => {

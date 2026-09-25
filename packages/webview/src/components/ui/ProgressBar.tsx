@@ -25,7 +25,7 @@ export interface ProgressBarProps {
 }
 
 const barVariants: Record<string, string> = {
-  default: 'bg-[var(--vscode-progressBar-background,#0e70c0)]',
+  default: 'bg-(--vscode-progressBar-background,#0e70c0)',
   success: 'bg-status-success',
   warning: 'bg-status-warning',
   error: 'bg-status-error',
@@ -61,12 +61,12 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
       {(label || showPercent) && (
         <div className="flex justify-between items-center mb-1">
           {label && (
-            <span id={labelId} className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+            <span id={labelId} className="text-xs text-(--vscode-editor-foreground,#d4d4d4)">
               {label}
             </span>
           )}
           {showPercent && (
-            <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+            <span className="text-xs text-(--vscode-descriptionForeground,#868686)">
               {Math.round(percent)}%
             </span>
           )}
@@ -75,7 +75,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
       <div
         className={cn(
           'w-full rounded-full overflow-hidden',
-          'bg-[var(--vscode-input-background,#3c3c3c)]',
+          'bg-(--vscode-input-background,#3c3c3c)',
           size === 'sm' ? 'h-1' : 'h-2',
         )}
         role="progressbar"

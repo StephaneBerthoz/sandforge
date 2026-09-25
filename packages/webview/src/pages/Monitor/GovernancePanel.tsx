@@ -206,8 +206,8 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                   key={policy.id}
                   className={`flex items-center justify-between p-2 rounded border transition-colors ${
                     selectedPolicyId === policy.id
-                      ? 'border-[var(--sf-accent)] bg-status-info/10'
-                      : 'border-[var(--sf-border)] bg-[var(--sf-bg-primary)]'
+                      ? 'border-(--sf-accent) bg-status-info/10'
+                      : 'border-(--sf-border) bg-(--sf-bg-primary)'
                   }`}
                 >
                   {/* The delete action is a sibling, not a child: a button inside
@@ -259,7 +259,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                 <div
                   key={result.ruleId}
                   data-testid={`rule-result-${result.ruleId}`}
-                  className="flex items-start gap-2 p-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]"
+                  className="flex items-start gap-2 p-2 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
                 >
                   {statusIcon(result.status)}
                   <div className="flex-1 min-w-0">

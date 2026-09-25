@@ -226,9 +226,9 @@ export const AutopilotPage: React.FC = () => {
   if (showReport) {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--sf-border)]">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-(--sf-border)">
           <button
-            className="px-3 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-text-primary hover:bg-[var(--sf-bg-hover)] transition-colors"
+            className="px-3 py-1 text-xs rounded-sm bg-(--sf-bg-input) text-text-primary hover:bg-(--sf-bg-hover) transition-colors"
             onClick={() => setShowReport(false)}
             data-testid="back-from-report"
           >
@@ -264,7 +264,7 @@ export const AutopilotPage: React.FC = () => {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
         {/* Header with title and optional report button */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--sf-border)]">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-(--sf-border)">
           <h2
             ref={executionHeading}
             tabIndex={-1}
@@ -274,7 +274,7 @@ export const AutopilotPage: React.FC = () => {
           </h2>
           {step === 'completed' && (
             <button
-              className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) transition-colors"
               onClick={() => setShowReport(true)}
               data-testid="view-compliance-report"
             >
@@ -287,7 +287,7 @@ export const AutopilotPage: React.FC = () => {
         {/* Split view: graph placeholder (left 60%) + control panel (right 40%) */}
         <div className="flex flex-1 overflow-hidden">
           <div
-            className="w-[60%] overflow-hidden border-r border-[var(--sf-border)]"
+            className="w-[60%] overflow-hidden border-r border-(--sf-border)"
             data-testid="autopilot-graph-area"
           >
             <AutopilotGraph />

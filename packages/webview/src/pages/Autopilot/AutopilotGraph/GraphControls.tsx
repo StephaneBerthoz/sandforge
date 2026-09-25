@@ -29,7 +29,7 @@ export const GraphControls: React.FC<{
   }, [fitView]);
 
   const buttonClass =
-    'flex h-8 w-8 items-center justify-center rounded text-text-secondary hover:bg-[var(--sf-bg-hover)] hover:text-text-primary transition-colors';
+    'flex h-8 w-8 items-center justify-center rounded-sm text-text-secondary hover:bg-(--sf-bg-hover) hover:text-text-primary transition-colors';
 
   return (
     // `group` rather than a hover handler: the state it kept drove one glyph
@@ -39,7 +39,7 @@ export const GraphControls: React.FC<{
     // raw grey that did not survive a light theme.
     <div
       data-testid="graph-controls"
-      className="group absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-subtle bg-[var(--sf-bg-primary)] p-1 shadow-lg"
+      className="group absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-subtle bg-(--sf-bg-primary) p-1 shadow-lg"
     >
       <button
         data-testid="zoom-in-btn"
@@ -71,7 +71,7 @@ export const GraphControls: React.FC<{
       </button>
       <button
         data-testid="minimap-toggle-btn"
-        className={cn(buttonClass, minimapVisible && 'bg-[var(--sf-bg-hover)] text-text-primary')}
+        className={cn(buttonClass, minimapVisible && 'bg-(--sf-bg-hover) text-text-primary')}
         onClick={onToggleMinimap}
         title={t('autopilot.graph.controls.minimap')}
         aria-label={t('autopilot.graph.controls.minimap')}

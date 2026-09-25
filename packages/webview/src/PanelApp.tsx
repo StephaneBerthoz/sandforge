@@ -43,7 +43,7 @@ const OverlayDialog: React.FC<OverlayDialogProps> = ({ label, onEscape, children
   return (
     <div
       ref={dialogRef}
-      className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
+      className="fixed inset-0 z-100 bg-black/50 flex items-center justify-center"
       role="dialog"
       aria-modal="true"
       aria-label={label}
@@ -181,7 +181,7 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
       <main
         id="main-content"
         tabIndex={-1}
-        className="h-screen w-full overflow-auto bg-[var(--sf-bg-primary)] text-[var(--sf-text-primary)]"
+        className="h-screen w-full overflow-auto bg-(--sf-bg-primary) text-(--sf-text-primary)"
         data-testid="panel-app"
       >
         {/*

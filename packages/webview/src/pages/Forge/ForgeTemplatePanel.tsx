@@ -99,11 +99,11 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="font-medium">{tpl.name}</span>
-              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-forge/10 text-hue-forge font-semibold uppercase tracking-wider">
+              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-forge/10 text-hue-forge font-semibold uppercase tracking-wider">
                 {t('forge.starterBadge')}
               </span>
               {tpl.config.maxRecordsPerObject != null && (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-status-warning/10 text-status-warning font-mono">
+                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-status-warning/10 text-status-warning font-mono">
                   ≤ {tpl.config.maxRecordsPerObject}/obj
                 </span>
               )}
@@ -173,10 +173,10 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                     maxLength={120}
                     data-testid="forge-template-edit-name"
                     className={cn(
-                      'px-2 py-1 rounded text-sm',
-                      'bg-[var(--sf-bg-input)]',
-                      'text-[var(--sf-text-input)]',
-                      'border border-[var(--sf-border-input)]',
+                      'px-2 py-1 rounded-sm text-sm',
+                      'bg-(--sf-bg-input)',
+                      'text-(--sf-text-input)',
+                      'border border-(--sf-border-input)',
                     )}
                   />
                   <input
@@ -187,10 +187,10 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                     maxLength={500}
                     data-testid="forge-template-edit-desc"
                     className={cn(
-                      'px-2 py-1 rounded text-xs',
-                      'bg-[var(--sf-bg-input)]',
-                      'text-[var(--sf-text-input)]',
-                      'border border-[var(--sf-border-input)]',
+                      'px-2 py-1 rounded-sm text-xs',
+                      'bg-(--sf-bg-input)',
+                      'text-(--sf-text-input)',
+                      'border border-(--sf-border-input)',
                     )}
                   />
                   <div className="flex gap-1">
@@ -269,7 +269,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                         e.stopPropagation();
                         manager.handleStartEdit(tpl);
                       }}
-                      className="p-1 text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+                      className="p-1 text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
                       aria-label={t('forge.savedTemplate.renameLabel', { name: tpl.name })}
                       title={t('forge.editTemplate')}
                     >
@@ -282,7 +282,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                         e.stopPropagation();
                         manager.requestDeleteTemplate(tpl.id);
                       }}
-                      className="p-1 text-text-secondary hover:text-status-error transition-colors rounded hover:bg-status-error/10"
+                      className="p-1 text-text-secondary hover:text-status-error transition-colors rounded-sm hover:bg-status-error/10"
                       aria-label={t('forge.savedTemplate.deleteLabel', { name: tpl.name })}
                       title={t('forge.deleteTemplate')}
                     >

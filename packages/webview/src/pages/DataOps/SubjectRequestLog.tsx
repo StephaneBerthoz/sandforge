@@ -84,7 +84,7 @@ export const SubjectRequestLog: React.FC<SubjectRequestLogProps> = ({ orgId, ver
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-2 rounded-lg border border-[var(--sf-border)] p-3"
+      className="flex flex-col gap-2 rounded-lg border border-(--sf-border) p-3"
       data-testid="dsr-log"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">

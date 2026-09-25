@@ -10,7 +10,7 @@ describe('Badge', () => {
 
   it('should apply default variant classes', () => {
     render(<Badge>New</Badge>);
-    expect(screen.getByText('New').className).toContain('bg-[var(--vscode-badge-background');
+    expect(screen.getByText('New').className).toContain('bg-(--vscode-badge-background');
   });
 
   it('should apply success variant', () => {

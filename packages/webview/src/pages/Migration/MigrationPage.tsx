@@ -222,10 +222,7 @@ export const MigrationPage: React.FC = () => {
   };
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
-      data-testid="migration-page"
-    >
+    <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="migration-page">
       <PageHeader
         title={t('migration.title')}
         subtitle={t('migration.subtitle')}
@@ -246,7 +243,7 @@ export const MigrationPage: React.FC = () => {
 
       {/* Import type selector */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-2 gap-[var(--sf-space-3)]"
+        className="grid grid-cols-1 sm:grid-cols-2 gap-(--sf-space-3)"
         data-testid="migration-type-selector"
       >
         <button
@@ -306,7 +303,7 @@ export const MigrationPage: React.FC = () => {
           )}
         />
         <CardBody>
-          <div className="flex flex-col gap-[var(--sf-space-3)]">
+          <div className="flex flex-col gap-(--sf-space-3)">
             <Input
               label={t('migration.filePathLabel')}
               value={filePath}
@@ -361,15 +358,15 @@ export const MigrationPage: React.FC = () => {
             }
           />
           <CardBody>
-            <div className="flex flex-col gap-[var(--sf-space-3)]">
+            <div className="flex flex-col gap-(--sf-space-3)">
               <div className="text-xs text-text-secondary" data-testid="migration-objects-count">
                 {t('migration.objectsCount', { count: objectPreviews.length })}
               </div>
-              <ul className="flex flex-col gap-[var(--sf-space-2)]" data-testid="migration-objects">
+              <ul className="flex flex-col gap-(--sf-space-2)" data-testid="migration-objects">
                 {objectPreviews.map((obj) => (
                   <li
                     key={obj.objectApiName}
-                    className="flex flex-col gap-1 rounded px-2.5 py-2 bg-surface-1 border border-subtle"
+                    className="flex flex-col gap-1 rounded-sm px-2.5 py-2 bg-surface-1 border border-subtle"
                     data-testid={`migration-object-${obj.objectApiName}`}
                   >
                     <div className="flex items-center gap-2">
@@ -402,14 +399,14 @@ export const MigrationPage: React.FC = () => {
                   way to save or run what had just been imported. */}
               {successResult.config && (
                 <div
-                  className="flex flex-col gap-[var(--sf-space-2)] rounded border border-subtle bg-surface-1 p-3"
+                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-3"
                   data-testid="migration-run"
                 >
                   <div className="text-sm font-semibold text-text-primary">
                     {t('migration.run.title')}
                   </div>
                   <div className="text-xs text-text-secondary">{t('migration.run.subtitle')}</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--sf-space-2)]">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
                     <Select
                       label={t('migration.run.sourceOrg')}
                       data-testid="migration-run-source"
@@ -490,7 +487,7 @@ export const MigrationPage: React.FC = () => {
                 <summary className="text-xs text-text-secondary cursor-pointer select-none">
                   {t('migration.rawConfig')}
                 </summary>
-                <div className="mt-2 rounded bg-surface-1 border border-subtle p-2 overflow-auto">
+                <div className="mt-2 rounded-sm bg-surface-1 border border-subtle p-2 overflow-auto">
                   <JsonViewer data={successResult.config} collapsed />
                 </div>
               </details>

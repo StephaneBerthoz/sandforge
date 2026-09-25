@@ -104,10 +104,10 @@ export const ReviewFilesOption: React.FC = () => {
                 setDraft(String(size ?? fileCopy.maxFileSizeMB));
               }}
               className={cn(
-                'w-20 px-2 py-1 rounded text-xs',
-                'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',
+                'w-20 px-2 py-1 rounded-sm text-xs',
+                'bg-(--sf-bg-input) text-(--sf-text-input)',
                 'border',
-                sizeRefused ? 'border-status-error/60' : 'border-[var(--sf-border-input)]',
+                sizeRefused ? 'border-status-error/60' : 'border-(--sf-border-input)',
               )}
             />
           </div>

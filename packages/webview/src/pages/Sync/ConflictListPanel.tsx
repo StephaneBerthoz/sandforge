@@ -133,7 +133,7 @@ export const ConflictListPanel: React.FC = () => {
         <select
           value={filterObject ?? ''}
           onChange={(e) => setFilterObject(e.target.value || null)}
-          className="text-xs px-2 py-1 rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
+          className="text-xs px-2 py-1 rounded-sm bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
           aria-label={t('sync.conflictResolution.filterByObject')}
           data-testid="filter-object"
         >
@@ -148,7 +148,7 @@ export const ConflictListPanel: React.FC = () => {
         <select
           value={filterType ?? ''}
           onChange={(e) => setFilterType(e.target.value || null)}
-          className="text-xs px-2 py-1 rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
+          className="text-xs px-2 py-1 rounded-sm bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
           aria-label={t('sync.conflictResolution.filterByType')}
           data-testid="filter-type"
         >
@@ -164,7 +164,7 @@ export const ConflictListPanel: React.FC = () => {
           <button
             type="button"
             onClick={clearResolved}
-            className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+            className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
             data-testid="clear-resolved-btn"
           >
             {t('sync.conflictResolution.clearResolved')}

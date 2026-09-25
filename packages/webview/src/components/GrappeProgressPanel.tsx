@@ -45,9 +45,9 @@ export const GrappeProgressPanel: React.FC<{
     <div
       data-testid="grappe-panel"
       className={cn(
-        'rounded border p-3 flex flex-col gap-2',
-        'border-[var(--sf-border)]',
-        'bg-[var(--sf-bg-primary)]',
+        'rounded-sm border p-3 flex flex-col gap-2',
+        'border-(--sf-border)',
+        'bg-(--sf-bg-primary)',
       )}
     >
       {/* Header */}
@@ -56,7 +56,7 @@ export const GrappeProgressPanel: React.FC<{
           <Badge variant={active ? 'warning' : 'success'}>
             {active ? t('grappe.active', 'Grappe') : t('grappe.completed', 'Completed')}
           </Badge>
-          <span className="text-xs text-[var(--sf-text-primary)]">
+          <span className="text-xs text-(--sf-text-primary)">
             {t('grappe.partitions', 'Partitions')}: {completedPartitions}/{totalPartitions}
           </span>
         </div>
@@ -82,10 +82,7 @@ export const GrappeProgressPanel: React.FC<{
       )}
 
       {/* Stats */}
-      <div
-        className="flex gap-4 text-[10px] text-[var(--sf-text-secondary)]"
-        data-testid="grappe-stats"
-      >
+      <div className="flex gap-4 text-[10px] text-(--sf-text-secondary)" data-testid="grappe-stats">
         <span>
           {t('grappe.totalRecords', 'Records')}: {totalRecords.toLocaleString(uiLocale())}
         </span>
@@ -121,7 +118,7 @@ export const GrappeProgressPanel: React.FC<{
                 className="flex items-center gap-2 text-[10px]"
                 data-testid={`grappe-partition-${p.grappeId}`}
               >
-                <span className="w-28 truncate text-[var(--sf-text-secondary)]">{p.grappeId}</span>
+                <span className="w-28 truncate text-(--sf-text-secondary)">{p.grappeId}</span>
                 <ProgressBar
                   value={p.percentage}
                   max={100}
@@ -129,9 +126,7 @@ export const GrappeProgressPanel: React.FC<{
                   className="flex-1"
                   ariaLabel={p.grappeId}
                 />
-                <span className="w-12 text-right text-[var(--sf-text-secondary)]">
-                  {p.percentage}%
-                </span>
+                <span className="w-12 text-right text-(--sf-text-secondary)">{p.percentage}%</span>
               </div>
             ))}
         </div>

@@ -2,10 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { compile } from '@tailwindcss/node';
 import postcss from 'postcss';
-import tailwindcss from 'tailwindcss';
 import * as ts from 'typescript';
-import loadConfig from 'tailwindcss/loadConfig';
 import {
   VSCODE_THEMES,
   hostColours,
@@ -23,7 +22,7 @@ import {
 
 const SRC_ROOT = path.resolve(__dirname, '..');
 const DESIGN_SYSTEM_PATH = path.join(SRC_ROOT, 'styles', 'design-system.css');
-const TAILWIND_CONFIG_PATH = path.resolve(SRC_ROOT, '..', 'tailwind.config.ts');
+const THEME_PATH = path.join(SRC_ROOT, 'styles', 'theme.css');
 
 function collectSourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -43,21 +42,31 @@ function definedTokens(): Set<string> {
   return new Set([...css.matchAll(/(--sf-[a-zA-Z0-9-]+)\s*:/g)].map((m) => m[1]));
 }
 
-/** Parse a `name: { key: 'value', … }` block out of the Tailwind config source. */
+/** Where `tailwindBlock` finds each theme key in theme.css's `@theme`. */
+const THEME_NAMESPACES: Readonly<Record<string, string>> = {
+  status: '--color-status-',
+  hue: '--color-hue-',
+  borderColor: '--border-color-',
+};
+
+/** A theme key's entries, `{ error: 'color-mix(…)', … }`, read out of theme.css's `@theme`. */
 function tailwindBlock(name: string): Record<string, string> {
-  const config = fs.readFileSync(TAILWIND_CONFIG_PATH, 'utf8');
-  const block = new RegExp(`\\b${name}:\\s*\\{([^}]*)\\}`).exec(config);
-  if (!block) return {};
-  return Object.fromEntries(
-    [...block[1].matchAll(/([A-Za-z][\w-]*):\s*'([^']*)'/g)].map((m) => [m[1], m[2]]),
-  );
+  const prefix = THEME_NAMESPACES[name];
+  if (!prefix) return {};
+  const theme = fs.readFileSync(THEME_PATH, 'utf8');
+  const entries: Record<string, string> = {};
+  const declaration = new RegExp(`${prefix}([a-z][\\w-]*):\\s*([^;]+);`, 'g');
+  for (const [, key, value] of theme.matchAll(declaration)) {
+    entries[key] = value.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')').trim();
+  }
+  return entries;
 }
 
 describe('design-system tokens', () => {
   it('defines every var(--sf-*) token used by src/ and the Tailwind theme', () => {
     const defined = definedTokens();
     const ghosts: string[] = [];
-    for (const file of [...collectSourceFiles(SRC_ROOT), TAILWIND_CONFIG_PATH]) {
+    for (const file of collectSourceFiles(SRC_ROOT)) {
       // This test file mentions the pattern only as a regex — skip itself.
       if (file === __filename) continue;
       const content = fs.readFileSync(file, 'utf8');
@@ -173,12 +182,11 @@ interface SeverityToken {
 }
 
 /**
- * The exact declaration the config must carry: an inner mix that hardens the
- * hue against the theme, wrapped in an outer mix that hands Tailwind the alpha
- * channel it needs to honour `/10`.
+ * The exact declaration the theme must carry: a mix that hardens the hue
+ * against the theme. Tailwind 4 gives it its `/10` through a mix of its own.
  */
 const SEVERITY_DECLARATION =
-  /^color-mix\(in srgb, color-mix\(in srgb, var\((--sf-[a-z-]+)\) (\d+)%, var\((--sf-[a-z-]+)\)\) calc\(<alpha-value> \* 100%\), transparent\)$/;
+  /^color-mix\(in srgb, var\((--sf-[a-z-]+)\) (\d+)%, var\((--sf-[a-z-]+)\)\)$/;
 
 /**
  * Reads the config at face value — it never asserts. A token declared some
@@ -337,15 +345,21 @@ const MODIFIER_PROBE = [
   'border-status-info/40',
 ];
 
+/** Tailwind 4's utilities, `candidates` alone, over the default theme and `theme`. */
+async function buildWithTheme(theme: string, candidates: Iterable<string>): Promise<string> {
+  const compiler = await compile(
+    `@import 'tailwindcss/theme' layer(theme);\n${theme}\n@import 'tailwindcss/utilities' layer(utilities);`,
+    { base: SRC_ROOT, onDependency: () => {} },
+  );
+  return compiler.build([...candidates]);
+}
+
+/** The severity utilities, with `colours` as the status tokens. */
 async function buildUtilities(colours: Record<string, string>): Promise<string> {
-  const result = await postcss([
-    tailwindcss({
-      content: [{ raw: MODIFIER_PROBE.join(' '), extension: 'html' }],
-      corePlugins: { preflight: false },
-      theme: { extend: { colors: { status: colours } } },
-    }),
-  ]).process('@tailwind utilities;', { from: undefined });
-  return result.css;
+  const tokens = Object.entries(colours)
+    .map(([key, value]) => `--color-status-${key}: ${value};`)
+    .join(' ');
+  return buildWithTheme(`@theme { ${tokens} }`, MODIFIER_PROBE);
 }
 
 describe('severity token opacity modifiers', () => {
@@ -358,25 +372,26 @@ describe('severity token opacity modifiers', () => {
     expect(missing).toEqual([]);
     // The Forge SOQL callout: a background and a border, both with a modifier.
     expect(css).toContain(`var(${tokens.warning.hue}) ${tokens.warning.keep}%`);
-    expect(css).toContain('calc(0.1 * 100%)');
-    expect(css).toContain('calc(0.4 * 100%)');
+    expect(css).toContain('color-mix(in oklab, var(--color-status-warning) 10%, transparent)');
+    expect(css).toContain('color-mix(in oklab, var(--color-status-warning) 40%, transparent)');
   });
 
   /**
-   * The shape half of the defect, kept executable: a bare `var(--sf-*)` is not
-   * a colour Tailwind can parse, so it emits nothing for the modified variants
-   * and no error either. This is what the callout used to compile to.
+   * The shape half of the defect, kept executable: Tailwind 3 could not parse
+   * a bare `var(--sf-*)` as a colour, emitted nothing for its modified
+   * variants and no error either — the Forge SOQL callout rendered with
+   * neither background nor border. Tailwind 4 mixes any colour with
+   * transparent, so the tokens no longer carry an alpha channel of their own.
    */
-  it('confirms a bare var() token is what Tailwind drops in silence', async () => {
+  it('gives a bare var() token its opacity modifiers', async () => {
     const css = await buildUtilities({
       error: 'var(--sf-error)',
       warning: 'var(--sf-warning)',
       success: 'var(--sf-success)',
       info: 'var(--sf-info)',
     });
-    expect(css).toContain('.text-status-error');
-    for (const utility of MODIFIER_PROBE.filter((u) => u.includes('/'))) {
-      expect(css, `${utility} unexpectedly compiled`).not.toContain(utility.replace('/', '\\/'));
+    for (const utility of MODIFIER_PROBE) {
+      expect(css, `${utility} did not compile`).toContain(`.${utility.replace('/', '\\/')} `);
     }
   });
 });
@@ -428,8 +443,11 @@ const paletteClass = (prefix: string, hue: string, shade: number): string =>
 /** A hex colour inside a string of the source: a class, an inline style, an SVG attribute. */
 const HEX_COLOUR = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
 
-/** What stands right before a hex written as the fallback of a `var()`, `_` included for a class. */
-const VAR_FALLBACK = /var\(--[\w-]+\s*,[\s_]*$/;
+/**
+ * What stands right before a hex written as the fallback of a `var()`: `var(--x, ` in CSS,
+ * `bg-(--x,` in a Tailwind 4 class, `_` included for a class.
+ */
+const VAR_FALLBACK = /(?:var\(|-\()--[\w-]+\s*,[\s_]*$/;
 
 /**
  * The files whose hex colours stay, each with the reason the colour is not the
@@ -537,17 +555,14 @@ describe('fixed colour gate', () => {
  * thing this is, not how it went. Each is a literal hue pulled toward the
  * editor foreground, by the largest share of the hue that still clears AA.
  */
-const HUE_DECLARATION =
-  /^color-mix\(in srgb, color-mix\(in srgb, (#[0-9a-f]{6}) (\d+)%, var\(--sf-text-primary\)\) calc\(<alpha-value> \* 100%\), transparent\)$/;
+const HUE_DECLARATION = /^color-mix\(in srgb, (#[0-9a-f]{6}) (\d+)%, var\(--sf-text-primary\)\)$/;
 
 describe('identity hue token contrast', () => {
   it('declares every hue as a literal pulled toward the editor foreground', () => {
     const block = tailwindBlock('hue');
     expect(Object.keys(block).length).toBeGreaterThan(0);
     for (const [name, value] of Object.entries(block)) {
-      expect(value, `hue.${name} is not a hardened, alpha-capable token: ${value}`).toMatch(
-        HUE_DECLARATION,
-      );
+      expect(value, `hue.${name} is not a hardened token: ${value}`).toMatch(HUE_DECLARATION);
     }
   });
 
@@ -757,12 +772,17 @@ function parseColour(text: string): Parsed {
   }
   if (fn === 'color-mix') {
     const [space = '', first = '', second = ''] = splitTopLevel(body, ',');
-    if (space.trim() !== 'in srgb') return null;
+    const interpolation = space.trim();
+    if (interpolation !== 'in srgb' && interpolation !== 'in oklab') return null;
     const left = mixOperand(first);
     const right = mixOperand(second);
     const x = left.colour;
     const y = right.colour;
     if (x === null || y === null || x === 'currentColor' || y === 'currentColor') return null;
+    // Tailwind 4's opacity modifier mixes in oklab with transparent, where the
+    // space makes no difference: the colour keeps its channels and takes the
+    // share as its alpha. Two colours mixed in oklab are not modelled here.
+    if (interpolation === 'in oklab' && x.a !== 0 && y.a !== 0) return null;
     const px = left.percent ?? (right.percent === null ? 50 : 100 - right.percent);
     const py = right.percent ?? 100 - px;
     const sum = px + py;
@@ -795,6 +815,13 @@ const ROOT_VARIABLES: ReadonlyMap<string, string> = (() => {
   return variables;
 })();
 
+/**
+ * The theme variables Tailwind 4 writes in its `theme` layer for the utilities
+ * it compiled (`--color-status-error`, `--spacing`…), which those utilities
+ * read through `var()`. Filled by `compileUtilities`.
+ */
+const THEME_VARIABLES = new Map<string, string>();
+
 const HOST_COLOURS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map(
   VSCODE_THEMES.map((theme) => [theme.name, hostColours(theme)]),
 );
@@ -823,6 +850,7 @@ function resolvePaint(theme: VsCodeTheme, paint: Paint): Resolved {
   const host = HOST_COLOURS.get(theme.name) ?? {};
   const scope: Scope = (name) =>
     paint.locals[name] ??
+    THEME_VARIABLES.get(name) ??
     ROOT_VARIABLES.get(name) ??
     (name.startsWith('--vscode-') ? host[name.slice('--vscode-'.length)] : undefined);
   const variables: string[] = [];
@@ -941,35 +969,51 @@ function cssUnescape(text: string): string {
 }
 
 async function compileUtilities(names: Iterable<string>): Promise<Map<string, Utility>> {
-  const result = await postcss([
-    tailwindcss({
-      ...loadConfig(TAILWIND_CONFIG_PATH),
-      content: [{ raw: [...names].join(' '), extension: 'html' }],
-      corePlugins: { preflight: false },
-    }),
-  ]).process('@tailwind utilities;', { from: undefined });
+  const root = postcss.parse(await buildWithTheme(`@import './styles/theme.css';`, names));
+  // Each theme variable as Chromium reads it: a value inside `@supports
+  // (color: color-mix(…))` replaces the fallback written before it.
+  root.walkAtRules('layer', (layer) => {
+    if (layer.params !== 'theme') return;
+    layer.walkDecls((decl) => {
+      if (decl.prop.startsWith('--')) THEME_VARIABLES.set(decl.prop, decl.value);
+    });
+  });
   const compiled = new Map<
     string,
     { order: number; declarations: [string, string][]; placeholder: [string, string][] }
   >();
   let order = 0;
-  result.root.walkRules((rule) => {
-    if (rule.parent?.type !== 'root') return;
+  root.walkRules((rule) => {
+    // A utility sits in the `utilities` layer; a variant's rule sits in an
+    // at-rule of its own (`@media (hover: hover)`) and is none of the box.
+    const parent = rule.parent;
+    if (parent?.type !== 'atrule' || (parent as postcss.AtRule).params !== 'utilities') return;
     for (const selector of rule.selectors) {
-      const match = /^\.((?:\\[0-9a-fA-F]{1,6}\s?|\\.|[\w-])+)(.*)$/.exec(selector.trim());
-      if (!match) continue;
-      const own = match[2] === '';
-      const placeholder = match[2] === '::placeholder';
-      // `divide-*` and `space-*` style the children: compiled, but nothing of this box.
-      if (!own && !placeholder && !/^ > :not\(\[hidden\]\) ~ :not\(\[hidden\]\)$/.test(match[2])) {
-        continue;
-      }
-      const name = cssUnescape(match[1]);
+      const trimmed = selector.trim();
+      // `divide-*` and `space-*` style the children, as
+      // `:where(.space-y-2 > :not(:last-child))`: compiled, but nothing of this box.
+      const children = /^:where\(\.((?:\\[0-9a-fA-F]{1,6}\s?|\\.|[\w-])+) > /.exec(trimmed);
+      const match = children
+        ? null
+        : /^\.((?:\\[0-9a-fA-F]{1,6}\s?|\\.|[\w-])+)(.*)$/.exec(trimmed);
+      const own = match?.[2] === '';
+      const placeholder = match?.[2] === '::placeholder';
+      if (!children && !own && !placeholder) continue;
+      const name = cssUnescape((children ?? match)?.[1] ?? '');
       const entry = compiled.get(name) ?? { order: order++, declarations: [], placeholder: [] };
-      rule.each((node) => {
-        if (node.type !== 'decl' || !(own || placeholder)) return;
-        (own ? entry.declarations : entry.placeholder).push([node.prop, node.value]);
-      });
+      if (own || placeholder) {
+        const into = own ? entry.declarations : entry.placeholder;
+        // As Chromium reads it, the colour inside `@supports (color: color-mix(…))`
+        // after the fallback before it: the last declaration of a property wins.
+        rule.each((node) => {
+          if (node.type === 'decl') into.push([node.prop, node.value]);
+          else if (node.type === 'atrule' && node.name === 'supports') {
+            node.each((inner) => {
+              if (inner.type === 'decl') into.push([inner.prop, inner.value]);
+            });
+          }
+        });
+      }
       compiled.set(name, entry);
     }
   });
@@ -1105,7 +1149,8 @@ function looksOf(
         } else if (prop === 'background-image') {
           image = value === 'none' ? null : token.raw;
         } else if (prop === 'opacity') {
-          opacity = Number(value);
+          // Tailwind 4 writes `opacity-50` as `opacity: 50%`.
+          opacity = value.endsWith('%') ? Number(value.slice(0, -1)) / 100 : Number(value);
           opacityLabel = token.raw;
         } else if (
           (prop === 'display' && value === 'none') ||
@@ -3165,8 +3210,12 @@ describe('the static colour model', () => {
       );
 
     it('measures a badge on every tint stacked under it, through a lookup map', async () => {
-      const tint = `${paletteClass('bg', 'orange', 500)}/20`;
-      const ink = paletteClass('text', 'orange', 700);
+      // Tailwind 3's orange-500 and orange-700, written as the colours they
+      // were: Tailwind 4's palette is written in oklch, which this model does
+      // not read, and the product writes no palette shade.
+      const tint = 'bg-[#f97316]/20';
+      const ink = 'text-[#c2410c]';
+      const pattern = (text: string): string => text.replace(/[[\]/#]/g, '\\$&');
       const { failures } = await report({
         'Panel.tsx': [
           `const stage: Record<string, string> = { insert: '${tint} ${ink}' };`,
@@ -3184,7 +3233,7 @@ describe('the static colour model', () => {
       expect(failures).toContainEqual(
         expect.stringMatching(
           new RegExp(
-            `^Panel\\.tsx:4 ${ink} on ${tint} \\(Panel\\.tsx:4\\) over ${tint} \\(Panel\\.tsx:3\\): .*Light Modern = ${stacked}:1`,
+            `^Panel\\.tsx:4 ${pattern(ink)} on ${pattern(tint)} \\(Panel\\.tsx:4\\) over ${pattern(tint)} \\(Panel\\.tsx:3\\): .*Light Modern = ${stacked}:1`,
           ),
         ),
       );
@@ -3197,7 +3246,7 @@ describe('the static colour model', () => {
         'Callout.tsx': [
           "import { cn } from './cn';",
           'export const Callout = ({ tone, children }: { tone: string; children: unknown }) => (',
-          "  <div className={cn('rounded p-2', tone)}>{children}</div>",
+          "  <div className={cn('rounded-sm p-2', tone)}>{children}</div>",
           ');',
         ].join('\n'),
         'Page.tsx': [
@@ -3220,7 +3269,7 @@ describe('the static colour model', () => {
       const result = await report({
         'Row.tsx': [
           'export const Row = () => (',
-          '  <div className="bg-surface-1/50">',
+          '  <div className="bg-surface-9/50">',
           '    <span className="text-text-muted">label</span>',
           '    <button className="disabled:text-text-muted text-text-primary" disabled>go</button>',
           '  </div>',
@@ -3230,7 +3279,7 @@ describe('the static colour model', () => {
       expect(result.failures).toEqual([
         'Row.tsx:3 text-text-muted: the disabled foreground, on something a user reads',
       ]);
-      expect(result.uncompiled).toEqual(['Row.tsx:2 bg-surface-1/50']);
+      expect(result.uncompiled).toEqual(['Row.tsx:2 bg-surface-9/50']);
     });
 
     it('measures fixed palette text and inline colours, and refuses a gradient under text', async () => {
@@ -3240,7 +3289,7 @@ describe('the static colour model', () => {
           '  <p>',
           '    <span className="text-forge">a</span>',
           "    <span style={{ color: 'var(--sf-success)' }}>b</span>",
-          '    <span className="bg-gradient-to-r from-forge to-transparent text-text-primary">c</span>',
+          '    <span className="bg-linear-to-r from-forge to-transparent text-text-primary">c</span>',
           '  </p>',
           ');',
         ].join('\n'),
@@ -3254,7 +3303,7 @@ describe('the static colour model', () => {
       );
       expect(failures).toContainEqual(
         expect.stringMatching(
-          /^Chip\.tsx:5 text-text-primary on bg-gradient-to-r .*: painted on bg-gradient-to-r/,
+          /^Chip\.tsx:5 text-text-primary on bg-linear-to-r .*: painted on bg-linear-to-r/,
         ),
       );
     });
@@ -3265,10 +3314,10 @@ describe('the static colour model', () => {
           'export const State = ({ open, status }: { open: boolean; status: string }) => (',
           '  <div>',
           '    <span className="opacity-50 text-text-primary">faded</span>',
-          `    <button className="text-status-error hover:${paletteClass('bg', 'red', 500)}/40">hover</button>`,
+          '    <button className="text-status-error hover:bg-[#ef4444]/40">hover</button>',
           '    <svg><text className="fill-text-muted">axis</text></svg>',
-          "    <div className={open ? 'bg-[var(--sf-button-bg)]' : 'bg-transparent'}>",
-          "      <span className={open ? 'text-[var(--sf-button-fg)]' : 'text-text-primary'}>ok</span>",
+          "    <div className={open ? 'bg-(--sf-button-bg)' : 'bg-transparent'}>",
+          "      <span className={open ? 'text-(--sf-button-fg)' : 'text-text-primary'}>ok</span>",
           '    </div>',
           '    {status === \'done\' && <span className="text-status-success">done</span>}',
           '  </div>',
@@ -3279,7 +3328,9 @@ describe('the static colour model', () => {
         expect.stringMatching(/^State\.tsx:3 text-text-primary on opacity-50 \(State\.tsx:3\): /),
       );
       expect(failures).toContainEqual(
-        expect.stringMatching(/^State\.tsx:4 text-status-error \[hover\] on hover:bg-red-500\/40 /),
+        expect.stringMatching(
+          /^State\.tsx:4 text-status-error \[hover\] on hover:bg-\[#ef4444\]\/40 /,
+        ),
       );
       expect(failures).toContain(
         'State.tsx:5 fill-text-muted: the disabled foreground, on something a user reads',
@@ -3298,7 +3349,7 @@ describe('the static colour model', () => {
           '    </p>',
           '    <p className="bg-surface-1">',
           '      <span className="text-text-secondary">on a widget</span>',
-          '      <span className="hover:bg-[var(--sf-bg-hover)] text-text-secondary">hovered</span>',
+          '      <span className="hover:bg-(--sf-bg-hover) text-text-secondary">hovered</span>',
           '    </p>',
           '  </div>',
           ');',
@@ -3311,7 +3362,7 @@ describe('the static colour model', () => {
       const description = opaqueColour(lightPlus, 'var(--sf-text-secondary)');
       expect(rgbaContrast(description, editor)).toBeGreaterThan(AA);
       const tint = resolvePaint(lightPlus, {
-        css: 'color-mix(in srgb, color-mix(in srgb, var(--sf-info) 80%, var(--sf-text-primary)) calc(0.1 * 100%), transparent)',
+        css: 'color-mix(in oklab, color-mix(in srgb, var(--sf-info) 80%, var(--sf-text-primary)) 10%, transparent)',
         locals: {},
       }).colour as Rgba;
       const tinted = over(tint, editor);
@@ -3329,7 +3380,7 @@ describe('the static colour model', () => {
       // Dark 2026, a default, pairs its description text with no hover background.
       expect(failures).toContainEqual(
         expect.stringMatching(
-          /^Rows\.tsx:8 text-text-secondary \[hover\] on hover:bg-\[var\(--sf-bg-hover\)\] .*Dark 2026 = 3\.8:1/,
+          /^Rows\.tsx:8 text-text-secondary \[hover\] on hover:bg-\(--sf-bg-hover\) .*Dark 2026 = 3\.8:1/,
         ),
       );
     });
@@ -3411,8 +3462,9 @@ describe('the static colour model', () => {
       // over the Seed field panel written that way the walk ran eight minutes
       // before giving up past four million visits. A tree that renders itself
       // twice doubled at every level.
-      const tint = `${paletteClass('bg', 'amber', 500)}/20`;
-      const ink = paletteClass('text', 'amber', 600);
+      // Tailwind 3's amber-500 and amber-600: see the badge above.
+      const tint = 'bg-[#f59e0b]/20';
+      const ink = 'text-[#d97706]';
       const { failures, visits } = await report(
         {
           'Rows.tsx': [
@@ -3515,18 +3567,10 @@ describe('token utilities in use', () => {
     }
     expect(used.size).toBeGreaterThan(0);
 
-    const result = await postcss([
-      tailwindcss({
-        content: [{ raw: [...used].join(' '), extension: 'html' }],
-        corePlugins: { preflight: false },
-        theme: {
-          extend: { colors: { status: tailwindBlock('status'), hue: tailwindBlock('hue') } },
-        },
-      }),
-    ]).process('@tailwind utilities;', { from: undefined });
+    const css = await buildWithTheme(`@import './styles/theme.css';`, used);
 
     const missing = [...used].filter(
-      (utility) => !result.css.includes(`.${utility.replace('/', '\\/')} `),
+      (utility) => !css.includes(`.${utility.replace('/', '\\/')} `),
     );
     expect(missing).toEqual([]);
   });

@@ -63,7 +63,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
   const handleToggleObject = useSeedWizardStore((s) => s.handleToggleObject);
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-select-content">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-select-content">
       <div className="flex items-center gap-1.5">
         <InfoTooltip id="help.seed.selectObjects" content={t('help.seed.selectObjects')} />
       </div>
@@ -83,10 +83,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
       {/* Object multi-select with inline volume */}
       {selectedOrgId &&
         (loadingObjects ? (
-          <div
-            className="flex flex-col gap-[var(--sf-space-2)]"
-            data-testid="seed-objects-skeleton"
-          >
+          <div className="flex flex-col gap-(--sf-space-2)" data-testid="seed-objects-skeleton">
             <Skeleton variant="text" width="30%" height="1em" />
             <Skeleton variant="rect" height="120px" />
             <Skeleton variant="text" width="50%" height="1em" />
@@ -127,7 +124,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
             {/* PII badge warnings on selected objects */}
             {hasPiiWarnings && (
               <div
-                className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-status-warning bg-status-warning/10"
+                className="flex flex-col gap-(--sf-space-2) p-(--sf-space-3) rounded-sm border border-status-warning bg-status-warning/10"
                 role="alert"
                 data-testid="pii-scan-warning"
               >
@@ -154,13 +151,13 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
 
             {/* NL2SOQL Helper */}
             <div
-              className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-primary)]"
+              className="flex flex-col gap-(--sf-space-2) p-(--sf-space-3) rounded-sm border border-(--sf-border-input) bg-(--sf-bg-primary)"
               data-testid="nl2soql-helper"
             >
               <span className="text-xs font-medium text-text-primary">
                 {t('seed.nl2soqlTitle')}
               </span>
-              <div className="flex gap-[var(--sf-space-2)] items-end">
+              <div className="flex gap-(--sf-space-2) items-end">
                 <div className="flex-1">
                   <Input
                     placeholder={t('seed.nl2soqlPlaceholder')}
@@ -184,11 +181,11 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
               </div>
               {nl2soql.data?.soql && (
                 <div className="relative group" data-testid="nl2soql-result">
-                  <pre className="text-xs p-2.5 rounded bg-[var(--sf-bg-input)] font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
+                  <pre className="text-xs p-2.5 rounded-sm bg-(--sf-bg-input) font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
                     {nl2soql.data.soql}
                   </pre>
                   <button
-                    className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => navigator.clipboard.writeText(nl2soql.data?.soql ?? '')}
                     data-testid="nl2soql-copy"
                   >

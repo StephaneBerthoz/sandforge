@@ -43,7 +43,7 @@ export const DeviceCodePanel: React.FC<DeviceCodePanelProps> = ({ code, onCancel
 
   return (
     <div className="grid gap-2 max-w-lg" data-testid="org-device-code">
-      <div ref={codeRef} tabIndex={-1} role="status" className="grid gap-1 outline-none">
+      <div ref={codeRef} tabIndex={-1} role="status" className="grid gap-1 outline-hidden">
         <p className="text-xs text-text-secondary">{t('auth.deviceEnterCode')}</p>
         <p
           className="font-mono text-2xl font-semibold tracking-widest select-all text-text-primary"
@@ -59,7 +59,7 @@ export const DeviceCodePanel: React.FC<DeviceCodePanelProps> = ({ code, onCancel
             href={link}
             target="_blank"
             rel="noreferrer"
-            className="underline break-all text-[var(--sf-text-link)]"
+            className="underline break-all text-(--sf-text-link)"
             data-testid="org-device-verification-link"
           >
             {link}

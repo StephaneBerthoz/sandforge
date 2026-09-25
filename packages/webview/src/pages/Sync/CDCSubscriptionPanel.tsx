@@ -119,16 +119,16 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="cdc-subscription-panel">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="cdc-subscription-panel">
       {/* Header with status and start/stop */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-[var(--sf-space-2)]">
+        <div className="flex items-center gap-(--sf-space-2)">
           <h3 className="text-sm font-medium text-text-primary">{t('sync.realtime.title')}</h3>
           <span data-testid="cdc-status-badge">
             <Badge variant={statusVariantMap[status]}>{t(`sync.realtime.status.${status}`)}</Badge>
           </span>
         </div>
-        <div className="flex items-center gap-[var(--sf-space-2)]">
+        <div className="flex items-center gap-(--sf-space-2)">
           {status === 'disconnected' || status === 'error' ? (
             <Button
               variant="primary"
@@ -157,7 +157,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
       <Card data-testid="cdc-object-picker">
         <CardHeader title={t('sync.realtime.objectPicker')} />
         <CardBody>
-          <div className="flex flex-wrap gap-[var(--sf-space-3)]">
+          <div className="flex flex-wrap gap-(--sf-space-3)">
             {objects.map((object) => (
               <label
                 key={object.objectApiName}
@@ -189,7 +189,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
           <CardHeader title={t('sync.realtime.autoSync')} />
           <CardBody>
             <p className="mb-2 text-xs text-text-secondary">{t('sync.realtime.autoSyncHint')}</p>
-            <div className="flex flex-col gap-[var(--sf-space-3)]">
+            <div className="flex flex-col gap-(--sf-space-3)">
               {watchedObjects.map((objectName) => {
                 const config = autoSyncObjects[objectName];
                 const object = byName.get(objectName);
@@ -197,7 +197,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
                 return (
                   <div
                     key={objectName}
-                    className="flex flex-wrap items-center gap-[var(--sf-space-2)] text-xs"
+                    className="flex flex-wrap items-center gap-(--sf-space-2) text-xs"
                     data-testid={`cdc-autosync-row-${objectName}`}
                   >
                     <label className="flex items-center gap-1 min-w-[120px] text-text-primary">

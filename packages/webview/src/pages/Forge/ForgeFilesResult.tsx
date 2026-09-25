@@ -36,7 +36,7 @@ export const ForgeFilesResult: React.FC<ForgeFilesResultProps> = ({ files }) => 
     <section
       aria-labelledby={headingId}
       data-testid="forge-results-files"
-      className="rounded border border-subtle px-4 py-2 text-xs text-text-secondary"
+      className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
     >
       <h3 id={headingId} className="font-medium text-text-primary">
         {t('forge.files.title')}

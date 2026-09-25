@@ -180,7 +180,7 @@ export const AutopilotGraph: React.FC = () => {
                 return MINIMAP_NODE_FILLS[status] ?? MINIMAP_NODE_FILLS.pending;
               }}
               maskColor="rgba(0,0,0,0.6)"
-              className="!bg-[var(--sf-bg-primary)]"
+              className="bg-(--sf-bg-primary)!"
             />
           )}
         </ReactFlow>

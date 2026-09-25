@@ -49,7 +49,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            className="text-xs font-medium text-(--vscode-editor-foreground,#d4d4d4)"
           >
             {label}
           </label>
@@ -60,12 +60,12 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           aria-label={resolvedAriaLabel}
           aria-labelledby={ariaLabelledBy}
           className={cn(
-            'w-full px-2 py-1.5 text-sm rounded appearance-none',
-            'bg-[var(--vscode-input-background,#3c3c3c)]',
-            'text-[var(--vscode-input-foreground,#d4d4d4)]',
-            'border border-[var(--vscode-input-border,#3c3c3c)]',
-            'focus:outline-none focus:border-[var(--vscode-focusBorder,#007fd4)]',
-            error && 'border-[var(--vscode-errorForeground,#f48771)]',
+            'w-full px-2 py-1.5 text-sm rounded-sm appearance-none',
+            'bg-(--vscode-input-background,#3c3c3c)',
+            'text-(--vscode-input-foreground,#d4d4d4)',
+            'border border-(--vscode-input-border,#3c3c3c)',
+            'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
+            error && 'border-(--vscode-errorForeground,#f48771)',
             className,
           )}
           aria-invalid={error ? true : undefined}

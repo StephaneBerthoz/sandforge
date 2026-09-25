@@ -45,19 +45,19 @@ describe('OrgBadge', () => {
   it('should apply connected status color on dot', () => {
     render(<OrgBadge {...defaultProps} status="connected" />);
     const dot = screen.getByTestId('org-badge-status-dot');
-    expect(dot.className).toContain('bg-[var(--sf-success)]');
+    expect(dot.className).toContain('bg-(--sf-success)');
   });
 
   it('should apply expired status color on dot', () => {
     render(<OrgBadge {...defaultProps} status="expired" />);
     const dot = screen.getByTestId('org-badge-status-dot');
-    expect(dot.className).toContain('bg-[var(--sf-warning)]');
+    expect(dot.className).toContain('bg-(--sf-warning)');
   });
 
   it('should apply error status color on dot', () => {
     render(<OrgBadge {...defaultProps} status="error" />);
     const dot = screen.getByTestId('org-badge-status-dot');
-    expect(dot.className).toContain('bg-[var(--sf-error)]');
+    expect(dot.className).toContain('bg-(--sf-error)');
   });
 
   it('should render truncated instanceUrl when provided', () => {
@@ -84,7 +84,7 @@ describe('OrgBadge', () => {
   it('should fallback to error color for unknown status', () => {
     render(<OrgBadge {...defaultProps} status="unknown" />);
     const dot = screen.getByTestId('org-badge-status-dot');
-    expect(dot.className).toContain('bg-[var(--sf-error)]');
+    expect(dot.className).toContain('bg-(--sf-error)');
   });
 
   it('should have Production badge with error background', () => {

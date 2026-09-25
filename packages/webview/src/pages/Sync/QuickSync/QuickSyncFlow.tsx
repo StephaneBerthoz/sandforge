@@ -38,7 +38,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)] self-start"
+        className="inline-flex items-center gap-1 text-xs text-(--sf-text-link) hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent) self-start"
         data-testid="quick-sync-back-to-wizard"
       >
         <span className="codicon codicon-arrow-left" aria-hidden="true" />
@@ -102,7 +102,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       {/* Error display */}
       {state.error && (
         <div
-          className="text-xs text-status-error p-2 rounded bg-[var(--sf-error-bg)]"
+          className="text-xs text-status-error p-2 rounded-sm bg-(--sf-error-bg)"
           data-testid="quick-sync-error"
         >
           {state.error}

@@ -113,7 +113,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <ConflictDiffViewer conflict={conflict} />
         {conflict.fieldResolutions && (
           <div data-testid="resolved-summary">
-            <p className="text-[10px] font-semibold text-[var(--sf-text-secondary)] mb-1">
+            <p className="text-[10px] font-semibold text-(--sf-text-secondary) mb-1">
               {t('sync.conflictResolution.applyResolution')}
             </p>
             {Object.entries(conflict.fieldResolutions).map(([field, res]) => (
@@ -149,7 +149,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <button
           type="button"
           onClick={() => setShowBulkSource(true)}
-          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           data-testid="bulk-source-btn"
         >
           {t('sync.conflictResolution.applySourceAll')}
@@ -157,7 +157,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <button
           type="button"
           onClick={() => setShowBulkTarget(true)}
-          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           data-testid="bulk-target-btn"
         >
           {t('sync.conflictResolution.applyTargetAll')}
@@ -174,7 +174,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
           return (
             <div
               key={field}
-              className="flex items-center gap-2 p-1.5 rounded border border-[var(--sf-border-subtle)] text-xs"
+              className="flex items-center gap-2 p-1.5 rounded-sm border border-(--sf-border-subtle) text-xs"
               data-testid={`field-resolution-${field}`}
             >
               <span className="font-medium min-w-[80px]">{field}</span>
@@ -184,10 +184,10 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 type="button"
                 onClick={() => pickField(field, 'source', sourceVal)}
                 className={cn(
-                  'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
+                  'px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors',
                   resolution?.source === 'source'
                     ? 'border-status-info bg-status-info/10 text-status-info'
-                    : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
+                    : 'border-(--sf-border-subtle) hover:bg-(--sf-bg-hover)',
                 )}
                 data-testid={`pick-source-${field}`}
               >
@@ -199,10 +199,10 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 type="button"
                 onClick={() => pickField(field, 'target', targetVal)}
                 className={cn(
-                  'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
+                  'px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors',
                   resolution?.source === 'target'
                     ? 'border-status-success bg-status-success/10 text-status-success'
-                    : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
+                    : 'border-(--sf-border-subtle) hover:bg-(--sf-bg-hover)',
                 )}
                 data-testid={`pick-target-${field}`}
               >
@@ -216,14 +216,14 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="px-1 py-0.5 text-[10px] rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] w-24"
+                    className="px-1 py-0.5 text-[10px] rounded-sm bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input) w-24"
                     aria-label={t('sync.conflictResolution.manualEdit')}
                     data-testid={`manual-input-${field}`}
                   />
                   <button
                     type="button"
                     onClick={() => confirmManualEdit(field)}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]"
+                    className="text-[10px] px-1.5 py-0.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg)"
                     data-testid={`manual-confirm-${field}`}
                   >
                     OK
@@ -234,10 +234,10 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                   type="button"
                   onClick={() => startManualEdit(field)}
                   className={cn(
-                    'px-2 py-0.5 rounded text-[10px] border transition-colors',
+                    'px-2 py-0.5 rounded-sm text-[10px] border transition-colors',
                     resolution?.source === 'manual'
                       ? 'border-status-warning bg-status-warning/10 text-status-warning'
-                      : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
+                      : 'border-(--sf-border-subtle) hover:bg-(--sf-bg-hover)',
                   )}
                   data-testid={`pick-manual-${field}`}
                 >
@@ -257,9 +257,9 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         onClick={handleApply}
         disabled={!allFieldsResolved}
         className={cn(
-          'text-xs px-3 py-1.5 rounded font-medium transition-colors',
-          'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] enabled:hover:bg-[var(--sf-button-hover)]',
-          'disabled:bg-[var(--sf-bg-input)] disabled:text-text-muted disabled:cursor-not-allowed',
+          'text-xs px-3 py-1.5 rounded-sm font-medium transition-colors',
+          'bg-(--sf-button-bg) text-(--sf-button-fg) enabled:hover:bg-(--sf-button-hover)',
+          'disabled:bg-(--sf-bg-input) disabled:text-text-muted disabled:cursor-not-allowed',
         )}
         data-testid="apply-resolution-btn"
       >

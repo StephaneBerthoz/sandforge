@@ -105,10 +105,10 @@ const RelationRow: React.FC<RelationRowProps> = ({
 
   return (
     <fieldset
-      className="flex flex-col gap-2 rounded border border-[var(--sf-border)] p-2"
+      className="flex flex-col gap-2 rounded-sm border border-(--sf-border) p-2"
       data-testid={`relation-${index}`}
     >
-      <legend className="px-1 text-xs font-medium text-[var(--sf-text-primary)]">
+      <legend className="px-1 text-xs font-medium text-(--sf-text-primary)">
         {t('seed.relations.legend', { number })}
       </legend>
 
@@ -309,7 +309,7 @@ const RelationRow: React.FC<RelationRowProps> = ({
       <p
         className={cn(
           'text-xs',
-          checked.problem ? 'text-status-error' : 'text-[var(--sf-text-secondary)]',
+          checked.problem ? 'text-status-error' : 'text-(--sf-text-secondary)',
         )}
         data-testid={testId(checked.problem ? 'problem' : 'planned')}
       >
@@ -344,7 +344,7 @@ export const SeedRelationsEditor: React.FC<SeedRelationsEditorProps> = ({
 
   return (
     <div className="flex flex-col gap-2" data-testid="seed-relations">
-      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.relations.help')}</p>
+      <p className="text-xs text-(--sf-text-secondary)">{t('seed.relations.help')}</p>
       {relations.map((draft, index) => (
         <RelationRow
           key={draft.key}
@@ -369,7 +369,7 @@ export const SeedRelationsEditor: React.FC<SeedRelationsEditorProps> = ({
         </Button>
         {described && lookups.length === 0 && (
           <span
-            className="text-xs text-[var(--sf-text-secondary)]"
+            className="text-xs text-(--sf-text-secondary)"
             data-testid="seed-relations-no-lookup"
           >
             {t('seed.relations.noLookup')}

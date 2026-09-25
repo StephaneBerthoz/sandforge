@@ -32,7 +32,7 @@ export const SkipLink: React.FC<SkipLinkProps> = ({ targetId = 'main-content', c
       onClick={handleClick}
       className={
         className ??
-        'sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:rounded focus:text-sm focus:font-medium focus:bg-[var(--vscode-button-background,#0e639c)] focus:text-[var(--vscode-button-foreground,#fff)] focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder,#007fd4)]'
+        'sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-9999 focus:px-4 focus:py-2 focus:rounded-sm focus:text-sm focus:font-medium focus:bg-(--vscode-button-background,#0e639c) focus:text-(--vscode-button-foreground,#fff) focus:outline-hidden focus:ring-2 focus:ring-(--vscode-focusBorder,#007fd4)'
       }
     >
       {t('common.skipToContent', 'Skip to main content')}

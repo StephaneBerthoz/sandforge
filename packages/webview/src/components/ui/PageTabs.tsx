@@ -65,11 +65,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
 
   return (
     <div
-      className={cn(
-        'flex w-full border-b border-[var(--sf-border)]',
-        'bg-[var(--sf-bg-primary)]',
-        className,
-      )}
+      className={cn('flex w-full border-b border-(--sf-border)', 'bg-(--sf-bg-primary)', className)}
       role="tablist"
       data-testid="page-tabs"
     >
@@ -91,17 +87,17 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
             tabIndex={isActive ? 0 : -1}
             onKeyDown={handleKeyDown}
             className={cn(
-              'relative flex items-center gap-[var(--sf-space-2)]',
-              'px-[var(--sf-space-4)] py-[var(--sf-space-3)]',
+              'relative flex items-center gap-(--sf-space-2)',
+              'px-(--sf-space-4) py-(--sf-space-3)',
               // `length:` says it is a size: bare, the value compiled to a text colour.
-              'text-[length:var(--sf-font-size)] font-medium',
+              'text-(length:--sf-font-size) font-medium',
               'border-b-2 -mb-px',
               'transition-colors',
               'cursor-pointer',
               'bg-transparent border-x-0 border-t-0',
               isActive
-                ? 'border-[var(--sf-accent)] text-[var(--sf-text-primary)]'
-                : 'border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]',
+                ? 'border-(--sf-accent) text-(--sf-text-primary)'
+                : 'border-transparent text-(--sf-text-secondary) hover:text-(--sf-text-primary)',
             )}
             style={{ transitionDuration: 'var(--sf-transition-fast)' }}
             onClick={() => onTabChange(tab.id)}
@@ -112,7 +108,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
                 name={tab.icon}
                 className={cn(
                   'text-[14px]',
-                  isActive ? 'text-[var(--sf-text-primary)]' : 'text-[var(--sf-text-secondary)]',
+                  isActive ? 'text-(--sf-text-primary)' : 'text-(--sf-text-secondary)',
                 )}
               />
             )}
@@ -125,7 +121,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
                   'inline-flex items-center justify-center',
                   'min-w-[18px] h-[18px] px-1',
                   'text-[10px] font-bold leading-none rounded-full',
-                  'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]',
+                  'bg-(--sf-button-bg) text-(--sf-button-fg)',
                 )}
                 data-testid={`page-tab-badge-${tab.id}`}
               >

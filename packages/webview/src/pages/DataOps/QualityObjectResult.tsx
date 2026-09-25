@@ -85,7 +85,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
     return (
       <section
         aria-labelledby={headingId}
-        className="flex flex-col gap-1 rounded-lg border border-[var(--sf-border)] p-3"
+        className="flex flex-col gap-1 rounded-lg border border-(--sf-border) p-3"
         data-testid={`quality-object-${result.objectApiName}`}
       >
         <h3 id={headingId} className="font-mono text-sm font-semibold text-text-primary">
@@ -109,7 +109,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
   const fillTable = (fields: DataQualityFieldFill[], testId: string) => (
     <table className="w-full text-xs" data-testid={testId}>
       <thead>
-        <tr className="border-b border-[var(--sf-border)]">
+        <tr className="border-b border-(--sf-border)">
           <th scope="col" className={headerCell}>
             {t('dataops.qualityScan.field')}
           </th>
@@ -125,7 +125,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
         {fields.map((f) => (
           <tr
             key={f.fieldApiName}
-            className="border-b border-[var(--sf-border)] last:border-0"
+            className="border-b border-(--sf-border) last:border-0"
             data-testid={`quality-field-${f.fieldApiName}`}
           >
             <th scope="row" className={`${cell} font-normal text-text-primary`}>
@@ -150,7 +150,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-3 rounded-lg border border-[var(--sf-border)] p-3"
+      className="flex flex-col gap-3 rounded-lg border border-(--sf-border) p-3"
       data-testid={`quality-object-${result.objectApiName}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -265,7 +265,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
                 </p>
                 <table className="w-full text-xs" data-testid="quality-duplicate-table">
                   <thead>
-                    <tr className="border-b border-[var(--sf-border)]">
+                    <tr className="border-b border-(--sf-border)">
                       <th scope="col" className={headerCell}>
                         {duplicates.keyLabel}
                       </th>
@@ -276,10 +276,7 @@ export const QualityObjectResult: React.FC<QualityObjectResultProps> = ({
                   </thead>
                   <tbody>
                     {duplicates.groups.map((group) => (
-                      <tr
-                        key={group.value}
-                        className="border-b border-[var(--sf-border)] last:border-0"
-                      >
+                      <tr key={group.value} className="border-b border-(--sf-border) last:border-0">
                         <td className={`${cell} break-all text-text-primary`}>{group.value}</td>
                         <td className={`${cell} text-right text-text-primary`}>
                           {number(group.count)}

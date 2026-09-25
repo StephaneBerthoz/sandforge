@@ -1,0 +1,13 @@
+/*
+ * The sidebar's stylesheet: the panel's theme, with the utilities of the files
+ * the sidebar renders and no page's (tailwind.sidepanel.config.ts walks its
+ * import graph). Scanned over ./src/**, the sidebar carried every page's
+ * utilities — 72.6 kB against the panel's 79.6 kB; 24.7 kB without them — in
+ * the stylesheet the activity bar loads at every start.
+ */
+@import './styles/design-system.css' layer(base);
+@import 'tailwindcss' source(none);
+@import './styles/theme.css';
+@import './styles/globals.css';
+
+@config '../tailwind.sidepanel.config.ts';

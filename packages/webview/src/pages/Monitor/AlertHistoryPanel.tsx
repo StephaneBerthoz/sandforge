@@ -190,14 +190,14 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                   <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">
                     {dateKey}
                   </span>
-                  <div className="flex-1 h-px bg-[var(--sf-border)]" />
+                  <div className="flex-1 h-px bg-(--sf-border)" />
                 </div>
 
                 {/* Alert entries for this date */}
                 {alerts.map((alert) => (
                   <div
                     key={alert.id}
-                    className="flex items-start gap-2 p-2 rounded bg-[var(--sf-bg-card)] border border-[var(--sf-border)]"
+                    className="flex items-start gap-2 p-2 rounded-sm bg-(--sf-bg-card) border border-(--sf-border)"
                     data-testid={`history-entry-${alert.id}`}
                   >
                     {/* Left: Status icon */}

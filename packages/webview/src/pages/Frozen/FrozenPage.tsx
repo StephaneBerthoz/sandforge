@@ -91,7 +91,7 @@ export const FrozenPage: React.FC = () => {
 
       {saltMismatch && status?.manifest && (
         <div
-          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
+          className="rounded-sm border border-(--sf-warning) px-4 py-2 text-xs text-status-warning"
           role="alert"
           data-testid="frozen-salt-mismatch"
         >

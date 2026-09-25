@@ -218,7 +218,7 @@ function WelcomePageView(
           value={progressPercent}
           size="sm"
           ariaLabel={t('a11y.stepProgress')}
-          barClassName="bg-[var(--sf-accent)]"
+          barClassName="bg-(--sf-accent)"
         />
       </div>
 

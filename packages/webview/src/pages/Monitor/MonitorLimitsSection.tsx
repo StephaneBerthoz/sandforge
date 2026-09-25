@@ -264,7 +264,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
                   return (
                     <div
                       key={l.name}
-                      className="flex items-center gap-3 px-3 py-1.5 rounded hover:bg-surface-2 transition-colors"
+                      className="flex items-center gap-3 px-3 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
                       data-testid={`limit-${l.name}`}
                     >
                       <span className="text-xs font-medium text-text-primary w-48 truncate shrink-0">

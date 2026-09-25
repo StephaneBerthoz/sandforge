@@ -137,14 +137,14 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
               key={step.id}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
                 isCurrent
-                  ? 'bg-status-info/10 font-semibold text-[var(--sf-text-primary)]'
-                  : 'text-[var(--sf-text-secondary)]'
+                  ? 'bg-status-info/10 font-semibold text-(--sf-text-primary)'
+                  : 'text-(--sf-text-secondary)'
               }`}
               data-testid={`csv-indicator-${step.id}`}
             >
               {/* A done step shows a check: the fade that used to tell future steps
                   apart made their labels unreadable. */}
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]">
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-(--sf-bg-input) text-(--sf-text-input)">
                 {isCompleted ? '\u2713' : i + 1}
               </span>
               {t(step.labelKey)}
@@ -226,7 +226,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
             {csv.validateLoading || csv.executionStatus === 'validating' ? (
               <div className="flex flex-col items-center gap-3 py-6">
                 <Skeleton variant="rect" height="100px" />
-                <span className="text-xs text-[var(--sf-text-secondary)]">
+                <span className="text-xs text-(--sf-text-secondary)">
                   {t('seed.csv.validation.title')}...
                 </span>
               </div>
@@ -245,7 +245,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
           <div className="flex flex-col gap-4" data-testid="csv-step-execute">
             {csv.executionStatus === 'idle' && (
               <div className="flex flex-col items-center gap-3 py-6">
-                <span className="text-sm text-[var(--sf-text-primary)]">
+                <span className="text-sm text-(--sf-text-primary)">
                   {t('seed.csv.wizard.execute')}
                 </span>
                 <Badge variant="default">
@@ -265,7 +265,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
             {csv.executionStatus === 'executing' && (
               <div className="flex flex-col items-center gap-3 py-6" data-testid="csv-executing">
                 <Skeleton variant="rect" height="60px" />
-                <span className="text-xs text-[var(--sf-text-secondary)]">
+                <span className="text-xs text-(--sf-text-secondary)">
                   {t('seed.csv.wizard.executing')}
                 </span>
               </div>
@@ -300,7 +300,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
       </div>
 
       {/* Navigation bar */}
-      <div className="flex justify-between items-center pt-2 border-t border-[var(--sf-border)]">
+      <div className="flex justify-between items-center pt-2 border-t border-(--sf-border)">
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={onBack} data-testid="csv-cancel-button">
             {t('seed.csv.wizard.cancel')}

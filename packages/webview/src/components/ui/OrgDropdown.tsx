@@ -141,7 +141,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
         onClick={() => setOpen(!open)}
         className={cn(
           'w-full flex items-center gap-2 text-sm font-semibold cursor-pointer',
-          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]',
+          'focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--vscode-focusBorder,#007fd4)',
           selectedOrg ? 'text-text-primary' : 'text-text-secondary',
         )}
       >

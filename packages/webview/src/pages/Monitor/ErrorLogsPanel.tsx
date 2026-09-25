@@ -123,7 +123,7 @@ export const ErrorLogsPanel: React.FC = () => {
         {errors.map((error) => (
           <div
             key={error.id}
-            className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
             data-testid={`error-log-row-${error.id}`}
           >
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">

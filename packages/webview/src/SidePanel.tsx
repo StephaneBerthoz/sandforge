@@ -356,7 +356,7 @@ export const SidePanel: React.FC = () => {
       <div className="flex items-center gap-2.5 px-3 py-3 border-b border-subtle">
         <div className="relative">
           <Flame className="w-5 h-5 text-hue-orange" />
-          <div className="absolute -inset-1 bg-hue-orange/10 rounded-full blur-sm -z-10" />
+          <div className="absolute -inset-1 bg-hue-orange/10 rounded-full blur-xs -z-10" />
         </div>
         <span className="text-sm font-bold tracking-tight">SandForge</span>
       </div>
@@ -368,8 +368,8 @@ export const SidePanel: React.FC = () => {
             'w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5',
             'bg-surface-1 border border-subtle',
             'hover:bg-surface-2 hover:border-active transition-all text-left',
-            'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
-            'focus-visible:outline-[var(--sf-accent)]',
+            'focus-visible:outline-2 focus-visible:-outline-offset-2',
+            'focus-visible:outline-(--sf-accent)',
             'group',
           )}
           onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
@@ -576,7 +576,7 @@ export const SidePanel: React.FC = () => {
               <div className="w-8 h-8 rounded-lg bg-forge/15 flex items-center justify-center">
                 <Flame className="w-5 h-5 text-hue-orange" />
               </div>
-              <div className="absolute -inset-0.5 bg-hue-orange/10 rounded-lg blur-sm -z-10 group-hover:bg-hue-orange/20 transition-colors" />
+              <div className="absolute -inset-0.5 bg-hue-orange/10 rounded-lg blur-xs -z-10 group-hover:bg-hue-orange/20 transition-colors" />
             </div>
             <div className="text-left flex-1 min-w-0">
               <div className="text-sm font-bold text-hue-orange">{t('sidePanel.forge')}</div>
@@ -627,11 +627,11 @@ export const SidePanel: React.FC = () => {
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
                     'transition-all duration-150',
-                    'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
-                    'focus-visible:outline-[var(--sf-accent)]',
+                    'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                    'focus-visible:outline-(--sf-accent)',
                     activeRoute === item.id
-                      ? 'text-text-primary bg-surface-1 shadow-sm'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
+                      ? 'text-text-primary bg-surface-1 shadow-xs'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
                   )}
                   onClick={() => navigate(item.id)}
                   aria-current={activeRoute === item.id ? 'page' : undefined}
@@ -646,8 +646,8 @@ export const SidePanel: React.FC = () => {
                   className={cn(
                     'p-1 rounded-md transition-all duration-150 text-hue-amber',
                     'hover:bg-surface-1',
-                    'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
-                    'focus-visible:outline-[var(--sf-accent)]',
+                    'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                    'focus-visible:outline-(--sf-accent)',
                   )}
                   onClick={() => toggleFavorite(item.id)}
                   data-testid={`sidepanel-fav-star-${item.id}`}
@@ -682,11 +682,11 @@ export const SidePanel: React.FC = () => {
                   // characters in a column about 125 wide.
                   'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
                   'transition-all duration-150',
-                  'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
-                  'focus-visible:outline-[var(--sf-accent)]',
+                  'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                  'focus-visible:outline-(--sf-accent)',
                   activeRoute === item.id
-                    ? 'text-text-primary bg-surface-1 shadow-sm'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
+                    ? 'text-text-primary bg-surface-1 shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
                 )}
                 onClick={() => navigate(item.id)}
                 aria-current={activeRoute === item.id ? 'page' : undefined}
@@ -741,11 +741,11 @@ export const SidePanel: React.FC = () => {
               className={cn(
                 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left w-full min-w-0',
                 'transition-all duration-150',
-                'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
-                'focus-visible:outline-[var(--sf-accent)]',
+                'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                'focus-visible:outline-(--sf-accent)',
                 activeRoute === item.id
-                  ? 'text-text-primary bg-surface-1 shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
+                  ? 'text-text-primary bg-surface-1 shadow-xs'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
               )}
               onClick={() => navigate(item.id)}
               aria-current={activeRoute === item.id ? 'page' : undefined}

@@ -93,14 +93,14 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
         </span>
         <div className="flex gap-2">
           <button
-            className="text-[10px] text-[var(--sf-text-link)] hover:underline"
+            className="text-[10px] text-(--sf-text-link) hover:underline"
             onClick={selectAll}
             data-testid="select-all-btn"
           >
             {t('compare.selectAll', 'Select All')}
           </button>
           <button
-            className="text-[10px] text-[var(--sf-text-link)] hover:underline"
+            className="text-[10px] text-(--sf-text-link) hover:underline"
             onClick={clearAll}
             data-testid="clear-all-btn"
           >
@@ -126,7 +126,7 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
                 data-testid={`cat-group-toggle-${group.label}`}
                 className={cn(
                   'text-[10px] font-semibold mb-1 cursor-pointer',
-                  allGroupSelected ? 'text-[var(--sf-text-link)]' : 'text-text-secondary',
+                  allGroupSelected ? 'text-(--sf-text-link)' : 'text-text-secondary',
                 )}
                 style={{ background: 'none', border: 'none', padding: 0 }}
               >
@@ -141,10 +141,10 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
                       key={type}
                       onClick={() => toggle(type)}
                       className={cn(
-                        'px-2 py-1 text-[10px] rounded border transition-colors',
+                        'px-2 py-1 text-[10px] rounded-sm border transition-colors',
                         isSelected
-                          ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
-                          : 'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border-[var(--sf-border)] hover:border-[var(--sf-accent)]',
+                          ? 'bg-(--sf-button-bg) text-(--sf-button-fg) border-(--sf-button-bg)'
+                          : 'bg-(--sf-bg-input) text-(--sf-text-input) border-(--sf-border) hover:border-(--sf-accent)',
                       )}
                       role="checkbox"
                       aria-checked={isSelected}

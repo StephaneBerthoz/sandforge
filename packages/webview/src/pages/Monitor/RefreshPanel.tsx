@@ -101,7 +101,7 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
         {refreshes.map((refresh) => (
           <li
             key={refresh.detectedAt}
-            className="flex flex-col gap-0.5 px-2 py-1.5 rounded bg-surface-2"
+            className="flex flex-col gap-0.5 px-2 py-1.5 rounded-sm bg-surface-2"
             data-testid="refresh-detected-row"
           >
             <span className="flex items-center gap-2">
@@ -242,7 +242,7 @@ export const RefreshPanel: React.FC = () => {
         {refreshes.map((refresh) => (
           <div
             key={refresh.sandboxName}
-            className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
             data-testid={`refresh-row-${refresh.sandboxName}`}
           >
             <span className="text-xs font-semibold text-text-primary flex-1 truncate">

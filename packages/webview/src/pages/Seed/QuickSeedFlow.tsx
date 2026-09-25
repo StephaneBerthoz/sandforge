@@ -37,7 +37,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
     : '';
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="quick-seed-flow">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-flow">
       {quickSeed.error && (
         <ErrorBanner
           message={quickSeed.error}
@@ -48,7 +48,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
 
       {/* ----- SELECT ORG PHASE ----- */}
       {quickSeed.phase === 'selectOrg' && (
-        <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="quick-seed-select-org">
+        <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-select-org">
           <Card>
             <CardHeader
               title={t('seed.quickSeed.templateSelected', { name: templateName })}
@@ -113,7 +113,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
 
       {/* ----- RESULTS PHASE ----- */}
       {quickSeed.phase === 'results' && (
-        <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="quick-seed-results">
+        <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-results">
           {quickSeed.executionResult ? (
             <>
               <div
@@ -132,7 +132,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                         : t('seed.failed')}
                   </Badge>
                 )}
-                <span className="text-[var(--sf-text-primary)]">
+                <span className="text-(--sf-text-primary)">
                   {t('seed.recordsCreated')}:{' '}
                   <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
                 </span>
@@ -142,7 +142,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                     <strong>{quickSeed.executionResult.totalRecordsFailed}</strong>
                   </span>
                 )}
-                <span className="text-[var(--sf-text-secondary)]">
+                <span className="text-(--sf-text-secondary)">
                   {t('seed.executionTime')}:{' '}
                   {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
                 </span>
@@ -192,7 +192,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               </div>
             </>
           ) : (
-            <div className="text-center py-8 text-xs text-[var(--sf-text-secondary)]">
+            <div className="text-center py-8 text-xs text-(--sf-text-secondary)">
               {t('common.noData')}
             </div>
           )}

@@ -191,11 +191,9 @@ describe('DataTable', () => {
   it('should apply striped class on odd rows when striped is true', () => {
     render(<DataTable columns={columns} data={data} keyExtractor={keyExtractor} striped />);
     // Second row (index 1) should have the striped class
-    expect(screen.getByTestId('table-row-1').className).toContain('bg-[var(--sf-bg-secondary)]');
+    expect(screen.getByTestId('table-row-1').className).toContain('bg-(--sf-bg-secondary)');
     // First row (index 0) should not
-    expect(screen.getByTestId('table-row-0').className).not.toContain(
-      'bg-[var(--sf-bg-secondary)]',
-    );
+    expect(screen.getByTestId('table-row-0').className).not.toContain('bg-(--sf-bg-secondary)');
   });
 
   it('should expose the sort trigger as a button inside the th', () => {

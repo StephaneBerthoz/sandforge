@@ -47,7 +47,7 @@ export const ProtocolMismatchBanner: React.FC = () => {
     <div
       role="alert"
       data-testid="protocol-mismatch-banner"
-      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-3 border-b border-status-warning/40 bg-status-warning/10 px-4 py-2 text-sm text-text-primary shadow-md"
+      className="fixed top-0 left-0 right-0 z-9999 flex items-center justify-between gap-3 border-b border-status-warning/40 bg-status-warning/10 px-4 py-2 text-sm text-text-primary shadow-md"
     >
       <span>
         {t(
@@ -60,7 +60,7 @@ export const ProtocolMismatchBanner: React.FC = () => {
           type="button"
           data-testid="protocol-mismatch-reload"
           onClick={handleReload}
-          className="rounded bg-status-warning px-3 py-1 text-xs font-medium text-[var(--sf-bg-primary)] hover:bg-status-warning/90"
+          className="rounded-sm bg-status-warning px-3 py-1 text-xs font-medium text-(--sf-bg-primary) hover:bg-status-warning/90"
         >
           {t('common.reload', 'Reload')}
         </button>
@@ -69,7 +69,7 @@ export const ProtocolMismatchBanner: React.FC = () => {
           data-testid="protocol-mismatch-dismiss"
           onClick={handleDismiss}
           aria-label={t('common.dismiss', 'Dismiss')}
-          className="rounded bg-transparent px-2 py-1 text-xs text-text-primary hover:bg-status-warning/20"
+          className="rounded-sm bg-transparent px-2 py-1 text-xs text-text-primary hover:bg-status-warning/20"
         >
           ×
         </button>

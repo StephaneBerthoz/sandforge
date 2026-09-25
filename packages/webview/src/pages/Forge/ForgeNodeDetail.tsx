@@ -88,12 +88,12 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           onClick={onToggleIncluded}
           className={cn(
             'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-            node.included ? 'bg-[var(--sf-accent,#F97316)]' : 'bg-[var(--sf-bg-input)]',
+            node.included ? 'bg-(--sf-accent,#F97316)' : 'bg-(--sf-bg-input)',
           )}
         >
           <span
             className={cn(
-              'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+              'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform',
               node.included ? 'translate-x-4' : 'translate-x-0',
             )}
           />
@@ -111,7 +111,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             {node.piiFields.map((field) => (
               <li
                 key={field}
-                className="flex items-center justify-between rounded bg-surface-1 px-2 py-1.5 text-sm"
+                className="flex items-center justify-between rounded-sm bg-surface-1 px-2 py-1.5 text-sm"
               >
                 <span className="text-text-primary">{field}</span>
                 <label className="flex items-center gap-1.5 cursor-pointer">
@@ -121,7 +121,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
                     data-testid={`anonymize-toggle-${field}`}
                     checked={node.anonymizeFields.includes(field)}
                     onChange={() => onToggleAnonymize(field)}
-                    className="accent-[var(--sf-accent,#F97316)]"
+                    className="accent-(--sf-accent,#F97316)"
                   />
                 </label>
               </li>
@@ -139,7 +139,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           </div>
           <div
             data-testid="anonymization-preview"
-            className="rounded border border-subtle bg-surface-1 p-2 text-xs"
+            className="rounded-sm border border-subtle bg-surface-1 p-2 text-xs"
           >
             <table className="w-full">
               <thead>
@@ -180,7 +180,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             {node.errors.map((err, idx) => (
               <li
                 key={idx}
-                className="flex items-start gap-1.5 rounded bg-status-error/10 px-2 py-1.5 text-xs text-status-error"
+                className="flex items-start gap-1.5 rounded-sm bg-status-error/10 px-2 py-1.5 text-xs text-status-error"
               >
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                 <span>{err}</span>

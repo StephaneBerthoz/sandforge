@@ -94,14 +94,14 @@ export const ObjectPicker: React.FC<ObjectPickerProps> = ({
             />
           </div>
           <ul
-            className="flex max-h-64 flex-col gap-0.5 overflow-y-auto rounded border border-[var(--sf-border)] p-1"
+            className="flex max-h-64 flex-col gap-0.5 overflow-y-auto rounded-sm border border-(--sf-border) p-1"
             data-testid={`${testIdPrefix}-object-list`}
           >
             {listed.map((o) => {
               const checked = selected.includes(o.apiName);
               return (
                 <li key={o.apiName}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-[var(--sf-bg-hover)]">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs hover:bg-(--sf-bg-hover)">
                     <input
                       type="checkbox"
                       checked={checked}

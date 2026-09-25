@@ -25,10 +25,10 @@ export const TokenBudgetIndicator: React.FC<TokenBudgetIndicatorProps> = ({ stat
 
   const colour =
     state.state === 'exceeded'
-      ? 'bg-[var(--sf-error)]'
+      ? 'bg-(--sf-error)'
       : state.state === 'warn'
-        ? 'bg-[var(--sf-warning)]'
-        : 'bg-[var(--sf-success)]';
+        ? 'bg-(--sf-warning)'
+        : 'bg-(--sf-success)';
 
   // Bar visual width clamped to 0..100; raw used.total still shown in label.
   const barWidth = Math.min(100, Math.max(0, state.percent));
@@ -45,9 +45,9 @@ export const TokenBudgetIndicator: React.FC<TokenBudgetIndicatorProps> = ({ stat
       className="inline-flex items-center gap-2 text-xs"
       title={tooltip}
     >
-      <div className="relative w-[100px] h-2 bg-[var(--sf-border-subtle)] rounded">
+      <div className="relative w-[100px] h-2 bg-(--sf-border-subtle) rounded-sm">
         <div
-          className={`absolute left-0 top-0 h-full rounded ${colour}`}
+          className={`absolute left-0 top-0 h-full rounded-sm ${colour}`}
           style={{ width: `${barWidth}%` }}
         />
       </div>

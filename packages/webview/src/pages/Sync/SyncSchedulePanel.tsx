@@ -111,14 +111,14 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
           <CardBody>
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-[var(--sf-space-2)]">
+                <div className="flex items-center gap-(--sf-space-2)">
                   <span className="text-xs font-semibold text-text-primary">{schedule.name}</span>
                   <Badge variant={schedule.enabled ? 'success' : 'default'}>
                     {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
                   </Badge>
                   {schedule.lastResult && <LastResultBadge result={schedule.lastResult} />}
                 </div>
-                <div className="flex gap-[var(--sf-space-3)] text-[10px] text-text-secondary">
+                <div className="flex gap-(--sf-space-3) text-[10px] text-text-secondary">
                   <span>{cronToHuman(schedule.cron, t)}</span>
                   <span>{schedule.timezone}</span>
                   {/* The host keeps `nextRunAt` on pause: on a paused schedule
@@ -257,7 +257,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     <div className="flex items-center gap-1">
       <button
         type="button"
-        className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+        className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
         onClick={() => toggleSchedule(schedule.id, !schedule.enabled)}
         data-testid={`toggle-btn-${schedule.id}`}
       >
@@ -265,7 +265,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       </button>
       <button
         type="button"
-        className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)] disabled:opacity-50"
+        className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover) disabled:opacity-50"
         onClick={() => handleEdit(schedule)}
         disabled={!canCreate}
         aria-label={t('sync.schedules.editNamed', { name: schedule.name })}
@@ -277,7 +277,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
         <div className="flex gap-1">
           <button
             type="button"
-            className="text-[10px] px-2 py-1 rounded bg-status-error text-[var(--sf-bg-primary)]"
+            className="text-[10px] px-2 py-1 rounded-sm bg-status-error text-(--sf-bg-primary)"
             onClick={() => handleDelete(schedule.id)}
             data-testid={`confirm-delete-btn-${schedule.id}`}
           >
@@ -285,7 +285,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
           </button>
           <button
             type="button"
-            className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]"
+            className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg)"
             onClick={() => setConfirmDeleteId(null)}
             data-testid={`cancel-delete-btn-${schedule.id}`}
           >
@@ -295,7 +295,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       ) : (
         <button
           type="button"
-          className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           onClick={() => setConfirmDeleteId(schedule.id)}
           aria-label={t('sync.schedules.deleteNamed', { name: schedule.name })}
           data-testid={`delete-btn-${schedule.id}`}
@@ -362,7 +362,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-schedule-panel">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
       {errorBanner}
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -374,7 +374,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
         )}
         <button
           type="button"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) disabled:opacity-50"
           onClick={() => setShowBuilder(true)}
           disabled={!canCreate}
           data-testid="new-schedule-btn"

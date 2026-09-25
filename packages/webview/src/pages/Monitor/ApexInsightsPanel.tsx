@@ -122,7 +122,7 @@ export const ApexInsightsPanel: React.FC = () => {
           {topIssues.map((issue, idx) => (
             <div
               key={`${issue.type}-${idx}`}
-              className="flex items-start gap-2 px-2 py-1.5 rounded bg-surface-2"
+              className="flex items-start gap-2 px-2 py-1.5 rounded-sm bg-surface-2"
               data-testid={`apex-issue-${idx}`}
             >
               <Badge variant={severityVariant(issue.severity)}>{issue.severity}</Badge>
@@ -152,7 +152,7 @@ export const ApexInsightsPanel: React.FC = () => {
         {analyses.map((analysis) => (
           <div
             key={analysis.logId}
-            className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
             data-testid={`apex-analysis-row-${analysis.logId}`}
           >
             <span className="text-[11px] font-mono text-text-secondary w-20 shrink-0 truncate">

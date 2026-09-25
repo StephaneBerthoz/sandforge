@@ -252,7 +252,7 @@ export const ConfigProfilePanel: React.FC = () => {
           className={cn(
             'w-full h-32 rounded-md border border-subtle bg-surface-2 p-3',
             'text-xs font-mono text-text-primary placeholder:text-text-secondary',
-            'focus:outline-none focus:border-active resize-none',
+            'focus:outline-hidden focus:border-active resize-none',
           )}
           placeholder={t(
             'config.profiles.importPlaceholder',
@@ -272,7 +272,7 @@ export const ConfigProfilePanel: React.FC = () => {
               type="checkbox"
               checked={overwrite}
               onChange={(e) => setOverwrite(e.target.checked)}
-              className="rounded"
+              className="rounded-sm"
               data-testid="overwrite-checkbox"
             />
             {t('config.profiles.overwrite', 'Overwrite existing entries')}

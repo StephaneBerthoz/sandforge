@@ -50,10 +50,10 @@ export const GuidedFirstStepCard: React.FC<GuidedFirstStepCardProps> = ({
             )}
           />
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] mb-1">
+            <h3 className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4) mb-1">
               {t(titleKey)}
             </h3>
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mb-3">
+            <p className="text-xs text-(--vscode-descriptionForeground,#868686) mb-3">
               {t(descKey)}
             </p>
             <Button

@@ -264,10 +264,10 @@ export const HomePage: React.FC = () => {
                   aria-invalid={heroIdInvalid}
                   aria-describedby={heroIdInvalid ? 'forge-record-error' : undefined}
                   className={cn(
-                    'flex-1 rounded border bg-surface-2 px-3 py-1.5 text-sm',
+                    'flex-1 rounded-sm border bg-surface-2 px-3 py-1.5 text-sm',
                     'text-text-primary placeholder:text-text-secondary',
-                    'focus:outline-none focus:ring-1 focus:ring-[var(--sf-accent)]',
-                    heroIdInvalid ? 'border-[var(--sf-error)]' : 'border-subtle',
+                    'focus:outline-hidden focus:ring-1 focus:ring-(--sf-accent)',
+                    heroIdInvalid ? 'border-(--sf-error)' : 'border-subtle',
                   )}
                   data-testid="forge-record-input"
                 />
@@ -331,7 +331,7 @@ export const HomePage: React.FC = () => {
                   {recentOpsSlice.map((op) => (
                     <div
                       key={op.id}
-                      className="flex items-center gap-2 py-1 px-2 rounded text-xs bg-surface-2"
+                      className="flex items-center gap-2 py-1 px-2 rounded-sm text-xs bg-surface-2"
                       data-testid="recent-op-item"
                     >
                       <Badge variant={STATUS_BADGES[op.status].variant}>
@@ -457,10 +457,10 @@ export const HomePage: React.FC = () => {
         <Card data-testid="getting-started-card">
           <CardHeader title={t('home.gettingStarted')} />
           <CardBody>
-            <p className="text-sm text-[var(--sf-text-secondary)] mb-4">
+            <p className="text-sm text-(--sf-text-secondary) mb-4">
               {t('home.gettingStartedDesc')}
             </p>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-[var(--sf-text-primary)]">
+            <ol className="list-decimal list-inside space-y-2 text-sm text-(--sf-text-primary)">
               <li>{t('home.step1')}</li>
               <li>{t('home.step2')}</li>
               <li>{t('home.step3')}</li>

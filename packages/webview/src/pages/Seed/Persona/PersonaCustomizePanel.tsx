@@ -131,7 +131,7 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
             />
           ))}
 
-          <div className="flex gap-2 pt-2 border-t border-[var(--sf-border-subtle)]">
+          <div className="flex gap-2 pt-2 border-t border-(--sf-border-subtle)">
             <Button
               variant="secondary"
               size="sm"
@@ -168,13 +168,11 @@ interface FieldRowProps {
 const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate, t }) => {
   return (
     <div
-      className="flex flex-col gap-1 p-2 rounded bg-surface-2"
+      className="flex flex-col gap-1 p-2 rounded-sm bg-surface-2"
       data-testid={`field-row-${fieldName}`}
     >
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-[var(--sf-text-primary)] flex-1">
-          {fieldName}
-        </span>
+        <span className="text-xs font-medium text-(--sf-text-primary) flex-1">{fieldName}</span>
         <Badge variant="default">{pattern.generator}</Badge>
         <Badge variant="default">{pattern.fieldType}</Badge>
       </div>
@@ -225,7 +223,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
             {pattern.examples.slice(0, 3).map((ex, i) => (
               <span
                 key={i}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
+                className="text-[10px] px-1.5 py-0.5 rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg)"
               >
                 {ex}
               </span>

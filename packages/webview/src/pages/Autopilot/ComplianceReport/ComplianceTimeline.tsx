@@ -45,7 +45,7 @@ export const ComplianceTimeline: React.FC = () => {
   if (entries.length === 0) {
     return (
       <div
-        className="flex items-center justify-center py-8 text-sm text-[var(--sf-text-secondary)]"
+        className="flex items-center justify-center py-8 text-sm text-(--sf-text-secondary)"
         data-testid="compliance-timeline-empty"
       >
         {t('common.noData')}
@@ -58,17 +58,17 @@ export const ComplianceTimeline: React.FC = () => {
       {entries.map((entry, idx) => (
         <div
           key={`${entry.objectName}-${idx}`}
-          className="flex items-start gap-3 px-3 py-2 rounded bg-[var(--sf-bg-primary)]"
+          className="flex items-start gap-3 px-3 py-2 rounded-sm bg-(--sf-bg-primary)"
         >
-          <div className="w-2 h-2 mt-1.5 rounded-full bg-[var(--sf-progress-bg)] shrink-0" />
+          <div className="w-2 h-2 mt-1.5 rounded-full bg-(--sf-progress-bg) shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+              <span className="text-xs font-medium text-(--sf-text-primary)">
                 {entry.objectName}
               </span>
-              <span className="text-[10px] text-[var(--sf-text-secondary)]">{entry.timestamp}</span>
+              <span className="text-[10px] text-(--sf-text-secondary)">{entry.timestamp}</span>
             </div>
-            <div className="text-[10px] text-[var(--sf-text-secondary)]">
+            <div className="text-[10px] text-(--sf-text-secondary)">
               {entry.event} —{' '}
               {t('autopilot.control.piiFieldCount', { count: entry.fieldsAnonymized })}
             </div>

@@ -30,7 +30,7 @@ export const RemovalPlanView: React.FC<RemovalPlanViewProps> = ({ mode, plan }) 
       {plan.map((object) => (
         <li
           key={object.objectApiName}
-          className="flex flex-col gap-1 rounded border border-[var(--sf-border)] p-2 text-xs"
+          className="flex flex-col gap-1 rounded-sm border border-(--sf-border) p-2 text-xs"
           data-testid={`removal-plan-${object.objectApiName}`}
         >
           <p className="font-semibold text-text-primary">

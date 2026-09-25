@@ -1,0 +1,90 @@
+/*
+ * What both stylesheets add to Tailwind's layers (index.css, sidepanel.css).
+ */
+
+/*
+ * The default border colour, which Tailwind 4 leaves to `currentcolor`: every
+ * border Tailwind 3 drew in the theme's colour draws in it still. An element
+ * that takes a border colour of its own sets it with a utility, which wins.
+ */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--sf-border, rgba(255, 255, 255, 0.1));
+  }
+}
+
+/*
+ * A button shows the pointer and a disabled control the arrow, as Tailwind 3's
+ * preflight had them; Tailwind 4 leaves every button to the arrow.
+ */
+@layer base {
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
+  }
+}
+
+/*
+ * Placeholders in the theme's own placeholder colour. Preflight paints them in
+ * its gray-400 (#9ca3af), a colour no theme picked: 2.54:1 on a white input. A
+ * `placeholder:` class still takes precedence.
+ */
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--sf-text-placeholder);
+  }
+}
+
+/*
+ * Written after the utilities, as Tailwind 3 wrote them: a utility as specific
+ * as one of these rules loses to it, a more specific one wins. Left outside
+ * any layer, Tailwind 4's layers would lose to them all — a focus ring drawn
+ * by `focus-visible:` utilities would get the outline below on top of it.
+ */
+@layer utilities {
+  :root {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Scrollbars VSCode-style */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
+  }
+
+  /* Focus and selection */
+  *:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: -1px;
+  }
+
+  ::selection {
+    background: var(--vscode-editor-selectionBackground, #264f78);
+  }
+}

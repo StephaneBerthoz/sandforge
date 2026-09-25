@@ -77,13 +77,15 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
         <div
           key={`diff-${idx}`}
           data-testid={`diff-${idx}`}
-          className="rounded border border-subtle p-2 text-xs"
+          className="rounded-sm border border-subtle p-2 text-xs"
         >
           <div className="flex items-center justify-between mb-1">
             <span className="font-medium text-text-primary">
               {diff.objectApiName}.{diff.fieldApiName}
             </span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded ${SEVERITY_STYLES[diff.severity]}`}>
+            <span
+              className={`text-[9px] px-1.5 py-0.5 rounded-sm ${SEVERITY_STYLES[diff.severity]}`}
+            >
               {diff.severity.toUpperCase()}
             </span>
           </div>

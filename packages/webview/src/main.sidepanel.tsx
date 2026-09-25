@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { i18nReady } from './i18n';
-import './index.css';
+import './sidepanel.css';
 import './styles/glass.css';
 
 /**

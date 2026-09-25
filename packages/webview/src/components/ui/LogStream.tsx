@@ -176,7 +176,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 .join('\n');
               await navigator.clipboard.writeText(text);
             }}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
             title={t('forge.copyAllLogs')}
           >
             <Copy size={10} />
@@ -199,7 +199,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 // `allow-downloads`, so this click frequently wrote nothing.
                 onExport?.(`forge-logs-${new Date().toISOString().slice(0, 10)}.log`, text);
               }}
-              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
               title={t('forge.exportLogs')}
             >
               <Download size={10} />
@@ -233,7 +233,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
               </span>
               <span
                 className={cn(
-                  'px-1 rounded text-[10px] uppercase font-medium shrink-0',
+                  'px-1 rounded-sm text-[10px] uppercase font-medium shrink-0',
                   levelBadgeClasses[entry.level],
                 )}
               >

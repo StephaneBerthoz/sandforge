@@ -124,7 +124,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         !included && 'border-dashed',
       )}
     >
-      <Handle type="target" position={Position.Top} className="!bg-text-muted" />
+      <Handle type="target" position={Position.Top} className="bg-text-muted!" />
 
       {/* Header: checkbox + object name + edge type badge */}
       <div className="flex items-center justify-between gap-1">
@@ -145,7 +145,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
               data-testid="progress-node-select"
               onClick={handleClick}
               aria-label={t('forge.node.showDetails', { object: objectApiName })}
-              className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)] rounded-sm"
+              className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent) rounded-xs"
             >
               {objectApiName}
             </button>
@@ -160,7 +160,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
             <span
               data-testid="edge-type-badge"
               className={cn(
-                'text-[9px] font-bold px-1 rounded',
+                'text-[9px] font-bold px-1 rounded-sm',
                 edgeType === 'master-detail'
                   ? 'bg-forge/20 text-hue-forge'
                   : 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
@@ -240,7 +240,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-text-muted" />
+      <Handle type="source" position={Position.Bottom} className="bg-text-muted!" />
     </div>
   );
 };

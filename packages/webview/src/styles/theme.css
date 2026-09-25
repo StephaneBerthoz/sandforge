@@ -1,0 +1,109 @@
+/*
+ * The webview's theme, for both of its stylesheets (index.css, sidepanel.css).
+ *
+ * `status` — the severity tokens.
+ *
+ * A frozen palette hue only ever clears AA against one background:
+ * `text-red-400` reads 2.77:1 on a white editor and `text-yellow-400` 1.53:1.
+ * But the raw VSCode severity variables are no better as *text* — they are
+ * squiggle and icon colours, picked to be spotted, not read. On Light+
+ * `testing.iconPassed` (#73c991) reads 2.00:1 and `editorWarning.foreground`
+ * (#bf8803) 3.12:1; Quiet Light's `errorForeground` (#f1897f) reads 2.17:1.
+ * So each severity keeps a share of its own hue and is pulled the rest of the
+ * way toward `--sf-text-primary` — the editor foreground, the one colour a
+ * theme guarantees is meant to be read on its own background. The share is the
+ * largest that still clears 4.5:1 on every measured theme but Solarized Light
+ * (src/styles/testing/vscodeThemes.ts names them), on the bare surfaces and on
+ * the tints the product lays under the text (a badge's `bg-status-error/10`,
+ * over a flagged row's `bg-status-warning/5`), which is why the four differ:
+ * `info` is nearly legible on its own, `success` is not legible at all. The
+ * tints are drawn from these same tokens, so on a light theme a tint darkens
+ * with the text written on it, and the shares are sized for that as well.
+ * design-system.test.ts recomputes each ratio from those themes; the scans in
+ * e2e/axe-accessibility.spec.ts measure what Chromium paints.
+ *
+ * Tailwind 4 gives any colour its `/opacity` modifier, through
+ * `color-mix(in oklab, <colour> N%, transparent)`. Tailwind 3 could not parse
+ * `var(--sf-warning)` as a colour and dropped `bg-status-warning/10` without a
+ * word, so each token then carried an `<alpha-value>` channel of its own; the
+ * token is now the mix alone.
+ */
+@theme {
+  --color-surface-0: var(--sf-bg-primary, #0a0a0f);
+  --color-surface-1: var(--sf-bg-card, #12121a);
+  --color-surface-2: var(--sf-bg-secondary, #1c1c28);
+  --color-surface-3: var(--sf-bg-input, #262635);
+
+  /* Module accent colours (more saturated for dark). */
+  --color-forge: #f97316;
+  --color-forge-light: #ffedd5;
+  --color-forge-dark: #9a3412;
+
+  --color-seed: #22c55e;
+  --color-seed-light: #d1fae5;
+  --color-seed-dark: #065f46;
+
+  --color-sync: #3b82f6;
+  --color-sync-light: #dbeafe;
+  --color-sync-dark: #1e40af;
+
+  --color-monitor: #eab308;
+  --color-monitor-light: #fef3c7;
+  --color-monitor-dark: #92400e;
+
+  --color-compare: #a855f7;
+  --color-compare-light: #ede9fe;
+  --color-compare-dark: #5b21b6;
+
+  --color-dataops: #06b6d4;
+  --color-dataops-light: #cffafe;
+  --color-dataops-dark: #0e7490;
+
+  --color-automation: #f43f5e;
+  --color-automation-light: #ffe4e6;
+  --color-automation-dark: #9f1239;
+
+  /* Severity — see the note above. */
+  --color-status-error: color-mix(in srgb, var(--sf-error) 43%, var(--sf-text-primary));
+  --color-status-warning: color-mix(in srgb, var(--sf-warning) 51%, var(--sf-text-primary));
+  --color-status-success: color-mix(in srgb, var(--sf-success) 37%, var(--sf-text-primary));
+  --color-status-info: color-mix(in srgb, var(--sf-info) 80%, var(--sf-text-primary));
+
+  /*
+   * Identity colours (a module's accent, a syntax colour, the Forge mark): the
+   * shade a dark editor used to get, pulled toward the editor foreground like
+   * the severities, by a share that clears 4.5:1 on every measured theme but
+   * Solarized Light, tints included (design-system.test.ts). The Forge mark is
+   * sized for its own tints too, up to bg-forge/20.
+   */
+  --color-hue-forge: color-mix(in srgb, #f97316 45%, var(--sf-text-primary));
+  --color-hue-blue: color-mix(in srgb, #60a5fa 45%, var(--sf-text-primary));
+  --color-hue-sky: color-mix(in srgb, #38bdf8 45%, var(--sf-text-primary));
+  --color-hue-cyan: color-mix(in srgb, #22d3ee 40%, var(--sf-text-primary));
+  --color-hue-teal: color-mix(in srgb, #2dd4bf 40%, var(--sf-text-primary));
+  --color-hue-green: color-mix(in srgb, #4ade80 40%, var(--sf-text-primary));
+  --color-hue-yellow: color-mix(in srgb, #facc15 35%, var(--sf-text-primary));
+  --color-hue-amber: color-mix(in srgb, #fbbf24 35%, var(--sf-text-primary));
+  --color-hue-orange: color-mix(in srgb, #fb923c 40%, var(--sf-text-primary));
+  --color-hue-rose: color-mix(in srgb, #fb7185 55%, var(--sf-text-primary));
+  --color-hue-fuchsia: color-mix(in srgb, #e879f9 50%, var(--sf-text-primary));
+  --color-hue-purple: color-mix(in srgb, #c084fc 45%, var(--sf-text-primary));
+  --color-hue-indigo: color-mix(in srgb, #818cf8 60%, var(--sf-text-primary));
+
+  /* Text, mapped to the VS Code theme. */
+  --color-text-primary: var(--sf-text-primary, #f2f2f2);
+  --color-text-secondary: var(--sf-text-secondary, #a3a3a3);
+  --color-text-muted: var(--sf-text-muted, #6b6b7b);
+
+  --border-color-subtle: var(--sf-border-subtle, rgba(255, 255, 255, 0.06));
+  /* Marks hover and focus, so it must stay visible on light themes too: a
+     translucent white is invisible against a light editor background. */
+  --border-color-active: var(--sf-accent);
+
+  --radius-xl: 12px;
+  --radius-lg: 8px;
+
+  --font-display: Inter Display, Inter, system-ui, sans-serif;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: JetBrains Mono, Fira Code, monospace;
+}

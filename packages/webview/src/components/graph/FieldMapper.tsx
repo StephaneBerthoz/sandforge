@@ -132,7 +132,7 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
   return (
     <div
       ref={containerRef}
-      className={cn('flex flex-col gap-3 bg-[var(--sf-bg-primary)] rounded-xl p-4', className)}
+      className={cn('flex flex-col gap-3 bg-(--sf-bg-primary) rounded-xl p-4', className)}
       data-testid="field-mapper"
     >
       {/* Header with auto-match button */}
@@ -170,10 +170,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 className={cn(
                   'px-3 text-xs font-mono rounded-full border transition-colors text-left truncate',
                   isMapped
-                    ? 'bg-status-info/10 border-[var(--sf-accent)] text-text-primary'
+                    ? 'bg-status-info/10 border-(--sf-accent) text-text-primary'
                     : isSelected
-                      ? 'bg-status-info/10 border-[var(--sf-accent)] text-text-primary ring-1 ring-[var(--sf-accent)]'
-                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-[var(--sf-text-input)] hover:border-[var(--sf-accent)]',
+                      ? 'bg-status-info/10 border-(--sf-accent) text-text-primary ring-1 ring-(--sf-accent)'
+                      : 'bg-(--sf-bg-input) border-(--sf-border) text-(--sf-text-input) hover:border-(--sf-accent)',
                   isMapped && 'cursor-default',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
@@ -211,7 +211,7 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 stroke="var(--sf-accent)"
                 strokeWidth={2}
                 opacity={0.7}
-                className="cursor-pointer hover:opacity-100 hover:stroke-[var(--sf-error)]"
+                className="cursor-pointer hover:opacity-100 hover:stroke-(--sf-error)"
                 onClick={() => handlePathClick(index)}
                 data-testid={`field-mapper-path-${mapping.sourceField}-${mapping.targetField}`}
               />
@@ -236,8 +236,8 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                   isMapped
                     ? 'bg-status-success/20 border-status-success text-text-primary'
                     : isClickable
-                      ? 'bg-[var(--sf-bg-input)] border-dashed border-[var(--sf-accent)] text-text-primary animate-pulse'
-                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-[var(--sf-text-input)]',
+                      ? 'bg-(--sf-bg-input) border-dashed border-(--sf-accent) text-text-primary animate-pulse'
+                      : 'bg-(--sf-bg-input) border-(--sf-border) text-(--sf-text-input)',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
                 onClick={() => handleTargetClick(field)}

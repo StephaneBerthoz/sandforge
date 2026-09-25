@@ -123,7 +123,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         )}
         {(objResult.leftToThePlatform ?? 0) > 0 && (
           <span
-            className="text-xs text-[var(--sf-text-secondary)]"
+            className="text-xs text-(--sf-text-secondary)"
             data-testid="clone-object-left-to-the-platform"
           >
             {t('seed.clone.results.leftToThePlatform')}: {objResult.leftToThePlatform}
@@ -132,7 +132,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {/* ID Mappings */}
         {paginatedMappings.length > 0 && (
           <>
-            <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+            <span className="text-xs font-medium text-(--sf-text-primary)">
               {t('seed.clone.results.idMapping')}
             </span>
             <DataTable
@@ -191,10 +191,10 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="clone-results-panel">
+    <div className="flex flex-col gap-(--sf-space-4)" data-testid="clone-results-panel">
       {/* Overall status */}
       <div className="flex items-center gap-3" data-testid="clone-results-summary">
-        <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
+        <span className="text-sm font-semibold text-(--sf-text-primary)">
           {t('seed.clone.results.title')}
         </span>
         {/* A clone the Cancel stopped reads as cancelled, as a seed does, not
@@ -206,14 +206,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
             {t(STATUS_LABEL[result.status])}
           </Badge>
         )}
-        <span className="text-xs text-[var(--sf-text-secondary)]">
+        <span className="text-xs text-(--sf-text-secondary)">
           {t('seed.clone.results.duration')}: {formattedDuration}s
         </span>
       </div>
 
       {/* Summary counts */}
       <div className="flex items-center gap-4 text-xs" data-testid="clone-results-counts">
-        <span className="text-[var(--sf-text-primary)]">
+        <span className="text-(--sf-text-primary)">
           {t('seed.clone.results.summary')}:{' '}
           {t('common.recordCount', { count: result.totalSourceRecords })}
         </span>
@@ -230,7 +230,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {/* Records read and never sent: neither inserted nor failed. */}
         {(result.totalLeftToThePlatform ?? 0) > 0 && (
           <span
-            className="text-[var(--sf-text-secondary)]"
+            className="text-(--sf-text-secondary)"
             data-testid="clone-results-left-to-the-platform"
           >
             {t('seed.clone.results.leftToThePlatform')}: {result.totalLeftToThePlatform}
@@ -247,7 +247,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           it back, and the objects it never reached are not listed below. */}
       {result.cancelled && (
         <div
-          className="rounded border border-[var(--sf-border)] px-3 py-2 text-xs text-[var(--sf-text-secondary)]"
+          className="rounded-sm border border-(--sf-border) px-3 py-2 text-xs text-(--sf-text-secondary)"
           role="status"
           data-testid="clone-results-cancelled"
         >
@@ -266,7 +266,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           className={`rounded border px-3 py-2 text-xs ${
             secondPass.filled < secondPass.owed
               ? 'border-status-warning text-status-warning'
-              : 'border-[var(--sf-border)] text-[var(--sf-text-secondary)]'
+              : 'border-(--sf-border) text-(--sf-text-secondary)'
           }`}
           role="status"
           data-testid="clone-results-second-pass"
@@ -303,7 +303,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           record, which the target would have refused whole. */}
       {fieldsNotInTarget.length > 0 && (
         <div
-          className="rounded border border-[var(--sf-border)] px-3 py-2 text-xs text-[var(--sf-text-secondary)]"
+          className="rounded-sm border border-(--sf-border) px-3 py-2 text-xs text-(--sf-text-secondary)"
           role="status"
           data-testid="clone-results-fields-not-in-target"
         >
@@ -311,7 +311,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           <ul className="mt-1 flex flex-col gap-0.5">
             {fieldsNotInTarget.map(({ objectApiName, fields }) => (
               <li key={objectApiName}>
-                <span className="font-mono text-[var(--sf-text-primary)]">{objectApiName}</span>
+                <span className="font-mono text-(--sf-text-primary)">{objectApiName}</span>
                 {` — ${fields.join(', ')}`}
               </li>
             ))}

@@ -157,7 +157,7 @@ export const HelpPage: React.FC = () => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('help.searchPlaceholder')}
-          className="w-full px-3 py-2 text-sm rounded"
+          className="w-full px-3 py-2 text-sm rounded-sm"
           style={{
             background: 'var(--sf-bg-input)',
             border: '1px solid var(--sf-border-input)',

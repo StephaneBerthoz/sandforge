@@ -13,13 +13,13 @@ const VSCODE_VAR_MSG =
  * `-400` reads on a dark editor and fails AA on a light one, a `-700` fill does
  * the reverse. Severity goes through `*-status-*`, identity colours through
  * `*-hue-*`, neutrals through `text-text-*`, `bg-surface-*` and `border-subtle`
- * (tailwind.config.ts). src/styles/design-system.test.ts holds the same line
+ * (packages/webview/src/styles/theme.css). src/styles/design-system.test.ts holds the same line
  * over the product's sources.
  */
 const PALETTE =
   '(^|[^\\w-])(text|bg|border(-[xytrblse])?|ring(-offset)?|fill|stroke|from|via|to|outline|divide|decoration|placeholder|caret|accent|shadow)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)($|[^\\w-])';
 const PALETTE_MSG =
-  'Fixed palette shades (-50 to -950) fail contrast on the themes they were not picked for. Use *-status-* for severity, *-hue-* for identity colours, text-text-*, bg-surface-* or border-subtle for neutrals; a tint keeps its modifier (bg-status-error/10) — see tailwind.config.ts.';
+  'Fixed palette shades (-50 to -950) fail contrast on the themes they were not picked for. Use *-status-* for severity, *-hue-* for identity colours, text-text-*, bg-surface-* or border-subtle for neutrals; a tint keeps its modifier (bg-status-error/10) — see packages/webview/src/styles/theme.css.';
 const PALETTE_SELECTORS = [
   { selector: `Literal[value=/${PALETTE}/]`, message: PALETTE_MSG },
   { selector: `TemplateElement[value.raw=/${PALETTE}/]`, message: PALETTE_MSG },

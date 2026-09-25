@@ -136,7 +136,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                   <m.div
                     className={cn(
                       'rounded-lg p-4 max-w-md w-full',
-                      'bg-[var(--vscode-editor-background,#1e1e1e)]',
+                      'bg-(--vscode-editor-background,#1e1e1e)',
                       styles.border,
                       'border shadow-xl',
                       className,
@@ -153,12 +153,12 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     >
                       {title}
                     </Dialog.Title>
-                    <Dialog.Description className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-2">
+                    <Dialog.Description className="text-xs text-(--vscode-descriptionForeground,#868686) mt-2">
                       {description}
                     </Dialog.Description>
                     {children && (
                       <div
-                        className="mt-3 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+                        className="mt-3 text-xs text-(--vscode-editor-foreground,#d4d4d4)"
                         data-testid="danger-details"
                       >
                         {children}
@@ -167,7 +167,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     {/* One translated sentence rather than three glued
                         fragments: languages that put the literal first or last
                         need the <code> to move with it. */}
-                    <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-3">
+                    <p className="text-xs text-(--vscode-editor-foreground,#d4d4d4) mt-3">
                       <Trans
                         i18nKey="common.typeToConfirm"
                         t={t}
@@ -177,7 +177,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                           code: (
                             <code
                               className={cn(
-                                'px-1 py-0.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono',
+                                'px-1 py-0.5 rounded-sm bg-(--vscode-input-background,#3c3c3c) font-mono',
                                 styles.accent,
                               )}
                             />
@@ -192,11 +192,11 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                       onChange={(e) => setTyped(e.target.value)}
                       onKeyDown={handleInputKeyDown}
                       className={cn(
-                        'w-full mt-2 px-2 py-1.5 text-sm rounded',
-                        'bg-[var(--vscode-input-background,#3c3c3c)]',
-                        'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                        'border border-[var(--vscode-input-border,#3c3c3c)]',
-                        'focus:outline-none focus:border-[var(--vscode-focusBorder,#007fd4)]',
+                        'w-full mt-2 px-2 py-1.5 text-sm rounded-sm',
+                        'bg-(--vscode-input-background,#3c3c3c)',
+                        'text-(--vscode-input-foreground,#d4d4d4)',
+                        'border border-(--vscode-input-border,#3c3c3c)',
+                        'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
                       )}
                       placeholder={confirmText}
                       aria-label={t('common.confirm')}
@@ -204,18 +204,18 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     />
                     <div className="flex justify-end gap-2 mt-4">
                       <button
-                        className="px-3 py-1.5 text-sm rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]"
+                        className="px-3 py-1.5 text-sm rounded-sm bg-(--vscode-button-secondaryBackground,#3a3d41) text-(--vscode-button-secondaryForeground,#fff) hover:bg-(--vscode-button-secondaryHoverBackground,#45494e)"
                         onClick={handleClose}
                       >
                         {t('common.cancel')}
                       </button>
                       <button
                         className={cn(
-                          'px-3 py-1.5 text-sm rounded font-medium cursor-pointer',
+                          'px-3 py-1.5 text-sm rounded-sm font-medium cursor-pointer',
                           styles.btnBg,
-                          'text-[var(--sf-bg-primary)]',
+                          'text-(--sf-bg-primary)',
                           // Until the text matches the button is disabled, and reads as such.
-                          'disabled:bg-[var(--vscode-input-background,#3c3c3c)] disabled:text-text-muted disabled:cursor-not-allowed',
+                          'disabled:bg-(--vscode-input-background,#3c3c3c) disabled:text-text-muted disabled:cursor-not-allowed',
                         )}
                         onClick={handleConfirm}
                         disabled={!isMatch}

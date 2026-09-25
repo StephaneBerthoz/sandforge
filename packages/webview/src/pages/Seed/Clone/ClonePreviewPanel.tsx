@@ -64,8 +64,8 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="clone-preview-panel">
-      <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
+    <div className="flex flex-col gap-(--sf-space-4)" data-testid="clone-preview-panel">
+      <span className="text-sm font-semibold text-(--sf-text-primary)">
         {t('seed.clone.preview.title')}
       </span>
 
@@ -76,12 +76,12 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
           <div className="flex flex-col gap-1" data-testid="clone-insert-order">
             {previewResult.insertOrder.map((objectName, index) => (
               <div key={objectName} className="flex items-center gap-2">
-                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] text-[10px] font-bold shrink-0">
+                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-(--sf-button-bg) text-(--sf-button-fg) text-[10px] font-bold shrink-0">
                   {index + 1}
                 </span>
                 <Badge variant="default">{objectName}</Badge>
                 {index < previewResult.insertOrder.length - 1 && (
-                  <ArrowDown size={12} className="text-[var(--sf-text-secondary)] ml-1" />
+                  <ArrowDown size={12} className="text-(--sf-text-secondary) ml-1" />
                 )}
               </div>
             ))}
@@ -91,14 +91,14 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               before anything is written. */}
           {filledAfterInsert.length > 0 && (
             <div className="flex flex-col gap-1 mt-3" data-testid="clone-preview-filled-after">
-              <span className="text-xs text-[var(--sf-text-secondary)]">
+              <span className="text-xs text-(--sf-text-secondary)">
                 {t('seed.clone.preview.filledAfterInsert')}
               </span>
               <ul className="flex flex-col gap-0.5">
                 {filledAfterInsert.map((lookup) => (
                   <li
                     key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
-                    className="text-xs font-mono text-[var(--sf-text-primary)]"
+                    className="text-xs font-mono text-(--sf-text-primary)"
                   >
                     {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
                   </li>
@@ -110,14 +110,14 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               is the target's, and the clone leaves it out of every record. */}
           {sourceOnlyLookups.length > 0 && (
             <div className="flex flex-col gap-1 mt-3" data-testid="clone-preview-source-only">
-              <span className="text-xs text-[var(--sf-text-secondary)]">
+              <span className="text-xs text-(--sf-text-secondary)">
                 {t('seed.clone.preview.sourceOnlyLookups')}
               </span>
               <ul className="flex flex-col gap-0.5">
                 {sourceOnlyLookups.map((lookup) => (
                   <li
                     key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
-                    className="text-xs font-mono text-[var(--sf-text-primary)]"
+                    className="text-xs font-mono text-(--sf-text-primary)"
                   >
                     {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
                   </li>
@@ -138,17 +138,15 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                 key={obj.objectApiName}
                 className="flex items-center justify-between text-xs px-2 py-1"
               >
-                <span className="text-[var(--sf-text-primary)] font-medium">
-                  {obj.objectApiName}
-                </span>
+                <span className="text-(--sf-text-primary) font-medium">{obj.objectApiName}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-[var(--sf-text-primary)]">
+                  <span className="text-(--sf-text-primary)">
                     {t('common.recordCount', { count: obj.recordCount })}
                   </span>
                   {/* Found and never sent: counted apart, as the results count them. */}
                   {(obj.leftToThePlatform ?? 0) > 0 && (
                     <span
-                      className="text-[var(--sf-text-secondary)]"
+                      className="text-(--sf-text-secondary)"
                       data-testid="clone-preview-left-to-the-platform"
                     >
                       {t('seed.clone.preview.leftToThePlatform')}: {obj.leftToThePlatform}
@@ -162,9 +160,9 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                 </div>
               </div>
             ))}
-            <div className="flex items-center justify-between text-xs px-2 py-2 border-t border-[var(--sf-border)] font-semibold">
-              <span className="text-[var(--sf-text-primary)]">{t('seed.totalRecords')}</span>
-              <span className="text-[var(--sf-text-primary)]" data-testid="clone-total-records">
+            <div className="flex items-center justify-between text-xs px-2 py-2 border-t border-(--sf-border) font-semibold">
+              <span className="text-(--sf-text-primary)">{t('seed.totalRecords')}</span>
+              <span className="text-(--sf-text-primary)" data-testid="clone-total-records">
                 {t('common.recordCount', { count: totalRecords })},{' '}
                 {t('common.dependencyCount', { count: totalRelationships })}
               </span>
@@ -176,7 +174,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
       {/* Large clone warning */}
       {totalRecords > LARGE_CLONE_THRESHOLD && (
         <div
-          className="p-3 rounded border border-status-warning bg-status-warning/10 text-xs text-status-warning"
+          className="p-3 rounded-sm border border-status-warning bg-status-warning/10 text-xs text-status-warning"
           role="alert"
           data-testid="clone-large-warning"
         >
@@ -200,9 +198,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                     enableVirtualization={false}
                   />
                 ) : (
-                  <span className="text-xs text-[var(--sf-text-secondary)]">
-                    {t('common.noData')}
-                  </span>
+                  <span className="text-xs text-(--sf-text-secondary)">{t('common.noData')}</span>
                 ),
             }))}
           />
@@ -216,7 +212,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
       {targetOnlyRequired.length > 0 && (
         <div
           id={requiredWarningId}
-          className="flex flex-col gap-1 rounded border border-status-warning px-3 py-2 text-xs text-status-warning"
+          className="flex flex-col gap-1 rounded-sm border border-status-warning px-3 py-2 text-xs text-status-warning"
           role="alert"
           data-testid="clone-preview-target-only-required"
         >
@@ -225,7 +221,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
             {targetOnlyRequired.map((lookup) => (
               <li
                 key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
-                className="font-mono text-[var(--sf-text-primary)]"
+                className="font-mono text-(--sf-text-primary)"
               >
                 {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
               </li>

@@ -283,7 +283,7 @@ export const ForgeReview: React.FC = () => {
             onClick={handleExecute}
             disabled={!graph || !config || filesBlocked}
             aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
-            className="px-6 py-2 text-sm font-semibold bg-hue-forge text-[var(--sf-bg-primary)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-2 text-sm font-semibold bg-hue-forge text-(--sf-bg-primary) rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t('forge.executeForge', 'Execute Forge')}
           </button>

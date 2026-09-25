@@ -126,9 +126,9 @@ const ObjectPanel: React.FC<{
 }> = ({ obj, expandedObject, setExpandedObject, onChangeRule, onChangeConfig, ruleOptions }) => {
   const { t } = useTranslation();
   return (
-    <div key={obj.objectApiName} className="border border-[var(--sf-border)] rounded">
+    <div key={obj.objectApiName} className="border border-(--sf-border) rounded-sm">
       <button
-        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)]"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-(--sf-text-primary) hover:bg-(--sf-bg-hover)"
         onClick={() =>
           setExpandedObject(expandedObject === obj.objectApiName ? '' : obj.objectApiName)
         }
@@ -151,14 +151,14 @@ const ObjectPanel: React.FC<{
             return (
               <div
                 key={field.fieldApiName}
-                className={cn('flex items-center gap-2 p-2 rounded text-xs', 'bg-surface-2')}
+                className={cn('flex items-center gap-2 p-2 rounded-sm text-xs', 'bg-surface-2')}
                 data-testid={`field-${obj.objectApiName}-${field.fieldApiName}`}
               >
                 <div className="w-32 truncate">
-                  <span className="text-[var(--sf-text-primary)]">{field.label}</span>
+                  <span className="text-(--sf-text-primary)">{field.label}</span>
                   {field.required && <span className="text-status-error ml-0.5">*</span>}
                 </div>
-                <span className="w-16 text-[var(--sf-text-secondary)] truncate">{field.type}</span>
+                <span className="w-16 text-(--sf-text-secondary) truncate">{field.type}</span>
                 <Select
                   aria-label={t('a11y.fieldRuleFor', { field: field.label })}
                   options={ruleOptionsFor(field, ruleOptions)}
@@ -339,7 +339,7 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-configure-fields">
-      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.configureFieldsDesc')}</p>
+      <p className="text-xs text-(--sf-text-secondary)">{t('seed.configureFieldsDesc')}</p>
 
       {/* Search filter for large configs */}
       {useGroupedView && (

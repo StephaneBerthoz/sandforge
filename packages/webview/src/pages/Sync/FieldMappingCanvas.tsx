@@ -86,7 +86,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="field-mapping-canvas">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+        <span className="text-xs font-medium text-(--sf-text-primary)">
           {t('sync.fieldMapping')} ({mappings.length})
         </span>
         {onAutoMap && (
@@ -102,14 +102,14 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
           <div
             key={i}
             className={cn(
-              'flex items-center gap-2 px-2 py-1.5 rounded text-xs',
-              'border border-[var(--sf-border)]',
+              'flex items-center gap-2 px-2 py-1.5 rounded-sm text-xs',
+              'border border-(--sf-border)',
             )}
             data-testid={`mapping-${i}`}
           >
-            <span className="text-[var(--sf-text-primary)] w-32 truncate">{m.sourceField}</span>
+            <span className="text-(--sf-text-primary) w-32 truncate">{m.sourceField}</span>
             <Badge variant="default">{'\u2192'}</Badge>
-            <span className="text-[var(--sf-text-primary)] w-32 truncate">{m.targetField}</span>
+            <span className="text-(--sf-text-primary) w-32 truncate">{m.targetField}</span>
             <Select
               options={typeOptions}
               value={m.type}
@@ -128,9 +128,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
       </div>
 
       {mappings.length === 0 && autoMapSuggestions.length === 0 && (
-        <p className="text-xs text-center text-[var(--sf-text-secondary)] py-2">
-          {t('sync.unmapped')}
-        </p>
+        <p className="text-xs text-center text-(--sf-text-secondary) py-2">{t('sync.unmapped')}</p>
       )}
 
       {/* Auto-map suggestions preview */}
@@ -143,16 +141,16 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
             <div
               key={i}
               className={cn(
-                'flex items-center gap-2 px-2 py-1 rounded text-xs',
-                'border border-dashed border-[var(--sf-info,#3B82F6)]',
+                'flex items-center gap-2 px-2 py-1 rounded-sm text-xs',
+                'border border-dashed border-(--sf-info,#3B82F6)',
                 // `bg-opacity-5` never reached an arbitrary var() colour: the row was solid info.
                 'bg-status-info/5',
               )}
               data-testid={`suggestion-${i}`}
             >
-              <span className="text-[var(--sf-text-primary)] w-28 truncate">{s.sourceField}</span>
+              <span className="text-(--sf-text-primary) w-28 truncate">{s.sourceField}</span>
               <Badge variant="default">{'\u2192'}</Badge>
-              <span className="text-[var(--sf-text-primary)] w-28 truncate">{s.targetField}</span>
+              <span className="text-(--sf-text-primary) w-28 truncate">{s.targetField}</span>
               <Badge
                 variant={
                   s.confidence >= 0.8 ? 'success' : s.confidence >= 0.5 ? 'warning' : 'default'

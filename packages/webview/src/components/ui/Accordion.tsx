@@ -33,7 +33,7 @@ const AccordionPanel: React.FC<{
   }, [item.content]);
 
   return (
-    <div className="border-b border-[var(--vscode-panel-border,#3c3c3c)] last:border-b-0">
+    <div className="border-b border-(--vscode-panel-border,#3c3c3c) last:border-b-0">
       <button
         type="button"
         aria-expanded={isOpen}
@@ -41,8 +41,8 @@ const AccordionPanel: React.FC<{
         id={`accordion-header-${index}`}
         className={cn(
           'flex items-center justify-between w-full py-2.5 px-3 text-sm text-left font-medium',
-          'text-[var(--vscode-editor-foreground,#d4d4d4)]',
-          'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors',
+          'text-(--vscode-editor-foreground,#d4d4d4)',
+          'hover:bg-(--vscode-list-hoverBackground,#2a2d2e) transition-colors',
         )}
         onClick={onToggle}
       >
@@ -70,7 +70,7 @@ const AccordionPanel: React.FC<{
       >
         <div
           ref={contentRef}
-          className="px-3 pb-3 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+          className="px-3 pb-3 text-xs text-(--vscode-editor-foreground,#d4d4d4)"
         >
           {item.content}
         </div>
@@ -107,7 +107,7 @@ export const Accordion: React.FC<AccordionProps> = ({ items, single = false, cla
   return (
     <div
       className={cn(
-        'border border-[var(--vscode-panel-border,#3c3c3c)] rounded-md overflow-hidden',
+        'border border-(--vscode-panel-border,#3c3c3c) rounded-md overflow-hidden',
         className,
       )}
       role="presentation"

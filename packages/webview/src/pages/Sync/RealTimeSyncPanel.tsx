@@ -65,7 +65,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)] h-full" data-testid="realtime-sync-panel">
+    <div className="flex flex-col gap-(--sf-space-4) h-full" data-testid="realtime-sync-panel">
       {publishing.loading && (
         <p className="text-xs text-text-secondary" data-testid="realtime-objects-loading">
           {t('sync.realtime.loadingObjects')}
@@ -120,7 +120,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
       )}
 
       <details open={isStreaming} data-testid="cdc-metrics-section">
-        <summary className="cursor-pointer text-sm font-medium text-[var(--sf-text-primary)] mb-2">
+        <summary className="cursor-pointer text-sm font-medium text-(--sf-text-primary) mb-2">
           {t('sync.realtime.metrics')}
         </summary>
         <CDCMetricsDashboard />

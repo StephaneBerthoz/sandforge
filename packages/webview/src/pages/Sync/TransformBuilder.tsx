@@ -74,8 +74,8 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
             <div
               key={i}
               className={cn(
-                'flex items-center gap-2 px-2 py-1.5 rounded text-xs',
-                'border border-[var(--sf-border)]',
+                'flex items-center gap-2 px-2 py-1.5 rounded-sm text-xs',
+                'border border-(--sf-border)',
               )}
               data-testid={`transform-${i}`}
             >

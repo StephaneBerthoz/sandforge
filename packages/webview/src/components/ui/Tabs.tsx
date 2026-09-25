@@ -71,7 +71,7 @@ export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, classN
 
   return (
     <div
-      className={cn('flex border-b border-[var(--vscode-panel-border,#3c3c3c)]', className)}
+      className={cn('flex border-b border-(--vscode-panel-border,#3c3c3c)', className)}
       role="tablist"
     >
       {tabs.map((tab) => (
@@ -89,8 +89,8 @@ export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, classN
             'px-3 py-2 text-sm font-medium transition-colors',
             'border-b-2 -mb-px',
             current === tab.id
-              ? 'border-[var(--vscode-focusBorder,#007fd4)] text-[var(--vscode-editor-foreground,#d4d4d4)]'
-              : 'border-transparent text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)]',
+              ? 'border-(--vscode-focusBorder,#007fd4) text-(--vscode-editor-foreground,#d4d4d4)'
+              : 'border-transparent text-(--vscode-descriptionForeground,#868686) hover:text-(--vscode-editor-foreground,#d4d4d4)',
             tab.disabled && 'opacity-50 cursor-not-allowed',
           )}
           onClick={() => !tab.disabled && handleClick(tab.id)}

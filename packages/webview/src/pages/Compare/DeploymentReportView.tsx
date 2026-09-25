@@ -112,7 +112,7 @@ export const DeploymentReportView: React.FC<DeploymentReportViewProps> = ({
             {t('compare.deployment.report.componentsCaption')}
           </caption>
           <thead>
-            <tr className="border-b border-[var(--sf-border)]">
+            <tr className="border-b border-(--sf-border)">
               <th scope="col" className={headerCell}>
                 {t('compare.deployment.report.column.outcome')}
               </th>
@@ -130,7 +130,7 @@ export const DeploymentReportView: React.FC<DeploymentReportViewProps> = ({
               return (
                 <tr
                   key={`${c.componentType}:${c.fullName}`}
-                  className="border-b border-[var(--sf-border)] last:border-0"
+                  className="border-b border-(--sf-border) last:border-0"
                   data-testid={`${testId}-component-${c.componentType}-${c.fullName}`}
                 >
                   <td className={cell}>
@@ -176,7 +176,7 @@ export const DeploymentReportView: React.FC<DeploymentReportViewProps> = ({
             {report.testFailures.map((f, index) => (
               <li
                 key={`${f.className}.${f.methodName ?? ''}.${index}`}
-                className="rounded bg-[var(--sf-bg-secondary)] px-2 py-1 text-xs text-text-primary"
+                className="rounded-sm bg-(--sf-bg-secondary) px-2 py-1 text-xs text-text-primary"
               >
                 <span className="font-mono">
                   {f.methodName ? `${f.className}.${f.methodName}` : f.className}

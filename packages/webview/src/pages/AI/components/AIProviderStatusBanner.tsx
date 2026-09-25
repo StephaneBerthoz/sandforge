@@ -55,8 +55,8 @@ export const AIProviderStatusBanner: React.FC<AIProviderStatusBannerProps> = ({
 
   const colour =
     state === 'open'
-      ? 'bg-[var(--sf-error-bg)] text-status-error border-[var(--sf-error)]'
-      : 'bg-[var(--sf-warning-bg)] text-status-warning border-[var(--sf-warning)]';
+      ? 'bg-(--sf-error-bg) text-status-error border-(--sf-error)'
+      : 'bg-(--sf-warning-bg) text-status-warning border-(--sf-warning)';
 
   return (
     <div

@@ -48,14 +48,12 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
   }, []);
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="template-gallery">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="template-gallery">
       <div>
-        <h2 className="text-sm font-semibold text-[var(--sf-text-primary)]">
+        <h2 className="text-sm font-semibold text-(--sf-text-primary)">
           {t('seed.gallery.title')}
         </h2>
-        <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
-          {t('seed.gallery.subtitle')}
-        </p>
+        <p className="text-xs text-(--sf-text-secondary) mt-0.5">{t('seed.gallery.subtitle')}</p>
       </div>
 
       {error && <ErrorBanner message={error} data-testid="gallery-error" />}

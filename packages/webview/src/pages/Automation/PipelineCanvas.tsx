@@ -81,12 +81,10 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         // click had to be kept from selecting the step as well.
         return (
           <li key={step.id} className="flex flex-col items-start">
-            {index > 0 && (
-              <span aria-hidden="true" className="ml-4 h-3 w-0.5 bg-[var(--sf-border)]" />
-            )}
+            {index > 0 && <span aria-hidden="true" className="ml-4 h-3 w-0.5 bg-(--sf-border)" />}
             <div
               className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
-                isSelected ? 'border-[var(--sf-accent)]' : 'border-[var(--sf-border)]'
+                isSelected ? 'border-(--sf-accent)' : 'border-(--sf-border)'
               }`}
             >
               <button
@@ -97,9 +95,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
                 data-testid={`canvas-step-${step.id}`}
               >
                 <span className={`w-2 h-2 rounded-full ${colorClass}`} />
-                <span className="text-xs font-medium text-[var(--sf-text-primary)]">
-                  {step.name}
-                </span>
+                <span className="text-xs font-medium text-(--sf-text-primary)">{step.name}</span>
                 <Badge variant="default">{step.type}</Badge>
                 {step.continueOnError && (
                   <Badge variant="warning">{t('automation.continueOnError')}</Badge>
@@ -117,7 +113,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               {onRemoveStep && (
                 <button
                   type="button"
-                  className="text-xs text-[var(--sf-text-secondary)] hover:text-status-error"
+                  className="text-xs text-(--sf-text-secondary) hover:text-status-error"
                   onClick={() => onRemoveStep(step.id)}
                   aria-label={t('common.delete')}
                   data-testid={`remove-step-${step.id}`}

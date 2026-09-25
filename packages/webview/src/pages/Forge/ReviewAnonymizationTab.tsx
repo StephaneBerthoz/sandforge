@@ -93,7 +93,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
           data-testid="anonymization-preset-select"
           value={presetId}
           onChange={handlePresetChange}
-          className="flex-1 bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"
+          className="flex-1 bg-surface-3 text-text-primary text-xs rounded-sm px-2 py-1 border border-subtle"
         >
           <option value="">{t('forge.review.presetCustom', 'Custom (no preset)')}</option>
           {FORGE_ANONYMIZATION_PRESETS.map((p) => (
@@ -143,7 +143,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
                     })}
                     value={rules[cat]}
                     onChange={(e) => setRule(cat, e.target.value as AnonymizationMethod)}
-                    className="bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"
+                    className="bg-surface-3 text-text-primary text-xs rounded-sm px-2 py-1 border border-subtle"
                   >
                     {METHODS.map((m) => (
                       <option key={m} value={m}>

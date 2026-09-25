@@ -142,7 +142,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
               <button
                 key={s.objectApiName}
                 type="button"
-                className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
+                className="rounded-full focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
                 onClick={() => {
                   if (!isSelected && s.isAvailable) {
                     handleAddObject(s.objectApiName);
@@ -202,19 +202,19 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder={t('quickSync.searchObjects')}
-          className="w-full px-2 py-1.5 text-sm rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] focus:outline-none focus:border-[var(--sf-accent)]"
+          className="w-full px-2 py-1.5 text-sm rounded-sm bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input) focus:outline-hidden focus:border-(--sf-accent)"
           data-testid="quick-sync-object-search"
         />
         {searchTerm && filteredObjects.length > 0 && (
           <div
-            className="mt-1 max-h-32 overflow-y-auto rounded border border-[var(--sf-border)] bg-[var(--sf-bg-dropdown)]"
+            className="mt-1 max-h-32 overflow-y-auto rounded-sm border border-(--sf-border) bg-(--sf-bg-dropdown)"
             data-testid="quick-sync-search-results"
           >
             {filteredObjects.map((name) => (
               <button
                 key={name}
                 type="button"
-                className="w-full text-left px-2 py-1 text-xs text-text-primary hover:bg-[var(--sf-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
+                className="w-full text-left px-2 py-1 text-xs text-text-primary hover:bg-(--sf-bg-hover) focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
                 onClick={() => {
                   handleAddObject(name);
                   setSearchTerm('');
@@ -247,7 +247,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                   <button
                     type="button"
                     onClick={() => onRemoveObject(name)}
-                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
+                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
                     aria-label={t('a11y.removeObject', { object: name })}
                     data-testid={`remove-object-${name}`}
                   />

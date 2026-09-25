@@ -105,18 +105,18 @@ export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
       variants={pulseVariants}
       animate={isActive ? 'active' : 'idle'}
       className={cn(
-        'rounded-lg border-2 bg-[var(--sf-bg-primary)] shadow-md',
+        'rounded-lg border-2 bg-(--sf-bg-primary) shadow-md',
         'min-w-[180px] px-3 py-2',
         borderColor,
-        data.isSelected && 'ring-2 ring-[var(--sf-accent)]',
+        data.isSelected && 'ring-2 ring-(--sf-accent)',
       )}
     >
-      <Handle type="target" position={Position.Top} className="!bg-text-muted" />
+      <Handle type="target" position={Position.Top} className="bg-text-muted!" />
 
       {/* Header row: object name + PII lock */}
       <div className="mb-1 flex items-center justify-between gap-2">
         <span
-          className="truncate text-sm font-semibold text-[var(--sf-text-primary)]"
+          className="truncate text-sm font-semibold text-(--sf-text-primary)"
           title={data.objectApiName}
         >
           {data.objectApiName}
@@ -150,7 +150,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
         <span data-testid="elapsed-time">{formatDuration(data.elapsedMs)}</span>
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-text-muted" />
+      <Handle type="source" position={Position.Bottom} className="bg-text-muted!" />
     </m.div>
   );
 };

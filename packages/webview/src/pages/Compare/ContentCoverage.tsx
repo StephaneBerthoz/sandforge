@@ -27,7 +27,7 @@ export const ContentCoverage: React.FC<ContentCoverageProps> = ({ coverage }) =>
 
   return (
     <div
-      className="flex flex-col gap-[var(--sf-space-1)] text-xs text-[var(--sf-text-secondary)]"
+      className="flex flex-col gap-(--sf-space-1) text-xs text-(--sf-text-secondary)"
       data-testid="compare-coverage"
     >
       <p className="m-0" data-testid="compare-coverage-compared">
@@ -43,7 +43,7 @@ export const ContentCoverage: React.FC<ContentCoverageProps> = ({ coverage }) =>
       )}
       {notCompared > 0 && (
         <>
-          <ul className="m-0 pl-[var(--sf-space-4)] list-disc">
+          <ul className="m-0 pl-(--sf-space-4) list-disc">
             {overBudget > 0 && (
               <li data-testid="compare-coverage-over-budget">
                 {t('compare.coverage.overBudget', {

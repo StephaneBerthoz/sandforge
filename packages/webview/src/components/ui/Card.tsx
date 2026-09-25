@@ -39,10 +39,9 @@ export const Card: React.FC<CardProps> = ({ children, className, onClick, hovera
       whileHover={hoverable ? cardHover.whileHover : undefined}
       transition={SPRING}
       className={cn(
-        'rounded-lg border border-[var(--vscode-panel-border,#3c3c3c)]',
-        'bg-[var(--vscode-editor-background,#1e1e1e)]',
-        hoverable &&
-          'cursor-pointer hover:border-[var(--vscode-focusBorder,#007fd4)] transition-colors',
+        'rounded-lg border border-(--vscode-panel-border,#3c3c3c)',
+        'bg-(--vscode-editor-background,#1e1e1e)',
+        hoverable && 'cursor-pointer hover:border-(--vscode-focusBorder,#007fd4) transition-colors',
         className,
       )}
       onClick={onClick}
@@ -67,18 +66,14 @@ export const CardHeader: React.FC<CardHeaderProps> = ({ title, subtitle, action,
   return (
     <div
       className={cn(
-        'flex items-center justify-between px-4 py-3 border-b border-[var(--vscode-panel-border,#3c3c3c)]',
+        'flex items-center justify-between px-4 py-3 border-b border-(--vscode-panel-border,#3c3c3c)',
         className,
       )}
     >
       <div>
-        <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {title}
-        </h3>
+        <h3 className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4)">{title}</h3>
         {subtitle && (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
-            {subtitle}
-          </p>
+          <p className="text-xs text-(--vscode-descriptionForeground,#868686) mt-0.5">{subtitle}</p>
         )}
       </div>
       {action && <div>{action}</div>}

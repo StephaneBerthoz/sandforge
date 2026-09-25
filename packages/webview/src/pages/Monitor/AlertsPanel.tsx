@@ -134,12 +134,12 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
               <div
                 key={alert.id}
                 className={cn(
-                  'flex items-start gap-2 p-2 rounded border-l-3',
-                  'bg-[var(--sf-bg-card)]',
-                  'border border-[var(--sf-border)]',
-                  alert.severity === 'critical' && 'border-l-[var(--sf-error)]',
-                  alert.severity === 'warning' && 'border-l-[var(--sf-warning)]',
-                  alert.severity === 'info' && 'border-l-[var(--sf-info)]',
+                  'flex items-start gap-2 p-2 rounded-sm border-l-3',
+                  'bg-(--sf-bg-card)',
+                  'border border-(--sf-border)',
+                  alert.severity === 'critical' && 'border-l-(--sf-error)',
+                  alert.severity === 'warning' && 'border-l-(--sf-warning)',
+                  alert.severity === 'info' && 'border-l-(--sf-info)',
                 )}
                 data-testid={`alert-${alert.id}`}
               >

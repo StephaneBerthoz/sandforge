@@ -188,10 +188,7 @@ export const SeedPage: React.FC = () => {
   };
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
-      data-testid="seed-page"
-    >
+    <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="seed-page">
       <PageHeader
         title={t('seed.title')}
         subtitle={getPageSubtitle()}
@@ -219,7 +216,7 @@ export const SeedPage: React.FC = () => {
       {/* Back navigation button */}
       {seedMode !== 'select' && quickSeed.phase === 'idle' && (
         <button
-          className="flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline self-start"
+          className="flex items-center gap-1 text-xs text-(--sf-text-link) hover:underline self-start"
           onClick={() => {
             if (seedMode === 'ai-persona' || seedMode === 'ai-scratch') {
               setSeedMode('ai');
@@ -242,7 +239,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai')} data-testid="mode-card-ai">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
-                <Sparkles className="w-8 h-8 text-[var(--sf-text-link)]" />
+                <Sparkles className="w-8 h-8 text-(--sf-text-link)" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.ai')}
                 </span>
@@ -300,7 +297,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-persona')} data-testid="fork-card-persona">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Users className="w-8 h-8 text-[var(--sf-text-link)]" />
+                <Users className="w-8 h-8 text-(--sf-text-link)" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkPersonaTitle')}
                 </span>
@@ -314,7 +311,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-scratch')} data-testid="fork-card-scratch">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Sparkles className="w-8 h-8 text-[var(--sf-text-link)]" />
+                <Sparkles className="w-8 h-8 text-(--sf-text-link)" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkScratchTitle')}
                 </span>

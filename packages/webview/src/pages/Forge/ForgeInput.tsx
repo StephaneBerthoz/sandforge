@@ -221,13 +221,11 @@ export const ForgeInput: React.FC = () => {
                       aria-describedby={recordIdInvalid ? 'forge-record-id-error' : undefined}
                       className={cn(
                         'flex-1 px-3 py-2 rounded-md text-sm font-mono',
-                        'bg-[var(--sf-bg-input)]',
-                        'text-[var(--sf-text-input)]',
+                        'bg-(--sf-bg-input)',
+                        'text-(--sf-text-input)',
                         'border',
-                        recordIdInvalid
-                          ? 'border-status-error/40'
-                          : 'border-[var(--sf-border-input)]',
-                        'focus:outline-none focus:border-forge/50',
+                        recordIdInvalid ? 'border-status-error/40' : 'border-(--sf-border-input)',
+                        'focus:outline-hidden focus:border-forge/50',
                       )}
                     />
                     <button
@@ -243,8 +241,8 @@ export const ForgeInput: React.FC = () => {
                       title={t('forge.refreshPreview')}
                       className={cn(
                         'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
-                        'border border-[var(--sf-border-input)]',
-                        'bg-[var(--sf-bg-input)]',
+                        'border border-(--sf-border-input)',
+                        'bg-(--sf-bg-input)',
                         'text-text-secondary hover:text-hue-forge hover:border-forge/50',
                         'disabled:opacity-40 disabled:cursor-not-allowed',
                       )}
@@ -296,10 +294,10 @@ export const ForgeInput: React.FC = () => {
                     rows={5}
                     className={cn(
                       'w-full px-3 py-2 rounded-md text-sm font-mono resize-y',
-                      'bg-[var(--sf-bg-input)]',
-                      'text-[var(--sf-text-input)]',
-                      'border border-[var(--sf-border-input)]',
-                      'focus:outline-none focus:border-forge/50',
+                      'bg-(--sf-bg-input)',
+                      'text-(--sf-text-input)',
+                      'border border-(--sf-border-input)',
+                      'focus:outline-hidden focus:border-forge/50',
                     )}
                   />
                   <ForgeSoqlNotices
@@ -348,13 +346,11 @@ export const ForgeInput: React.FC = () => {
                         aria-describedby="forge-template-record-id-hint"
                         className={cn(
                           'px-3 py-2 rounded-md text-sm font-mono',
-                          'bg-[var(--sf-bg-input)]',
-                          'text-[var(--sf-text-input)]',
+                          'bg-(--sf-bg-input)',
+                          'text-(--sf-text-input)',
                           'border',
-                          recordIdInvalid
-                            ? 'border-status-error/40'
-                            : 'border-[var(--sf-border-input)]',
-                          'focus:outline-none focus:border-forge/50',
+                          recordIdInvalid ? 'border-status-error/40' : 'border-(--sf-border-input)',
+                          'focus:outline-hidden focus:border-forge/50',
                         )}
                       />
                       <p
@@ -428,10 +424,10 @@ export const ForgeInput: React.FC = () => {
               }
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs',
-                'bg-[var(--sf-bg-input)]',
-                'text-[var(--sf-text-input)]',
-                'border border-[var(--sf-border-input)]',
-                'focus:outline-none focus:border-forge/50',
+                'bg-(--sf-bg-input)',
+                'text-(--sf-text-input)',
+                'border border-(--sf-border-input)',
+                'focus:outline-hidden focus:border-forge/50',
               )}
             >
               <option value="default">{t('forge.objectCapDefault')}</option>
@@ -466,10 +462,10 @@ export const ForgeInput: React.FC = () => {
               onChange={(e) => form.setRecordLimit(e.target.value)}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs',
-                'bg-[var(--sf-bg-input)]',
-                'text-[var(--sf-text-input)]',
-                'border border-[var(--sf-border-input)]',
-                'focus:outline-none focus:border-forge/50',
+                'bg-(--sf-bg-input)',
+                'text-(--sf-text-input)',
+                'border border-(--sf-border-input)',
+                'focus:outline-hidden focus:border-forge/50',
               )}
             >
               <option value="smart">{t('forge.recordLimitSmart')}</option>
@@ -515,7 +511,7 @@ export const ForgeInput: React.FC = () => {
             className={cn(
               'w-full py-3 rounded-lg font-bold text-sm tracking-wide',
               // A flat fill: a label on a gradient has no one background to be read on.
-              'bg-hue-forge text-[var(--sf-bg-primary)]',
+              'bg-hue-forge text-(--sf-bg-primary)',
               'hover:shadow-lg hover:shadow-forge/20',
               'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none',
               'transition-all flex items-center justify-center gap-2',

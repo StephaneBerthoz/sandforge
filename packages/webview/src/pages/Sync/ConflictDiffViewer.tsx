@@ -78,7 +78,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
       {/* Three-way auto-resolved section */}
       {threeWay && Object.keys(threeWay.autoResolved).length > 0 && (
         <div
-          className="px-2 py-1.5 rounded bg-status-success/10 border border-status-success/30"
+          className="px-2 py-1.5 rounded-sm bg-status-success/10 border border-status-success/30"
           data-testid="auto-resolved-section"
         >
           <p className="text-[10px] font-semibold text-status-success mb-1">
@@ -90,7 +90,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
             {Object.entries(threeWay.autoResolved).map(([field, value]) => (
               <span
                 key={field}
-                className="text-[10px] font-mono bg-surface-1 px-1.5 py-0.5 rounded"
+                className="text-[10px] font-mono bg-surface-1 px-1.5 py-0.5 rounded-sm"
               >
                 {field}: {formatValue(value)}
               </span>
@@ -103,27 +103,25 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
       <div className="overflow-auto">
         <table className="w-full border-collapse text-xs" data-testid="diff-table">
           <thead>
-            <tr className="bg-[var(--sf-bg-secondary)]">
-              <th className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]">
+            <tr className="bg-(--sf-bg-secondary)">
+              <th className="text-left px-2 py-1 font-semibold text-(--sf-text-secondary)">
                 {t('sync.conflictResolution.fieldName')}
               </th>
-              <th className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]">
+              <th className="text-left px-2 py-1 font-semibold text-(--sf-text-secondary)">
                 {t('sync.conflictResolution.sourceValue')}
               </th>
-              <th className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]">
+              <th className="text-left px-2 py-1 font-semibold text-(--sf-text-secondary)">
                 {t('sync.conflictResolution.targetValue')}
               </th>
               {hasBase && (
                 <th
-                  className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]"
+                  className="text-left px-2 py-1 font-semibold text-(--sf-text-secondary)"
                   data-testid="base-column-header"
                 >
                   {t('sync.conflictResolution.baseValue')}
                 </th>
               )}
-              <th className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]">
-                Type
-              </th>
+              <th className="text-left px-2 py-1 font-semibold text-(--sf-text-secondary)">Type</th>
             </tr>
           </thead>
           <tbody>
@@ -134,7 +132,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
                 <tr
                   key={field}
                   className={cn(
-                    'border-b border-[var(--sf-border-subtle)]',
+                    'border-b border-(--sf-border-subtle)',
                     isConflict && 'bg-status-warning/10',
                   )}
                   data-testid={`diff-row-${field}`}

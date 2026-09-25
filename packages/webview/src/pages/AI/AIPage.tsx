@@ -162,7 +162,7 @@ export const AIPage: React.FC = () => {
   // Show guidance when AI is not configured
   if (!aiAvailable) {
     return (
-      <div className="flex flex-col h-full p-[var(--sf-space-4)]" data-testid="ai-not-configured">
+      <div className="flex flex-col h-full p-(--sf-space-4)" data-testid="ai-not-configured">
         <PageHeader
           title={t('ai.title', 'AI Assistant')}
           subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}

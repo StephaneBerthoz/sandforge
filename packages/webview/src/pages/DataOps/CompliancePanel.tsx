@@ -172,7 +172,7 @@ const InventoryObject: React.FC<{ object: PiiInventoryObjectResult }> = ({ objec
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-2 rounded-lg border border-[var(--sf-border)] p-3"
+      className="flex flex-col gap-2 rounded-lg border border-(--sf-border) p-3"
       data-testid={`inventory-object-${object.objectApiName}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -201,7 +201,7 @@ const InventoryObject: React.FC<{ object: PiiInventoryObjectResult }> = ({ objec
       ) : (
         <table className="w-full text-xs" aria-labelledby={headingId}>
           <thead>
-            <tr className="border-b border-[var(--sf-border)]">
+            <tr className="border-b border-(--sf-border)">
               <th scope="col" className={headerCell}>
                 {t('dataops.inventory.field')}
               </th>
@@ -223,7 +223,7 @@ const InventoryObject: React.FC<{ object: PiiInventoryObjectResult }> = ({ objec
             {object.fields.map((field) => (
               <tr
                 key={field.fieldApiName}
-                className="border-b border-[var(--sf-border)] last:border-0"
+                className="border-b border-(--sf-border) last:border-0"
                 data-testid={`inventory-field-${field.fieldApiName}`}
               >
                 <th scope="row" className={`${cell} font-normal text-text-primary`}>

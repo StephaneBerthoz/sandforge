@@ -42,7 +42,7 @@ describe('FileDropZone', () => {
     const dropArea = screen.getByTestId('drop-area');
     fireEvent.dragOver(dropArea, { dataTransfer: { files: [] } });
     // The hover border class should be applied
-    expect(dropArea.className).toContain('border-[var(--vscode-focusBorder');
+    expect(dropArea.className).toContain('border-(--vscode-focusBorder');
   });
 
   it('should call onFileSelected on file drop', () => {

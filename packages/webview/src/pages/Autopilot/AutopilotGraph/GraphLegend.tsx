@@ -39,10 +39,10 @@ export const GraphLegend: React.FC = () => {
   return (
     <div
       data-testid="graph-legend"
-      className="absolute bottom-3 left-3 z-10 rounded-md border border-subtle bg-[var(--sf-bg-primary)] p-3 text-xs shadow-lg"
+      className="absolute bottom-3 left-3 z-10 rounded-md border border-subtle bg-(--sf-bg-primary) p-3 text-xs shadow-lg"
     >
       {/* Node statuses */}
-      <div className="mb-2 font-semibold text-[var(--sf-text-primary)]">
+      <div className="mb-2 font-semibold text-(--sf-text-primary)">
         {t('autopilot.graph.legend.statuses')}
       </div>
       <div className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1">
@@ -55,7 +55,7 @@ export const GraphLegend: React.FC = () => {
       </div>
 
       {/* Edge types */}
-      <div className="mb-2 font-semibold text-[var(--sf-text-primary)]">
+      <div className="mb-2 font-semibold text-(--sf-text-primary)">
         {t('autopilot.graph.legend.relationships')}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">

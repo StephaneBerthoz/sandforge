@@ -122,7 +122,7 @@ describe('GrappePage active run', () => {
     render(<GrappePage />);
     const overall = screen.getByRole('progressbar', { name: 'Grappe progress' });
     expect((overall.firstChild as HTMLElement).className).toContain(
-      'bg-gradient-to-r from-hue-indigo to-hue-purple',
+      'bg-linear-to-r from-hue-indigo to-hue-purple',
     );
     const partition = screen.getByRole('progressbar', { name: 'Account-1' });
     expect((partition.firstChild as HTMLElement).className).toContain('bg-hue-indigo');

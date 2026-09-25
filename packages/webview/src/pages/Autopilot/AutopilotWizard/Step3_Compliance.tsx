@@ -61,7 +61,7 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="step3-compliance">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="step3-compliance">
       <p className="text-sm text-text-secondary">{t('autopilot.step3.description')}</p>
 
       <div className="flex flex-col gap-2" data-testid="framework-options">
@@ -71,10 +71,10 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
             <label
               key={option.value}
               className={cn(
-                'flex items-start gap-3 p-3 rounded border-2 cursor-pointer transition-colors',
+                'flex items-start gap-3 p-3 rounded-sm border-2 cursor-pointer transition-colors',
                 isSelected
-                  ? 'bg-status-info/10 border-[var(--sf-accent)]'
-                  : 'bg-[var(--sf-bg-primary)] border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]',
+                  ? 'bg-status-info/10 border-(--sf-accent)'
+                  : 'bg-(--sf-bg-primary) border-(--sf-border) hover:bg-(--sf-bg-hover)',
               )}
               data-testid={`framework-${option.value}`}
             >
@@ -84,15 +84,15 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
                 value={option.value}
                 checked={isSelected}
                 onChange={() => onSelect(option.value)}
-                className="mt-1 accent-[var(--sf-accent)]"
+                className="mt-1 accent-(--sf-accent)"
               />
               <div className="flex items-center gap-3 flex-1">
                 <span
                   className={cn(
-                    'w-8 h-8 rounded flex items-center justify-center text-sm font-bold shrink-0',
+                    'w-8 h-8 rounded-sm flex items-center justify-center text-sm font-bold shrink-0',
                     isSelected
-                      ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
-                      : 'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',
+                      ? 'bg-(--sf-button-bg) text-(--sf-button-fg)'
+                      : 'bg-(--sf-bg-input) text-(--sf-text-input)',
                   )}
                 >
                   {option.icon}

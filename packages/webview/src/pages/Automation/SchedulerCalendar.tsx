@@ -96,10 +96,10 @@ const AgendaEntry: React.FC<{
 
   return (
     <li
-      className="flex items-center justify-between gap-[var(--sf-space-2)] rounded-lg border border-subtle bg-surface-2 px-3 py-2"
+      className="flex items-center justify-between gap-(--sf-space-2) rounded-lg border border-subtle bg-surface-2 px-3 py-2"
       data-testid={`scheduler-entry-${schedule.id}`}
     >
-      <div className="flex min-w-0 items-start gap-[var(--sf-space-3)]">
+      <div className="flex min-w-0 items-start gap-(--sf-space-3)">
         {shownAt && (
           <time
             dateTime={schedule.nextRunAt}
@@ -110,12 +110,12 @@ const AgendaEntry: React.FC<{
           </time>
         )}
         <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex items-center gap-[var(--sf-space-2)]">
+          <div className="flex items-center gap-(--sf-space-2)">
             <span className="text-xs font-medium text-text-primary">{schedule.name}</span>
             {/* The Sync tab's badge, a cancelled run included. */}
             {schedule.lastResult && <LastResultBadge result={schedule.lastResult} />}
           </div>
-          <div className="flex flex-wrap gap-x-[var(--sf-space-3)] text-[10px] text-text-secondary">
+          <div className="flex flex-wrap gap-x-(--sf-space-3) text-[10px] text-text-secondary">
             <span className="font-mono">{schedule.cron}</span>
             <span>{schedule.timezone}</span>
             {schedule.lastRunAt && (
@@ -157,7 +157,7 @@ const ScheduleAgenda: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor }
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="scheduler-agenda">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="scheduler-agenda">
       {groupByNextRun(schedules, now).map((group) => {
         const key = group.kind === 'day' ? `day-${group.day}` : group.kind;
         const headingId = `scheduler-group-heading-${key}`;
@@ -220,7 +220,7 @@ const PipelineSchedules: React.FC<{ rows: readonly PipelineScheduleRow[] }> = ({
               data-testid={`scheduler-pipeline-${pipelineId}-${trigger.id}`}
             >
               <span className="text-xs font-medium text-text-primary">{pipelineName}</span>
-              <div className="flex flex-wrap gap-x-[var(--sf-space-3)] text-[10px] text-text-secondary">
+              <div className="flex flex-wrap gap-x-(--sf-space-3) text-[10px] text-text-secondary">
                 <span className="font-mono">{trigger.config.cron}</span>
                 {status?.timezone && <span>{status.timezone}</span>}
                 {status?.armed && status.nextRunAt ? (
@@ -262,7 +262,7 @@ export interface SchedulerCalendarProps {
 export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ pipelineSchedules = [] }) => {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="scheduler-calendar">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="scheduler-calendar">
       <p className="text-xs text-text-secondary" data-testid="scheduler-intro">
         {t('automation.schedulerIntro')}
       </p>

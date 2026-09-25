@@ -75,7 +75,7 @@ describe('Skeleton', () => {
 
   it('should apply radius-md on rect variant', () => {
     render(<Skeleton variant="rect" />);
-    expect(screen.getByTestId('skeleton').className).toContain('rounded-[var(--sf-radius-md)]');
+    expect(screen.getByTestId('skeleton').className).toContain('rounded-(--sf-radius-md)');
   });
 
   /* --- circle variant --- */

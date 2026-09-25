@@ -28,14 +28,14 @@ export const Spinner: React.FC<SpinnerProps> = ({ size = 'md', label, className 
     >
       <div
         className={cn(
-          'rounded-full border-[var(--vscode-descriptionForeground,#868686)] border-t-[var(--vscode-textLink-foreground,#3794ff)] animate-spin',
+          'rounded-full border-(--vscode-descriptionForeground,#868686) border-t-(--vscode-textLink-foreground,#3794ff) animate-spin',
           sizeClasses[size],
         )}
         role="status"
         aria-label={label ?? t('common.loading', 'Loading...')}
       />
       {label && (
-        <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">{label}</span>
+        <span className="text-xs text-(--vscode-descriptionForeground,#868686)">{label}</span>
       )}
     </div>
   );

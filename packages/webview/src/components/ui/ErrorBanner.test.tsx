@@ -137,6 +137,6 @@ describe('ErrorBanner', () => {
     expect(text).not.toBeNull();
     expect(text?.textContent).toBe(message);
     expect(text?.className).toContain('whitespace-pre-wrap');
-    expect(text?.className).toContain('break-words');
+    expect(text?.className).toContain('wrap-break-word');
   });
 });

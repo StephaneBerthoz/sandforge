@@ -166,7 +166,7 @@ export const StorageBreakdownPanel: React.FC = () => {
           return (
             <div
               key={obj.objectName}
-              className="flex items-center gap-3 px-2 py-1 rounded hover:bg-surface-2 transition-colors text-xs"
+              className="flex items-center gap-3 px-2 py-1 rounded-sm hover:bg-surface-2 transition-colors text-xs"
               data-testid={`storage-row-${obj.objectName}`}
             >
               <span

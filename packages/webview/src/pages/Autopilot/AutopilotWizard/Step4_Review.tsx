@@ -70,7 +70,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="step4-review">
+    <div className="flex flex-col gap-(--sf-space-4)" data-testid="step4-review">
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
       {error && <ErrorBanner message={error} data-testid="autopilot-execute-error" />}
@@ -123,7 +123,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         />
       </div>
 
-      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]">
+      <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
         <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.connectionSummary')}
         </span>
@@ -138,7 +138,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]">
+      <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
         <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.selectedObjects')}
         </span>
@@ -146,7 +146,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           {selectedObjects.map((obj) => (
             <span
               key={obj}
-              className="px-2 py-0.5 text-xs rounded bg-[var(--sf-bg-input)] text-text-primary"
+              className="px-2 py-0.5 text-xs rounded-sm bg-(--sf-bg-input) text-text-primary"
             >
               {obj}
             </span>
@@ -182,7 +182,7 @@ interface StatCardProps {
 
 /** Stat card component for the review step. */
 const StatCard: React.FC<StatCardProps> = ({ label, value, testId }) => (
-  <div className="flex flex-col gap-1 p-3 rounded bg-surface-2" data-testid={testId}>
+  <div className="flex flex-col gap-1 p-3 rounded-sm bg-surface-2" data-testid={testId}>
     <span className="text-xs text-text-secondary">{label}</span>
     <span className="text-lg font-semibold text-text-primary">{value}</span>
   </div>

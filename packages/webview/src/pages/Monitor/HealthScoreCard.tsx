@@ -123,13 +123,13 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
       <div data-testid="health-score-card" className="w-full min-w-0">
         <Card className={cn('border-0 bg-transparent shadow-none w-full', className)}>
           <CardBody>
-            <div className="flex flex-col items-center gap-[var(--sf-space-2)] w-full min-w-0">
-              <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
+            <div className="flex flex-col items-center gap-(--sf-space-2) w-full min-w-0">
+              <span className="text-xs font-medium text-(--sf-text-secondary)">
                 {t('monitor.health', 'Health Score')}
               </span>
               <RadialGauge score={report.overallScore} />
               <p
-                className="text-xs text-center text-[var(--sf-text-secondary)] w-full break-words"
+                className="text-xs text-center text-(--sf-text-secondary) w-full wrap-break-word"
                 data-testid="health-summary"
               >
                 {report.summary}
@@ -137,22 +137,22 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
 
               {report.topRisks.length > 0 && (
                 <div
-                  className="w-full min-w-0 flex flex-col gap-[var(--sf-space-1)] mt-[var(--sf-space-1)]"
+                  className="w-full min-w-0 flex flex-col gap-(--sf-space-1) mt-(--sf-space-1)"
                   data-testid="top-risks"
                 >
                   {report.topRisks.map((risk) => (
                     <div
                       key={risk.name}
-                      className="flex items-center gap-[var(--sf-space-1)] text-[10px] min-w-0"
+                      className="flex items-center gap-(--sf-space-1) text-[10px] min-w-0"
                     >
                       <span
                         className={`codicon codicon-${statusIcon(risk.status)} shrink-0 ${statusColor(risk.status)}`}
                         aria-hidden="true"
                       />
-                      <span className="flex-1 min-w-0 truncate text-[var(--sf-text-primary)]">
+                      <span className="flex-1 min-w-0 truncate text-(--sf-text-primary)">
                         {risk.name}: {risk.detail}
                       </span>
-                      <span className="shrink-0 whitespace-nowrap text-[var(--sf-text-secondary)]">
+                      <span className="shrink-0 whitespace-nowrap text-(--sf-text-secondary)">
                         -{impactPoints(risk)} pts
                       </span>
                     </div>
@@ -203,9 +203,9 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-[var(--sf-radius-lg)] bg-[var(--sf-bg-primary)] border border-[var(--sf-border)] shadow-[var(--sf-shadow-lg)] p-[var(--sf-space-4)]">
-        <div className="flex items-center justify-between mb-[var(--sf-space-4)]">
-          <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">
+      <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-(--sf-radius-lg) bg-(--sf-bg-primary) border border-(--sf-border) shadow-(--sf-shadow-lg) p-(--sf-space-4)">
+        <div className="flex items-center justify-between mb-(--sf-space-4)">
+          <h2 className="text-lg font-semibold text-(--sf-text-primary)">
             {t('monitor.healthReport', 'Health Report')}
           </h2>
           <Button
@@ -219,7 +219,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
           </Button>
         </div>
 
-        <div className="flex items-center gap-[var(--sf-space-3)] mb-[var(--sf-space-4)]">
+        <div className="flex items-center gap-(--sf-space-3) mb-(--sf-space-4)">
           <RadialGauge score={report.overallScore} size={80} />
           <div>
             <Badge
@@ -233,9 +233,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
             >
               {report.overallStatus}
             </Badge>
-            <p className="text-xs text-[var(--sf-text-secondary)] mt-[var(--sf-space-1)]">
-              {report.summary}
-            </p>
+            <p className="text-xs text-(--sf-text-secondary) mt-(--sf-space-1)">{report.summary}</p>
           </div>
         </div>
 
@@ -243,23 +241,23 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
           const catFactors = report.factors.filter((f) => f.category === cat);
           if (catFactors.length === 0) return null;
           return (
-            <div key={cat} className="mb-[var(--sf-space-3)]" data-testid={`category-${cat}`}>
-              <h3 className="text-sm font-medium text-[var(--sf-text-primary)] mb-[var(--sf-space-2)] capitalize">
+            <div key={cat} className="mb-(--sf-space-3)" data-testid={`category-${cat}`}>
+              <h3 className="text-sm font-medium text-(--sf-text-primary) mb-(--sf-space-2) capitalize">
                 {cat}
               </h3>
-              <div className="flex flex-col gap-[var(--sf-space-2)]">
+              <div className="flex flex-col gap-(--sf-space-2)">
                 {catFactors.map((factor) => (
                   <div
                     key={factor.name}
-                    className="p-[var(--sf-space-2)] rounded-[var(--sf-radius-md)] bg-surface-2"
+                    className="p-(--sf-space-2) rounded-(--sf-radius-md) bg-surface-2"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-[var(--sf-space-1)]">
+                      <div className="flex items-center gap-(--sf-space-1)">
                         <span
                           className={`codicon codicon-${statusIcon(factor.status)} ${statusColor(factor.status)}`}
                           aria-hidden="true"
                         />
-                        <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+                        <span className="text-xs font-medium text-(--sf-text-primary)">
                           {factor.name}
                         </span>
                       </div>
@@ -275,10 +273,10 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
                         {factor.score}/100
                       </Badge>
                     </div>
-                    <p className="text-[10px] text-[var(--sf-text-secondary)] mt-[var(--sf-space-1)]">
+                    <p className="text-[10px] text-(--sf-text-secondary) mt-(--sf-space-1)">
                       {factor.detail}
                     </p>
-                    <p className="text-[10px] text-status-info mt-[var(--sf-space-1)]">
+                    <p className="text-[10px] text-status-info mt-(--sf-space-1)">
                       {factor.recommendation}
                     </p>
                   </div>

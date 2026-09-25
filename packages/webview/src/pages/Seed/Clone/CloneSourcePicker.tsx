@@ -39,15 +39,15 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
   const targetOrg = orgs.find((org) => org.id === targetOrgId);
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-source-picker">
-      <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="clone-source-picker">
+      <span className="text-sm font-semibold text-(--sf-text-primary)">
         {t('seed.clone.sourcePicker.title')}
       </span>
 
-      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-[var(--sf-space-4)]">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-(--sf-space-4)">
         {/* Source org column */}
-        <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="clone-source-column">
-          <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
+        <div className="flex flex-col gap-(--sf-space-2)" data-testid="clone-source-column">
+          <span className="text-xs font-medium text-(--sf-text-secondary)">
             {t('seed.clone.sourcePicker.sourceLabel')}
           </span>
           <Select
@@ -80,15 +80,15 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           role="img"
           aria-label={t('seed.clone.sourcePicker.direction')}
         >
-          <ArrowRight size={24} className="text-[var(--sf-text-link)]" />
+          <ArrowRight size={24} className="text-(--sf-text-link)" />
         </div>
 
         {/* Target org column (read-only) */}
-        <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="clone-target-column">
-          <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
+        <div className="flex flex-col gap-(--sf-space-2)" data-testid="clone-target-column">
+          <span className="text-xs font-medium text-(--sf-text-secondary)">
             {t('seed.clone.sourcePicker.targetLabel')}
           </span>
-          <span className="text-xs text-[var(--sf-text-secondary)]">
+          <span className="text-xs text-(--sf-text-secondary)">
             {t('seed.clone.sourcePicker.targetHint')}
           </span>
           {targetOrg ? (
@@ -102,7 +102,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
             // The target is the org selected in SandForge: with none, the
             // column stayed empty, and the preview went out without one.
             <span
-              className="text-xs text-[var(--sf-text-primary)]"
+              className="text-xs text-(--sf-text-primary)"
               role="status"
               data-testid="clone-no-target"
             >

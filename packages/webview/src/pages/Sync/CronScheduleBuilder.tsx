@@ -252,12 +252,12 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
   );
 
   const inputClass =
-    'w-full px-2 py-1 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] focus:outline-none focus:border-[var(--sf-accent)]';
+    'w-full px-2 py-1 text-xs rounded-sm border border-(--sf-border-input) bg-(--sf-bg-input) text-(--sf-text-input) focus:outline-hidden focus:border-(--sf-accent)';
   const labelClass = 'text-[10px] font-semibold text-text-primary mb-1';
 
   return (
     <form
-      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--sf-border)] rounded"
+      className="flex flex-col gap-(--sf-space-3) p-(--sf-space-3) border border-(--sf-border) rounded-sm"
       onSubmit={handleSubmit}
       data-testid="cron-schedule-builder"
     >
@@ -302,10 +302,10 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       </label>
 
       {/* Mode toggle */}
-      <div className="flex gap-[var(--sf-space-2)]">
+      <div className="flex gap-(--sf-space-2)">
         <button
           type="button"
-          className={`text-xs px-3 py-1 rounded ${mode === 'simple' ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]' : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'}`}
+          className={`text-xs px-3 py-1 rounded-sm ${mode === 'simple' ? 'bg-(--sf-button-bg) text-(--sf-button-fg)' : 'bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg)'}`}
           onClick={() => setMode('simple')}
           data-testid="mode-simple-btn"
         >
@@ -313,7 +313,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         </button>
         <button
           type="button"
-          className={`text-xs px-3 py-1 rounded ${mode === 'advanced' ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]' : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'}`}
+          className={`text-xs px-3 py-1 rounded-sm ${mode === 'advanced' ? 'bg-(--sf-button-bg) text-(--sf-button-fg)' : 'bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg)'}`}
           onClick={() => setMode('advanced')}
           data-testid="mode-advanced-btn"
         >
@@ -323,7 +323,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Simple mode */}
       {mode === 'simple' && (
-        <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="simple-mode-panel">
+        <div className="flex flex-col gap-(--sf-space-2)" data-testid="simple-mode-panel">
           {/* Preset selector */}
           <label className="flex flex-col gap-1">
             <span className={labelClass}>{t('sync.schedules.frequency')}</span>
@@ -342,7 +342,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
           {/* Time picker (for daily/weekly/monthly) */}
           {preset !== 'hourly' && (
-            <div className="flex gap-[var(--sf-space-2)]">
+            <div className="flex gap-(--sf-space-2)">
               <label className="flex flex-col gap-1">
                 <span className={labelClass}>{t('sync.schedules.hour')}</span>
                 <select
@@ -389,8 +389,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                     type="button"
                     className={`text-[10px] px-2 py-1 rounded ${
                       dayOfWeek.includes(day)
-                        ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
-                        : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'
+                        ? 'bg-(--sf-button-bg) text-(--sf-button-fg)'
+                        : 'bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg)'
                     }`}
                     // Picked or not was told by the fill alone.
                     aria-pressed={dayOfWeek.includes(day)}
@@ -477,13 +477,13 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       </div>
 
       {/* Options */}
-      <div className="flex flex-col gap-[var(--sf-space-1)]">
+      <div className="flex flex-col gap-(--sf-space-1)">
         <span className={labelClass}>{t('sync.schedules.options')}</span>
-        <label className="flex items-center gap-[var(--sf-space-2)] text-[10px] text-text-primary">
+        <label className="flex items-center gap-(--sf-space-2) text-[10px] text-text-primary">
           {t('sync.schedules.maxRetries')}
           <input
             type="number"
-            className="w-16 px-1 py-0.5 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]"
+            className="w-16 px-1 py-0.5 text-xs rounded-sm border border-(--sf-border-input) bg-(--sf-bg-input) text-(--sf-text-input)"
             value={maxRetries}
             onChange={(e) => setMaxRetries(Number(e.target.value))}
             min={0}
@@ -513,7 +513,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Preview */}
       <div
-        className="text-[10px] text-text-secondary bg-[var(--sf-bg-primary)] rounded p-2"
+        className="text-[10px] text-text-secondary bg-(--sf-bg-primary) rounded-sm p-2"
         data-testid="cron-preview"
       >
         <span className="font-semibold">{t('sync.schedules.preview')}:</span>{' '}
@@ -521,10 +521,10 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end gap-[var(--sf-space-2)]">
+      <div className="flex justify-end gap-(--sf-space-2)">
         <button
           type="button"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           onClick={onCancel}
           data-testid="cancel-btn"
         >
@@ -532,7 +532,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         </button>
         <button
           type="submit"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) disabled:opacity-50"
           disabled={!configPicked}
           data-testid="submit-btn"
         >

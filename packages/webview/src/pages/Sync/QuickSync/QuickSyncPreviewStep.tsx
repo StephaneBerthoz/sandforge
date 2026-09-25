@@ -120,13 +120,13 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   // Before execution — preview view
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-preview-step">
-      <p className="text-xs text-[var(--sf-text-secondary)]">{t('quickSync.preview')}</p>
+      <p className="text-xs text-(--sf-text-secondary)">{t('quickSync.preview')}</p>
 
       {preview && (
         <>
           {/* Summary bar */}
           <div
-            className="flex items-center gap-4 text-xs text-[var(--sf-text-primary)]"
+            className="flex items-center gap-4 text-xs text-(--sf-text-primary)"
             data-testid="quick-sync-preview-summary"
           >
             <Badge variant="info">
@@ -149,10 +149,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {preview.objects.map((obj) => (
               <div
                 key={obj.objectApiName}
-                className="flex items-center justify-between px-3 py-2 rounded bg-[var(--sf-bg-primary)] border border-[var(--sf-border)]"
+                className="flex items-center justify-between px-3 py-2 rounded-sm bg-(--sf-bg-primary) border border-(--sf-border)"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+                  <span className="text-xs font-medium text-(--sf-text-primary)">
                     {obj.objectApiName}
                   </span>
                   {obj.isParentDependency && (
@@ -164,7 +164,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                 {/* The records are counted; the calls are a guess — one for
                     each batch of them — and are said to be one, as the
                     summary above says its own. */}
-                <div className="flex items-center gap-4 text-[10px] text-[var(--sf-text-secondary)]">
+                <div className="flex items-center gap-4 text-[10px] text-(--sf-text-secondary)">
                   <span>{t('common.recordCount', { count: obj.recordCount })}</span>
                   <span>{t('common.estimatedApiCallCount', { count: obj.estimatedApiCalls })}</span>
                 </div>

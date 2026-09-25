@@ -66,7 +66,7 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
 };
 
 const INPUT_CLASS =
-  'text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]';
+  'text-xs p-1.5 rounded-sm border border-(--sf-border,#3c3c3c) bg-(--sf-bg-input,#1e1e1e) text-(--sf-text-primary,#d4d4d4)';
 
 /** The strings of `value` when it is a list, else none. */
 function strings(value: unknown): string[] {
@@ -193,7 +193,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
         return (
           <label
             key={field.key}
-            className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]"
+            className="flex items-center gap-2 text-xs text-(--sf-text-primary,#d4d4d4)"
           >
             <input
               type="checkbox"
@@ -237,7 +237,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
               {PRECHECK_CHECKS.map((check) => (
                 <label
                   key={check}
-                  className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]"
+                  className="flex items-center gap-2 text-xs text-(--sf-text-primary,#d4d4d4)"
                 >
                   <input
                     type="checkbox"
@@ -287,14 +287,14 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 p-3 border border-[var(--sf-border,#3c3c3c)] rounded',
+        'flex flex-col gap-3 p-3 border border-(--sf-border,#3c3c3c) rounded-sm',
         className,
       )}
       data-testid="step-config-panel"
     >
       {/* Step header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-[var(--sf-text-primary,#d4d4d4)]">
+        <span className="text-xs font-semibold text-(--sf-text-primary,#d4d4d4)">
           {t('automation.stepConfig', 'Step Configuration')}
         </span>
         <Badge variant="default">{step.type}</Badge>
@@ -353,7 +353,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
       </label>
 
       {/* Continue on error */}
-      <label className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]">
+      <label className="flex items-center gap-2 text-xs text-(--sf-text-primary,#d4d4d4)">
         <input
           type="checkbox"
           checked={step.continueOnError}
@@ -366,7 +366,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
       {/* Step-type-specific config fields */}
       {(configFields.length > 0 || step.type === 'compare') && (
         <div
-          className="flex flex-col gap-2 mt-1 pt-2 border-t border-[var(--sf-border,#3c3c3c)]"
+          className="flex flex-col gap-2 mt-1 pt-2 border-t border-(--sf-border,#3c3c3c)"
           data-testid="step-type-config"
         >
           <span className="text-[10px] font-semibold text-text-secondary uppercase">

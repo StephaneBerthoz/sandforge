@@ -103,7 +103,7 @@ export const ApiUsagePanel: React.FC = () => {
         {categories.map((cat) => (
           <div
             key={cat.category}
-            className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-3 px-2 py-1.5 rounded-sm hover:bg-surface-2 transition-colors"
             data-testid={`api-usage-row-${cat.category}`}
           >
             <span className="text-xs text-text-primary flex-1 truncate font-medium">

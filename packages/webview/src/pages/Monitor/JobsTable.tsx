@@ -222,7 +222,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
               type="button"
               onClick={handleExportCsv}
               className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded text-xs',
+                'flex items-center gap-1 px-2 py-1 rounded-sm text-xs',
                 'text-text-secondary hover:text-text-primary hover:bg-surface-1',
                 'transition-colors',
               )}

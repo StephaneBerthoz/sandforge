@@ -117,7 +117,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
   const isFinished = clone.step === 'execute' && clone.executionResult !== null;
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-wizard-container">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="clone-wizard-container">
       {/* Dismissed, the banner goes and nothing else: it reset the whole
           wizard, the objects picked and the preview with it. */}
       {clone.error && (
@@ -165,7 +165,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
             {/* Why Next stays off: the preview it sends needs both orgs. */}
             {!bothOrgs && (
               <p
-                className="mt-[var(--sf-space-2)] text-xs text-[var(--sf-text-secondary)]"
+                className="mt-(--sf-space-2) text-xs text-(--sf-text-secondary)"
                 role="status"
                 data-testid="clone-needs-both-orgs"
               >
@@ -179,13 +179,10 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
         {clone.step === 'preview' && (
           <>
             {clone.executionStatus === 'previewing' ? (
-              <div
-                className="flex flex-col gap-[var(--sf-space-3)]"
-                data-testid="clone-preview-loading"
-              >
+              <div className="flex flex-col gap-(--sf-space-3)" data-testid="clone-preview-loading">
                 {/* Said as well as drawn: the placeholders are hidden from a
                     screen reader, and this is what it reads out. */}
-                <p role="status" className="text-xs text-[var(--sf-text-secondary)]">
+                <p role="status" className="text-xs text-(--sf-text-secondary)">
                   {t('seed.clone.preview.loading')}
                 </p>
                 <Skeleton variant="text" width="40%" height="1em" />
@@ -207,15 +204,15 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
         {clone.step === 'execute' && (
           <>
             {clone.executionStatus === 'executing' ? (
-              <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-executing">
-                <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
+              <div className="flex flex-col gap-(--sf-space-3)" data-testid="clone-executing">
+                <span className="text-sm font-semibold text-(--sf-text-primary)">
                   {t('seed.running')}
                 </span>
                 {clone.selectedObjects.map((obj) => (
                   <div key={obj.objectApiName} className="flex items-center gap-2 text-xs">
                     <Badge variant="info">{obj.objectApiName}</Badge>
-                    <div className="flex-1 h-2 rounded-full bg-[var(--sf-bg-input)] overflow-hidden">
-                      <div className="h-full bg-[var(--sf-accent)] animate-pulse w-1/2 rounded-full" />
+                    <div className="flex-1 h-2 rounded-full bg-(--sf-bg-input) overflow-hidden">
+                      <div className="h-full bg-(--sf-accent) animate-pulse w-1/2 rounded-full" />
                     </div>
                   </div>
                 ))}
