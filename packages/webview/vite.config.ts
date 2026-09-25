@@ -5,15 +5,17 @@ import tailwindcss from 'tailwindcss';
 import path from 'path';
 import { readFileSync } from 'fs';
 
-const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as {
+const pkg = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
+) as {
   version: string;
 };
 
 /**
  * Single-file IIFE bundles for the VSCode webview — no ES module imports.
  *
- * Rollup cannot emit multiple IIFE inputs with inlineDynamicImports, so the
- * build runs TWICE (see the package.json build script):
+ * The bundler cannot emit several IIFE inputs from one build that splits no
+ * code, so the build runs TWICE (see the package.json build script):
  *   vite build                  → assets/index.js + assets/style.css
  *                                 (full panel bundle, entry src/main.tsx)
  *   vite build --mode sidepanel → assets/sidepanel.js + assets/sidepanel.css
@@ -30,12 +32,15 @@ export default defineConfig(({ mode }) => {
       /* Default pass empties dist; the sidepanel pass must keep index.js */
       emptyOutDir: !isSidepanel,
       lib: {
-        entry: path.resolve(__dirname, isSidepanel ? 'src/main.sidepanel.tsx' : 'src/main.tsx'),
+        entry: path.resolve(
+          import.meta.dirname,
+          isSidepanel ? 'src/main.sidepanel.tsx' : 'src/main.tsx',
+        ),
         name: 'SandForge',
         formats: ['iife'],
         fileName: () => (isSidepanel ? 'assets/sidepanel.js' : 'assets/index.js'),
       },
-      rollupOptions: {
+      rolldownOptions: {
         output: {
           /*
            * The stylesheet names are a CONTRACT with the extension: the HTML
@@ -61,8 +66,10 @@ export default defineConfig(({ mode }) => {
             }
             return 'assets/[name].[ext]';
           },
-          /* Inline everything — webview CSP blocks dynamic imports */
-          inlineDynamicImports: true,
+          /* Inline everything — webview CSP blocks dynamic imports. Rolldown
+             names this codeSplitting; the inlineDynamicImports Rollup took
+             is ignored under Vite 8, with a warning. */
+          codeSplitting: false,
         },
       },
       cssCodeSplit: false,
@@ -78,7 +85,9 @@ export default defineConfig(({ mode }) => {
           css: {
             postcss: {
               plugins: [
-                tailwindcss({ config: path.resolve(__dirname, 'tailwind.sidepanel.config.ts') }),
+                tailwindcss({
+                  config: path.resolve(import.meta.dirname, 'tailwind.sidepanel.config.ts'),
+                }),
                 autoprefixer(),
               ],
             },
@@ -87,9 +96,9 @@ export default defineConfig(({ mode }) => {
       : {}),
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': path.resolve(import.meta.dirname, './src'),
         /* Map @sandforge/shared to TypeScript source so Vite can bundle value exports */
-        '@sandforge/shared': path.resolve(__dirname, '../shared/src/index.ts'),
+        '@sandforge/shared': path.resolve(import.meta.dirname, '../shared/src/index.ts'),
       },
     },
     define: {

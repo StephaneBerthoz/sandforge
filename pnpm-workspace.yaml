@@ -87,3 +87,9 @@ overrides:
   # (serialize-javascript).
   'diff@>=6.0.0 <8.0.3': '>=8.0.3 <9'
   'serialize-javascript@<7.0.5': '>=7.0.5 <8'
+  # Dev only: the webview builds with Vite 8 and every Vitest 5 resolves the
+  # newest Vite 8 it can. 8.3.1 was younger than pnpm's minimumReleaseAge when
+  # the tree moved to Vite 8, and pnpm answers that by excluding the version
+  # from the rule in this file; held at 8.3.0 instead, the rule stays whole.
+  # Lift once 8.3.1 (or a later 8.3) is old enough to resolve on its own.
+  'vite@>=8.3.1 <8.4.0': '8.3.0'
