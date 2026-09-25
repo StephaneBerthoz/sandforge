@@ -206,7 +206,10 @@ export interface FrozenLoadProgressEvent {
    * written — before its rows went out, between two calls, or between the
    * email object's two writes: its line says how many rows the cancel kept
    * from the target. One the target refused a row of ends `error`, as it
-   * would have.
+   * would have. A reload's purge, and a pass after the inserts, that the
+   * cancel cut short end the same way, their line saying what the cancel kept
+   * back of them. `error` also ends an object a write of its own threw at,
+   * with why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100) within the load. */
