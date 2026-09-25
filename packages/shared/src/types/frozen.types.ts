@@ -333,6 +333,17 @@ export interface FrozenSkippedRecord {
   errors: string[];
 }
 
+/**
+ * Why a link a load owed after its inserts was not made: the record holding
+ * the lookup was not loaded, the record it points at was not, or the target
+ * refused the update that set it. Only the first leaves no lookup empty on a
+ * record the load wrote: the record went, and the link with it.
+ */
+export type FrozenUnresolvedLinkCause =
+  | 'record-not-loaded'
+  | 'target-not-loaded'
+  | 'update-refused';
+
 /** Per-object load accounting. */
 export interface FrozenPerObjectLoadResult {
   objectApiName: string;
@@ -369,13 +380,21 @@ export interface FrozenLoadReportInfo {
     unresolved: Array<{
       objectApiName: string;
       referenceId: string;
+      /** The lookup; the lookups, comma-separated, of a refused update of several. */
       field: string;
+      cause: FrozenUnresolvedLinkCause;
       detail: string;
     }>;
   };
   personContact: {
     restored: number;
-    unresolved: Array<{ accountReferenceId: string; contactReferenceId: string }>;
+    /** A person account's link to its contact: `Account.PersonContactId`. */
+    unresolved: Array<{
+      accountReferenceId: string;
+      contactReferenceId: string;
+      cause: FrozenUnresolvedLinkCause;
+      detail: string;
+    }>;
   };
   /** Statuses applied after insert: an activated order is created as a draft. */
   statuses?: {

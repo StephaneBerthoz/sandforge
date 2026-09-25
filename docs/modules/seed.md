@@ -35,7 +35,7 @@ Import data from a CSV file with a 4-step wizard:
 - **Step 1 -- Upload:** Select your target org and object, then drag-and-drop a CSV file (or use the file picker). A preview of the first 10 rows is shown immediately.
 - **Step 2 -- Map Columns:** CSV headers are auto-matched to Salesforce fields using case-insensitive, underscore-tolerant matching. Override any mapping with a dropdown. Status indicators show matched, unmapped, and type-incompatible columns.
 - **Step 3 -- Validate:** Records are validated against Salesforce field metadata: type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs. Errors are grouped by type in accordion sections. Proceed if validation passes or if the error rate is below 10%.
-- **Step 4 -- Execute:** Records are inserted via the Seed pipeline. View per-object results on completion.
+- **Step 4 -- Execute:** Records are inserted via the Seed pipeline. View per-object results on completion. The audit trail records an import cancelled before its first row as **stopped**, under `IMPORT_CANCELLED`, and one cancelled once a row went in as partial.
 
 **Supported formats:** UTF-8 CSV with headers. BOM is stripped automatically. Papaparse handles parsing with `dynamicTyping: false` for predictable type conversion.
 

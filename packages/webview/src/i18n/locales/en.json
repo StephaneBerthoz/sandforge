@@ -2967,7 +2967,7 @@
       "placeholder": "Placeholder",
       "skippedList": "Records skipped (native anti-duplicate)",
       "errors": "Errors",
-      "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored",
+      "postLoad": "Pass 2: {{pass2}} cycle links resolved, {{pass2Unresolved}} unresolved — PersonContact: {{personContact}} restored, {{personContactUnresolved}} unresolved",
       "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
       "excludedObjects": "Objects not loaded",
@@ -2980,6 +2980,13 @@
         "deactivated": "Deactivated",
         "leftUnrecorded": "Left in place — a load recorded before loads kept what they created may have linked them: {{objects}}",
         "failedReasons": "Why records could not be purged"
+      },
+      "unresolved": {
+        "title": "Links the load left unresolved",
+        "lookup": "Lookup",
+        "leftEmpty": "Lookups left empty",
+        "targetNotLoaded": "The record it points at was not loaded",
+        "lostWithTheirRecord": "Lost with the records holding them, which the load did not write: {{links}}"
       }
     },
     "removal": {

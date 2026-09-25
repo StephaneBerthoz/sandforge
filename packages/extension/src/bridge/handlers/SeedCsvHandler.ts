@@ -38,6 +38,9 @@ const SEED_CSV_TYPES = new Set(['seed:csv:validate', 'seed:csv:execute']);
 /** Max error strings returned in the execute response (bounds postMessage size). */
 const MAX_RESPONSE_ERRORS = 100;
 
+/** Why an import the cancel stopped before its first row was stopped, as the audit trail records it. */
+const IMPORT_CANCELLED = 'IMPORT_CANCELLED';
+
 /** Shape of the `seed:csv:execute:response` payload (see useCsvImport.CsvExecutionResult). */
 interface CsvExecutionResultPayload {
   insertedCount: number;
@@ -312,19 +315,35 @@ export class SeedCsvHandler implements DomainHandler {
           ? (errors[0] ?? 'No row could be imported.')
           : undefined;
       unrecorded = false;
-      recordWriteRun(this.deps, {
-        ...run,
-        // An import the cancel stopped did not write the rows it was for.
-        outcome: cancelled && reached === 'success' ? 'partial' : reached,
-        objects: [
-          {
-            ...emptyCounts(parsed.objectApiName),
-            // An upsert says it wrote the row, not whether it created it.
-            ...(parsed.externalIdField ? { upserted: insertedCount } : { created: insertedCount }),
-            failed: failedCount,
-          },
-        ],
-      });
+      if (cancelled && outcomes.length === 0) {
+        // Stopped before its first row, which went nowhere and was refused
+        // nowhere: recorded as a run a check of its own stopped before it
+        // started, under the code that names why, as a Frozen load or a Forge
+        // run is. Read as partial, an import that wrote nothing said it had
+        // put part of its rows in the org.
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: IMPORT_CANCELLED,
+        });
+      } else {
+        recordWriteRun(this.deps, {
+          ...run,
+          // An import the cancel stopped did not write the rows it was for.
+          outcome: cancelled && reached === 'success' ? 'partial' : reached,
+          objects: [
+            {
+              ...emptyCounts(parsed.objectApiName),
+              // An upsert says it wrote the row, not whether it created it.
+              ...(parsed.externalIdField
+                ? { upserted: insertedCount }
+                : { created: insertedCount }),
+              failed: failedCount,
+            },
+          ],
+        });
+      }
 
       const payload: CsvExecutionResultPayload = {
         insertedCount,

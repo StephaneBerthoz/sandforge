@@ -9,7 +9,7 @@
  * exactly like the forge/sync dep functions.
  */
 
-import type { FrozenLeftToThePlatform } from '@sandforge/shared';
+import type { FrozenLeftToThePlatform, FrozenUnresolvedLinkCause } from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import type { PersonContactLink } from './types.js';
@@ -346,11 +346,15 @@ export interface FrozenLoadReport {
       objectApiName: string;
       referenceId: string;
       field: string;
+      cause: FrozenUnresolvedLinkCause;
       detail: string;
     }>;
   };
   /** PersonContact post-load: sidecar links restored as targeted updates. */
-  personContact: { restored: number; unresolved: PersonContactLink[] };
+  personContact: {
+    restored: number;
+    unresolved: Array<PersonContactLink & { cause: FrozenUnresolvedLinkCause; detail: string }>;
+  };
   /**
    * Statuses the platform would not take at insert — an activated order is
    * created as a draft — applied once the record's children were in.

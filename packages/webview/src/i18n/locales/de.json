@@ -2967,7 +2967,7 @@
       "placeholder": "Platzhalter",
       "skippedList": "Übersprungene Datensätze (native Duplikaterkennung)",
       "errors": "Fehler",
-      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt",
+      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst, {{pass2Unresolved}} nicht aufgelöst — PersonContact: {{personContact}} wiederhergestellt, {{personContactUnresolved}} nicht aufgelöst",
       "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
       "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
       "excludedObjects": "Nicht geladene Objekte",
@@ -2980,6 +2980,13 @@
         "deactivated": "Deaktiviert",
         "leftUnrecorded": "Belassen — ein Ladevorgang von vor der Zeit, als Ladevorgänge festhielten, was sie erstellen, kann mit ihnen verknüpft haben: {{objects}}",
         "failedReasons": "Warum Datensätze nicht bereinigt werden konnten"
+      },
+      "unresolved": {
+        "title": "Verknüpfungen, die der Ladevorgang nicht aufgelöst hat",
+        "lookup": "Verknüpfung",
+        "leftEmpty": "Leer gebliebene Verknüpfungen",
+        "targetNotLoaded": "Der Datensatz, auf den sie verweist, wurde nicht geladen",
+        "lostWithTheirRecord": "Verloren mit den Datensätzen, die sie tragen und die der Ladevorgang nicht geschrieben hat: {{links}}"
       }
     },
     "removal": {

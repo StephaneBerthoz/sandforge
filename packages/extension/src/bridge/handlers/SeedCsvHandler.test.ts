@@ -215,6 +215,80 @@ describe('SeedCsvHandler', () => {
       ]);
     });
 
+    describe('an import a cancel stopped', () => {
+      /** The id the import runs under: its request's. */
+      const OPERATION_ID = 'msg-seed:csv:execute';
+
+      let registry: BackgroundOperationRegistry;
+      beforeEach(() => {
+        registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+      });
+
+      it('records one stopped before its first row as stopped, under the code that says why', async () => {
+        // Read as partial, an import that wrote nothing said it had put part
+        // of its rows in the org.
+        const store = recordingStore();
+        mockGetConn.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          return { limitInfo: undefined } as unknown as Awaited<
+            ReturnType<typeof getJsforceConnection>
+          >;
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'seed_csv_import',
+            outcome: 'stopped',
+            objects: [],
+            details: { code: 'IMPORT_CANCELLED' },
+          }),
+        ]);
+        // It carried no row: no lineage names it.
+        expect(new LineageStore(store).get()).toBeNull();
+      });
+
+      it('records one whose upload the cancel aborted as stopped too: no row landed and none was refused', async () => {
+        const store = recordingStore();
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new WriteCancelledError('Account');
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({ outcome: 'stopped', details: { code: 'IMPORT_CANCELLED' } }),
+        ]);
+      });
+
+      it('keeps one as partial once a row landed', async () => {
+        const store = recordingStore();
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new WriteCancelledError('Account', [{ id: '001TGT1', success: true, errors: [] }]);
+        });
+
+        await handler.handle(
+          buildMsg(
+            'seed:csv:execute',
+            csvPayload({ records: [{ name: 'Acme' }, { name: 'Beta' }] }),
+          ),
+        );
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [{ objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 }],
+            details: {},
+          }),
+        ]);
+      });
+    });
+
     it('records an import that failed after it started as failed, and one never started not at all', async () => {
       const store = recordingStore();
       writer.insert.mockRejectedValue(new Error('Bulk job failed'));

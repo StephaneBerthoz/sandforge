@@ -96,6 +96,7 @@ import type {
   FrozenDataset,
   FrozenRecord,
   LoadCreatedRecords,
+  PersonContactLink,
   PreviousLoad,
   RecordTypeIdResolver,
   ReferenceIdMappingStore,
@@ -2723,6 +2724,7 @@ export class FrozenDatasetLoader {
           objectApiName: pending.objectApiName,
           referenceId: pending.referenceId,
           field: pending.field,
+          cause: !childId ? 'record-not-loaded' : 'target-not-loaded',
           detail: !childId
             ? 'child record was not loaded (see perObject failures/skips)'
             : `referenced record ${pending.targetReferenceId} was not loaded (skipped, failed or excluded)`,
@@ -2752,6 +2754,7 @@ export class FrozenDatasetLoader {
             field: Object.keys(records[i])
               .filter((k) => k !== 'Id')
               .join(','),
+            cause: 'update-refused',
             detail: outcome.errors.join('; '),
           });
         }
@@ -2769,14 +2772,29 @@ export class FrozenDatasetLoader {
     const sidecar = working.personContactSidecar ?? [];
     const unresolved: FrozenLoadReport['personContact']['unresolved'] = [];
     const updates: Array<Record<string, unknown>> = [];
+    /** The link each update posts. By the sidecar's index, a refusal named another link. */
+    const linkOfUpdate: PersonContactLink[] = [];
     for (const link of sidecar) {
       const accountId = mapping.get(link.accountReferenceId);
       const contactId = mapping.get(link.contactReferenceId);
-      if (!accountId || !contactId) {
-        unresolved.push(link);
+      if (!accountId) {
+        unresolved.push({
+          ...link,
+          cause: 'record-not-loaded',
+          detail: 'person account was not loaded (see perObject failures/skips)',
+        });
+        continue;
+      }
+      if (!contactId) {
+        unresolved.push({
+          ...link,
+          cause: 'target-not-loaded',
+          detail: `contact ${link.contactReferenceId} was not loaded (skipped, failed or excluded)`,
+        });
         continue;
       }
       updates.push({ Id: accountId, PersonContactId: contactId });
+      linkOfUpdate.push(link);
     }
     let restored = 0;
     if (updates.length > 0) {
@@ -2786,7 +2804,11 @@ export class FrozenDatasetLoader {
         if (outcome.success) {
           restored++;
         } else {
-          unresolved.push(sidecar[i]);
+          unresolved.push({
+            ...linkOfUpdate[i],
+            cause: 'update-refused',
+            detail: outcome.errors.join('; '),
+          });
         }
       });
     }

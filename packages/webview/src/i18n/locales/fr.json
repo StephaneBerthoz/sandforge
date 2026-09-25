@@ -2967,7 +2967,7 @@
       "placeholder": "Placeholder",
       "skippedList": "Enregistrements ignorés (anti-doublon natif)",
       "errors": "Erreurs",
-      "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus — PersonContact : {{personContact}} restaurés",
+      "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus, {{pass2Unresolved}} non résolus — PersonContact : {{personContact}} restaurés, {{personContactUnresolved}} non résolus",
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "excludedObjects": "Objets non chargés",
@@ -2980,6 +2980,13 @@
         "deactivated": "Désactivés",
         "leftUnrecorded": "Laissés en place — un chargement enregistré avant que les chargements gardent ce qu'ils créent a pu s'y lier : {{objects}}",
         "failedReasons": "Pourquoi des enregistrements n'ont pas pu être purgés"
+      },
+      "unresolved": {
+        "title": "Liens que le chargement n'a pas résolus",
+        "lookup": "Lien",
+        "leftEmpty": "Liens laissés vides",
+        "targetNotLoaded": "L'enregistrement qu'il désigne n'a pas été chargé",
+        "lostWithTheirRecord": "Perdus avec les enregistrements qui les portent, que le chargement n'a pas écrits : {{links}}"
       }
     },
     "removal": {

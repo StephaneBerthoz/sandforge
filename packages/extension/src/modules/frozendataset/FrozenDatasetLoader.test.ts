@@ -1948,6 +1948,165 @@ describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
     expect(update?.payload).toEqual([{ Id: 'REAL-Account-1', PersonContactId: 'REAL-Contact-2' }]);
     expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
   });
+
+  describe('a link it could not make, and why', () => {
+    /**
+     * The writer of {@link makeWriter}, refusing the insert of each record
+     * named in `names` and every update of the objects in `updates`, with the
+     * error given for it.
+     */
+    function refusingWriter(
+      calls: DmlCall[],
+      names: readonly string[],
+      updates: Readonly<Record<string, string>>,
+    ): FrozenDmlWriter {
+      let counter = 0;
+      return {
+        ...makeWriter(calls),
+        insert: vi.fn(
+          async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+            calls.push({ op: 'insert', objectApiName, payload: records });
+            return records.map((record) =>
+              names.includes(String(record.Name))
+                ? {
+                    success: false,
+                    errors: [`FIELD_CUSTOM_VALIDATION_EXCEPTION: ${String(record.Name)}`],
+                  }
+                : { id: `REAL-${objectApiName}-${++counter}`, success: true, errors: [] },
+            );
+          },
+        ),
+        update: vi.fn(
+          async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+            calls.push({ op: 'update', objectApiName, payload: records });
+            const error = updates[objectApiName];
+            return records.map((record) =>
+              error
+                ? { id: String(record.Id), success: false, errors: [error] }
+                : { id: String(record.Id), success: true, errors: [] },
+            );
+          },
+        ),
+      };
+    }
+
+    it('says of each cycle lookup whether its record, the one it points at, or the update was missing', async () => {
+      // The Load tab tells a lookup left empty on a record the load wrote from
+      // one that went with a record it did not write: the detail alone, in
+      // English, could not be grouped by.
+      const a = (n: number, b: number) => ({
+        referenceId: `ObjA__c-00000${n}`,
+        fields: { Name: `A${n}`, B__c: `ObjB__c-00000${b}` },
+      });
+      const dataset: FrozenDataset = {
+        datasetVersion: '1.0.0',
+        objects: [
+          { objectApiName: 'ObjA__c', records: [a(1, 1), a(2, 2), a(3, 1)] },
+          {
+            objectApiName: 'ObjB__c',
+            records: [
+              { referenceId: 'ObjB__c-000001', fields: { Name: 'B1', A__c: 'ObjA__c-000001' } },
+              { referenceId: 'ObjB__c-000002', fields: { Name: 'B2', A__c: 'ObjA__c-000002' } },
+            ],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      };
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: refusingWriter(calls, ['A3', 'B2'], {
+          ObjA__c: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: B is locked',
+        }),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(report.pass2).toEqual({
+        resolved: 0,
+        unresolved: [
+          {
+            objectApiName: 'ObjA__c',
+            referenceId: 'ObjA__c-000002',
+            field: 'B__c',
+            cause: 'target-not-loaded',
+            detail: 'referenced record ObjB__c-000002 was not loaded (skipped, failed or excluded)',
+          },
+          {
+            objectApiName: 'ObjA__c',
+            referenceId: 'ObjA__c-000003',
+            field: 'B__c',
+            cause: 'record-not-loaded',
+            detail: 'child record was not loaded (see perObject failures/skips)',
+          },
+          {
+            objectApiName: 'ObjA__c',
+            referenceId: 'ObjA__c-000001',
+            field: 'B__c',
+            cause: 'update-refused',
+            detail: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: B is locked',
+          },
+        ],
+      });
+      expect(report.status).toBe('completed-with-errors');
+    });
+
+    it('names the person account whose contact link the target refused, and why, and each link it could not resolve', async () => {
+      // A refused update was reported under the sidecar entry of its index,
+      // counted among every link, resolved or not: the first entry, whatever
+      // it was, stood for the refused one.
+      const records = (objectApiName: string, names: string[]) => ({
+        objectApiName,
+        records: names.map((name, i) => ({
+          referenceId: `${objectApiName}-00000${i + 1}`,
+          fields: objectApiName === 'Account' ? { Name: name } : { Name: name, LastName: name },
+        })),
+      });
+      const link = (n: number) => ({
+        accountReferenceId: `Account-00000${n}`,
+        contactReferenceId: `Contact-00000${n}`,
+      });
+      const dataset: FrozenDataset = {
+        datasetVersion: '1.0.0',
+        objects: [records('Account', ['P1', 'P2', 'P3']), records('Contact', ['C1', 'C2', 'C3'])],
+        recordTypes: {},
+        personContactSidecar: [link(1), link(2), link(3)],
+      };
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: refusingWriter(calls, ['P1', 'C2'], {
+          Account:
+            'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+        }),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(report.personContact).toEqual({
+        restored: 0,
+        unresolved: [
+          {
+            ...link(1),
+            cause: 'record-not-loaded',
+            detail: 'person account was not loaded (see perObject failures/skips)',
+          },
+          {
+            ...link(2),
+            cause: 'target-not-loaded',
+            detail: 'contact Contact-000002 was not loaded (skipped, failed or excluded)',
+          },
+          {
+            ...link(3),
+            cause: 'update-refused',
+            detail:
+              'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+          },
+        ],
+      });
+    });
+  });
 });
 
 describe('FrozenDatasetLoader — reload without refresh', () => {

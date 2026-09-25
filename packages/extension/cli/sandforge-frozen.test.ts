@@ -278,11 +278,43 @@ describe('messageLines', () => {
     });
 
     expect(lines.slice(-4)).toEqual([
-      'purge of earlier loads: 3 deleted, 0 failed',
+      'purge of earlier loads: 3 deleted, 0 deactivated, 0 failed',
       'left in place, of a load recorded before loads kept what they created — it may have linked them:',
       '  Product2: 3',
       '  ProductSellingModel: 1',
     ]);
+  });
+
+  it('counts what a reload deactivated beside what it deleted, and a purge that only deactivated', () => {
+    // What the target lets no one delete, the purge deactivates: counted as
+    // deleted only, a purge that took nothing else printed no line at all.
+    const purgeLines = (purge: Record<string, unknown>): string[] =>
+      messageLines({
+        type: 'frozen:load:response',
+        payload: {
+          report: {
+            status: 'completed',
+            durationMs: 5,
+            alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+            placeholders: [],
+            perObject: [],
+            pass2: { resolved: 0, unresolved: [] },
+            purge,
+          },
+        },
+      }).filter((line) => line.startsWith('purge of earlier loads'));
+
+    expect(
+      purgeLines({
+        deleted: { Contact: 2 },
+        deactivated: { Product2: 1, ProductSellingModel: 2 },
+        failures: [],
+      }),
+    ).toEqual(['purge of earlier loads: 2 deleted, 3 deactivated, 0 failed']);
+    expect(purgeLines({ deleted: {}, deactivated: { Product2: 1 }, failures: [] })).toEqual([
+      'purge of earlier loads: 0 deleted, 1 deactivated, 0 failed',
+    ]);
+    expect(purgeLines({ deleted: {}, deactivated: {}, failures: [] })).toEqual([]);
   });
 
   it('names what an extraction left to the platform, object by object', () => {

@@ -380,6 +380,104 @@ describe('giveLinkedRelationsTheirFlags', () => {
     expect(note).toBe('2 linked without IsInvitee: the target does not let it be updated');
   });
 
+  describe("an invited who's answer", () => {
+    /** An invited who that accepted, when, and in its words. */
+    const ACCEPTED = {
+      IsParent: true,
+      IsInvitee: true,
+      Status: 'Accepted',
+      Response: 'Will be there',
+      RespondedDate: '2026-09-01T09:30:00.000+0000',
+    };
+
+    it('goes back with the invitee flag: what the row says of it, and nothing it leaves empty', async () => {
+      // The platform's relation for the who holds no answer: linked to in
+      // place of the row, the invited who had never answered.
+      const update = takes();
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [
+          [ACCEPTED, '0REWHO'],
+          [{ IsInvitee: 'true', Status: 'Declined', Response: '', RespondedDate: null }, '0REWHO2'],
+          // Not invited: no answer goes back, whatever the row holds.
+          [{ IsParent: true, IsInvitee: false, Status: 'New' }, '0REWHO3'],
+        ],
+        () => true,
+        update,
+      );
+
+      expect(update).toHaveBeenCalledWith([
+        {
+          Id: '0REWHO',
+          IsInvitee: true,
+          Status: 'Accepted',
+          Response: 'Will be there',
+          RespondedDate: '2026-09-01T09:30:00.000+0000',
+        },
+        { Id: '0REWHO2', IsInvitee: true, Status: 'Declined' },
+      ]);
+      expect(note).toBeUndefined();
+    });
+
+    it('leaves what the target does not let be updated, and says so', async () => {
+      const update = takes();
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[ACCEPTED, '0REWHO']],
+        (field) => field !== 'Response',
+        update,
+      );
+
+      expect(update).toHaveBeenCalledWith([
+        {
+          Id: '0REWHO',
+          IsInvitee: true,
+          Status: 'Accepted',
+          RespondedDate: '2026-09-01T09:30:00.000+0000',
+        },
+      ]);
+      expect(note).toBe('1 linked without Response: the target does not let it be updated');
+    });
+
+    it('stays with the flag when the target does not let the flag be updated', async () => {
+      // A relation that is no invitee has no answer to give.
+      const update = takes();
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[ACCEPTED, '0REWHO']],
+        (field) => field !== 'IsInvitee',
+        update,
+      );
+
+      expect(update).not.toHaveBeenCalled();
+      expect(note).toBe('1 linked without IsInvitee: the target does not let it be updated');
+    });
+
+    it('is named with the flag when the target refuses the update', async () => {
+      const update = vi.fn<RelationUpdate>(async (records) =>
+        records.map(() => ({
+          success: false,
+          errors: ['INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value'],
+        })),
+      );
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[{ IsInvitee: true, Status: 'Maybe' }, '0REWHO']],
+        () => true,
+        update,
+      );
+
+      expect(note).toBe(
+        '1 linked without IsInvitee: the target refused the update, INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value, ' +
+          '1 linked without Status: the target refused the update, INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value',
+      );
+    });
+  });
+
   it('says which updates the target refused, and why', async () => {
     const update = vi.fn<RelationUpdate>(async (records) =>
       records.map((_, i) =>

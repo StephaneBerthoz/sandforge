@@ -980,6 +980,46 @@ describe('FrozenDatasetHandler', () => {
       });
     });
 
+    describe('its progress, as the Load tab lists it', () => {
+      it("posts every object's closing line, however soon the next one follows", async () => {
+        // Posted at most ten times a second, the throttle kept only the last
+        // event it held: an object's closing line was dropped whenever the
+        // next came within the interval, and the Load tab never listed it.
+        const { config } = writeDataset();
+        wire(config);
+        loaderLoad.mockImplementation(
+          async (options: { onProgress?: (e: Record<string, unknown>) => void }) => {
+            const emit = (phase: string, status: string, message: string, objectName?: string) =>
+              options.onProgress?.({ phase, status, progress: 50, message, objectName });
+            emit('insert', 'started', 'Inserting records');
+            emit('insert', 'done', 'Account: 2 inserted, 0 failed', 'Account');
+            emit('insert', 'error', 'Contact: 0 inserted, 1 failed', 'Contact');
+            emit('insert', 'done', 'Case: 3 inserted, 0 failed', 'Case');
+            emit('pass2', 'started', 'Patching cycle FKs');
+            emit('pass2', 'done', 'Pass 2: 1 resolved, 0 unresolved');
+            return report();
+          },
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        // The start the throttle held back goes before the line that ends its step.
+        expect(
+          posted(deps, 'frozen:load:progress')
+            .map((m) => m.payload as { phase: string; message: string })
+            .filter((e) => e.phase !== 'verify')
+            .map((e) => e.message),
+        ).toEqual([
+          'Inserting records',
+          'Account: 2 inserted, 0 failed',
+          'Contact: 0 inserted, 1 failed',
+          'Case: 3 inserted, 0 failed',
+          'Patching cycle FKs',
+          'Pass 2: 1 resolved, 0 unresolved',
+        ]);
+      });
+    });
+
     describe('the target, as the loader reads it', () => {
       it('says which objects the target takes no insert of', async () => {
         // The loader leaves such an object out by its describe. Dropped on the

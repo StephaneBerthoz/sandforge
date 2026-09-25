@@ -615,6 +615,17 @@ export const FLAGS_THE_PLATFORM_LEAVES: Readonly<Record<string, readonly string[
   [EVENT_RELATION]: ['IsInvitee'],
 };
 
+/**
+ * Per flag of {@link FLAGS_THE_PLATFORM_LEAVES}, the fields that go back with
+ * it: an invitee's answer — whether it accepted or declined, when, and in
+ * what words. The relation the platform writes for the who holds none of it:
+ * given the flag alone, the invited who had never answered. Described in a
+ * real sandbox, the three can be updated, as the flag can.
+ */
+const FIELDS_THAT_GO_WITH_A_FLAG: Readonly<Record<string, readonly string[]>> = {
+  IsInvitee: ['Status', 'Response', 'RespondedDate'],
+};
+
 /** A write of the target's records of one object, one outcome per record. */
 export type RelationUpdate = (
   records: Array<Record<string, unknown> & { Id: string }>,
@@ -622,14 +633,18 @@ export type RelationUpdate = (
 
 /**
  * Give each relation linked in place of a row read from the source the flags
- * of {@link FLAGS_THE_PLATFORM_LEAVES} the row carried: an update of the
- * relation, when the target's describe lets the flag be updated. A flag the
- * describe does not let be updated, or an update the target refuses, is left
- * as the platform wrote it and said in the note returned for the object's
- * line; none when every flag went back. The relation stays linked either way:
- * its children and the run's count have it. A flag is carried when the row
- * says `true`, as a boolean or as the text a file keeps it as. An update that
- * throws reaches the caller, as any other write of its run does.
+ * of {@link FLAGS_THE_PLATFORM_LEAVES} the row carried, each with what goes
+ * with it ({@link FIELDS_THAT_GO_WITH_A_FLAG}) where the row holds it: an
+ * update of the relation, of the fields the target's describe lets be
+ * updated. A flag the describe does not let be updated is left out, and what
+ * goes with it too — a relation that is no invitee has no answer to give. A
+ * field left out so, or by an update the target refuses, stays as the
+ * platform wrote it and is said in the note returned for the object's line;
+ * none when everything went back. The relation stays linked either way: its
+ * children and the run's count have it. A flag is carried when the row says
+ * `true`, as a boolean or as the text a file keeps it as; a field that goes
+ * with it, when the row gives it a value. An update that throws reaches the
+ * caller, as any other write of its run does.
  *
  * @param linked - Each row read, and the id of the relation linked in its place.
  * @param updatable - Whether the target's describe of the object lets a field be updated.
@@ -642,23 +657,34 @@ export async function giveLinkedRelationsTheirFlags(
   update: RelationUpdate,
 ): Promise<string | undefined> {
   const flags = FLAGS_THE_PLATFORM_LEAVES[objectApiName] ?? [];
-  const fixed = flags.filter((flag) => !updatable(flag));
-  /** How many relations were left without a flag, by the flag and why, in the order first met. */
+  const fixed = new Set(
+    flags
+      .flatMap((flag) => [flag, ...(FIELDS_THAT_GO_WITH_A_FLAG[flag] ?? [])])
+      .filter((field) => !updatable(field)),
+  );
+  /** How many relations were left without a field, by the field and why, in the order first met. */
   const without = new Map<string, number>();
-  const leftWithout = (flag: string, why: string): void => {
-    const key = `${flag}: ${why}`;
+  const leftWithout = (field: string, why: string): void => {
+    const key = `${field}: ${why}`;
     without.set(key, (without.get(key) ?? 0) + 1);
   };
   const updates: Array<Record<string, unknown> & { Id: string }> = [];
   for (const [row, id] of linked) {
-    const carried = flags.filter((flag) => String(row[flag]) === 'true');
-    for (const flag of carried.filter((f) => fixed.includes(f))) {
-      leftWithout(flag, 'the target does not let it be updated');
+    const given: Record<string, unknown> = {};
+    for (const flag of flags.filter((f) => String(row[f]) === 'true')) {
+      if (fixed.has(flag)) {
+        leftWithout(flag, 'the target does not let it be updated');
+        continue;
+      }
+      given[flag] = true;
+      for (const field of FIELDS_THAT_GO_WITH_A_FLAG[flag] ?? []) {
+        const value = row[field];
+        if (value === undefined || value === null || value === '') continue;
+        if (fixed.has(field)) leftWithout(field, 'the target does not let it be updated');
+        else given[field] = value;
+      }
     }
-    const given = carried.filter((flag) => !fixed.includes(flag));
-    if (given.length > 0) {
-      updates.push({ Id: id, ...Object.fromEntries(given.map((flag) => [flag, true])) });
-    }
+    if (Object.keys(given).length > 0) updates.push({ Id: id, ...given });
   }
   if (updates.length > 0) {
     const outcomes = await update(updates);

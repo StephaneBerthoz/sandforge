@@ -215,6 +215,29 @@ function throttle<T extends (...args: never[]) => void>(
 }
 
 /**
+ * Post progress at most once per `delayMs`, save the line that ends a step —
+ * an object written, a pass done, a check failed — which goes at once, after
+ * the one held back, as Forge lets its terminal events through. The throttle
+ * keeps only the last event it holds: an object's closing line went whenever
+ * the next came within the interval, and the Load tab never listed it.
+ */
+function throttleProgress(
+  post: (event: FrozenLoadProgressEvent) => void,
+  delayMs: number,
+): ((event: FrozenLoadProgressEvent) => void) & { flush: () => void } {
+  const throttled = throttle(post, delayMs);
+  const send = (event: FrozenLoadProgressEvent): void => {
+    if (event.status === 'started') {
+      throttled(event);
+      return;
+    }
+    throttled.flush();
+    post(event);
+  };
+  return Object.assign(send, { flush: throttled.flush });
+}
+
+/**
  * Whether a path exists. Asked before every optional read of the sas, and
  * asked without holding the extension host while the disk answers.
  */
@@ -1334,7 +1357,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.registry?.register(operationId, 'frozen', description, tracked, abortController);
 
     // Throttle load progress events to ~10/s (same rationale as forge).
-    const throttledProgress = throttle((event: FrozenLoadProgressEvent) => {
+    const throttledProgress = throttleProgress((event: FrozenLoadProgressEvent) => {
       const progressMsg = buildResponse(this.deps, msg, 'frozen:load:progress', { ...event });
       this.deps.broker.postToWebview(progressMsg);
       // The loader counts its progress in phases, not in records: the list
@@ -1560,7 +1583,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       return;
     }
 
-    const throttledProgress = throttle((event: FrozenLoadProgressEvent) => {
+    const throttledProgress = throttleProgress((event: FrozenLoadProgressEvent) => {
       const progressMsg = buildResponse(this.deps, msg, 'frozen:load:progress', { ...event });
       this.deps.broker.postToWebview(progressMsg);
     }, 100);

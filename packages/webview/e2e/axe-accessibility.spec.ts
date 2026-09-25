@@ -526,8 +526,8 @@ const FROZEN_STATUS_WITH_DATASET = {
 
 /**
  * A pilot load's report: one object the target takes no insert of, contacts
- * the target refused, and feed items a dataset extracted before their type was
- * kept could not load.
+ * the target refused, feed items a dataset extracted before their type was
+ * kept could not load, and the links it could not make after its inserts.
  */
 const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   status: 'completed-with-errors',
@@ -549,6 +549,14 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   placeholders: [],
   requiredDefaults: [],
   perObject: [
+    {
+      objectApiName: 'Account',
+      fromFiles: 1,
+      inserted: 1,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [],
+    },
     {
       objectApiName: 'Opportunity',
       fromFiles: 1,
@@ -588,8 +596,39 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       ],
     },
   ],
-  pass2: { resolved: 0, unresolved: [] },
-  personContact: { restored: 0, unresolved: [] },
+  pass2: {
+    resolved: 1,
+    unresolved: [
+      // A lookup left empty on the opportunity: the contact it names was refused.
+      {
+        objectApiName: 'Opportunity',
+        referenceId: 'Opportunity-000001',
+        field: 'ContactId',
+        cause: 'target-not-loaded',
+        detail: 'referenced record Contact-000002 was not loaded (skipped, failed or excluded)',
+      },
+      // One of a refused contact: it went with the contact.
+      {
+        objectApiName: 'Contact',
+        referenceId: 'Contact-000001',
+        field: 'ReportsToId',
+        cause: 'record-not-loaded',
+        detail: 'child record was not loaded (see perObject failures/skips)',
+      },
+    ],
+  },
+  personContact: {
+    restored: 0,
+    unresolved: [
+      // The person account went in, and its contact was refused.
+      {
+        accountReferenceId: 'Account-000001',
+        contactReferenceId: 'Contact-000003',
+        cause: 'target-not-loaded',
+        detail: 'contact Contact-000003 was not loaded (skipped, failed or excluded)',
+      },
+    ],
+  },
   statuses: { restored: 0, refused: [] },
   purge: { deleted: {}, deactivated: {}, failures: [] },
   untypedFeedItems: [
@@ -4003,6 +4042,15 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-report-untyped-feed-items')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      // The links it could not make: the lookups left empty, per object, and
+      // the one that went with a contact the target refused.
+      await expect(page.getByTestId('frozen-report-unresolved').locator('tbody tr')).toHaveCount(
+        2,
+        { timeout: 10_000 },
+      );
+      await page
+        .getByTestId('frozen-report-unresolved-lost')
         .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);

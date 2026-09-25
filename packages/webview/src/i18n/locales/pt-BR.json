@@ -2967,7 +2967,7 @@
       "placeholder": "Placeholder",
       "skippedList": "Registros ignorados (anti-duplicado nativo)",
       "errors": "Erros",
-      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos — PersonContact: {{personContact}} restaurados",
+      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos, {{pass2Unresolved}} não resolvidos — PersonContact: {{personContact}} restaurados, {{personContactUnresolved}} não resolvidos",
       "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}",
       "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
       "excludedObjects": "Objetos não carregados",
@@ -2980,6 +2980,13 @@
         "deactivated": "Desativados",
         "leftUnrecorded": "Mantidos no lugar — uma carga registrada antes de as cargas guardarem o que criam pode tê-los vinculado: {{objects}}",
         "failedReasons": "Por que registros não puderam ser expurgados"
+      },
+      "unresolved": {
+        "title": "Vínculos que a carga deixou sem resolver",
+        "lookup": "Vínculo",
+        "leftEmpty": "Vínculos deixados vazios",
+        "targetNotLoaded": "O registro para o qual aponta não foi carregado",
+        "lostWithTheirRecord": "Perdidos com os registros que os contêm, que a carga não gravou: {{links}}"
       }
     },
     "removal": {

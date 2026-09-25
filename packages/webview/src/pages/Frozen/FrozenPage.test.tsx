@@ -585,6 +585,147 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
   });
 
+  it('names the links the load left unresolved, by object and lookup, with what each cost', () => {
+    // Counted nowhere on screen, where the resolved ones were: a load whose
+    // only errors were its unresolved links read "Completed with errors" over
+    // a report that named none.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Case',
+            fromFiles: 4,
+            inserted: 3,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [
+              {
+                objectApiName: 'Case',
+                referenceId: 'Case-000004',
+                errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Subject is required'],
+              },
+            ],
+          },
+        ],
+        pass2: {
+          resolved: 5,
+          unresolved: [
+            ...['Case-000001', 'Case-000002'].map((referenceId) => ({
+              objectApiName: 'Case',
+              referenceId,
+              field: 'ParentId',
+              cause: 'target-not-loaded' as const,
+              detail: 'referenced record Case-000004 was not loaded (skipped, failed or excluded)',
+            })),
+            {
+              objectApiName: 'Case',
+              referenceId: 'Case-000004',
+              field: 'ParentId',
+              cause: 'record-not-loaded',
+              detail: 'child record was not loaded (see perObject failures/skips)',
+            },
+            {
+              objectApiName: 'Account',
+              referenceId: 'Account-000003',
+              field: 'ParentId,PrimaryContact__c',
+              cause: 'update-refused',
+              detail: 'FIELD_INTEGRITY_EXCEPTION: The parent account is merged',
+            },
+          ],
+        },
+        personContact: {
+          restored: 1,
+          unresolved: [
+            {
+              accountReferenceId: 'Account-000002',
+              contactReferenceId: 'Contact-000002',
+              cause: 'update-refused',
+              detail:
+                'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+            },
+          ],
+        },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    // Counted where the resolved ones are, lookup by lookup as they are.
+    expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
+      'Pass 2: 5 cycle links resolved, 5 unresolved — PersonContact: 1 restored, 1 unresolved',
+    );
+    const unresolved = screen.getByTestId('frozen-report-unresolved');
+    expect(unresolved.textContent).toContain('Links the load left unresolved');
+    // Per object and lookup, the lookups left empty on records the load
+    // wrote, and why: a refused update of two lookups leaves both.
+    expect(
+      Array.from(unresolved.querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ['Account', 'ParentId', 'FIELD_INTEGRITY_EXCEPTION: The parent account is merged', '1'],
+      [
+        'Account',
+        'PersonContactId',
+        'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+        '1',
+      ],
+      [
+        'Account',
+        'PrimaryContact__c',
+        'FIELD_INTEGRITY_EXCEPTION: The parent account is merged',
+        '1',
+      ],
+      ['Case', 'ParentId', 'The record it points at was not loaded', '2'],
+    ]);
+    // A link whose own record the load did not write left nothing empty: it
+    // went with the record, which the failures name.
+    expect(screen.getByTestId('frozen-report-unresolved-lost').textContent).toBe(
+      'Lost with the records holding them, which the load did not write: Case.ParentId (1)',
+    );
+  });
+
+  it('says nothing of unresolved links when the load resolved them all', () => {
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 2, unresolved: [] },
+        personContact: { restored: 1, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
+      'Pass 2: 2 cycle links resolved, 0 unresolved — PersonContact: 1 restored, 0 unresolved',
+    );
+    expect(screen.queryByTestId('frozen-report-unresolved')).toBeNull();
+  });
+
   it('renders the load report with removals and skipped duplicates', () => {
     useFrozenStore.setState({
       tab: 'load',

@@ -2827,7 +2827,7 @@
       "placeholder": "プレースホルダー",
       "skippedList": "スキップされたレコード（ネイティブ重複検出）",
       "errors": "エラー",
-      "postLoad": "パス2：サイクルリンク {{pass2}} 件解決 — PersonContact: {{personContact}} 件復元",
+      "postLoad": "パス2：サイクルリンク {{pass2}} 件解決、{{pass2Unresolved}} 件未解決 — PersonContact: {{personContact}} 件復元、{{personContactUnresolved}} 件未解決",
       "statuses": "挿入後に適用したステータス: {{restored}} — 拒否: {{refused}}",
       "leftToThePlatform": "読み込み時に除外 — プラットフォーム自身が書き込むレコード、またはそれに依存するレコード: {{objects}}",
       "excludedObjects": "読み込まれなかったオブジェクト",
@@ -2840,6 +2840,13 @@
         "deactivated": "無効化",
         "leftUnrecorded": "そのまま残したレコード — 作成内容を記録するようになる前のロードがリンクした可能性があります: {{objects}}",
         "failedReasons": "レコードを削除・無効化できなかった理由"
+      },
+      "unresolved": {
+        "title": "ロードで解決できなかった関連",
+        "lookup": "関連項目",
+        "leftEmpty": "空のままの関連",
+        "targetNotLoaded": "参照先のレコードがロードされませんでした",
+        "lostWithTheirRecord": "ロードで書き込まれなかった、関連を持つレコードとともに失われました: {{links}}"
       }
     },
     "removal": {

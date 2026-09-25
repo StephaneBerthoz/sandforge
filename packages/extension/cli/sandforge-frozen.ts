@@ -373,6 +373,7 @@ export function messageLines(message: Posted): string[] {
         };
         purge: {
           deleted: Record<string, number>;
+          deactivated?: Record<string, number>;
           failures: Array<{ objectApiName: string; errors: string[] }>;
           leftUnrecorded?: Record<string, number>;
         };
@@ -415,9 +416,17 @@ export function messageLines(message: Posted): string[] {
           lines.push(`  ${f.objectApiName} → ${f.status}: ${f.detail}`);
         }
       }
-      const purged = Object.values(r.purge.deleted).reduce((a, b) => a + b, 0);
-      if (purged + r.purge.failures.length > 0) {
-        lines.push(`purge of earlier loads: ${purged} deleted, ${r.purge.failures.length} failed`);
+      // What the target lets no one delete, the purge deactivates: counted as
+      // deleted only, a purge that took nothing else printed no line at all.
+      const total = (counts: Record<string, number>): number =>
+        Object.values(counts).reduce((a, b) => a + b, 0);
+      const deleted = total(r.purge.deleted);
+      const deactivated = total(r.purge.deactivated ?? {});
+      if (deleted + deactivated + r.purge.failures.length > 0) {
+        lines.push(
+          `purge of earlier loads: ${deleted} deleted, ${deactivated} deactivated, ` +
+            `${r.purge.failures.length} failed`,
+        );
         for (const f of r.purge.failures.slice(0, 5)) {
           lines.push(`  ${f.objectApiName}: ${f.errors[0] ?? '?'}`);
         }

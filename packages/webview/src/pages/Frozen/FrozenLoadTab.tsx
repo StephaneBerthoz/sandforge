@@ -20,6 +20,7 @@ import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
+import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -159,6 +160,26 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const purgeRows = loadReport ? purgedRows(loadReport.purge) : [];
   const purgeFailureRows = reasonRows(purgeFailureReasons(loadReport?.purge.failures ?? []));
   const leftUnrecorded = Object.entries(loadReport?.purge.leftUnrecorded ?? {});
+
+  // The links the load owed after its inserts and did not make, and what
+  // each cost: a lookup left empty on a record it wrote — or nothing more
+  // than the record holding it, which it did not write. Counted nowhere, a
+  // load whose only errors were there read "Completed with errors" over a
+  // report that named none.
+  const unresolved = loadReport ? unresolvedLinks(loadReport) : [];
+  const leftEmptyRows = unresolved
+    .filter((link) => link.cause !== 'record-not-loaded')
+    .map((link) => ({
+      key: `${link.objectApiName}\u0000${link.field}\u0000${link.cause}\u0000${link.message}`,
+      object: link.objectApiName,
+      field: link.field,
+      why:
+        link.cause === 'target-not-loaded'
+          ? t('frozen.report.unresolved.targetNotLoaded')
+          : link.message,
+      count: link.count,
+    }));
+  const lostWithTheirRecord = unresolved.filter((link) => link.cause === 'record-not-loaded');
 
   const reasonColumns = [
     { key: 'object', header: t('frozen.control.object'), sortable: true },
@@ -522,9 +543,47 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               <p className="text-[11px] text-text-secondary" data-testid="frozen-report-postload">
                 {t('frozen.report.postLoad', {
                   pass2: loadReport.pass2.resolved,
+                  pass2Unresolved: unresolvedCycleLookups(loadReport),
                   personContact: loadReport.personContact.restored,
+                  personContactUnresolved: loadReport.personContact.unresolved.length,
                 })}
               </p>
+              {/* Per object and lookup: what stays empty on the records the load wrote, and why. */}
+              {unresolved.length > 0 && (
+                <div className="flex flex-col gap-2" data-testid="frozen-report-unresolved">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.unresolved.title')}
+                  </span>
+                  {leftEmptyRows.length > 0 && (
+                    <DataTable
+                      columns={[
+                        { key: 'object', header: t('frozen.control.object'), sortable: true },
+                        { key: 'field', header: t('frozen.report.unresolved.lookup') },
+                        { key: 'why', header: t('frozen.report.reason') },
+                        {
+                          key: 'count',
+                          header: t('frozen.report.unresolved.leftEmpty'),
+                          align: 'right' as const,
+                        },
+                      ]}
+                      data={leftEmptyRows}
+                      keyExtractor={(row) => row.key}
+                    />
+                  )}
+                  {lostWithTheirRecord.length > 0 && (
+                    <p
+                      className="text-[11px] text-text-secondary"
+                      data-testid="frozen-report-unresolved-lost"
+                    >
+                      {t('frozen.report.unresolved.lostWithTheirRecord', {
+                        links: lostWithTheirRecord
+                          .map((link) => `${link.objectApiName}.${link.field} (${link.count})`)
+                          .join(', '),
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
               {/* Never sent, so neither inserted nor failed: said on their own. */}
               {(loadReport.leftToThePlatform?.length ?? 0) > 0 && (
                 <p
