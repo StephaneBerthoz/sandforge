@@ -1,7 +1,11 @@
+import type { Connection } from 'jsforce';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
 import { SyncRunFailure } from './SyncRunFailure';
 import { WriteCancelledError } from './WriteCancelledError';
+import { BulkDataWriter } from './BulkDataWriter';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
+import { BulkApiManager } from '../../core/engine/BulkApiManager';
 import { DataSync, type OperationOutcome } from './DataSync';
 import { targetWriteFieldsOf } from './targetWriteFields';
 import { FieldMappingService } from './FieldMapping';
@@ -704,6 +708,119 @@ describe('a cancel stops the run before what it has not reached', () => {
       totalProcessed: 1,
       totalFailed: 0,
     });
+  });
+});
+
+describe('a cancel that comes while the run waits on the target, before a write, sends none of it', () => {
+  /** The target's refusal of a lookup that holds an id from the source org. */
+  const CROSS_REFERENCE = 'insufficient access rights on cross-reference id: 003000000000042AAA';
+
+  /**
+   * The run's DataSync over the writer a sync writes through, handed the
+   * run's cancel, to a target whose `create` answers each batch with
+   * `answer`, and whose describe is `describe`.
+   */
+  function throughTheWriter(
+    stop: AbortController,
+    answer: (batch: Record<string, unknown>[]) => OperationOutcome[],
+    describe: () => Promise<ReturnType<typeof targetWriteFieldsOf>>,
+  ) {
+    const create = vi.fn(async (batch: Record<string, unknown>[]) => answer(batch));
+    const writer = new BulkDataWriter({
+      connection: { sobject: () => ({ create }) } as unknown as Connection,
+      bulkExecutor: new BulkApiExecutor(200),
+      bulkManager: new BulkApiManager(),
+      retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+      signal: stop.signal,
+      onProgress: () => undefined,
+      log: () => undefined,
+    });
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.dataSync = new DataSync({
+      insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+      upsert: (objectName, key, records, batchSize) =>
+        writer.upsert(objectName, key, records, batchSize),
+      update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+      delete: (objectName, ids, batchSize) => writer.delete(objectName, ids, batchSize),
+      describeTargetFields: describe,
+    });
+    return { deps, create };
+  }
+
+  /** The target's Account: a name, and a lookup to a contact. */
+  const account = async () =>
+    targetWriteFieldsOf({
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        { name: 'Key_Contact__c', createable: true, type: 'reference' },
+      ],
+    });
+
+  const inserts = createConfig({ objects: [createObjectConfig({ operation: 'insert' })] });
+
+  it('sends nothing of an object the cancel came while the target was described', async () => {
+    // Looked at before the object's write, the cancel went unseen while the
+    // target was described: the first batch went out, and a run cancelled on
+    // its last object ended as a success.
+    const stop = new AbortController();
+    const { deps, create } = throughTheWriter(
+      stop,
+      (batch) => batch.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] })),
+      async () => {
+        stop.abort();
+        return account();
+      },
+    );
+
+    const result = await new SyncOrchestrator(deps).execute(inserts);
+
+    expect(create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      cancelled: true,
+      objectResults: [],
+      totalProcessed: 0,
+      error: 'Cancelled before Account was synced.',
+    });
+  });
+
+  it('does not send again, without their lookup, the rows refused in the write the cancel came during', async () => {
+    // The rows the target refused for a lookup it does not have go again
+    // without it, in a write of their own: its first batch went out after the
+    // cancel, and the run ended as a success.
+    const stop = new AbortController();
+    const { deps, create } = throughTheWriter(
+      stop,
+      (batch) => {
+        stop.abort();
+        return batch.map((row, i) =>
+          row['Key_Contact__c']
+            ? { id: '', success: false, errors: [CROSS_REFERENCE] }
+            : { id: `001NEW${i}`, success: true, errors: [] },
+        );
+      },
+      account,
+    );
+    deps.querySource = vi
+      .fn()
+      .mockResolvedValue([
+        { Name: 'Acme', Key_Contact__c: '003000000000042AAA' },
+        { Name: 'Globex' },
+      ]);
+
+    const result = await new SyncOrchestrator(deps).execute(inserts);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      cancelled: true,
+      status: 'partial',
+      totalProcessed: 2,
+      totalSuccess: 1,
+      totalFailed: 1,
+    });
+    expect(result.objectResults).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', errors: [CROSS_REFERENCE] }),
+    ]);
   });
 });
 

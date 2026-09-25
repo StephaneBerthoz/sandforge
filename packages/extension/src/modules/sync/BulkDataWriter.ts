@@ -53,8 +53,9 @@ export interface BulkDataWriterDeps {
   /** Retry configuration for REST batch calls. */
   retryConfig: Partial<RetryConfig>;
   /**
-   * The run's cancel. It aborts a Bulk API upload while its job is still open,
-   * and stops a write sent in REST batches between two of them; the write then
+   * The run's cancel. A write it came before sends nothing and opens no Bulk
+   * API job; it aborts a Bulk API upload while its job is still open, and
+   * stops a write sent in REST batches before each of them. The write then
    * throws {@link WriteCancelledError}, with what it wrote. A job already
    * closed is awaited and counted. Left out only by a write that has to finish
    * whatever happens: a real-time session finishes the batch it is writing
@@ -246,6 +247,8 @@ export class BulkDataWriter {
     externalIdField?: string,
   ): Promise<OperationOutcome[] | undefined> {
     if (records.length <= STREAMING_THRESHOLD) return undefined;
+    // A cancel that came before the write opens no job: see `tryBulk`.
+    if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
     const chunkedExecutor = new ChunkedBulkExecutor({ signal: this.deps.signal });
     const bulkDeps: BulkApiExecutorDeps = {
@@ -292,6 +295,11 @@ export class BulkDataWriter {
     externalIdField?: string,
   ): Promise<OperationOutcome[] | undefined> {
     if (!this.deps.bulkExecutor.shouldUseBulkApi(records.length)) return undefined;
+    // A cancel that came before the write opens no job. The job was created
+    // and opened all the same, then aborted before its upload: nothing of it
+    // was written, but the target was asked to create a job, and to abort it,
+    // for a write that never started.
+    if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
     const bulkDeps: BulkApiExecutorDeps = {
       connection: this.deps.connection as unknown as BulkApiConnection,
@@ -349,12 +357,13 @@ export class BulkDataWriter {
   ): Promise<OperationOutcome[]> {
     const outcomes: OperationOutcome[] = [];
     for (let i = 0; i < items.length; i += batchSize) {
-      // A cancel stops the write between two batches, with what the batches
+      // A cancel stops the write before each batch, with what the batches
       // before it wrote: a large object used to be written to its last batch
-      // after the run was cancelled. Not before the first batch — a caller
-      // looks at the cancel before it writes, and a write of a single batch,
-      // one record, is never cut down to nothing.
-      if (i > 0 && this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
+      // after the run was cancelled. The first batch included — a caller looks
+      // at the cancel before it writes, then waits on the target: a describe,
+      // a lookup, the write whose refused rows it sends again. A cancel that
+      // came meanwhile still sent a batch of up to two hundred records.
+      if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
       const retryResult = await this.retryOp.execute(() => call(batch));
       if (retryResult.success && retryResult.result) {

@@ -5305,6 +5305,13 @@ export class ForgeExecutor {
         : state.emailsWrittenFirst
           ? 'after their task'
           : `Completed ${node.objectApiName} after their task`;
+    // And how it begins when a cancel stopped the node before one of its calls.
+    const stopped =
+      afterTheirTask === undefined
+        ? `Stopped ${node.objectApiName}`
+        : state.emailsWrittenFirst
+          ? 'stopped after their task'
+          : `Stopped ${node.objectApiName} after their task`;
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
     const { fieldInfos, createableSet, targetSetsPending } = read;
@@ -5594,6 +5601,8 @@ export class ForgeExecutor {
 
       // One tally for every round, filled as each call is answered.
       const writeResult = emptyBatchWriteResult();
+      /** The cancel that stopped the node at the checkpoint before one of its calls, if one did. */
+      let stoppedBy: ForgeAbortedError | undefined;
       try {
         for (const round of rounds) {
           await state.batchWriter.writeNode(
@@ -5614,6 +5623,9 @@ export class ForgeExecutor {
             writeResult,
           );
         }
+      } catch (err) {
+        if (!(err instanceof ForgeAbortedError)) throw err;
+        stoppedBy = err;
       } finally {
         // Noted however the node ends: a call that throws, or a cancel between
         // two, stops it after the calls before had written drafts, and those
@@ -5660,7 +5672,68 @@ export class ForgeExecutor {
       // them. Reported as failed, because the rows were not written; not
       // counted as a failed parent, because nothing is missing.
       const onlyAlreadyExists = nodeFailure > 0 && writeResult.alreadyExistsCount === nodeFailure;
-      if (nodeFailure > 0 && !onlyAlreadyExists && (settled === 0 || failureRate > 0.5)) {
+      const failedNode =
+        nodeFailure > 0 && !onlyAlreadyExists && (settled === 0 || failureRate > 0.5);
+
+      // The rows the target already held are named apart: linked is neither
+      // written nor failed, and a duplicate the run could not identify is a
+      // failure whose children lose their lookup — worth saying on its own.
+      const linked =
+        nodeLinked > 0 ? `, ${nodeLinked} linked to records already in the target` : '';
+      const updated = nodeUpdated > 0 ? `, ${nodeUpdated} updated through their external id` : '';
+      const unidentified =
+        nodeUnidentified > 0
+          ? ` (${nodeUnidentified} already in the target without Salesforce naming the record — their children lose the link)`
+          : '';
+      const withoutTheirParent =
+        withoutParent.size > 0
+          ? `, ${withoutParent.size} not written for want of their parent`
+          : '';
+      const writtenWithTheirEmail =
+        withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
+      const already =
+        writtenBefore.length > 0
+          ? `, ${writtenBefore.length} already in the target from the run retried`
+          : '';
+      const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
+      // A relation linked to without a flag its row carried, or a field of
+      // the answer that goes with it: the who the event also invites, and
+      // how it answered, which the platform's relation leaves out.
+      const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
+      // What else became of the object's rows, said once, on the line that
+      // ends the node: after the emails that waited for their task, if any.
+      const notes =
+        waiting === 0
+          ? leftToThePlatformNote(state, node.objectApiName) +
+            heldForExclusionsNote(state, node.objectApiName)
+          : '';
+      const counts = `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}`;
+      const rest = `${withoutTheirParent}${waitForTheirTask}${flagsNotKept}${notes}`;
+
+      if (stoppedBy) {
+        /*
+         * A node the cancel stopped before one of its calls ends on a line of
+         * its own, then the run stops: what it wrote, what it linked, what it
+         * held back or left to the platform, the flags it could not give back,
+         * and the rows the cancel kept from the target. Stopped before its
+         * first call — the cancel came as the relations it links were looked
+         * up or given their flags back, or as its rows were made ready — its
+         * last word was that it was inserting them, and all of that was lost
+         * with it. The emails of a first write end the node: the ones waiting
+         * for their task are never written once the run stops.
+         */
+        const handed = rounds.reduce((sum, round) => sum + round.records.length, 0);
+        const notSent = handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure);
+        (afterTheirTask === undefined ? state.onProgress : onProgress)({
+          objectName: node.objectApiName,
+          status: failedNode ? 'error' : 'done',
+          progress: 100,
+          message: `${stopped}: ${counts}, ${notSent} not sent${rest}`,
+        });
+        throw stoppedBy;
+      }
+
+      if (failedNode) {
         state.failedObjects.add(node.objectApiName);
         onProgress({
           objectName: node.objectApiName,
@@ -5672,43 +5745,11 @@ export class ForgeExecutor {
               : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — objects that cannot be written without it will be skipped`,
         });
       } else {
-        // The rows the target already held are named apart: linked is neither
-        // written nor failed, and a duplicate the run could not identify is a
-        // failure whose children lose their lookup — worth saying on its own.
-        const linked =
-          nodeLinked > 0 ? `, ${nodeLinked} linked to records already in the target` : '';
-        const updated = nodeUpdated > 0 ? `, ${nodeUpdated} updated through their external id` : '';
-        const unidentified =
-          nodeUnidentified > 0
-            ? ` (${nodeUnidentified} already in the target without Salesforce naming the record — their children lose the link)`
-            : '';
-        const withoutTheirParent =
-          withoutParent.size > 0
-            ? `, ${withoutParent.size} not written for want of their parent`
-            : '';
-        const writtenWithTheirEmail =
-          withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
-        const already =
-          writtenBefore.length > 0
-            ? `, ${writtenBefore.length} already in the target from the run retried`
-            : '';
-        const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
-        // A relation linked to without a flag its row carried, or a field of
-        // the answer that goes with it: the who the event also invites, and
-        // how it answered, which the platform's relation leaves out.
-        const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
-        // What else became of the object's rows, said once, on the line that
-        // ends the node: after the emails that waited for their task, if any.
-        const notes =
-          waiting === 0
-            ? leftToThePlatformNote(state, node.objectApiName) +
-              heldForExclusionsNote(state, node.objectApiName)
-            : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${flagsNotKept}${notes}`,
+          message: `${completed}: ${counts}${rest}`,
         });
       }
     } catch (err) {

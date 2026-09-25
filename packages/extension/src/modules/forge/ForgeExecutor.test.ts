@@ -1132,6 +1132,45 @@ describe('ForgeExecutor', () => {
       ]);
     });
 
+    it('ends a node the cancel stopped before its first call on a line that says so', async () => {
+      // Its last word was that it was inserting its records: the node never
+      // ended, and nothing said none of them had been sent.
+      vi.mocked(deps.describeFields).mockImplementation(async (org) => {
+        if (org === 'tgt') executor.abort();
+        return DEFAULT_FIELDS;
+      });
+      const graph = makeGraph([makeNode('Account', { batchStrategy: 'rest' })]);
+
+      const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ForgeAbortedError);
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
+        status: 'done',
+        progress: 100,
+        message: 'Stopped Account: 0 succeeded, 0 failed, 2 not sent',
+      });
+    });
+
+    it('ends a node the cancel stopped between two calls on a line that says what it wrote', async () => {
+      // Its last line was its first call's, a step on the way: nothing said
+      // the node had stopped, nor how many of its rows were never sent.
+      const records = Array.from({ length: 450 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+      vi.mocked(deps.queryRecords).mockResolvedValue(records);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+      });
+      const graph = makeGraph([makeNode('Account', { recordCount: 450, batchStrategy: 'rest' })]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
+        status: 'done',
+        message: 'Stopped Account: 200 succeeded, 0 failed, 250 not sent',
+      });
+    });
+
     it('counts as failed a selling model refused as held and still waiting for its key when a cancel falls before the next call', async () => {
       // The target refused the first model without naming the one it holds:
       // the row waits for the lookup by its key made once the calls are
@@ -9214,6 +9253,91 @@ describe('ForgeExecutor', () => {
             'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
             `failed, 1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
             `1 linked without Status: the target refused the update, ${TENTATIVE}`,
+        });
+      });
+
+      it('ends the relations on a line that says what the cancel kept back when it came as the flag went back', async () => {
+        // The event also invites another contact, whose relation the run
+        // inserts. Stopped at the checkpoint before that insert, the node
+        // never ended: the relation it linked, and the flag the cancel kept
+        // from it, were said nowhere, its last word that it was inserting.
+        const OTHER = '003000000000002AAA';
+        const tables: Record<string, FakeRow[]> = {
+          Contact: [
+            { Id: WHO, LastName: 'Who' },
+            { Id: OTHER, LastName: 'Other' },
+          ],
+          Event: [{ Id: EVENT, Subject: 'Visit', WhoId: WHO }],
+          EventRelation: [
+            { Id: TO_THE_WHO, EventId: EVENT, RelationId: WHO, IsParent: true, IsInvitee: true },
+            {
+              Id: '0RE000000000002AAA',
+              EventId: EVENT,
+              RelationId: OTHER,
+              IsParent: false,
+              IsInvitee: true,
+            },
+          ],
+        };
+        const run = fakeOrgs(tables, {
+          Contact: [idField, text('LastName')],
+          Event: [idField, text('Subject'), lookup('WhoId', 'Contact')],
+          EventRelation: [
+            idField,
+            lookup('EventId', 'Event', true),
+            lookup('RelationId', 'Contact', true),
+            text('IsParent'),
+            { ...text('IsInvitee'), updateable: true },
+          ],
+        });
+        const target: Record<string, FakeRow[]> = { EventRelation: [] };
+        const insert = run.orgDeps.insertRecords;
+        run.orgDeps.insertRecords = async (org, object, records) => {
+          const results = await insert(org, object, records);
+          if (object === 'Event') {
+            results.forEach((result, i) =>
+              target['EventRelation'].push({
+                Id: PLATFORM_RELATION,
+                EventId: result.id,
+                RelationId: String(records[i]['WhoId']),
+              }),
+            );
+          }
+          return results;
+        };
+        // A run of whole tables: every row of each is read.
+        run.orgDeps.queryRecords = async (org, soql) =>
+          org === 'tgt'
+            ? selectRows(target, soql)
+            : (tables[/\bFROM (\w+)/.exec(soql)?.[1] ?? ''] ?? []).map((row) => ({ ...row }));
+        const executor = new ForgeExecutor(run.orgDeps);
+        run.orgDeps.updateRecords = async () => {
+          // An update the cancel aborted answers for nothing.
+          executor.abort();
+          return [];
+        };
+        const graph = makeGraph(
+          [makeNode('Contact'), makeNode('Event'), makeNode('EventRelation')],
+          [
+            edge('Contact', 'Event'),
+            { ...edge('Event', 'EventRelation'), required: true },
+            edge('Contact', 'EventRelation'),
+          ],
+        );
+
+        const error = await executor
+          .execute(graph, 'src', 'tgt', onProgress)
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(run.inserted['EventRelation'] ?? []).toEqual([]);
+        expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
+          status: 'done',
+          progress: 100,
+          message:
+            'Stopped EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            'failed, 1 not sent, 1 linked without IsInvitee: the run was cancelled before it was ' +
+            'updated',
         });
       });
     });

@@ -33,11 +33,11 @@ export function createBulkDmlWriter(
 
 /**
  * What a write answered, or what it wrote before the load's cancel stopped it:
- * nothing for an upload aborted while its job was open, the outcomes of the
- * batches sent for a REST write stopped between two of them. The loader reads
- * them record by record and stops at its next check of the cancel, with its
- * mapping kept; raised through it, the cancel would end the load as a failure
- * before that mapping was kept.
+ * nothing for a write the cancel came before, or an upload aborted while its
+ * job was open, the outcomes of the batches sent for a REST write stopped
+ * before one of them. The loader reads them record by record and stops at its
+ * next check of the cancel, with its mapping kept; raised through it, the
+ * cancel would end the load as a failure before that mapping was kept.
  */
 async function writtenBeforeTheCancel(
   write: Promise<OperationOutcome[]>,

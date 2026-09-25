@@ -62,7 +62,7 @@ export interface SyncOrchestratorDeps {
    * The run's cancel: Live Operations' Cancel, through the registry the run
    * is listed in. Honoured before each object and between an object's reads
    * and its write, and by the writer, which aborts a Bulk API upload while its
-   * job is still open and stops a REST write between two of its batches. A
+   * job is still open and stops a REST write before each of its batches. A
    * write already sent is not taken back, and a closed Bulk API job runs to
    * its end; the objects after it are not synced, and the run answers with
    * the ones it reached and what the stopped one wrote, `cancelled` set.
@@ -161,7 +161,7 @@ export class SyncOrchestrator {
         result = await this.syncObject(config, objectConfig, leftOut);
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
-        // of it, and a REST write stopped between two batches wrote the
+        // of it, and a REST write stopped before one of its batches wrote the
         // records before. What it wrote stays in the org, so it is counted,
         // with what the write says of it; the object is not synced in full,
         // like the ones after it.

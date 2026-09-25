@@ -303,16 +303,34 @@ describe('BulkDataWriter', () => {
       expect(stopped.written.map((o) => o.id)).toEqual(['001000', '001001']);
     });
 
-    it('sends the first batch of a write the cancel came before: a caller looks before it writes', async () => {
-      // A one-record write, a placeholder, is never cut down to nothing.
+    it('sends no batch of a write the cancel came before, and says it wrote nothing', async () => {
+      // A caller looks at the cancel before it writes, then waits on the
+      // target; a cancel that came meanwhile still sent the first batch.
       const h = createHarness();
       h.abort.abort();
       h.sobject.create.mockResolvedValue(okResults(1));
 
-      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+      const writing = h.writer.insert('Account', makeRecords(1), 200);
 
-      expect(h.sobject.create).toHaveBeenCalledTimes(1);
-      expect(outcomes).toHaveLength(1);
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Account', written: [] });
+      expect(h.sobject.create).not.toHaveBeenCalled();
+    });
+
+    it('sends no update, upsert or delete the cancel came before either', async () => {
+      const h = createHarness();
+      h.abort.abort();
+
+      const stopped = await Promise.all([
+        h.writer.update('Account', [{ Id: '001000', Name: 'Renamed' }], 200).catch((e) => e),
+        h.writer.upsert('Account', 'External_Id__c', makeRecords(2), 200).catch((e) => e),
+        h.writer.delete('Account', ['001000'], 200).catch((e) => e),
+      ]);
+
+      expect(stopped.every((err) => err instanceof WriteCancelledError)).toBe(true);
+      expect(h.sobject.update).not.toHaveBeenCalled();
+      expect(h.sobject.upsert).not.toHaveBeenCalled();
+      expect(h.sobject.destroy).not.toHaveBeenCalled();
     });
 
     it('writes every batch of a write given no cancel, as a real-time batch has to be', async () => {
@@ -550,6 +568,21 @@ describe('BulkDataWriter', () => {
       await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
       await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact', written: [] });
     });
+
+    it('opens no job for a write the cancel came before', async () => {
+      // The job was opened, then aborted before its upload: nothing written,
+      // and a job created and aborted in the target for a write that never
+      // started.
+      const h = createHarness({ useBulkApi: true });
+      h.abort.abort();
+
+      const writing = h.writer.insert('Account', makeRecords(2), 200);
+
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Account', written: [] });
+      expect(h.executeBulk).not.toHaveBeenCalled();
+      expect(h.sobject.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('streaming path', () => {
@@ -623,6 +656,21 @@ describe('BulkDataWriter', () => {
 
       await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
       await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact' });
+    });
+
+    it('opens no job to stream a write the cancel came before', async () => {
+      const h = createHarness();
+      h.abort.abort();
+
+      const writing = h.writer.upsert(
+        'Contact',
+        'External_Id__c',
+        makeRecords(STREAMING_THRESHOLD + 1),
+        200,
+      );
+
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact', written: [] });
+      expect(streaming.executeChunked).not.toHaveBeenCalled();
     });
 
     it('maps a streaming failure without a message to "Streaming error"', async () => {

@@ -199,10 +199,12 @@ export interface FrozenLoadOptions {
   onGuardDecision?: (decision: GuardDecision) => void;
   /**
    * The load's cancel. Honoured before each write: the purge of each object,
-   * each placeholder, each object of the insert pass, and each pass after it.
-   * The load then keeps its mapping, once it created or purged a record, and
-   * stops with {@link FrozenLoadCancelledError}; nothing after the cancel is
-   * written but the statuses a reload's purge set to Draft, given back.
+   * each placeholder, each object of the insert pass — its rows again once
+   * its relations were looked up and given their flags back — and each pass
+   * after it. The load then keeps its mapping, once it created or purged a
+   * record, and stops with {@link FrozenLoadCancelledError}; nothing after the
+   * cancel is written but the statuses a reload's purge set to Draft, given
+   * back.
    */
   signal?: AbortSignal;
   /** Clock injection for deterministic tests. */
@@ -1118,6 +1120,18 @@ export class FrozenDatasetLoader {
         emailsAfterTheirTask.push(...startingRecords.filter((r) => waits(r.fields)));
         startingRecords = startingRecords.filter((r) => !waits(r.fields));
       }
+      /*
+       * A cancel that came while the object's relations were looked up or
+       * given their flags back, or while its statuses were read, stops the
+       * load before its other rows are inserted, as it stops it between two
+       * objects. Nothing looked at it there: the rows the target did not hold
+       * were inserted after it. The object's line says what it came to — the
+       * relations it linked, the flags that did not go back — and how many of
+       * its rows the cancel kept from the target. An object whose every row
+       * was linked has nothing left to insert, and ends as it would have.
+       */
+      const leftToInsert = startingRecords.filter((r) => !reused.has(r.referenceId)).length;
+      const stoppedBeforeTheInsert = options.signal?.aborted === true && leftToInsert > 0;
       const insert = (
         records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
         count: number,
@@ -1138,7 +1152,16 @@ export class FrozenDatasetLoader {
       // standard prices are written first, in a call of their own.
       const standardRef = working.standardPricebook;
       let objectResult: PerObjectLoadResult;
-      if (isPricebookEntry(objectApiName) && standardRef) {
+      if (stoppedBeforeTheInsert) {
+        objectResult = {
+          objectApiName,
+          fromFiles,
+          inserted: 0,
+          reused: startingRecords.length - leftToInsert,
+          skippedDuplicates: [],
+          failed: [],
+        };
+      } else if (isPricebookEntry(objectApiName) && standardRef) {
         const standardPrices = await insert(
           startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardRef),
           0,
@@ -1161,7 +1184,10 @@ export class FrozenDatasetLoader {
       } else {
         objectResult = await insert(startingRecords, fromFiles);
       }
-      perObject.push(objectResult);
+      // Stopped before its insert, an object that linked nothing wrote
+      // nothing: left out of what the load wrote, as an object it never
+      // reached is.
+      if (!stoppedBeforeTheInsert || objectResult.reused > 0) perObject.push(objectResult);
       const leftOutNote = [
         ...(flagsNotKept ? [flagsNotKept] : []),
         ...leftToThePlatform
@@ -1177,10 +1203,13 @@ export class FrozenDatasetLoader {
         objectApiName === EMAIL_MESSAGE && emailsAfterTheirTask.length > 0
           ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
           : '';
+      const keptBack = stoppedBeforeTheInsert
+        ? `, ${leftToInsert} not inserted: the load was cancelled first`
+        : '';
       const status = objectResult.failed.length > 0 ? 'error' : 'done';
       const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
-      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}`;
-      if (waiting) {
+      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBack}`;
+      if (waiting && !stoppedBeforeTheInsert) {
         // A step on the way: the write of the emails that wait for their task
         // ends the object, in one line with this one. See `emailsWrittenFirst`.
         emailsWrittenFirst = { status, message, notes: leftOutNote };
@@ -1194,7 +1223,11 @@ export class FrozenDatasetLoader {
           message: `${message}${leftOutNote}`,
         });
       }
+      // A task object stopped before its insert still hands on the emails
+      // that waited for it: they stop at the checkpoint their write begins
+      // with, and the email object ends on its first write's line.
       if (objectApiName === TASK) await insertEmailsAfterTheirTask();
+      if (stoppedBeforeTheInsert) await checkpoint();
     }
     // Emails still waiting for their task — the task object never had its
     // turn — go in with what the load could give them.
@@ -2231,10 +2264,15 @@ export class FrozenDatasetLoader {
     if (plan.recordTypeId) record.RecordTypeId = plan.recordTypeId;
     await this.checkGuard(options, 'insert', targetObject, 1);
     const [outcome] = await this.deps.writer.insert(options.orgId, targetObject, [record]);
-    if (!outcome.success || !outcome.id) {
+    // No answer: the load's cancel came before the write went out, and the
+    // writer sent nothing. The load stops at its next checkpoint, before
+    // anything is pointed at a placeholder that is not there. Read as a
+    // refusal, it would end the load as a failure over a record never sent.
+    if (outcome === undefined && options.signal?.aborted) return;
+    if (!outcome?.success || !outcome.id) {
       throw new LoadConfigError(
         `Placeholder insert failed for required lookup ${key} on ${targetObject}: ` +
-          `${outcome.errors.join('; ') || 'no id returned'}. Fix the target org configuration and retry.`,
+          `${outcome?.errors.join('; ') || 'no id returned'}. Fix the target org configuration and retry.`,
       );
     }
     const placeholderKey = `${PLACEHOLDER_KEY_PREFIX}${targetObject}:${key}`;

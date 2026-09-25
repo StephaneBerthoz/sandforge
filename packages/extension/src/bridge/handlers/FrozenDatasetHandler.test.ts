@@ -1081,7 +1081,7 @@ describe('FrozenDatasetHandler', () => {
       it('is written through a writer the cancel does not stop, where the load writes through one it does', async () => {
         // The statuses a stopped reload's purge set to Draft are given back as
         // it stops. Through the load's own writer, the cancel that stopped the
-        // reload cut that write short: its first batch went, the rest did not.
+        // reload stops that write too: none of it goes.
         const { config } = writeDataset();
         wire(config);
         // Sent in batches of two hundred, as a write under the Bulk API threshold is.
@@ -1120,7 +1120,7 @@ describe('FrozenDatasetHandler', () => {
 
         await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true }));
 
-        expect(written).toEqual({ writer: 200, restoringWriter: 250 });
+        expect(written).toEqual({ writer: 0, restoringWriter: 250 });
       });
     });
   });

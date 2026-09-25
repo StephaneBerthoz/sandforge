@@ -1,12 +1,12 @@
 import type { OperationOutcome } from './DataSync.js';
 
 /**
- * A write the run's cancel stopped before it was done. Either a Bulk API
- * upload whose job was aborted while it was still open, none of whose records
- * was written, or a write sent in REST batches, stopped between two of them.
- * `written` holds the outcomes of the records sent before the cancel, in input
- * order: they are the first `written.length` records, and the ones after them
- * were never sent.
+ * A write the run's cancel stopped before it was done. Either a write the
+ * cancel came before, which sent nothing, a Bulk API upload whose job was
+ * aborted while it was still open, none of whose records was written, or a
+ * write sent in REST batches, stopped before one of them. `written` holds the
+ * outcomes of the records sent before the cancel, in input order: they are
+ * the first `written.length` records, and the ones after them were never sent.
  *
  * Thrown rather than answered with those outcomes: an empty list read as an
  * object that had nothing to write, and a run cancelled on its last object

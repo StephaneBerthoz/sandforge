@@ -186,10 +186,10 @@ export class DataSync {
       );
     } catch (err: unknown) {
       if (!(err instanceof WriteCancelledError)) throw err;
-      // The cancel stopped the write between two batches: the records sent
-      // before it are written, and what was set aside to write them is said
-      // with them. Passed on as it was, the run counted them and never said
-      // which record type they had been written without.
+      // The cancel stopped the write before one of its batches: the records
+      // sent before it are written, and what was set aside to write them is
+      // said with them. Passed on as it was, the run counted them and never
+      // said which record type they had been written without.
       throw new WriteCancelledError(config.objectApiName, err.written, [
         ...recordTypeNotes(err.written),
         ...err.notes,
@@ -335,9 +335,10 @@ export class DataSync {
           cancelled: false,
         };
       }
-      // The cancel stopped the second write between two batches. It names
-      // only the rows tried again: passed on as it was, the run would have
-      // counted those alone, and none of the records the first write wrote.
+      // The cancel stopped the second write before one of its batches — its
+      // first, when the cancel came during the first write. It names only the
+      // rows tried again: passed on as it was, the run would have counted
+      // those alone, and none of the records the first write wrote.
       second = err.written;
       cancelledAt = err;
     }

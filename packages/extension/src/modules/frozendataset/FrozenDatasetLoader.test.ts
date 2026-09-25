@@ -1,8 +1,13 @@
+import type { Connection } from 'jsforce';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ProductionGuard, type OperationRequest } from '../../core/precheck/ProductionGuard.js';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { BulkDataWriter } from '../sync/BulkDataWriter.js';
+import { createBulkDmlWriter } from './BulkDmlWriterAdapter.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
 import { contractCountsLoad, readCountingContract } from './CountingContract.js';
@@ -3187,6 +3192,112 @@ describe('FrozenDatasetLoader — a cancel', () => {
     // A contract would count the links as restored.
     expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
   });
+
+  describe('through the writer a load writes with', () => {
+    /**
+     * The bulk writer a load gets, bound to its cancel, over a target that
+     * takes every row it is sent; `sent` gets each object's rows as they go.
+     */
+    function bulkWriterTo(
+      stop: AbortController,
+      sent: Array<{ objectApiName: string; rows: unknown[] }>,
+    ): FrozenDmlWriter {
+      let counter = 0;
+      const sobject = (objectApiName: string) => ({
+        create: async (rows: unknown[]) => {
+          sent.push({ objectApiName, rows });
+          return rows.map(() => ({ success: true, id: `REAL-${objectApiName}-${++counter}` }));
+        },
+      });
+      return createBulkDmlWriter(
+        new BulkDataWriter({
+          connection: { sobject } as unknown as Connection,
+          bulkExecutor: new BulkApiExecutor(200),
+          bulkManager: new BulkApiManager(),
+          retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+          signal: stop.signal,
+          onProgress: () => undefined,
+          log: () => undefined,
+        }),
+      );
+    }
+
+    /** Production Guard, the load's cancel coming as it judges the first insert of `objectApiName`. */
+    function guardCancellingAt(stop: AbortController, objectApiName: string): ProductionGuard {
+      const guard = new ProductionGuard();
+      const check = guard.check.bind(guard);
+      vi.spyOn(guard, 'check').mockImplementation((request: OperationRequest) => {
+        if (request.operation === 'insert' && request.objectName === objectApiName) stop.abort();
+        return check(request);
+      });
+      return guard;
+    }
+
+    it('sends none of an object the cancel came before as its insert was judged', async () => {
+      // The last check of the cancel is the object's, before its guard: the
+      // writer sent the first batch of a write the cancel had come before.
+      const dataset = makeAccountContactDataset();
+      const stop = new AbortController();
+      const sent: Array<{ objectApiName: string; rows: unknown[] }> = [];
+      const deps = makeDeps({
+        dataset,
+        writer: bulkWriterTo(stop, sent),
+        guard: guardCancellingAt(stop, 'Contact'),
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { signal: stop.signal }))
+        .catch((e: unknown) => e);
+
+      expect(sent.map((s) => s.objectApiName)).toEqual(['Account']);
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect((error as FrozenLoadCancelledError).written.perObject).toEqual([
+        expect.objectContaining({ objectApiName: 'Account', inserted: 1 }),
+        expect.objectContaining({ objectApiName: 'Contact', inserted: 0, failed: [] }),
+      ]);
+      expect(await keptMapping(deps.sasDir)).toEqual(
+        new Map([['Account-000001', 'REAL-Account-1']]),
+      );
+    });
+
+    it('creates no placeholder the cancel came before, and ends cancelled rather than failed', async () => {
+      // The placeholder went in after the cancel. Kept from the target, it is
+      // answered for by nothing, and read as a refusal the load would end as
+      // a failure over a record it never sent.
+      const dataset = makeAccountContactDataset();
+      const stop = new AbortController();
+      const sent: Array<{ objectApiName: string; rows: unknown[] }> = [];
+      const deps = makeDeps({
+        dataset,
+        describes: describeFromDataset(dataset, {
+          Contact: [
+            field({
+              name: 'Mandatory_Lookup__c',
+              type: 'reference',
+              nillable: false,
+              referenceTo: ['Account'],
+            }),
+          ],
+        }),
+        writer: bulkWriterTo(stop, sent),
+        guard: guardCancellingAt(stop, 'Account'),
+        config: {
+          requiredLookupPlaceholders: {
+            'Contact.Mandatory_Lookup__c': { name: 'TECH_PLACEHOLDER_DO_NOT_USE' },
+          },
+        },
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { signal: stop.signal }))
+        .catch((e: unknown) => e);
+
+      expect(sent).toEqual([]);
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect((error as FrozenLoadCancelledError).written.placeholders).toEqual([]);
+      expect(fs.existsSync(path.join(deps.sasDir, 'referenceid-mapping.json'))).toBe(false);
+    });
+  });
 });
 
 describe('FrozenDatasetLoader — a load that fails part way', () => {
@@ -5075,6 +5186,106 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
         ]);
       });
     });
+
+    describe('beside a contact the event also invites, whose relation the load inserts', () => {
+      /**
+       * `invitedWho`, the event inviting a second contact as well, whose
+       * relation is not one the platform wrote: it goes in with the insert.
+       * Loaded into the target of the other tests, where `cancelAt` is the
+       * moment the load's cancel comes: as the relations the target holds
+       * are looked up, or as the flag goes back to the one it linked.
+       */
+      async function loadInviting(cancelAt: 'lookup' | 'update') {
+        const dataset = invitedWho();
+        dataset.objects
+          .find((o) => o.objectApiName === 'Contact')
+          ?.records.push({ referenceId: ref('Contact', 2), fields: { LastName: 'Invited' } });
+        dataset.objects
+          .find((o) => o.objectApiName === 'EventRelation')
+          ?.records.push({
+            referenceId: ref('EventRelation', 2),
+            fields: {
+              EventId: ref('Event'),
+              RelationId: ref('Contact', 2),
+              IsInvitee: 'true',
+              IsWhat: 'false',
+            },
+          });
+        const calls: DmlCall[] = [];
+        const progress: FrozenLoadProgressEvent[] = [];
+        const controller = new AbortController();
+        const writer = makeWriter(calls);
+        const update = writer.update;
+        writer.update = vi.fn(
+          async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+            if (objectApiName === 'EventRelation' && cancelAt === 'update') {
+              calls.push({ op: 'update', objectApiName, payload: records });
+              controller.abort();
+              // An update the cancel aborted answers for nothing.
+              return [];
+            }
+            return update(org, objectApiName, records);
+          },
+        );
+        const deps = makeDeps({
+          dataset,
+          writer,
+          queryImpl: async (_org, soql) => {
+            if (!soql.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')) return [];
+            if (cancelAt === 'lookup') controller.abort();
+            // The relation the platform wrote for the event's who.
+            return [
+              { Id: '0REPLATFORM', EventId: real('Event', 3), RelationId: real('Contact', 1) },
+            ];
+          },
+        });
+        const error = await new FrozenDatasetLoader(deps)
+          .load(
+            makeOptions(deps, dataset, {
+              onProgress: (e) => progress.push(e),
+              signal: controller.signal,
+            }),
+          )
+          .catch((err: unknown) => err);
+        return {
+          error,
+          calls,
+          line: progress
+            .filter((e) => e.objectName === 'EventRelation' && e.status !== 'started')
+            .map((e) => e.message),
+        };
+      }
+
+      it('inserts none of the other relations after a cancel that came as the flag went back', async () => {
+        // Nothing looked at the cancel between the flag and the insert: the
+        // relation to the second contact went in after it.
+        const { error, calls, line } = await loadInviting('update');
+
+        expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        expect(insertedOf(calls, 'EventRelation')).toEqual([]);
+        expect(line).toEqual([
+          'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+            '1 not inserted: the load was cancelled first, ' +
+            '1 linked without IsInvitee: the run was cancelled before it was updated',
+        ]);
+        // The relation it linked is said with what the load wrote.
+        expect((error as FrozenLoadCancelledError).written.perObject).toContainEqual(
+          expect.objectContaining({ objectApiName: 'EventRelation', inserted: 0, reused: 1 }),
+        );
+      });
+
+      it('gives no flag back and inserts none of the relations after a cancel that came as they were looked up', async () => {
+        const { error, calls, line } = await loadInviting('lookup');
+
+        expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        expect(calls.filter((c) => c.objectApiName === 'EventRelation')).toEqual([]);
+        expect(line).toEqual([
+          'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+            '1 not inserted: the load was cancelled first, ' +
+            '1 linked without IsInvitee: the run was cancelled before it was updated',
+        ]);
+      });
+    });
   });
 
   it('writes the task first and names it on an email on a case, which may name it', async () => {
@@ -5300,6 +5511,54 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
         ),
       ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
 
+      expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
+        [
+          'done',
+          'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+            'waiting for their tasks',
+        ],
+      ]);
+    });
+
+    it('inserts no task after a cancel that came as the tasks written with the emails were looked up', async () => {
+      // Nothing looked at the cancel between the lookup and the insert: the
+      // tasks the platform had not written went in after it.
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const stop = new AbortController();
+      const reads = platformReads(emails);
+      const deps = makeDeps({
+        dataset,
+        writer: withCaseIds(platformWriter(calls, emails)),
+        queryImpl: async (org, soql) => {
+          if (soql.startsWith('SELECT Id, ActivityId FROM EmailMessage')) stop.abort();
+          return reads(org, soql);
+        },
+      });
+
+      await expect(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, {
+            signal: stop.signal,
+            onProgress: (e) => progress.push(e),
+          }),
+        ),
+      ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+      expect(insertedOf(calls, 'Task')).toEqual([]);
+      expect(
+        progress
+          .filter((e) => e.objectName === 'Task' && e.status !== 'started')
+          .map((e) => e.message),
+      ).toEqual([
+        'Task: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+          '2 not inserted: the load was cancelled first',
+      ]);
+      // The emails that waited for the tasks are not written, and the email
+      // object ends on its first write's line.
+      expect(insertedOf(calls, 'EmailMessage')).toHaveLength(1);
       expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
         [
           'done',
