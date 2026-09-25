@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1391": "Der Seed-Klon schreibt dorthin, wofür er die Vorschau erstellt hat",
+      "fixRound1391Desc": "Ein Seed-Klon läuft gegen die Orgs, für die seine Vorschau erstellt wurde, und die Erweiterung lehnt einen anderen ab; Production Guard erfährt, welche Objekte ein Forge-Lauf schreibt und höchstens wie viele Datensätze, und die Ergebnisse zählen die tatsächlich gesendeten API-Aufrufe.",
       "frozenTakeBack": "Einen Ladevorgang des Eingefrorenen Datensatzes zurücknehmen",
       "frozenTakeBackDesc": "Entfernen Sie aus dem Ziel die Datensätze, die ein Ladevorgang erstellt hat, und nur diese: Datensätze, mit denen er nur verknüpft hat, bleiben erhalten. Frühere Ladevorgänge bleiben benannt und lassen sich einzeln zurücknehmen, und der Tab Laden zeigt, warum Datensätze fehlschlugen und was die Bereinigung eines erneuten Ladens entfernt hat.",
       "forgeWriteTheRest": "Den Rest eines gestoppten Forge-Laufs schreiben",

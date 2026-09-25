@@ -1943,6 +1943,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1391": "Seed Clone writes where it previewed",
+      "fixRound1391Desc": "A Seed Clone runs against the orgs its preview was made for, and the extension refuses one that is not; Production Guard is told which objects a Forge run writes and at most how many records, and the results count the API calls the run made.",
       "frozenTakeBack": "Take back a Frozen load",
       "frozenTakeBackDesc": "Remove from the target the records a load created, and only those: the records it linked stay. Earlier loads stay named and can be taken back one by one, and the Load tab says why records failed and what a reload's purge took.",
       "forgeWriteTheRest": "Write the rest of a stopped Forge run",

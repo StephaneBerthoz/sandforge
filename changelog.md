@@ -5,6 +5,30 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.1] - 2026-09-25
+
+Seed Clone writes only where it previewed, and Production Guard is told what
+a Forge run can really write.
+
+### Fixed
+
+- **Seed Clone runs against the orgs it previewed.** Selecting another org
+  after the preview sets it aside, and the extension refuses a run that names
+  no preview, one it no longer holds, or one made for other orgs.
+- **Seed Clone warns before Execute** when the target requires a lookup the
+  source does not have, shows that its preview is being prepared, and keeps
+  the wizard when an error is dismissed.
+- **Seed Clone's Next runs the clone** instead of opening an empty step, and
+  the source is asked only for the fields it has.
+- **Production Guard is told what a Forge run can write**: the objects it
+  writes, at most their capped counts, the related records it adds besides,
+  and "unknown" when nothing counted them.
+- **Forge counts the API calls a run makes**; an estimate says it is one.
+- **The Review plan tab stops showing zeros** for a starter template, and a
+  node card's count survives the progress throttle.
+- **The clone command reads every page of a query**, not the first 2 000
+  records.
+
 ## [1.39.0] - 2026-09-25
 
 A Frozen load can be taken back, a stopped Forge run can write the rest, and

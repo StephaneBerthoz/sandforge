@@ -1943,6 +1943,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1391": "La clonación de Seed escribe donde hizo la vista previa",
+      "fixRound1391Desc": "Una clonación de Seed se ejecuta contra las orgs para las que se hizo su vista previa, y la extensión rechaza la que no; Production Guard sabe qué objetos escribe una ejecución de Forge y como máximo cuántos registros, y los resultados cuentan las llamadas a la API realmente hechas.",
       "frozenTakeBack": "Deshacer una carga del Dataset congelado",
       "frozenTakeBackDesc": "Quite del destino los registros que creó una carga, y solo esos: los registros que solo vinculó se conservan. Las cargas anteriores siguen identificadas y se pueden deshacer una a una, y la pestaña Cargar dice por qué fallaron registros y qué quitó la purga de una recarga.",
       "forgeWriteTheRest": "Escribir el resto de una ejecución de Forge detenida",
