@@ -123,10 +123,12 @@ export const StorageBreakdownPanel: React.FC = () => {
           order with it: Recharts draws each slice as a path with role img and
           no text, which axe fails the first time the panel is scanned with
           data, and the table below gives every slice's name, count and share
-          in words. */}
+          in words. Recharts 3 makes a chart a tab stop for its keyboard
+          tooltips (`accessibilityLayer`): inside this hidden block that stop
+          was a control no reader could name, as axe said. */}
       <div className="h-48" data-testid="storage-donut-chart" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
+          <PieChart accessibilityLayer={false}>
             <Pie
               data={chartData}
               cx="50%"
@@ -151,7 +153,7 @@ export const StorageBreakdownPanel: React.FC = () => {
                 borderRadius: '6px',
               }}
               itemStyle={{ color: 'var(--sf-text-primary)' }}
-              formatter={(value: number) => formatNumber(value)}
+              formatter={(value) => (typeof value === 'number' ? formatNumber(value) : value)}
             />
           </PieChart>
         </ResponsiveContainer>

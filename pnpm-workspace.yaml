@@ -43,14 +43,10 @@ allowBuilds:
 # GHSA-23c5-xmqv-rm74 below 3.1.4, so the 3.1.2 vsce was pinned to was inside
 # all three.
 # rollup >=4.59.0: sourcemap-injection in older 4.x. flatted >=3.4.2: prototype
-# pollution. picomatch, minimatch, rollup and flatted are devDep-only — they
-# don't ship in the marketplace VSIX. lodash is the exception: recharts depends
-# on it, so this range rewrites code that ships inside webview-dist. It stays
-# global rather than narrowed to `recharts>lodash` because 4.18.1 is already
-# the single resolution — narrowing would re-resolve a chart dependency for no
-# security gain. Any lodash bump is smoke-tested in CI: an E2E test renders a
-# Monitor chart with Recharts and checks it drew a curve
-# (packages/webview/e2e/monitor.spec.ts).
+# pollution. picomatch, minimatch, rollup, flatted and lodash are devDep-only —
+# they don't ship in the marketplace VSIX. lodash used to: Recharts 2 depended
+# on it and put it in webview-dist. Recharts 3 does not; lodash now comes only
+# through vsce's secret linter.
 overrides:
   'picomatch@<4.0.4': '>=4.0.4'
   'lodash@<4.18.0': '>=4.18.0'
