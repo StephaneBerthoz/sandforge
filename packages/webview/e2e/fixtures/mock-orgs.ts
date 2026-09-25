@@ -61,6 +61,7 @@ export function createMockOrg(overrides?: Partial<MockOrg>): MockOrg {
     instanceUrl: 'https://test.salesforce.com',
     orgType: 'Sandbox',
     status: 'connected',
+    tags: [],
     ...overrides,
   };
 }

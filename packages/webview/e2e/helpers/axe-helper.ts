@@ -4,7 +4,14 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import type { AxeResults } from 'axe-core';
+
+/**
+ * What a scan returns, as `@axe-core/playwright` types it. The type used to be
+ * imported from `axe-core`, which is that package's dependency and not the
+ * webview's: the import resolved nowhere, every result was typed `any`, and
+ * nothing that read one was checked.
+ */
+type AxeResults = Awaited<ReturnType<AxeBuilder['analyze']>>;
 
 /** Options for the accessibility check. */
 export interface AccessibilityCheckOptions {
