@@ -952,6 +952,13 @@ interface ExecutionState {
    * ends the node with. See `endOfTheEmails`.
    */
   emailsWrittenFirst?: ForgeProgressEvent;
+  /**
+   * How the email node's turn ended when every one of its emails waited for
+   * its task: nothing written, said as a step. The write of those ends the
+   * node; a run that stops first ends it on this line, as on a first
+   * write's. See `endBeforeTheEmailsThatWaited`.
+   */
+  emailsAllWaiting?: ForgeProgressEvent;
   /** Whether the task node's turn to be written is over, whatever it wrote. */
   taskTurnOver: boolean;
   /** When the target dated the run's writes, once read back at its end. */
@@ -1342,6 +1349,15 @@ function heldForExclusionsNote(state: ExecutionState, objectApiName: string): st
 }
 
 /**
+ * What the line that ends an object says of its rows left to the platform
+ * (`leftToThePlatformNote`) and held back for an object the user excluded
+ * (`heldForExclusionsNote`), or nothing.
+ */
+function notesOf(state: ExecutionState, objectApiName: string): string {
+  return leftToThePlatformNote(state, objectApiName) + heldForExclusionsNote(state, objectApiName);
+}
+
+/**
  * The rows held back for an object the user excluded, one report per object
  * and one sample per lookup and object, the largest first. Counted as failed,
  * as the rows held back for want of their parent are: the run read them to
@@ -1562,19 +1578,26 @@ function waitingForTheirTask(count: number): string {
  * finished beside the objects written whole. A cancel ends it stopped, unless
  * its first write failed; a failure of the run leaves its status as it was.
  *
- * @param first - How the object's first write ended.
+ * The object's rows left to the platform or held back for an exclusion end
+ * the line: said on the line of the emails that waited, which never comes,
+ * they went unsaid, and only the run's errors named them.
+ *
+ * @param first - How the object's first write ended, or the line that said
+ *   every one of its emails waited: see `ExecutionState.emailsAllWaiting`.
  * @param notSent - The emails that waited for their task.
  * @param cancelled - Whether a cancel stopped the run.
+ * @param notes - What the object's last line says of its other rows: see `notesOf`.
  */
 function endedBeforeTheEmailsThatWaited(
   first: ForgeProgressEvent,
   notSent: number,
   cancelled: boolean,
+  notes: string,
 ): ForgeProgressEvent {
   return {
     ...first,
     status: cancelled && first.status !== 'error' ? 'stopped' : first.status,
-    message: `${first.message}; ${cancelled ? 'stopped: ' : ''}${notSent} not sent`,
+    message: `${first.message}; ${cancelled ? 'stopped: ' : ''}${notSent} not sent${notes}`,
   };
 }
 
@@ -1906,17 +1929,11 @@ export class ForgeExecutor {
       // waited for their task, that line was never said, and the node's last
       // word was a step on the way: what it wrote and what it held back went
       // unsaid. The emails that waited are never written.
-      const first = state.emailsWrittenFirst;
-      state.emailsWrittenFirst = undefined;
-      if (first) {
-        state.onProgress(
-          endedBeforeTheEmailsThatWaited(
-            first,
-            state.emailsAfterTheirTask.length,
-            err instanceof ForgeAbortedError,
-          ),
-        );
-      }
+      this.endBeforeTheEmailsThatWaited(
+        state,
+        state.emailsAfterTheirTask.length,
+        err instanceof ForgeAbortedError,
+      );
       // What the run had done before it stopped goes with the error: thrown
       // bare, an abort or a failure past the first object took the tallies
       // with it, and the run was recorded as failed with nothing written.
@@ -4456,14 +4473,45 @@ export class ForgeExecutor {
     state.taskTurnOver = true;
     const emails = state.emailsAfterTheirTask.splice(0, state.emailsAfterTheirTask.length);
     const node = state.graph.nodes.find((n) => n.objectApiName === EMAIL_MESSAGE);
-    if (node && emails.length > 0 && !this.isAborted) await this.writeNode(node, state, emails);
-    // Emails that waited and were not written — the run stopped first —
-    // leave the node's first write to end it, with the emails never sent.
-    const first = state.emailsWrittenFirst;
-    state.emailsWrittenFirst = undefined;
-    if (first) {
-      state.onProgress(endedBeforeTheEmailsThatWaited(first, emails.length, this.isAborted));
+    if (node && emails.length > 0 && !this.isAborted) {
+      // The line of their write ends the node, whose own turn wrote nothing
+      // when they all waited: see `endOfTheEmails`.
+      state.emailsAllWaiting = undefined;
+      await this.writeNode(node, state, emails);
     }
+    // Emails that waited and were not written — the run stopped first —
+    // leave the line said before them to end the node, with the emails
+    // never sent.
+    this.endBeforeTheEmailsThatWaited(state, emails.length, this.isAborted);
+  }
+
+  /**
+   * End the email node on the line it said before the emails that waited for
+   * their task, which the run stopped before writing: its first write's, or
+   * the one that said every email of it waited. See
+   * `endedBeforeTheEmailsThatWaited`.
+   *
+   * Every email of it waiting, the node's turn wrote nothing and ended on a
+   * step, `running`: stopped before the task node's turn, or as the tasks
+   * were written, the run left it running, and no line said the emails it
+   * never sent. Its turn wrote nothing and failed nothing, and a failure of
+   * the run leaves it `done`, as it leaves a first write that went in.
+   *
+   * @param notSent - The emails that waited for their task.
+   * @param cancelled - Whether a cancel stopped the run.
+   */
+  private endBeforeTheEmailsThatWaited(
+    state: ExecutionState,
+    notSent: number,
+    cancelled: boolean,
+  ): void {
+    const said = state.emailsWrittenFirst ?? state.emailsAllWaiting;
+    state.emailsWrittenFirst = undefined;
+    state.emailsAllWaiting = undefined;
+    if (!said) return;
+    state.onProgress(
+      endedBeforeTheEmailsThatWaited(said, notSent, cancelled, notesOf(state, EMAIL_MESSAGE)),
+    );
   }
 
   /**
@@ -5485,12 +5533,15 @@ export class ForgeExecutor {
         waiting = toWrite.length - now.length;
         toWrite = now;
         if (waiting > 0 && toWrite.length === 0) {
-          onProgress({
+          const step: ForgeProgressEvent = {
             objectName: node.objectApiName,
             status: 'running',
             progress: 0,
             message: `${node.objectApiName}: ${waitingForTheirTask(waiting)}`,
-          });
+          };
+          onProgress(step);
+          // Kept to end the node on, should the run stop before their write.
+          state.emailsAllWaiting = { ...step, status: 'done', progress: 100 };
           return;
         }
       }
@@ -5744,14 +5795,11 @@ export class ForgeExecutor {
       // how it answered, which the platform's relation leaves out.
       const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
       // What else became of the object's rows, said once, on the line that
-      // ends the node: after the emails that waited for their task, if any.
-      const notes =
-        waiting === 0
-          ? leftToThePlatformNote(state, node.objectApiName) +
-            heldForExclusionsNote(state, node.objectApiName)
-          : '';
+      // ends the node: after the emails that waited for their task, if any,
+      // or on the line a cancel ends the node with before them.
+      const notes = notesOf(state, node.objectApiName);
       const counts = `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}`;
-      const rest = `${withoutTheirParent}${waitForTheirTask}${flagsNotKept}${notes}`;
+      const rest = `${withoutTheirParent}${waitForTheirTask}${flagsNotKept}${waiting === 0 ? notes : ''}`;
 
       if (stoppedBy) {
         /*
@@ -5766,7 +5814,9 @@ export class ForgeExecutor {
          * for their task are never written once the run stops, and are counted
          * with the rows the cancel kept from the target, how many of them
          * waited said after the count. Counted apart as waiting, beside the
-         * rows not sent, they read as emails still to go in.
+         * rows not sent, they read as emails still to go in. What it held back
+         * or left to the platform goes on this line too: kept for the line of
+         * the emails that waited, which never comes, it went unsaid.
          *
          * Stopped, not done: ended `done`, the node was drawn and counted as
          * finished beside the nodes that were, the rows it never sent aside.

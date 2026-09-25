@@ -8921,50 +8921,53 @@ describe('ForgeExecutor', () => {
         /**
          * An account with an offer emailed from it, and a case with one email
          * on it and another related to it alone: each email names its task.
-         * The target answers as the platform does: it takes an email's task
-         * only when the email is on a case — its ParentId, or a case in its
+         */
+        const mixedTables = (): Record<string, FakeRow[]> => ({
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          Case: [{ Id: CASE, Subject: 'Broken', AccountId: ACCOUNT }],
+          Task: [
+            { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
+            { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
+            { Id: RELATED_TO_THE_CASE_TASK, Subject: 'Second email', WhatId: CASE },
+          ],
+          EmailMessage: [
+            { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
+            {
+              Id: ON_THE_CASE,
+              Subject: 'It is broken',
+              ParentId: CASE,
+              ActivityId: ON_THE_CASE_TASK,
+            },
+            {
+              Id: RELATED_TO_THE_CASE,
+              Subject: 'Still broken',
+              RelatedToId: CASE,
+              ActivityId: RELATED_TO_THE_CASE_TASK,
+            },
+          ],
+        });
+        const mixedFields: Record<string, FieldInfo[]> = {
+          Account: [idField, text('Name')],
+          Case: [idField, text('Subject'), lookup('AccountId', 'Account')],
+          Task: [idField, text('Subject'), toAccountOrCase('WhatId')],
+          EmailMessage: [
+            idField,
+            text('Subject'),
+            lookup('ParentId', 'Case'),
+            toAccountOrCase('RelatedToId'),
+            lookup('ActivityId', 'Task'),
+          ],
+        };
+
+        /**
+         * A run of `tables`, by default the account and its case above. The
+         * target answers as the platform does: it takes an email's task only
+         * when the email is on a case — its ParentId, or a case in its
          * RelatedToId — and writes the task of every other email related to a
          * record itself.
          */
-        function mixedRun() {
-          const run = fakeOrgs(
-            {
-              Account: [{ Id: ACCOUNT, Name: 'Acme' }],
-              Case: [{ Id: CASE, Subject: 'Broken', AccountId: ACCOUNT }],
-              Task: [
-                { Id: OFFER_TASK, Subject: 'Email: Offer', WhatId: ACCOUNT },
-                { Id: ON_THE_CASE_TASK, Subject: 'Unread email', WhatId: CASE },
-                { Id: RELATED_TO_THE_CASE_TASK, Subject: 'Second email', WhatId: CASE },
-              ],
-              EmailMessage: [
-                { Id: OFFER, Subject: 'Offer', RelatedToId: ACCOUNT, ActivityId: OFFER_TASK },
-                {
-                  Id: ON_THE_CASE,
-                  Subject: 'It is broken',
-                  ParentId: CASE,
-                  ActivityId: ON_THE_CASE_TASK,
-                },
-                {
-                  Id: RELATED_TO_THE_CASE,
-                  Subject: 'Still broken',
-                  RelatedToId: CASE,
-                  ActivityId: RELATED_TO_THE_CASE_TASK,
-                },
-              ],
-            },
-            {
-              Account: [idField, text('Name')],
-              Case: [idField, text('Subject'), lookup('AccountId', 'Account')],
-              Task: [idField, text('Subject'), toAccountOrCase('WhatId')],
-              EmailMessage: [
-                idField,
-                text('Subject'),
-                lookup('ParentId', 'Case'),
-                toAccountOrCase('RelatedToId'),
-                lookup('ActivityId', 'Task'),
-              ],
-            },
-          );
+        function mixedRun(tables = mixedTables(), fields = mixedFields) {
+          const run = fakeOrgs(tables, fields);
           const target: Record<string, FakeRow[]> = { EmailMessage: [] };
           const order: string[] = [];
           const insert = run.orgDeps.insertRecords;
@@ -9349,6 +9352,238 @@ describe('ForgeExecutor', () => {
                 '3 not sent (2 on a case waiting for their tasks)',
             ],
           ]);
+        });
+
+        /** The account and its case without the offer: every email is on the case, and waits for its task. */
+        const onTheCaseAlone = (): Record<string, FakeRow[]> => {
+          const tables = mixedTables();
+          return {
+            ...tables,
+            Task: tables['Task'].filter((task) => task['Id'] !== OFFER_TASK),
+            EmailMessage: tables['EmailMessage'].filter((email) => email['Id'] !== OFFER),
+          };
+        };
+        const fromTheAccount = { rootRecordId: ACCOUNT, rootObjectApiName: 'Account' };
+
+        describe('every email waiting for its task', () => {
+          it('writes the emails once their tasks are in, and ends the email object on that write', async () => {
+            const { orgDeps, inserted, order, graph } = mixedRun(onTheCaseAlone());
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              fromTheAccount,
+            );
+
+            expect(order).toEqual(['Account', 'Case', 'Task', 'EmailMessage']);
+            expect((inserted['EmailMessage'] ?? []).map((e) => e['Subject'])).toEqual([
+              'It is broken',
+              'Still broken',
+            ]);
+            expect(summary.failedCount).toBe(0);
+            expect(emailEnds()).toEqual([
+              ['done', 'Completed EmailMessage after their task: 2 succeeded, 0 failed'],
+            ]);
+          });
+
+          it('ends the email object stopped, with its emails never sent, when a cancel stops the run before the tasks', async () => {
+            // The object's turn writes nothing, and says its emails wait as a
+            // step on the way. The cancel came as the object was made ready,
+            // and the run stopped before the tasks' turn: the object's last
+            // word was that its emails were waiting, the graph drew it running
+            // in a run that had stopped, and no line said what it never sent.
+            const { orgDeps, inserted, graph } = mixedRun(onTheCaseAlone());
+            const executor = new ForgeExecutor(orgDeps);
+            orgDeps.describeObject = async (org, object) => {
+              if (org === 'tgt' && object === 'EmailMessage') executor.abort();
+              return { keyPrefix: null, recordTypes: [] };
+            };
+
+            const error = await executor
+              .execute(graph, 'src', 'tgt', onProgress, fromTheAccount)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(ForgeAbortedError);
+            expect(inserted['EmailMessage'] ?? []).toEqual([]);
+            expect(inserted['Task'] ?? []).toEqual([]);
+            expect(emailEnds()).toEqual([
+              ['stopped', 'EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent'],
+            ]);
+          });
+
+          it('ends the email object stopped when a cancel comes as the tasks are written, before its emails', async () => {
+            const { orgDeps, inserted, graph } = mixedRun(onTheCaseAlone());
+            const executor = new ForgeExecutor(orgDeps);
+            const insert = orgDeps.insertRecords;
+            orgDeps.insertRecords = async (org, object, records) => {
+              if (object === 'Task') executor.abort();
+              return insert(org, object, records);
+            };
+
+            const error = await executor
+              .execute(graph, 'src', 'tgt', onProgress, fromTheAccount)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(ForgeAbortedError);
+            expect((inserted['Task'] ?? []).map((t) => t['Subject'])).toEqual([
+              'Unread email',
+              'Second email',
+            ]);
+            expect(inserted['EmailMessage'] ?? []).toEqual([]);
+            expect(emailEnds()).toEqual([
+              ['stopped', 'EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent'],
+            ]);
+          });
+
+          it('ends the email object in the words of a failure when one that is not a cancel ends the run before the tasks', async () => {
+            const { orgDeps, graph } = mixedRun(onTheCaseAlone());
+            let emailsWaiting = false;
+            const failing = (event: ForgeProgressEvent): void => {
+              onProgress(event);
+              if (event.objectName === 'EmailMessage' && event.status === 'running') {
+                emailsWaiting ||= event.message?.includes('waiting for their tasks') === true;
+              }
+              if (emailsWaiting && event.objectName === 'Task') throw new Error('listener gone');
+            };
+
+            const error = await new ForgeExecutor(orgDeps)
+              .execute(graph, 'src', 'tgt', failing, fromTheAccount)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(Error);
+            expect(error).not.toBeInstanceOf(ForgeAbortedError);
+            expect(emailEnds()).toEqual([
+              ['done', 'EmailMessage: 2 on a case waiting for their tasks; 2 not sent'],
+            ]);
+          });
+        });
+
+        describe('an email held back for an object the run excludes', () => {
+          const REGIONAL_OFFER = '02s000000000014AAA';
+          /**
+           * A run of `tables` with one more email of the account's, which
+           * names a region in a lookup it may not leave empty: an object the
+           * run excludes. The email is held back as it is read, and the email
+           * object's last line says so.
+           */
+          const withARegionalOffer = (tables: Record<string, FakeRow[]>) =>
+            mixedRun(
+              {
+                ...tables,
+                EmailMessage: [
+                  ...tables['EmailMessage'],
+                  {
+                    Id: REGIONAL_OFFER,
+                    Subject: 'Regional offer',
+                    RelatedToId: ACCOUNT,
+                    Region__c: 'a0R000000000001AAA',
+                  },
+                ],
+              },
+              {
+                ...mixedFields,
+                EmailMessage: [
+                  ...mixedFields['EmailMessage'],
+                  lookup('Region__c', 'Region__c', true),
+                ],
+              },
+            );
+          const regionsExcluded = { ...fromTheAccount, excludedObjects: ['Region__c'] };
+          const heldBack = ', 1 not written without Region__c, excluded from this run';
+
+          it('says it once, on the line of the emails that waited for their task', async () => {
+            const { orgDeps, graph } = withARegionalOffer(mixedTables());
+
+            await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              regionsExcluded,
+            );
+
+            expect(emailEnds()).toEqual([
+              [
+                'done',
+                'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                  `after their task: 2 succeeded, 0 failed${heldBack}`,
+              ],
+            ]);
+          });
+
+          it('says it on the line a cancel that stops the first write ends the object with', async () => {
+            // Said on the line of the emails that waited, a later one: the
+            // cancel stopped the run before it, and the object's last line
+            // left the email out, which only the run's errors still named.
+            const { orgDeps, graph } = withARegionalOffer(mixedTables());
+            const executor = new ForgeExecutor(orgDeps);
+            orgDeps.describeObject = async (org, object) => {
+              if (org === 'tgt' && object === 'EmailMessage') executor.abort();
+              return { keyPrefix: null, recordTypes: [] };
+            };
+
+            const error = await executor
+              .execute(graph, 'src', 'tgt', onProgress, regionsExcluded)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(ForgeAbortedError);
+            expect(partialSummaryOf(error)?.errors).toContainEqual(
+              expect.objectContaining({ objectApiName: 'EmailMessage', failedCount: 1 }),
+            );
+            expect(emailEnds()).toEqual([
+              [
+                'stopped',
+                'Stopped EmailMessage: 0 succeeded, 0 failed, ' +
+                  `3 not sent (2 on a case waiting for their tasks)${heldBack}`,
+              ],
+            ]);
+          });
+
+          it('says it on the line of the first write when a cancel stops the run before the tasks', async () => {
+            const { orgDeps, graph } = withARegionalOffer(mixedTables());
+            const executor = new ForgeExecutor(orgDeps);
+            const insert = orgDeps.insertRecords;
+            orgDeps.insertRecords = async (org, object, records) => {
+              if (object === 'EmailMessage') executor.abort();
+              return insert(org, object, records);
+            };
+
+            const error = await executor
+              .execute(graph, 'src', 'tgt', onProgress, regionsExcluded)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(ForgeAbortedError);
+            expect(emailEnds()).toEqual([
+              [
+                'stopped',
+                'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                  `stopped: 2 not sent${heldBack}`,
+              ],
+            ]);
+          });
+
+          it('says it on the line of an object whose other emails all waited, when a cancel stops the run before the tasks', async () => {
+            const { orgDeps, graph } = withARegionalOffer(onTheCaseAlone());
+            const executor = new ForgeExecutor(orgDeps);
+            orgDeps.describeObject = async (org, object) => {
+              if (org === 'tgt' && object === 'EmailMessage') executor.abort();
+              return { keyPrefix: null, recordTypes: [] };
+            };
+
+            const error = await executor
+              .execute(graph, 'src', 'tgt', onProgress, regionsExcluded)
+              .catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(ForgeAbortedError);
+            expect(emailEnds()).toEqual([
+              [
+                'stopped',
+                `EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent${heldBack}`,
+              ],
+            ]);
+          });
         });
       });
     });
