@@ -5,6 +5,23 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.8] - 2026-09-25
+
+The AI chat keeps each answer with its conversation, and every Forge and
+Frozen line ends, whatever stops the run.
+
+### Fixed
+
+- **An AI answer stays with the conversation its question was asked in**, and
+  the page says so when another one is open; only a question's own answer or
+  error ends its wait.
+- **A Forge email object whose emails all wait for their task** ends when the
+  run stops before them, those emails counted as not sent.
+- **A Frozen step that fails ends its line with the reason**: pass 2, the
+  statuses, PersonContact and the purge; the reload's line says what the
+  purge could not do.
+- **A model name with spaces around it** is read without them.
+
 ## [1.39.7] - 2026-09-25
 
 The AI features ask Claude Sonnet 5, and an object a cancel stops reads as

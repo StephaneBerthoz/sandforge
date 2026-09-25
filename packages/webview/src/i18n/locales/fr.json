@@ -1955,6 +1955,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1398": "Chaque réponse reste dans sa conversation",
+      "fixRound1398Desc": "Une réponse de l'IA reste dans la conversation où sa question a été posée, et la page le signale quand une autre est ouverte. Chaque ligne Forge et Frozen se termine désormais, quoi qui arrête l'exécution, et dit pourquoi.",
       "aiSonnet1397": "Les fonctions d'IA interrogent Claude Sonnet 5",
       "aiSonnet1397Desc": "Le chat, NL2SOQL, les brouillons de pipeline, la résolution d'erreurs et Seed interrogent Claude Sonnet 5 par défaut, et les Paramètres nomment le modèle configuré. Une réponse refusée, tronquée ou vide le dit désormais dans votre langue. Une question en échec n'est plus renvoyée avec la suivante.",
       "fixRound1397": "Un objet arrêté se lit comme arrêté",

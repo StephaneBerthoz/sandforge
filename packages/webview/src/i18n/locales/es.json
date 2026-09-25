@@ -1955,6 +1955,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1398": "Cada respuesta se queda en su conversación",
+      "fixRound1398Desc": "Una respuesta de la IA se queda en la conversación en la que se hizo su pregunta, y la página lo indica cuando hay otra abierta. Cada línea de Forge y Frozen termina ahora, sea lo que sea lo que detenga la ejecución, y dice por qué.",
       "aiSonnet1397": "Las funciones de IA consultan a Claude Sonnet 5",
       "aiSonnet1397Desc": "El chat, NL2SOQL, los borradores de pipeline, la resolución de errores y Seed consultan a Claude Sonnet 5 de forma predeterminada, y la Configuración nombra el modelo configurado. Una respuesta rechazada, truncada o vacía ahora lo indica en su idioma. Una pregunta que falló ya no se reenvía con la siguiente.",
       "fixRound1397": "Un objeto detenido se muestra como detenido",
