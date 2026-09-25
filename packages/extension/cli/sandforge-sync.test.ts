@@ -184,4 +184,38 @@ describe('the read of an object', () => {
     expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
     expect(rows).toEqual([{ Id: '001000000000001AAA' }, { Id: '001000000000002AAA' }]);
   });
+
+  it('reads every row of an object, not the 200 a FIELDS(ALL) query may ask for', async () => {
+    // Salesforce answers FIELDS(ALL) only under a LIMIT of 200 at most. Asked
+    // so, the command synced the first 200 rows of every object and said
+    // nothing; the panel asks with no LIMIT and, refused, reads every row by
+    // name.
+    const ids = Array.from({ length: 250 }, (_, i) => ({
+      Id: `001${String(i).padStart(12, '0')}AAA`,
+    }));
+    const NEXT = '/services/data/v66.0/query/01g000000000002-150';
+    const conn = {
+      query: vi.fn(async (soql: string) => {
+        if (soql.includes('FIELDS(ALL)')) {
+          if (!/LIMIT (\d+)$/.test(soql) || Number(/LIMIT (\d+)$/.exec(soql)?.[1]) > 200) {
+            throw new Error(
+              'MALFORMED_QUERY: The SOQL FIELDS function must have a LIMIT of at most 200',
+            );
+          }
+          return { records: ids.slice(0, 200), done: true };
+        }
+        return { records: ids.slice(0, 150), done: false, nextRecordsUrl: NEXT };
+      }),
+      queryMore: vi.fn().mockResolvedValue({ records: ids.slice(150), done: true }),
+      sobject: () => ({
+        describe: async () => ({ fields: [{ name: 'Id', type: 'id' }] }),
+      }),
+    };
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+
+    const rows = await buildQueryFn(conn as unknown as Connection)('SRC', account);
+
+    expect(rows).toHaveLength(250);
+    expect(conn.query).not.toHaveBeenCalledWith(expect.stringContaining('LIMIT'));
+  });
 });

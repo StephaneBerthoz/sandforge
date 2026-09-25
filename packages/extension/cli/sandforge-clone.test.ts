@@ -607,6 +607,41 @@ describe('sandforge-clone summary', () => {
       '      └ RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case.',
     );
   });
+
+  it('prints every group of errors an object carries, not the first two', () => {
+    // Grouped by reason, the samples say why each group failed: a product
+    // clone's 31 held-back products came in groups of 21, 7 and 3, and the
+    // command printed the first two.
+    const group = (count: number, why: string) => ({
+      recordSummary: `PricebookEntryId → ProductSellingModelOption (${count} records)`,
+      messages: [why],
+    });
+    const lines = summaryLines(
+      summary({
+        successCount: 0,
+        failedCount: 31,
+        errors: [
+          {
+            objectApiName: 'Product2',
+            stage: 'scope',
+            failedCount: 31,
+            attemptedCount: 0,
+            samples: [
+              group(21, 'first reason'),
+              group(7, 'second reason'),
+              group(3, 'third reason'),
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(lines.filter((line) => line.startsWith('      └ '))).toEqual([
+      '      └ first reason',
+      '      └ second reason',
+      '      └ third reason',
+    ]);
+  });
 });
 
 describe('sandforge-clone object outcomes', () => {

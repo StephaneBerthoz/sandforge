@@ -241,7 +241,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         totalSkipped += ids.length;
         continue;
       }
-      const delResult = await conn.sobject(objectName).destroy(ids);
+      // 200 to a request: jsforce sends every id in one unless it may split
+      // them, and Salesforce refuses a delete of more than 200 records.
+      const delResult = await conn.sobject(objectName).destroy(ids, { allowRecursive: true });
       const arr = Array.isArray(delResult) ? delResult : [delResult];
       const succ = arr.filter((r) => r.success).length;
       const fail = arr.length - succ;

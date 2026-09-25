@@ -505,21 +505,10 @@ test.describe('Autopilot — Execution UI', () => {
   });
 
   /*
-   * KNOWN RED — product defect, not a test defect. Do not "fix" by flattening
-   * the payload below.
-   *
-   * `AutopilotHandler.ts:525` answers this query with
-   * `buildResponse(..., 'autopilot:compliance-report', { report })`, but
-   * `ComplianceReport.tsx:35` reads it through
-   * `useBridgeQuery<ComplianceReport>(...)`, which hands the component
-   * `msg.payload` verbatim — the envelope, not the report. So `report.entries`
-   * is undefined and the render throws
-   * `TypeError: Cannot read properties of undefined (reading 'length')`,
-   * caught by the panel's ErrorBoundary: the user clicks "Compliance Report"
-   * and gets "Something went wrong".
-   *
-   * The two tests below send what the extension actually sends, and stay red
-   * until one side of that contract is corrected.
+   * The two tests below send what the extension sends, the report wrapped
+   * as `{ report }` (`AutopilotHandler`), which `ComplianceReport` unwraps. Do
+   * not flatten the payload: read as the report itself, the envelope once
+   * left the page on "Something went wrong".
    */
   test('view compliance report navigates to report view', async ({ page }) => {
     await enterCompletedState(page);
@@ -536,7 +525,6 @@ test.describe('Autopilot — Execution UI', () => {
     await expect(page.getByTestId('report-framework')).toContainText('GDPR');
   });
 
-  /* KNOWN RED — blocked by the same payload-shape defect as the test above. */
   test('back from compliance report returns to execution view', async ({ page }) => {
     await enterCompletedState(page);
 

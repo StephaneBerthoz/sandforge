@@ -666,7 +666,10 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
       lines.push(`  [${e.stage}] ${e.objectApiName}  ${e.failedCount}/${e.attemptedCount}`);
-      for (const s of e.samples.slice(0, 2)) {
+      // Every sample the run kept, as the results panel shows them: grouped
+      // by reason, a product clone's held-back products came in three groups,
+      // and the command printed two.
+      for (const s of e.samples) {
         lines.push(`    ${s.recordSummary}`);
         for (const m of s.messages) lines.push(`      └ ${m}`);
       }

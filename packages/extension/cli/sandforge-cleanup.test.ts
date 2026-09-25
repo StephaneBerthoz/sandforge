@@ -164,5 +164,50 @@ describe('sandforge-cleanup', () => {
       expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
       expect(printed).toContain(`  ${'Case'.padEnd(40)} 3000  [dry-run]`);
     });
+
+    it('deletes more than 200 records, 200 to a request', async () => {
+      // jsforce sends every id of a delete in one request unless told it may
+      // split them, and Salesforce refuses a request past 200: asked to
+      // delete 450, the command printed an error and deleted none.
+      const { Connection: JsforceConnection } =
+        await vi.importActual<typeof import('jsforce')>('jsforce');
+      const conn = new JsforceConnection({
+        instanceUrl: 'https://tgt.example.com',
+        accessToken: 'token',
+        version: '66.0',
+      });
+      const ids = Array.from({ length: 450 }, (_, i) => `500${String(i).padStart(12, '0')}AAA`);
+      vi.spyOn(conn, 'query').mockImplementation(((soql: string) =>
+        Promise.resolve(
+          soql.includes(' FROM User ')
+            ? { records: [{ Id: '005000000000001AAA' }], done: true, totalSize: 1 }
+            : { records: ids.map((Id) => ({ Id })), done: true, totalSize: ids.length },
+        )) as never);
+      const deletes: number[] = [];
+      vi.spyOn(conn, 'request').mockImplementation(((request: { method: string; url: string }) => {
+        const sent = new URL(request.url).searchParams.get('ids')?.split(',') ?? [];
+        if (request.method !== 'DELETE' || sent.length > 200) {
+          return Promise.reject(
+            new Error(
+              'EXCEEDED_ID_LIMIT: record limit reached. cannot submit more than 200 records into this call',
+            ),
+          );
+        }
+        deletes.push(sent.length);
+        return Promise.resolve(sent.map((id) => ({ id, success: true, errors: [] })));
+      }) as never);
+      vi.mocked(loadOrg).mockResolvedValue({
+        alias: 'TGT',
+        username: 'user@example.com',
+        instanceUrl: 'https://tgt.example.com',
+        accessToken: 'token',
+      });
+      vi.mocked(makeConn).mockReturnValue(conn);
+
+      expect(await run(argv('--objects', 'Case', '--max', '450'))).toBeUndefined();
+
+      expect(deletes).toEqual([200, 200, 50]);
+      expect(printed).toContain(`  ${'Case'.padEnd(40)} 450  deleted 450`);
+    });
   });
 });

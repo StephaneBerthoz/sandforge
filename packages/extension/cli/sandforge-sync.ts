@@ -220,11 +220,15 @@ export function buildQueryFn(conn: Connection) {
     const object = objectConfig.objectApiName;
     if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
     const where = objectConfig.where ? ` WHERE ${objectConfig.where}` : '';
+    const pages = {
+      query: async (q: string) => conn.query<Record<string, unknown>>(q),
+      queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
+    };
     try {
-      const result = await conn.query<Record<string, unknown>>(
-        `SELECT FIELDS(ALL) FROM ${object}${where} LIMIT 200`,
-      );
-      return result.records;
+      // No LIMIT, as the panel asks: Salesforce answers FIELDS(ALL) only under
+      // a LIMIT of 200 at most, and asked so the command synced the first 200
+      // rows of every object without a word. Refused, the read goes on by name.
+      return (await queryAllPages(pages, `SELECT FIELDS(ALL) FROM ${object}${where}`)).records;
     } catch {
       const described = await conn.sobject(object).describe();
       const fields = described.fields
@@ -233,14 +237,7 @@ export function buildQueryFn(conn: Connection) {
         .join(', ');
       // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
       // a time: every page is read, as the panel reads them.
-      const { records } = await queryAllPages<Record<string, unknown>>(
-        {
-          query: async (q) => conn.query<Record<string, unknown>>(q),
-          queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
-        },
-        `SELECT ${fields} FROM ${object}${where}`,
-      );
-      return records;
+      return (await queryAllPages(pages, `SELECT ${fields} FROM ${object}${where}`)).records;
     }
   };
 }
