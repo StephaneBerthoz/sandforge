@@ -30,7 +30,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
 }) => {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const show = () => {
     clearTimeout(timeoutRef.current);
