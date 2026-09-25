@@ -2354,6 +2354,7 @@
       "generalize": "Généraliser"
     },
     "apiCallsConsumed": "Appels API",
+    "apiCallsEstimated": "Appels API estimés",
     "exportJson": "Exporter JSON",
     "retryFailed": "Retenter les échecs",
     "retryFailedHint": "Retenter les échecs relance le clone : ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",

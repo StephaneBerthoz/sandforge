@@ -23,7 +23,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
-import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
+import { keepPartialSummary, partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
@@ -528,6 +528,62 @@ describe('ForgeHandler', () => {
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
         recordTypeMappings: undefined,
       });
+    });
+  });
+
+  describe('forge:execute calls to Salesforce', () => {
+    // Each case answers the record types its own way.
+    afterEach(() => {
+      mockGetConn.mockReset();
+    });
+
+    /** Both orgs answer the record types, none of them, on one page or on two. */
+    function recordTypesOn(pages: 1 | 2): void {
+      mockGetConn.mockImplementation(
+        async () =>
+          ({
+            query: vi.fn().mockResolvedValue({
+              records: [],
+              totalSize: 0,
+              ...(pages === 2
+                ? { done: false, nextRecordsUrl: '/services/data/v66.0/query/01g-2000' }
+                : { done: true }),
+            }),
+            queryMore: vi.fn().mockResolvedValue({ records: [], done: true, totalSize: 0 }),
+          }) as never,
+      );
+    }
+
+    /** The result the page was answered with. */
+    function answeredResult(): ForgeExecutionResult {
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { result: ForgeExecutionResult } })
+        .find((m) => m.type === 'forge:execute:response');
+      if (!response) throw new Error('no forge:execute:response was posted');
+      return response.payload.result;
+    }
+
+    it('counts the record types read from both orgs among the calls the run made', async () => {
+      // Each org answers on two pages: a query, and the page after it.
+      recordTypesOn(2);
+      vi.mocked(orchestrator.execute).mockResolvedValue(createMockResult({ apiCalls: 40 }));
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(answeredResult().apiCalls).toBe(44);
+    });
+
+    it('gives no count of a run whose executor counted none, the record types alone not being it', async () => {
+      recordTypesOn(1);
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(answeredResult()).not.toHaveProperty('apiCalls');
     });
   });
 
@@ -2117,7 +2173,7 @@ describe('ForgeHandler', () => {
       );
 
       expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
+        'INSERT at most 10 Account record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
         'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
@@ -2154,7 +2210,7 @@ describe('ForgeHandler', () => {
       );
 
       expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT an unknown number of Account, Contact, Opportunity, Case record(s) on production org tgt-org [module: forge]',
+        'INSERT an unknown number of Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
         'production',
       );
       expect(orchestrator.execute).not.toHaveBeenCalled();
@@ -2182,7 +2238,79 @@ describe('ForgeHandler', () => {
       await handler.handle(buildMsg('forge:execute', { graph, config: createMockConfig() }));
 
       expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT 14 Account, Case record(s) on production org tgt-org [module: forge]',
+        'INSERT at most 14 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
+        'production',
+      );
+    });
+
+    /** An account, and the 4 000 cases of its table discovery counted. */
+    function accountAndItsCases(): ForgeGraph {
+      const account = createMockGraph().nodes[0];
+      return {
+        ...createMockGraph(),
+        nodes: [account, { ...account, objectApiName: 'Case', recordCount: 4000, level: 1 }],
+        totalRecords: 4010,
+      };
+    }
+
+    it('asks about a clone of one record as at most its tables, each counted no further than the cap on each object', async () => {
+      // Discovery counts whole tables, and the question read them as what a
+      // clone of one account writes: "INSERT 4010 Account, Case record(s)",
+      // of a run that reads no more than fifty rows of any object.
+      const requestConfirmation = askedOnProduction();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: accountAndItsCases(),
+          config: createMockConfig({ maxRecordsPerObject: 50 }),
+        }),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT at most 60 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
+        'production',
+      );
+    });
+
+    it('asks about a run of whole tables as the rows it reads of each, no more than the cap', async () => {
+      const requestConfirmation = askedOnProduction();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: accountAndItsCases(),
+          config: createMockConfig({
+            inputMode: 'soql',
+            recordId: undefined,
+            soqlQuery: 'SELECT Id FROM Account',
+            maxRecordsPerObject: 50,
+          }),
+        }),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 60 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
+        'production',
+      );
+    });
+
+    it('asks about a capped starter template as at most the cap on each of its objects', async () => {
+      // Nobody counted its objects, and no run reads more of one than the cap.
+      const requestConfirmation = askedOnProduction();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: buildSyntheticForgeGraph(['Account', 'Contact', 'Opportunity', 'Case']),
+          config: createMockConfig({
+            inputMode: 'template',
+            recordId: undefined,
+            templateId: 'starter-sales',
+            maxRecordsPerObject: 25,
+          }),
+        }),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT at most 100 Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
         'production',
       );
     });
@@ -2635,6 +2763,33 @@ describe('ForgeHandler', () => {
       );
 
       expect(errorsPosted()[0].result).toMatchObject({ status: 'partial', cancelled: true });
+    });
+
+    it('counts the calls a stopped run made up to its stop, the record types read before it among them', async () => {
+      const store = historyStore();
+      // Each org answers the record types in one query.
+      mockGetConn.mockImplementation(
+        async () =>
+          ({
+            query: vi.fn().mockResolvedValue({ records: [], done: true, totalSize: 0 }),
+            queryMore: vi.fn(),
+          }) as never,
+      );
+      const stopped = stoppedWith(
+        new ForgeAbortedError('Forge execution was aborted by user request.'),
+      );
+      const summary = partialSummaryOf(stopped);
+      if (!summary) throw new Error('the error carries no summary');
+      keepPartialSummary(stopped, { ...summary, apiCalls: 9 });
+
+      try {
+        await executeThrowing(stopped);
+      } finally {
+        mockGetConn.mockReset();
+      }
+
+      expect(errorsPosted()[0].result).toMatchObject({ apiCalls: 11 });
+      expect(kept(store)[0]).toMatchObject({ apiCalls: 11 });
     });
 
     it('says nothing of records for a run that created none', async () => {

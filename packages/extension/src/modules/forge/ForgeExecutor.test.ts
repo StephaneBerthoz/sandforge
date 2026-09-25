@@ -136,6 +136,131 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('the calls a run makes', () => {
+    /**
+     * Deps that count one request for each read, write and describe asked of
+     * them, from `before`: what discovery had sent through the same deps.
+     */
+    function countingDeps(before: number): ForgeExecutorDeps {
+      let sent = before;
+      const base = createMockDeps();
+      return {
+        ...base,
+        queryRecords: async (...args) => {
+          sent++;
+          return base.queryRecords(...args);
+        },
+        insertRecords: async (...args) => {
+          sent++;
+          return base.insertRecords(...args);
+        },
+        updateRecords: async (_orgId, _objectName, records) => {
+          sent++;
+          return records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }));
+        },
+        describeFields: async (...args) => {
+          sent++;
+          return base.describeFields(...args);
+        },
+        requestsSent: () => sent,
+      };
+    }
+
+    /** The requests `deps` counted, less those sent before the run. */
+    const sentSince = (deps: ForgeExecutorDeps, before: number): number =>
+      (deps.requestsSent?.() ?? 0) - before;
+
+    it('counts the requests its deps sent from its start to its end, and none sent before', async () => {
+      // The results added up discovery's estimate of each node instead: 0 for
+      // a starter template's graph, whatever the run read and wrote.
+      const counting = countingDeps(7);
+      const graph = makeGraph([
+        makeNode('Account', { estimatedApiCalls: 0 }),
+        makeNode('Contact', { level: 1, estimatedApiCalls: 0 }),
+      ]);
+
+      const summary = await new ForgeExecutor(counting).execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.apiCalls).toBe(sentSince(counting, 7));
+      // Two objects, each described and read from the source and written to
+      // the target: none of it is free.
+      expect(summary.apiCalls).toBeGreaterThanOrEqual(4);
+    });
+
+    it('counts the requests of the second pass', async () => {
+      // A self-lookup is nullified at insert and filled in by an update.
+      const counting = countingDeps(0);
+      const fields: FieldInfo[] = [
+        ...DEFAULT_FIELDS,
+        {
+          name: 'ParentId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+          nillable: true,
+        },
+      ];
+      const updates = vi.fn(counting.updateRecords);
+      const deps: ForgeExecutorDeps = {
+        ...counting,
+        describeFields: async (...args) => {
+          await counting.describeFields(...args);
+          return fields;
+        },
+        queryRecords: async (...args) => {
+          await counting.queryRecords(...args);
+          return [
+            { Id: '001OLD1', Name: 'Parent', ParentId: null },
+            { Id: '001OLD2', Name: 'Child', ParentId: '001OLD1' },
+          ];
+        },
+        updateRecords: updates,
+      };
+
+      const summary = await new ForgeExecutor(deps).execute(
+        makeGraph([makeNode('Account')]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(updates).toHaveBeenCalled();
+      expect(summary.apiCalls).toBe(sentSince(deps, 0));
+    });
+
+    it('keeps the requests a run had sent with the error it stops on', async () => {
+      const counting = countingDeps(3);
+      const executorStopping = new ForgeExecutor({
+        ...counting,
+        insertRecords: async (...args) => {
+          const written = await counting.insertRecords(...args);
+          executorStopping.abort();
+          return written;
+        },
+      });
+      const graph = makeGraph([makeNode('Account'), makeNode('Contact', { level: 1 })]);
+
+      const error = await executorStopping
+        .execute(graph, 'src', 'tgt', onProgress)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ForgeAbortedError);
+      expect(partialSummaryOf(error)?.apiCalls).toBe(sentSince(counting, 3));
+    });
+
+    it('says nothing of its calls when its deps count none', async () => {
+      const summary = await executor.execute(
+        makeGraph([makeNode('Account')]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary).not.toHaveProperty('apiCalls');
+    });
+  });
+
   describe('topological ordering', () => {
     it('should process parent before child', async () => {
       const insertOrder: string[] = [];

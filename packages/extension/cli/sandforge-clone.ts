@@ -24,7 +24,7 @@
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
 import type { Connection, DescribeSObjectResult } from 'jsforce';
-import { loadOrg, makeConn } from './sfSession.js';
+import { countRequests, loadOrg, makeConn } from './sfSession.js';
 
 import type { ForgeConfig, ForgeFilesReport, ForgeGraph, ForgePlan } from '@sandforge/shared';
 import {
@@ -624,6 +624,11 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       (summary.failedReads.length > 0 ? ` (read failed: ${summary.failedReads.join(', ')})` : ''),
     `skipped: ${summary.skippedCount}`,
     `remaps:  ${summary.remapCount}`,
+    // Counted as the run sent them; discovery's describes and counts before
+    // it are not among them.
+    ...(summary.apiCalls !== undefined
+      ? [`calls:   ${summary.apiCalls} (requests the run sent to both orgs)`]
+      : []),
   ];
   if (summary.existingRecords.length > 0) {
     lines.push('', `already in the target (${summary.existingRecords.length} object(s)):`);
@@ -708,6 +713,8 @@ export function jsonResult(summary: ExecutionSummary) {
     ...(summary.fileContentFieldsLeftOut
       ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
       : {}),
+    // The requests the run sent to both orgs, discovery's before it aside.
+    ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
   };
 }
 
@@ -852,6 +859,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
+  // Every request either org is sent: the run's calls are those sent while
+  // the executor has it, discovery's and the record types' before it not.
+  const requestsOf = [...conns.values()].map(countRequests);
 
   const config: ForgeConfig = {
     inputMode: 'record',
@@ -1029,6 +1039,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (!c) throw new Error(`No connection for ${orgId}`);
       return remainingFileStorageMB(c);
     },
+    requestsSent: () => requestsOf.reduce((sum, sent) => sum + sent(), 0),
   };
 
   // Preflight: pre-count rows on the target for every node in the graph so

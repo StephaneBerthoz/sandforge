@@ -322,6 +322,15 @@ describe('sandforge-clone summary', () => {
     });
   });
 
+  it('says how many calls the run sent to both orgs, where it counted them', () => {
+    const counted = summary({ apiCalls: 64 });
+
+    expect(summaryLines(counted)).toContain('calls:   64 (requests the run sent to both orgs)');
+    expect(jsonResult(counted).apiCalls).toBe(64);
+    expect(summaryLines(summary({})).some((line) => line.startsWith('calls:'))).toBe(false);
+    expect(jsonResult(summary({}))).not.toHaveProperty('apiCalls');
+  });
+
   it('gives a CI job the rows the run read of each object, the size of the clone', () => {
     // Discovery counts each whole table; a record-scoped clone reads a few
     // rows of each, and nothing in the summary said how many.
@@ -855,6 +864,9 @@ describe('sandforge-clone describes', () => {
           const records = selectRows(ROWS, soql);
           return { totalSize: records.length, records };
         },
+        // Where a real connection sends every call, which the run counts.
+        // These methods answer without it.
+        request: async () => ({}),
       };
       return { conn: conn as unknown as Connection, asked };
     }

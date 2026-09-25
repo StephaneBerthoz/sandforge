@@ -91,5 +91,8 @@ export function forgeRunResult(
     // The target's own dates of the run's writes, which removing its records
     // tells a later change by.
     ...(summary.writtenBetween ? { writtenBetween: summary.writtenBetween } : {}),
+    // The calls the run made, where its deps counted them: discovery's
+    // estimate of each node is all the graph says otherwise.
+    ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
   };
 }

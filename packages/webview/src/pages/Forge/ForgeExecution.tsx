@@ -22,6 +22,7 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
+import { estimatedApiCallsOf } from './forgeApiCalls';
 
 /**
  * What the top bar says: that the run is forging, or held paused; that it is
@@ -129,7 +130,9 @@ export const ForgeExecution: React.FC = () => {
     const queued = nodeList.filter((n) => n.status === 'idle').length;
     const failed = nodeList.filter((n) => n.status === 'error').length;
     const skipped = nodeList.filter((n) => n.status === 'skipped').length;
-    const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
+    // Discovery's, said to be an estimate: the run counts its calls, and says
+    // how many once it has answered (`ForgeResults`).
+    const apiCalls = estimatedApiCallsOf(nodeList);
     // A skipped or failed node is finished with, and counts toward the bar,
     // measured as the store measures where a run stopped: the two agree.
     const settled = done + failed + skipped;
@@ -422,8 +425,8 @@ export const ForgeExecution: React.FC = () => {
           <KPICard icon="error" label={t('forge.failed')} value={kpis.failed} variant="error" />
           <KPICard
             icon="zap"
-            label={t('forge.apiCallsConsumed')}
-            value={kpis.apiCalls}
+            label={t('forge.apiCallsEstimated')}
+            value={kpis.apiCalls ?? '—'}
             variant="default"
           />
         </div>

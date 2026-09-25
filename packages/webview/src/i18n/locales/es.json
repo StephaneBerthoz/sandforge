@@ -2354,6 +2354,7 @@
       "generalize": "Generalizar"
     },
     "apiCallsConsumed": "Llamadas API",
+    "apiCallsEstimated": "Llamadas API estimadas",
     "exportJson": "Exportar JSON",
     "retryFailed": "Reintentar fallidos",
     "retryFailedHint": "Reintentar fallidos vuelve a ejecutar el clon: lo que esta ejecución no pudo escribir se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",

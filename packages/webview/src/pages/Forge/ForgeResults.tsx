@@ -38,6 +38,7 @@ import { formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatter
 import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 import { ForgeFilesResult } from './ForgeFilesResult';
+import { estimatedApiCallsOf } from './forgeApiCalls';
 
 /**
  * Above this many source -> target pairs the Id map switches from a plain
@@ -221,10 +222,15 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [nodes],
   );
 
-  const totalApiCalls = useMemo(
-    () => nodes.reduce((sum, n) => sum + n.estimatedApiCalls, 0),
-    [nodes],
-  );
+  /*
+   * The calls the run made, as it counted them: its reads, the describes it
+   * needed, its writes, the second pass and the files. The card added up
+   * discovery's estimates instead — a guess at the writes of whole tables, 0
+   * for every object of a starter template — and called it the calls the run
+   * consumed. A result that counts none shows the estimate, and says so.
+   */
+  const apiCalls = result?.apiCalls;
+  const estimatedApiCalls = useMemo(() => estimatedApiCallsOf(nodes), [nodes]);
 
   // Discovery's empty tables are most of a graph — 315 of the 400 objects a
   // clone of one opportunity between two sandboxes reached — and the table
@@ -573,8 +579,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         />
         <KPICard
           icon="zap"
-          label={t('forge.apiCallsConsumed')}
-          value={totalApiCalls}
+          label={t(apiCalls === undefined ? 'forge.apiCallsEstimated' : 'forge.apiCallsConsumed')}
+          value={apiCalls ?? estimatedApiCalls ?? '—'}
           variant="default"
         />
       </m.div>

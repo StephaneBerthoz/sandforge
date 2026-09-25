@@ -544,6 +544,122 @@ describe('initForgeComposition', () => {
     expect(result.truncatedObjects).toEqual(['Contact']);
   });
 
+  it('counts the calls a run makes, its reads and their pages, describes, writes, second pass and files, and none of discovery', async () => {
+    // The results added up discovery's estimate of each node instead: a guess
+    // at the writes of whole tables, 0 for every object of a starter template.
+    const DOCUMENT = '069000000000001AAA';
+    const VERSION = '068000000000001AAA';
+    /** Every request the fake orgs answered, as Salesforce counts them. */
+    let requests = 0;
+    const pagesAfter = vi.fn();
+    const updates = vi.fn();
+    const page = (records: unknown[], more = false) => ({
+      totalSize: records.length,
+      done: !more,
+      records,
+      ...(more ? { nextRecordsUrl: '/services/data/v66.0/query/01g-2000' } : {}),
+    });
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        describeGlobal: connection.describeGlobal,
+        describe: vi.fn(async (objectApiName: string) => {
+          requests++;
+          const described = (await connection.describe(objectApiName)) as { fields: unknown[] };
+          // Accounts under an account: a lookup the second pass fills in.
+          return objectApiName === 'Account'
+            ? {
+                ...described,
+                fields: [...described.fields, field('ParentId', 'reference', ['Account'])],
+              }
+            : described;
+        }),
+        query: vi.fn(async (soql: string) => {
+          requests++;
+          if (/FROM ContentDocumentLink/.test(soql)) {
+            return page(
+              soql.includes(sfId('Account', 1))
+                ? [
+                    {
+                      ContentDocumentId: DOCUMENT,
+                      LinkedEntityId: sfId('Account', 1),
+                      ShareType: 'V',
+                      Visibility: 'AllUsers',
+                    },
+                  ]
+                : [],
+            );
+          }
+          if (/FROM ContentVersion WHERE ContentDocumentId/.test(soql)) {
+            return page([
+              {
+                Id: VERSION,
+                ContentDocumentId: DOCUMENT,
+                Title: 'Scan',
+                PathOnClient: 'scan.png',
+                ContentSize: 4,
+                ContentLocation: 'S',
+                SharingPrivacy: 'N',
+              },
+            ]);
+          }
+          if (/FROM ContentVersion WHERE Id/.test(soql)) {
+            return page([{ ContentDocumentId: '069000000000901AAA' }]);
+          }
+          if (/FROM Attachment/.test(soql)) return page([]);
+          const answered = await connection.query(soql);
+          if (/COUNT\(\)/.test(soql)) return answered;
+          if (/\bFROM Account\b/.test(soql)) {
+            return page(
+              answered.records.map((row) => ({
+                ...row,
+                ParentId: row.Id === sfId('Account', 2) ? sfId('Account', 1) : null,
+              })),
+            );
+          }
+          // The contacts come on two pages.
+          return /\bFROM Contact\b/.test(soql) ? page(answered.records, true) : answered;
+        }),
+        queryMore: vi.fn(async () => {
+          requests++;
+          pagesAfter();
+          return page([]);
+        }),
+        sobject: (objectApiName: string) => ({
+          // An empty write sends nothing, as jsforce sends none.
+          create: vi.fn(async (records: unknown[]) => {
+            if (records.length > 0) requests++;
+            return connection.sobject(objectApiName).create(records);
+          }),
+          update: vi.fn(async (records: Array<{ Id: string }>) => {
+            if (records.length > 0) requests++;
+            updates(objectApiName, records);
+            return records.map((record) => ({ id: record.Id, success: true, errors: [] }));
+          }),
+        }),
+        request: vi.fn(async (request: { method: string; url: string }) => {
+          requests++;
+          if (request.url === '/limits') return { FileStorageMB: { Max: 200, Remaining: 200 } };
+          if (request.method === 'GET') return Buffer.from('scan').toString('base64');
+          return { id: '068000000000901AAA', success: true, errors: [] };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const byDiscovery = requests;
+    const result = await orchestrator.execute(graph, SOQL_CONFIG, {
+      files: { maxFileSizeMB: 10, acceptedAsIs: false },
+    });
+
+    // Each kind of call was made: a page after a read, the second pass, a file.
+    expect(pagesAfter).toHaveBeenCalled();
+    expect(updates).toHaveBeenCalledWith('Account', expect.any(Array));
+    expect(result.files?.objects[0]?.copied).toBe(1);
+    expect(result.apiCalls).toBe(requests - byDiscovery);
+  });
+
   it('joins a describe already under way instead of sending a second one', async () => {
     const { services } = await compose();
 

@@ -2354,6 +2354,7 @@
       "generalize": "Verallgemeinern"
     },
     "apiCallsConsumed": "API-Aufrufe",
+    "apiCallsEstimated": "Geschätzte API-Aufrufe",
     "exportJson": "JSON exportieren",
     "retryFailed": "Fehlgeschlagene wiederholen",
     "retryFailedHint": "„Fehlgeschlagene wiederholen“ führt den Klon erneut aus: Was dieser Lauf nicht schreiben konnte, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",

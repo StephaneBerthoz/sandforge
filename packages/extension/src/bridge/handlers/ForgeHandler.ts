@@ -60,6 +60,7 @@ import {
   type RecordTypeMapping,
 } from '../../modules/sync/RecordTypeMapper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
 import {
@@ -368,23 +369,57 @@ function forgeCarried(
 
 /**
  * What Production Guard is told a run will write: the objects of the graph
- * the run takes, and their records — an unknown number when one of them was
- * never counted.
+ * the run takes, and the most records of them it can write — an unknown
+ * number when one of them was never counted and nothing caps it.
  *
  * A starter template's graph skips discovery and holds each count at a
  * placeholder zero, and the guard was given the graph's total and its first
  * node: a production confirmation read "INSERT 0 Account record(s)" of a run
  * that writes every object of the template, and a graph whose first node the
  * user had left out was named after that node alone, with its records.
+ *
+ * A node's count is discovery's `COUNT()` of its whole table, and the guard
+ * was told the sum of them as what the run writes. A clone of one record
+ * reads the few rows of each table its record reaches — 272 records, of an
+ * opportunity cloned between two sandboxes, from tables discovery counted
+ * 4 315 rows in — and no run reads more of an object than the cap on each
+ * (`maxRecordsPerObject`), which the sum ignored. Each table now counts for
+ * no more than the cap, and a clone of one record is said to write at most
+ * the total, as is a capped run of objects nobody counted. The run also
+ * writes objects the graph does not hold — the catalog, order items, the
+ * parents its records name — which no count before the run can bound: the
+ * guard says so after the count.
  */
-function guardedWrites(graph: ForgeGraph): { objectName: string; recordCount: number | 'unknown' } {
+function guardedWrites(
+  graph: ForgeGraph,
+  config: Pick<ForgeConfig, 'inputMode' | 'recordId' | 'maxRecordsPerObject'>,
+): Pick<OperationRequest, 'objectName' | 'recordCount' | 'alsoWrites'> {
   const written = graph.nodes.filter((node) => node.included);
-  return {
-    objectName: written.map((node) => node.objectApiName).join(', ') || 'ForgeData',
-    recordCount: written.some((node) => node.recordCountUnknown === true)
-      ? 'unknown'
-      : written.reduce((sum, node) => sum + node.recordCount, 0),
-  };
+  const objectName = written.map((node) => node.objectApiName).join(', ') || 'ForgeData';
+  const alsoWrites = 'the related records the run adds';
+  const cap = config.maxRecordsPerObject;
+  // Record-scoped as the orchestrator runs it: an input of one record.
+  let atMost = config.inputMode === 'record' && typeof config.recordId === 'string';
+  let records = 0;
+  for (const node of written) {
+    if (node.recordCountUnknown === true) {
+      if (cap === undefined) return { objectName, recordCount: 'unknown', alsoWrites };
+      records += cap;
+      atMost = true;
+    } else {
+      records += cap === undefined ? node.recordCount : Math.min(node.recordCount, cap);
+    }
+  }
+  return { objectName, recordCount: atMost ? { atMost: records } : records, alsoWrites };
+}
+
+/**
+ * A run's result, with the calls made for it before the executor had it —
+ * the record types read from both orgs — among the calls it counts. A result
+ * that counts none is left so: the lookup's alone would read as the run's.
+ */
+function withCallsBefore(result: ForgeExecutionResult, calls: number): ForgeExecutionResult {
+  return result.apiCalls === undefined ? result : { ...result, apiCalls: result.apiCalls + calls };
 }
 
 /**
@@ -1047,7 +1082,7 @@ export class ForgeHandler implements DomainHandler {
       orgId: config.targetOrgId,
       orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
       operation: 'insert' as const,
-      ...guardedWrites(graph),
+      ...guardedWrites(graph, config),
       module: 'forge',
     };
     // Made before the guard is asked, where forge:abort reaches it while the
@@ -1202,6 +1237,8 @@ export class ForgeHandler implements DomainHandler {
     this.executeOperationId = operationId;
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
+    /** The requests sent for the run before the executor had it: both orgs' record types. */
+    const lookup = { requests: 0 };
     /** What the run failed on, so the registry lists it as failed. */
     let runError: unknown;
 
@@ -1250,7 +1287,11 @@ export class ForgeHandler implements DomainHandler {
       logger.info('Forge execute started');
       // RecordType Ids differ between orgs. Without this table every cloned
       // record kept the source org's RecordTypeId, which the target rejects.
-      const recordTypeMappings = await this.loadRecordTypeMappings(config, runController.signal);
+      const recordTypeMappings = await this.loadRecordTypeMappings(
+        config,
+        runController.signal,
+        lookup,
+      );
       // An Abort that lands during that lookup reaches an executor that has not
       // started yet, and execute() clears its abort flag on entry — the run
       // would go ahead and write. Honour it here instead.
@@ -1267,7 +1308,8 @@ export class ForgeHandler implements DomainHandler {
       });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
-      const result = retryOf !== undefined ? { ...executed, retryOf } : executed;
+      const counted = withCallsBefore(executed, lookup.requests);
+      const result = retryOf !== undefined ? { ...counted, retryOf } : counted;
 
       // Arm the duplicate cooldown only when the run created something: a
       // failure, or a run that created no record, leaves the recipe
@@ -1330,7 +1372,12 @@ export class ForgeHandler implements DomainHandler {
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
       const stoppedRun = partial
-        ? this.keepStoppedRun(partial, graph, config, { startedAt, cancelled, retryOf })
+        ? this.keepStoppedRun(partial, graph, config, {
+            startedAt,
+            cancelled,
+            retryOf,
+            callsBefore: lookup.requests,
+          })
         : undefined;
       recordWriteRun(this.deps, {
         action: 'forge_execute',
@@ -1426,13 +1473,16 @@ export class ForgeHandler implements DomainHandler {
     summary: ExecutionSummary,
     graph: ForgeGraph,
     config: ForgeConfig,
-    run: { startedAt: number; cancelled: boolean; retryOf?: string },
+    run: { startedAt: number; cancelled: boolean; retryOf?: string; callsBefore: number },
   ): ForgeExecutionResult | undefined {
     if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return undefined;
-    const result = forgeRunResult(summary, graph, {
-      startedAt: run.startedAt,
-      status: run.cancelled ? 'partial' : 'failure',
-    });
+    const result = withCallsBefore(
+      forgeRunResult(summary, graph, {
+        startedAt: run.startedAt,
+        status: run.cancelled ? 'partial' : 'failure',
+      }),
+      run.callsBefore,
+    );
     const stopped: ForgeExecutionResult = {
       ...result,
       ...(run.cancelled ? { cancelled: true } : {}),
@@ -1563,10 +1613,13 @@ export class ForgeHandler implements DomainHandler {
    * lookup is bounded: a hung org falls back the same way after
    * {@link RECORD_TYPES_TIMEOUT_MS}, and an Abort returns at once so the
    * caller can refuse the run without waiting for the org to answer.
+   *
+   * @param sent - Counts each request the lookup sends: calls of the run too.
    */
   private async loadRecordTypeMappings(
     config: ForgeConfig,
     signal: AbortSignal,
+    sent: { requests: number },
   ): Promise<RecordTypeMapping[] | undefined> {
     let onAbort: () => void = () => {};
     const aborted = new Promise<undefined>((resolve) => {
@@ -1576,7 +1629,7 @@ export class ForgeHandler implements DomainHandler {
     try {
       const lookup = new TimeoutManager(RECORD_TYPES_TIMEOUT_MS).withTimeout(
         'forge:record-types',
-        () => this.readRecordTypeMappings(config),
+        () => this.readRecordTypeMappings(config, sent),
       );
       return await Promise.race([lookup, aborted]);
     } catch (err: unknown) {
@@ -1590,14 +1643,24 @@ export class ForgeHandler implements DomainHandler {
     }
   }
 
-  private async readRecordTypeMappings(config: ForgeConfig): Promise<RecordTypeMapping[]> {
+  /** Both orgs' record types, matched, each request sent counted in `sent`. */
+  private async readRecordTypeMappings(
+    config: ForgeConfig,
+    sent: { requests: number },
+  ): Promise<RecordTypeMapping[]> {
     const [sourceTypes, targetTypes] = await Promise.all(
       [config.sourceOrgId, config.targetOrgId].map(async (orgId) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const { records } = await queryAllPages<Record<string, unknown>>(
           {
-            query: async (q) => conn.query<Record<string, unknown>>(q),
-            queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+            query: async (q) => {
+              sent.requests++;
+              return conn.query<Record<string, unknown>>(q);
+            },
+            queryMore: async (url) => {
+              sent.requests++;
+              return conn.queryMore<Record<string, unknown>>(url);
+            },
           },
           RECORD_TYPES_SOQL,
         );

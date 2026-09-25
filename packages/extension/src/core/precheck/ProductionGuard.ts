@@ -17,8 +17,21 @@ export interface OperationRequest {
    * before the run (a clone queries its source afterwards, a masking run
    * queries each object) send `'unknown'`, which is shown as such and
    * counts as below every volume threshold. A measured 0 stays 0.
+   *
+   * A caller that knows only the most it can write sends `{ atMost }`, shown
+   * as "at most" that many: a clone of one record is counted by the tables
+   * its objects are read from, and writes the few rows of them its record
+   * reaches. The volume thresholds measure that most, which the run may reach.
    */
-  recordCount: number | 'unknown';
+  recordCount: number | 'unknown' | { atMost: number };
+  /**
+   * What the operation writes besides the records `recordCount` counts, said
+   * after them. A Forge clone adds the catalog, order items and parents its
+   * records name, objects no count taken before the run can hold: told only
+   * "at most 60 Account, Case record(s)", the user read a bound on the whole
+   * run, of which those objects were 34 records of 85 on a real clone.
+   */
+  alsoWrites?: string;
   module: string;
 }
 
@@ -140,7 +153,8 @@ export class ProductionGuard {
 
     warnings.push(
       `Production operation: ${request.operation} on ${request.objectName} ` +
-        `(${describeCount(request.recordCount)} ${unitOf(request)})`,
+        `(${describeCount(request.recordCount)} ${unitOf(request)}` +
+        `${request.alsoWrites ? `, plus ${request.alsoWrites}` : ''})`,
     );
 
     if (request.operation === 'deploy') {
@@ -205,7 +219,9 @@ export class ProductionGuard {
     }
 
     if (countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD) {
-      warnings.push(`Large volume operation: ${request.recordCount} records on staging`);
+      warnings.push(
+        `Large volume operation: ${describeCount(request.recordCount)} records on staging`,
+      );
     }
 
     return {
@@ -223,7 +239,7 @@ export class ProductionGuard {
 
     if (countForThreshold(request.recordCount) > DEV_WARNING_THRESHOLD) {
       warnings.push(
-        `Large volume operation: ${request.recordCount} records on ${request.orgTier} org`,
+        `Large volume operation: ${describeCount(request.recordCount)} records on ${request.orgTier} org`,
       );
     }
 
@@ -237,18 +253,24 @@ export class ProductionGuard {
   }
 }
 
-/** Spell out a record count, or say the caller could not count it yet. */
-function describeCount(recordCount: number | 'unknown'): string {
-  return recordCount === 'unknown' ? 'an unknown number of' : String(recordCount);
+/**
+ * Spell out a record count, say it is the most the operation can write, or
+ * say the caller could not count it yet.
+ */
+function describeCount(recordCount: OperationRequest['recordCount']): string {
+  if (recordCount === 'unknown') return 'an unknown number of';
+  return typeof recordCount === 'number' ? String(recordCount) : `at most ${recordCount.atMost}`;
 }
 
 /**
  * The count to compare against a volume threshold. An uncounted request has
  * nothing to measure, so it stays below every threshold rather than tripping
- * a gate on a volume nobody established.
+ * a gate on a volume nobody established. One counted at most is measured at
+ * that most: the run may write it.
  */
-function countForThreshold(recordCount: number | 'unknown'): number {
-  return recordCount === 'unknown' ? 0 : recordCount;
+function countForThreshold(recordCount: OperationRequest['recordCount']): number {
+  if (recordCount === 'unknown') return 0;
+  return typeof recordCount === 'number' ? recordCount : recordCount.atMost;
 }
 
 /** What the operation's count counts: components for a deployment, records otherwise. */
@@ -264,9 +286,10 @@ function buildImpactSummary(request: OperationRequest): string {
       `to ${request.orgTier} org ${request.orgId} [module: ${request.module}]`
     );
   }
+  const besides = request.alsoWrites ? `, plus ${request.alsoWrites},` : '';
   return (
     `${request.operation.toUpperCase()} ${describeCount(request.recordCount)} ` +
-    `${request.objectName} record(s) on ${request.orgTier} org ${request.orgId} ` +
+    `${request.objectName} record(s)${besides} on ${request.orgTier} org ${request.orgId} ` +
     `[module: ${request.module}]`
   );
 }

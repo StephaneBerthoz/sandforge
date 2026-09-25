@@ -536,6 +536,28 @@ describe('ForgeExecution', () => {
     expect(values[4].textContent).toBe('17');
   });
 
+  it('says the calls it shows are an estimate of discovery, not what the run consumed', () => {
+    render(<ForgeExecution />);
+
+    expect(screen.getAllByTestId('kpi-card')[4].textContent).toBe('Estimated API Calls17');
+  });
+
+  it('gives no estimate of the calls of a run whose objects nobody counted, rather than zero', () => {
+    // A starter template's graph skips discovery and holds each estimate at a
+    // placeholder zero: the card read "API Calls 0" all through the run.
+    mockGraph = {
+      ...mockGraph,
+      nodes: mockGraph.nodes.map((node) => ({
+        ...node,
+        recordCountUnknown: true,
+        estimatedApiCalls: 0,
+      })),
+    };
+    render(<ForgeExecution />);
+
+    expect(screen.getAllByTestId('kpi-value')[4].textContent).toBe('—');
+  });
+
   it('shows the log the store kept, not one of its own that a new mount starts empty', () => {
     mockLogs = [
       logLine('forge-log-1', 'info', 'Account: done (100%)'),

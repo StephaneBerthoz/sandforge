@@ -159,6 +159,13 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary({ updatedCount: 4 }), GRAPH, run).updatedCount).toBe(4);
   });
 
+  it('says how many calls the run made where it counted them, and nothing where it did not', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+
+    expect(forgeRunResult(summary({ apiCalls: 64 }), GRAPH, run).apiCalls).toBe(64);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('apiCalls');
+  });
+
   it('keeps what a run that stopped part way created, under the status it is given', () => {
     const stopped = forgeRunResult(summary({ failedCount: 5 }), GRAPH, {
       startedAt: Date.now(),

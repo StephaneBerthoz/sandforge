@@ -503,6 +503,15 @@ export interface ForgeExecutorDeps {
   insertFile?: FileCopyDeps['insertFile'];
   /** The file storage an org has left, in MB. */
   remainingFileStorageMB?: FileCopyDeps['remainingFileStorageMB'];
+  /**
+   * How many requests to Salesforce these deps have sent so far: each query
+   * and each further page of one, each describe not already held, each call
+   * of up to 200 records written, each file read or written, the file
+   * storage asked for. A run's calls are what this says at its end less what
+   * it said at its start. Optional: without it a run counts no call, and
+   * says so by leaving `apiCalls` out.
+   */
+  requestsSent?: () => number;
 }
 
 /** Progress event emitted during execution. */
@@ -669,6 +678,13 @@ export interface ExecutionSummary {
    * once it had written them. Absent when it created nothing, or on a dry run.
    */
   writtenBetween?: ForgeWrittenBetween;
+  /**
+   * The requests to Salesforce the run sent, as its deps count them
+   * (`requestsSent`): its reads, the describes it needed, its writes, the
+   * second pass and the files alike, up to where it ended or stopped. Absent
+   * when the deps count none.
+   */
+  apiCalls?: number;
 }
 
 /** A node the run adds for the status of its parent's records, and how its rows name them. */
@@ -916,6 +932,8 @@ interface ExecutionState {
   taskTurnOver: boolean;
   /** When the target dated the run's writes, once read back at its end. */
   writtenBetween?: ForgeWrittenBetween;
+  /** What the deps' `requestsSent` said as the run began; absent when they count none. */
+  readonly requestsBefore: number | undefined;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
@@ -1564,6 +1582,9 @@ export class ForgeExecutor {
     this.isAborted = false;
     this.isPaused = false;
     this.pauseResolve = null;
+    // Before the first describe of the objects the run adds: every request
+    // from here on is the run's.
+    const requestsBefore = this.deps.requestsSent?.();
 
     const config = resolveStageConfig(options);
     // A run asked to copy files that may not is refused before it reads
@@ -1644,6 +1665,7 @@ export class ForgeExecutor {
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
+      requestsBefore,
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -2972,6 +2994,7 @@ export class ForgeExecutor {
 
   /** What a run has done so far: the summary a finished run returns. */
   private summaryOf(state: ExecutionState): ExecutionSummary {
+    const requestsNow = this.deps.requestsSent?.();
     return {
       successCount: state.successCount,
       updatedCount: state.updatedCount,
@@ -3013,6 +3036,9 @@ export class ForgeExecutor {
           }
         : {}),
       ...(state.writtenBetween ? { writtenBetween: { ...state.writtenBetween } } : {}),
+      ...(state.requestsBefore !== undefined && requestsNow !== undefined
+        ? { apiCalls: requestsNow - state.requestsBefore }
+        : {}),
     };
   }
 

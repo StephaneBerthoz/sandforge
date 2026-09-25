@@ -2245,6 +2245,7 @@
       "generalize": "一般化"
     },
     "apiCallsConsumed": "APIコール",
+    "apiCallsEstimated": "推定APIコール数",
     "exportJson": "JSONをエクスポート",
     "retryFailed": "失敗を再試行",
     "retryFailedHint": "「失敗を再試行」はクローンをもう一度実行します。この実行で書き込めなかったものを、書き込めたものにリンクして書き込みます。書き込み済みのものは二度書き込みません。",

@@ -655,6 +655,18 @@ export interface ForgeExecutionResult {
    */
   writtenBetween?: ForgeWrittenBetween;
   /**
+   * The calls to Salesforce the run made, as it counted them: the record
+   * types it read from both orgs before it started, its reads and each
+   * further page of them, the describes it needed, its writes, the second
+   * pass and the files it copied — up to where it ended or stopped.
+   *
+   * The graph's `estimatedApiCalls` are discovery's guess at the writes of
+   * each whole table, 0 on a starter template's graph, and the results added
+   * them up as the calls the run consumed. Absent from runs recorded before
+   * the calls were counted, whose results can give that estimate alone.
+   */
+  apiCalls?: number;
+  /**
    * What removals of the run's records left on records they did not delete —
    * an order set to Draft for a delete that did not happen, then given its
    * status back; an opportunity whose amount changed as its line items went —

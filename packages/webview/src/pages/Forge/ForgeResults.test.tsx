@@ -1272,6 +1272,60 @@ describe('ForgeResults', () => {
     expect(screen.getAllByTestId('kpi-card')).toHaveLength(6);
   });
 
+  describe('the calls the run made', () => {
+    /** What the card of the calls, the last of the row, says: its label, then its value. */
+    function callsCard(): { label: string; value: string } {
+      const card = screen.getAllByTestId('kpi-card').at(-1);
+      if (!card) throw new Error('no KPI card');
+      const value = within(card).getByTestId('kpi-value').textContent ?? '';
+      const text = card.textContent ?? '';
+      return { label: text.endsWith(value) ? text.slice(0, -value.length) : text, value };
+    }
+
+    /** The graph shown, discovery's estimate of 3 and 2 calls on its two objects taken. */
+    function withEstimates(): void {
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) =>
+          node.objectApiName === 'Account'
+            ? { ...node, estimatedApiCalls: 3 }
+            : node.objectApiName === 'Contact'
+              ? { ...node, estimatedApiCalls: 2 }
+              : node,
+        ),
+      };
+    }
+
+    it('shows the calls the run counted, not discovery estimates added up', () => {
+      // The card added up the estimate of each node, a guess at the writes of
+      // whole tables, and called it the calls the run consumed.
+      withEstimates();
+      mockResult = { ...makeMockResult(), apiCalls: 64 } as typeof mockResult;
+      render(<ForgeResults />);
+
+      expect(callsCard()).toEqual({ label: 'API Calls', value: '64' });
+    });
+
+    it('shows the estimate discovery made, said to be one, for a result that counted no call', () => {
+      withEstimates();
+      render(<ForgeResults />);
+
+      expect(callsCard()).toEqual({ label: 'Estimated API Calls', value: '5' });
+    });
+
+    it('gives no estimate for a run whose objects nobody counted, rather than zero', () => {
+      // A starter template's graph skips discovery: every estimate is a
+      // placeholder zero, of a run that reads and writes each object.
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) => ({ ...node, recordCountUnknown: true })),
+      };
+      render(<ForgeResults />);
+
+      expect(callsCard()).toEqual({ label: 'Estimated API Calls', value: '—' });
+    });
+  });
+
   it('marks the Id-map rows that point at a record the target already held', () => {
     mockResult = {
       ...makeMockResult(),

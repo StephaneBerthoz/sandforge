@@ -390,6 +390,77 @@ describe('ProductionGuard', () => {
       expect(staging.warnings).toEqual([]);
       expect(dev.warnings).toEqual([]);
     });
+
+    it('says a count known only at most is at most, in the summary and in the warning', () => {
+      // A clone of one record is counted by the tables of its objects: the
+      // number is the most it can write, not what it writes.
+      const result = guard.check(
+        createRequest({
+          orgTier: 'production',
+          operation: 'insert',
+          objectName: 'Account, Case',
+          recordCount: { atMost: 60 },
+        }),
+      );
+
+      expect(result.impactSummary).toBe(
+        'INSERT at most 60 Account, Case record(s) on production org org-001 [module: sync]',
+      );
+      expect(result.warnings[0]).toBe(
+        'Production operation: insert on Account, Case (at most 60 records)',
+      );
+    });
+
+    it('says what an operation writes besides the records it counts, in the summary and in the warning', () => {
+      // A clone of one record also writes the catalog and the parents its
+      // records name: without this, "at most 60" read as a bound on the run.
+      const result = guard.check(
+        createRequest({
+          orgTier: 'production',
+          operation: 'insert',
+          objectName: 'Account, Case',
+          recordCount: { atMost: 60 },
+          alsoWrites: 'the related records the run adds',
+        }),
+      );
+
+      expect(result.impactSummary).toBe(
+        'INSERT at most 60 Account, Case record(s), plus the related records the run adds, on production org org-001 [module: sync]',
+      );
+      expect(result.warnings[0]).toBe(
+        'Production operation: insert on Account, Case (at most 60 records, plus the related records the run adds)',
+      );
+    });
+
+    it('measures the volume thresholds against the most a run can write, and says it is a most', () => {
+      const staging = guard.check(
+        createRequest({ orgTier: 'staging', recordCount: { atMost: 12_000 } }),
+      );
+      const dev = guard.check(
+        createRequest({ orgTier: 'development', recordCount: { atMost: 60_000 } }),
+      );
+      const production = guard.check(
+        createRequest({ orgTier: 'production', recordCount: { atMost: 1_500 } }),
+      );
+
+      expect(staging.requiresConfirmation).toBe(true);
+      expect(staging.warnings).toEqual([
+        'Large volume operation: at most 12000 records on staging',
+      ]);
+      expect(dev.warnings).toEqual([
+        'Large volume operation: at most 60000 records on development org',
+      ]);
+      expect(production.requiresApproval).toBe(true);
+    });
+
+    it('asks nothing of a staging run whose most stays under the threshold', () => {
+      const staging = guard.check(
+        createRequest({ orgTier: 'staging', recordCount: { atMost: 500 } }),
+      );
+
+      expect(staging.requiresConfirmation).toBe(false);
+      expect(staging.warnings).toEqual([]);
+    });
   });
 
   describe('setProductionOverride / isProductionOverridden', () => {

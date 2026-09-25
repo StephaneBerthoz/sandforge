@@ -2354,6 +2354,7 @@
       "generalize": "Generalizar"
     },
     "apiCallsConsumed": "Chamadas de API",
+    "apiCallsEstimated": "Chamadas de API estimadas",
     "exportJson": "Exportar JSON",
     "retryFailed": "Repetir falhos",
     "retryFailedHint": "Repetir falhos executa o clone de novo: o que esta execução não conseguiu gravar é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",

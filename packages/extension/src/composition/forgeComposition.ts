@@ -91,6 +91,13 @@ function toForgeObjectDescribe(
   };
 }
 
+/**
+ * Records one write call carries: jsforce's `MAX_DML_COUNT`, past which
+ * `allowRecursive` sends an array in calls of this many. An empty one sends
+ * none.
+ */
+const RECORDS_PER_WRITE_CALL = 200;
+
 /** Inputs required to wire the Forge orchestrator. */
 export interface ForgeCompositionDeps {
   handlers: ExtensionHandlers;
@@ -195,6 +202,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         };
 
         /**
+         * The requests the executor's deps have sent, which a run counts its
+         * calls by (`requestsSent`). Discovery and the drift check describe
+         * through the same cache and add nothing here: a describe the run
+         * found held, or already under way, is not one it sent.
+         */
+        let executorRequests = 0;
+        const countExecutorRequest = (): void => {
+          executorRequests++;
+        };
+
+        /**
          * The cached describe of `objectApiName` on `orgId`, fetched once.
          *
          * A caller that arrives while the same describe is under way waits for
@@ -204,11 +222,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
          * cancelled discovery or an expired timeout can still save the call.
          * They are the caller's own and never cancel a describe another
          * caller started.
+         *
+         * @param onSent - Told when this call sends the describe itself.
          */
         const describeOnce = async (
           orgId: string,
           objectApiName: string,
           stops: Array<AbortSignal | undefined> = [],
+          onSent?: () => void,
         ): Promise<ForgeObjectDescribe> => {
           const key = `${orgId}::${objectApiName}`;
           const cached = describeCache.get(key);
@@ -223,6 +244,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           const settled = describeCache.get(key) ?? describesUnderWay.get(key);
           if (settled) return settled;
 
+          onSent?.();
           const request = conn
             .describe(objectApiName)
             .then((meta) => {
@@ -311,8 +333,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const { records, pages, truncated } = await queryAllPages<Record<string, unknown>>(
               {
                 // jsforce hands back a thenable `Query`, not a Promise.
-                query: async (q) => conn.query<Record<string, unknown>>(q),
-                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+                query: async (q) => {
+                  countExecutorRequest();
+                  return conn.query<Record<string, unknown>>(q);
+                },
+                queryMore: async (url) => {
+                  countExecutorRequest();
+                  return conn.queryMore<Record<string, unknown>>(url);
+                },
               },
               soql,
             );
@@ -338,6 +366,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           // found: any future writer through these deps is bounded by default.
           insertRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
             /*
              * A clone is a deliberate duplicate. The target sandbox is a copy
              * of the org the records come from, so a duplicate rule fires on
@@ -359,6 +388,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           },
           updateRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
             const results = await conn
               .sobject(objectName)
               .update(records as unknown as { Id: string }[], {
@@ -374,6 +404,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           },
           upsertRecords: async (orgId, objectName, externalIdField, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
             const results = await conn
               .sobject(objectName)
               .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
@@ -383,7 +414,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             return toSaveOutcomes(results, objectName);
           },
           describeFields: async (orgId, objectName) => {
-            const described = await describeOnce(orgId, objectName);
+            const described = await describeOnce(orgId, objectName, [], countExecutorRequest);
             return described.fields.map((f) => ({
               name: f.name,
               type: f.type,
@@ -398,11 +429,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>
-            (await describeOnce(orgId, objectName)).createable,
+            (await describeOnce(orgId, objectName, [], countExecutorRequest)).createable,
           // The describe the field sets were read from: a run asks it for the
           // key prefix and record types without a request of its own.
           describeObject: async (orgId, objectName) => {
-            const described = await describeOnce(orgId, objectName);
+            const described = await describeOnce(orgId, objectName, [], countExecutorRequest);
             // A record type closed to the running user is what the run tells
             // the user to change in the target. Kept for five minutes, the
             // answer would hold the object back again on the retry that
@@ -415,22 +446,22 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           batchStrategy: batchStrategyService,
           // What a run asked to copy files reads and writes: one file per
           // request each way, and the target's file storage before any.
-          readFileBody: async (orgId, objectApiName, id) =>
-            fileTransfer.readFileBody(
-              await getJsforceConnection(orgId, orgRegistry, orgManager),
-              objectApiName,
-              id,
-            ),
-          insertFile: async (orgId, objectApiName, record) =>
-            fileTransfer.insertFile(
-              await getJsforceConnection(orgId, orgRegistry, orgManager),
-              objectApiName,
-              record,
-            ),
-          remainingFileStorageMB: async (orgId) =>
-            fileTransfer.remainingFileStorageMB(
-              await getJsforceConnection(orgId, orgRegistry, orgManager),
-            ),
+          readFileBody: async (orgId, objectApiName, id) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return fileTransfer.readFileBody(conn, objectApiName, id);
+          },
+          insertFile: async (orgId, objectApiName, record) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return fileTransfer.insertFile(conn, objectApiName, record);
+          },
+          remainingFileStorageMB: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return fileTransfer.remainingFileStorageMB(conn);
+          },
+          requestsSent: () => executorRequests,
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired
