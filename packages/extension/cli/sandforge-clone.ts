@@ -739,10 +739,17 @@ export function jsonResult(summary: ExecutionSummary) {
  * inserted" counts among them — and the run passed it a callback that
  * dropped every word. A skipped object is printed too, with the reason the
  * executor gives: with the objects written and failed alone, a clone that
- * left objects out named none of them. Exported so it can be tested.
+ * left objects out named none of them. So is an object a cancel stopped while
+ * it was written, whose line says what it wrote and what it never sent.
+ * Exported so it can be tested.
  */
 export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined {
-  if (event.status !== 'done' && event.status !== 'error' && event.status !== 'skipped') {
+  if (
+    event.status !== 'done' &&
+    event.status !== 'error' &&
+    event.status !== 'skipped' &&
+    event.status !== 'stopped'
+  ) {
     return undefined;
   }
   return event.message ? `  ${event.message}` : undefined;

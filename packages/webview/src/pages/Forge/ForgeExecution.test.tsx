@@ -302,6 +302,28 @@ describe('ForgeExecution', () => {
     expect(values[4].textContent).toBe('17'); // estimated API calls (5+12)
   });
 
+  it('counts an object a cancel stopped on a tile of its own, and not as gone through', () => {
+    // It ended done: the tiles and the bar said the run had written it whole.
+    mockGraph = {
+      ...mockGraph,
+      nodes: mockGraph.nodes.map((node) =>
+        node.objectApiName === 'Contact' ? { ...node, status: 'stopped' as const } : node,
+      ),
+    };
+    render(<ForgeExecution />);
+
+    expect(screen.getAllByTestId('kpi-card').map((card) => card.textContent)).toEqual([
+      'Done1',
+      'Running0',
+      'Queued1',
+      'Failed1',
+      'Stopped1',
+      'Estimated API Calls17',
+    ]);
+    // The account written and the case failed, of four objects.
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
+  });
+
   it('should toggle pause button to resume', () => {
     render(<ForgeExecution />);
     const btn = screen.getByTestId('forge-pause-button');

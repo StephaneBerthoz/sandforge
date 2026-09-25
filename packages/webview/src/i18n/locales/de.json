@@ -2327,6 +2327,7 @@
     "inserted": "Eingefügt",
     "linkedExisting": "Mit Vorhandenem verknüpft",
     "skipped": "Übersprungen",
+    "stoppedObjects": "Angehalten",
     "objectsSkipped": "Übersprungene Objekte",
     "idRemaps": "ID-Neuzuordnungen",
     "successRate": "Erfolgsrate",
@@ -2671,7 +2672,8 @@
       "records": "{{records}} Datensätze",
       "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
       "notMeasured": "Umfang noch nicht ermittelt",
-      "showDetails": "Details zu {{object}} anzeigen"
+      "showDetails": "Details zu {{object}} anzeigen",
+      "stopped": "Vor seinem Ende angehalten"
     },
     "statusFilterLabel": "Nach Status filtern",
     "files": {

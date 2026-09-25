@@ -125,7 +125,7 @@ describe('forgeDepthSchema', () => {
 
 describe('forgeNodeStatusSchema', () => {
   it('should accept all valid statuses', () => {
-    const statuses = ['idle', 'scanning', 'running', 'done', 'error', 'skipped'];
+    const statuses = ['idle', 'scanning', 'running', 'done', 'error', 'skipped', 'stopped'];
     for (const status of statuses) {
       expect(forgeNodeStatusSchema.parse(status)).toBe(status);
     }

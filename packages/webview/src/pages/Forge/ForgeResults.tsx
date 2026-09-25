@@ -56,6 +56,9 @@ const statusBadgeStyles: Record<string, string> = {
   done: 'bg-status-success/10 text-status-success',
   error: 'bg-status-error/10 text-status-error',
   skipped: 'bg-status-warning/10 text-status-warning',
+  // Stopped by a cancel while it was written: some of its rows may be in the
+  // target, never all of them. A warning, as an object skipped is.
+  stopped: 'bg-status-warning/10 text-status-warning',
 };
 
 /** Props for the ForgeResults component. */
@@ -638,6 +641,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             <option value="done">{t('forge.done')}</option>
             <option value="error">{t('forge.failed')}</option>
             <option value="skipped">{t('forge.skipped')}</option>
+            <option value="stopped">{t('forge.stoppedObjects')}</option>
           </select>
         </div>
         <div className="overflow-x-auto rounded-lg border border-subtle bg-surface-1">
@@ -724,6 +728,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   <td className="px-4 py-2 tabular-nums text-text-primary">{row.records ?? '-'}</td>
                   <td className="px-4 py-2">
                     <span
+                      data-testid={`forge-results-status-${row.status}`}
                       className={cn(
                         'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
                         statusBadgeStyles[row.status] ?? 'bg-surface-2 text-text-secondary',

@@ -18,6 +18,7 @@ export const forgeNodeStatusSchema = z.enum([
   'done',
   'error',
   'skipped',
+  'stopped',
 ]);
 
 /** Zod schema for ForgeGraphEdge relationship type */

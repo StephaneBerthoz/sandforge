@@ -4442,7 +4442,9 @@ export class ForgeExecutor {
    * write is then a step on the way, said as one, and kept for the end of
    * the write of those, whose line says both. Said as each write ended, an
    * email on a case beside another ended the object in two lines, the second
-   * with the emails that had waited alone.
+   * with the emails that had waited alone. A cancel that stops the write of
+   * those ends the object as well: its line goes with the first write's, and
+   * the object ends stopped unless one of its writes failed.
    *
    * @param late - Whether the write is that of the emails that waited.
    */
@@ -4451,7 +4453,7 @@ export class ForgeExecutor {
     late: boolean,
   ): (event: ForgeProgressEvent) => void {
     return (event) => {
-      if (event.status !== 'done' && event.status !== 'error') {
+      if (event.status !== 'done' && event.status !== 'error' && event.status !== 'stopped') {
         state.onProgress(event);
         return;
       }
@@ -5730,12 +5732,17 @@ export class ForgeExecutor {
          * last word was that it was inserting them, and all of that was lost
          * with it. The emails of a first write end the node: the ones waiting
          * for their task are never written once the run stops.
+         *
+         * Stopped, not done: ended `done`, the node was drawn and counted as
+         * finished beside the nodes that were, the rows it never sent aside.
+         * One whose calls mostly failed stays a failure, which is what there
+         * is to act on; its line says it was stopped.
          */
         const handed = rounds.reduce((sum, round) => sum + round.records.length, 0);
         const notSent = handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure);
         (afterTheirTask === undefined ? state.onProgress : onProgress)({
           objectName: node.objectApiName,
-          status: failedNode ? 'error' : 'done',
+          status: failedNode ? 'error' : 'stopped',
           progress: 100,
           message: `${stopped}: ${counts}, ${notSent} not sent${rest}`,
         });

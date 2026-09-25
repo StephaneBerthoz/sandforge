@@ -1297,9 +1297,14 @@ export class ForgeHandler implements DomainHandler {
        * run, progress stuck at done/total, and the webview's "every node has
        * settled" test never fired — mission control span forever on a run that
        * had finished.
+       *
+       * So is 'stopped', the last word of a node a cancel stopped: the run
+       * throws right after it, and an event the throttle holds goes out with
+       * the flush that follows the run's error — after the error, once the
+       * page takes no more events of the run, which leaves the node running.
        */
       const status = (event as { status?: string }).status;
-      if (status === 'done' || status === 'error' || status === 'skipped') {
+      if (status === 'done' || status === 'error' || status === 'skipped' || status === 'stopped') {
         throttledExecProgress.flush();
         const progressMsg = buildResponse(
           this.deps,
@@ -1582,6 +1587,10 @@ export class ForgeHandler implements DomainHandler {
    * others. Kept as the last one named, the count held the second go alone.
    * The events come with the records of every write of the object so far
    * (`countsSoFar`), as the page has them.
+   *
+   * An object a cancel stopped while it was written is not settled: the run
+   * never went through it, and the page's bar leaves it out as well. The run
+   * is listed cancelled where the objects it went through left it.
    */
   private liveProgressOf(
     operationId: string,

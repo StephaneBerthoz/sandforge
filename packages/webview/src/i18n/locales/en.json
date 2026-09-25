@@ -2327,6 +2327,7 @@
     "inserted": "Inserted",
     "linkedExisting": "Linked to existing",
     "skipped": "Skipped",
+    "stoppedObjects": "Stopped",
     "objectsSkipped": "Objects skipped",
     "idRemaps": "ID Remaps",
     "successRate": "Success Rate",
@@ -2671,7 +2672,8 @@
       "records": "{{records}} records",
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
       "notMeasured": "Size not measured yet",
-      "showDetails": "Show the details of {{object}}"
+      "showDetails": "Show the details of {{object}}",
+      "stopped": "Stopped before its end"
     },
     "statusFilterLabel": "Filter by status",
     "files": {

@@ -926,6 +926,28 @@ describe('useForgeStore', () => {
       expect(getState().apiCallsSoFar).toBeNull();
     });
 
+    it('marks an object a cancel stopped while it was written as stopped, and logs its line as a warning', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done', progress: 100 });
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'stopped',
+        progress: 100,
+        message: 'Stopped Contact: 200 succeeded, 0 failed, 250 not sent',
+      });
+
+      expect(statuses()).toEqual(['done', 'stopped']);
+      expect(getState().logs.at(-1)).toMatchObject({
+        level: 'warn',
+        message: 'Stopped Contact: 200 succeeded, 0 failed, 250 not sent',
+      });
+
+      // The run's error comes next: it stopped where the objects it went
+      // through left it, the one it stopped not among them.
+      stopped('Forge execution was aborted by user request.');
+      expect(getState().stoppedAt).toBe(50);
+    });
+
     it('logs an object that failed as an error, in words of its own when the event has none', () => {
       runOnScreen();
       post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'error', progress: 0 });
@@ -1406,6 +1428,14 @@ describe('how far a run has gone', () => {
 
   it('has gone nowhere on a graph with no object', () => {
     expect(settledPercent([])).toBe(0);
+  });
+
+  it('leaves out an object a cancel stopped while it was written: the run never went through it', () => {
+    const nodes = [
+      createMockNode({ objectApiName: 'Account', status: 'done' }),
+      createMockNode({ objectApiName: 'Contact', status: 'stopped' }),
+    ];
+    expect(settledPercent(nodes)).toBe(50);
   });
 });
 

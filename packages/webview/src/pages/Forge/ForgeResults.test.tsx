@@ -1162,6 +1162,30 @@ describe('ForgeResults', () => {
     expect(rows[1].textContent).toContain('Contact');
   });
 
+  it('lists an object a cancel stopped while it was written as stopped, and filters it so', () => {
+    // It ended done, and the results listed it among the objects written whole.
+    mockGraph = {
+      ...makeMockGraph(),
+      nodes: makeMockGraph().nodes.map((node) =>
+        node.objectApiName === 'Contact' ? { ...node, status: 'stopped' as const } : node,
+      ),
+    };
+    render(<ForgeResults />);
+
+    const badge = screen.getByTestId('forge-results-status-stopped');
+    expect(badge.textContent).toBe('stopped');
+    expect(badge.className).toContain('text-status-warning');
+    expect(screen.queryAllByTestId('forge-results-status-done')).toHaveLength(1);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by status' }), {
+      target: { value: 'stopped' },
+    });
+    expect(screen.getByRole('option', { name: 'Stopped' })).toBeDefined();
+    expect(
+      screen.getAllByTestId('forge-results-row').map((row) => row.querySelector('td')?.textContent),
+    ).toEqual(['Contact']);
+  });
+
   /* ---- Collapsible logs toggle ---- */
 
   it('should toggle execution logs visibility', () => {

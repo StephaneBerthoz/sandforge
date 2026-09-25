@@ -820,18 +820,19 @@ async function startForgeRun(bridge: MockBridge, page: Page, theme: ScannedTheme
   return String(request.id);
 }
 
-/** The extension saying where the run stands on one object. */
+/** The extension saying where the run stands on one object, in the line it wrote when it did. */
 async function forgeProgress(
   page: Page,
   request: string,
   objectName: string,
-  status: 'done' | 'error',
+  status: 'done' | 'error' | 'stopped',
+  message?: string,
 ): Promise<void> {
   await sendExtensionMessage(page, {
     type: 'forge:progress',
     id: `progress-${objectName}`,
     correlationId: request,
-    payload: { objectName, status, progress: 100 },
+    payload: { objectName, status, progress: 100, ...(message ? { message } : {}) },
   });
 }
 
@@ -1355,6 +1356,91 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-retry-failed-hint"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge run a cancel stops while an object is written, that object drawn stopped on the graph and in the results', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await page.getByTestId('forge-abort-button').click();
+      await page.getByTestId('danger-input').fill('Abort');
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
+
+      // The accounts were being written when the abort came: one went, the
+      // other two were never sent, and the contacts were never reached. The
+      // node ended done, drawn as a node written whole.
+      await forgeProgress(
+        page,
+        request,
+        'Account',
+        'stopped',
+        'Stopped Account: 1 succeeded, 0 failed, 2 not sent',
+      );
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-stopped-mid-write',
+        correlationId: request,
+        payload: {
+          message:
+            'Forge execution was aborted by user request. No further batches will be processed.',
+          code: 'EXECUTE_ERROR',
+          retryable: true,
+          result: {
+            forgeId: 'forge-run-stopped-mid-write',
+            status: 'partial',
+            cancelled: true,
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 2_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            idRemapCreated: [{ objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] }],
+            readByObject: [{ objectApiName: 'Account', read: 3 }],
+            failedReads: [],
+          },
+        },
+      });
+
+      // Drawn stopped, in words beside its mark, and counted on a tile of its own.
+      await page.getByTestId('forge-execution-error-written').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('STOPPED');
+      await expect(
+        page
+          .getByTestId('progress-node')
+          .filter({ hasText: 'Account' })
+          .getByTestId('node-stopped'),
+      ).toHaveText('Stopped before its end');
+      await expect(
+        page.getByTestId('kpi-card').filter({ hasText: 'Stopped' }).getByTestId('kpi-value'),
+      ).toHaveText('1');
+      const stopped = await checkAccessibility(page);
+      expectNoViolations(stopped);
+      // axe leaves every text on the graph's nodes incomplete, overlapped by
+      // the layers React Flow draws over them: the words of the stopped node
+      // are measured as Chromium paints them, against the bar or the theme's
+      // own contrast for their colour.
+      const overlapped = stopped.incomplete
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .filter((node) => node.html.includes('data-testid="node-stopped"'));
+      expect(overlapped).toHaveLength(1);
+      const shortfalls = await themeContrastShortfalls(
+        page,
+        vscodeTheme(theme),
+        '[data-testid="node-stopped"]',
+      );
+      expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+
+      await page.getByTestId('forge-execution-see-stopped').click();
+      await page.getByTestId('forge-results-stopped').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-status-stopped')).toHaveText('stopped');
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-status-stopped"]'),
       ).toBeGreaterThan(0);
     });
 
@@ -2412,6 +2498,29 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('health-failed-jobs-out-of')).toHaveText(
         'of the 50 latest jobs',
       );
+
+      // Each slice of the donut painted in the theme's hue of the dot on its
+      // row: a slice took its class from a Recharts `Cell`, which Recharts 3
+      // deprecates, and is drawn through the Pie's shape instead.
+      await expect(
+        page.getByTestId('storage-donut-chart').locator('path.recharts-sector'),
+      ).toHaveCount(3);
+      const painted = await page.evaluate(() => {
+        const slices = document.querySelectorAll(
+          '[data-testid="storage-donut-chart"] path.recharts-sector',
+        );
+        const dots = ['ObjectPermissions', 'FieldPermissions', 'LoginHistory'].map((name) =>
+          document.querySelector(`[data-testid="storage-row-${name}"] > span`),
+        );
+        return {
+          slices: [...slices].map((slice) => getComputedStyle(slice).fill),
+          dots: dots.map((dot) => (dot ? getComputedStyle(dot).backgroundColor : '')),
+        };
+      });
+      expect(painted.slices).toEqual(painted.dots);
+      expect(new Set(painted.slices).size).toBe(3);
+      // Not the grey Recharts fills a slice with when nothing else does.
+      expect(painted.slices).not.toContain('rgb(128, 128, 128)');
 
       // The anomaly scan says which sample its findings come from.
       await page.getByTestId('anomaly-scan-btn').click();

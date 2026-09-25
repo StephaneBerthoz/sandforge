@@ -163,6 +163,10 @@ export function forgeLogEntry(level: ForgeLogEntry['level'], message: string): F
  * have settled. A node that was skipped or failed is finished with, so it
  * counts: dividing only the "done" nodes by the total left a completed run
  * showing 50% whenever half its objects had been skipped.
+ *
+ * A node a cancel stopped while it was written is not: the run never went
+ * through it. It ended done, and a run stopped on its last object said it had
+ * stopped at 100%.
  */
 export function settledPercent(nodes: readonly ForgeGraphNode[]): number {
   if (nodes.length === 0) return 0;
@@ -628,8 +632,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       fieldCount: update.fieldCount,
       createableFieldCount: update.createableFieldCount,
     });
+    // A node a cancel stopped is a warning, as the abort that stopped it is:
+    // its line, which says what it never sent, is under Warnings beside it.
     const line = forgeLogEntry(
-      status === 'error' ? 'error' : 'info',
+      status === 'error' ? 'error' : status === 'stopped' ? 'warn' : 'info',
       update.message ??
         `${objectName}: ${status}${progress !== undefined ? ` (${String(progress)}%)` : ''}`,
     );

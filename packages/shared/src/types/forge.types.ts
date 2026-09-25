@@ -6,8 +6,23 @@ export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
 /** Depth of relationship traversal during graph construction */
 export type ForgeDepth = 'direct' | 'full' | 'custom';
 
-/** Status of a single node within the Forge dependency graph */
-export type ForgeNodeStatus = 'idle' | 'scanning' | 'running' | 'done' | 'error' | 'skipped';
+/**
+ * Status of a single node within the Forge dependency graph.
+ *
+ * `stopped` is a node a cancel stopped while it was being written: some of
+ * its rows may be in the target, the others were never sent. It ended with
+ * `done` before, and the graph drew it as finished beside the nodes that were.
+ * One whose calls mostly failed ends `error`, as a failed node does. A node
+ * the cancel reached before its write began keeps the status it had.
+ */
+export type ForgeNodeStatus =
+  | 'idle'
+  | 'scanning'
+  | 'running'
+  | 'done'
+  | 'error'
+  | 'skipped'
+  | 'stopped';
 
 /**
  * Configuration for a Forge operation.

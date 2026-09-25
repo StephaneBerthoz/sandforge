@@ -190,11 +190,12 @@ export interface ForgeExecuteResponse extends BaseMessage {
  * `forge:progress`. Extension -> WebView.
  *
  * Throttled (~10/s) per-node progress event pushed during execution
- * (terminal `done` / `error` / `skipped` states are flushed immediately). The
- * payload is the orchestrator event — observed keys are `objectName`,
- * `status`, `progress`, `message` — with what the run has found its object to
- * hold so far, once a write of it has said: `recordCount` adds up every write
- * of the object, `fieldCount` and `createableFieldCount` are the last named.
+ * (terminal `done` / `error` / `skipped` / `stopped` states are flushed
+ * immediately). The payload is the orchestrator event — observed keys are
+ * `objectName`, `status`, `progress`, `message` — with what the run has found
+ * its object to hold so far, once a write of it has said: `recordCount` adds
+ * up every write of the object, `fieldCount` and `createableFieldCount` are
+ * the last named.
  * `apiCalls` is the requests the run has sent to Salesforce so far, counted
  * as `ForgeExecutionResult.apiCalls` counts them once the run ends; absent
  * when the run counts none. The shape is not frozen (cast to

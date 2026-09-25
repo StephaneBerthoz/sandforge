@@ -670,6 +670,12 @@ describe('sandforge-clone object outcomes', () => {
     );
   });
 
+  it('prints an object a cancel stopped while it was written, with what it never sent', () => {
+    expect(
+      objectOutcomeLine(event('stopped', 'Stopped Contact: 200 succeeded, 0 failed, 250 not sent')),
+    ).toBe('  Stopped Contact: 200 succeeded, 0 failed, 250 not sent');
+  });
+
   it('prints nothing for a step on the way, or an end that says nothing', () => {
     expect(objectOutcomeLine(event('running', 'Contact: reading'))).toBeUndefined();
     expect(objectOutcomeLine(event('scanning', 'Querying Contact records...'))).toBeUndefined();

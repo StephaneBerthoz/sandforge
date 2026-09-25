@@ -237,6 +237,19 @@ describe('ForgeTableView', () => {
     expect(badge.className).not.toMatch(/\btext-gray-\d+\b/);
   });
 
+  it('writes the status of a node a cancel stopped in the warning token', () => {
+    const graph = makeGraph([makeNode({ objectApiName: 'Account', status: 'stopped' })]);
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    expect(screen.getByText('stopped').className).toContain('text-status-warning');
+  });
+
   it('should display PII count when node has PII fields', () => {
     const graph = makeGraph([
       makeNode({ objectApiName: 'Account', piiFields: ['Email', 'Phone'] }),

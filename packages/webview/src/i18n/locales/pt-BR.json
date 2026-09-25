@@ -2327,6 +2327,7 @@
     "inserted": "Inseridos",
     "linkedExisting": "Vinculados a existentes",
     "skipped": "Ignorados",
+    "stoppedObjects": "Interrompidos",
     "objectsSkipped": "Objetos ignorados",
     "idRemaps": "Remapeamentos de ID",
     "successRate": "Taxa de sucesso",
@@ -2671,7 +2672,8 @@
       "records": "{{records}} registros",
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)",
       "notMeasured": "Volume ainda não medido",
-      "showDetails": "Mostrar os detalhes de {{object}}"
+      "showDetails": "Mostrar os detalhes de {{object}}",
+      "stopped": "Interrompido antes do fim"
     },
     "statusFilterLabel": "Filtrar por status",
     "files": {

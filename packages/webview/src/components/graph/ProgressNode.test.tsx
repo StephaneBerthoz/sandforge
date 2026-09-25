@@ -106,6 +106,27 @@ describe('ProgressNode', () => {
     expect(screen.queryByTestId('progress-bar-fill')).toBeNull();
   });
 
+  it('draws a node a cancel stopped while it was written apart from a written one', () => {
+    // It ended done, and the graph drew it with the check and the outline of
+    // the nodes written whole.
+    render(<ProgressNode {...makeNodeProps({ status: 'stopped', progress: 100 })} />);
+    const node = screen.getByTestId('progress-node');
+    expect(node.className).toContain('border-status-warning');
+    expect(node.className).not.toContain('border-status-success');
+    expect(node.querySelector('svg.lucide-circle-stop')).not.toBeNull();
+    expect(node.querySelector('svg.lucide-check')).toBeNull();
+    // Said in words, not by its colour alone.
+    expect(screen.getByTestId('node-stopped').textContent).toBe('Stopped before its end');
+    expect(screen.queryByTestId('progress-bar-fill')).toBeNull();
+  });
+
+  it('says nothing of a stop on a node written whole', () => {
+    render(<ProgressNode {...makeNodeProps({ status: 'done', progress: 100 })} />);
+    const node = screen.getByTestId('progress-node');
+    expect(node.querySelector('svg.lucide-check')).not.toBeNull();
+    expect(screen.queryByTestId('node-stopped')).toBeNull();
+  });
+
   it('marks a node left out of the run with a dashed outline, not faded text', () => {
     render(<ProgressNode {...makeNodeProps({ included: false })} />);
     const node = screen.getByTestId('progress-node');

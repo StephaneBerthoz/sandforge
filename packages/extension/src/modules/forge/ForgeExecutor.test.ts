@@ -1146,7 +1146,7 @@ describe('ForgeExecutor', () => {
       expect(error).toBeInstanceOf(ForgeAbortedError);
       expect(deps.insertRecords).not.toHaveBeenCalled();
       expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
-        status: 'done',
+        status: 'stopped',
         progress: 100,
         message: 'Stopped Account: 0 succeeded, 0 failed, 2 not sent',
       });
@@ -1165,10 +1165,56 @@ describe('ForgeExecutor', () => {
 
       await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
 
+      // Stopped, not done: ended done, the graph drew it finished, the 250
+      // rows it never sent aside.
       expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
-        status: 'done',
+        status: 'stopped',
         message: 'Stopped Account: 200 succeeded, 0 failed, 250 not sent',
       });
+    });
+
+    it('ends a node the cancel stopped as a failure when most of what it sent failed', async () => {
+      // The failure is what there is to act on; the line says it was stopped.
+      const records = Array.from({ length: 450 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+      vi.mocked(deps.queryRecords).mockResolvedValue(records);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map(() => ({
+          id: '',
+          success: false,
+          errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'],
+        }));
+      });
+      const graph = makeGraph([makeNode('Account', { recordCount: 450, batchStrategy: 'rest' })]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
+        status: 'error',
+        message: 'Stopped Account: 0 succeeded, 200 failed, 250 not sent',
+      });
+    });
+
+    it('says nothing new of a node the cancel reached before its write began', async () => {
+      // The account's one call is answered after the cancel, and the account
+      // is written whole; the run stops before the contact's turn.
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '001OLD1', Name: 'R1' }]);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+      });
+      const graph = makeGraph([
+        makeNode('Account', { recordCount: 1, batchStrategy: 'rest' }),
+        makeNode('Contact', { recordCount: 1, batchStrategy: 'rest' }),
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(progressEvents.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
+        status: 'done',
+        message: 'Completed Account: 1 succeeded, 0 failed',
+      });
+      expect(progressEvents.filter((e) => e.objectName === 'Contact')).toEqual([]);
     });
 
     it('counts as failed a selling model refused as held and still waiting for its key when a cancel falls before the next call', async () => {
@@ -9043,6 +9089,42 @@ describe('ForgeExecutor', () => {
           ]);
         });
 
+        it('ends the email object in one line, stopped, when a cancel stops the emails that waited for their task', async () => {
+          // The cancel comes as the write of the emails that waited begins:
+          // they are never sent, and the object ends on one line with what
+          // its first write came to.
+          const { orgDeps, graph } = mixedRun();
+          const executor = new ForgeExecutor(orgDeps);
+          let emailWrites = 0;
+          orgDeps.describeObject = async (org, object) => {
+            if (org === 'tgt' && object === 'EmailMessage' && ++emailWrites === 2) {
+              executor.abort();
+            }
+            return { keyPrefix: null, recordTypes: [] };
+          };
+
+          const error = await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(ForgeAbortedError);
+          const emailEnds = progressEvents.filter(
+            (e) =>
+              e.objectName === 'EmailMessage' &&
+              (e.status === 'done' || e.status === 'error' || e.status === 'stopped'),
+          );
+          expect(emailEnds.map((e) => [e.status, e.message])).toEqual([
+            [
+              'stopped',
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
+                'stopped after their task: 0 succeeded, 0 failed, 2 not sent',
+            ],
+          ]);
+        });
+
         it('still writes the emails that waited for their task when the target refuses the tasks', async () => {
           // The tasks' write failed as a whole: the emails on the case go in
           // all the same, at the end of the run, rather than being dropped.
@@ -9369,7 +9451,7 @@ describe('ForgeExecutor', () => {
         expect(error).toBeInstanceOf(ForgeAbortedError);
         expect(run.inserted['EventRelation'] ?? []).toEqual([]);
         expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
-          status: 'done',
+          status: 'stopped',
           progress: 100,
           message:
             'Stopped EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +

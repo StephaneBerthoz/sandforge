@@ -1688,6 +1688,65 @@ describe('ForgeHandler', () => {
 
       expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
     });
+
+    it('leaves out of what the clone went through an object a cancel stopped while it was written', async () => {
+      // Its records are those handed to its write, 250 of them never sent.
+      // Ended done, it was counted: the clone was listed cancelled at 100%,
+      // every record of it processed.
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      const account = createMockGraph().nodes[0];
+      const graph = {
+        ...createMockGraph(),
+        nodes: [account, { ...account, objectApiName: 'Contact', level: 1 }],
+      };
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        const events: ForgeProgressEvent[] = [
+          {
+            objectName: 'Account',
+            status: 'running',
+            progress: 0,
+            recordCount: 10,
+            message: 'Inserting 10 Account records in 1 batch(es)...',
+          },
+          {
+            objectName: 'Account',
+            status: 'done',
+            progress: 100,
+            message: 'Completed Account: 10 succeeded, 0 failed',
+          },
+          {
+            objectName: 'Contact',
+            status: 'running',
+            progress: 0,
+            recordCount: 450,
+            message: 'Inserting 450 Contact records in 3 batch(es)...',
+          },
+          {
+            objectName: 'Contact',
+            status: 'stopped',
+            progress: 100,
+            message: 'Stopped Contact: 200 succeeded, 0 failed, 250 not sent',
+          },
+        ];
+        for (const event of events) listener?.(event);
+        throw new ForgeAbortedError('Forge execution was aborted by user request.');
+      });
+
+      await execute(graph);
+
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({
+          status: 'cancelled',
+          percentage: 50,
+          processedRecords: 10,
+          currentStep: 'Stopped Contact: 200 succeeded, 0 failed, 250 not sent',
+        }),
+      ]);
+    });
   });
 
   describe('forge:progress on its way to the page', () => {
@@ -1793,6 +1852,49 @@ describe('ForgeHandler', () => {
       );
 
       expect(toldOf('PricebookEntry').map((event) => event.recordCount)).toEqual([2, 2, 5, 5]);
+    });
+
+    it('tells the page of an object a cancel stopped before it tells it the run stopped', async () => {
+      // The run throws right after the object's last word. Held by the
+      // throttle, that word would go out with the flush after the run's
+      // error, and the page takes no event of a run once its error has come.
+      vi.useFakeTimers();
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        listener?.({
+          objectName: 'Account',
+          status: 'running',
+          progress: 0,
+          recordCount: 450,
+          message: 'Inserting 450 Account records in 3 batch(es)...',
+        });
+        listener?.({
+          objectName: 'Account',
+          status: 'stopped',
+          progress: 100,
+          message: 'Stopped Account: 200 succeeded, 0 failed, 250 not sent',
+        });
+        throw new ForgeAbortedError('Forge execution was aborted by user request.');
+      });
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      const told = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'forge:progress' || m.type === 'forge:execute:error')
+        .map((m) =>
+          m.type === 'forge:progress'
+            ? `${String(m.payload.status)} ${String(m.payload.objectName)}`
+            : m.type,
+        );
+      expect(told).toEqual(['running Account', 'stopped Account', 'forge:execute:error']);
     });
 
     it('says nothing of the records of an object no write has named', async () => {

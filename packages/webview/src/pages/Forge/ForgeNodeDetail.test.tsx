@@ -197,6 +197,19 @@ describe('ForgeNodeDetail', () => {
     expect(badge.className).not.toMatch(/\btext-gray-\d+\b/);
   });
 
+  it('writes the status of a node a cancel stopped in the warning token', () => {
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ status: 'stopped' })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+    const badge = screen.getByTestId('node-status-badge');
+    expect(badge.textContent).toBe('stopped');
+    expect(badge.className).toContain('text-status-warning');
+  });
+
   it('writes each error in the error token', () => {
     render(
       <ForgeNodeDetail

@@ -131,6 +131,9 @@ export const ForgeExecution: React.FC = () => {
     const queued = nodeList.filter((n) => n.status === 'idle').length;
     const failed = nodeList.filter((n) => n.status === 'error').length;
     const skipped = nodeList.filter((n) => n.status === 'skipped').length;
+    // Stopped by a cancel while it was written: counted as done, it made the
+    // tiles and the bar say the run had gone through it. It is not settled.
+    const stopped = nodeList.filter((n) => n.status === 'stopped').length;
     // Discovery's, said to be an estimate, until the run's progress counts the
     // calls it has made (`apiCallsSoFar`); its answer says them all
     // (`ForgeResults`).
@@ -139,7 +142,7 @@ export const ForgeExecution: React.FC = () => {
     // measured as the store measures where a run stopped: the two agree.
     const settled = done + failed + skipped;
     const progress = settledPercent(nodeList);
-    return { total, done, running, queued, failed, skipped, settled, apiCalls, progress };
+    return { total, done, running, queued, failed, skipped, stopped, settled, apiCalls, progress };
   }, [graph]);
 
   /*
@@ -420,11 +423,26 @@ export const ForgeExecution: React.FC = () => {
         data-testid="forge-execution-controls"
       >
         {/* KPI row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div
+          className={cn(
+            'grid grid-cols-2 sm:grid-cols-3 gap-3',
+            kpis.stopped > 0 ? 'lg:grid-cols-6' : 'lg:grid-cols-5',
+          )}
+        >
           <KPICard icon="check" label={t('forge.done')} value={kpis.done} variant="success" />
           <KPICard icon="sync" label={t('forge.running')} value={kpis.running} variant="default" />
           <KPICard icon="clock" label={t('forge.queued')} value={kpis.queued} variant="warning" />
           <KPICard icon="error" label={t('forge.failed')} value={kpis.failed} variant="error" />
+          {/* Only a cancel stops a node while it is written: a tile reading
+              zero on every other run would be noise. */}
+          {kpis.stopped > 0 && (
+            <KPICard
+              icon="debug-stop"
+              label={t('forge.stoppedObjects')}
+              value={kpis.stopped}
+              variant="warning"
+            />
+          )}
           {/* The calls the run has made so far, once its progress counts
               them; until the first count comes, discovery's estimate for the
               whole run, said to be one. */}

@@ -18,6 +18,7 @@ const statusColors: Record<string, string> = {
   failed: 'bg-status-error/10 text-status-error',
   queued: 'bg-status-warning/10 text-status-warning',
   skipped: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  stopped: 'bg-status-warning/10 text-status-warning',
 };
 
 /**

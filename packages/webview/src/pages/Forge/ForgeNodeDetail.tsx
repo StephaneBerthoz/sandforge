@@ -24,6 +24,7 @@ const statusColors: Record<ForgeGraphNode['status'], string> = {
   done: 'bg-status-success/10 text-status-success',
   error: 'bg-status-error/10 text-status-error',
   skipped: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  stopped: 'bg-status-warning/10 text-status-warning',
 };
 
 /** Sample anonymization preview data. */

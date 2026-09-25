@@ -1,20 +1,46 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { cloneElement } from 'react';
+import type { ReactElement } from 'react';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { StorageBreakdownPanel } from './StorageBreakdownPanel';
 
-/* Mock recharts ResponsiveContainer */
+/*
+ * jsdom lays nothing out, so the container measures nothing: it hands the
+ * chart the size it would have measured, and the chart draws its slices.
+ */
 vi.mock('recharts', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('recharts');
   return {
     ...actual,
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    ResponsiveContainer: ({
+      children,
+    }: {
+      children: ReactElement<{ width?: number; height?: number }>;
+    }) => (
       <div data-testid="responsive-container" style={{ width: 400, height: 200 }}>
-        {children}
+        {cloneElement(children, { width: 400, height: 200 })}
       </div>
     ),
   };
+});
+
+/*
+ * The slices drawn where they end, at once, as they are for a user who asks
+ * for less motion: animated, the chart's first frame draws none of them.
+ */
+beforeAll(() => {
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes('prefers-reduced-motion'),
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
 });
 
 let mockStorageData: Record<string, unknown> | null = null;
@@ -107,6 +133,40 @@ describe('StorageBreakdownPanel', () => {
     expect(screen.getByTestId('storage-row-Contact')).toBeDefined();
     expect(screen.getByText('Account')).toBeDefined();
     expect(screen.getByText('Contact')).toBeDefined();
+  });
+
+  it('draws each slice of the donut in the hue of the dot on its row', () => {
+    // Each slice took the class of its hue from a Recharts `Cell`, which
+    // Recharts 3 deprecates: the classes follow the theme, as the dots do.
+    const objects = [
+      { objectName: 'Account', label: 'Account', recordCount: 5000 },
+      { objectName: 'Contact', label: 'Contact', recordCount: 4000 },
+      { objectName: 'Lead', label: 'Lead', recordCount: 3000 },
+      { objectName: 'Opportunity', label: 'Opportunity', recordCount: 2000 },
+      { objectName: 'Case', label: 'Case', recordCount: 1000 },
+    ];
+    mockStorageData = { success: true, totalRecords: 15000, objects };
+    render(<StorageBreakdownPanel />);
+
+    const hueOf = (element: Element | null, prefix: string): string | undefined =>
+      [...(element?.classList ?? [])].find((name) => name.startsWith(prefix))?.slice(prefix.length);
+    const slices = [
+      ...screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
+    ];
+    const dots = objects.map((o) =>
+      screen.getByTestId(`storage-row-${o.objectName}`).querySelector('span'),
+    );
+
+    expect(slices.map((slice) => hueOf(slice, 'fill-hue-'))).toEqual([
+      'blue',
+      'green',
+      'amber',
+      'purple',
+      'rose',
+    ]);
+    expect(dots.map((dot) => hueOf(dot, 'bg-hue-'))).toEqual(
+      slices.map((slice) => hueOf(slice, 'fill-hue-')),
+    );
   });
 
   it('shows percentage for each object', () => {

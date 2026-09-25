@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position } from '@xyflow/react';
 import type { Node, NodeProps } from '@xyflow/react';
-import { Check, Loader2, Clock, X, AlertTriangle, Minus, Shield } from 'lucide-react';
+import { Check, CircleStop, Loader2, Clock, X, AlertTriangle, Minus, Shield } from 'lucide-react';
 import type { ForgeNodeStatus } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { uiLocale } from '../../utils/formatters';
@@ -46,6 +46,7 @@ const borderByStatus: Record<ForgeNodeStatus, string> = {
   done: 'border-status-success',
   error: 'border-status-error',
   skipped: 'border-text-muted',
+  stopped: 'border-status-warning',
 };
 
 /** Render the appropriate status icon for a given ForgeNodeStatus. */
@@ -61,6 +62,8 @@ function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement
       return <X className="h-3 w-3 text-status-error" />;
     case 'skipped':
       return <Minus className="h-3 w-3 text-text-secondary" />;
+    case 'stopped':
+      return <CircleStop className="h-3 w-3 text-status-warning" />;
     case 'idle':
     default:
       return <Clock className="h-3 w-3 text-text-secondary" />;
@@ -213,6 +216,19 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
             className="h-full rounded-full bg-forge transition-all duration-300"
             style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
           />
+        </div>
+      )}
+
+      {/* Stopped by a cancel while it was written: some of its rows may be in
+          the target, the others were never sent. Drawn done, it read as
+          finished beside the nodes that were; said in words as well as by its
+          mark and its outline. */}
+      {status === 'stopped' && (
+        <div
+          data-testid="node-stopped"
+          className="mt-2 text-[10px] font-medium text-status-warning"
+        >
+          {t('forge.node.stopped')}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PieChart, Pie, Sector, ResponsiveContainer, Tooltip } from 'recharts';
+import type { PieSectorShapeProps } from 'recharts';
 import { Database } from 'lucide-react';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -26,6 +27,17 @@ const SLICE_HUES = [
   { fill: 'fill-hue-orange', dot: 'bg-hue-orange' },
   { fill: 'fill-hue-indigo', dot: 'bg-hue-indigo' },
 ];
+
+/**
+ * A slice, drawn as Recharts draws one, with the class of its hue.
+ *
+ * Recharts 3 deprecates `Cell`, which carried the class before, for the
+ * `shape` of the chart's items: it is handed each slice's geometry and its
+ * index, which is the index of its row in the table.
+ */
+function StorageSlice(props: PieSectorShapeProps): React.ReactElement {
+  return <Sector {...props} className={SLICE_HUES[props.index % SLICE_HUES.length].fill} />;
+}
 
 /** Response shape from monitor:storage. */
 interface StorageData {
@@ -138,14 +150,8 @@ export const StorageBreakdownPanel: React.FC = () => {
               dataKey="value"
               paddingAngle={2}
               rootTabIndex={-1}
-            >
-              {chartData.map((_entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  className={SLICE_HUES[index % SLICE_HUES.length].fill}
-                />
-              ))}
-            </Pie>
+              shape={StorageSlice}
+            />
             <Tooltip
               contentStyle={{
                 backgroundColor: 'var(--sf-bg-primary)',
