@@ -75,6 +75,11 @@ export interface AutopilotWizardProps {
   readonly onExecute: () => void;
   /** Whether the execute request is in flight. */
   readonly isExecuting: boolean;
+  /**
+   * Whether the page brings the wizard back from the running view, the run
+   * not started: the review takes the keyboard the view held.
+   */
+  readonly returnedFromRun?: boolean;
 }
 
 /**
@@ -82,7 +87,11 @@ export interface AutopilotWizardProps {
  * scan-schema (step 1→2, and re-scan on a narrowed selection) → generate-plan
  * (step 3→4) → execute (delegated to the page via {@link AutopilotWizardProps.onExecute}).
  */
-export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({ onExecute, isExecuting }) => {
+export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
+  onExecute,
+  isExecuting,
+  returnedFromRun = false,
+}) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
 
@@ -249,6 +258,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({ onExecute, isE
         canGoBack={!isPending}
         isFinished={isExecuting}
         onFinish={onExecute}
+        focusStepOnMount={returnedFromRun}
       >
         {currentStep === 0 && (
           <>

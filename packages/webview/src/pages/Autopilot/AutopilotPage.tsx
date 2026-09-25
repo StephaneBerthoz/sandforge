@@ -246,7 +246,16 @@ export const AutopilotPage: React.FC = () => {
   if (isWizardStep) {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
-        <AutopilotWizard onExecute={handleExecute} isExecuting={executeMutation.loading} />
+        {/* The wizard comes back only on an Execute whose request failed —
+            the guard refused the run, its confirmation was declined — and
+            the running view's heading, which held the keyboard, went with the
+            view: the review takes the keyboard. Drawn afresh, the page has
+            no failed request, and the wizard leaves the focus alone. */}
+        <AutopilotWizard
+          onExecute={handleExecute}
+          isExecuting={executeMutation.loading}
+          returnedFromRun={executeMutation.error !== null}
+        />
       </div>
     );
   }

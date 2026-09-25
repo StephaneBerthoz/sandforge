@@ -37,6 +37,14 @@ export interface WizardProps {
   onCancel?: () => void;
   /** i18n key for the cancel control. Defaults to `common.cancel`. */
   cancelLabelKey?: string;
+  /**
+   * Whether the step the wizard is first drawn on takes the keyboard, as a
+   * step it moves to does. For a page that took the wizard away and brings it
+   * back — Autopilot's running view, which gives the review back when the run
+   * did not start: the focus the view held went with it. Read once, when the
+   * wizard is drawn; off, a first render leaves the focus where it is.
+   */
+  focusStepOnMount?: boolean;
   testIdPrefix?: string;
   className?: string;
 }
@@ -59,6 +67,7 @@ export const Wizard: React.FC<WizardProps> = ({
   isFinished = false,
   onCancel,
   cancelLabelKey = 'common.cancel',
+  focusStepOnMount = false,
   testIdPrefix = 'wizard',
   className,
 }) => {
@@ -80,9 +89,10 @@ export const Wizard: React.FC<WizardProps> = ({
    * the preview came; on Autopilot, whose review step turns Next into
    * Confirm, it started the run once the plan was built. The focus is taken
    * from a control of the wizard, or from one the step took off the page (the
-   * preview's Execute), never from a control outside it.
+   * preview's Execute), never from a control outside it. A wizard its page
+   * brings back counts the step it is drawn on as one it came to.
    */
-  const stepShown = useRef(currentStep);
+  const stepShown = useRef<number | null>(focusStepOnMount ? null : currentStep);
   useEffect(() => {
     if (stepShown.current === currentStep) return;
     stepShown.current = currentStep;

@@ -423,6 +423,29 @@ describe('ForgePage — the clock and the pause of a run left and come back to',
   });
 });
 
+describe('ForgePage — the calls a run makes', () => {
+  /** The execution screen's calls tile: its label, then its value. */
+  function callsTile(): string {
+    return screen.getAllByTestId('kpi-card')[4].textContent ?? '';
+  }
+
+  it('gives discovery’s estimate until the run counts its calls, then the calls made so far', () => {
+    // The tile said the estimate for the whole run while the run counted every
+    // call it sent: the calls made came with the results alone.
+    const { unmount } = render(<ForgePage />);
+    expect(callsTile()).toBe('Estimated API Calls4');
+
+    host('forge:progress', { objectName: 'Opportunity', status: 'running', apiCalls: 6 });
+    expect(callsTile()).toBe('API Calls So Far6');
+
+    // Left and come back to, the tile shows the calls where they stand.
+    unmount();
+    host('forge:progress', { objectName: 'Opportunity', status: 'done', apiCalls: 9 });
+    render(<ForgePage />);
+    expect(callsTile()).toBe('API Calls So Far9');
+  });
+});
+
 describe('ForgePage — a run left while it goes on', () => {
   it('shows where each object stands when come back to, not where it stood when left', () => {
     const { unmount } = render(<ForgePage />);

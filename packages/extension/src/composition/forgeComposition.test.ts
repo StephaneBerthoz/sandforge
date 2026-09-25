@@ -177,6 +177,20 @@ describe('initForgeComposition', () => {
     }
   });
 
+  it('hands the handlers the count a run’s calls are read by, so its progress can say them as it goes', async () => {
+    // The run's result counted its calls; nothing counted them while it went,
+    // and the execution screen gave discovery's estimate for the whole run.
+    const { orchestrator, services } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const before = services.requestsSent?.();
+
+    const result = await orchestrator.execute(graph, SOQL_CONFIG);
+
+    expect(before).toBeTypeOf('number');
+    expect(result.apiCalls).toBeGreaterThan(0);
+    expect((services.requestsSent?.() ?? 0) - (before ?? 0)).toBe(result.apiCalls);
+  });
+
   it('links the children of an Account the target refused as a duplicate to the record it named', async () => {
     // The target already holds both Accounts: its unique index refuses each,
     // naming the record, the way sObject Collections answers.

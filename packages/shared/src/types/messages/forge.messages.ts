@@ -195,8 +195,10 @@ export interface ForgeExecuteResponse extends BaseMessage {
  * `status`, `progress`, `message` — with what the run has found its object to
  * hold so far, once a write of it has said: `recordCount` adds up every write
  * of the object, `fieldCount` and `createableFieldCount` are the last named.
- * The shape is not frozen (cast to `Record<string, unknown>` at the emission
- * site).
+ * `apiCalls` is the requests the run has sent to Salesforce so far, counted
+ * as `ForgeExecutionResult.apiCalls` counts them once the run ends; absent
+ * when the run counts none. The shape is not frozen (cast to
+ * `Record<string, unknown>` at the emission site).
  */
 export interface ForgeProgressMessage extends BaseMessage {
   type: 'forge:progress';

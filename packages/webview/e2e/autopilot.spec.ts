@@ -412,6 +412,31 @@ test.describe('Autopilot — Wizard Flow', () => {
     expect(await outgoing(page, 'autopilot:execute')).toHaveLength(1);
   });
 
+  test('takes the keyboard back to the review when the Production Guard refuses the run', async ({
+    page,
+  }) => {
+    // The running view's heading held the keyboard and went with the view:
+    // the review came back with the focus on the page, where the keyboard
+    // started again from the top of the panel.
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
+    await advanceToReview(page, bridge);
+    await page.getByTestId('execute-button').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Autopilot', exact: true })).toBeFocused();
+
+    await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:execute', 'autopilot:error', {
+      message: 'Operation blocked by Production Guard: production org',
+      code: 'EXECUTE_ERROR',
+      retryable: false,
+    });
+
+    await expect(page.getByTestId('autopilot-execute-error')).toContainText('Production Guard');
+    await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+    expect(await outgoing(page, 'autopilot:execute')).toHaveLength(1);
+  });
+
   test('execute starts the run and leaves the wizard for the execution view', async ({ page }) => {
     await advanceToObjects(page, bridge);
     await advanceToCompliance(page);

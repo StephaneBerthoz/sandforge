@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseArgs, buildConfig } from './sandforge-sync.js';
+import type { Connection } from 'jsforce';
+import { parseArgs, buildConfig, buildQueryFn } from './sandforge-sync.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -150,5 +151,37 @@ describe('buildConfig', () => {
     expect(config.sourceOrgId).toBe('SRC');
     expect(config.targetOrgId).toBe('TGT');
     expect(config.direction).toBe('source_to_target');
+  });
+});
+
+describe('the read of an object', () => {
+  it('reads every page of the fields an org that refuses FIELDS(ALL) is asked for by name', async () => {
+    // Asked by name, with no LIMIT, the fields come 2 000 records at most at
+    // a time with a cursor to the rest: the command read the first page and
+    // synced the object short.
+    const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
+    const conn = {
+      query: vi.fn(async (soql: string) => {
+        if (soql.includes('FIELDS(ALL)')) throw new Error('MALFORMED_QUERY: FIELDS not supported');
+        return { records: [{ Id: '001000000000001AAA' }], done: false, nextRecordsUrl: NEXT };
+      }),
+      queryMore: vi.fn().mockResolvedValue({ records: [{ Id: '001000000000002AAA' }], done: true }),
+      sobject: () => ({
+        describe: async () => ({
+          fields: [
+            { name: 'Id', type: 'id' },
+            { name: 'Name', type: 'string' },
+            { name: 'BillingAddress', type: 'address' },
+          ],
+        }),
+      }),
+    };
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+
+    const rows = await buildQueryFn(conn as unknown as Connection)('SRC', account);
+
+    expect(conn.query).toHaveBeenLastCalledWith('SELECT Id, Name FROM Account');
+    expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
+    expect(rows).toEqual([{ Id: '001000000000001AAA' }, { Id: '001000000000002AAA' }]);
   });
 });

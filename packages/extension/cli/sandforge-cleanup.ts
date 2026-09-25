@@ -28,6 +28,7 @@
  *     --target TARGET-DEV --since today --dry-run
  */
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
+import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { loadOrg, makeConn } from './sfSession.js';
 
 /** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
@@ -221,8 +222,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   for (const objectName of args.objects) {
     try {
       const soql = `SELECT Id FROM ${assertSoqlIdentifier(objectName)} WHERE CreatedDate = ${since} AND CreatedById = '${sanitizeSoqlValue(userId)}' LIMIT ${cap}`;
-      const result = await conn.query<{ Id: string }>(soql);
-      const ids = result.records.map((r) => r.Id);
+      // Every page: a query answers with 2 000 records at most and a cursor
+      // to the rest, and a --max above that found 2 000.
+      const { records } = await queryAllPages<{ Id: string }>(
+        {
+          query: async (q) => conn.query<{ Id: string }>(q),
+          queryMore: async (url) => conn.queryMore<{ Id: string }>(url),
+        },
+        soql,
+      );
+      const ids = records.map((r) => r.Id);
       if (ids.length === 0) {
         process.stdout.write(`  ${objectName.padEnd(40)} 0\n`);
         continue;

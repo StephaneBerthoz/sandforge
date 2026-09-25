@@ -257,6 +257,13 @@ export interface ForgeServices {
   templateStore?: ForgeTemplateStore;
   /** @deprecated History is now persisted via ConfigStore. Accepted for backward compatibility. */
   historyStore?: ForgeHistoryStore;
+  /**
+   * How many requests to Salesforce the executor's deps have sent so far —
+   * what a run counts its calls by (`ForgeExecutorDeps.requestsSent`). Read
+   * as the run goes, so its progress can say the calls it has made; without
+   * it the progress says none, as the result does.
+   */
+  requestsSent?: () => number;
 }
 
 /** Message types handled by ForgeHandler. */
@@ -459,6 +466,8 @@ export class ForgeHandler implements DomainHandler {
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
   private metadataDiff?: ForgeMetadataDiff;
+  /** The requests the executor's deps have sent so far, when they count them. */
+  private requestsSent?: () => number;
   /**
    * Workspace-file template store, present only when a folder is open.
    *
@@ -557,6 +566,7 @@ export class ForgeHandler implements DomainHandler {
       // simply missing, so every saved recipe went to globalState instead of
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
+      this.requestsSent = services.requestsSent;
     }
   }
 
@@ -1239,6 +1249,21 @@ export class ForgeHandler implements DomainHandler {
     let startedAt = Date.now();
     /** The requests sent for the run before the executor had it: both orgs' record types. */
     const lookup = { requests: 0 };
+    /** What the executor's deps had sent when it was handed the run; unknown before, or uncounted. */
+    let requestsAtStart: number | undefined;
+    /**
+     * The calls the run has made so far, counted as its result counts them
+     * once it ends: the record types read for it, and what the executor's deps
+     * have sent since it had the run. The executor reads the same count as it
+     * starts, and nothing between the two sends a request through its deps.
+     * Undefined when the deps count none: the result says none either.
+     */
+    const callsSoFar = (): number | undefined => {
+      const now = this.requestsSent?.();
+      return now === undefined || requestsAtStart === undefined
+        ? undefined
+        : lookup.requests + now - requestsAtStart;
+    };
     /** What the run failed on, so the registry lists it as failed. */
     let runError: unknown;
 
@@ -1255,7 +1280,12 @@ export class ForgeHandler implements DomainHandler {
     const reportToLiveOperations = this.liveProgressOf(operationId, graph);
     const withCountsSoFar = countsSoFar();
     const unsubProgress = this.orchestrator.on('forge:progress', (reported) => {
-      const event = withCountsSoFar(reported);
+      const counted = withCountsSoFar(reported);
+      // The calls made so far ride every event: the execution screen showed
+      // discovery's estimate for the whole run, and the calls the run counted
+      // came with its results alone.
+      const apiCalls = callsSoFar();
+      const event = apiCalls === undefined ? counted : { ...counted, apiCalls };
       reportToLiveOperations(event);
       /*
        * Always pass through terminal states so the UI can finalize — and
@@ -1300,6 +1330,7 @@ export class ForgeHandler implements DomainHandler {
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
       startedAt = Date.now();
+      requestsAtStart = this.requestsSent?.();
       const executed = await this.orchestrator.execute(graph, config, {
         recordTypeMappings,
         anonymizationRules,

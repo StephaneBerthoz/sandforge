@@ -49,8 +49,6 @@
     "itemCount_other": "{{count}} éléments",
     "dependencyCount_one": "{{count}} dépendance",
     "dependencyCount_other": "{{count}} dépendances",
-    "apiCallCount_one": "{{count}} appel d'API",
-    "apiCallCount_other": "{{count}} appels d'API",
     "estimatedApiCallCount_one": "{{count}} appel d'API estimé",
     "estimatedApiCallCount_other": "{{count}} appels d'API estimés"
   },
@@ -2365,6 +2363,7 @@
     },
     "apiCallsConsumed": "Appels API",
     "apiCallsEstimated": "Appels API estimés",
+    "apiCallsSoFar": "Appels API jusqu'ici",
     "exportJson": "Exporter JSON",
     "retryFailed": "Retenter les échecs",
     "retryFailedHint": "Retenter les échecs relance le clone : ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",

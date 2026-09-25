@@ -49,8 +49,6 @@
     "itemCount_other": "{{count}} elementos",
     "dependencyCount_one": "{{count}} dependencia",
     "dependencyCount_other": "{{count}} dependencias",
-    "apiCallCount_one": "{{count}} llamada a la API",
-    "apiCallCount_other": "{{count}} llamadas a la API",
     "estimatedApiCallCount_one": "{{count}} llamada estimada a la API",
     "estimatedApiCallCount_other": "{{count}} llamadas estimadas a la API"
   },
@@ -2365,6 +2363,7 @@
     },
     "apiCallsConsumed": "Llamadas API",
     "apiCallsEstimated": "Llamadas API estimadas",
+    "apiCallsSoFar": "Llamadas API hasta ahora",
     "exportJson": "Exportar JSON",
     "retryFailed": "Reintentar fallidos",
     "retryFailedHint": "Reintentar fallidos vuelve a ejecutar el clon: lo que esta ejecución no pudo escribir se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",

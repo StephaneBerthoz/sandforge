@@ -1808,6 +1808,63 @@ describe('ForgeHandler', () => {
       expect(toldOf('Account')).toHaveLength(1);
       expect(toldOf('Account')[0]).not.toHaveProperty('recordCount');
     });
+
+    it('tells the page with each event the calls the run has made so far, the record types read for it among them', async () => {
+      // The execution tile gave discovery's estimate for the whole run while
+      // the run counted every call it sent: the calls made reached the page
+      // with the results alone.
+      // Each org answers the record types on two pages: four calls before the
+      // executor has the run.
+      mockGetConn.mockImplementation(
+        async () =>
+          ({
+            query: vi.fn().mockResolvedValue({
+              records: [],
+              totalSize: 0,
+              done: false,
+              nextRecordsUrl: '/services/data/v66.0/query/01g-2000',
+            }),
+            queryMore: vi.fn().mockResolvedValue({ records: [], done: true, totalSize: 0 }),
+          }) as never,
+      );
+      /** What the executor's deps have sent this session: a run counts from where it starts. */
+      let sent = 30;
+      handler.setForgeOrchestrator(orchestrator, { requestsSent: () => sent });
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        // The root's describe and its read, then its write.
+        sent += 2;
+        listener?.({ objectName: 'Account', status: 'running', progress: 0, message: 'Reading' });
+        sent += 1;
+        listener?.({ objectName: 'Account', status: 'done', progress: 100, message: 'Done' });
+        return createMockResult({ apiCalls: 3 });
+      });
+
+      try {
+        await handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+      } finally {
+        mockGetConn.mockReset();
+      }
+
+      expect(toldOf('Account').map((event) => event.apiCalls)).toEqual([6, 7]);
+    });
+
+    it('says nothing of the calls of a run whose executor counts none', async () => {
+      // Its result gives no count either: the record types alone would read
+      // as the run's.
+      await runReporting([
+        { objectName: 'Account', status: 'done', progress: 100, message: 'Done' },
+      ]);
+
+      expect(toldOf('Account')).toHaveLength(1);
+      expect(toldOf('Account')[0]).not.toHaveProperty('apiCalls');
+    });
   });
 
   describe('forge:execute duplicate guard', () => {

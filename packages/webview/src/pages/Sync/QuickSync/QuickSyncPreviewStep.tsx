@@ -161,9 +161,12 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                     </Badge>
                   )}
                 </div>
+                {/* The records are counted; the calls are a guess — one for
+                    each batch of them — and are said to be one, as the
+                    summary above says its own. */}
                 <div className="flex items-center gap-4 text-[10px] text-[var(--sf-text-secondary)]">
                   <span>{t('common.recordCount', { count: obj.recordCount })}</span>
-                  <span>{t('common.apiCallCount', { count: obj.estimatedApiCalls })}</span>
+                  <span>{t('common.estimatedApiCallCount', { count: obj.estimatedApiCalls })}</span>
                 </div>
               </div>
             ))}

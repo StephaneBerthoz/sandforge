@@ -32,20 +32,28 @@ export const LiveStats: React.FC = () => {
         />
       </div>
 
-      {/* API Calls */}
-      <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]">
+      {/* API Calls: those the run made, and the plan's, which are a guess —
+          a call for each batch of the rows the scan counted — and are said
+          to be one. Written "10 / 50", the guess read as the calls the run
+          would make, where the review had called it an estimate. */}
+      <div
+        className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-primary)]"
+        data-testid="live-stats-api-calls"
+      >
         <span className="text-[10px] uppercase tracking-wider text-text-secondary">
           {t('autopilot.control.apiCalls')}
         </span>
         <span className="text-lg font-bold text-text-primary">
-          {liveStats.apiCallsUsed.toLocaleString(uiLocale())} /{' '}
-          {liveStats.apiCallsEstimated.toLocaleString(uiLocale())}
+          {liveStats.apiCallsUsed.toLocaleString(uiLocale())}
         </span>
         <ProgressBar
           value={liveStats.apiCallsUsed}
           max={Math.max(liveStats.apiCallsEstimated, 1)}
           ariaLabel={t('autopilot.control.apiCalls')}
         />
+        <span className="text-[10px] text-text-secondary">
+          {t('common.estimatedApiCallCount', { count: liveStats.apiCallsEstimated })}
+        </span>
       </div>
 
       {/* Elapsed Time */}

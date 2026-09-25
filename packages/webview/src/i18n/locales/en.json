@@ -49,8 +49,6 @@
     "itemCount_other": "{{count}} items",
     "dependencyCount_one": "{{count}} dependency",
     "dependencyCount_other": "{{count}} dependencies",
-    "apiCallCount_one": "{{count}} API call",
-    "apiCallCount_other": "{{count}} API calls",
     "estimatedApiCallCount_one": "{{count}} estimated API call",
     "estimatedApiCallCount_other": "{{count}} estimated API calls"
   },
@@ -2365,6 +2363,7 @@
     },
     "apiCallsConsumed": "API Calls",
     "apiCallsEstimated": "Estimated API Calls",
+    "apiCallsSoFar": "API Calls So Far",
     "exportJson": "Export JSON",
     "retryFailed": "Retry Failed",
     "retryFailedHint": "Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.",

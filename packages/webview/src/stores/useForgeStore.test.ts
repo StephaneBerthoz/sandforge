@@ -901,6 +901,31 @@ describe('useForgeStore', () => {
       expect(getState().graph?.nodes[1]).toMatchObject({ recordCount: 5 });
     });
 
+    it('keeps the calls the run has made so far, as the last event says them', () => {
+      // The extension counts each call as the run sends it: the execution
+      // screen said discovery's estimate for the whole run.
+      runOnScreen();
+      expect(getState().apiCallsSoFar).toBeNull();
+
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'running', apiCalls: 6 });
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done', apiCalls: 9 });
+      // An event that counts none leaves the count where it stood.
+      post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'running' });
+
+      expect(getState().apiCallsSoFar).toBe(9);
+    });
+
+    it('counts a run’s calls from its own events, none of the run before it', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done', apiCalls: 9 });
+
+      getState().setExecutionRequestId('wv-run-2');
+
+      expect(getState().apiCallsSoFar).toBeNull();
+      post('forge:progress', 'wv-run-1', { objectName: 'Account', status: 'done', apiCalls: 12 });
+      expect(getState().apiCallsSoFar).toBeNull();
+    });
+
     it('logs an object that failed as an error, in words of its own when the event has none', () => {
       runOnScreen();
       post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'error', progress: 0 });

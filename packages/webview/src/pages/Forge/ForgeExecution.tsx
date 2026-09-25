@@ -66,6 +66,7 @@ export const ForgeExecution: React.FC = () => {
   const runError = useForgeStore((s) => s.runError);
   const runClock = useForgeStore((s) => s.runClock);
   const stopRequestedAt = useForgeStore((s) => s.stopRequestedAt);
+  const apiCallsSoFar = useForgeStore((s) => s.apiCallsSoFar);
   const addLog = useForgeStore((s) => s.addLog);
   const pauseRun = useForgeStore((s) => s.pauseRun);
   const resumeRun = useForgeStore((s) => s.resumeRun);
@@ -130,8 +131,9 @@ export const ForgeExecution: React.FC = () => {
     const queued = nodeList.filter((n) => n.status === 'idle').length;
     const failed = nodeList.filter((n) => n.status === 'error').length;
     const skipped = nodeList.filter((n) => n.status === 'skipped').length;
-    // Discovery's, said to be an estimate: the run counts its calls, and says
-    // how many once it has answered (`ForgeResults`).
+    // Discovery's, said to be an estimate, until the run's progress counts the
+    // calls it has made (`apiCallsSoFar`); its answer says them all
+    // (`ForgeResults`).
     const apiCalls = estimatedApiCallsOf(nodeList);
     // A skipped or failed node is finished with, and counts toward the bar,
     // measured as the store measures where a run stopped: the two agree.
@@ -423,10 +425,13 @@ export const ForgeExecution: React.FC = () => {
           <KPICard icon="sync" label={t('forge.running')} value={kpis.running} variant="default" />
           <KPICard icon="clock" label={t('forge.queued')} value={kpis.queued} variant="warning" />
           <KPICard icon="error" label={t('forge.failed')} value={kpis.failed} variant="error" />
+          {/* The calls the run has made so far, once its progress counts
+              them; until the first count comes, discovery's estimate for the
+              whole run, said to be one. */}
           <KPICard
             icon="zap"
-            label={t('forge.apiCallsEstimated')}
-            value={kpis.apiCalls ?? '—'}
+            label={t(apiCallsSoFar === null ? 'forge.apiCallsEstimated' : 'forge.apiCallsSoFar')}
+            value={apiCallsSoFar ?? kpis.apiCalls ?? '—'}
             variant="default"
           />
         </div>

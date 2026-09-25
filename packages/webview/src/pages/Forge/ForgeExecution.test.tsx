@@ -49,6 +49,8 @@ let mockRunError: ForgeRunError | null = null;
 let mockRunClock: ForgeRunClock | null = null;
 /** When an abort was asked of the run, while it has not answered. */
 let mockStopRequestedAt: number | null = null;
+/** The calls the run has made so far, once its progress counts them. */
+let mockApiCallsSoFar: number | null = null;
 // The store's own moves, as it makes them: the screen draws what they leave.
 const mockPauseRun = vi.fn(() => {
   if (mockRunClock) mockRunClock = { ...mockRunClock, pausedSince: Date.now() };
@@ -174,6 +176,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     runError: mockRunError,
     runClock: mockRunClock,
     stopRequestedAt: mockStopRequestedAt,
+    apiCallsSoFar: mockApiCallsSoFar,
     setPhase: mockSetPhase,
     setStoppedAt: mockSetStoppedAt,
     addLog: mockAddLog,
@@ -223,6 +226,7 @@ describe('ForgeExecution', () => {
     mockRunError = null;
     mockRunClock = startedAgo(0);
     mockStopRequestedAt = null;
+    mockApiCallsSoFar = null;
   });
 
   describe('a run whose objects have all settled', () => {
@@ -542,6 +546,22 @@ describe('ForgeExecution', () => {
     expect(screen.getAllByTestId('kpi-card')[4].textContent).toBe('Estimated API Calls17');
   });
 
+  it('shows the calls the run has made so far in place of the estimate, once the run counts them', () => {
+    // The tile gave discovery's estimate for the whole run, while the run
+    // counted every call it sent: the calls made came with the results alone.
+    mockApiCallsSoFar = 6;
+    render(<ForgeExecution />);
+
+    expect(screen.getAllByTestId('kpi-card')[4].textContent).toBe('API Calls So Far6');
+  });
+
+  it('shows a run that has made no call yet as a count of zero, not as the estimate', () => {
+    mockApiCallsSoFar = 0;
+    render(<ForgeExecution />);
+
+    expect(screen.getAllByTestId('kpi-card')[4].textContent).toBe('API Calls So Far0');
+  });
+
   it('gives no estimate of the calls of a run whose objects nobody counted, rather than zero', () => {
     // A starter template's graph skips discovery and holds each estimate at a
     // placeholder zero: the card read "API Calls 0" all through the run.
@@ -684,6 +704,7 @@ describe('ForgeExecution progress for assistive technology', () => {
     mockRunError = null;
     mockRunClock = startedAgo(0);
     mockStopRequestedAt = null;
+    mockApiCallsSoFar = null;
   });
 
   it('draws the run progress with a named progress bar', () => {

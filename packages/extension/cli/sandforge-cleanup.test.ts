@@ -3,8 +3,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+// The session stays the real one unless a test gives the org it runs against.
+vi.mock('./sfSession.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sfSession.js')>();
+  return { ...actual, loadOrg: vi.fn(actual.loadOrg), makeConn: vi.fn(actual.makeConn) };
+});
 
+import type { Connection } from 'jsforce';
 import { execFileSync } from 'node:child_process';
+import { loadOrg, makeConn } from './sfSession.js';
 import { main } from './sandforge-cleanup';
 
 const mockExecFileSync = vi.mocked(execFileSync);
@@ -107,5 +114,55 @@ describe('sandforge-cleanup', () => {
   it('names no bare command anywhere in the script source', () => {
     const source = readFileSync(join(__dirname, 'sandforge-cleanup.ts'), 'utf8');
     expect(source.split('\n').filter((line) => BARE_COMMAND_LINE.test(line))).toEqual([]);
+  });
+
+  describe('against an org', () => {
+    let realLoadOrg: typeof loadOrg;
+    let realMakeConn: typeof makeConn;
+    let printed: string[];
+
+    beforeEach(async () => {
+      ({ loadOrg: realLoadOrg, makeConn: realMakeConn } =
+        await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js'));
+      printed = [];
+      vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+        printed.push(String(line));
+      });
+    });
+
+    afterEach(() => {
+      vi.mocked(loadOrg).mockImplementation(realLoadOrg);
+      vi.mocked(makeConn).mockImplementation(realMakeConn);
+    });
+
+    it('finds the records past the first page when --max asks for more than a page holds', async () => {
+      // A query answers with 2 000 records at most and a cursor to the rest:
+      // asked for 3 000, the command found 2 000 and said that was all.
+      const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
+      const cases = (from: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          Id: `500${String(from + i).padStart(12, '0')}AAA`,
+        }));
+      const conn = {
+        query: vi.fn(async (soql: string) =>
+          soql.includes(' FROM User ')
+            ? { records: [{ Id: '005000000000001AAA' }], done: true }
+            : { records: cases(0, 2000), done: false, nextRecordsUrl: NEXT },
+        ),
+        queryMore: vi.fn().mockResolvedValue({ records: cases(2000, 1000), done: true }),
+      };
+      vi.mocked(loadOrg).mockResolvedValue({
+        alias: 'TGT',
+        username: 'user@example.com',
+        instanceUrl: 'https://tgt.example.com',
+        accessToken: 'token',
+      });
+      vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
+
+      expect(await run(argv('--objects', 'Case', '--max', '3000', '--dry-run'))).toBeUndefined();
+
+      expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
+      expect(printed).toContain(`  ${'Case'.padEnd(40)} 3000  [dry-run]`);
+    });
   });
 });

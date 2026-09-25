@@ -2606,6 +2606,42 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Autopilot review given back with the keyboard when the Production Guard refuses the run', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('execute-button').focus();
+      await page.keyboard.press('Enter');
+      await bridge.respondToNext('autopilot:execute', 'autopilot:error', {
+        message: 'Operation blocked by Production Guard: production org',
+        code: 'EXECUTE_ERROR',
+        retryable: false,
+      });
+
+      const error = page.getByTestId('autopilot-execute-error');
+      await error.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+      const refused = await checkAccessibility(page);
+      expectNoViolations(refused);
+      expect(
+        await contrastMeasuredIn(page, refused, '[data-testid="autopilot-execute-error"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('AI chat after conversation creation', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
 

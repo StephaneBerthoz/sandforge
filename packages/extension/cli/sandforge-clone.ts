@@ -477,17 +477,28 @@ export async function loadRecordTypes(
   // Opportunity can each have a "Business" record type.
   const soql = 'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
   type RecordTypeRow = { Id: string; Name: string; DeveloperName: string; SobjectType: string };
-  const [s, tgt] = await Promise.all([
-    sourceConn.query<RecordTypeRow>(soql),
-    targetConn.query<RecordTypeRow>(soql),
-  ]);
+  // Every page, as the extension reads them: a query answers with 2 000
+  // records at most and a cursor to the rest, and a record type past the
+  // first page went unmatched. Each page is a request of the connection,
+  // which the run's calls count.
+  const readAll = async (conn: Connection): Promise<RecordTypeRow[]> =>
+    (
+      await queryAllPages<RecordTypeRow>(
+        {
+          query: async (q) => conn.query<RecordTypeRow>(q),
+          queryMore: async (url) => conn.queryMore<RecordTypeRow>(url),
+        },
+        soql,
+      )
+    ).records;
+  const [s, tgt] = await Promise.all([readAll(sourceConn), readAll(targetConn)]);
   const toInfo = (r: RecordTypeRow): RecordTypeInfo => ({
     id: r.Id,
     name: r.Name,
     developerName: r.DeveloperName,
     sobjectType: r.SobjectType,
   });
-  return new RecordTypeMapper().buildMapping(s.records.map(toInfo), tgt.records.map(toInfo));
+  return new RecordTypeMapper().buildMapping(s.map(toInfo), tgt.map(toInfo));
 }
 
 /**

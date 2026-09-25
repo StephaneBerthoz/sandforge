@@ -42,6 +42,7 @@ import { IncrementalTracker } from '../src/modules/sync/IncrementalTracker.js';
 import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
+import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -208,9 +209,10 @@ export function buildConfig(args: CliArgs): SyncConfig {
  * Read every row of an object, following the cursor.
  *
  * `FIELDS(ALL)` with the explicit-field fallback, the same two-step the panel
- * uses: an org that refuses the shorthand still gets read.
+ * uses: an org that refuses the shorthand still gets read. Exported so the
+ * read can be tested.
  */
-function buildQueryFn(conn: Connection) {
+export function buildQueryFn(conn: Connection) {
   return async (
     _orgId: string,
     objectConfig: SyncObjectConfig,
@@ -229,10 +231,16 @@ function buildQueryFn(conn: Connection) {
         .filter((f) => f.type !== 'address' && f.type !== 'location')
         .map((f) => f.name)
         .join(', ');
-      const result = await conn.query<Record<string, unknown>>(
+      // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
+      // a time: every page is read, as the panel reads them.
+      const { records } = await queryAllPages<Record<string, unknown>>(
+        {
+          query: async (q) => conn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+        },
         `SELECT ${fields} FROM ${object}${where}`,
       );
-      return result.records;
+      return records;
     }
   };
 }

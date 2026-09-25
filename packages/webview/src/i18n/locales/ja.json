@@ -43,7 +43,6 @@
     "fieldCount_other": "{{count}}個の項目",
     "itemCount_other": "{{count}}項目",
     "dependencyCount_other": "{{count}}件の依存関係",
-    "apiCallCount_other": "APIコール {{count}}回",
     "estimatedApiCallCount_other": "推定APIコール {{count}}回"
   },
   "status": {
@@ -2255,6 +2254,7 @@
     },
     "apiCallsConsumed": "APIコール",
     "apiCallsEstimated": "推定APIコール数",
+    "apiCallsSoFar": "これまでのAPIコール数",
     "exportJson": "JSONをエクスポート",
     "retryFailed": "失敗を再試行",
     "retryFailedHint": "「失敗を再試行」はクローンをもう一度実行します。この実行で書き込めなかったものを、書き込めたものにリンクして書き込みます。書き込み済みのものは二度書き込みません。",

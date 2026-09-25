@@ -118,6 +118,8 @@ export interface ForgeProgressUpdate {
   recordCount?: number;
   fieldCount?: number;
   createableFieldCount?: number;
+  /** The requests the run has sent to Salesforce so far, when the run counts them. */
+  apiCalls?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +252,7 @@ const INITIAL_STATE = {
   runError: null as ForgeRunError | null,
   runClock: null as ForgeRunClock | null,
   stopRequestedAt: null as number | null,
+  apiCallsSoFar: null as number | null,
   runsEnded: 0,
 };
 
@@ -378,6 +381,12 @@ export interface ForgeState {
   stopRequestedAt: number | null;
   /** Ask the run on screen to stop, while it goes on; nothing once it has ended. */
   requestStop: () => void;
+  /**
+   * The calls the run on screen has made so far, as its last progress event
+   * counted them, or null until one does. Kept here, as its log is: the
+   * screen left and come back to shows the calls where they stand.
+   */
+  apiCallsSoFar: number | null;
   /**
    * Leave a run asked to stop that has not answered, for the input screen.
    * Its answer, should it come, changes nothing on screen: the run is in the
@@ -541,6 +550,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       runError: null,
       stoppedAt: null,
       stopRequestedAt: null,
+      apiCallsSoFar: null,
       runClock:
         executionRequestId === null
           ? null
@@ -623,7 +633,12 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       update.message ??
         `${objectName}: ${status}${progress !== undefined ? ` (${String(progress)}%)` : ''}`,
     );
-    set((s) => ({ logs: withLogLine(s.logs, line) }));
+    const { apiCalls } = update;
+    set((s) => ({
+      logs: withLogLine(s.logs, line),
+      // The calls counted so far ride every event of a run that counts them.
+      ...(apiCalls !== undefined ? { apiCallsSoFar: apiCalls } : {}),
+    }));
   },
 
   failRun(requestId: unknown, message: string, stoppedRun: ForgeExecutionResult | undefined): void {
@@ -969,6 +984,7 @@ function progressUpdate(payload: unknown): ForgeProgressUpdate | null {
     recordCount: count(event.recordCount),
     fieldCount: count(event.fieldCount),
     createableFieldCount: count(event.createableFieldCount),
+    apiCalls: count(event.apiCalls),
   };
 }
 

@@ -49,8 +49,6 @@
     "itemCount_other": "{{count}} itens",
     "dependencyCount_one": "{{count}} dependência",
     "dependencyCount_other": "{{count}} dependências",
-    "apiCallCount_one": "{{count}} chamada de API",
-    "apiCallCount_other": "{{count}} chamadas de API",
     "estimatedApiCallCount_one": "{{count}} chamada de API estimada",
     "estimatedApiCallCount_other": "{{count}} chamadas de API estimadas"
   },
@@ -2365,6 +2363,7 @@
     },
     "apiCallsConsumed": "Chamadas de API",
     "apiCallsEstimated": "Chamadas de API estimadas",
+    "apiCallsSoFar": "Chamadas de API até agora",
     "exportJson": "Exportar JSON",
     "retryFailed": "Repetir falhos",
     "retryFailedHint": "Repetir falhos executa o clone de novo: o que esta execução não conseguiu gravar é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",

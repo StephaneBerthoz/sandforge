@@ -48,6 +48,7 @@ import {
   type RecordTypeAvailability,
 } from '../src/core/metadata/recordTypeAvailability.js';
 import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
+import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
@@ -148,6 +149,25 @@ export function parseArgs(argv: string[]): CliArgs {
   };
 }
 
+/**
+ * A read of every page of what `conn` answers, as the panel reads the target:
+ * asked of two hundred activities at a time, the target answers with every
+ * relation they hold, and an event's invitees take it past the 2 000 records
+ * of a page. Exported so the read can be tested.
+ */
+export function everyPage(conn: Connection): (soql: string) => Promise<Record<string, unknown>[]> {
+  return async (soql) =>
+    (
+      await queryAllPages<Record<string, unknown>>(
+        {
+          query: async (q) => conn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      )
+    ).records;
+}
+
 /** Run one autopilot from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -235,10 +255,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               }),
             objectApiName,
           ),
+        // Each read of the source is bounded, as it is for the panel; the
+        // target is read to its last page.
         querySource: async (soql) =>
           (await sourceConn.query<Record<string, unknown>>(soql)).records,
-        queryTarget: async (soql) =>
-          (await targetConn.query<Record<string, unknown>>(soql)).records,
+        queryTarget: everyPage(targetConn),
         describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
         describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
         anonymizer,

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { AutopilotGraph, ComplianceReport, ExecutionPlan } from '@sandforge/shared';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { AutopilotPage } from './AutopilotPage';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 
@@ -442,5 +443,50 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
       'production confirmation declined',
     );
+  });
+
+  it.each([
+    [
+      'the production guard refuses the run',
+      'Operation blocked by Production Guard: production org',
+    ],
+    [
+      'the production confirmation is declined',
+      'Operation cancelled by user (production confirmation declined).',
+    ],
+  ])('takes the keyboard back to the review when %s', (_case, message) => {
+    // The running view's heading held the keyboard and went with the view: the
+    // review came back with the focus on the page, where the keyboard started
+    // again from the top of the panel.
+    render(<AutopilotPage />);
+    driveToReview();
+    const execute = screen.getByTestId('execute-button');
+    execute.focus();
+    fireEvent.click(execute);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: en.autopilot.title }));
+
+    dispatchBridgeMessage(
+      'autopilot:error',
+      { message },
+      lastRequestOfType('autopilot:execute').id,
+    );
+
+    expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(message);
+    expect(document.activeElement).toBe(
+      screen.getByRole('group', { name: en.autopilot.step4.title }),
+    );
+  });
+
+  it('leaves the focus alone when the page opens on the review of a run that did not start', () => {
+    // Told to take the keyboard only when the running view gives the review
+    // back: drawn afresh, the wizard leaves the focus where it is.
+    act(() => {
+      useAutopilotStore.setState({ step: 'review', executionStatus: 'failed' });
+    });
+
+    render(<AutopilotPage />);
+
+    expect(screen.getByTestId('step4-review')).toBeDefined();
+    expect(document.activeElement).toBe(document.body);
   });
 });

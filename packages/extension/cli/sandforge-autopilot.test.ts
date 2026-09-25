@@ -1,5 +1,31 @@
-import { describe, it, expect } from 'vitest';
-import { outcomeLines } from './sandforge-autopilot';
+import { describe, it, expect, vi } from 'vitest';
+import type { Connection } from 'jsforce';
+import { everyPage, outcomeLines } from './sandforge-autopilot';
+
+describe('sandforge-autopilot — what it asks of the target', () => {
+  it('reads every page of the answer, not the first alone', async () => {
+    // Asked of two hundred activities at a time, the target answers with
+    // every relation they hold, and an event's invitees take it past a page:
+    // the relations past the first were never seen, and the run wrote them
+    // again for the target to refuse. The panel reads the target to its last.
+    const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
+    const conn = {
+      query: vi.fn().mockResolvedValue({
+        records: [{ Id: '0RE000000000001AAA' }],
+        done: false,
+        nextRecordsUrl: NEXT,
+      }),
+      queryMore: vi.fn().mockResolvedValue({ records: [{ Id: '0RE000000000002AAA' }], done: true }),
+    };
+
+    const rows = await everyPage(conn as unknown as Connection)(
+      'SELECT Id FROM EventRelation WHERE EventId IN (...)',
+    );
+
+    expect(rows).toEqual([{ Id: '0RE000000000001AAA' }, { Id: '0RE000000000002AAA' }]);
+    expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
+  });
+});
 
 describe('sandforge-autopilot — the run summary', () => {
   const missing = "Des champs obligatoires n'ont pas été remplis : [Entity__c]";

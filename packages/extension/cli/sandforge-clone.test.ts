@@ -219,6 +219,39 @@ describe('sandforge-clone record type mapping', () => {
       '012000000000TGTACC',
     );
   });
+
+  it('matches the record types of every page each org answers with, not those of the first alone', async () => {
+    // A query answers with 2 000 records at most and a cursor to the rest: a
+    // record type past the first page went unmatched, and the records of it
+    // kept the source's Id, which the target refuses.
+    const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
+    const onTwoPages = (first: string, second: string) => ({
+      query: vi.fn().mockResolvedValue({
+        records: [recordType(first, 'Account')],
+        done: false,
+        nextRecordsUrl: NEXT,
+      }),
+      queryMore: vi
+        .fn()
+        .mockResolvedValue({ records: [recordType(second, 'Contact')], done: true }),
+    });
+    const source = onTwoPages('012000000000SRCACC', '012000000000SRCCON');
+    const target = onTwoPages('012000000000TGTACC', '012000000000TGTCON');
+
+    const mappings = await loadRecordTypes(
+      source as unknown as Connection,
+      target as unknown as Connection,
+    );
+
+    expect(mappings.find((m) => m.sourceId === '012000000000SRCCON')?.targetId).toBe(
+      '012000000000TGTCON',
+    );
+    expect(mappings.find((m) => m.sourceId === '012000000000SRCACC')?.targetId).toBe(
+      '012000000000TGTACC',
+    );
+    expect(source.queryMore).toHaveBeenCalledWith(NEXT);
+    expect(target.queryMore).toHaveBeenCalledWith(NEXT);
+  });
 });
 
 describe('sandforge-clone target object info', () => {
@@ -957,6 +990,64 @@ describe('sandforge-clone describes', () => {
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
       expect(sent.length).toBeGreaterThan(recordTypes.length + reads.length);
+      expect(printed).toContain(
+        `calls:   ${recordTypes.length + reads.length} (requests the run sent to both orgs)`,
+      );
+    });
+
+    it('reads every page of the record types, and counts each among the calls the run made', async () => {
+      // The page after the first is a request of its own: read, it is one of
+      // the run's calls, as the extension counts it.
+      const orgs = withFakeOrgs();
+      const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
+      const sent: string[] = [];
+      for (const [alias, { conn }] of Object.entries(orgs)) {
+        const fake = conn as unknown as {
+          query: (soql: string) => Promise<unknown>;
+          queryMore: (url: string) => Promise<unknown>;
+          request: (request: unknown) => Promise<unknown>;
+        };
+        const answer = fake.query;
+        /** A record type of `object` in this org, fake Id and all. */
+        const recordType = (object: string, suffix: string) => ({
+          Id: `012000000000${alias}${suffix}`,
+          Name: 'Business',
+          DeveloperName: 'Business',
+          SobjectType: object,
+        });
+        // As on a real connection: a query and each page after it go out
+        // through `request`, where the command counts what it sends.
+        fake.query = async (soql: string) => {
+          sent.push(soql);
+          await fake.request(soql);
+          if (!soql.includes(' FROM RecordType ')) return answer(soql);
+          return {
+            totalSize: 2,
+            done: false,
+            nextRecordsUrl: NEXT,
+            records: [recordType('Account', 'A')],
+          };
+        };
+        fake.queryMore = async (url: string) => {
+          sent.push(url);
+          await fake.request(url);
+          return { totalSize: 2, done: true, records: [recordType('Contact', 'C')] };
+        };
+      }
+
+      expect(await run(argv('--dry-run'))).toBeUndefined();
+
+      const recordTypes = sent.filter(
+        (asked) => asked.includes(' FROM RecordType ') || asked === NEXT,
+      );
+      const reads = sent.filter(
+        (asked) =>
+          !asked.startsWith('SELECT COUNT()') &&
+          !asked.includes(' FROM RecordType ') &&
+          asked !== NEXT,
+      );
+      expect(recordTypes).toHaveLength(4);
+      expect(printed).toContain('record-types: 2 mappings');
       expect(printed).toContain(
         `calls:   ${recordTypes.length + reads.length} (requests the run sent to both orgs)`,
       );

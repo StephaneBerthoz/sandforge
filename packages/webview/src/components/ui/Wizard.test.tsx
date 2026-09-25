@@ -431,5 +431,37 @@ describe('Wizard', () => {
 
       expect(document.activeElement).toBe(document.body);
     });
+
+    it('goes to the step it is drawn on when its page brings it back', () => {
+      // Autopilot's running view gives the review back when the run did not
+      // start, and the focus its heading held went with it.
+      render(
+        <Wizard steps={steps} currentStep={2} onStepChange={vi.fn()} focusStepOnMount>
+          <div>Content</div>
+        </Wizard>,
+      );
+
+      expect(document.activeElement).toBe(stepNamed(en.seed.configureFields));
+    });
+
+    it('leaves the focus on a control outside the wizard when its page brings it back', () => {
+      const page = (withWizard: boolean) => (
+        <>
+          <input aria-label="Elsewhere" data-testid="elsewhere" />
+          {withWizard && (
+            <Wizard steps={steps} currentStep={2} onStepChange={vi.fn()} focusStepOnMount>
+              <div>Content</div>
+            </Wizard>
+          )}
+        </>
+      );
+      const { rerender } = render(page(false));
+      const elsewhere = screen.getByTestId('elsewhere');
+      elsewhere.focus();
+
+      rerender(page(true));
+
+      expect(document.activeElement).toBe(elsewhere);
+    });
   });
 });

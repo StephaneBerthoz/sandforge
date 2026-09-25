@@ -67,6 +67,17 @@ describe('QuickSyncPreviewStep', () => {
     expect(summary.textContent).toContain('10');
   });
 
+  it('gives each object’s API calls as the estimate they are', () => {
+    // A call for each batch of the rows counted, before anything is read:
+    // "3 API calls" read as calls counted, under a summary that says its
+    // calls are estimated.
+    render(<QuickSyncPreviewStep {...defaultProps} />);
+
+    const objects = screen.getByTestId('quick-sync-preview-objects').textContent;
+    expect(objects).toContain('3 estimated API calls');
+    expect(objects).toContain('7 estimated API calls');
+  });
+
   it('shows Sync Now button when not executing', () => {
     render(<QuickSyncPreviewStep {...defaultProps} />);
 

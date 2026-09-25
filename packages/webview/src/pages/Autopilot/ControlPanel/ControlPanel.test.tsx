@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../../i18n';
 import { ControlPanel } from './ControlPanel';
 
@@ -143,6 +143,18 @@ describe('ControlPanel progress bars', () => {
     expect(records.getAttribute('aria-valuetext')).toBe('25%');
     const calls = screen.getByRole('progressbar', { name: 'API Calls' });
     expect(calls.getAttribute('aria-valuetext')).toBe('20%');
+  });
+
+  it('counts the calls the run made, and gives the plan’s calls as the estimate they are', () => {
+    // The plan puts a call on each batch of the rows the scan counted, before
+    // anything is read: "10 / 50" under "API Calls" read the guess as the
+    // calls the run would make, where the review had said it was estimated.
+    render(<ControlPanel />);
+    const calls = screen.getByTestId('live-stats-api-calls');
+
+    expect(within(calls).getByText('10')).toBeDefined();
+    expect(within(calls).getByText('50 estimated API calls')).toBeDefined();
+    expect(calls.textContent).not.toContain('/');
   });
 
   it('names the selected node progress bar', () => {

@@ -49,8 +49,6 @@
     "itemCount_other": "{{count}} Elemente",
     "dependencyCount_one": "{{count}} Abhängigkeit",
     "dependencyCount_other": "{{count}} Abhängigkeiten",
-    "apiCallCount_one": "{{count}} API-Aufruf",
-    "apiCallCount_other": "{{count}} API-Aufrufe",
     "estimatedApiCallCount_one": "{{count}} geschätzter API-Aufruf",
     "estimatedApiCallCount_other": "{{count}} geschätzte API-Aufrufe"
   },
@@ -2365,6 +2363,7 @@
     },
     "apiCallsConsumed": "API-Aufrufe",
     "apiCallsEstimated": "Geschätzte API-Aufrufe",
+    "apiCallsSoFar": "Bisherige API-Aufrufe",
     "exportJson": "JSON exportieren",
     "retryFailed": "Fehlgeschlagene wiederholen",
     "retryFailedHint": "„Fehlgeschlagene wiederholen“ führt den Klon erneut aus: Was dieser Lauf nicht schreiben konnte, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",

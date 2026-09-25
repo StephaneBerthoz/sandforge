@@ -516,6 +516,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           metadataDiff,
           templateStore,
           historyStore,
+          // The executor's own count, read as a run goes: its progress says
+          // the calls made so far, which its result counts once it ends.
+          requestsSent: () => executorRequests,
         });
         log('Forge v2 module initialized.');
       },
