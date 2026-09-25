@@ -5,6 +5,20 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.6] - 2026-09-25
+
+The webview is built with Tailwind 4 and runs on the current versions of its
+libraries; every page renders as before.
+
+### Changed
+
+- **The webview's styles are built with Tailwind 4**, their theme in one
+  stylesheet, and every page renders as before.
+- **Charts, icons, translations and dates run on Recharts 3, lucide-react 1,
+  i18next 26 and date-fns 4.**
+- **The Forge graph is laid out by dagre 3**, which may order the objects of a
+  row differently.
+
 ## [1.39.5] - 2026-09-25
 
 A cancel stops every write that has not gone out, and the command-line tools

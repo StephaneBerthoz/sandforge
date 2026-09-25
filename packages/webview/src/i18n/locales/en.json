@@ -1943,6 +1943,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "toolchain1396": "Tailwind 4 under every page",
+      "toolchain1396Desc": "The panels' styles are built with Tailwind 4, and their charts, icons, translations and dates run on Recharts 3, lucide-react 1, i18next 26 and date-fns 4; every page renders as before, and the Forge graph may order a row's objects differently.",
       "fixRound1395": "A cancel stops what has not gone out",
       "fixRound1395Desc": "Cancelling a Sync, a Frozen load, a Seed Clone or a Forge run stops every write not yet sent, a batch the target failed on included, and each object says what it wrote; Forge's execution counts its API calls as it makes them, and the command-line tools read every row and delete past 200 records.",
       "fixRound1394": "A second Enter starts nothing unreviewed",

@@ -1943,6 +1943,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "toolchain1396": "Tailwind 4 sous chaque page",
+      "toolchain1396Desc": "Les styles des panneaux sont construits avec Tailwind 4, et leurs graphiques, icônes, traductions et dates tournent sur Recharts 3, lucide-react 1, i18next 26 et date-fns 4 ; chaque page s'affiche comme avant, et le graphe Forge peut ordonner autrement les objets d'une rangée.",
       "fixRound1395": "Une annulation arrête ce qui n'est pas parti",
       "fixRound1395Desc": "Annuler une synchronisation, un chargement Frozen, un clonage Seed ou une exécution Forge arrête toute écriture pas encore envoyée, y compris un lot que la cible a refusé, et chaque objet dit ce qu'il a écrit ; l'exécution Forge compte ses appels API au fil de l'eau, et les outils en ligne de commande lisent toutes les lignes et suppriment au-delà de 200 enregistrements.",
       "fixRound1394": "Un second Entrée ne lance rien de non relu",

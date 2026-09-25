@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "toolchain1396": "Tailwind 4 unter jeder Seite",
+      "toolchain1396Desc": "Die Stile der Panels werden mit Tailwind 4 erstellt, und ihre Diagramme, Symbole, Übersetzungen und Datumsangaben laufen auf Recharts 3, lucide-react 1, i18next 26 und date-fns 4; jede Seite wird wie bisher dargestellt, und der Forge-Graph kann die Objekte einer Reihe anders anordnen.",
       "fixRound1395": "Ein Abbruch stoppt, was noch nicht gesendet ist",
       "fixRound1395Desc": "Wer eine Synchronisierung, einen Frozen-Ladevorgang, einen Seed-Klon oder einen Forge-Lauf abbricht, stoppt jeden noch nicht gesendeten Schreibvorgang, auch einen Stapel, den das Ziel abgelehnt hat, und jedes Objekt sagt, was es geschrieben hat; die Forge-Ausführung zählt ihre API-Aufrufe laufend, und die Befehlszeilenwerkzeuge lesen jede Zeile und löschen auch mehr als 200 Datensätze.",
       "fixRound1394": "Ein zweites Enter startet nichts Ungeprüftes",

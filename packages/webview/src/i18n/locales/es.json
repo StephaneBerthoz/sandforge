@@ -1943,6 +1943,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "toolchain1396": "Tailwind 4 bajo cada página",
+      "toolchain1396Desc": "Los estilos de los paneles se construyen con Tailwind 4, y sus gráficos, iconos, traducciones y fechas funcionan con Recharts 3, lucide-react 1, i18next 26 y date-fns 4; cada página se muestra como antes, y el grafo de Forge puede ordenar de otra forma los objetos de una fila.",
       "fixRound1395": "Una cancelación detiene lo que no ha salido",
       "fixRound1395Desc": "Cancelar una sincronización, una carga de Frozen, una clonación de Seed o una ejecución de Forge detiene toda escritura aún no enviada, incluido un lote que el destino rechazó, y cada objeto dice lo que escribió; la ejecución de Forge cuenta sus llamadas a la API a medida que las hace, y las herramientas de línea de comandos leen todas las filas y eliminan más de 200 registros.",
       "fixRound1394": "Un segundo Enter no inicia nada sin revisar",
