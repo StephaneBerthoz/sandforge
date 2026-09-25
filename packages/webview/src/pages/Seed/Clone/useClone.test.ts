@@ -94,6 +94,35 @@ const REFUSED =
   'ORDER BY, GROUP BY, HAVING, FOR, WITH, ALL ROWS, subquery or DML keyword, no semicolon or ' +
   'comment, and every parenthesis and quote closed.';
 
+/** What `seed:clone:preview` answers for one Account. */
+const ACCOUNT_PREVIEW = {
+  objects: [{ objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] }],
+  insertOrder: ['Account'],
+};
+
+/** The org selected in SandForge, which the hook is rendered with: a test may select another. */
+let selectedTarget = 'target-1';
+
+/**
+ * The hook at its preview of Account, from source-1 into the selected org:
+ * picked, asked as request `wv-preview`, and answered.
+ */
+function previewed(): RenderHookResult<UseCloneReturn, unknown> {
+  const hook = renderHook(() => useClone(selectedTarget));
+  act(() => {
+    hook.result.current.handleSourceOrgSelected('source-1');
+  });
+  act(() => {
+    hook.result.current.handleObjectToggle('Account');
+  });
+  act(() => {
+    hook.result.current.handlePreview();
+  });
+  mockPreviewState = { ...mockPreviewState, data: ACCOUNT_PREVIEW, requestId: 'wv-preview' };
+  hook.rerender();
+  return hook;
+}
+
 /**
  * A real i18next instance, not a key-echoing stub: what the wizard shows for a
  * failed clone is the translation of the code the host sent, so only a loaded
@@ -145,6 +174,17 @@ describe('useClone', () => {
       reset: mockExecuteReset,
       requestId: null,
     };
+    // A reset drops what the request was answered with, as the mutation's own does.
+    mockDescribeReset.mockImplementation(() => {
+      mockDescribeState = { ...mockDescribeState, data: null, error: null };
+    });
+    mockPreviewReset.mockImplementation(() => {
+      mockPreviewState = { ...mockPreviewState, data: null, error: null, requestId: null };
+    });
+    mockExecuteReset.mockImplementation(() => {
+      mockExecuteState = { ...mockExecuteState, data: null, error: null, requestId: null };
+    });
+    selectedTarget = 'target-1';
   });
 
   it('should initialize with default state', () => {
@@ -314,10 +354,7 @@ describe('useClone', () => {
     });
 
     it('is shown in words for a run too', () => {
-      const { result, rerender } = renderHook(() => useClone('target-1'));
-      act(() => {
-        result.current.handleSourceOrgSelected('source-1');
-      });
+      const { result, rerender } = previewed();
       act(() => {
         result.current.handleExecute();
       });
@@ -361,26 +398,231 @@ describe('useClone', () => {
     });
   });
 
-  it('should send execute mutation on handleExecute', () => {
-    const { result } = renderHook(() => useClone('target-1'));
+  describe('a run, which goes by its preview', () => {
+    it('runs the clone of the orgs and objects its preview was made for, naming that preview', () => {
+      const { result } = previewed();
+      // Picked after the preview, and never previewed.
+      act(() => {
+        result.current.handleObjectToggle('Contact');
+      });
 
-    act(() => {
-      result.current.handleSourceOrgSelected('source-1');
-    });
-    act(() => {
-      result.current.handleObjectToggle('Account');
-    });
-    act(() => {
-      result.current.handleExecute();
-    });
+      act(() => {
+        result.current.handleExecute();
+      });
 
-    expect(result.current.executionStatus).toBe('executing');
-    expect(mockExecuteMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
+      expect(result.current.executionStatus).toBe('executing');
+      expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+      expect(mockExecuteMutate).toHaveBeenCalledWith({
         sourceOrgId: 'source-1',
         targetOrgId: 'target-1',
-      }),
-    );
+        objects: [{ objectApiName: 'Account' }],
+        previewId: 'wv-preview',
+      });
+    });
+
+    it('sends no run without a preview', () => {
+      const { result } = renderHook(() => useClone('target-1'));
+      act(() => {
+        result.current.handleSourceOrgSelected('source-1');
+      });
+      act(() => {
+        result.current.handleObjectToggle('Account');
+      });
+
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+      expect(result.current.executionStatus).toBe('idle');
+    });
+
+    it('keeps its preview while the org it was made for stays selected, and drops it, saying why, once another is', () => {
+      // The target is the org selected in SandForge, read again on every
+      // render: selected after the preview, another org became the one the
+      // run wrote to.
+      const { result, rerender } = previewed();
+      rerender();
+      expect(result.current.previewResult).toEqual(ACCOUNT_PREVIEW);
+      expect(result.current.error).toBeNull();
+
+      selectedTarget = 'target-2';
+      rerender();
+
+      expect(result.current.previewResult).toBeNull();
+      expect(result.current.step).toBe('objects');
+      expect(result.current.error).toBe(en.seed.clone.wizard.targetChanged);
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+      expect(mockPreviewReset).toHaveBeenCalled();
+      act(() => {
+        result.current.handleExecute();
+      });
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+    });
+
+    it('drops a preview still to come when another org is selected meanwhile', () => {
+      const { result, rerender } = renderHook(() => useClone(selectedTarget));
+      act(() => {
+        result.current.handleSourceOrgSelected('source-1');
+      });
+      act(() => {
+        result.current.handleObjectToggle('Account');
+      });
+      act(() => {
+        result.current.handlePreview();
+      });
+      mockPreviewReset.mockClear();
+
+      selectedTarget = 'target-2';
+      rerender();
+
+      expect(mockPreviewReset).toHaveBeenCalled();
+      expect(result.current.executionStatus).toBe('idle');
+      expect(result.current.error).toBe(en.seed.clone.wizard.targetChanged);
+    });
+
+    it('refuses to run a finished clone again into an org selected since, and says why', () => {
+      // Its results stay on screen when another org is selected; back on its
+      // preview, Execute would have written to the org selected now.
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, data: { status: 'success' } };
+      rerender();
+      expect(result.current.executionStatus).toBe('complete');
+      selectedTarget = 'target-2';
+      rerender();
+      expect(result.current.executionResult).toEqual({ status: 'success' });
+      act(() => {
+        result.current.setStep('preview');
+      });
+
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe(en.seed.clone.wizard.targetChanged);
+      expect(result.current.previewResult).toBeNull();
+      expect(result.current.step).toBe('objects');
+    });
+
+    it('says in words that the extension refused a run its preview was not made for, and drops that preview', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+      const refused =
+        'This clone was refused: its preview was made for another source or target org. Preview it again.';
+
+      act(() => {
+        mockExecuteState = { ...mockExecuteState, loading: false, error: refused };
+        cloneError('wv-clone-run', refused, 'PREVIEWED_FOR_OTHER_ORGS');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(en.seed.clone.error.PREVIEWED_FOR_OTHER_ORGS);
+      expect(result.current.previewResult).toBeNull();
+      expect(result.current.step).toBe('objects');
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+    });
+
+    it('moves to the execute step as soon as the run is sent', () => {
+      const { result } = previewed();
+
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(result.current.step).toBe('execute');
+      expect(result.current.executionStatus).toBe('executing');
+    });
+
+    it('sends no second run while one is in flight', () => {
+      const { result } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+      expect(result.current.step).toBe('execute');
+    });
+
+    it('goes back to its preview when the run ends without a result', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+
+      operationFailed('wv-clone-run', 'Bulk job failed', 'CLONE_FAILED');
+
+      expect(result.current.step).toBe('preview');
+      expect(result.current.previewResult).toEqual(ACCOUNT_PREVIEW);
+    });
+
+    it('sets aside the result of the last run when a new preview is asked for', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, data: { status: 'success' } };
+      rerender();
+      expect(result.current.executionResult).toEqual({ status: 'success' });
+      mockExecuteReset.mockClear();
+
+      act(() => {
+        result.current.handlePreview();
+      });
+
+      expect(result.current.executionResult).toBeNull();
+      expect(mockExecuteReset).toHaveBeenCalled();
+      expect(result.current.executionStatus).toBe('previewing');
+    });
+  });
+
+  describe('the error banner, dismissed', () => {
+    it('clears the error and nothing else: the orgs, the objects and the preview stay', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+      operationFailed('wv-clone-run', 'Bulk job failed', 'CLONE_FAILED');
+      expect(result.current.error).not.toBeNull();
+
+      act(() => {
+        result.current.dismissError();
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.sourceOrgId).toBe('source-1');
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+      expect(result.current.previewResult).toEqual(ACCOUNT_PREVIEW);
+      expect(result.current.step).toBe('preview');
+    });
+
+    it('does not bring back a describe failure once dismissed', () => {
+      mockDescribeState = { ...mockDescribeState, error: 'Describe exploded' };
+      const { result, rerender } = renderHook(() => useClone('target-1'));
+      expect(result.current.error).toBe('Describe exploded');
+
+      act(() => {
+        result.current.dismissError();
+      });
+      rerender();
+
+      expect(result.current.error).toBeNull();
+    });
   });
 
   it('should reset all state on reset()', () => {
@@ -440,7 +682,7 @@ describe('useClone', () => {
   });
 
   it('unsticks the executing status when the execute mutation errors', () => {
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
 
     act(() => {
       result.current.handleExecute();
@@ -473,7 +715,7 @@ describe('useClone', () => {
     // confirmation included — only on operation:failed, which nothing here
     // listened to: the wizard sat on "executing" for 120 s, then showed a raw
     // timeout.
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -497,7 +739,7 @@ describe('useClone', () => {
     // the fix-suggestion table; the wizard showed that same English sentence to
     // a French user. The code is what it translates now.
     await i18nInstance.changeLanguage('fr');
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -516,7 +758,7 @@ describe('useClone', () => {
 
   it('shows the production guard refusal in French, with no English detail under it', async () => {
     await i18nInstance.changeLanguage('fr');
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -535,7 +777,7 @@ describe('useClone', () => {
 
   it('falls back to the translated generic failure on a code it does not know', async () => {
     await i18nInstance.changeLanguage('fr');
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -554,7 +796,7 @@ describe('useClone', () => {
 
   it('keeps the org failure as a detail under the translated CLONE_FAILED sentence', async () => {
     await i18nInstance.changeLanguage('fr');
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -572,7 +814,7 @@ describe('useClone', () => {
   });
 
   it('ignores a failure reported for another operation', () => {
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });
@@ -586,7 +828,7 @@ describe('useClone', () => {
   });
 
   it('keeps a finished clone complete when a failure for it is reported afterwards', () => {
-    const { result, rerender } = renderHook(() => useClone('target-1'));
+    const { result, rerender } = previewed();
     act(() => {
       result.current.handleExecute();
     });

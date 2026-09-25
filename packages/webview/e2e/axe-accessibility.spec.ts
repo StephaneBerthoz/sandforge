@@ -1732,13 +1732,16 @@ for (const theme of SCANNED_THEMES) {
         sourceOnlyLookups: [
           { objectApiName: 'Contact', field: 'Legacy_Account__c', referenceTo: 'Account' },
         ],
+        targetOnlyRequiredLookups: [
+          { objectApiName: 'Contact', field: 'Region__c', referenceTo: 'Region__c' },
+        ],
       });
       await page.waitForSelector('[data-testid="clone-preview-filled-after"]', {
         timeout: 10_000,
       });
     }
 
-    test('Seed Clone preview naming the lookups a second pass fills in and those only the source has', async ({
+    test('Seed Clone preview naming the lookups a second pass fills in, those only the source has, and those the target requires that the source lacks', async ({
       page,
     }) => {
       await previewAccountsAndContacts(page);
@@ -1749,6 +1752,42 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="clone-preview-source-only"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="clone-preview-target-only-required"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed Clone preview set aside once another org is selected after it, saying why', async ({
+      page,
+    }) => {
+      await previewAccountsAndContacts(page);
+      // Selected in the sidebar after the preview: the run would have gone there.
+      await sendExtensionMessage(page, {
+        type: 'org:selected',
+        id: 'host-org-selected',
+        payload: { orgId: QA_SANDBOX.id },
+      });
+      await page.waitForSelector('[data-testid="clone-error"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-error"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed Clone while it runs', async ({ page }) => {
+      await previewAccountsAndContacts(page);
+      await page.getByTestId('clone-preview-execute').click();
+      await page.waitForSelector('[data-testid="clone-executing"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-executing"]'),
       ).toBeGreaterThan(0);
     });
 

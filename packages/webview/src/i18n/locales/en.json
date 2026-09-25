@@ -784,6 +784,7 @@
         "insertOrder": "Insert Order",
         "filledAfterInsert": "Written empty, then filled in once the record they point at is in (second pass):",
         "sourceOnlyLookups": "Only in the source org — the target org does not have these lookups, so their values will not be written:",
+        "targetOnlyRequired": "Required in the target org and missing from the source org — the clone has no value for these lookups, so the target org will refuse every record of these objects:",
         "recordCounts": "Record Counts",
         "sampleRecords": "Sample Records",
         "largeWarning": "This clone involves over 10,000 records. It may take several minutes to complete.",
@@ -819,13 +820,15 @@
         "stepObjects": "Select Objects",
         "stepPreview": "Preview",
         "stepExecute": "Execute",
-        "needsBothOrgs": "The clone needs a source org and a target org. It writes to the org selected in SandForge: pick one on the Organizations page."
+        "needsBothOrgs": "The clone needs a source org and a target org. It writes to the org selected in SandForge: pick one on the Organizations page.",
+        "targetChanged": "The target org changed after the preview. A clone writes only to the org its preview was made for: preview again to clone into the org selected now."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clone cancelled: the production write was not confirmed.",
         "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
         "CLONE_FAILED": "The clone stopped before it finished.",
         "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
+        "PREVIEWED_FOR_OTHER_ORGS": "SandForge refused this run before writing anything: it was not for the orgs its preview was made for. Preview again, then run the clone.",
         "generic": "The clone could not be completed.",
         "detail": "Details: {{detail}}"
       }

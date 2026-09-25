@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ClonePreviewResult } from '@sandforge/shared';
 import { Badge } from '../../../components/ui/Badge';
@@ -29,6 +29,9 @@ export interface ClonePreviewPanelProps {
  *    the source org has, whose values the clone does not write
  * 2. Record counts per object with totals
  * 3. Sample records per object in expandable accordions
+ *
+ * and, above Execute, the lookups the target requires that the source does
+ * not have, whose records the target will refuse.
  */
 export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   previewResult,
@@ -36,6 +39,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   onBack,
 }) => {
   const { t } = useTranslation();
+  const requiredWarningId = useId();
 
   const totalRecords = previewResult.objects.reduce((sum, obj) => sum + obj.recordCount, 0);
   const totalRelationships = previewResult.objects.reduce(
@@ -44,6 +48,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   );
   const filledAfterInsert = previewResult.filledAfterInsert ?? [];
   const sourceOnlyLookups = previewResult.sourceOnlyLookups ?? [];
+  const targetOnlyRequired = previewResult.targetOnlyRequiredLookups ?? [];
 
   /** Build DataTable columns from sample record keys. */
   const buildSampleColumns = (
@@ -204,12 +209,43 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
         </CardBody>
       </Card>
 
+      {/* A lookup the target requires and the source does not have: the
+          clone has no value for it, and the target refuses every record of
+          its object, which it did after a preview that said nothing of it.
+          Said here, above Execute, and read out with it. */}
+      {targetOnlyRequired.length > 0 && (
+        <div
+          id={requiredWarningId}
+          className="flex flex-col gap-1 rounded border border-status-warning px-3 py-2 text-xs text-status-warning"
+          role="alert"
+          data-testid="clone-preview-target-only-required"
+        >
+          <span>{t('seed.clone.preview.targetOnlyRequired')}</span>
+          <ul className="flex flex-col gap-0.5">
+            {targetOnlyRequired.map((lookup) => (
+              <li
+                key={`${lookup.objectApiName}.${lookup.field}.${lookup.referenceTo}`}
+                className="font-mono text-[var(--sf-text-primary)]"
+              >
+                {`${lookup.objectApiName}.${lookup.field} → ${lookup.referenceTo}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex justify-between items-center pt-2">
         <Button variant="secondary" size="sm" onClick={onBack} data-testid="clone-preview-back">
           {t('common.back')}
         </Button>
-        <Button variant="primary" size="sm" onClick={onExecute} data-testid="clone-preview-execute">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onExecute}
+          aria-describedby={targetOnlyRequired.length > 0 ? requiredWarningId : undefined}
+          data-testid="clone-preview-execute"
+        >
           {t('seed.clone.preview.execute')}
         </Button>
       </div>

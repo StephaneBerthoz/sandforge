@@ -44,6 +44,13 @@ const CLONE_ERROR_CODES = [
   'CLONE_FAILED',
 ];
 
+/** The orgs and the objects a preview was asked for: what the run that follows it goes to. */
+interface PreviewedFor {
+  sourceOrgId: string;
+  targetOrgId: string;
+  objects: CloneObjectConfig[];
+}
+
 /** Return type for the useClone hook. */
 export interface UseCloneReturn {
   /** Currently selected source org ID. */
@@ -76,10 +83,15 @@ export interface UseCloneReturn {
   handleWhereClauseChange: (objectApiName: string, whereClause: string) => void;
   /** Request a preview of the clone operation. */
   handlePreview: () => void;
-  /** Execute the clone operation. */
+  /**
+   * Run the clone the preview shown was made for, into the orgs it was made
+   * for; while it runs, show it instead of sending another.
+   */
   handleExecute: () => void;
   /** Set wizard step manually. */
   setStep: (step: CloneStep) => void;
+  /** Dismiss the error, and nothing else: the orgs, the objects and the preview stay. */
+  dismissError: () => void;
   /** Reset all clone state. */
   reset: () => void;
 }
@@ -103,6 +115,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   const [executionResult, setExecutionResult] = useState<CloneExecutionResult | null>(null);
   const [step, setStep] = useState<CloneStep>('source');
   const [error, setError] = useState<string | null>(null);
+  const [previewedFor, setPreviewedFor] = useState<PreviewedFor | null>(null);
 
   const describeMutation = useBridgeMutation<{
     objects: Array<{ apiName: string; label: string; recordCount: number }>;
@@ -159,6 +172,14 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     if (error === null) setError(executeMutation.error);
   }
 
+  // The execute step shows a run: the one in flight, or its result. Reached
+  // any other way it stood empty. A run that ended without a result —
+  // refused, failed, out of time — goes back to the preview it was made
+  // from, where the banner says why and Execute can be tried again.
+  if (step === 'execute' && executionStatus !== 'executing' && executionResult === null) {
+    setStep(previewResult ? 'preview' : 'objects');
+  }
+
   // SeedCloneHandler uses the execute request id as the operationId and reports
   // an execution failure on operation:failed only. Nothing listened here, so a
   // failed clone, or a declined production confirmation, left the wizard on
@@ -184,21 +205,49 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     );
   });
 
+  /**
+   * Set the preview aside, keeping what was picked for Next to preview again:
+   * the orgs it was made for are no longer the ones the run would go to.
+   */
+  const dropPreview = useCallback(() => {
+    previewMutation.reset();
+    setPreviewedFor(null);
+    setPreviewResult(null);
+    setExecutionStatus('idle');
+    setStep((current) => (current === 'preview' || current === 'execute' ? 'objects' : current));
+  }, [previewMutation]);
+
   // A preview or a run the bridge refuses comes back on seed:clone:error with
   // the check's own English — "Invalid payload — targetOrgId: String must
   // contain at least 1 character(s)" — which the mutation hands on as it is.
   // Its code is what the wizard shows, in words; any other failure there
-  // carries what the org said, and stays as it came.
+  // carries what the org said, and stays as it came. A run the extension
+  // refuses because it is not for the orgs of the preview it names takes that
+  // preview with it: Next previews again.
   const previewRequestId = previewMutation.requestId;
   useMessageListener<CloneErrorMessage>('seed:clone:error', (message) => {
-    if (message.payload?.code !== 'INVALID_PAYLOAD') return;
+    const code = message.payload?.code;
+    if (code !== 'INVALID_PAYLOAD' && code !== 'PREVIEWED_FOR_OTHER_ORGS') return;
     const refused =
       (executionStatus === 'previewing' && message.correlationId === previewRequestId) ||
       (executionStatus === 'executing' && message.correlationId === executeRequestId);
     if (!refused) return;
-    setExecutionStatus('error');
-    setError(t('seed.clone.error.INVALID_PAYLOAD'));
+    setError(t(`seed.clone.error.${code}`));
+    if (code === 'PREVIEWED_FOR_OTHER_ORGS') dropPreview();
+    else setExecutionStatus('error');
   });
+
+  // The target is the org selected in SandForge, which can change at any
+  // time, and the run goes to the one its preview was made for: read on every
+  // render, an org selected after the preview took the run. Set aside, the
+  // preview says why. A run sent or ended keeps it: it went where the preview
+  // said.
+  useEffect(() => {
+    if (!previewedFor || previewedFor.targetOrgId === targetOrgId) return;
+    if (executionStatus === 'executing' || executionResult !== null) return;
+    dropPreview();
+    setError(t('seed.clone.wizard.targetChanged'));
+  }, [targetOrgId, previewedFor, executionStatus, executionResult, dropPreview, t]);
 
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */
@@ -211,6 +260,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       setSourceObjects([]);
       setSelectedObjects([]);
       setPreviewResult(null);
+      setPreviewedFor(null);
       setExecutionResult(null);
       setExecutionStatus('idle');
       setError(null);
@@ -261,29 +311,67 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       setError(t('seed.clone.wizard.needsBothOrgs'));
       return;
     }
+    // A new preview is a new clone: the last run's result is not its own.
+    setExecutionResult(null);
+    executeMutation.reset();
     setPreviewResult(null);
     setExecutionStatus('previewing');
     setError(null);
+    // What the run that follows goes to, whatever is selected by then.
+    setPreviewedFor({ sourceOrgId, targetOrgId, objects: selectedObjects });
     previewMutation.reset();
     previewMutation.mutate({
       sourceOrgId,
       targetOrgId,
       objects: selectedObjects,
     });
-  }, [sourceOrgId, targetOrgId, selectedObjects, previewMutation, t]);
+  }, [sourceOrgId, targetOrgId, selectedObjects, previewMutation, executeMutation, t]);
 
-  /** Execute the clone operation. */
+  /** Run the clone of the preview shown, into the orgs it was made for. */
   const handleExecute = useCallback(() => {
+    // One run at a time: asked for again while it runs, the wizard shows it.
+    if (executionStatus === 'executing') {
+      setStep('execute');
+      return;
+    }
+    if (!previewedFor || !previewResult) return;
+    // Its results stay on screen when another org is selected; back on its
+    // preview, Execute would have written to the org selected now.
+    if (previewedFor.targetOrgId !== targetOrgId) {
+      dropPreview();
+      setError(t('seed.clone.wizard.targetChanged'));
+      return;
+    }
     setExecutionResult(null);
     setExecutionStatus('executing');
     setError(null);
+    setStep('execute');
     executeMutation.reset();
+    // The extension refuses a run that is not for the orgs of the preview it names.
     executeMutation.mutate({
-      sourceOrgId,
-      targetOrgId,
-      objects: selectedObjects,
+      sourceOrgId: previewedFor.sourceOrgId,
+      targetOrgId: previewedFor.targetOrgId,
+      objects: previewedFor.objects,
+      ...(previewMutation.requestId ? { previewId: previewMutation.requestId } : {}),
     });
-  }, [sourceOrgId, targetOrgId, selectedObjects, executeMutation]);
+  }, [
+    executionStatus,
+    previewedFor,
+    previewResult,
+    targetOrgId,
+    dropPreview,
+    executeMutation,
+    previewMutation.requestId,
+    t,
+  ]);
+
+  /** Dismiss the error, and nothing else. */
+  const dismissError = useCallback(() => {
+    setError(null);
+    // A describe's failure is copied in whenever no error is shown: left on
+    // the mutation, it came straight back.
+    if (describeMutation.error) describeMutation.reset();
+  }, [describeMutation]);
 
   /** Reset all state back to initial. */
   const reset = useCallback(() => {
@@ -291,6 +379,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     setSourceObjects([]);
     setSelectedObjects([]);
     setPreviewResult(null);
+    setPreviewedFor(null);
     setExecutionStatus('idle');
     setExecutionResult(null);
     setStep('source');
@@ -318,6 +407,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     handlePreview,
     handleExecute,
     setStep,
+    dismissError,
     reset,
   };
 }

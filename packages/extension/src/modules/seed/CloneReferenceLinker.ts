@@ -19,6 +19,8 @@ interface DescribeField {
   createable?: boolean;
   /** Whether an update can set it; unknown reads as updateable. */
   updateable?: boolean;
+  /** Whether the platform sets it when a record is created without it, as an owner. */
+  defaultedOnCreate?: boolean;
 }
 
 /** Describe result shape for buildEdgesFromDescribe. */

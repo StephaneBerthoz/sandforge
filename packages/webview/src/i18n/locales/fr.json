@@ -784,6 +784,7 @@
         "insertOrder": "Ordre d'insertion",
         "filledAfterInsert": "Écrits vides, puis remplis une fois l'enregistrement qu'ils désignent écrit (seconde passe) :",
         "sourceOnlyLookups": "Seulement dans l'org source — l'org cible n'a pas ces liens, leurs valeurs ne seront donc pas écrites :",
+        "targetOnlyRequired": "Obligatoires dans l'org cible, absents de l'org source — le clonage n'a aucune valeur pour ces liens, l'org cible refusera donc chaque enregistrement de ces objets :",
         "recordCounts": "Nombre d'enregistrements",
         "sampleRecords": "Exemples d'enregistrements",
         "largeWarning": "Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.",
@@ -819,13 +820,15 @@
         "stepObjects": "Sélection objets",
         "stepPreview": "Aperçu",
         "stepExecute": "Exécution",
-        "needsBothOrgs": "Le clonage a besoin d'une org source et d'une org cible. Il écrit dans l'org sélectionnée dans SandForge : choisissez-en une sur la page Organisations."
+        "needsBothOrgs": "Le clonage a besoin d'une org source et d'une org cible. Il écrit dans l'org sélectionnée dans SandForge : choisissez-en une sur la page Organisations.",
+        "targetChanged": "L'org cible a changé après l'aperçu. Un clonage n'écrit que dans l'org pour laquelle son aperçu a été fait : refaites l'aperçu pour cloner dans l'org sélectionnée maintenant."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonage annulé : l'écriture en production n'a pas été confirmée.",
         "PRODUCTION_GUARD_BLOCKED": "La protection production a bloqué ce clonage avant le moindre enregistrement écrit.",
         "CLONE_FAILED": "Le clonage s'est arrêté avant la fin.",
         "INVALID_PAYLOAD": "SandForge a refusé cette demande avant de lire l'une ou l'autre org. Un clonage a besoin d'une org source, d'une org cible et de 1 à 100 objets, et un filtre ne peut que sélectionner des enregistrements : ni LIMIT, ni ORDER BY, ni sous-requête, ni point-virgule, ni commentaire. Le canal de sortie SandForge indique la partie refusée.",
+        "PREVIEWED_FOR_OTHER_ORGS": "SandForge a refusé cette exécution avant d'écrire quoi que ce soit : elle ne visait pas les orgs pour lesquelles son aperçu avait été fait. Refaites l'aperçu, puis lancez le clonage.",
         "generic": "Le clonage n'a pas pu être mené à son terme.",
         "detail": "Détail : {{detail}}"
       }

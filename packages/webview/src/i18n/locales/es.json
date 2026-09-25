@@ -784,6 +784,7 @@
         "insertOrder": "Orden de inserción",
         "filledAfterInsert": "Se escriben vacíos y se rellenan una vez escrito el registro al que apuntan (segunda pasada):",
         "sourceOnlyLookups": "Solo en la org de origen — la org de destino no tiene estos vínculos, así que sus valores no se escribirán:",
+        "targetOnlyRequired": "Obligatorios en la org de destino y ausentes en la org de origen — la clonación no tiene ningún valor para estos vínculos, así que la org de destino rechazará todos los registros de estos objetos:",
         "recordCounts": "Cantidad de registros",
         "sampleRecords": "Registros de muestra",
         "largeWarning": "Esta clonación incluye más de 10.000 registros. Puede tardar varios minutos.",
@@ -819,13 +820,15 @@
         "stepObjects": "Seleccionar objetos",
         "stepPreview": "Vista previa",
         "stepExecute": "Ejecutar",
-        "needsBothOrgs": "La clonación necesita una org de origen y una org de destino. Escribe en la org seleccionada en SandForge: elija una en la página Organizaciones."
+        "needsBothOrgs": "La clonación necesita una org de origen y una org de destino. Escribe en la org seleccionada en SandForge: elija una en la página Organizaciones.",
+        "targetChanged": "La org de destino cambió después de la vista previa. Una clonación solo escribe en la org para la que se hizo su vista previa: vuelva a generar la vista previa para clonar en la org seleccionada ahora."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonación cancelada: no se confirmó la escritura en producción.",
         "PRODUCTION_GUARD_BLOCKED": "La protección de producción bloqueó esta clonación antes de escribir ningún registro.",
         "CLONE_FAILED": "La clonación se detuvo antes de finalizar.",
         "INVALID_PAYLOAD": "SandForge rechazó esta solicitud antes de leer ninguna de las dos orgs. Una clonación necesita una org de origen, una org de destino y de 1 a 100 objetos, y un filtro solo puede seleccionar registros: sin LIMIT, ORDER BY, subconsulta, punto y coma ni comentario. El canal de salida de SandForge indica qué parte se rechazó.",
+        "PREVIEWED_FOR_OTHER_ORGS": "SandForge rechazó esta ejecución antes de escribir nada: no era para las orgs para las que se hizo su vista previa. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "generic": "No se pudo completar la clonación.",
         "detail": "Detalles: {{detail}}"
       }

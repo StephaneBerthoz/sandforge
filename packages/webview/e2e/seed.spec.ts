@@ -636,6 +636,109 @@ test.describe('Seed Clone — with no org selected', () => {
   });
 });
 
+/** A third sandbox, selected in the sidebar once the preview is made. */
+const UAT_SANDBOX = {
+  ...MOCK_ORGS[1],
+  id: 'org-uat-1',
+  alias: 'UatSandbox',
+  username: 'uat@sandbox.com',
+  instanceUrl: 'https://uat.salesforce.com',
+};
+
+/** What the Clone wizard says when the org selected changes after its preview. */
+const TARGET_CHANGED =
+  'The target org changed after the preview. A clone writes only to the org its preview was ' +
+  'made for: preview again to clone into the org selected now.';
+
+test.describe('Seed Clone — the orgs its preview was made for', () => {
+  /**
+   * Open the Clone wizard with three sandboxes, the first one selected as the
+   * target, and preview the accounts of the second: answered, on screen.
+   */
+  async function previewAccounts(page: Page): Promise<MockBridge> {
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs([...MOCK_ORGS, UAT_SANDBOX]);
+    await page.getByTestId('mode-card-clone').click();
+    await page.getByTestId('clone-source-select').selectOption(MOCK_ORGS[1].id);
+    await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+    await respondToAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+      objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+    });
+    await page.getByTestId('clone-wizard-next').click();
+    await page.getByTestId('clone-obj-check-Account').check();
+    await page.getByTestId('clone-wizard-next').click();
+    await bridge.waitForMessage('seed:clone:preview', { timeout: 10_000 });
+    await respondToAll(page, 'seed:clone:preview', 'seed:clone:preview:response', {
+      objects: [{ objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] }],
+      insertOrder: ['Account'],
+    });
+    await expect(page.getByTestId('clone-preview-panel')).toBeVisible();
+    return bridge;
+  }
+
+  test('sends the run to the orgs its preview was made for, naming that preview', async ({
+    page,
+  }) => {
+    await previewAccounts(page);
+    const [preview] = await outgoing(page, 'seed:clone:preview');
+
+    await page.getByTestId('clone-preview-execute').click();
+
+    await expect(page.getByTestId('clone-executing')).toBeVisible();
+    const runs = await outgoing(page, 'seed:clone:execute');
+    expect(runs.map((run) => run.payload)).toEqual([
+      {
+        sourceOrgId: MOCK_ORGS[1].id,
+        targetOrgId: MOCK_ORGS[0].id,
+        objects: [{ objectApiName: 'Account' }],
+        previewId: preview.id,
+      },
+    ]);
+  });
+
+  test('sets the preview aside when another org is selected after it, says why, and previews again for that org', async ({
+    page,
+  }) => {
+    // Selected in the sidebar after the preview, another org became the
+    // target Execute wrote to.
+    await previewAccounts(page);
+
+    await sendExtensionMessage(page, {
+      type: 'org:selected',
+      id: 'host-org-selected',
+      payload: { orgId: UAT_SANDBOX.id },
+    });
+
+    await expect(page.getByTestId('clone-error')).toContainText(TARGET_CHANGED);
+    await expect(page.getByTestId('clone-preview-execute')).toHaveCount(0);
+    await expect(page.getByTestId('clone-obj-check-Account')).toBeChecked();
+    expect(await outgoing(page, 'seed:clone:execute')).toEqual([]);
+    await page.getByTestId('clone-wizard-next').click();
+    await expect
+      .poll(async () =>
+        (await outgoing(page, 'seed:clone:preview')).map(
+          (request) => (request.payload as { targetOrgId: string }).targetOrgId,
+        ),
+      )
+      .toEqual([MOCK_ORGS[0].id, UAT_SANDBOX.id]);
+  });
+
+  test('runs the clone on Next from its preview, and shows it running', async ({ page }) => {
+    // Next went on to an empty execute step, and nothing was run.
+    await previewAccounts(page);
+
+    await page.getByTestId('clone-wizard-next').click();
+
+    await expect(page.getByTestId('clone-executing')).toBeVisible();
+    expect(await outgoing(page, 'seed:clone:execute')).toHaveLength(1);
+  });
+});
+
 /** The graph a discovery of one Account and its Contacts answers with. */
 const DISCOVERED_GRAPH = {
   nodes: [

@@ -85,9 +85,22 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
     const targetStep = INDEX_STEP[stepIndex];
     if (!targetStep) return;
 
+    // While the clone runs, the wizard stays on it: a step left for another
+    // could preview again, or run a second clone, over the one in flight.
+    if (clone.executionStatus === 'executing') return;
+
     // If advancing to preview, trigger preview first
     if (targetStep === 'preview' && clone.step === 'objects') {
       clone.handlePreview();
+      return;
+    }
+
+    // Next on the preview runs the clone, as Execute does: it went on to an
+    // empty execute step and ran nothing. Back on the preview of a run that
+    // ended, it shows that run again rather than sending another.
+    if (targetStep === 'execute' && clone.step === 'preview') {
+      if (clone.executionResult) clone.setStep('execute');
+      else clone.handleExecute();
       return;
     }
 
@@ -105,10 +118,12 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-wizard-container">
+      {/* Dismissed, the banner goes and nothing else: it reset the whole
+          wizard, the objects picked and the preview with it. */}
       {clone.error && (
         <ErrorBanner
           message={clone.error}
-          onDismiss={() => clone.reset()}
+          onDismiss={clone.dismissError}
           data-testid="clone-error"
         />
       )}
@@ -118,6 +133,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
         currentStep={currentStepIndex}
         onStepChange={handleStepChange}
         canGoNext={canGoNext()}
+        canGoBack={clone.executionStatus !== 'executing'}
         isFinished={isFinished}
         onFinish={handleFinish}
         testIdPrefix="clone"

@@ -176,4 +176,11 @@ export interface ClonePreviewResult {
    * the rest of the preview does. Absent when there are none.
    */
   sourceOnlyLookups?: CloneLookup[];
+  /**
+   * The lookups the target org requires that the source org does not have,
+   * wherever they point: the clone reads no value for them, and the target
+   * refuses every record of their object without one. Absent when there are
+   * none.
+   */
+  targetOnlyRequiredLookups?: CloneLookup[];
 }

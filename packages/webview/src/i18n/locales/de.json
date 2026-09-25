@@ -784,6 +784,7 @@
         "insertOrder": "Einfügereihenfolge",
         "filledAfterInsert": "Leer geschrieben und ausgefüllt, sobald der Datensatz, auf den sie verweisen, vorhanden ist (zweiter Durchlauf):",
         "sourceOnlyLookups": "Nur in der Quell-Org — die Ziel-Org hat diese Verknüpfungen nicht, ihre Werte werden daher nicht geschrieben:",
+        "targetOnlyRequired": "In der Ziel-Org Pflicht, in der Quell-Org nicht vorhanden — der Klonvorgang hat für diese Verknüpfungen keinen Wert, daher lehnt die Ziel-Org jeden Datensatz dieser Objekte ab:",
         "recordCounts": "Datensatzanzahl",
         "sampleRecords": "Beispieldatensätze",
         "largeWarning": "Dieser Klon umfasst über 10.000 Datensätze. Es kann mehrere Minuten dauern.",
@@ -819,13 +820,15 @@
         "stepObjects": "Objekte wählen",
         "stepPreview": "Vorschau",
         "stepExecute": "Ausführen",
-        "needsBothOrgs": "Der Klonvorgang braucht eine Quell-Org und eine Ziel-Org. Er schreibt in die in SandForge ausgewählte Org: Wählen Sie eine auf der Seite Organisationen."
+        "needsBothOrgs": "Der Klonvorgang braucht eine Quell-Org und eine Ziel-Org. Er schreibt in die in SandForge ausgewählte Org: Wählen Sie eine auf der Seite Organisationen.",
+        "targetChanged": "Die Ziel-Org wurde nach der Vorschau geändert. Ein Klonvorgang schreibt nur in die Org, für die seine Vorschau erstellt wurde: Erstellen Sie die Vorschau erneut, um in die jetzt ausgewählte Org zu klonen."
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Klonen abgebrochen: Der Schreibvorgang in der Produktion wurde nicht bestätigt.",
         "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
         "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
+        "PREVIEWED_FOR_OTHER_ORGS": "SandForge hat diesen Lauf abgelehnt, bevor etwas geschrieben wurde: Er galt nicht den Orgs, für die seine Vorschau erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
         "detail": "Einzelheiten: {{detail}}"
       }

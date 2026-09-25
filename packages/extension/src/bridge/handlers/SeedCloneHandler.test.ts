@@ -387,6 +387,78 @@ describe('SeedCloneHandler', () => {
       expect(result.objectResults[0]).not.toHaveProperty('fieldsNotInTarget');
     });
 
+    describe('the preview a run follows', () => {
+      /** A request as the page sends it, under its own id. */
+      function request(type: string, id: string, payload: Record<string, unknown>): InboundRequest {
+        return inboundRequest({ id, type, timestamp: Date.now(), payload } as BaseMessage);
+      }
+
+      beforeEach(async () => {
+        fetcher.countRecords.mockResolvedValue(1);
+        fetcher.fetchSample.mockResolvedValue([]);
+        await handler.handle(request('seed:clone:preview', 'wv-preview', clonePayload()));
+        expect(posted(deps, 'seed:clone:preview:response')).toHaveLength(1);
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        mockGetConn.mockClear();
+      });
+
+      it('runs a clone for the orgs its preview was made for', async () => {
+        await handler.handle(
+          request('seed:clone:execute', 'wv-run', clonePayload({ previewId: 'wv-preview' })),
+        );
+
+        expect(posted(deps, 'seed:clone:error')).toEqual([]);
+        expect(writer.insert).toHaveBeenCalledWith('Account', [{ Name: 'Acme' }], 200);
+        expect(posted(deps, 'seed:clone:execute:response')).toHaveLength(1);
+      });
+
+      it.each([
+        ['target', { targetOrgId: 'another-org' }],
+        ['source', { sourceOrgId: 'another-org' }],
+      ])(
+        'refuses a run whose %s org is not the one its preview was made for, before reading either org',
+        async (_org, orgs) => {
+          // Another org selected after the preview became the target the page
+          // sent, and the run wrote there: its preview had been made for the
+          // org selected before.
+          await handler.handle(
+            request(
+              'seed:clone:execute',
+              'wv-run',
+              clonePayload({ ...orgs, previewId: 'wv-preview' }),
+            ),
+          );
+
+          expect(mockGetConn).not.toHaveBeenCalled();
+          expect(writer.insert).not.toHaveBeenCalled();
+          expect(posted(deps, 'operation:started')).toEqual([]);
+          expect(posted(deps, 'seed:clone:execute:response')).toEqual([]);
+          const refused = posted(deps, 'seed:clone:error');
+          expect(refused).toHaveLength(1);
+          expect(refused[0]).toMatchObject({
+            correlationId: 'wv-run',
+            payload: { code: 'PREVIEWED_FOR_OTHER_ORGS' },
+          });
+        },
+      );
+
+      it('refuses a run naming a preview it never answered', async () => {
+        await handler.handle(
+          request(
+            'seed:clone:execute',
+            'wv-run',
+            clonePayload({ previewId: 'wv-another-preview' }),
+          ),
+        );
+
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(posted(deps, 'seed:clone:error')[0]).toMatchObject({
+          correlationId: 'wv-run',
+          payload: { code: 'PREVIEWED_FOR_OTHER_ORGS' },
+        });
+      });
+    });
+
     describe('before and after the write', () => {
       /** Fake ids: the source Account, the one the target holds, a closed record type. */
       const SOURCE_ACCOUNT = '001Fk00000ZzYxWIAV';

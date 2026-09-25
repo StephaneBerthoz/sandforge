@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
 import { ClonePreviewPanel } from './ClonePreviewPanel';
 import type { ClonePreviewResult } from '@sandforge/shared';
 
@@ -142,6 +143,39 @@ describe('ClonePreviewPanel', () => {
   it('names no lookup of the source alone when the two orgs have the same', () => {
     render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
     expect(screen.queryByTestId('clone-preview-source-only')).toBeNull();
+  });
+
+  it('names, before Execute, the lookups the target requires and the source lacks, whose records the target will refuse', () => {
+    // A contact's region, required in the target and never deployed to the
+    // source: the target refused every contact after a preview that said
+    // nothing of it.
+    const required: ClonePreviewResult = {
+      ...mockPreview,
+      targetOnlyRequiredLookups: [
+        { objectApiName: 'Contact', field: 'Region__c', referenceTo: 'Region__c' },
+      ],
+    };
+    render(<ClonePreviewPanel previewResult={required} onExecute={vi.fn()} onBack={vi.fn()} />);
+
+    const warning = screen.getByTestId('clone-preview-target-only-required');
+    expect(warning.textContent).toContain(en.seed.clone.preview.targetOnlyRequired);
+    expect([...warning.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Contact.Region__c → Region__c',
+    ]);
+    // Placed before Execute, and read out with it.
+    const execute = screen.getByTestId('clone-preview-execute');
+    expect(warning.compareDocumentPosition(execute) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(execute.getAttribute('aria-describedby')).toBe(warning.id);
+  });
+
+  it('warns of no lookup the target requires when the source has every one', () => {
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByTestId('clone-preview-target-only-required')).toBeNull();
+    expect(screen.getByTestId('clone-preview-execute').hasAttribute('aria-describedby')).toBe(
+      false,
+    );
   });
 
   it('names no lookup when the clone leaves none to a second pass', () => {

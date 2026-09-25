@@ -111,6 +111,24 @@ const CLONE_FAILURE_CODES = {
 } as const;
 
 /**
+ * The code `seed:clone:error` carries for a run refused because it is not for
+ * the orgs its preview was made for, before either org is read.
+ */
+const PREVIEWED_FOR_OTHER_ORGS = 'PREVIEWED_FOR_OTHER_ORGS';
+
+/**
+ * How many answered previews the handler keeps the orgs of, the latest: a run
+ * names the one it follows, which its page asked for just before.
+ */
+const PREVIEWS_KEPT = 50;
+
+/** The orgs a preview was made for. */
+interface PreviewedOrgs {
+  sourceOrgId: string;
+  targetOrgId: string;
+}
+
+/**
  * Domain handler for the record-clone wizard (`seed:clone:*`).
  *
  * Wires the Clone pipeline modules (CloneRecordFetcher, CloneReferenceLinker,
@@ -129,6 +147,11 @@ export class SeedCloneHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
   /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
   private liveTracker?: LiveOperationTracker;
+  /**
+   * The orgs each preview answered was made for, by the preview's request id:
+   * a run that names the preview it follows goes only to those orgs.
+   */
+  private readonly previewedOrgs = new Map<string, PreviewedOrgs>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -342,12 +365,20 @@ export class SeedCloneHandler implements DomainHandler {
       // Read from the source and left out of every record by the run: named
       // before anything is written, as the order no longer goes by them.
       const sourceOnlyLookups = lookupsOnlyTheSourceHas(insertOrder, sourceDescribes, describeMap);
+      // Required by the target and read from no field of the source: the
+      // target refuses every record of their object, and the preview says so.
+      const targetOnlyRequiredLookups = requiredLookupsOnlyTheTargetHas(
+        insertOrder,
+        describeMap,
+        sourceDescribes,
+      );
 
       const payload: ClonePreviewResult = {
         objects: previewObjects,
         insertOrder,
         ...(filledAfterInsert.length > 0 ? { filledAfterInsert } : {}),
         ...(sourceOnlyLookups.length > 0 ? { sourceOnlyLookups } : {}),
+        ...(targetOnlyRequiredLookups.length > 0 ? { targetOnlyRequiredLookups } : {}),
       };
       const response = buildResponse(
         this.deps,
@@ -357,15 +388,54 @@ export class SeedCloneHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      this.rememberPreview(msg.id, parsed);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err);
     }
   }
 
   /**
+   * Keep the orgs an answered preview was made for, forgetting the oldest
+   * past {@link PREVIEWS_KEPT}.
+   */
+  private rememberPreview(previewId: string, orgs: PreviewedOrgs): void {
+    this.previewedOrgs.set(previewId, {
+      sourceOrgId: orgs.sourceOrgId,
+      targetOrgId: orgs.targetOrgId,
+    });
+    for (const oldest of this.previewedOrgs.keys()) {
+      if (this.previewedOrgs.size <= PREVIEWS_KEPT) break;
+      this.previewedOrgs.delete(oldest);
+    }
+  }
+
+  /**
+   * Why a run that names the preview it follows may not go ahead, or
+   * `undefined` when it may: it goes only to the orgs that preview was made
+   * for. The page read the target from the org selected when Execute was
+   * pressed, and one selected after the preview took a run previewed for
+   * another.
+   */
+  private refusedAgainstItsPreview(
+    run: PreviewedOrgs & { previewId?: string },
+  ): string | undefined {
+    if (run.previewId === undefined) return undefined;
+    const previewed = this.previewedOrgs.get(run.previewId);
+    if (!previewed) {
+      return 'Clone refused: the preview it names is not one SandForge answered, or no longer holds. Preview it again.';
+    }
+    if (previewed.sourceOrgId !== run.sourceOrgId || previewed.targetOrgId !== run.targetOrgId) {
+      return 'Clone refused: its preview was made for another source or target org. Preview it again.';
+    }
+    return undefined;
+  }
+
+  /**
    * Execute the clone: fetch source records in topological order, remap in-set
    * references to the new target IDs, and write via BulkDataWriter (insert by
-   * default, upsert when the payload opts in with an external Id field).
+   * default, upsert when the payload opts in with an external Id field). A
+   * run that names its preview and is not for that preview's orgs is refused
+   * on `seed:clone:error`, before either org is read.
    */
   private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -376,6 +446,13 @@ export class SeedCloneHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
+    const refused = this.refusedAgainstItsPreview(parsed);
+    if (refused !== undefined) {
+      sendHandlerError(this.deps, msg.type, 'seed:clone:error', msg, new Error(refused), {
+        code: PREVIEWED_FOR_OTHER_ORGS,
+      });
+      return;
+    }
     const operationId = msg.id;
     const startedAt = Date.now();
     const failure: OperationFailureContext = {
@@ -1287,6 +1364,48 @@ function lookupsOnlyTheSourceHas(
         (field.referenceTo ?? [])
           .filter((referenceTo) => objectSet.has(referenceTo))
           .map((referenceTo) => ({ objectApiName, field: field.name, referenceTo })),
+      );
+  });
+}
+
+/**
+ * The lookups the target's describe of an object requires that the source's
+ * describe does not have, wherever they point, in the order their objects are
+ * written.
+ *
+ * The fetcher reads the fields the source describes, so no record read holds
+ * a value for such a lookup — a master-detail, or a custom lookup made
+ * required, deployed to the target alone — and the target refuses every
+ * record of its object, "REQUIRED_FIELD_MISSING". One the platform sets when
+ * a record is created without it, as an owner, and one no record is created
+ * with, are not asked of the clone. A describe that lists no field says
+ * nothing of what its org lacks.
+ *
+ * @param order - The objects of the clone, as the run writes them.
+ */
+function requiredLookupsOnlyTheTargetHas(
+  order: readonly string[],
+  targetDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+  sourceDescribes: ReadonlyMap<string, DescribeSObjectResultLike>,
+): CloneLookup[] {
+  return order.flatMap((objectApiName) => {
+    const inSource = describedFields(sourceDescribes.get(objectApiName));
+    if (!inSource) return [];
+    return (targetDescribes.get(objectApiName)?.fields ?? [])
+      .filter(
+        (field) =>
+          field.type === 'reference' &&
+          !inSource.has(field.name) &&
+          field.createable !== false &&
+          field.defaultedOnCreate !== true &&
+          isRequiredLookup(objectApiName, field.name, field.nillable),
+      )
+      .flatMap((field) =>
+        (field.referenceTo ?? []).map((referenceTo) => ({
+          objectApiName,
+          field: field.name,
+          referenceTo,
+        })),
       );
   });
 }

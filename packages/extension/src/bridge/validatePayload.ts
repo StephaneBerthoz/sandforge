@@ -496,7 +496,9 @@ export const seedCloneDescribeSourcePayloadSchema = z.object({ sourceOrgId: orgI
 /**
  * Clone config as sent by the webview. `upsert` + `externalIdField` are
  * optional extensions (the current UI always inserts; the CLI shows the
- * upsert flow for re-runs against orgs with external Id fields).
+ * upsert flow for re-runs against orgs with external Id fields). A run names
+ * the preview it follows by that request's id (`previewId`), and goes only to
+ * the orgs that preview was made for.
  */
 export const seedCloneExecutePayloadSchema = z
   .object({
@@ -505,6 +507,7 @@ export const seedCloneExecutePayloadSchema = z
     objects: z.array(seedCloneObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
     upsert: z.boolean().optional(),
     externalIdField: sfApiNameSchema.optional(),
+    previewId: opaqueIdSchema.optional(),
   })
   .refine((data) => !data.upsert || data.externalIdField !== undefined, {
     message: 'externalIdField is required when upsert is true',

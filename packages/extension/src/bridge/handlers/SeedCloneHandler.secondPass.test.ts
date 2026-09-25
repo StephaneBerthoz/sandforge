@@ -790,12 +790,59 @@ describe('SeedCloneHandler — the second pass', () => {
     });
 
     it('names no lookup when both orgs have the same', async () => {
-      orgWithAccountsAndContacts();
+      orgWithAccountsAndContacts({ account: true });
 
       await handler.handle(buildMsg('seed:clone:preview', ACCOUNTS_AND_CONTACTS));
 
       const [response] = posted(deps, 'seed:clone:preview:response');
       expect(response.payload).not.toHaveProperty('sourceOnlyLookups');
+      // A lookup the target requires, which the source has too, is read.
+      expect(response.payload).not.toHaveProperty('targetOnlyRequiredLookups');
+    });
+
+    it('names in the preview a lookup the target requires and the source does not have, whose records the target will refuse', async () => {
+      // A contact's region, required in the target and never deployed to the
+      // source: the clone reads no value for it, and the target refused every
+      // contact, "REQUIRED_FIELD_MISSING", after a preview that said nothing.
+      twoOrgs(
+        {
+          Account: [NAME],
+          Contact: [LAST_NAME, lookup('AccountId', 'Account')],
+        },
+        {
+          Account: [NAME, lookup('Region__c', 'Region__c')],
+          Contact: [
+            LAST_NAME,
+            lookup('AccountId', 'Account'),
+            lookup('Region__c', 'Region__c', false),
+            // Required, and set by the platform when the record is created.
+            { ...lookup('OwnerId', 'User', false), defaultedOnCreate: true },
+            // Required, and no record is created with it.
+            { ...lookup('MasterRecordId', 'Contact', false), createable: false },
+          ],
+        },
+      );
+
+      await handler.handle(buildMsg('seed:clone:preview', ACCOUNTS_AND_CONTACTS));
+
+      expect(posted(deps, 'seed:clone:error')).toEqual([]);
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(
+        (response.payload as { targetOnlyRequiredLookups?: unknown }).targetOnlyRequiredLookups,
+      ).toEqual([{ objectApiName: 'Contact', field: 'Region__c', referenceTo: 'Region__c' }]);
+    });
+
+    it('names no lookup the target requires when either describe lists no field', async () => {
+      // A describe that lists no field says nothing of what its org lacks.
+      twoOrgs(
+        { Account: [NAME], Contact: [] },
+        { Account: [NAME], Contact: [LAST_NAME, lookup('Region__c', 'Region__c', false)] },
+      );
+
+      await handler.handle(buildMsg('seed:clone:preview', ACCOUNTS_AND_CONTACTS));
+
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload).not.toHaveProperty('targetOnlyRequiredLookups');
     });
 
     it('previews nothing without a target, before reading either org', async () => {
