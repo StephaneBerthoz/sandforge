@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import type { ForgeNodeStatus } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { collator } from '../../utils/formatters';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
 
 /** Sortable column fields for the table. */
@@ -92,16 +93,21 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
       ? graph.nodes.filter((n) => n.objectApiName.toLowerCase().includes(query))
       : graph.nodes;
 
+    // A status sorts by the word the column shows, in the panel's language:
+    // by its code, "Échoué" sorted where "error" did.
+    const valueOf = (node: ForgeGraphNode): string | number =>
+      sortField === 'status' ? t(`forge.nodeStatus.${node.status}`) : node[sortField];
+    const { compare } = collator();
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
+      const aVal = valueOf(a);
+      const bVal = valueOf(b);
       const cmp =
         typeof aVal === 'string'
-          ? aVal.localeCompare(bVal as string)
+          ? compare(aVal, bVal as string)
           : (aVal as number) - (bVal as number);
       return sortDirection === 'asc' ? cmp : -cmp;
     });
-  }, [graph.nodes, searchQuery, sortField, sortDirection]);
+  }, [graph.nodes, searchQuery, sortField, sortDirection, t]);
 
   /** Render a sort indicator for a column header. */
   const renderSortIndicator = (field: SortField): React.ReactNode => {

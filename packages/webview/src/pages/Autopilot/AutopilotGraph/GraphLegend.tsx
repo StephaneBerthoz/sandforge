@@ -30,6 +30,13 @@ const EDGE_TYPES: LegendItem[] = [
 ];
 
 /**
+ * The legend's height in pixels, which its content sets: two headings and
+ * five rows of 16px text, their gaps, its padding and its border. The graph
+ * is fitted clear of it (`AutopilotGraph`): a row more needs this raised.
+ */
+export const LEGEND_HEIGHT = 178;
+
+/**
  * GraphLegend — Displays a small overlay legend for the AutopilotGraph
  * showing node status colors and edge relationship types.
  */

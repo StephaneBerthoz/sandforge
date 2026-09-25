@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import { ForgeTableView } from './ForgeTableView';
 import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
 
@@ -335,6 +336,60 @@ describe('ForgeTableView', () => {
     } finally {
       await i18n.changeLanguage('en');
     }
+  });
+
+  describe('sorted by status', () => {
+    /** Each row's status as the column says it, in the table's order. */
+    const statusesShown = (): Array<string | null> =>
+      screen
+        .getAllByTestId('forge-table-row')
+        .map(
+          (row) => row.querySelector('[data-testid^="forge-table-status-"]')?.textContent ?? null,
+        );
+
+    /** A table of one object per status in `statuses`, sorted by the status column. */
+    function sortedByStatus(statuses: readonly ForgeGraphNode['status'][]): void {
+      render(
+        <ForgeTableView
+          graph={makeGraph(
+            statuses.map((status, i) => makeNode({ objectApiName: `Object${i}`, status })),
+          )}
+          selectedNodeName={null}
+          onNodeClick={mockOnNodeClick}
+          onToggleIncluded={mockOnToggleIncluded}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('forge-table-sort-status'));
+    }
+
+    it('orders the statuses by the words the column shows, not by their codes', async () => {
+      // Sorted by the code, "Échoué" (error) came between "Terminé" (done) and
+      // "Non démarré" (idle), and "Arrêté" (stopped) last.
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        sortedByStatus(['done', 'error', 'idle', 'skipped', 'stopped']);
+        expect(statusesShown()).toEqual(['Arrêté', 'Échoué', 'Ignoré', 'Non démarré', 'Terminé']);
+
+        fireEvent.click(screen.getByTestId('forge-table-sort-status'));
+        expect(statusesShown()).toEqual(['Terminé', 'Non démarré', 'Ignoré', 'Échoué', 'Arrêté']);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+
+    it('orders them as the panel’s language does, not the host’s', async () => {
+      // Japanese orders kanji by their reading; the host's English collation,
+      // by code point, put 停止 (stopped) before 完了 (done).
+      i18n.addResourceBundle('ja', 'translation', ja, true, true);
+      await i18n.changeLanguage('ja');
+      try {
+        sortedByStatus(['stopped', 'error', 'done', 'skipped']);
+        expect(statusesShown()).toEqual(['スキップ', '完了', '失敗', '停止']);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
   });
 
   it('should display PII count when node has PII fields', () => {

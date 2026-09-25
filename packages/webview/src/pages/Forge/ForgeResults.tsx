@@ -34,7 +34,7 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
-import { formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
+import { collator, formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 import { ForgeFilesResult } from './ForgeFilesResult';
@@ -289,22 +289,28 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     if (statusFilter !== 'all') {
       filtered = filtered.filter((r) => r.status === statusFilter);
     }
-    // Records sort as the column shows them; an object the run did not read
-    // sorts below one it read none of.
+    // Records and statuses sort as the column shows them: an object the run
+    // did not read sorts below one it read none of, and a status by its word,
+    // in the panel's language. By its code, "Échoué" sorted where "error" did.
     const valueOf = (row: ObjectRow): string | number =>
-      sortField === 'recordCount' ? (row.records ?? -1) : row[sortField];
+      sortField === 'recordCount'
+        ? (row.records ?? -1)
+        : sortField === 'status'
+          ? t(`forge.nodeStatus.${row.status}`)
+          : row.objectApiName;
+    const { compare } = collator();
     return [...filtered].sort((a, b) => {
       const aVal = valueOf(a);
       const bVal = valueOf(b);
       if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        return sortDir === 'asc' ? compare(aVal, bVal) : compare(bVal, aVal);
       }
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }
       return 0;
     });
-  }, [rows, statusFilter, sortField, sortDir]);
+  }, [rows, statusFilter, sortField, sortDir, t]);
 
   /** What the page says of the empty tables it does not list; empty when there were none. */
   const emptyTablesNote =

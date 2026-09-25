@@ -5763,7 +5763,10 @@ export class ForgeExecutor {
          * up or given their flags back, or as its rows were made ready — its
          * last word was that it was inserting them, and all of that was lost
          * with it. The emails of a first write end the node: the ones waiting
-         * for their task are never written once the run stops.
+         * for their task are never written once the run stops, and are counted
+         * with the rows the cancel kept from the target, how many of them
+         * waited said after the count. Counted apart as waiting, beside the
+         * rows not sent, they read as emails still to go in.
          *
          * Stopped, not done: ended `done`, the node was drawn and counted as
          * finished beside the nodes that were, the rows it never sent aside.
@@ -5771,12 +5774,13 @@ export class ForgeExecutor {
          * is to act on; its line says it was stopped.
          */
         const handed = rounds.reduce((sum, round) => sum + round.records.length, 0);
-        const notSent = handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure);
+        const notSent = handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure) + waiting;
+        const ofThemWaiting = waiting > 0 ? ` (${waitingForTheirTask(waiting)})` : '';
         (afterTheirTask === undefined ? state.onProgress : onProgress)({
           objectName: node.objectApiName,
           status: failedNode ? 'error' : 'stopped',
           progress: 100,
-          message: `${stopped}: ${counts}, ${notSent} not sent${rest}`,
+          message: `${stopped}: ${counts}, ${notSent} not sent${ofThemWaiting}${withoutTheirParent}${flagsNotKept}${notes}`,
         });
         throw stoppedBy;
       }

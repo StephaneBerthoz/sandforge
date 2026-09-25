@@ -855,17 +855,34 @@ async function discoverForgeGraph(
   await page.getByTestId('forge-discovery').waitFor({ timeout: 10_000 });
 }
 
+/** The test id of the Forge graph's pane. */
+const FORGE_GRAPH = 'live-graph';
+
+/** The test id of the Autopilot graph's pane. */
+const AUTOPILOT_GRAPH = 'autopilot-graph';
+
+/** React Flow's minimap, as drawn on a graph's pane. */
+const MINIMAP = '.react-flow__minimap';
+
+/** How React Flow places the graph drawn in the pane `graph`: its viewport's transform. */
+async function graphTransform(page: Page, graph: string): Promise<string> {
+  return page
+    .getByTestId(graph)
+    .locator('.react-flow__viewport')
+    .evaluate((element) => (element as HTMLElement).style.transform);
+}
+
 /**
- * Wait until React Flow has fitted the Forge graph to its pane: the viewport
- * holds still between two reads, and has left where React Flow starts it.
+ * Wait until React Flow has fitted the graph of the pane `graph`: the
+ * viewport holds still between two reads, and has left where React Flow
+ * starts it.
  */
-async function forgeGraphFitted(page: Page): Promise<void> {
-  const viewport = page.getByTestId('live-graph').locator('.react-flow__viewport');
+async function graphFitted(page: Page, graph: string): Promise<void> {
   let last: string | null = null;
   await expect
     .poll(
       async () => {
-        const now = await viewport.evaluate((element) => (element as HTMLElement).style.transform);
+        const now = await graphTransform(page, graph);
         const still = now === last && now !== 'translate(0px, 0px) scale(1)';
         last = now;
         return still;
@@ -876,48 +893,94 @@ async function forgeGraphFitted(page: Page): Promise<void> {
 }
 
 /**
- * The height of the Forge graph's pane, as Chromium lays it out. Its wrapper
- * gave it a minimum and no height, so the pane took the height of the panel
- * beside it: 52px on discovery at 1280×720, under a minimap of 150.
+ * The height of the pane `graph`, as Chromium lays it out. The Forge graph's
+ * wrapper gave it a minimum and no height, so the pane took the height of the
+ * panel beside it: 52px on discovery at 1280×720, under a minimap of 150.
  */
-async function forgeGraphPaneHeight(page: Page): Promise<number> {
-  const box = await page.getByTestId('live-graph').boundingBox();
+async function graphPaneHeight(page: Page, graph: string): Promise<number> {
+  const box = await page.getByTestId(graph).boundingBox();
   return box?.height ?? 0;
 }
 
 /**
- * The objects of the Forge graph the minimap is drawn over, as Chromium lays
- * them out: each box cut to the graph's pane, which hides what is drawn past
- * its edges.
+ * The objects of the graph of the pane `graph` that `overlay` — the minimap,
+ * or a legend or controls drawn on the pane — is drawn over, as Chromium lays
+ * them out: each box cut to the pane, which hides what is drawn past its
+ * edges.
  */
-async function forgeNodesUnderMinimap(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const graph = document.querySelector('[data-testid="live-graph"]');
-    const minimap = graph?.querySelector('.react-flow__minimap');
-    if (!graph || !minimap) return ['no graph or no minimap'];
-    const pane = graph.getBoundingClientRect();
-    const inPane = (element: Element) => {
-      const box = element.getBoundingClientRect();
-      return {
-        left: Math.max(box.left, pane.left),
-        top: Math.max(box.top, pane.top),
-        right: Math.min(box.right, pane.right),
-        bottom: Math.min(box.bottom, pane.bottom),
+async function nodesUnder(page: Page, graph: string, overlay: string): Promise<string[]> {
+  return page.evaluate(
+    ({ testId, selector }) => {
+      const pane = document.querySelector(`[data-testid="${testId}"]`);
+      const drawnOver = pane?.querySelector(selector);
+      if (!pane || !drawnOver) return [`no ${testId}, or nothing in it at ${selector}`];
+      const paneBox = pane.getBoundingClientRect();
+      const inPane = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          left: Math.max(box.left, paneBox.left),
+          top: Math.max(box.top, paneBox.top),
+          right: Math.min(box.right, paneBox.right),
+          bottom: Math.min(box.bottom, paneBox.bottom),
+        };
       };
-    };
-    const map = inPane(minimap);
-    return [...graph.querySelectorAll('.react-flow__node')]
-      .filter((node) => {
-        const box = inPane(node);
-        return (
-          box.left < map.right &&
-          map.left < box.right &&
-          box.top < map.bottom &&
-          map.top < box.bottom
-        );
-      })
-      .map((node) => node.getAttribute('data-id') ?? '');
+      const over = inPane(drawnOver);
+      return [...pane.querySelectorAll('.react-flow__node')]
+        .filter((node) => {
+          const box = inPane(node);
+          return (
+            box.left < over.right &&
+            over.left < box.right &&
+            box.top < over.bottom &&
+            over.top < box.bottom
+          );
+        })
+        .map((node) => node.getAttribute('data-id') ?? '');
+    },
+    { testId: graph, selector: overlay },
+  );
+}
+
+/** What the Autopilot graph's pane draws over its graph: the minimap, the legend and the controls. */
+const AUTOPILOT_GRAPH_OVERLAYS = [
+  MINIMAP,
+  '[data-testid="graph-legend"]',
+  '[data-testid="graph-controls"]',
+] as const;
+
+/** Each overlay of the Autopilot graph, with the objects it is drawn over. */
+async function autopilotNodesUnderItsOverlays(page: Page): Promise<Record<string, string[]>> {
+  const under: Record<string, string[]> = {};
+  for (const overlay of AUTOPILOT_GRAPH_OVERLAYS) {
+    under[overlay] = await nodesUnder(page, AUTOPILOT_GRAPH, overlay);
+  }
+  return under;
+}
+
+/** The Autopilot run of the two objects of its mock graph, under way: its execute left unanswered. */
+async function startAutopilotRun(
+  bridge: MockBridge,
+  page: Page,
+  theme: ScannedTheme,
+): Promise<void> {
+  await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+  await page.getByTestId('source-org-org-src-1').click();
+  await page.getByTestId('target-org-org-tgt-1').click();
+  await page.getByTestId('seed-wizard-next').click();
+  await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+    graph: MOCK_GRAPH,
   });
+  await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByTestId('seed-wizard-next').click();
+  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByTestId('seed-wizard-next').click();
+  await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+    plan: MOCK_PLAN,
+    graph: MOCK_GRAPH,
+  });
+  await page.getByTestId('execute-button').click();
+  await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+  await page.getByTestId(AUTOPILOT_GRAPH).waitFor({ timeout: 10_000 });
 }
 
 /** The Forge page with its recent runs listed: one run whose records can be removed. */
@@ -1533,23 +1596,23 @@ for (const theme of SCANNED_THEMES) {
       // At 1280×720 the minimap was drawn over the contact, the graph fitted
       // to the whole of a pane whose right side the minimap takes.
       await discoverForgeGraph(bridge, page, theme);
-      await forgeGraphFitted(page);
-      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(350);
-      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      await graphFitted(page, FORGE_GRAPH);
+      expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(350);
+      expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
-      await forgeGraphFitted(page);
-      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(350);
-      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      await graphFitted(page, FORGE_GRAPH);
+      expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(350);
+      expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByTestId('execute-button').click();
       await page.getByTestId('forge-execution').waitFor({ timeout: 10_000 });
-      await forgeGraphFitted(page);
-      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(300);
-      expect(await forgeNodesUnderMinimap(page)).toEqual([]);
+      await graphFitted(page, FORGE_GRAPH);
+      expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(300);
+      expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -2878,6 +2941,31 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, refused, '[data-testid="autopilot-execute-error"]'),
       ).toBeGreaterThan(0);
+    });
+
+    test('Autopilot graph fitted clear of its minimap, legend and controls, on the run and from its fit button', async ({
+      page,
+    }) => {
+      // At 1280×720 the contact lay under a corner of the minimap and one of
+      // the legend: the graph was fitted to the whole of a pane the two stand
+      // on, along its bottom.
+      const clear = Object.fromEntries(AUTOPILOT_GRAPH_OVERLAYS.map((overlay) => [overlay, []]));
+      await startAutopilotRun(bridge, page, theme);
+      await graphFitted(page, AUTOPILOT_GRAPH);
+      // A height of its own, 683px at 1280×720, where the Forge graph's pane
+      // took that of the panel beside it.
+      expect(await graphPaneHeight(page, AUTOPILOT_GRAPH)).toBeGreaterThanOrEqual(350);
+      expect(await autopilotNodesUnderItsOverlays(page)).toEqual(clear);
+      expectNoViolations(await checkAccessibility(page));
+
+      // The fit button fits it the same way.
+      await page.getByTestId('zoom-out-btn').click();
+      await graphFitted(page, AUTOPILOT_GRAPH);
+      const zoomedOut = await graphTransform(page, AUTOPILOT_GRAPH);
+      await page.getByTestId('fit-view-btn').click();
+      await expect.poll(() => graphTransform(page, AUTOPILOT_GRAPH)).not.toBe(zoomedOut);
+      await graphFitted(page, AUTOPILOT_GRAPH);
+      expect(await autopilotNodesUnderItsOverlays(page)).toEqual(clear);
     });
 
     test('AI chat after conversation creation', async ({ page }) => {

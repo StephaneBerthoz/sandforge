@@ -1,5 +1,6 @@
 /**
- * Gate: the Playwright specs are typechecked.
+ * Gate: the Playwright specs, and the configs at the webview's root, are
+ * typechecked.
  *
  * Playwright strips the types from a spec without checking them, and the
  * webview's tsconfigs take in `src/` alone, so nothing read `e2e/` as
@@ -77,6 +78,23 @@ test('the e2e tsconfig takes in every file under e2e/ and the configs the suite 
   const missed = [...sources, 'playwright.config.ts', 'vite.config.e2e.ts'].filter(
     (file) => !taken.has(file),
   );
+  assert.deepEqual(missed, [], `tsconfig.e2e.json leaves out ${missed.join(', ')}`);
+});
+
+test('the e2e tsconfig takes in every config at the webview root, those of the build and the unit tests too', () => {
+  // vite.config.ts, vitest.config.ts and tailwind.sidepanel.config.ts were
+  // typechecked by nothing: the webview's other tsconfigs take in src/ alone,
+  // and Vite, Vitest and Tailwind load a config without checking its types.
+  // Here, beside the two configs the suite runs with, they get the Node types
+  // they need as those do: the program takes them from Vite's declarations.
+  const configs = readdirSync(webviewDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+    .map((entry) => entry.name);
+  for (const config of ['vite.config.ts', 'vitest.config.ts', 'tailwind.sidepanel.config.ts']) {
+    assert.ok(configs.includes(config), `no packages/webview/${config} for this gate to look for`);
+  }
+  const taken = new Set(readTsconfig('tsconfig.e2e.json').fileNames.map(fromWebview));
+  const missed = configs.filter((file) => !taken.has(file));
   assert.deepEqual(missed, [], `tsconfig.e2e.json leaves out ${missed.join(', ')}`);
 });
 

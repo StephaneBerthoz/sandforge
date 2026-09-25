@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
@@ -1241,6 +1242,52 @@ describe('ForgeResults', () => {
       await i18n.changeLanguage('en');
       Reflect.deleteProperty(navigator, 'clipboard');
     }
+  });
+
+  describe('sorted by status', () => {
+    /** Account done, Case skipped, Contact stopped by a cancel, Opportunity failed. */
+    const withEveryEnd = (): ForgeGraph => {
+      const graph = makeMockGraphWithError();
+      return {
+        ...graph,
+        nodes: graph.nodes.map((node) =>
+          node.objectApiName === 'Contact' ? { ...node, status: 'stopped' as const } : node,
+        ),
+      };
+    };
+
+    it('orders the statuses by the words the badges show, not by their codes', async () => {
+      // Sorted by the code, "Échoué" (error) came second, where "error" did,
+      // and "Arrêté" (stopped) last.
+      mockGraph = withEveryEnd();
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<ForgeResults />);
+        fireEvent.click(screen.getByTestId('forge-results-sort-status'));
+        expect(statusBadges()).toEqual(['Arrêté', 'Échoué', 'Ignoré', 'Terminé']);
+
+        fireEvent.click(screen.getByTestId('forge-results-sort-status'));
+        expect(statusBadges()).toEqual(['Terminé', 'Ignoré', 'Échoué', 'Arrêté']);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+
+    it('orders them as the panel’s language does, not the host’s', async () => {
+      // Japanese orders kanji by their reading; the host's English collation,
+      // by code point, put 停止 (stopped) before 完了 (done).
+      mockGraph = withEveryEnd();
+      i18n.addResourceBundle('ja', 'translation', ja, true, true);
+      await i18n.changeLanguage('ja');
+      try {
+        render(<ForgeResults />);
+        fireEvent.click(screen.getByTestId('forge-results-sort-status'));
+        expect(statusBadges()).toEqual(['スキップ', '完了', '失敗', '停止']);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
   });
 
   /* ---- Collapsible logs toggle ---- */

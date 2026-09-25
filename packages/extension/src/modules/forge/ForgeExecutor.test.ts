@@ -9319,6 +9319,37 @@ describe('ForgeExecutor', () => {
             ],
           ]);
         });
+
+        it('counts the emails that waited for their task among those not sent when a cancel stops the first write', async () => {
+          // The cancel comes as the first write is made ready, before its
+          // call: the offer is not sent, and the run stops before the tasks'
+          // turn, so the emails on the case never are either. The line counted
+          // the offer alone as not sent, and named the others as still waiting.
+          const { orgDeps, inserted, graph } = mixedRun();
+          const executor = new ForgeExecutor(orgDeps);
+          orgDeps.describeObject = async (org, object) => {
+            if (org === 'tgt' && object === 'EmailMessage') executor.abort();
+            return { keyPrefix: null, recordTypes: [] };
+          };
+
+          const error = await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(ForgeAbortedError);
+          expect(inserted['EmailMessage'] ?? []).toEqual([]);
+          expect(inserted['Task'] ?? []).toEqual([]);
+          expect(emailEnds()).toEqual([
+            [
+              'stopped',
+              'Stopped EmailMessage: 0 succeeded, 0 failed, ' +
+                '3 not sent (2 on a case waiting for their tasks)',
+            ],
+          ]);
+        });
       });
     });
 

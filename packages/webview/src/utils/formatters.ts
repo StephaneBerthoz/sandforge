@@ -1,6 +1,6 @@
 /**
  * Locale-aware formatting utilities for numbers, dates, currencies,
- * durations, file sizes, and relative time.
+ * durations, file sizes, and relative time, and the order words sort in.
  * All functions handle edge cases (NaN, negative, zero) gracefully.
  *
  * The numeric/duration/file-size formatters are re-exported from the canonical
@@ -75,6 +75,24 @@ export function dateTimeFormat(
     dateTimeFormats.set(key, format);
   }
   return format;
+}
+
+const collators = new Map<string, Intl.Collator>();
+
+/**
+ * An `Intl.Collator` in `locale` ({@link uiLocale} by default), built once per
+ * locale: the order a column of words sorts in. `localeCompare` with no
+ * locale sorts in the host's, which orders kanji by code point where Japanese
+ * orders them by reading. Ask for it where the column is sorted, as for a
+ * date format.
+ */
+export function collator(locale: string = uiLocale()): Intl.Collator {
+  let found = collators.get(locale);
+  if (found === undefined) {
+    found = new Intl.Collator(locale);
+    collators.set(locale, found);
+  }
+  return found;
 }
 
 /**

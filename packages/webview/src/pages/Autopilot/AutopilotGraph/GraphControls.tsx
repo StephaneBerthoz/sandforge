@@ -1,7 +1,14 @@
 import React, { useCallback } from 'react';
 import { useReactFlow } from '@xyflow/react';
+import type { FitViewOptions } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
+
+/**
+ * The controls' width in pixels: a column of 32px buttons, its padding and
+ * its border. The graph is fitted clear of it (`AutopilotGraph`).
+ */
+export const CONTROLS_WIDTH = 42;
 
 /**
  * GraphControls — Overlay panel providing zoom controls, fit-view button,
@@ -12,7 +19,9 @@ export const GraphControls: React.FC<{
   minimapVisible: boolean;
   /** Callback to toggle minimap visibility */
   onToggleMinimap: () => void;
-}> = ({ minimapVisible, onToggleMinimap }) => {
+  /** How the fit button fits the graph: as the graph was fitted on first draw. */
+  fitViewOptions: FitViewOptions;
+}> = ({ minimapVisible, onToggleMinimap, fitViewOptions }) => {
   const { t } = useTranslation();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
@@ -25,8 +34,8 @@ export const GraphControls: React.FC<{
   }, [zoomOut]);
 
   const handleFitView = useCallback(() => {
-    void fitView({ duration: 300, padding: 0.2 });
-  }, [fitView]);
+    void fitView({ ...fitViewOptions, duration: 300 });
+  }, [fitView, fitViewOptions]);
 
   const buttonClass =
     'flex h-8 w-8 items-center justify-center rounded-sm text-text-secondary hover:bg-(--sf-bg-hover) hover:text-text-primary transition-colors';

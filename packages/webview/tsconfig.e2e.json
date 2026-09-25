@@ -4,5 +4,13 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["e2e/**/*", "playwright.config.ts", "vite.config.e2e.ts", "src/vite-env.d.ts"]
+  "include": [
+    "e2e/**/*",
+    "playwright.config.ts",
+    "vite.config.e2e.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "tailwind.sidepanel.config.ts",
+    "src/vite-env.d.ts"
+  ]
 }

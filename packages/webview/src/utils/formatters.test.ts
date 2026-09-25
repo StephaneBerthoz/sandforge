@@ -9,6 +9,7 @@ import {
   formatRelativeTime,
   formatRelativeTimeI18n,
   formatStoredDate,
+  collator,
   dateTimeFormat,
   uiLocale,
 } from './formatters';
@@ -368,5 +369,17 @@ describe('the UI locale', () => {
     await showInterfaceIn('es');
 
     expect(formatRelativeTime(new Date(Date.now() - 2 * 3_600_000))).toBe('hace 2 horas');
+  });
+
+  it('sorts words as the interface language orders them, not as the host’s does', async () => {
+    // Japanese orders kanji by their reading: 完了 (kanryō) before 停止
+    // (teishi). English orders them by code point, 停止 first.
+    hostSpeaks('en-US');
+    const english = ['完了', '停止'].sort(collator().compare);
+
+    await showInterfaceIn('ja');
+
+    expect(['停止', '完了'].sort(collator().compare)).toEqual(['完了', '停止']);
+    expect(english).toEqual(['停止', '完了']);
   });
 });

@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { ReactFlow, Background, MiniMap, ReactFlowProvider } from '@xyflow/react';
-import type { Node, Edge } from '@xyflow/react';
+import type { Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type {
   AutopilotNode as AutopilotNodeType,
@@ -10,9 +10,40 @@ import { ObjectNode } from './ObjectNode';
 import type { ObjectNodeData } from './ObjectNode';
 import { RelationEdge } from './RelationEdge';
 import type { RelationEdgeData } from './RelationEdge';
-import { GraphLegend } from './GraphLegend';
-import { GraphControls } from './GraphControls';
+import { GraphLegend, LEGEND_HEIGHT } from './GraphLegend';
+import { GraphControls, CONTROLS_WIDTH } from './GraphControls';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+
+/** The minimap's height in pixels, React Flow's own, said here for the room the fit leaves it. */
+const MINIMAP_HEIGHT = 150;
+
+/** The margin React Flow puts around a panel such as the minimap (`.react-flow__panel`). */
+const PANEL_MARGIN = 15;
+
+/** How far the legend and the controls stand from the pane's edges: `bottom-3`, `right-3`. */
+const OVERLAY_MARGIN = 12;
+
+/**
+ * How the graph is fitted to its pane, on first draw and from the controls'
+ * fit button: clear of what the pane draws over it. The minimap and the
+ * legend stand along its bottom, the controls at its top right: the fit
+ * leaves a strip along the bottom as high as the taller of the two, one down
+ * the right as wide as the controls, and its own padding on the other sides.
+ * Fitted to the whole pane, the nodes at its bottom lay under them: at
+ * 1280×720 the contact of an account and its contacts had a corner under the
+ * minimap and one under the legend. Fitted left of a strip as wide as the
+ * minimap, as the Forge graph is, the contact still lay under the legend. A
+ * graph too big to fit at the smallest zoom can still reach them, and is
+ * panned to as before.
+ */
+const FIT_CLEAR_OF_OVERLAYS: FitViewOptions = {
+  padding: {
+    x: 0.2,
+    y: 0.2,
+    bottom: `${Math.max(LEGEND_HEIGHT + 2 * OVERLAY_MARGIN, MINIMAP_HEIGHT + 2 * PANEL_MARGIN)}px`,
+    right: `${CONTROLS_WIDTH + 2 * OVERLAY_MARGIN}px`,
+  },
+};
 
 /** Vertical spacing between graph levels in pixels. */
 const LEVEL_Y_SPACING = 150;
@@ -167,7 +198,7 @@ export const AutopilotGraph: React.FC = () => {
           edgeTypes={edgeTypes}
           onNodeClick={handleNodeClick}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          fitViewOptions={FIT_CLEAR_OF_OVERLAYS}
           minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
@@ -181,11 +212,16 @@ export const AutopilotGraph: React.FC = () => {
               }}
               maskColor="rgba(0,0,0,0.6)"
               className="bg-(--sf-bg-primary)!"
+              style={{ height: MINIMAP_HEIGHT }}
             />
           )}
         </ReactFlow>
         <GraphLegend />
-        <GraphControls minimapVisible={minimapVisible} onToggleMinimap={handleToggleMinimap} />
+        <GraphControls
+          minimapVisible={minimapVisible}
+          onToggleMinimap={handleToggleMinimap}
+          fitViewOptions={FIT_CLEAR_OF_OVERLAYS}
+        />
       </div>
     </ReactFlowProvider>
   );
