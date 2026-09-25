@@ -5,6 +5,31 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.7] - 2026-09-25
+
+The AI features ask Claude Sonnet 5, and an object a cancel stops reads as
+stopped wherever its run is shown.
+
+### Changed
+
+- **The AI features ask Claude Sonnet 5 by default**, and Settings names the
+  model configured.
+- **An AI answer refused, cut off or empty** fails with a message in the
+  editor's language instead of reaching the page.
+- **The webview merges its classes with tailwind-merge 3**, the version made
+  for Tailwind 4; vsce 4, esbuild 0.28 and Vite 8.3.1 build it.
+
+### Fixed
+
+- **A Forge or Frozen object a cancel stops while it is written reads as
+  stopped**, with what it never sent, on the graph, its tiles and the load list.
+- **The Forge graph keeps its height** on discovery and during the run, and
+  its objects stay clear of the minimap.
+- **Statuses are named in the panel's language** in Forge's results, table
+  and object detail, and in Seed's progress.
+- **A Forge run cancelled midway is recorded as partial** in the audit trail,
+  and a Frozen entry counts the rows a cancel kept back.
+
 ## [1.39.6] - 2026-09-25
 
 The webview is built with Tailwind 4 and runs on the current versions of its

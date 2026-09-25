@@ -1951,6 +1951,10 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "aiSonnet1397": "Die KI-Funktionen fragen Claude Sonnet 5",
+      "aiSonnet1397Desc": "Chat, NL2SOQL, Pipeline-Entwürfe, Fehlerbehebung und Seed fragen standardmäßig Claude Sonnet 5, und die Einstellungen nennen das konfigurierte Modell. Eine abgelehnte, abgeschnittene oder leere Antwort sagt das jetzt in Ihrer Sprache.",
+      "fixRound1397": "Ein angehaltenes Objekt wird als angehalten angezeigt",
+      "fixRound1397Desc": "Ein Forge- oder Frozen-Objekt, das ein Abbruch beim Schreiben anhält, wird als angehalten markiert, mit dem, was es nie gesendet hat. Der Forge-Graph behält seine Höhe, seine Objekte bleiben frei von der Minikarte, und Status werden in Forge und Seed in Ihrer Sprache benannt.",
       "fixRound1396": "Ein Abbruch sagt, was jedes Objekt geschrieben hat",
       "fixRound1396Desc": "Ein abgebrochener Forge- oder Frozen-Lauf schließt jedes Objekt mit einer Zeile ab, die sagt, was es geschrieben hat, E-Mails und Preisbucheinträge eingeschlossen, und Seed und DataOps senden nach einem Abbruch keinen Stapel mehr, auch keinen fehlgeschlagenen erneut.",
       "toolchain1396": "Tailwind 4 unter jeder Seite",

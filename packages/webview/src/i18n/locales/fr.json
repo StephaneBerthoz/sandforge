@@ -1951,6 +1951,10 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "aiSonnet1397": "Les fonctions d'IA interrogent Claude Sonnet 5",
+      "aiSonnet1397Desc": "Le chat, NL2SOQL, les brouillons de pipeline, la résolution d'erreurs et Seed interrogent Claude Sonnet 5 par défaut, et les Paramètres nomment le modèle configuré. Une réponse refusée, tronquée ou vide le dit désormais dans votre langue.",
+      "fixRound1397": "Un objet arrêté se lit comme arrêté",
+      "fixRound1397Desc": "Un objet Forge ou Frozen qu'une annulation arrête en cours d'écriture est marqué arrêté, avec ce qu'il n'a jamais envoyé. Le graphe Forge garde sa hauteur et ses objets restent dégagés de la minicarte, et les statuts sont nommés dans votre langue dans Forge et Seed.",
       "fixRound1396": "Une annulation dit ce que chaque objet a écrit",
       "fixRound1396Desc": "Une exécution Forge ou Frozen annulée termine chaque objet sur une ligne qui dit ce qu'il a écrit, e-mails et entrées de catalogue de prix compris, et Seed et DataOps n'envoient plus aucun lot après une annulation, pas même un lot en échec renvoyé.",
       "toolchain1396": "Tailwind 4 sous chaque page",

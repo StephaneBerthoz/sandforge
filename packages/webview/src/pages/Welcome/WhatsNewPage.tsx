@@ -78,6 +78,20 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * adds no entry here shows no panel at all.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.39.7': [
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.aiSonnet1397',
+      descKey: 'onboarding.whatsNew.aiSonnet1397Desc',
+      navigateTo: 'settings',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.fixRound1397',
+      descKey: 'onboarding.whatsNew.fixRound1397Desc',
+      navigateTo: 'forge',
+    },
+  ],
   '1.39.6': [
     {
       category: 'improvement',
