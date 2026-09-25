@@ -626,9 +626,12 @@ const FIELDS_THAT_GO_WITH_A_FLAG: Readonly<Record<string, readonly string[]>> = 
   IsInvitee: ['Status', 'Response', 'RespondedDate'],
 };
 
+/** The update of one of the target's records: its id, and the fields it sets. */
+type RecordUpdate = Record<string, unknown> & { Id: string };
+
 /** A write of the target's records of one object, one outcome per record. */
 export type RelationUpdate = (
-  records: Array<Record<string, unknown> & { Id: string }>,
+  records: RecordUpdate[],
 ) => Promise<ReadonlyArray<{ readonly success: boolean; readonly errors: readonly string[] }>>;
 
 /**
@@ -645,6 +648,15 @@ export type RelationUpdate = (
  * `true`, as a boolean or as the text a file keeps it as; a field that goes
  * with it, when the row gives it a value. An update that throws reaches the
  * caller, as any other write of its run does.
+ *
+ * The target takes or refuses the update of a record whole: a Status value
+ * the target does not hold, sent with the flag, used to take the flag with
+ * it, and the note named both as refused. An update of a flag and its answer
+ * that the target refuses goes again a field at a time — the flags first,
+ * then each field of the answer to the relations the flags went back to — so
+ * the note names the field the target refused, and the rest goes back. A
+ * write the run's cancel stopped answers for the records it sent only:
+ * nothing is sent after it.
  *
  * @param linked - Each row read, and the id of the relation linked in its place.
  * @param updatable - Whether the target's describe of the object lets a field be updated.
@@ -668,34 +680,78 @@ export async function giveLinkedRelationsTheirFlags(
     const key = `${field}: ${why}`;
     without.set(key, (without.get(key) ?? 0) + 1);
   };
-  const updates: Array<Record<string, unknown> & { Id: string }> = [];
+  /** Each relation given anything back: the flags it gets, and the answer that goes with them. */
+  const toGive: Array<{
+    Id: string;
+    flagsGiven: Record<string, unknown>;
+    answer: Record<string, unknown>;
+  }> = [];
   for (const [row, id] of linked) {
-    const given: Record<string, unknown> = {};
+    const flagsGiven: Record<string, unknown> = {};
+    const answer: Record<string, unknown> = {};
     for (const flag of flags.filter((f) => String(row[f]) === 'true')) {
       if (fixed.has(flag)) {
         leftWithout(flag, 'the target does not let it be updated');
         continue;
       }
-      given[flag] = true;
+      flagsGiven[flag] = true;
       for (const field of FIELDS_THAT_GO_WITH_A_FLAG[flag] ?? []) {
         const value = row[field];
         if (value === undefined || value === null || value === '') continue;
         if (fixed.has(field)) leftWithout(field, 'the target does not let it be updated');
-        else given[field] = value;
+        else answer[field] = value;
       }
     }
-    if (Object.keys(given).length > 0) updates.push({ Id: id, ...given });
+    if (Object.keys(flagsGiven).length > 0) toGive.push({ Id: id, flagsGiven, answer });
   }
-  if (updates.length > 0) {
-    const outcomes = await update(updates);
-    updates.forEach((record, i) => {
+  /** Whether the run's cancel stopped a write: nothing is sent after it. */
+  let stopped = false;
+  /** Send `records`: why the target refused each it refused, by its id. */
+  const send = async (records: RecordUpdate[]): Promise<Map<string, string>> => {
+    const refused = new Map<string, string>();
+    if (records.length === 0 || stopped) return refused;
+    const outcomes = await update(records);
+    stopped = outcomes.length < records.length;
+    records.forEach((record, i) => {
       const outcome = outcomes[i];
       if (outcome?.success) return;
-      const why = `the target refused the update, ${outcome?.errors[0] ?? 'without saying why'}`;
-      for (const flag of Object.keys(record).filter((key) => key !== 'Id')) {
-        leftWithout(flag, why);
-      }
+      refused.set(
+        record.Id,
+        `the target refused the update, ${outcome?.errors[0] ?? 'without saying why'}`,
+      );
     });
+    return refused;
+  };
+  /** Each field of each record `refused` names, left without, and why. */
+  const noteRefused = (records: readonly RecordUpdate[], refused: Map<string, string>): void => {
+    for (const record of records) {
+      const why = refused.get(record.Id);
+      if (why === undefined) continue;
+      for (const field of Object.keys(record).filter((key) => key !== 'Id')) {
+        leftWithout(field, why);
+      }
+    }
+  };
+  const whole = toGive.map(({ Id, flagsGiven, answer }) => ({ Id, ...flagsGiven, ...answer }));
+  const refused = await send(whole);
+  // Refused, an update of the flags alone is not sent again: it has no answer
+  // to part them from.
+  const again = stopped
+    ? []
+    : toGive.filter(({ Id, answer }) => refused.has(Id) && Object.keys(answer).length > 0);
+  noteRefused(
+    whole.filter((record) => !again.some(({ Id }) => Id === record.Id)),
+    refused,
+  );
+  const flagsAlone = again.map(({ Id, flagsGiven }) => ({ Id, ...flagsGiven }));
+  const flagsRefused = await send(flagsAlone);
+  noteRefused(flagsAlone, flagsRefused);
+  const invited = again.filter(({ Id }) => !flagsRefused.has(Id));
+  for (const field of new Set(invited.flatMap(({ answer }) => Object.keys(answer)))) {
+    const alone = invited
+      .filter(({ answer }) => field in answer)
+      .map(({ Id, answer }) => ({ Id, [field]: answer[field] }));
+    noteRefused(alone, await send(alone));
   }
   if (without.size === 0) return undefined;
   return [...without].map(([why, count]) => `${count} linked without ${why}`).join(', ');

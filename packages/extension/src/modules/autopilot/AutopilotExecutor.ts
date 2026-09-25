@@ -263,9 +263,10 @@ export interface AutopilotExecutorDeps {
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
    * The object's fields no update can set in the TARGET org, from the same
-   * describe: a flag given back to a relation the run linked to is sent only
-   * where an update can set it (`giveLinkedRelationsTheirFlags`). Without it
-   * the target says whether it takes the update.
+   * describe: a flag given back to a relation the run linked to, and the
+   * invitee's answer that goes with it, are sent only where an update can set
+   * them (`giveLinkedRelationsTheirFlags`). Without it the target says
+   * whether it takes the update.
    */
   describeFieldsFixedAtInsert?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
@@ -1301,7 +1302,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   /**
    * Give the relations linked to in place of rows read the flags the rows
    * carried and the platform's relation lacks — an event's who the event also
-   * invites — where the target's describe lets an update set them, and say
+   * invites — and the invitee's answer, its status, response and when it
+   * responded, where the target's describe lets an update set them, and say
    * what it could not give. See `giveLinkedRelationsTheirFlags`. A run given
    * no update of the target asks nothing.
    */
@@ -1325,7 +1327,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       },
     );
     if (flagsNotKept) {
-      logger.warn('Autopilot linked relations without a flag their rows carried', {
+      logger.warn('Autopilot linked relations without a flag or an answer their rows carried', {
         objectApiName,
         note: flagsNotKept,
       });

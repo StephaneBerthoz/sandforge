@@ -1200,7 +1200,7 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
 
       expect(update).not.toHaveBeenCalledWith('EventRelation', expect.anything());
       expect(warn).toHaveBeenCalledWith(
-        'Autopilot linked relations without a flag their rows carried',
+        'Autopilot linked relations without a flag or an answer their rows carried',
         {
           objectApiName: 'EventRelation',
           note: '1 linked without IsInvitee: the target does not let it be updated',

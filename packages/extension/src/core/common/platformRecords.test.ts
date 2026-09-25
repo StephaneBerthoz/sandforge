@@ -456,29 +456,123 @@ describe('giveLinkedRelationsTheirFlags', () => {
       expect(note).toBe('1 linked without IsInvitee: the target does not let it be updated');
     });
 
-    it('is named with the flag when the target refuses the update', async () => {
+    /** The target's refusal of a Status value it does not hold. */
+    const NOT_HELD =
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Tentative';
+
+    it('does not cost the flag when the target refuses it, and the note names the field refused', async () => {
+      // The target takes or refuses a record's update whole: sent with the
+      // flag, a Status it does not hold used to take the flag with it, and
+      // the date and the words of the answer too.
       const update = vi.fn<RelationUpdate>(async (records) =>
-        records.map(() => ({
-          success: false,
-          errors: ['INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value'],
-        })),
+        records.map((record) =>
+          record['Status'] === 'Tentative'
+            ? { success: false, errors: [NOT_HELD] }
+            : { success: true, errors: [] },
+        ),
       );
 
       const note = await giveLinkedRelationsTheirFlags(
         'EventRelation',
-        [[{ IsInvitee: true, Status: 'Maybe' }, '0REWHO']],
+        [
+          [{ ...ACCEPTED, Status: 'Tentative' }, '0REWHO'],
+          [ACCEPTED, '0REWHO2'],
+        ],
         () => true,
         update,
       );
 
-      expect(note).toBe(
-        '1 linked without IsInvitee: the target refused the update, INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value, ' +
-          '1 linked without Status: the target refused the update, INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Status: bad value',
+      const answer = { Response: 'Will be there', RespondedDate: '2026-09-01T09:30:00.000+0000' };
+      expect(update.mock.calls.map(([records]) => records)).toEqual([
+        [
+          { Id: '0REWHO', IsInvitee: true, Status: 'Tentative', ...answer },
+          { Id: '0REWHO2', IsInvitee: true, Status: 'Accepted', ...answer },
+        ],
+        [{ Id: '0REWHO', IsInvitee: true }],
+        [{ Id: '0REWHO', Status: 'Tentative' }],
+        [{ Id: '0REWHO', Response: 'Will be there' }],
+        [{ Id: '0REWHO', RespondedDate: '2026-09-01T09:30:00.000+0000' }],
+      ]);
+      expect(note).toBe(`1 linked without Status: the target refused the update, ${NOT_HELD}`);
+    });
+
+    it('is not sent, nor named, when the target refuses the flag itself', async () => {
+      // A relation that is no invitee has no answer to give.
+      const READ_ONLY = 'INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id';
+      const update = vi.fn<RelationUpdate>(async (records) =>
+        records.map((record) =>
+          'IsInvitee' in record
+            ? { success: false, errors: [READ_ONLY] }
+            : { success: true, errors: [] },
+        ),
       );
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[ACCEPTED, '0REWHO']],
+        () => true,
+        update,
+      );
+
+      expect(update.mock.calls.map(([records]) => records)).toEqual([
+        [
+          {
+            Id: '0REWHO',
+            IsInvitee: true,
+            Status: 'Accepted',
+            Response: 'Will be there',
+            RespondedDate: '2026-09-01T09:30:00.000+0000',
+          },
+        ],
+        [{ Id: '0REWHO', IsInvitee: true }],
+      ]);
+      expect(note).toBe(`1 linked without IsInvitee: the target refused the update, ${READ_ONLY}`);
+    });
+
+    it("is not sent again once the run's cancel stopped its update, and its refusal is still said", async () => {
+      // A write stopped between two batches answers for those it sent only.
+      const update = vi.fn<RelationUpdate>(async () => [{ success: false, errors: [NOT_HELD] }]);
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [
+          [{ IsInvitee: true, Status: 'Tentative' }, '0REWHO'],
+          [{ IsInvitee: true, Status: 'Accepted' }, '0REWHO2'],
+        ],
+        () => true,
+        update,
+      );
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(note).toContain(`1 linked without Status: the target refused the update, ${NOT_HELD}`);
+    });
+
+    it("is not sent once the run's cancel stopped the flags sent again", async () => {
+      const update = vi
+        .fn<RelationUpdate>(async (records) => records.map(() => ({ success: true, errors: [] })))
+        // Refused whole, both go again a field at a time…
+        .mockResolvedValueOnce([
+          { success: false, errors: [NOT_HELD] },
+          { success: false, errors: [NOT_HELD] },
+        ])
+        // …and the cancel stops their flags after the first.
+        .mockResolvedValueOnce([{ success: true, errors: [] }]);
+
+      await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [
+          [{ IsInvitee: true, Status: 'Tentative' }, '0REWHO'],
+          [{ IsInvitee: true, Status: 'Tentative' }, '0REWHO2'],
+        ],
+        () => true,
+        update,
+      );
+
+      expect(update).toHaveBeenCalledTimes(2);
     });
   });
 
-  it('says which updates the target refused, and why', async () => {
+  it('says which updates the target refused, and why, sending one of the flag alone once', async () => {
     const update = vi.fn<RelationUpdate>(async (records) =>
       records.map((_, i) =>
         i === 0
@@ -497,6 +591,8 @@ describe('giveLinkedRelationsTheirFlags', () => {
       update,
     );
 
+    // Not sent again: its refusal names the one field it carried.
+    expect(update).toHaveBeenCalledTimes(1);
     expect(note).toBe(
       '1 linked without IsInvitee: the target refused the update, INVALID_FIELD_FOR_INSERT_UPDATE: IsInvitee',
     );

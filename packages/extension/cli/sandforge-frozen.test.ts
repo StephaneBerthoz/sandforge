@@ -317,6 +317,53 @@ describe('messageLines', () => {
     expect(purgeLines({ deleted: {}, deactivated: {}, failures: [] })).toEqual([]);
   });
 
+  it('says how many person accounts a load gave their contact back, and why the others kept none', () => {
+    // The Load tab says both; the command said neither.
+    const personContactLines = (personContact: Record<string, unknown>): string[] =>
+      messageLines({
+        type: 'frozen:load:response',
+        payload: {
+          report: {
+            status: 'completed-with-errors',
+            durationMs: 5,
+            alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+            placeholders: [],
+            perObject: [],
+            pass2: { resolved: 0, unresolved: [] },
+            personContact,
+            purge: { deleted: {}, failures: [] },
+          },
+        },
+      }).filter((line) => !line.startsWith('load: ') && !line.startsWith('pass 2: '));
+
+    expect(
+      personContactLines({
+        restored: 2,
+        unresolved: [
+          {
+            accountReferenceId: 'Account-000003',
+            contactReferenceId: 'Contact-000003',
+            cause: 'target-not-loaded',
+            detail: 'contact Contact-000003 was not loaded (skipped, failed or excluded)',
+          },
+          {
+            accountReferenceId: 'Account-000004',
+            contactReferenceId: 'Contact-000004',
+            cause: 'update-refused',
+            detail:
+              'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+          },
+        ],
+      }),
+    ).toEqual([
+      'PersonContact: 2 restored, 2 unresolved',
+      '  Account.PersonContactId: contact Contact-000003 was not loaded (skipped, failed or excluded)',
+      '  Account.PersonContactId: INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+    ]);
+    // A dataset with no person account has no link to give back.
+    expect(personContactLines({ restored: 0, unresolved: [] })).toEqual([]);
+  });
+
   it('names what an extraction left to the platform, object by object', () => {
     const lines = messageLines({
       type: 'frozen:extract:response',

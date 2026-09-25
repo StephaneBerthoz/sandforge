@@ -1089,7 +1089,10 @@ export class FrozenDatasetLoader {
       if (objectApiName === TASK) {
         await this.matchTasksWrittenWithEmails(orgId, working, aligned, mapping, reused);
       }
-      /** What the object's line says of the relations linked to without a flag their row carried. */
+      /**
+       * What the object's line says of the relations linked to without a flag
+       * their row carried, or a field of the answer that goes with it.
+       */
       let flagsNotKept: string | undefined;
       if (ACTIVITY_OF_RELATION[objectApiName] !== undefined) {
         flagsNotKept = await this.matchActivityRelations(
@@ -2468,10 +2471,11 @@ export class FrozenDatasetLoader {
    * one it holds. See `existingActivityRelations`; a relation to the
    * activity's what never comes this far (`PLATFORM_WRITTEN_ROWS`).
    *
-   * The relation the platform wrote for an event's who is no invitee: one the
-   * event also invited gets the flag back, when the target lets it be
-   * updated. What the object's line says of those that did not is returned.
-   * See `giveLinkedRelationsTheirFlags`.
+   * The relation the platform wrote for an event's who is no invitee, and
+   * holds no answer: one the event also invited gets the flag back, and its
+   * answer — status, response, when it responded — where the target lets
+   * them be updated. What the object's line says of what did not go back is
+   * returned. See `giveLinkedRelationsTheirFlags`.
    *
    * @param fixedAtInsert - The object's fields no update can set, as the target describes it.
    */

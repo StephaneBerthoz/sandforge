@@ -1087,9 +1087,10 @@ export class SeedCloneHandler implements DomainHandler {
           cancelled = true;
           if (outcomes.length === 0) break;
         }
-        // The relation the platform wrote for an event's who is no invitee:
-        // one the event also invited gets the flag back, when the target lets
-        // it be updated. See `giveLinkedRelationsTheirFlags`.
+        // The relation the platform wrote for an event's who is no invitee,
+        // and holds no answer: one the event also invited gets the flag back,
+        // and its answer — status, response, when it responded — where the
+        // target lets them be updated. See `giveLinkedRelationsTheirFlags`.
         if (!cancelled && linkedRows.length > 0) {
           const describe = describeMap.get(objectApiName);
           const flagsNotKept = await giveLinkedRelationsTheirFlags(

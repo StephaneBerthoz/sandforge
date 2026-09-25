@@ -186,8 +186,10 @@ export interface BatchWriteResult {
   pendingFkUpdates: PendingFkUpdate[];
   /**
    * What the node's line says of the relations linked to without a flag
-   * their row carried: see `giveLinkedRelationsTheirFlags`. Absent when every
-   * flag went back, or there was none to give.
+   * their row carried, or without a field of the answer that goes with it —
+   * an invitee's status, response and when it responded: see
+   * `giveLinkedRelationsTheirFlags`. Absent when all of it went back, or
+   * there was none to give.
    */
   flagsNotKept?: string;
 }
@@ -558,8 +560,9 @@ export class BatchWriter {
   /**
    * Give the relations linked to before the insert the flags their source
    * rows carried and the platform's relation lacks — an event's who the event
-   * also invites — when the target's describe lets them be updated: what the
-   * node's line says of those it could not. See
+   * also invites — and the invitee's answer, its status, response and when
+   * it responded, when the target's describe lets them be updated: what the
+   * node's line says of what it could not give. See
    * `giveLinkedRelationsTheirFlags`. A run given no update of the target
    * asks nothing.
    */

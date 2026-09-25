@@ -5219,8 +5219,9 @@ export class ForgeExecutor {
             ? `, ${writtenBefore.length} already in the target from the run retried`
             : '';
         const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
-        // A relation linked to without a flag its row carried: the who the
-        // event also invites, which the platform's relation leaves out.
+        // A relation linked to without a flag its row carried, or a field of
+        // the answer that goes with it: the who the event also invites, and
+        // how it answered, which the platform's relation leaves out.
         const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
         // What else became of the object's rows, said once, on the line that
         // ends the node: after the emails that waited for their task, if any.
