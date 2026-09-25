@@ -831,6 +831,7 @@
         "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge refused this run before writing anything: it was not for the orgs its preview was made for. Preview again, then run the clone.",
         "NOT_PREVIEWED": "SandForge refused this run before reading either org: it named no preview, and a clone runs only from the preview it was made from. Preview again, then run the clone.",
+        "PREVIEW_NOT_HELD": "SandForge refused this run before reading either org: the preview it named is no longer held — SandForge keeps the last 50 previews and forgets them when the extension restarts. Preview again, then run the clone.",
         "generic": "The clone could not be completed.",
         "detail": "Details: {{detail}}"
       }

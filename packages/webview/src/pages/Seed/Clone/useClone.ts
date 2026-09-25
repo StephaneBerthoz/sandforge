@@ -47,9 +47,15 @@ const CLONE_ERROR_CODES = [
 /**
  * The codes `seed:clone:error` carries for a request refused before either org
  * is read: by the bridge's check of the payload, or, for a run, because it
- * names no preview or is not for the orgs of the one it names.
+ * names no preview, one the extension no longer holds, or one made for other
+ * orgs.
  */
-const REFUSAL_CODES = ['INVALID_PAYLOAD', 'NOT_PREVIEWED', 'PREVIEWED_FOR_OTHER_ORGS'];
+const REFUSAL_CODES = [
+  'INVALID_PAYLOAD',
+  'NOT_PREVIEWED',
+  'PREVIEW_NOT_HELD',
+  'PREVIEWED_FOR_OTHER_ORGS',
+];
 
 /** The orgs and the objects a preview was asked for: what the run that follows it goes to. */
 interface PreviewedFor {

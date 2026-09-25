@@ -831,6 +831,7 @@
         "INVALID_PAYLOAD": "SandForge rechazó esta solicitud antes de leer ninguna de las dos orgs. Una clonación necesita una org de origen, una org de destino y de 1 a 100 objetos, y un filtro solo puede seleccionar registros: sin LIMIT, ORDER BY, subconsulta, punto y coma ni comentario. El canal de salida de SandForge indica qué parte se rechazó.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge rechazó esta ejecución antes de escribir nada: no era para las orgs para las que se hizo su vista previa. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "NOT_PREVIEWED": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: no indicaba ninguna vista previa, y una clonación solo se ejecuta a partir de la vista previa para la que se hizo. Vuelva a generar la vista previa y luego ejecute la clonación.",
+        "PREVIEW_NOT_HELD": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: la vista previa que indicaba ya no se conserva — SandForge guarda las 50 últimas vistas previas y las olvida al reiniciar la extensión. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "generic": "No se pudo completar la clonación.",
         "detail": "Detalles: {{detail}}"
       }

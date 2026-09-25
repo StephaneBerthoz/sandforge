@@ -123,6 +123,14 @@ const PREVIEWED_FOR_OTHER_ORGS = 'PREVIEWED_FOR_OTHER_ORGS';
 const NOT_PREVIEWED = 'NOT_PREVIEWED';
 
 /**
+ * The code `seed:clone:error` carries for a run refused because the preview it
+ * names is not one the handler holds: never answered, pushed out by
+ * {@link PREVIEWS_KEPT} newer ones, or answered before the extension restarted.
+ * Told it was for other orgs, the user looked for an org change that never was.
+ */
+const PREVIEW_NOT_HELD = 'PREVIEW_NOT_HELD';
+
+/**
  * How many answered previews the handler keeps the orgs of, the latest: a run
  * names the one it follows, which its page asked for just before.
  */
@@ -437,7 +445,7 @@ export class SeedCloneHandler implements DomainHandler {
     const previewed = this.previewedOrgs.get(run.previewId);
     if (!previewed) {
       return {
-        code: PREVIEWED_FOR_OTHER_ORGS,
+        code: PREVIEW_NOT_HELD,
         reason:
           'Clone refused: the preview it names is not one SandForge answered, or no longer holds. Preview it again.',
       };

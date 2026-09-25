@@ -525,6 +525,27 @@ describe('useClone', () => {
       expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
     });
 
+    it('says in words that the extension no longer holds the preview a run named, and drops it', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+      const refused =
+        'Clone refused: the preview it names is not one SandForge answered, or no longer holds. Preview it again.';
+
+      act(() => {
+        mockExecuteState = { ...mockExecuteState, loading: false, error: refused };
+        cloneError('wv-clone-run', refused, 'PREVIEW_NOT_HELD');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(en.seed.clone.error.PREVIEW_NOT_HELD);
+      expect(result.current.previewResult).toBeNull();
+      expect(result.current.step).toBe('objects');
+    });
+
     it('sends no run without a preview', () => {
       const { result } = renderHook(() => useClone('target-1'));
       act(() => {

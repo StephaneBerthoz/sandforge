@@ -831,6 +831,7 @@
         "INVALID_PAYLOAD": "O SandForge recusou esta solicitação antes de ler qualquer uma das orgs. Uma clonagem precisa de uma org de origem, de uma org de destino e de 1 a 100 objetos, e um filtro só pode selecionar registros: sem LIMIT, ORDER BY, subconsulta, ponto e vírgula ou comentário. O canal de saída do SandForge indica qual parte foi recusada.",
         "PREVIEWED_FOR_OTHER_ORGS": "O SandForge recusou esta execução antes de gravar qualquer coisa: ela não era para as orgs para as quais sua pré-visualização foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "NOT_PREVIEWED": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: ela não indicava nenhuma pré-visualização, e uma clonagem só é executada a partir da pré-visualização para a qual foi feita. Refaça a pré-visualização e depois execute a clonagem.",
+        "PREVIEW_NOT_HELD": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: a pré-visualização indicada não é mais mantida — o SandForge guarda as 50 últimas pré-visualizações e as esquece quando a extensão reinicia. Refaça a pré-visualização e depois execute a clonagem.",
         "generic": "Não foi possível concluir a clonagem.",
         "detail": "Detalhes: {{detail}}"
       }

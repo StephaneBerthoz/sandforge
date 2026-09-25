@@ -540,7 +540,9 @@ describe('SeedCloneHandler', () => {
         },
       );
 
-      it('refuses a run naming a preview it never answered', async () => {
+      it('refuses a run naming a preview it does not hold, under a code of its own', async () => {
+        // Refused as a run for other orgs, it sent the user looking for an org
+        // change that never happened: the preview had only been forgotten.
         await handler.handle(
           request(
             'seed:clone:execute',
@@ -552,7 +554,7 @@ describe('SeedCloneHandler', () => {
         expect(writer.insert).not.toHaveBeenCalled();
         expect(posted(deps, 'seed:clone:error')[0]).toMatchObject({
           correlationId: 'wv-run',
-          payload: { code: 'PREVIEWED_FOR_OTHER_ORGS' },
+          payload: { code: 'PREVIEW_NOT_HELD' },
         });
       });
 
