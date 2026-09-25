@@ -93,3 +93,13 @@ overrides:
   # from the rule in this file; held at 8.3.0 instead, the rule stays whole.
   # Lift once 8.3.1 (or a later 8.3) is old enough to resolve on its own.
   'vite@>=8.3.1 <8.4.0': '8.3.0'
+
+# Dev only. Vitest 5 matches testNamePattern against the suite chain joined
+# with ' > ', and the Stryker runner names a test with its chain joined by a
+# space: filtered by that name, every mutant a test covered ran no test and
+# was reported Survived (stryker-js#6210). The mutation gate read 0 on a file
+# it had tested for years, and only the incremental cache kept the total up.
+# The patch joins with ' > ' and leaves the file out, as Vitest 5 does. Drop
+# it with the Stryker release that ships the fix upstream (stryker-js#6214).
+patchedDependencies:
+  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

@@ -1,0 +1,42 @@
+diff --git a/dist/src/stryker-setup.js b/dist/src/stryker-setup.js
+index aecfacbe47b285c272c47e54b3d66a716adfdc41..940988695954531c41afa5be7f62fda427d12ba4 100644
+--- a/dist/src/stryker-setup.js
++++ b/dist/src/stryker-setup.js
+@@ -59,11 +59,14 @@ else {
+ function collectTestName({ name, suite, }) {
+     const nameParts = [name];
+     let currentSuite = suite;
+-    while (currentSuite) {
++    // Vitest 5 matches testNamePattern against the chain of suite names joined
++    // with ' > ', the file left out (stryker-js#6210): joined with a space, the
++    // filter matched no test, and every covered mutant was reported Survived.
++    while (currentSuite && !('filepath' in currentSuite)) {
+         nameParts.unshift(currentSuite.name);
+         currentSuite = currentSuite.suite;
+     }
+-    return nameParts.join(' ').trim();
++    return nameParts.filter((part) => part).join(' > ').trim();
+ }
+ function toRawTestId(test) {
+     return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test)}`;
+diff --git a/dist/src/test-helpers.js b/dist/src/test-helpers.js
+index 56cc786f30c524ae18ce87eef1a67fdf26b703c5..df0da6461e299fd49301cf658daa8c4a5a91895b 100644
+--- a/dist/src/test-helpers.js
++++ b/dist/src/test-helpers.js
+@@ -4,11 +4,14 @@
+ export function collectTestName({ name, suite, }) {
+     const nameParts = [name];
+     let currentSuite = suite;
+-    while (currentSuite) {
++    // Vitest 5 matches testNamePattern against the chain of suite names joined
++    // with ' > ', the file left out (stryker-js#6210): joined with a space, the
++    // filter matched no test, and every covered mutant was reported Survived.
++    while (currentSuite && !('filepath' in currentSuite)) {
+         nameParts.unshift(currentSuite.name);
+         currentSuite = currentSuite.suite;
+     }
+-    return nameParts.join(' ').trim();
++    return nameParts.filter((part) => part).join(' > ').trim();
+ }
+ export function toRawTestId(test) {
+     return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test)}`;
