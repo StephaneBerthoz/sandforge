@@ -4984,6 +4984,97 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
           '1 linked without IsInvitee: the target does not let it be updated',
       ]);
     });
+
+    describe('when the load is cancelled while the relation is updated', () => {
+      /** The target's refusal of a status it does not hold. */
+      const TENTATIVE =
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Tentative';
+
+      /**
+       * Load it, the row carrying the invitee's `status` as well, into the
+       * same target, where `answer` answers each update of the relation in
+       * place of the target, handed the load's cancel.
+       */
+      async function loadCancelled(
+        answer: (records: Array<Record<string, unknown>>, cancel: () => void) => OperationOutcome[],
+        status?: string,
+      ) {
+        const dataset = invitedWho();
+        const relation = dataset.objects.find((o) => o.objectApiName === 'EventRelation')
+          ?.records[0];
+        if (relation && status !== undefined) relation.fields.Status = status;
+        const calls: DmlCall[] = [];
+        const progress: FrozenLoadProgressEvent[] = [];
+        const controller = new AbortController();
+        const writer = makeWriter(calls);
+        const update = writer.update;
+        writer.update = vi.fn(
+          async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+            if (objectApiName !== 'EventRelation') return update(org, objectApiName, records);
+            calls.push({ op: 'update', objectApiName, payload: records });
+            return answer(records, () => controller.abort());
+          },
+        );
+        const deps = makeDeps({
+          dataset,
+          writer,
+          queryImpl: async (_org, soql) =>
+            soql.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+              ? [{ Id: '0REPLATFORM', EventId: real('Event', 2), RelationId: real('Contact', 1) }]
+              : [],
+        });
+        const error = await new FrozenDatasetLoader(deps)
+          .load(
+            makeOptions(deps, dataset, {
+              onProgress: (e) => progress.push(e),
+              signal: controller.signal,
+            }),
+          )
+          .catch((err: unknown) => err);
+        return {
+          error,
+          updates: calls
+            .filter((c) => c.op === 'update' && c.objectApiName === 'EventRelation')
+            .map((c) => c.payload),
+          line: progress
+            .filter((e) => e.objectName === 'EventRelation' && e.status !== 'started')
+            .map((e) => e.message),
+        };
+      }
+
+      it('sends no update after the cancel, and says the refusal the target gave', async () => {
+        // The update answered for its one relation: the cancel went unseen,
+        // and the flag and the status the target refused went again, one at a
+        // time, after it.
+        const { error, updates, line } = await loadCancelled((records, cancel) => {
+          cancel();
+          return records.map(() => ({ success: false, errors: [TENTATIVE] }));
+        }, 'Tentative');
+
+        expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        expect(updates).toEqual([[{ Id: '0REPLATFORM', IsInvitee: true, Status: 'Tentative' }]]);
+        expect(line).toEqual([
+          'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+            `1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
+            `1 linked without Status: the target refused the update, ${TENTATIVE}`,
+        ]);
+      });
+
+      it("says on the object's line the relation an aborted update never reached was cancelled, not refused", async () => {
+        // An upload the cancel aborted wrote nothing and answers for nothing:
+        // the relation was said refused "without saying why".
+        const { error, line } = await loadCancelled((_records, cancel) => {
+          cancel();
+          return [];
+        });
+
+        expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        expect(line).toEqual([
+          'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+            '1 linked without IsInvitee: the run was cancelled before it was updated',
+        ]);
+      });
+    });
   });
 
   it('writes the task first and names it on an email on a case, which may name it', async () => {

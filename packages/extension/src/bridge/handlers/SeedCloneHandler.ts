@@ -1090,8 +1090,11 @@ export class SeedCloneHandler implements DomainHandler {
         // The relation the platform wrote for an event's who is no invitee,
         // and holds no answer: one the event also invited gets the flag back,
         // and its answer — status, response, when it responded — where the
-        // target lets them be updated. See `giveLinkedRelationsTheirFlags`.
-        if (!cancelled && linkedRows.length > 0) {
+        // target lets them be updated, until the cancel. What the cancel kept
+        // from a relation is said with the rest: the note was dropped when it
+        // came, and the relations stayed linked without their flag unsaid.
+        // See `giveLinkedRelationsTheirFlags`.
+        if (linkedRows.length > 0) {
           const describe = describeMap.get(objectApiName);
           const flagsNotKept = await giveLinkedRelationsTheirFlags(
             objectApiName,
@@ -1106,10 +1109,9 @@ export class SeedCloneHandler implements DomainHandler {
                 return updateErr.written;
               }
             },
+            () => cancelled || abortController.signal.aborted,
           );
-          if (flagsNotKept && !cancelled) {
-            this.deps.log(`[seed:clone] ${objectApiName}: ${flagsNotKept}`);
-          }
+          if (flagsNotKept) this.deps.log(`[seed:clone] ${objectApiName}: ${flagsNotKept}`);
         }
 
         const objectResult: CloneObjectResult = {

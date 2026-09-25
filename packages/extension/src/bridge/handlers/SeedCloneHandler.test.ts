@@ -1238,14 +1238,18 @@ describe('SeedCloneHandler', () => {
         /**
          * Clone two contacts, an event whose who is the first, and `relations`
          * of it; the target answers the relations it holds with `pages`, one
-         * after the other, and describes `IsInvitee` as `updateable`.
+         * after the other, describes `IsInvitee` as `updateable`, and answers
+         * an update of the relations with `update`, or takes each.
          */
         async function cloneAnEvent(options: {
           relations: Array<Record<string, unknown>>;
           pages: Array<Array<Record<string, unknown>>>;
           updateable?: boolean;
+          update?: (
+            records: Array<Record<string, unknown>>,
+          ) => Promise<Array<{ success: boolean; errors: string[] }>>;
         }) {
-          const { relations, pages, updateable = true } = options;
+          const { relations, pages, updateable = true, update } = options;
           const reference = (name: string, ...referenceTo: string[]) => ({
             name,
             type: 'reference',
@@ -1306,8 +1310,9 @@ describe('SeedCloneHandler', () => {
                   errors: [],
                 })),
           );
-          writer.update.mockImplementation(async (_name: string, records: unknown[]) =>
-            records.map(() => ({ success: true, errors: [] })),
+          writer.update.mockImplementation(
+            async (_name: string, records: Array<Record<string, unknown>>) =>
+              update ? update(records) : records.map(() => ({ success: true, errors: [] })),
           );
 
           await handler.handle(
@@ -1403,6 +1408,70 @@ describe('SeedCloneHandler', () => {
           expect(deps.log).toHaveBeenCalledWith(
             '[seed:clone] EventRelation: 1 linked without IsInvitee: the target does not let it be updated',
           );
+        });
+
+        describe('when the clone is cancelled while the relation is updated', () => {
+          /** The id the clone runs under: its request's. */
+          const OPERATION_ID = 'msg-seed:clone:execute';
+          /** The event's relation to its who, which the event also invites, tentatively. */
+          const INVITED_WHO = {
+            Id: TO_THE_WHO,
+            EventId: EVENT,
+            RelationId: WHO,
+            IsParent: true,
+            IsInvitee: true,
+            IsWhat: false,
+          };
+          /** The target's refusal of a status it does not hold. */
+          const TENTATIVE =
+            'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Tentative';
+
+          let registry: BackgroundOperationRegistry;
+          beforeEach(() => {
+            registry = new BackgroundOperationRegistry();
+            handler.setRegistry(registry);
+          });
+
+          it('sends no update after the cancel, and logs the refusal the target gave', async () => {
+            // The update answered for its one relation: the cancel went unseen,
+            // and the flag and the status the target refused went again, one
+            // at a time, after it.
+            const { updated } = await cloneAnEvent({
+              relations: [{ ...INVITED_WHO, Status: 'Tentative' }],
+              pages: [[{ Id: PLATFORM_RELATION, EventId: NEW_EVENT, RelationId: NEW_WHO }]],
+              update: async (records) => {
+                registry.abort(OPERATION_ID);
+                return records.map(() => ({ success: false, errors: [TENTATIVE] }));
+              },
+            });
+
+            expect(updated).toEqual([
+              [
+                'EventRelation',
+                [{ Id: PLATFORM_RELATION, IsInvitee: true, Status: 'Tentative' }],
+                200,
+              ],
+            ]);
+            expect(deps.log).toHaveBeenCalledWith(
+              `[seed:clone] EventRelation: 1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
+                `1 linked without Status: the target refused the update, ${TENTATIVE}`,
+            );
+          });
+
+          it('logs the relation an aborted update never reached as cancelled, where it dropped the note', async () => {
+            await cloneAnEvent({
+              relations: [INVITED_WHO],
+              pages: [[{ Id: PLATFORM_RELATION, EventId: NEW_EVENT, RelationId: NEW_WHO }]],
+              update: async () => {
+                registry.abort(OPERATION_ID);
+                throw new WriteCancelledError('EventRelation');
+              },
+            });
+
+            expect(deps.log).toHaveBeenCalledWith(
+              '[seed:clone] EventRelation: 1 linked without IsInvitee: the run was cancelled before it was updated',
+            );
+          });
         });
       });
     });

@@ -529,9 +529,18 @@ describe('giveLinkedRelationsTheirFlags', () => {
       expect(note).toBe(`1 linked without IsInvitee: the target refused the update, ${READ_ONLY}`);
     });
 
-    it("is not sent again once the run's cancel stopped its update, and its refusal is still said", async () => {
-      // A write stopped between two batches answers for those it sent only.
-      const update = vi.fn<RelationUpdate>(async () => [{ success: false, errors: [NOT_HELD] }]);
+    /** What the note says of a field the run's cancel kept from a relation. */
+    const CANCELLED = 'the run was cancelled before it was updated';
+
+    it("is not sent again once the run's cancel stopped its update, and the relation the write never reached is said cancelled, not refused", async () => {
+      // A write stopped between two batches answers for those it sent only:
+      // the relation past its answer was noted as one the target refused
+      // "without saying why".
+      let cancelled = false;
+      const update = vi.fn<RelationUpdate>(async () => {
+        cancelled = true;
+        return [{ success: false, errors: [NOT_HELD] }];
+      });
 
       const note = await giveLinkedRelationsTheirFlags(
         'EventRelation',
@@ -541,10 +550,121 @@ describe('giveLinkedRelationsTheirFlags', () => {
         ],
         () => true,
         update,
+        () => cancelled,
       );
 
       expect(update).toHaveBeenCalledTimes(1);
-      expect(note).toContain(`1 linked without Status: the target refused the update, ${NOT_HELD}`);
+      expect(note).toBe(
+        `1 linked without IsInvitee: the target refused the update, ${NOT_HELD}, ` +
+          `1 linked without Status: the target refused the update, ${NOT_HELD}, ` +
+          `1 linked without IsInvitee: ${CANCELLED}, 1 linked without Status: ${CANCELLED}`,
+      );
+    });
+
+    it('says the relations an upload the cancel aborted never wrote were cancelled, not refused', async () => {
+      // An aborted upload wrote none of its records, and answers for none.
+      let cancelled = false;
+      const update = vi.fn<RelationUpdate>(async () => {
+        cancelled = true;
+        return [];
+      });
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [
+          [{ IsInvitee: true }, '0REWHO'],
+          [{ IsInvitee: true }, '0REWHO2'],
+        ],
+        () => true,
+        update,
+        () => cancelled,
+      );
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(note).toBe(`2 linked without IsInvitee: ${CANCELLED}`);
+    });
+
+    it('sends nothing more when the cancel comes while its one update is sent, and says the refusal the target gave', async () => {
+      // The update answered for every record it was sent, so the cancel went
+      // unseen: the refused relation's flag and each field of its answer went
+      // again, one update each, after it.
+      let cancelled = false;
+      const update = vi.fn<RelationUpdate>(async (records) => {
+        cancelled = true;
+        return records.map(() => ({ success: false, errors: [NOT_HELD] }));
+      });
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[{ ...ACCEPTED, Status: 'Tentative' }, '0REWHO']],
+        () => true,
+        update,
+        () => cancelled,
+      );
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(note).toBe(
+        ['IsInvitee', 'Status', 'Response', 'RespondedDate']
+          .map((field) => `1 linked without ${field}: the target refused the update, ${NOT_HELD}`)
+          .join(', '),
+      );
+    });
+
+    it('sends no field of the answer once the cancel comes while the flags go again, and says which it kept', async () => {
+      let cancelled = false;
+      const update = vi
+        .fn<RelationUpdate>(async (records) => records.map(() => ({ success: true, errors: [] })))
+        .mockResolvedValueOnce([{ success: false, errors: [NOT_HELD] }])
+        .mockImplementationOnce(async (records) => {
+          cancelled = true;
+          return records.map(() => ({ success: true, errors: [] }));
+        });
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[{ ...ACCEPTED, Status: 'Tentative' }, '0REWHO']],
+        () => true,
+        update,
+        () => cancelled,
+      );
+
+      expect(update.mock.calls.map(([records]) => records)).toEqual([
+        [
+          {
+            Id: '0REWHO',
+            IsInvitee: true,
+            Status: 'Tentative',
+            Response: 'Will be there',
+            RespondedDate: '2026-09-01T09:30:00.000+0000',
+          },
+        ],
+        [{ Id: '0REWHO', IsInvitee: true }],
+      ]);
+      expect(note).toBe(
+        ['Status', 'Response', 'RespondedDate']
+          .map((field) => `1 linked without ${field}: ${CANCELLED}`)
+          .join(', '),
+      );
+    });
+
+    it('sends nothing once the run is cancelled, and says what the cancel kept from each relation', async () => {
+      const update = takes();
+
+      const note = await giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [
+          [{ IsInvitee: true, Status: 'Accepted' }, '0REWHO'],
+          [{ IsInvitee: true }, '0REWHO2'],
+        ],
+        () => true,
+        update,
+        () => true,
+      );
+
+      expect(update).not.toHaveBeenCalled();
+      expect(note).toBe(
+        `2 linked without IsInvitee: ${CANCELLED}, 1 linked without Status: ${CANCELLED}`,
+      );
     });
 
     it("is not sent once the run's cancel stopped the flags sent again", async () => {

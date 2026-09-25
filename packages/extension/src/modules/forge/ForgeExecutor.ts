@@ -1287,15 +1287,60 @@ function heldForExclusionReason({ field, excluded, through, namedBy }: HeldForEx
 }
 
 /**
+ * Rows held back for an object the user excluded, one group per reason, each
+ * with how many it holds and why they are not written: those that cannot be
+ * written without a record of it — needing one, or naming a row held back
+ * for it — `not written without PricebookEntry, excluded from this run`; and
+ * the rows of the catalog only rows held back for it name, `not written,
+ * named only by records held back for ProductSellingModelOption, excluded
+ * from this run`.
+ *
+ * Said all alike, a clone of an opportunity whose selling model options were
+ * excluded said thirty-one of its products were not written without them,
+ * where a product needs none: the only records that named those were lines
+ * held back for want of their price's option, as its errors said.
+ */
+function heldForExclusionsWhy(
+  held: Iterable<HeldForExclusion>,
+): Array<{ count: number; why: string }> {
+  const needing: string[] = [];
+  const namedOnly: string[] = [];
+  for (const { excluded, namedBy } of held) {
+    (namedBy === undefined ? needing : namedOnly).push(excluded);
+  }
+  const objects = (excluded: readonly string[]): string => [...new Set(excluded)].sort().join(', ');
+  return [
+    ...(needing.length > 0
+      ? [
+          {
+            count: needing.length,
+            why: `not written without ${objects(needing)}, excluded from this run`,
+          },
+        ]
+      : []),
+    ...(namedOnly.length > 0
+      ? [
+          {
+            count: namedOnly.length,
+            why:
+              `not written, named only by records held back for ${objects(namedOnly)}, ` +
+              'excluded from this run',
+          },
+        ]
+      : []),
+  ];
+}
+
+/**
  * What an object's last word says of its rows held back for an object the
  * user excluded — `, 3 not written without PricebookEntry, excluded from this
- * run` — or nothing.
+ * run`, and so for each reason (`heldForExclusionsWhy`) — or nothing.
  */
 function heldForExclusionsNote(state: ExecutionState, objectApiName: string): string {
   const held = state.heldForExclusions.get(objectApiName);
-  if (!held || held.size === 0) return '';
-  const objects = [...new Set([...held.values()].map((h) => h.excluded))].sort().join(', ');
-  return `, ${held.size} not written without ${objects}, excluded from this run`;
+  return heldForExclusionsWhy(held?.values() ?? [])
+    .map(({ count, why }) => `, ${count} ${why}`)
+    .join('');
 }
 
 /**
@@ -1386,10 +1431,19 @@ function nothingWrittenMessage(
   held: ReadonlyMap<string, HeldForExclusion>,
   skipped = true,
 ): string {
-  const excluded = [...new Set([...held.values()].map((h) => h.excluded))].sort().join(', ');
-  const why = [...held.values()].every((h) => h.namedBy !== undefined)
-    ? `the only records that name its records are held back for ${excluded}`
-    : `every record needs ${excluded}`;
+  const needing = [...held.values()].filter((h) => h.namedBy === undefined);
+  const namedOnly = [...held.values()].filter((h) => h.namedBy !== undefined);
+  const objects = (of: readonly HeldForExclusion[]): string =>
+    [...new Set(of.map((h) => h.excluded))].sort().join(', ');
+  // Each reason for its own records. Said as the first, a row of the catalog
+  // that only rows held back name was said to need what those rows needed.
+  const why =
+    namedOnly.length === 0
+      ? `every record needs ${objects(needing)}`
+      : needing.length === 0
+        ? `the only records that name its records are held back for ${objects(namedOnly)}`
+        : `${needing.length} of its records need ${objects(needing)}, and the only records ` +
+          `that name the rest are held back for ${objects(namedOnly)}`;
   return (
     `Held back ${objectApiName}, nothing written: ${why}, excluded from this run.` +
     (skipped ? ' Objects that cannot be written without it will be skipped.' : '')
@@ -4185,16 +4239,19 @@ export class ForgeExecutor {
       );
     }
     this.noteStatusRowsHeld(state, objectApiName, kept, heldNow);
-    const excluded = [...new Set(heldNow.map(({ why }) => why.excluded))].sort().join(', ');
     if (config.dryRun) {
       state.wouldInsertCount -= heldNow.length;
+      // One reason says itself; several say how many rows each holds back.
+      const reasons = heldForExclusionsWhy(heldNow.map(({ why }) => why));
       onProgress({
         objectName: objectApiName,
         status: 'done',
         progress: 100,
         message:
-          `[dry-run] ${objectApiName}: ${heldNow.length} fewer would be inserted, not ` +
-          `written without ${excluded}, excluded from this run`,
+          `[dry-run] ${objectApiName}: ${heldNow.length} fewer would be inserted` +
+          (reasons.length === 1
+            ? `, ${reasons[0].why}`
+            : reasons.map(({ count, why }) => `, ${count} ${why}`).join('')),
       });
     }
     if (kept.length > 0) {
@@ -4842,6 +4899,11 @@ export class ForgeExecutor {
           ),
       );
       const read = rows.filter(unheld);
+      // Of a node the run added for the status of its parent's records, the
+      // rows under a record past Draft alone, as at its read: read again under
+      // the orders a quote read late brought, it took every item of those
+      // orders, a draft's too.
+      this.keepWhatStatusesNeed(state, node, read, undefined);
       // A row of the catalog left out of its read, only rows held back naming
       // it (`leaveOutWhatOnlyRowsHeldBackName`), is read here because a record
       // read since names it: no longer held back, and counted once, as read.
@@ -4887,6 +4949,9 @@ export class ForgeExecutor {
         objectApiName,
         fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : [])),
       );
+      // Noted past Draft as at the object's read: an order this adds keeps
+      // the items read again under it, which its status needs.
+      await this.notePastDraft(state, objectApiName, fresh);
       if (fresh.length === 0 && heldNow.length === 0) return [];
       if (config.files) {
         const ids = fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
@@ -4923,16 +4988,15 @@ export class ForgeExecutor {
       );
       if (config.dryRun) {
         state.wouldInsertCount += added;
-        const excluded = [...new Set(heldNow.map(([, why]) => why.excluded))].sort().join(', ');
         state.onProgress({
           objectName: objectApiName,
           status: 'done',
           progress: 100,
           message:
             `[dry-run] ${objectApiName}: ${added} more record(s) would be inserted, ${note}` +
-            (heldNow.length > 0
-              ? `, ${heldNow.length} more not written without ${excluded}, excluded from this run`
-              : ''),
+            heldForExclusionsWhy(heldNow.map(([, why]) => why))
+              .map(({ count, why }) => `, ${count} more ${why}`)
+              .join(''),
         });
       }
       return fresh;
@@ -5544,6 +5608,7 @@ export class ForgeExecutor {
               targetKeyPrefix: targetObject?.keyPrefix,
               remapper,
               waitIfPaused: () => this.waitIfPaused(),
+              stopped: () => this.isAborted,
               onProgress,
             },
             writeResult,

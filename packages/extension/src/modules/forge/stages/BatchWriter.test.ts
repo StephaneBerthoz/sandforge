@@ -789,6 +789,50 @@ describe('BatchWriter — relations the platform creates', () => {
         flagsNotKept: '1 linked without IsInvitee: the target does not let it be updated',
       });
     });
+
+    it('sends no update after the run is cancelled while the one giving the flag back is sent', async () => {
+      // The updates go before the node's first batch and its checkpoint: a
+      // cancel that came while the target was refusing the flag with its
+      // answer sent the flag and each field of the answer again after it.
+      const TENTATIVE =
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Tentative';
+      let cancelled = false;
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>(
+        async (_org, _obj, recs) => {
+          cancelled = true;
+          return recs.map((r) => ({ id: String(r['Id']), success: false, errors: [TENTATIVE] }));
+        },
+      );
+      const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+        { Id: '0REPLATFORM', EventId: '00UE', RelationId: '003WHO' },
+      ]);
+      const payload = {
+        EventId: '00UE',
+        RelationId: '003WHO',
+        IsInvitee: true,
+        Status: 'Tentative',
+      };
+      const input = makeInput([], {
+        node: makeNode('EventRelation', 1),
+        records: [payload],
+        cleanedRecords: [
+          { source: { Id: '0RESRC1', ...payload }, cleaned: payload, nullifiedFks: [] },
+        ],
+        stopped: () => cancelled,
+      });
+
+      const result = await new BatchWriter({
+        insertRecords: makeDeps().insertRecords,
+        queryRecords,
+        updateRecords,
+      }).writeNode(input);
+
+      expect(updateRecords).toHaveBeenCalledTimes(1);
+      expect(result.flagsNotKept).toBe(
+        `1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
+          `1 linked without Status: the target refused the update, ${TENTATIVE}`,
+      );
+    });
   });
 });
 

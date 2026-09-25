@@ -629,6 +629,13 @@ const FIELDS_THAT_GO_WITH_A_FLAG: Readonly<Record<string, readonly string[]>> = 
 /** The update of one of the target's records: its id, and the fields it sets. */
 type RecordUpdate = Record<string, unknown> & { Id: string };
 
+/**
+ * Why a field did not go back to a relation when the run's cancel kept its
+ * update from the target: not sent, or sent in a write the cancel stopped
+ * before it reached the relation.
+ */
+const CANCELLED_BEFORE_THE_UPDATE = 'the run was cancelled before it was updated';
+
 /** A write of the target's records of one object, one outcome per record. */
 export type RelationUpdate = (
   records: RecordUpdate[],
@@ -654,19 +661,30 @@ export type RelationUpdate = (
  * it, and the note named both as refused. An update of a flag and its answer
  * that the target refuses goes again a field at a time — the flags first,
  * then each field of the answer to the relations the flags went back to — so
- * the note names the field the target refused, and the rest goes back. A
- * write the run's cancel stopped answers for the records it sent only:
- * nothing is sent after it.
+ * the note names the field the target refused, and the rest goes back.
+ *
+ * The run's cancel is asked before each update, and none is sent once it
+ * says so. A field it kept from a relation — its update not sent, or sent in
+ * a write the cancel stopped before the relation, which answers for the
+ * records it sent only — is said as the cancel's. Told by a short answer
+ * alone, such a relation was noted as one the target refused "without saying
+ * why", and a cancel that came while a single update was sent went unseen: a
+ * refused relation's update went again a field at a time after it. The
+ * refusal the target gave is what the note says of it instead. A write that
+ * answers for fewer records than it was sent, with no cancel, is followed by
+ * none either.
  *
  * @param linked - Each row read, and the id of the relation linked in its place.
  * @param updatable - Whether the target's describe of the object lets a field be updated.
  * @param update - The update of the target's relations.
+ * @param stopped - Whether the run was cancelled. Absent, nothing stops the updates.
  */
 export async function giveLinkedRelationsTheirFlags(
   objectApiName: string,
   linked: ReadonlyArray<readonly [row: Record<string, unknown>, id: string]>,
   updatable: (field: string) => boolean,
   update: RelationUpdate,
+  stopped: () => boolean = () => false,
 ): Promise<string | undefined> {
   const flags = FLAGS_THE_PLATFORM_LEAVES[objectApiName] ?? [];
   const fixed = new Set(
@@ -704,20 +722,33 @@ export async function giveLinkedRelationsTheirFlags(
     }
     if (Object.keys(flagsGiven).length > 0) toGive.push({ Id: id, flagsGiven, answer });
   }
-  /** Whether the run's cancel stopped a write: nothing is sent after it. */
-  let stopped = false;
-  /** Send `records`: why the target refused each it refused, by its id. */
+  /** Whether a write answered for fewer records than it was sent: nothing is sent after it. */
+  let answeredShort = false;
+  /**
+   * Send `records`: why each that did not go back did not — the target
+   * refused it, or the run's cancel kept it from the target — by its id.
+   */
   const send = async (records: RecordUpdate[]): Promise<Map<string, string>> => {
     const refused = new Map<string, string>();
-    if (records.length === 0 || stopped) return refused;
+    if (records.length === 0) return refused;
+    if (stopped()) {
+      for (const record of records) refused.set(record.Id, CANCELLED_BEFORE_THE_UPDATE);
+      return refused;
+    }
+    if (answeredShort) return refused;
     const outcomes = await update(records);
-    stopped = outcomes.length < records.length;
+    answeredShort = outcomes.length < records.length;
+    // Asked once the write has answered: a cancel that came while it was
+    // sent is what kept the records past its answer from the target.
+    const cancelled = stopped();
     records.forEach((record, i) => {
       const outcome = outcomes[i];
       if (outcome?.success) return;
       refused.set(
         record.Id,
-        `the target refused the update, ${outcome?.errors[0] ?? 'without saying why'}`,
+        outcome === undefined && cancelled
+          ? CANCELLED_BEFORE_THE_UPDATE
+          : `the target refused the update, ${outcome?.errors[0] ?? 'without saying why'}`,
       );
     });
     return refused;
@@ -735,10 +766,12 @@ export async function giveLinkedRelationsTheirFlags(
   const whole = toGive.map(({ Id, flagsGiven, answer }) => ({ Id, ...flagsGiven, ...answer }));
   const refused = await send(whole);
   // Refused, an update of the flags alone is not sent again: it has no answer
-  // to part them from.
-  const again = stopped
-    ? []
-    : toGive.filter(({ Id, answer }) => refused.has(Id) && Object.keys(answer).length > 0);
+  // to part them from. Nor is any once the run is cancelled: the refusal the
+  // target gave is what the note says.
+  const again =
+    answeredShort || stopped()
+      ? []
+      : toGive.filter(({ Id, answer }) => refused.has(Id) && Object.keys(answer).length > 0);
   noteRefused(
     whole.filter((record) => !again.some(({ Id }) => Id === record.Id)),
     refused,

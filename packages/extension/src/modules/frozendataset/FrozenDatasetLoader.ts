@@ -2474,8 +2474,8 @@ export class FrozenDatasetLoader {
    * The relation the platform wrote for an event's who is no invitee, and
    * holds no answer: one the event also invited gets the flag back, and its
    * answer — status, response, when it responded — where the target lets
-   * them be updated. What the object's line says of what did not go back is
-   * returned. See `giveLinkedRelationsTheirFlags`.
+   * them be updated, until the load's cancel. What the object's line says of
+   * what did not go back is returned. See `giveLinkedRelationsTheirFlags`.
    *
    * @param fixedAtInsert - The object's fields no update can set, as the target describes it.
    */
@@ -2511,6 +2511,7 @@ export class FrozenDatasetLoader {
         await this.checkGuard(options, 'update', objectApiName, records.length);
         return this.deps.writer.update(orgId, objectApiName, records);
       },
+      () => options.signal?.aborted === true,
     );
   }
 

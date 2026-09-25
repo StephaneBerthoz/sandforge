@@ -1305,7 +1305,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * invites — and the invitee's answer, its status, response and when it
    * responded, where the target's describe lets an update set them, and say
    * what it could not give. See `giveLinkedRelationsTheirFlags`. A run given
-   * no update of the target asks nothing.
+   * no update of the target asks nothing. An Autopilot run has no cancel, so
+   * none is handed to the updates.
    */
   private async giveFlagsBack(
     objectApiName: string,

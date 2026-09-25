@@ -146,6 +146,12 @@ export interface WriteNodeInput {
   remapper: IdRemapper;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
+  /**
+   * Whether the run was cancelled, asked before each update that gives a
+   * relation linked to the flags its row carried: those go before the first
+   * batch, and its checkpoint. Absent, nothing stops them.
+   */
+  stopped?: () => boolean;
   /** Progress sink for batch-level events. */
   onProgress: (event: ForgeProgressEvent) => void;
 }
@@ -591,6 +597,7 @@ export class BatchWriter {
       rows,
       (field) => described?.find((f) => f.name === field)?.updateable !== false,
       (records) => update(targetOrgId, objectApiName, records),
+      input.stopped,
     );
   }
 

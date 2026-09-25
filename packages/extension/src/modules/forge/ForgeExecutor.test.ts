@@ -2508,6 +2508,98 @@ describe('ForgeExecutor', () => {
           expect(updated).toEqual([]);
           expect(summary.errors).toEqual([]);
         });
+
+        it('keeps, of the items read again under orders read late, those of the orders past Draft alone', async () => {
+          // The quote nothing named at its turn is read after the first pass,
+          // the orders again under it, and the items again under the orders
+          // that brings: every one of those went to the target, a draft's
+          // too, and the orders past Draft among them were not known as such.
+          const OPPORTUNITY = '006000000000001AAA';
+          const QUOTE = '0Q0000000000001AAA';
+          const LATE_ORDER = '801000000000005AAA';
+          const { orgDeps, inserted, updated } = fakeOrgs(
+            {
+              Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+              Quote: [{ Id: QUOTE, Name: 'Offer', Last_Order__c: null }],
+              Order: [
+                {
+                  Id: ORDER,
+                  Name: 'First',
+                  OpportunityId: OPPORTUNITY,
+                  QuoteId: QUOTE,
+                  Status: 'Live',
+                },
+                {
+                  Id: DRAFT_ORDER,
+                  Name: 'Pending',
+                  OpportunityId: null,
+                  QuoteId: QUOTE,
+                  Status: 'Open',
+                },
+                {
+                  Id: LATE_ORDER,
+                  Name: 'Late',
+                  OpportunityId: null,
+                  QuoteId: QUOTE,
+                  Status: 'Live',
+                },
+              ],
+              OrderItem: [
+                { Id: ITEM, Name: 'Item', OrderId: ORDER },
+                { Id: DRAFT_ITEM, Name: 'Pending item', OrderId: DRAFT_ORDER },
+                { Id: '802000000000005AAA', Name: 'Late item', OrderId: LATE_ORDER },
+              ],
+            },
+            {
+              Opportunity: [idField, text('Name')],
+              Quote: [idField, text('Name'), lookup('Last_Order__c', 'Order')],
+              Order: [
+                idField,
+                text('Name'),
+                lookup('OpportunityId', 'Opportunity'),
+                lookup('QuoteId', 'Quote'),
+                text('Status'),
+              ],
+              OrderItem: [idField, text('Name'), lookup('OrderId', 'Order', true)],
+            },
+          );
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) =>
+            soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+              ? [
+                  { ApiName: 'Open', StatusCode: 'Draft' },
+                  { ApiName: 'Live', StatusCode: 'Activated' },
+                ]
+              : query(org, soql, onTruncated);
+          // The quote and the orders name each other: the graph's order
+          // stands, the quote's turn first. The cap left the items out.
+          const graph = makeGraph(
+            [makeNode('Opportunity'), makeNode('Quote'), makeNode('Order')],
+            [edge('Opportunity', 'Order'), edge('Quote', 'Order'), edge('Order', 'Quote')],
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+          );
+
+          expect(inserted['Order'].map((r) => r['Name'])).toEqual(['First', 'Pending', 'Late']);
+          expect(inserted['OrderItem']).toEqual([
+            { Name: 'Item', OrderId: 'Order:First' },
+            { Name: 'Late item', OrderId: 'Order:Late' },
+          ]);
+          expect(summary.readByObject).toContainEqual({ objectApiName: 'OrderItem', read: 2 });
+          expect(updated).toContainEqual({
+            object: 'Order',
+            rows: [
+              { Id: 'Order:First', Status: 'Live' },
+              { Id: 'Order:Late', Status: 'Live' },
+            ],
+          });
+        });
       });
 
       describe('fetched as the parent of a record the run writes', () => {
@@ -6446,6 +6538,83 @@ describe('ForgeExecutor', () => {
           expect(summary.readByObject).toContainEqual({ objectApiName: 'Product2', read: 3 });
         });
 
+        describe('what the line of the products says of the one it leaves out', () => {
+          // A product needs no option: the lines held back for want of their
+          // price's were all that named it. The line said it was "not
+          // written without ProductSellingModelOption", as it says of a price
+          // that needs one, where its errors said it exactly.
+          const NAMED_ONLY =
+            '1 not written, named only by records held back for ProductSellingModelOption, ' +
+            'excluded from this run';
+          const optionsExcluded = {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            excludedObjects: ['ProductSellingModelOption'],
+          };
+
+          it('says the only records that named it were held back', async () => {
+            const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+            platform(orgDeps, inserted);
+
+            await new ForgeExecutor(orgDeps).execute(
+              graph(),
+              'src',
+              'tgt',
+              onProgress,
+              optionsExcluded,
+            );
+
+            expect(
+              progressEvents.find((e) => e.objectName === 'Product2' && e.status === 'done')
+                ?.message,
+            ).toBe(`Completed Product2: 2 succeeded, 0 failed, ${NAMED_ONLY}`);
+          });
+
+          it('says it in a dry run too', async () => {
+            const { orgDeps } = fakeOrgs(tables(), fields);
+
+            await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+              ...optionsExcluded,
+              dryRun: true,
+            });
+
+            expect(progressEvents.map((e) => e.message)).toContain(
+              `[dry-run] Product2: 2 record(s) would be inserted, ${NAMED_ONLY}`,
+            );
+          });
+
+          it('says each reason apart when it also holds back products that need an object excluded', async () => {
+            // Every widget but the second belongs to a region the user left
+            // out, and cannot be written without it.
+            const REGION = 'a0R000000000001AAA';
+            const base = tables();
+            const { orgDeps } = fakeOrgs(
+              {
+                ...base,
+                Product2: base.Product2.map((row) =>
+                  row['Name'] === 'Widget 2' ? row : { ...row, Region__c: REGION },
+                ),
+              },
+              {
+                ...fields,
+                Product2: [...fields.Product2, lookup('Region__c', 'Region__c', true)],
+              },
+            );
+
+            await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+              ...optionsExcluded,
+              excludedObjects: ['ProductSellingModelOption', 'Region__c'],
+              dryRun: true,
+            });
+
+            expect(progressEvents.map((e) => e.message)).toContain(
+              'Held back Product2, nothing written: 2 of its records need Region__c, and the ' +
+                'only records that name the rest are held back for ProductSellingModelOption, ' +
+                'excluded from this run. Objects that cannot be written without it will be skipped.',
+            );
+          });
+        });
+
         it('reads and writes such a product after all when a record read after the catalog names it', async () => {
           // A classification's record names the second widget as its default:
           // left out of the catalog's read, it is read by the second one, and
@@ -6515,19 +6684,19 @@ describe('ForgeExecutor', () => {
           expect(summary.readByObject).toContainEqual({ objectApiName: 'Product2', read: 3 });
         });
 
-        it('holds back, once read, a product the lines that named it were held back after', async () => {
-          // The custom book is left in a region the user excluded: held back
-          // with the catalog, after the products its prices sell were read.
-          // The lines on those prices go with them, and the widget only they
-          // sell has nothing left to be written for.
+        /**
+         * The second widget's line, priced from the custom book, which is
+         * left in a region, and no standard price: none names the widget in
+         * its stead.
+         */
+        function customBookInARegion() {
           const base = tables();
-          const { orgDeps, inserted } = fakeOrgs(
+          return fakeOrgs(
             {
               ...base,
               Pricebook2: base.Pricebook2.map((row) =>
                 row['Id'] === CUSTOM ? { ...row, Region__c: 'a0R000000000001AAA' } : row,
               ),
-              // No standard price: none names the widget in its stead.
               PricebookEntry: base.PricebookEntry.filter((row) => row['Pricebook2Id'] !== STANDARD),
               OpportunityLineItem: base.OpportunityLineItem.filter(
                 (row) => row['Id'] === '00k000000000002AAA',
@@ -6539,6 +6708,14 @@ describe('ForgeExecutor', () => {
               Pricebook2: [...fields.Pricebook2, lookup('Region__c', 'Region__c', true)],
             },
           );
+        }
+
+        it('holds back, once read, a product the lines that named it were held back after', async () => {
+          // The custom book is left in a region the user excluded: held back
+          // with the catalog, after the products its prices sell were read.
+          // The lines on those prices go with them, and the widget only they
+          // sell has nothing left to be written for.
+          const { orgDeps, inserted } = customBookInARegion();
           const read = recordReads(orgDeps);
 
           const summary = await new ForgeExecutor(orgDeps).execute(
@@ -6572,6 +6749,24 @@ describe('ForgeExecutor', () => {
                 },
               ],
             }),
+          );
+        });
+
+        it('says in a dry run that the only records naming such a product were held back', async () => {
+          // It said the product was "not written without Region__c", which a
+          // product does not need.
+          const { orgDeps } = customBookInARegion();
+
+          await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            excludedObjects: ['Region__c'],
+            dryRun: true,
+          });
+
+          expect(progressEvents.map((e) => e.message)).toContain(
+            '[dry-run] Product2: 1 fewer would be inserted, not written, named only by records ' +
+              'held back for Region__c, excluded from this run',
           );
         });
 
@@ -8882,11 +9077,12 @@ describe('ForgeExecutor', () => {
 
       /**
        * A contact, an event whose who it is, and the event's one relation to
-       * it, a parent and an invitee at once; a target that writes the event's
-       * relation to its who as it takes the event, not an invitee, and
-       * describes `IsInvitee` as `updateable`.
+       * it, a parent and an invitee at once, with `answer` — the invitee's
+       * answer, field by field; a target that writes the event's relation to
+       * its who as it takes the event, not an invitee, and describes
+       * `IsInvitee` as `updateable`.
        */
-      function invitedWho(updateable: boolean) {
+      function invitedWho(updateable: boolean, answer: FakeRow = {}) {
         const run = fakeOrgs(
           {
             Contact: [{ Id: WHO, LastName: 'Who' }],
@@ -8899,6 +9095,7 @@ describe('ForgeExecutor', () => {
                 IsParent: true,
                 IsInvitee: true,
                 IsWhat: false,
+                ...answer,
               },
             ],
           },
@@ -8912,6 +9109,7 @@ describe('ForgeExecutor', () => {
               text('IsParent'),
               { ...text('IsInvitee'), updateable },
               text('IsWhat'),
+              ...Object.keys(answer).map((field) => text(field)),
             ],
           },
         );
@@ -8981,6 +9179,41 @@ describe('ForgeExecutor', () => {
           message:
             'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
             'failed, 1 linked without IsInvitee: the target does not let it be updated',
+        });
+      });
+
+      it('sends no update after the run is cancelled while the one giving the flag back is sent', async () => {
+        // Refused for a status the target does not hold, the flag and the
+        // status went again one at a time, after a cancel that came while the
+        // target was answering: the update answered for its one relation, and
+        // nothing asked the run.
+        const TENTATIVE =
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Tentative';
+        const { orgDeps, graph } = invitedWho(true, { Status: 'Tentative' });
+        const executor = new ForgeExecutor(orgDeps);
+        const sent: Array<Array<Record<string, unknown>>> = [];
+        orgDeps.updateRecords = async (_org, object, rows) => {
+          if (object === 'EventRelation') {
+            sent.push(rows);
+            executor.abort();
+          }
+          return rows.map((row) => ({
+            id: String(row['Id']),
+            success: object !== 'EventRelation',
+            errors: object === 'EventRelation' ? [TENTATIVE] : [],
+          }));
+        };
+
+        await executor
+          .execute(graph, 'src', 'tgt', onProgress, scoped)
+          .catch((err: unknown) => err);
+
+        expect(sent).toEqual([[{ Id: PLATFORM_RELATION, IsInvitee: true, Status: 'Tentative' }]]);
+        expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
+          message:
+            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            `failed, 1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
+            `1 linked without Status: the target refused the update, ${TENTATIVE}`,
         });
       });
     });
