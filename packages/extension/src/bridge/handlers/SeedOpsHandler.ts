@@ -765,6 +765,10 @@ export class SeedOpsHandler implements DomainHandler {
       const bulkManager = bulkManagerOf(this.deps);
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
+        // A batch the org failed on is not sent again once the seed is
+        // cancelled, and its backoff is not waited out, as in the writer Sync
+        // writes through.
+        signal: abortController.signal,
         onRetry: (attempt, classified, delay) => {
           this.deps.log(
             `[RETRY] seed insert attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`,
@@ -793,6 +797,9 @@ export class SeedOpsHandler implements DomainHandler {
       ): Promise<InsertResult> => {
         // Streaming path for large record sets
         if (records.length > STREAMING_THRESHOLD) {
+          // A cancel that came before the insert opens no job: see the Bulk
+          // API path.
+          if (abortController.signal.aborted) return { successIds: [], errors: [], stopped: true };
           const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
           const bulkDeps: BulkApiExecutorDeps = {
             connection: conn as unknown as BulkApiConnection,
@@ -818,7 +825,11 @@ export class SeedOpsHandler implements DomainHandler {
         }
 
         if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          // Bulk API 2.0 path
+          // Bulk API 2.0 path. A cancel that came before the insert opens no
+          // job: the executor opened one all the same, then aborted it before
+          // its upload, which wrote nothing but asked the org for a job, and
+          // for its abort, for an insert that never started.
+          if (abortController.signal.aborted) return { successIds: [], errors: [], stopped: true };
           const bulkDeps: BulkApiExecutorDeps = {
             connection: conn as unknown as BulkApiConnection,
             bulkManager,
@@ -847,10 +858,13 @@ export class SeedOpsHandler implements DomainHandler {
         const errors: string[] = [];
 
         for (let i = 0; i < records.length; i += batchSize) {
-          // A cancel stops the insert between two batches, with what the
+          // A cancel stops the insert before each batch, with what the
           // batches before it created: the rest of a large object used to be
-          // inserted after the seed was cancelled.
-          if (i > 0 && abortController.signal.aborted) {
+          // inserted after the seed was cancelled. The first batch included,
+          // as in the writer Sync writes through: the run looks at the cancel
+          // just before it inserts, and nothing between the two waits today,
+          // but a cancel that came between them would still send a batch.
+          if (abortController.signal.aborted) {
             return { successIds, errors, stopped: true };
           }
           const batch = records.slice(i, i + batchSize);
@@ -866,6 +880,9 @@ export class SeedOpsHandler implements DomainHandler {
               Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
             >;
           });
+          // The batch failed and the cancel came before it was tried again:
+          // none of it was created, and nothing after it is sent.
+          if (retryResult.cancelled) return { successIds, errors, stopped: true };
 
           if (retryResult.success && retryResult.result) {
             for (const r of retryResult.result) {

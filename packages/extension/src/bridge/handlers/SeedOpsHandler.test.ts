@@ -999,6 +999,139 @@ describe('SeedOpsHandler', () => {
       expect(result).toEqual({ successIds: ['001REST0', '001REST1'], errors: [], stopped: true });
       registry.dispose();
     });
+
+    describe('under a cancel', () => {
+      /** The seed's operation, which Live Operations' Cancel names. */
+      const OPERATION = 'seed-under-cancel';
+      let registry: BackgroundOperationRegistry;
+
+      afterEach(() => {
+        registry.dispose();
+      });
+
+      /**
+       * Start a seed over `conn` that runs until the cancel, as one does
+       * while it inserts: the insert function the handler built for it, and
+       * the cancel, as Live Operations sends it.
+       */
+      async function runningSeed(conn: unknown): Promise<{ insert: InsertFn; cancel: () => void }> {
+        registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        let captured: InsertFn | undefined;
+        deps.services = {
+          isAIEnabled: () => false,
+          getSandforgeSetting: vi.fn(() => 200),
+          seedOrchestrator: vi.fn((seedDeps: { insert: InsertFn; signal: AbortSignal }) => {
+            captured = seedDeps.insert;
+            return {
+              execute: vi.fn(
+                () =>
+                  new Promise<SeedExecutionResult>((resolve) =>
+                    seedDeps.signal.addEventListener('abort', () => resolve(seedResult(0))),
+                  ),
+              ),
+            };
+          }),
+        } as unknown as HandlerDeps['services'];
+        mockGetConn.mockResolvedValue(conn as never);
+
+        await handler.handle(
+          inboundRequest({
+            id: OPERATION,
+            type: 'seed:execute',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+          }),
+        );
+        await vi.waitFor(() => expect(captured).toBeDefined());
+        if (!captured) throw new Error('the orchestrator was never given an insert function');
+        return { insert: captured, cancel: () => registry.abort(OPERATION) };
+      }
+
+      it('sends none of the REST batches of an insert it came before, the first included', async () => {
+        // The run looks at the cancel before each insert, and the insert
+        // before each batch but the first: a cancel that came between the
+        // two still sent a batch.
+        const create = vi.fn(async (batch: unknown[]) =>
+          batch.map((_, i) => ({ success: true, id: `001REST${i}` })),
+        );
+        const { insert, cancel } = await runningSeed({ sobject: () => ({ create }) });
+        cancel();
+
+        const result = await insert('org-1', 'Account', makeRecords(5), 2);
+
+        expect(create).not.toHaveBeenCalled();
+        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+      });
+
+      it('opens no Bulk API job for an insert it came before', async () => {
+        // The job was created and opened, then aborted before its upload:
+        // nothing written, but a job asked of the org for an insert that
+        // never started.
+        const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
+          totalRecords: 0,
+          successCount: 0,
+          failureCount: 0,
+          failures: [],
+          jobId: 'job-1',
+          usedBulkApi: true,
+          successIds: [],
+          outcomes: [],
+          aborted: true,
+        });
+        const { insert, cancel } = await runningSeed({});
+        cancel();
+
+        const result = await insert('org-1', 'Account', makeRecords(300), 200);
+
+        expect(oneJob).not.toHaveBeenCalled();
+        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+      });
+
+      it('opens no job to stream an insert it came before', async () => {
+        const streamed = vi
+          .spyOn(ChunkedBulkExecutor.prototype, 'executeChunked')
+          .mockResolvedValue({
+            totalRecords: 0,
+            successCount: 0,
+            failureCount: 0,
+            successIds: [],
+            errors: [],
+            aborted: true,
+          });
+        const { insert, cancel } = await runningSeed({});
+        cancel();
+
+        const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+        expect(streamed).not.toHaveBeenCalled();
+        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+      });
+
+      it('does not send again a batch the org failed on once it has come', async () => {
+        // The batch went out once more after its backoff, the cancel come
+        // during the wait: an insert after the seed had been stopped. The
+        // first wait is 100 to 200 ms, the cancel comes after 5.
+        deps.robustness = {
+          ...DEFAULT_ROBUSTNESS_CONFIG,
+          retry: { ...DEFAULT_ROBUSTNESS_CONFIG.retry, maxRetries: 2, initialDelay: 200 },
+        };
+        let cancel = (): void => undefined;
+        const create = vi.fn(async () => {
+          setTimeout(() => cancel(), 5);
+          throw Object.assign(new Error('UNABLE_TO_LOCK_ROW'), {
+            errorCode: 'UNABLE_TO_LOCK_ROW',
+          });
+        });
+        const seed = await runningSeed({ sobject: () => ({ create }) });
+        cancel = seed.cancel;
+
+        const result = await seed.insert('org-1', 'Account', makeRecords(3), 3);
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+      });
+    });
   });
 
   describe('seed:template CRUD handlers', () => {

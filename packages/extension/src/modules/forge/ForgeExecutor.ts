@@ -1878,6 +1878,15 @@ export class ForgeExecutor {
     try {
       return await this.runPasses(state);
     } catch (err: unknown) {
+      // Stopped before the task node's turn, the email node ends on its first
+      // write's line, as a run stopped at that turn ends it: see
+      // `writeEmailsAfterTheirTask`. Kept for the write of the emails that
+      // waited for their task, that line was never said, and the node's last
+      // word was a step on the way: what it wrote and what it held back went
+      // unsaid.
+      const first = state.emailsWrittenFirst;
+      state.emailsWrittenFirst = undefined;
+      if (first) state.onProgress(first);
       // What the run had done before it stopped goes with the error: thrown
       // bare, an abort or a failure past the first object took the tallies
       // with it, and the run was recorded as failed with nothing written.

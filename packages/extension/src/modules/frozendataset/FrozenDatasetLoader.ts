@@ -1018,6 +1018,31 @@ export class FrozenDatasetLoader {
       null;
     let objectIndex = 0;
     let taskTurnOver = false;
+    /** End the email object on its first write's line: the emails that waited did not go in. */
+    const endOnTheFirstWrite = (first: NonNullable<typeof emailsWrittenFirst>): void =>
+      emit({
+        phase: 'insert',
+        objectName: EMAIL_MESSAGE,
+        status: first.status,
+        progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
+        message: `${first.message}${first.notes}`,
+      });
+    /*
+     * Stop at a cancel before an object of the insert pass, or once an object
+     * whose rows the cancel kept from the target has its line. The email
+     * object's first write, when some of its emails wait for their task, ends
+     * it first, as it does when the load stops at the task object's turn.
+     * Stopped before that turn, the object's last word was the step its first
+     * write said: what it inserted, and what it held back, went unsaid.
+     */
+    const checkpointBetweenObjects = async (): Promise<void> => {
+      const first = emailsWrittenFirst;
+      if (first && options.signal?.aborted) {
+        emailsWrittenFirst = null;
+        endOnTheFirstWrite(first);
+      }
+      await checkpoint();
+    };
     const insertEmailsAfterTheirTask = async (): Promise<void> => {
       taskTurnOver = true;
       const emails = emailsAfterTheirTask.splice(0, emailsAfterTheirTask.length);
@@ -1043,15 +1068,7 @@ export class FrozenDatasetLoader {
       } finally {
         // Stopped before the emails that waited went in: the first write
         // ends the object.
-        if (!late && first) {
-          emit({
-            phase: 'insert',
-            objectName: EMAIL_MESSAGE,
-            status: first.status,
-            progress,
-            message: `${first.message}${first.notes}`,
-          });
-        }
+        if (!late && first) endOnTheFirstWrite(first);
       }
       const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
       if (at >= 0) perObject[at] = mergeResults(perObject[at], late);
@@ -1068,6 +1085,12 @@ export class FrozenDatasetLoader {
       });
     };
     for (const objectApiName of insertOrder) {
+      // Looked at before an object left out at alignment is counted, too.
+      // Counted ahead of the check, it went into what a cancel that came
+      // before its turn said the load had done: its rows, never sent, as
+      // failed in the audit trail, and a load cancelled before its first
+      // write as a failure.
+      await checkpointBetweenObjects();
       const aligned = alignedByObject.get(objectApiName);
       if (!aligned) {
         // Left out at alignment, and listed there: counted where its insert
@@ -1076,7 +1099,6 @@ export class FrozenDatasetLoader {
         if (lost) perObject.push(lost);
         continue;
       }
-      await checkpoint();
       objectIndex++;
       emit({
         phase: 'insert',
@@ -1132,6 +1154,8 @@ export class FrozenDatasetLoader {
        */
       const leftToInsert = startingRecords.filter((r) => !reused.has(r.referenceId)).length;
       const stoppedBeforeTheInsert = options.signal?.aborted === true && leftToInsert > 0;
+      /** The rows the cancel kept from the target, said on the object's line before the load stops. */
+      let notInserted = stoppedBeforeTheInsert ? leftToInsert : 0;
       const insert = (
         records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
         count: number,
@@ -1166,21 +1190,35 @@ export class FrozenDatasetLoader {
           startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardRef),
           0,
         );
-        // The custom prices are a write of their own: a cancel that came
-        // during the standard ones stops the load before them, as it stops it
-        // before any other write, with the standard prices counted. Nothing
-        // looked at it here, and the custom prices were written after it.
-        if (options.signal?.aborted) perObject.push({ ...standardPrices, fromFiles });
-        await checkpoint();
-        const customPrices = await insert(
-          startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
-          fromFiles,
-        ).catch((err: unknown) => {
-          // Counted, as at a cancel: the standard prices are in the target.
-          perObject.push({ ...standardPrices, fromFiles });
-          throw err;
-        });
-        objectResult = mergeResults(standardPrices, customPrices);
+        const custom = startingRecords.filter(
+          (r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef,
+        );
+        /*
+         * The custom prices are a write of their own: a cancel that came
+         * during the standard ones stops the load before them, as it stops it
+         * before any other write, once the object's line has said what it
+         * wrote and how many of its prices the cancel kept from the target.
+         * Nothing looked at it here, and the custom prices were written after
+         * it; then stopped at once, the load counted the standard prices and
+         * said nothing of them, the object's last word that it was inserting.
+         */
+        if (options.signal?.aborted) {
+          const linked = custom.filter((r) => reused.has(r.referenceId)).length;
+          objectResult = { ...standardPrices, fromFiles, reused: standardPrices.reused + linked };
+          notInserted =
+            startingRecords.length -
+            objectResult.inserted -
+            objectResult.reused -
+            objectResult.skippedDuplicates.length -
+            objectResult.failed.length;
+        } else {
+          const customPrices = await insert(custom, fromFiles).catch((err: unknown) => {
+            // Counted, as at a cancel: the standard prices are in the target.
+            perObject.push({ ...standardPrices, fromFiles });
+            throw err;
+          });
+          objectResult = mergeResults(standardPrices, customPrices);
+        }
       } else {
         objectResult = await insert(startingRecords, fromFiles);
       }
@@ -1203,9 +1241,8 @@ export class FrozenDatasetLoader {
         objectApiName === EMAIL_MESSAGE && emailsAfterTheirTask.length > 0
           ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
           : '';
-      const keptBack = stoppedBeforeTheInsert
-        ? `, ${leftToInsert} not inserted: the load was cancelled first`
-        : '';
+      const keptBack =
+        notInserted > 0 ? `, ${notInserted} not inserted: the load was cancelled first` : '';
       const status = objectResult.failed.length > 0 ? 'error' : 'done';
       const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
       const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBack}`;
@@ -1227,7 +1264,7 @@ export class FrozenDatasetLoader {
       // that waited for it: they stop at the checkpoint their write begins
       // with, and the email object ends on its first write's line.
       if (objectApiName === TASK) await insertEmailsAfterTheirTask();
-      if (stoppedBeforeTheInsert) await checkpoint();
+      if (notInserted > 0) await checkpointBetweenObjects();
     }
     // Emails still waiting for their task — the task object never had its
     // turn — go in with what the load could give them.

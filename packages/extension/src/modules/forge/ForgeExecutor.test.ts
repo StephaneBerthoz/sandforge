@@ -9105,6 +9105,43 @@ describe('ForgeExecutor', () => {
           expect(summary.remapTable[OFFER_TASK]).toBe(PLATFORM_TASK);
           expect(summary.failedCount).toBe(0);
         });
+
+        it('ends the email object on its first write when a cancel stops the run before the tasks', async () => {
+          // The end of the first write is a step on the way, kept for the
+          // write of the emails that wait for their task. The run stopped
+          // before the task node's turn, and the object's last word was that
+          // step: what it wrote, and what it held back, was said nowhere.
+          const { orgDeps, inserted, graph } = mixedRun();
+          const executor = new ForgeExecutor(orgDeps);
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, records) => {
+            if (object === 'EmailMessage') executor.abort();
+            return insert(org, object, records);
+          };
+
+          const error = await executor
+            .execute(graph, 'src', 'tgt', onProgress, {
+              rootRecordId: ACCOUNT,
+              rootObjectApiName: 'Account',
+            })
+            .catch((err: unknown) => err);
+
+          expect(error).toBeInstanceOf(ForgeAbortedError);
+          expect(inserted['Task'] ?? []).toEqual([]);
+          expect(
+            progressEvents
+              .filter(
+                (e) =>
+                  e.objectName === 'EmailMessage' && (e.status === 'done' || e.status === 'error'),
+              )
+              .map((e) => [e.status, e.message]),
+          ).toEqual([
+            [
+              'done',
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks',
+            ],
+          ]);
+        });
       });
     });
 

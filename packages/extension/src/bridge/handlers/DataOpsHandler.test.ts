@@ -13,6 +13,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
+import { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -1882,6 +1883,29 @@ describe('DataOpsHandler', () => {
 
         expect(update).toHaveBeenCalledTimes(1);
         expect(query).toHaveBeenCalledTimes(1);
+      });
+
+      it('masks no batch of an object the cancel came before, the first included', async () => {
+        // The run looks at the cancel once the object is read, and the
+        // batches looked at it from the second on: a cancel that came as the
+        // records were masked still sent the first two hundred.
+        const mask = AnonymizationEngine.prototype.anonymize;
+        const anonymize = vi
+          .spyOn(AnonymizationEngine.prototype, 'anonymize')
+          .mockImplementation(function (this: AnonymizationEngine, records, rules) {
+            cancelTheRun();
+            return mask.call(this, records, rules);
+          });
+        const update = vi.fn(async (batch: unknown[]) => batch.map(() => ({ success: true })));
+
+        try {
+          await anonymizeWith(update);
+        } finally {
+          anonymize.mockRestore();
+        }
+
+        expect(update).not.toHaveBeenCalled();
+        expect(events).toEqual(['started', 'aborted']);
       });
 
       it('ends as aborted, with what it masked, answered and recorded', async () => {

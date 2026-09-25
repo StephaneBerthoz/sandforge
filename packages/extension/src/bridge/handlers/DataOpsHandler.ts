@@ -1548,9 +1548,13 @@ export class DataOpsHandler implements DomainHandler {
         let successCount = 0;
         let failureCount = 0;
         for (let bi = 0; bi < payloads.length; bi += batchSize) {
-          // A cancel stops the run between two batches, with what the batches
-          // before it masked counted below.
-          if (bi > 0 && stop.signal.aborted) {
+          // A cancel stops the run before each batch, with what the batches
+          // before it masked counted below. The first batch included, as in
+          // the writer Sync writes through: the run looks at the cancel once
+          // the object is read, and nothing between that and the first batch
+          // waits today, but a cancel that came between them would still send
+          // two hundred records.
+          if (stop.signal.aborted) {
             cancelled = true;
             break;
           }
