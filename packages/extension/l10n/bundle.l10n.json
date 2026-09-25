@@ -32,6 +32,7 @@
   "The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.": "The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.",
   "The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.": "The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.",
   "The model returned an empty answer. Try again.": "The model returned an empty answer. Try again.",
+  "An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.": "An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.",
   "SandForge: fix suggested by the AI model — {0}": "SandForge: fix suggested by the AI model — {0}",
   "SandForge: suggested fix for a known Salesforce error — {0}": "SandForge: suggested fix for a known Salesforce error — {0}",
   "A custom validation rule on the object is preventing the record from being saved. The rule evaluates to true, blocking the DML operation.": "A custom validation rule on the object is preventing the record from being saved. The rule evaluates to true, blocking the DML operation.",

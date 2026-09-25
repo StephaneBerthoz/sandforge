@@ -144,6 +144,28 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
+    // Nothing created, nothing failed: what the cancel kept from the target
+    // is all there is to say of the object, and the entry says why it stopped.
+    const cancelledClone: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-forge-cancelled',
+      outcome: 'stopped',
+      guard: 'allowed',
+      objects: [
+        { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0, notSent: 2 },
+      ],
+      details: { code: 'RUN_CANCELLED' },
+    };
+    render(<AuditTrailViewer entries={[cancelledClone]} />);
+    const row = screen.getByTestId('audit-aud-forge-cancelled');
+
+    expect(row.textContent).toContain('Stopped');
+    expect(row.querySelectorAll('li')).toHaveLength(1);
+    expect(row.querySelector('li')?.textContent).toBe('Account 2 not sent');
+    expect(row.textContent).toContain('code: RUN_CANCELLED');
+  });
+
   it('should show filters', () => {
     render(<AuditTrailViewer entries={entries} />);
     expect(screen.getByTestId('audit-filters')).toBeDefined();

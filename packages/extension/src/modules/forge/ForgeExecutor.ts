@@ -577,6 +577,17 @@ export interface ExistingRecordReport {
   unidentified: number;
 }
 
+/**
+ * The rows of one object the run had to write and never sent, as the line
+ * that ends the object says them: see `ExecutionSummary.notSentByObject`.
+ */
+export interface NotSentReport {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows never sent. */
+  notSent: number;
+}
+
 /** Summary returned after execution completes. */
 export interface ExecutionSummary {
   /** Number of records the run created. */
@@ -642,6 +653,15 @@ export interface ExecutionSummary {
    * linked to a record the target already held — the table counted by object.
    */
   remapByObject: ForgeRemapObjectCounts[];
+  /**
+   * Per object, the rows the run had to write and never sent, as the line
+   * that ends the object says them: those a cancel kept from the target as
+   * the object was written, and the emails that waited for their task when
+   * the run stopped before their write. Neither created nor failed, they were
+   * said on that line and counted nowhere else. Absent when there were none —
+   * always, on a run that went to its end.
+   */
+  notSentByObject?: NotSentReport[];
   /**
    * Per object, the source ids of the rows this run created, in the order it
    * wrote them: what removing the run's records reads backwards.
@@ -836,6 +856,11 @@ interface ExecutionState {
    * and only the second read is what it clones.
    */
   readonly readByObject: Map<string, number>;
+  /**
+   * Per object, the rows the run had to write and never sent, as the line
+   * that ends it says them. See `ExecutionSummary.notSentByObject`.
+   */
+  readonly notSent: Map<string, number>;
   /** Objects whose read from the source failed, in the order they failed. */
   readonly failedReads: Set<string>;
   /** Per object, the key prefix of its ids in the source org, once the run has told it. */
@@ -1571,6 +1596,17 @@ function waitingForTheirTask(count: number): string {
 }
 
 /**
+ * Count rows of an object the run never sent, as the line that ends the object
+ * says them. Said there alone, they went with the run's tallies uncounted, and
+ * the audit entry of a run a cancel cut short read as if each object it had
+ * begun was written whole: see `ExecutionSummary.notSentByObject`.
+ */
+function countNotSent(state: ExecutionState, objectApiName: string, count: number): void {
+  if (count <= 0) return;
+  state.notSent.set(objectApiName, (state.notSent.get(objectApiName) ?? 0) + count);
+}
+
+/**
  * How the email object ends when the run stops before the emails that waited
  * for their task are written: on its first write's line, with how many of
  * them the target never got, as a node a cancel stops says the rows it never
@@ -1879,6 +1915,7 @@ export class ForgeExecutor {
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
+      notSent: new Map<string, number>(),
       failedReads: new Set<string>(),
       sourceKeyPrefixes: new Map<string, string>(),
       keyPrefixesAsked: new Set<string>(),
@@ -3286,6 +3323,14 @@ export class ForgeExecutor {
       existingSourceIds: state.remapper.existingSourceIds(),
       updatedSourceIds: state.remapper.updatedSourceIds(),
       remapByObject: state.remapper.countsByObject(),
+      ...(state.notSent.size > 0
+        ? {
+            notSentByObject: [...state.notSent].map(([objectApiName, notSent]) => ({
+              objectApiName,
+              notSent,
+            })),
+          }
+        : {}),
       createdByObject: state.remapper.createdByObject(),
       readByObject: [...state.readByObject].map(([objectApiName, read]) => ({
         objectApiName,
@@ -4497,6 +4542,11 @@ export class ForgeExecutor {
    * never sent. Its turn wrote nothing and failed nothing, and a failure of
    * the run leaves it `done`, as it leaves a first write that went in.
    *
+   * The emails never sent are counted as the line says them, whichever
+   * stopped the run. With no line said before them — a write of the object
+   * the cancel cut short said them on a line of its own, and counted them
+   * there — they are not counted twice.
+   *
    * @param notSent - The emails that waited for their task.
    * @param cancelled - Whether a cancel stopped the run.
    */
@@ -4509,6 +4559,7 @@ export class ForgeExecutor {
     state.emailsWrittenFirst = undefined;
     state.emailsAllWaiting = undefined;
     if (!said) return;
+    countNotSent(state, EMAIL_MESSAGE, notSent);
     state.onProgress(
       endedBeforeTheEmailsThatWaited(said, notSent, cancelled, notesOf(state, EMAIL_MESSAGE)),
     );
@@ -5825,6 +5876,7 @@ export class ForgeExecutor {
          */
         const handed = rounds.reduce((sum, round) => sum + round.records.length, 0);
         const notSent = handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure) + waiting;
+        countNotSent(state, node.objectApiName, notSent);
         const ofThemWaiting = waiting > 0 ? ` (${waitingForTheirTask(waiting)})` : '';
         (afterTheirTask === undefined ? state.onProgress : onProgress)({
           objectName: node.objectApiName,

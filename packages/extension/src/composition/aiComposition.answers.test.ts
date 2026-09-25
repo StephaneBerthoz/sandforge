@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const sdk = vi.hoisted(() => ({ create: vi.fn() }));
+
+/** The `l10n` bundle of the display language a test runs in; empty is English. */
+const displayLanguage = vi.hoisted(() => ({ bundle: {} as Record<string, string> }));
 
 vi.mock('vscode', () => ({
   // The display language the error resolver asks the model to answer in.
@@ -8,6 +13,9 @@ vi.mock('vscode', () => ({
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     getConfiguration: vi.fn(() => ({ get: vi.fn((_k: string, d: unknown) => d) })),
+  },
+  l10n: {
+    t: (message: string) => displayLanguage.bundle[message] ?? message,
   },
 }));
 
@@ -68,6 +76,7 @@ const CUT_OFF = 'The model stopped at its length limit before the answer was com
 
 beforeEach(() => {
   sdk.create.mockReset();
+  displayLanguage.bundle = {};
 });
 
 describe('an answer the model declined, cut off or left empty, as each AI feature meets it', () => {
@@ -187,4 +196,47 @@ describe('the last turn of every request', () => {
       'third',
     ]);
   });
+});
+
+describe('a question asked in a conversation while another waits there', () => {
+  const REFUSAL =
+    'An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.';
+
+  // The AI page shows the refusal as it is: in English alone, a French user
+  // would read English there.
+  it.each(['en', 'fr', 'de', 'es', 'ja', 'pt-br'])(
+    'is refused in the %s display language, and never reaches the model',
+    async (locale) => {
+      const suffix = locale === 'en' ? '' : `.${locale}`;
+      displayLanguage.bundle = JSON.parse(
+        readFileSync(join(__dirname, '..', '..', `l10n/bundle.l10n${suffix}.json`), 'utf8'),
+      ) as Record<string, string>;
+      const { assistant } = await wiredStack();
+      const conversation = assistant.createConversation('Seed help');
+      // The first question waits for its answer; any other is answered at once.
+      let answerFirst: () => void = () => undefined;
+      sdk.create
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              answerFirst = () =>
+                resolve(reply('end_turn', 'Open the Seed page and pick Account.'));
+            }),
+        )
+        .mockResolvedValue(reply('end_turn', 'Pick Contact on the Seed page.'));
+
+      const first = assistant.chat(conversation.id, 'how do I seed accounts?');
+      await vi.waitFor(() => expect(sdk.create).toHaveBeenCalledTimes(1));
+      const refusal = await assistant
+        .chat(conversation.id, 'and contacts?')
+        .then(() => 'answered')
+        .catch((err: Error) => err.message);
+      answerFirst();
+      await first;
+
+      expect(refusal).toBe(displayLanguage.bundle[REFUSAL]);
+      if (locale !== 'en') expect(refusal).not.toBe(REFUSAL);
+      expect(sdk.create).toHaveBeenCalledTimes(1);
+    },
+  );
 });

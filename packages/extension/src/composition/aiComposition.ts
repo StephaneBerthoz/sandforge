@@ -176,11 +176,22 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     };
   };
 
-  const aiAssistant = new AIAssistant(aiCallFn, {
-    provider: AI_PROVIDER,
-    model: configuredModel(services),
-    maxTokens: AI_CONFIG.MAX_TOKENS,
-  });
+  const aiAssistant = new AIAssistant(
+    aiCallFn,
+    {
+      provider: AI_PROVIDER,
+      model: configuredModel(services),
+      maxTokens: AI_CONFIG.MAX_TOKENS,
+    },
+    {
+      // Shown as it is by the AI page, so it is written in the user's language
+      // here: nothing under `modules/` reads the host.
+      questionPendingMessage: () =>
+        vscode.l10n.t(
+          'An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.',
+        ),
+    },
+  );
 
   // Wire up the AI modules using the same unified client
   const aiProvider = async (prompt: string, system?: string): Promise<string> => {

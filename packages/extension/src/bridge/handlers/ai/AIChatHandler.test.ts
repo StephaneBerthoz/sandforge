@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AIChatHandler } from './AIChatHandler.js';
 import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
@@ -619,6 +619,105 @@ describe('AIChatHandler', () => {
         'which object?',
         'Case',
       ]);
+    });
+  });
+
+  describe('a question asked while another waits in the same conversation', () => {
+    /** An `ai:chat` request of its own id, as a panel sends it. */
+    const ask = (id: string, conversationId: string, message: string) =>
+      inboundRequest({
+        id,
+        type: 'ai:chat',
+        timestamp: Date.now(),
+        payload: { conversationId, message },
+      });
+
+    /**
+     * A real assistant, set on the handler, whose calls to the model wait for
+     * `answerAll`; each is answered "Case".
+     */
+    function waitingAssistant(): {
+      assistant: AIAssistant;
+      callFn: Mock<AICallFn>;
+      answerAll: () => void;
+    } {
+      const answers: Array<() => void> = [];
+      const callFn = vi.fn<AICallFn>(
+        () =>
+          new Promise((resolve) => {
+            answers.push(() =>
+              resolve({ content: 'Case', tokenCount: 3, model: 'test-model', durationMs: 1 }),
+            );
+          }),
+      );
+      const assistant = new AIAssistant(callFn, {
+        provider: 'anthropic',
+        model: 'test-model',
+        maxTokens: 1024,
+      });
+      handler.setAIAssistant(assistant);
+      return { assistant, callFn, answerAll: () => answers.forEach((answer) => answer()) };
+    }
+
+    /** Every message the handler posted, in order. */
+    const postedMessages = () =>
+      vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { message?: unknown } });
+
+    // A panel closed and opened again while a question waited knows nothing
+    // of it, and its composer sent the next one: both went out, each without
+    // the other in its history, and the store kept them in the order their
+    // answers came.
+    it('is refused with an error for its own request, and the first exchange alone is stored', async () => {
+      const { assistant, callFn, answerAll } = waitingAssistant();
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      const [{ id }] = assistant.listConversations();
+
+      const first = handler.handle(ask('ask-1', id, 'which object holds cases?'));
+      const second = handler.handle(ask('ask-2', id, 'and its fields?'));
+      answerAll();
+      await Promise.all([first, second]);
+
+      expect(postedMessages().filter((m) => m.type === 'ai:error')).toEqual([
+        expect.objectContaining({
+          correlationId: 'ask-2',
+          payload: {
+            message:
+              'An earlier question in this conversation is still waiting for its answer. ' +
+              'Open the conversation again once it has come, then ask this one.',
+          },
+        }),
+      ]);
+      expect(
+        postedMessages()
+          .filter((m) => m.type === 'ai:chat:response')
+          .map((m) => m.correlationId),
+      ).toEqual(['ask-1']);
+      expect(callFn).toHaveBeenCalledTimes(1);
+      const stored = deps.configStore.get<{ messages: Array<{ content: string }> }>(
+        `ai:conversation:${id}`,
+      );
+      expect(stored?.messages.map((m) => m.content)).toEqual(['which object holds cases?', 'Case']);
+    });
+
+    it('answers questions in two conversations at once, as before', async () => {
+      const { assistant, answerAll } = waitingAssistant();
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Leads' }));
+      const [cases, leads] = assistant.listConversations();
+
+      const inCases = handler.handle(ask('ask-1', cases.id, 'which object holds cases?'));
+      const inLeads = handler.handle(ask('ask-2', leads.id, 'which object holds leads?'));
+      answerAll();
+      await Promise.all([inCases, inLeads]);
+
+      expect(postedMessages().filter((m) => m.type === 'ai:error')).toEqual([]);
+      expect(
+        postedMessages()
+          .filter((m) => m.type === 'ai:chat:response')
+          .map((m) => m.correlationId),
+      ).toEqual(['ask-1', 'ask-2']);
     });
   });
 

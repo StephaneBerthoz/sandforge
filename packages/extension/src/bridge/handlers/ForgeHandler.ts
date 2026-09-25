@@ -333,7 +333,10 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
 
 /**
  * What a run did per object, for the audit trail: the rows it created,
- * counted from its remap table, and the rows the run lost at read or at write.
+ * counted from its remap table, the rows the run lost at read or at write,
+ * and the rows a stop kept from the target — a cancel as the object was
+ * written, or the failure the run ended on before the emails that waited for
+ * their task — as the object's line says them.
  *
  * A row linked to one the target already held was never written and is
  * neither. The `scope` reports are left out — reference data unmatched by
@@ -341,7 +344,8 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
  * pass rather than an object (`__pass2__`, `__expandOrphanParents__`).
  */
 function forgeAuditObjects(
-  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'>,
+  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'> &
+    Pick<ExecutionSummary, 'notSentByObject'>,
 ): AuditObjectCounts[] {
   const byObject = new Map<string, AuditObjectCounts>();
   const countsOf = (objectApiName: string): AuditObjectCounts => {
@@ -358,6 +362,13 @@ function forgeAuditObjects(
   for (const error of result.errors ?? []) {
     if (error.stage === 'scope' || error.objectApiName.startsWith('__')) continue;
     countsOf(error.objectApiName).failed += error.failedCount;
+  }
+  // Neither written nor failed. Said on the object's line alone, the entry of
+  // a run a cancel cut short read as if it had written whole each object it
+  // began, and one the cancel stopped before its first call was not in it.
+  for (const row of result.notSentByObject ?? []) {
+    const counts = countsOf(row.objectApiName);
+    counts.notSent = (counts.notSent ?? 0) + row.notSent;
   }
   return [...byObject.values()];
 }
@@ -1429,7 +1440,11 @@ export class ForgeHandler implements DomainHandler {
       // the rows it created and lost, not as a run that wrote nothing.
       const partial = partialSummaryOf(error);
       const tallies = partial
-        ? { idRemapByObject: partial.remapByObject, errors: partial.errors }
+        ? {
+            idRemapByObject: partial.remapByObject,
+            errors: partial.errors,
+            notSentByObject: partial.notSentByObject,
+          }
         : undefined;
       const objects = tallies ? forgeAuditObjects(tallies) : [];
       /*

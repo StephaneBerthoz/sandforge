@@ -1217,6 +1217,64 @@ describe('ForgeExecutor', () => {
       expect(progressEvents.filter((e) => e.objectName === 'Contact')).toEqual([]);
     });
 
+    describe('the rows the cancel kept from the target, with what the run did', () => {
+      it('counts those of a node it stopped between two calls as the line says them', async () => {
+        // The line said 250 not sent; the tallies that go with the error, which
+        // the audit trail records the run from, said the 200 written alone.
+        const records = Array.from({ length: 450 }, (_, i) => ({
+          Id: `001OLD${i}`,
+          Name: `R${i}`,
+        }));
+        vi.mocked(deps.queryRecords).mockResolvedValue(records);
+        vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+          executor.abort();
+          return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+        });
+        const graph = makeGraph([makeNode('Account', { recordCount: 450, batchStrategy: 'rest' })]);
+
+        const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(partialSummaryOf(error)).toMatchObject({
+          successCount: 200,
+          notSentByObject: [{ objectApiName: 'Account', notSent: 250 }],
+        });
+      });
+
+      it('counts every row of a node it stopped before its first call', async () => {
+        vi.mocked(deps.describeFields).mockImplementation(async (org) => {
+          if (org === 'tgt') executor.abort();
+          return DEFAULT_FIELDS;
+        });
+        const graph = makeGraph([makeNode('Account', { batchStrategy: 'rest' })]);
+
+        const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+        expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+          { objectApiName: 'Account', notSent: 2 },
+        ]);
+      });
+
+      it('counts none of a node written whole, nor of one whose turn never came', async () => {
+        // No line says the contact's rows: the run stopped before its turn.
+        vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '001OLD1', Name: 'R1' }]);
+        vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+          executor.abort();
+          return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+        });
+        const graph = makeGraph([
+          makeNode('Account', { recordCount: 1, batchStrategy: 'rest' }),
+          makeNode('Contact', { recordCount: 1, batchStrategy: 'rest' }),
+        ]);
+
+        const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(partialSummaryOf(error)).toBeDefined();
+        expect(partialSummaryOf(error)?.notSentByObject).toBeUndefined();
+      });
+    });
+
     it('counts as failed a selling model refused as held and still waiting for its key when a cancel falls before the next call', async () => {
       // The target refused the first model without naming the one it holds:
       // the row waits for the lookup by its key made once the calls are
@@ -9126,6 +9184,11 @@ describe('ForgeExecutor', () => {
                 'stopped after their task: 0 succeeded, 0 failed, 2 not sent',
             ],
           ]);
+          // The tallies the audit trail records the run from count them as the
+          // line does.
+          expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+            { objectApiName: 'EmailMessage', notSent: 2 },
+          ]);
         });
 
         it('still writes the emails that waited for their task when the target refuses the tasks', async () => {
@@ -9231,6 +9294,10 @@ describe('ForgeExecutor', () => {
                 'stopped: 2 not sent',
             ],
           ]);
+          // The audit trail counts them as the line does.
+          expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+            { objectApiName: 'EmailMessage', notSent: 2 },
+          ]);
         });
 
         it('ends the email object stopped when a cancel comes as the tasks are written, before the emails that waited', async () => {
@@ -9264,6 +9331,9 @@ describe('ForgeExecutor', () => {
                 'stopped: 2 not sent',
             ],
           ]);
+          expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+            { objectApiName: 'EmailMessage', notSent: 2 },
+          ]);
         });
 
         it('keeps the email object a failure when its first write failed and a cancel stops the run before the tasks', async () => {
@@ -9280,7 +9350,7 @@ describe('ForgeExecutor', () => {
             }));
           };
 
-          await executor
+          const error = await executor
             .execute(graph, 'src', 'tgt', onProgress, {
               rootRecordId: ACCOUNT,
               rootObjectApiName: 'Account',
@@ -9290,6 +9360,12 @@ describe('ForgeExecutor', () => {
           expect(emailEnds()).toEqual([
             ['error', 'Failed all EmailMessage records; stopped: 2 not sent'],
           ]);
+          // The offer the target refused counts as failed; the emails that
+          // waited, as not sent.
+          expect(partialSummaryOf(error)).toMatchObject({
+            failedCount: 1,
+            notSentByObject: [{ objectApiName: 'EmailMessage', notSent: 2 }],
+          });
         });
 
         it('keeps the email object done when a failure, not a cancel, ends the run before the tasks, and says what it never sent', async () => {
@@ -9321,6 +9397,11 @@ describe('ForgeExecutor', () => {
                 '2 not sent',
             ],
           ]);
+          // Kept from the target by the failure as by a cancel: counted as the
+          // line says them.
+          expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+            { objectApiName: 'EmailMessage', notSent: 2 },
+          ]);
         });
 
         it('counts the emails that waited for their task among those not sent when a cancel stops the first write', async () => {
@@ -9351,6 +9432,11 @@ describe('ForgeExecutor', () => {
               'Stopped EmailMessage: 0 succeeded, 0 failed, ' +
                 '3 not sent (2 on a case waiting for their tasks)',
             ],
+          ]);
+          // Counted once, as the line says them: the emails that waited are
+          // among the three.
+          expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+            { objectApiName: 'EmailMessage', notSent: 3 },
           ]);
         });
 
@@ -9411,6 +9497,9 @@ describe('ForgeExecutor', () => {
             expect(emailEnds()).toEqual([
               ['stopped', 'EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent'],
             ]);
+            expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+              { objectApiName: 'EmailMessage', notSent: 2 },
+            ]);
           });
 
           it('ends the email object stopped when a cancel comes as the tasks are written, before its emails', async () => {
@@ -9435,6 +9524,9 @@ describe('ForgeExecutor', () => {
             expect(emailEnds()).toEqual([
               ['stopped', 'EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent'],
             ]);
+            expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+              { objectApiName: 'EmailMessage', notSent: 2 },
+            ]);
           });
 
           it('ends the email object in the words of a failure when one that is not a cancel ends the run before the tasks', async () => {
@@ -9456,6 +9548,9 @@ describe('ForgeExecutor', () => {
             expect(error).not.toBeInstanceOf(ForgeAbortedError);
             expect(emailEnds()).toEqual([
               ['done', 'EmailMessage: 2 on a case waiting for their tasks; 2 not sent'],
+            ]);
+            expect(partialSummaryOf(error)?.notSentByObject).toEqual([
+              { objectApiName: 'EmailMessage', notSent: 2 },
             ]);
           });
         });

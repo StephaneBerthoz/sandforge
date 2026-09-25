@@ -32,6 +32,7 @@
   "The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.": "Das Modell hat es abgelehnt, diese Anfrage zu beantworten. Formulieren Sie sie um oder wählen Sie in sandforge.ai.model ein anderes Modell.",
   "The model stopped at its length limit before the answer was complete, so SandForge did not use it. Ask for less in one request.": "Das Modell hat an seiner Längengrenze angehalten, bevor die Antwort vollständig war, daher hat SandForge sie nicht verwendet. Fordern Sie in einer Anfrage weniger an.",
   "The model returned an empty answer. Try again.": "Das Modell hat eine leere Antwort zurückgegeben. Versuchen Sie es erneut.",
+  "An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.": "Eine frühere Frage in dieser Unterhaltung wartet noch auf ihre Antwort. Öffnen Sie die Unterhaltung erneut, sobald die Antwort da ist, und stellen Sie dann diese Frage.",
   "SandForge: fix suggested by the AI model — {0}": "SandForge: vom KI-Modell vorgeschlagene Lösung — {0}",
   "SandForge: suggested fix for a known Salesforce error — {0}": "SandForge: vorgeschlagene Lösung für einen bekannten Salesforce-Fehler — {0}",
   "A custom validation rule on the object is preventing the record from being saved. The rule evaluates to true, blocking the DML operation.": "Eine benutzerdefinierte Validierungsregel für das Objekt verhindert das Speichern des Datensatzes. Die Regel trifft zu und blockiert die DML-Operation.",

@@ -256,4 +256,101 @@ describe('AIAssistant', () => {
     expect(sent).toHaveLength(19);
     expect(sent.at(-1)).toEqual({ role: 'user', content: 'question 10' });
   });
+
+  // --- One question at a time per conversation ---
+
+  describe('a question asked while another waits for its answer', () => {
+    const REFUSAL = 'An earlier question in this conversation is still waiting for its answer.';
+
+    /** Calls to the model that answer only when the test says so, in the order they were made. */
+    function heldCalls(): Array<(content: string) => void> {
+      const answers: Array<(content: string) => void> = [];
+      mockCallFn.mockImplementation(
+        () =>
+          new Promise<AICallResult>((resolve) => {
+            answers.push((content) => resolve({ ...mockResult, content }));
+          }),
+      );
+      return answers;
+    }
+
+    // A panel closed and opened again while a question waited sent the next
+    // one beside it: each went out with a history that lacked the other, and
+    // the two exchanges were kept in the order their answers came.
+    it('is refused in the same conversation, and neither sent nor kept', async () => {
+      const answers = heldCalls();
+      const conv = assistant.createConversation('Seed help');
+
+      const first = assistant.chat(conv.id, 'first');
+      const second = assistant.chat(conv.id, 'second');
+      answers.forEach((answer, i) => answer(`answer ${String(i + 1)}`));
+
+      await expect(second).rejects.toThrow(REFUSAL);
+      await expect(first).resolves.toMatchObject({ content: 'answer 1' });
+      expect(mockCallFn).toHaveBeenCalledTimes(1);
+      expect(assistant.getConversation(conv.id)?.messages.map((m) => [m.role, m.content])).toEqual([
+        ['user', 'first'],
+        ['assistant', 'answer 1'],
+      ]);
+    });
+
+    it('is refused in the words the host gives it', async () => {
+      const answers = heldCalls();
+      const worded = new AIAssistant(mockCallFn, mockConfig, {
+        questionPendingMessage: () => 'Une question précédente attend encore sa réponse.',
+      });
+      const conv = worded.createConversation('Aide');
+
+      const first = worded.chat(conv.id, 'première');
+      const second = worded.chat(conv.id, 'seconde');
+      answers.forEach((answer) => answer('réponse'));
+
+      await expect(second).rejects.toThrow('Une question précédente attend encore sa réponse.');
+      await first;
+    });
+
+    it('goes out once the answer has come, with that exchange in its history', async () => {
+      const answers = heldCalls();
+      const conv = assistant.createConversation('Seed help');
+      const first = assistant.chat(conv.id, 'first');
+      answers[0]('answer 1');
+      await first;
+
+      const second = assistant.chat(conv.id, 'second');
+      answers[1]('answer 2');
+
+      await expect(second).resolves.toMatchObject({ content: 'answer 2' });
+      expect(turnsSent(1)).toEqual([
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'answer 1' },
+        { role: 'user', content: 'second' },
+      ]);
+    });
+
+    it('goes out once the question before got no answer', async () => {
+      mockCallFn.mockRejectedValueOnce(new Error('The model declined to answer this request.'));
+      const conv = assistant.createConversation('Declined');
+
+      await expect(assistant.chat(conv.id, 'declined')).rejects.toThrow('declined');
+
+      await expect(assistant.chat(conv.id, 'asked again')).resolves.toMatchObject({
+        role: 'assistant',
+      });
+    });
+
+    it('waits beside a question of another conversation, as before', async () => {
+      const answers = heldCalls();
+      const seed = assistant.createConversation('Seed');
+      const sync = assistant.createConversation('Sync');
+
+      const inSeed = assistant.chat(seed.id, 'how do I seed accounts?');
+      const inSync = assistant.chat(sync.id, 'how do I sync contacts?');
+      answers[1]('sync answer');
+      answers[0]('seed answer');
+
+      await expect(inSeed).resolves.toMatchObject({ content: 'seed answer' });
+      await expect(inSync).resolves.toMatchObject({ content: 'sync answer' });
+      expect(mockCallFn).toHaveBeenCalledTimes(2);
+    });
+  });
 });

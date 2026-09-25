@@ -2890,6 +2890,182 @@ describe('ForgeHandler', () => {
         }),
       ]);
     });
+
+    describe('the rows a stop kept from the target', () => {
+      it('counts, of an object a cancel cut short, the rows it never sent', async () => {
+        // The object's line said 250 not sent; the entry said the 200 written
+        // alone, and read as a run that had written the object whole.
+        const store = recordingStore();
+        vi.mocked(orchestrator.execute).mockRejectedValue(
+          cancelledWith({
+            successCount: 200,
+            remapCount: 200,
+            remapByObject: [{ objectApiName: 'Account', created: 200, linked: 0 }],
+            readByObject: [{ objectApiName: 'Account', read: 450 }],
+            notSentByObject: [{ objectApiName: 'Account', notSent: 250 }],
+          }),
+        );
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [
+              {
+                objectApiName: 'Account',
+                created: 200,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 250,
+              },
+            ],
+          }),
+        ]);
+      });
+
+      it('names an object a cancel stopped before its first call, with what it never sent', async () => {
+        // Nothing created and nothing failed: the entry did not name it at all.
+        const store = recordingStore();
+        vi.mocked(orchestrator.execute).mockRejectedValue(
+          cancelledWith({
+            readByObject: [{ objectApiName: 'Account', read: 2 }],
+            notSentByObject: [{ objectApiName: 'Account', notSent: 2 }],
+          }),
+        );
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'stopped',
+            objects: [
+              {
+                objectApiName: 'Account',
+                created: 0,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 2,
+              },
+            ],
+            details: { code: 'RUN_CANCELLED' },
+          }),
+        ]);
+      });
+
+      it('records what a real run cancelled between two calls of an object kept from the target', async () => {
+        // The executor's tallies travel with its error through the
+        // orchestrator: the entry says of the object what its line said.
+        const store = recordingStore();
+        const rows = Array.from({ length: 450 }, (_, i) => ({
+          Id: `001${String(i).padStart(12, '0')}`,
+          Name: `Account ${String(i)}`,
+        }));
+        let created = 0;
+        const progress: ForgeProgressEvent[] = [];
+        const executorDeps: ForgeExecutorDeps = {
+          describeFields: async () => [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Name', queryable: true, createable: true, isReference: false },
+          ],
+          queryRecords: async (org) => (org === 'src-org' ? rows.map((row) => ({ ...row })) : []),
+          insertRecords: async (_org, _object, records) => {
+            // The cancel comes as the first call is answered.
+            await handler.handle(buildMsg('forge:abort'));
+            return records.map(() => ({
+              id: `001TGT${String(++created).padStart(9, '0')}`,
+              success: true,
+              errors: [],
+            }));
+          },
+        };
+        const real = new ForgeOrchestrator({
+          discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+          executor: new ForgeExecutor(executorDeps),
+        });
+        real.on('forge:progress', (event) => progress.push(event));
+        handler.setForgeOrchestrator(real);
+        const [account] = createMockGraph().nodes;
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: {
+              ...createMockGraph(),
+              nodes: [{ ...account, recordCount: 450, batchStrategy: 'rest' }],
+            },
+            config: createMockConfig(),
+          }),
+        );
+
+        expect(progress.filter((e) => e.objectName === 'Account').pop()).toMatchObject({
+          status: 'stopped',
+          message: 'Stopped Account: 200 succeeded, 0 failed, 250 not sent',
+        });
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [
+              {
+                objectApiName: 'Account',
+                created: 200,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 250,
+              },
+            ],
+          }),
+        ]);
+      });
+
+      it('counts the emails a failure kept from the target as their line says them', async () => {
+        // The run failed before the emails that waited for their task: their
+        // line said them not sent, as a cancel's does.
+        const store = recordingStore();
+        const stopped = new Error('INVALID_SESSION_ID: Session expired or invalid');
+        keepPartialSummary(stopped, {
+          successCount: 1,
+          updatedCount: 0,
+          linkedCount: 0,
+          wouldInsertCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          remapCount: 1,
+          errors: [],
+          truncatedObjects: [],
+          remapTable: {},
+          existingRecords: [],
+          existingSourceIds: [],
+          updatedSourceIds: [],
+          remapByObject: [{ objectApiName: 'EmailMessage', created: 1, linked: 0 }],
+          notSentByObject: [{ objectApiName: 'EmailMessage', notSent: 2 }],
+          createdByObject: [],
+          readByObject: [{ objectApiName: 'EmailMessage', read: 3 }],
+          failedReads: [],
+        });
+        vi.mocked(orchestrator.execute).mockRejectedValue(stopped);
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'failure',
+            objects: [
+              {
+                objectApiName: 'EmailMessage',
+                created: 1,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 2,
+              },
+            ],
+          }),
+        ]);
+      });
+    });
   });
 
   describe('a run that stopped part way, in the history', () => {

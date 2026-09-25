@@ -56,6 +56,20 @@ export type AICallFn = (
   config: AIModelConfig,
 ) => Promise<AICallResult>;
 
+/** What the host gives the assistant besides its calls. */
+export interface AIAssistantOptions {
+  /**
+   * Why a question is refused while another waits for its answer in the same
+   * conversation, in the user's language: the AI page shows it as it is. The
+   * host supplies it; left undefined, the text is English.
+   */
+  questionPendingMessage?: () => string;
+}
+
+/** English text of the refusal of a second question, when the host supplies none. */
+const QUESTION_PENDING_MESSAGE =
+  'An earlier question in this conversation is still waiting for its answer. Open the conversation again once it has come, then ask this one.';
+
 /**
  * An id no other message has, in the stored shape `msg-…-<role>`. It was the
  * clock's millisecond: two exchanges made in the same one stored four messages
@@ -99,11 +113,21 @@ export class AIAssistant {
   private readonly conversations: Map<string, Conversation> = new Map();
   private readonly callFn: AICallFn;
   private readonly config: AIModelConfig;
+  private readonly questionPendingMessage?: () => string;
   private conversationCounter = 0;
 
-  constructor(callFn: AICallFn, config: AIModelConfig) {
+  /**
+   * The conversations a question waits for its answer in. A panel closed and
+   * opened again while one waited knows nothing of it, and sent a second
+   * question beside it: each went out with a history that lacked the other,
+   * and the two exchanges were kept in the order their answers came.
+   */
+  private readonly asking = new Set<string>();
+
+  constructor(callFn: AICallFn, config: AIModelConfig, options: AIAssistantOptions = {}) {
     this.callFn = callFn;
     this.config = config;
+    this.questionPendingMessage = options.questionPendingMessage;
   }
 
   /**
@@ -156,6 +180,10 @@ export class AIAssistant {
    * call — is left out: kept, it went out again with the next question, and
    * the answer that came back replied to both.
    *
+   * One question at a time per conversation: another asked there before the
+   * answer comes is refused, and nothing of it is sent or kept. Questions in
+   * two conversations wait at once.
+   *
    * @param conversationId - The conversation to continue
    * @param userMessage - The user's message
    * @returns The AI response message
@@ -164,6 +192,9 @@ export class AIAssistant {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) {
       throw new Error(`Conversation ${conversationId} not found`);
+    }
+    if (this.asking.has(conversationId)) {
+      throw new Error(this.questionPendingMessage?.() ?? QUESTION_PENDING_MESSAGE);
     }
 
     const userMsg: ChatMessage = {
@@ -181,8 +212,16 @@ export class AIAssistant {
       })),
     ];
 
-    // Call AI provider
-    const result = await this.callFn(apiMessages, this.config);
+    // Call AI provider. Marked in the same turn as the check above, nothing
+    // awaited between, so no other question comes in between; answered or
+    // failed, the conversation takes a question again.
+    this.asking.add(conversationId);
+    let result: AICallResult;
+    try {
+      result = await this.callFn(apiMessages, this.config);
+    } finally {
+      this.asking.delete(conversationId);
+    }
 
     // Create assistant message
     const assistantMsg: ChatMessage = {
