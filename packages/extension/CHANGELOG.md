@@ -15,7 +15,8 @@ stopped wherever its run is shown.
 - **The AI features ask Claude Sonnet 5 by default**, and Settings names the
   model configured.
 - **An AI answer refused, cut off or empty** fails with a message in the
-  editor's language instead of reaching the page.
+  editor's language instead of reaching the page, and a chat question that
+  failed is not sent again with the next one.
 - **The webview merges its classes with tailwind-merge 3**, the version made
   for Tailwind 4; vsce 4, esbuild 0.28 and Vite 8.3.1 build it.
 
@@ -24,9 +25,12 @@ stopped wherever its run is shown.
 - **A Forge or Frozen object a cancel stops while it is written reads as
   stopped**, with what it never sent, on the graph, its tiles and the load list.
 - **The Forge graph keeps its height** on discovery and during the run, and
-  its objects stay clear of the minimap.
+  its objects stay clear of the minimap, as Autopilot's stay clear of its
+  minimap and legend.
 - **Statuses are named in the panel's language** in Forge's results, table
-  and object detail, and in Seed's progress.
+  and object detail, and in Seed's progress; Forge's columns sort by them.
+- **A Frozen load ends every line it opens**: an object whose write fails says
+  why, and pass 2, the statuses and a reload's purge say what a cancel kept.
 - **A Forge run cancelled midway is recorded as partial** in the audit trail,
   and a Frozen entry counts the rows a cancel kept back.
 

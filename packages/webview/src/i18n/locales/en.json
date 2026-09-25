@@ -1952,9 +1952,9 @@
     "viewChangelog": "View full changelog",
     "whatsNew": {
       "aiSonnet1397": "The AI features ask Claude Sonnet 5",
-      "aiSonnet1397Desc": "Chat, NL2SOQL, pipeline drafts, error resolution and Seed ask Claude Sonnet 5 by default, and Settings names the model configured. An answer refused, cut off or empty now says so in your language.",
+      "aiSonnet1397Desc": "Chat, NL2SOQL, pipeline drafts, error resolution and Seed ask Claude Sonnet 5 by default, and Settings names the model configured. An answer refused, cut off or empty now says so in your language. A question that failed is not sent again with the next one.",
       "fixRound1397": "A stopped object reads as stopped",
-      "fixRound1397Desc": "A Forge or Frozen object a cancel stops while it is written is marked stopped, with what it never sent. The Forge graph keeps its height and its objects stay clear of the minimap, and statuses are named in your language in Forge and Seed.",
+      "fixRound1397Desc": "A Forge or Frozen object a cancel stops while it is written is marked stopped, with what it never sent. The Forge graph keeps its height and its objects stay clear of the minimap, and statuses are named in your language in Forge and Seed. Autopilot's graph stays clear of its minimap and legend, and a Frozen load ends every line it opens.",
       "fixRound1396": "A cancel says what each object wrote",
       "fixRound1396Desc": "A cancelled Forge or Frozen run ends every object on a line that says what it wrote, the emails and price book entries included, and Seed and DataOps send no batch after a cancel, not even a failed one again.",
       "toolchain1396": "Tailwind 4 under every page",

@@ -1952,9 +1952,9 @@
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
       "aiSonnet1397": "Os recursos de IA consultam o Claude Sonnet 5",
-      "aiSonnet1397Desc": "O chat, o NL2SOQL, os rascunhos de pipeline, a resolução de erros e o Seed consultam o Claude Sonnet 5 por padrão, e as Configurações indicam o modelo configurado. Uma resposta recusada, cortada ou vazia agora avisa isso no seu idioma.",
+      "aiSonnet1397Desc": "O chat, o NL2SOQL, os rascunhos de pipeline, a resolução de erros e o Seed consultam o Claude Sonnet 5 por padrão, e as Configurações indicam o modelo configurado. Uma resposta recusada, cortada ou vazia agora avisa isso no seu idioma. Uma pergunta que falhou não é mais reenviada com a seguinte.",
       "fixRound1397": "Um objeto interrompido aparece como interrompido",
-      "fixRound1397Desc": "Um objeto do Forge ou do Frozen que um cancelamento interrompe durante a gravação é marcado como interrompido, com o que ele nunca enviou. O grafo do Forge mantém sua altura e seus objetos ficam livres do minimapa, e os status são nomeados no seu idioma no Forge e no Seed.",
+      "fixRound1397Desc": "Um objeto do Forge ou do Frozen que um cancelamento interrompe durante a gravação é marcado como interrompido, com o que ele nunca enviou. O grafo do Forge mantém sua altura e seus objetos ficam livres do minimapa, e os status são nomeados no seu idioma no Forge e no Seed. O grafo do Autopilot fica livre do minimapa e da legenda, e um carregamento do Frozen encerra cada linha que abre.",
       "fixRound1396": "Um cancelamento diz o que cada objeto gravou",
       "fixRound1396Desc": "Uma execução do Forge ou do Frozen cancelada encerra cada objeto com uma linha que diz o que ele gravou, e-mails e entradas de catálogo de preços incluídos, e o Seed e o DataOps não enviam nenhum lote depois de um cancelamento, nem mesmo um lote com falha de novo.",
       "toolchain1396": "Tailwind 4 sob cada página",

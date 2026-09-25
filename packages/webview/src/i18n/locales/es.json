@@ -1952,9 +1952,9 @@
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
       "aiSonnet1397": "Las funciones de IA consultan a Claude Sonnet 5",
-      "aiSonnet1397Desc": "El chat, NL2SOQL, los borradores de pipeline, la resolución de errores y Seed consultan a Claude Sonnet 5 de forma predeterminada, y la Configuración nombra el modelo configurado. Una respuesta rechazada, truncada o vacía ahora lo indica en su idioma.",
+      "aiSonnet1397Desc": "El chat, NL2SOQL, los borradores de pipeline, la resolución de errores y Seed consultan a Claude Sonnet 5 de forma predeterminada, y la Configuración nombra el modelo configurado. Una respuesta rechazada, truncada o vacía ahora lo indica en su idioma. Una pregunta que falló ya no se reenvía con la siguiente.",
       "fixRound1397": "Un objeto detenido se muestra como detenido",
-      "fixRound1397Desc": "Un objeto de Forge o Frozen que una cancelación detiene mientras se escribe se marca como detenido, con lo que nunca envió. El grafo de Forge conserva su altura y sus objetos quedan libres del minimapa, y los estados se nombran en su idioma en Forge y Seed.",
+      "fixRound1397Desc": "Un objeto de Forge o Frozen que una cancelación detiene mientras se escribe se marca como detenido, con lo que nunca envió. El grafo de Forge conserva su altura y sus objetos quedan libres del minimapa, y los estados se nombran en su idioma en Forge y Seed. El grafo de Autopilot queda libre de su minimapa y su leyenda, y una carga de Frozen cierra cada línea que abre.",
       "fixRound1396": "Una cancelación dice lo que escribió cada objeto",
       "fixRound1396Desc": "Una ejecución de Forge o Frozen cancelada termina cada objeto con una línea que dice lo que escribió, correos y entradas de lista de precios incluidos, y Seed y DataOps no envían ningún lote tras una cancelación, ni siquiera un lote fallido de nuevo.",
       "toolchain1396": "Tailwind 4 bajo cada página",
