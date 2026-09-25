@@ -1937,6 +1937,12 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "frozenTakeBack": "Einen Ladevorgang des Eingefrorenen Datensatzes zurücknehmen",
+      "frozenTakeBackDesc": "Entfernen Sie aus dem Ziel die Datensätze, die ein Ladevorgang erstellt hat, und nur diese: Datensätze, mit denen er nur verknüpft hat, bleiben erhalten. Frühere Ladevorgänge bleiben benannt und lassen sich einzeln zurücknehmen, und der Tab Laden zeigt, warum Datensätze fehlschlugen und was die Bereinigung eines erneuten Ladens entfernt hat.",
+      "forgeWriteTheRest": "Den Rest eines gestoppten Forge-Laufs schreiben",
+      "forgeWriteTheRestDesc": "Ein fehlgeschlagener oder gestoppter Lauf kann den Rest über das schreiben, was er bereits geschrieben hat, und der Ausführungsbildschirm behält Fortschritt, Uhr und Ergebnis, wenn Sie ihn verlassen.",
+      "fixRound139": "Jedes Modul sagt, was es zurückgehalten hat",
+      "fixRound139Desc": "Forge hält zurück, was Sie auslassen, und jede Zeile, die es braucht, der Seed-Klon ordnet nach dem, was beide Orgs gemeinsam haben, und meldet einen abgebrochenen Klon, die Zeilen, die die Plattform selbst schreibt, bleiben ihr in jedem Modul überlassen, und ein abgebrochener Lauf, der nichts geschrieben hat, wird als gestoppt erfasst.",
       "fixRound1382": "Klone bringen mit, was ein Datensatz wirklich enthält",
       "fixRound1382Desc": "Ein Opportunity-Klon mit Produktpositionen funktioniert mit den Standardeinstellungen, die Ergebnisse zählen den Klon statt ganzer Tabellen, jedes Modul überlässt verfolgte Änderungen der Plattform, und ein Eingefrorener Datensatz enthält seine Angebote, Aufträge und Preise.",
       "fixRound1381": "Forge: Korrekturen an Klonen und Entfernungen",

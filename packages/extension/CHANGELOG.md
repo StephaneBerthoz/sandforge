@@ -5,6 +5,60 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.0] - 2026-09-25
+
+A Frozen load can be taken back, a stopped Forge run can write the rest, and
+every module says what it wrote, held back or could not write.
+
+### Added
+
+- **Take back a Frozen load** from the Frozen page or the command line: the
+  records it created go, the ones it only linked stay, and earlier loads can
+  be taken back one by one. Not yet run against a real org.
+- **Write the rest of a failed or stopped Forge run** over what the first run
+  wrote.
+- **The Load tab says why**: failed records grouped by reason, what a
+  reload's purge took and could not take, and the links a load left empty.
+
+### Fixed
+
+- **Forge: a stopped run says what it wrote** and offers a way out; its
+  progress, log, clock and result survive leaving the screen, and it reads
+  Stopped, not Completed.
+- **Forge: an abort is never lost**, even during Production Guard's
+  confirmation, and a second run waits for the first to finish.
+- **Forge: what you leave out stays out.** Unchecked or excluded objects are
+  held back with their cost shown in Review, and so is every row that needs
+  one of them.
+- **Forge: no lines lost at smaller caps**, and a product clone brings only
+  the categories its own assignments name.
+- **Forge: activated orders at the default cap bring their items** and are
+  activated again.
+- **Forge: the catalog is read again** for what later records name, and a
+  price book the clone leaves out brings no price.
+- **Forge: starter templates say their counts come with discovery**, and the
+  clone command says what its graph numbers count.
+- **Frozen: a reload purges only what earlier loads created**, dated by the
+  org's clock, and a load that fails part way keeps what it created named.
+- **Frozen: a refused or cancelled reload purges nothing it should keep**, and
+  orders a stopped reload set to Draft get their status back.
+- **Frozen: a load leaves out what the target refuses**, carries the prices a
+  pilot needs, and keeps matching the standard price book when price books
+  are excluded.
+- **Frozen: verify names a changed or moved dataset folder** before anything
+  else.
+- **Rows the platform writes itself are left to it**: an email's task and an
+  event's or task's contact, in Forge, Frozen, Sync, Seed and Autopilot. An
+  invited contact keeps their answer.
+- **Seed Clone orders by what both orgs have in common**, breaks cycles with a
+  second pass, says when a clone was cancelled, and needs both orgs before its
+  preview.
+- **Updates send the duplicate-rule header** in Sync, DataOps anonymization,
+  compliance erasure and cleanup.
+- **Live Operations and the Forge cards add up every write** of an object.
+- **A cancelled run that wrote nothing is recorded as stopped** in Forge,
+  Frozen and CSV import.
+
 ## [1.38.2] - 2026-09-24
 
 Forge and Frozen clone what a record really holds, and report it in numbers

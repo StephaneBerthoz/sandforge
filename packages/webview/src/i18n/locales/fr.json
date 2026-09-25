@@ -1937,6 +1937,12 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "frozenTakeBack": "Retirer un chargement de Jeu figé",
+      "frozenTakeBackDesc": "Retirez de la cible les enregistrements qu'un chargement a créés, et seulement ceux-là : ceux qu'il a liés restent. Les chargements précédents restent nommés et se retirent un par un, et l'onglet Charger dit pourquoi des enregistrements ont échoué et ce que la purge d'un rechargement a pris.",
+      "forgeWriteTheRest": "Écrire le reste d'une exécution Forge arrêtée",
+      "forgeWriteTheRestDesc": "Une exécution en échec ou arrêtée peut écrire le reste par-dessus ce qu'elle a déjà écrit, et l'écran d'exécution garde sa progression, son chrono et son résultat quand vous le quittez.",
+      "fixRound139": "Chaque module dit ce qu'il a mis de côté",
+      "fixRound139Desc": "Forge met de côté ce que vous excluez et chaque ligne qui en dépend, le clonage Seed ordonne selon ce que les deux orgs ont en commun et signale un clonage annulé, les lignes que la plateforme écrit elle-même lui sont laissées dans chaque module, et une exécution annulée sans rien écrire est enregistrée comme arrêtée.",
       "fixRound1382": "Les clonages emportent ce qu'un enregistrement contient vraiment",
       "fixRound1382Desc": "Un clonage d'opportunité avec lignes de produits fonctionne avec les réglages par défaut, les résultats comptent le clonage et non des tables entières, chaque module laisse les modifications suivies à la plateforme, et un Jeu figé emporte ses devis, commandes et prix.",
       "fixRound1381": "Forge : corrections des clonages et des retraits",

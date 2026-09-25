@@ -1937,6 +1937,12 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "frozenTakeBack": "Desfazer uma carga do Dataset congelado",
+      "frozenTakeBackDesc": "Remova do destino os registros que uma carga criou, e somente eles: os registros aos quais ela apenas se vinculou são mantidos. As cargas anteriores continuam identificadas e podem ser desfeitas uma a uma, e a aba Carregar diz por que registros falharam e o que a limpeza de uma recarga removeu.",
+      "forgeWriteTheRest": "Gravar o restante de uma execução do Forge interrompida",
+      "forgeWriteTheRestDesc": "Uma execução com falha ou interrompida pode gravar o restante sobre o que já gravou, e a tela de execução mantém o progresso, o relógio e o resultado quando você sai dela.",
+      "fixRound139": "Cada módulo diz o que deixou de fora",
+      "fixRound139Desc": "O Forge deixa de fora o que você exclui e cada linha que depende disso, a clonagem do Seed ordena pelo que as duas orgs têm em comum e avisa quando uma clonagem foi cancelada, as linhas que a plataforma grava sozinha ficam com ela em todos os módulos, e uma execução cancelada sem gravar nada é registrada como interrompida.",
       "fixRound1382": "As clonagens levam o que um registro realmente contém",
       "fixRound1382Desc": "Uma clonagem de oportunidade com linhas de produto funciona com as configurações padrão, os resultados contam a clonagem e não tabelas inteiras, cada módulo deixa as alterações rastreadas para a plataforma, e um Dataset congelado leva suas cotações, pedidos e preços.",
       "fixRound1381": "Forge: correções em clonagens e remoções",

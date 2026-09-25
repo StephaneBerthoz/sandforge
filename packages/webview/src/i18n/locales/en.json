@@ -1937,6 +1937,12 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "frozenTakeBack": "Take back a Frozen load",
+      "frozenTakeBackDesc": "Remove from the target the records a load created, and only those: the records it linked stay. Earlier loads stay named and can be taken back one by one, and the Load tab says why records failed and what a reload's purge took.",
+      "forgeWriteTheRest": "Write the rest of a stopped Forge run",
+      "forgeWriteTheRestDesc": "A run that failed or was stopped can write the rest over what it already wrote, and the execution screen keeps its progress, clock and result when you leave it.",
+      "fixRound139": "Every module says what it held back",
+      "fixRound139Desc": "Forge holds back what you leave out and every row that needs it, Seed Clone orders by what both orgs have in common and says when a clone was cancelled, the rows the platform writes itself are left to it in every module, and a cancelled run that wrote nothing is recorded as stopped.",
       "fixRound1382": "Clones carry what a record really holds",
       "fixRound1382Desc": "An opportunity clone with product lines works at the default settings, results count the clone rather than whole tables, every module leaves tracked changes to the platform, and a Frozen Dataset carries its quotes, orders and prices.",
       "fixRound1381": "Forge: fixes to clones and removals",

@@ -1937,6 +1937,12 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "frozenTakeBack": "Deshacer una carga del Dataset congelado",
+      "frozenTakeBackDesc": "Quite del destino los registros que creó una carga, y solo esos: los registros que solo vinculó se conservan. Las cargas anteriores siguen identificadas y se pueden deshacer una a una, y la pestaña Cargar dice por qué fallaron registros y qué quitó la purga de una recarga.",
+      "forgeWriteTheRest": "Escribir el resto de una ejecución de Forge detenida",
+      "forgeWriteTheRestDesc": "Una ejecución fallida o detenida puede escribir el resto sobre lo que ya escribió, y la pantalla de ejecución conserva su progreso, su reloj y su resultado cuando la abandona.",
+      "fixRound139": "Cada módulo dice lo que dejó fuera",
+      "fixRound139Desc": "Forge deja fuera lo que usted excluye y cada fila que lo necesita, la clonación de Seed ordena según lo que ambas orgs tienen en común y avisa de una clonación cancelada, las filas que la plataforma escribe por sí misma se le dejan en cada módulo, y una ejecución cancelada sin escribir nada se registra como detenida.",
       "fixRound1382": "Las clonaciones llevan lo que un registro contiene de verdad",
       "fixRound1382Desc": "Una clonación de oportunidad con líneas de producto funciona con la configuración predeterminada, los resultados cuentan la clonación y no tablas enteras, cada módulo deja a la plataforma los cambios con seguimiento, y un Dataset congelado lleva sus presupuestos, pedidos y precios.",
       "fixRound1381": "Forge: correcciones en clonaciones y eliminaciones",
