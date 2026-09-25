@@ -5,6 +5,26 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.4] - 2026-09-25
+
+A wizard ignores a second Enter while it waits, and Forge follows a catalog
+further.
+
+### Fixed
+
+- **A second Enter never starts an unreviewed run**: while a wizard's Next
+  waits, the keyboard stays on it, then moves to the step that comes.
+- **Autopilot announces its scan and its plan**, and the keyboard moves to its
+  run when it starts.
+- **Forge's plan and preview card say their API calls are estimates.**
+- **Forge: a product sold only by held-back lines is held back with them.**
+- **Forge: records read before a parent that came late are read again under
+  it**, and a category brings its parents up the tree.
+- **An invited contact keeps its flag** when the target refuses only its
+  answer, and the refused field is named.
+- **The clone command counts its record-type lookup**, and the frozen command
+  prints the PersonContact links.
+
 ## [1.39.3] - 2026-09-25
 
 The webview runs on React 19; every page renders as before.

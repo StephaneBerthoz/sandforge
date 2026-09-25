@@ -1945,6 +1945,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1394": "Un segundo Enter no inicia nada sin revisar",
+      "fixRound1394Desc": "Mientras el botón Siguiente de un asistente espera, el teclado se queda en él y luego pasa al paso que llega; Forge vuelve a leer lo que trae un padre tardío, sube por un árbol de categorías y presenta sus llamadas a la API como estimaciones, y un contacto invitado conserva su indicador cuando solo se rechaza su respuesta.",
       "react1393": "React 19 bajo cada página",
       "react1393Desc": "Los paneles funcionan con React 19, sus stores con zustand 5, sus animaciones con framer-motion 13 y sus grafos con @xyflow/react 12; cada página se muestra como antes, y algunos iconos se han redibujado.",
       "toolchain1392": "Una compilación más reciente bajo cada página",

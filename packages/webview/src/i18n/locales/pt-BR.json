@@ -1945,6 +1945,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1394": "Um segundo Enter não inicia nada sem revisão",
+      "fixRound1394Desc": "Enquanto o botão Avançar de um assistente espera, o teclado fica nele e depois passa para a etapa seguinte; o Forge lê novamente o que um pai tardio traz, sobe uma árvore de categorias e apresenta suas chamadas de API como estimativas, e um contato convidado mantém seu indicador quando apenas sua resposta é recusada.",
       "react1393": "React 19 sob cada página",
       "react1393Desc": "Os painéis rodam no React 19, seus stores no zustand 5, suas animações no framer-motion 13 e seus grafos no @xyflow/react 12; cada página é exibida como antes, e alguns ícones foram redesenhados.",
       "toolchain1392": "Uma compilação mais recente sob cada página",

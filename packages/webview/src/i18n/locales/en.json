@@ -1945,6 +1945,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1394": "A second Enter starts nothing unreviewed",
+      "fixRound1394Desc": "While a wizard's Next waits, the keyboard stays on it and then moves to the step that comes; Forge reads again what a late parent brings, climbs a category tree and calls its API counts estimates, and an invited contact keeps its flag when only its answer is refused.",
       "react1393": "React 19 under every page",
       "react1393Desc": "The panels run on React 19, their stores on zustand 5, their animations on framer-motion 13 and their graphs on @xyflow/react 12; every page renders as before, and a few icons are redrawn.",
       "toolchain1392": "A newer build under every page",

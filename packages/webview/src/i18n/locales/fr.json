@@ -1945,6 +1945,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1394": "Un second Entrée ne lance rien de non relu",
+      "fixRound1394Desc": "Tant que le bouton Suivant d'un assistant attend, le clavier y reste puis passe à l'étape qui arrive ; Forge relit ce qu'apporte un parent venu tard, remonte une arborescence de catégories et présente ses appels API comme des estimations, et un contact invité garde son indicateur quand seule sa réponse est refusée.",
       "react1393": "React 19 sous chaque page",
       "react1393Desc": "Les panneaux tournent sur React 19, leurs stores sur zustand 5, leurs animations sur framer-motion 13 et leurs graphes sur @xyflow/react 12 ; chaque page s'affiche comme avant, et quelques icônes sont redessinées.",
       "toolchain1392": "Une construction plus récente sous chaque page",

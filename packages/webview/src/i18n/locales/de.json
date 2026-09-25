@@ -1945,6 +1945,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1394": "Ein zweites Enter startet nichts Ungeprüftes",
+      "fixRound1394Desc": "Solange die Schaltfläche Weiter eines Assistenten wartet, bleibt die Tastatur auf ihr und wechselt dann zum nächsten Schritt; Forge liest erneut, was ein später Elternknoten mitbringt, steigt einen Kategoriebaum hinauf und weist seine API-Aufrufe als Schätzungen aus, und ein eingeladener Kontakt behält seine Markierung, wenn nur seine Antwort abgelehnt wird.",
       "react1393": "React 19 unter jeder Seite",
       "react1393Desc": "Die Panels laufen auf React 19, ihre Stores auf zustand 5, ihre Animationen auf framer-motion 13 und ihre Graphen auf @xyflow/react 12; jede Seite wird wie zuvor angezeigt, und einige Symbole sind neu gezeichnet.",
       "toolchain1392": "Ein neuerer Build unter jeder Seite",
