@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "react1393": "React 19 unter jeder Seite",
+      "react1393Desc": "Die Panels laufen auf React 19, ihre Stores auf zustand 5, ihre Animationen auf framer-motion 13 und ihre Graphen auf @xyflow/react 12; jede Seite wird wie zuvor angezeigt, und einige Symbole sind neu gezeichnet.",
       "toolchain1392": "Ein neuerer Build unter jeder Seite",
       "toolchain1392Desc": "Die Panels werden mit Vite 8 gebaut und prüfen, was sie empfangen, mit zod 4 – ohne eval, wie es die Webview-Richtlinie von VS Code verlangt; jede Seite wird wie zuvor angezeigt.",
       "fixRound1391": "Der Seed-Klon schreibt dorthin, wofür er die Vorschau erstellt hat",

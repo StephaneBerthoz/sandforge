@@ -1943,6 +1943,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "react1393": "React 19 bajo cada página",
+      "react1393Desc": "Los paneles funcionan con React 19, sus stores con zustand 5, sus animaciones con framer-motion 13 y sus grafos con @xyflow/react 12; cada página se muestra como antes, y algunos iconos se han redibujado.",
       "toolchain1392": "Una compilación más reciente bajo cada página",
       "toolchain1392Desc": "Los paneles se compilan con Vite 8 y validan lo que reciben con zod 4, sin eval, como exige la política de webviews de VS Code; cada página se muestra como antes.",
       "fixRound1391": "La clonación de Seed escribe donde hizo la vista previa",

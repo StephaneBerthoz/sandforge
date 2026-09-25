@@ -1,6 +1,6 @@
 {
   "name": "sandforge",
-  "version": "1.39.2",
+  "version": "1.39.3",
   "private": true,
   "description": "Salesforce Sandbox ETL Toolkit for VSCode",
   "scripts": {

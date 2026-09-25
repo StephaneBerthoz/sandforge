@@ -5,6 +5,16 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.3] - 2026-09-25
+
+The webview runs on React 19; every page renders as before.
+
+### Changed
+
+- **The webview runs on React 19**, with zustand 5, framer-motion 13 and React
+  Flow's maintained package, @xyflow/react 12.
+- **A few icons are redrawn** by lucide's newer set, with the same meaning.
+
 ## [1.39.2] - 2026-09-25
 
 The webview is built with Vite 8 and payloads are validated with zod 4; every

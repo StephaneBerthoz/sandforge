@@ -1943,6 +1943,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "react1393": "React 19 sous chaque page",
+      "react1393Desc": "Les panneaux tournent sur React 19, leurs stores sur zustand 5, leurs animations sur framer-motion 13 et leurs graphes sur @xyflow/react 12 ; chaque page s'affiche comme avant, et quelques icônes sont redessinées.",
       "toolchain1392": "Une construction plus récente sous chaque page",
       "toolchain1392Desc": "Les panneaux sont construits avec Vite 8 et vérifient ce qu'ils reçoivent avec zod 4, sans eval, comme l'exige la politique des webviews de VS Code ; chaque page s'affiche comme avant.",
       "fixRound1391": "Le clonage Seed écrit là où il a prévisualisé",

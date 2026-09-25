@@ -1836,6 +1836,8 @@
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
     "whatsNew": {
+      "react1393": "すべてのページが React 19 に",
+      "react1393Desc": "パネルは React 19、ストアは zustand 5、アニメーションは framer-motion 13、グラフは @xyflow/react 12 で動作します。どのページも以前と同じように表示され、一部のアイコンは新しいデザインになりました。",
       "toolchain1392": "すべてのページの土台を更新",
       "toolchain1392Desc": "パネルは Vite 8 でビルドされ、受け取る内容を zod 4 で検証します。VS Code の Webview ポリシーに従い eval は使いません。どのページも以前と同じように表示されます。",
       "fixRound1391": "Seed のクローンはプレビューした組織に書き込みます",

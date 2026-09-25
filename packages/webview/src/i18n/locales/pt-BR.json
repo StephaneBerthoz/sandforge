@@ -1943,6 +1943,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "react1393": "React 19 sob cada página",
+      "react1393Desc": "Os painéis rodam no React 19, seus stores no zustand 5, suas animações no framer-motion 13 e seus grafos no @xyflow/react 12; cada página é exibida como antes, e alguns ícones foram redesenhados.",
       "toolchain1392": "Uma compilação mais recente sob cada página",
       "toolchain1392Desc": "Os painéis são compilados com o Vite 8 e validam o que recebem com o zod 4, sem eval, como exige a política de webviews do VS Code; cada página é exibida como antes.",
       "fixRound1391": "A clonagem do Seed grava onde fez a pré-visualização",
