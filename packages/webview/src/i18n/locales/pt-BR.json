@@ -1943,6 +1943,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1395": "Um cancelamento para o que ainda não saiu",
+      "fixRound1395Desc": "Cancelar uma sincronização, uma carga do Frozen, uma clonagem do Seed ou uma execução do Forge interrompe toda gravação ainda não enviada, inclusive um lote que o destino recusou, e cada objeto diz o que gravou; a execução do Forge conta suas chamadas de API à medida que as faz, e as ferramentas de linha de comando leem todas as linhas e excluem mais de 200 registros.",
       "fixRound1394": "Um segundo Enter não inicia nada sem revisão",
       "fixRound1394Desc": "Enquanto o botão Avançar de um assistente espera, o teclado fica nele e depois passa para a etapa seguinte; o Forge lê novamente o que um pai tardio traz, sobe uma árvore de categorias e apresenta suas chamadas de API como estimativas, e um contato convidado mantém seu indicador quando apenas sua resposta é recusada.",
       "react1393": "React 19 sob cada página",

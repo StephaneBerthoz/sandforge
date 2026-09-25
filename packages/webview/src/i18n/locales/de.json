@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1395": "Ein Abbruch stoppt, was noch nicht gesendet ist",
+      "fixRound1395Desc": "Wer eine Synchronisierung, einen Frozen-Ladevorgang, einen Seed-Klon oder einen Forge-Lauf abbricht, stoppt jeden noch nicht gesendeten Schreibvorgang, auch einen Stapel, den das Ziel abgelehnt hat, und jedes Objekt sagt, was es geschrieben hat; die Forge-Ausführung zählt ihre API-Aufrufe laufend, und die Befehlszeilenwerkzeuge lesen jede Zeile und löschen auch mehr als 200 Datensätze.",
       "fixRound1394": "Ein zweites Enter startet nichts Ungeprüftes",
       "fixRound1394Desc": "Solange die Schaltfläche Weiter eines Assistenten wartet, bleibt die Tastatur auf ihr und wechselt dann zum nächsten Schritt; Forge liest erneut, was ein später Elternknoten mitbringt, steigt einen Kategoriebaum hinauf und weist seine API-Aufrufe als Schätzungen aus, und ein eingeladener Kontakt behält seine Markierung, wenn nur seine Antwort abgelehnt wird.",
       "react1393": "React 19 unter jeder Seite",

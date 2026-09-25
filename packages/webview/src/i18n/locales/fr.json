@@ -1943,6 +1943,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1395": "Une annulation arrête ce qui n'est pas parti",
+      "fixRound1395Desc": "Annuler une synchronisation, un chargement Frozen, un clonage Seed ou une exécution Forge arrête toute écriture pas encore envoyée, y compris un lot que la cible a refusé, et chaque objet dit ce qu'il a écrit ; l'exécution Forge compte ses appels API au fil de l'eau, et les outils en ligne de commande lisent toutes les lignes et suppriment au-delà de 200 enregistrements.",
       "fixRound1394": "Un second Entrée ne lance rien de non relu",
       "fixRound1394Desc": "Tant que le bouton Suivant d'un assistant attend, le clavier y reste puis passe à l'étape qui arrive ; Forge relit ce qu'apporte un parent venu tard, remonte une arborescence de catégories et présente ses appels API comme des estimations, et un contact invité garde son indicateur quand seule sa réponse est refusée.",
       "react1393": "React 19 sous chaque page",

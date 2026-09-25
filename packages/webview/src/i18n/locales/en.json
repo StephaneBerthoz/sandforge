@@ -1943,6 +1943,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1395": "A cancel stops what has not gone out",
+      "fixRound1395Desc": "Cancelling a Sync, a Frozen load, a Seed Clone or a Forge run stops every write not yet sent, a batch the target failed on included, and each object says what it wrote; Forge's execution counts its API calls as it makes them, and the command-line tools read every row and delete past 200 records.",
       "fixRound1394": "A second Enter starts nothing unreviewed",
       "fixRound1394Desc": "While a wizard's Next waits, the keyboard stays on it and then moves to the step that comes; Forge reads again what a late parent brings, climbs a category tree and calls its API counts estimates, and an invited contact keeps its flag when only its answer is refused.",
       "react1393": "React 19 under every page",

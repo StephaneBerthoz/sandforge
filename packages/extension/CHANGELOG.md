@@ -5,6 +5,29 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.5] - 2026-09-25
+
+A cancel stops every write that has not gone out, and the command-line tools
+read and delete everything they are asked to.
+
+### Fixed
+
+- **A cancel stops every write that has not gone out**: a write's first
+  batch, a batch the target failed on, a Bulk API job not yet opened, and a
+  Frozen object's rows once its relations were looked up.
+- **A Forge object the cancel stops says what it wrote**, and the updates that
+  give invitees their flags stop with the run.
+- **Forge's execution shows the API calls made so far**; the plan, QuickSync
+  and Autopilot say their counts are estimates.
+- **Autopilot's review takes the keyboard back** when a run is refused or its
+  confirmation declined.
+- **Forge says why each held-back row is not written**, and rows read again
+  under a late order keep only those its status needs.
+- **The sync command reads every row of an object**, not the first 200, and
+  every command reads every page of a query.
+- **The cleanup command deletes more than 200 records**, and the clone command
+  prints every group of errors.
+
 ## [1.39.4] - 2026-09-25
 
 A wizard ignores a second Enter while it waits, and Forge follows a catalog
