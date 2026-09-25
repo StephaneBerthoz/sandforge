@@ -47,6 +47,7 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
 import { runAnonymization, type PIIFieldInfo } from '../src/modules/forge/ForgeAnonymizer.js';
 import type {
@@ -951,11 +952,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   console.log(`record-types: ${recordTypeMappings.length} mappings`);
 
   const executorDeps: ForgeExecutorDeps = {
-    queryRecords: async (orgId, soql) => {
+    queryRecords: async (orgId, soql, onTruncated) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.query<Record<string, unknown>>(soql);
-      return r.records;
+      // `query` answers with its first page alone, 2 000 records at most: the
+      // command read a bigger scope short where the extension, which follows
+      // the cursor, read all of it.
+      const { records, truncated } = await queryAllPages<Record<string, unknown>>(
+        {
+          query: async (q) => c.query<Record<string, unknown>>(q),
+          queryMore: async (url) => c.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      );
+      if (truncated) onTruncated?.();
+      return records;
     },
     insertRecords: async (orgId, name, records) => {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));

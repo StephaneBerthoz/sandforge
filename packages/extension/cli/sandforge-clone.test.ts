@@ -926,6 +926,31 @@ describe('sandforge-clone describes', () => {
       return orgs;
     }
 
+    it('reads every page of a query, not the first alone', async () => {
+      // A query answers with 2 000 records at most and a cursor to the rest:
+      // the command read the first page and cloned a bigger scope short.
+      const orgs = withFakeOrgs();
+      const source = orgs.SRC.conn as unknown as {
+        query: (soql: string) => Promise<unknown>;
+        queryMore: (url: string) => Promise<unknown>;
+      };
+      const firstPage = source.query;
+      const nextContact = { Id: '003000000000002AAA', LastName: 'Second', AccountId: ACCOUNT };
+      source.query = async (soql: string) => {
+        const page = (await firstPage(soql)) as { totalSize: number; records: FakeRow[] };
+        if (!/^SELECT (?!COUNT\(\)).* FROM Contact\b/.test(soql)) return page;
+        return { ...page, done: false, nextRecordsUrl: '/query/next-contacts' };
+      };
+      source.queryMore = async (url: string) => {
+        expect(url).toBe('/query/next-contacts');
+        return { totalSize: 2, done: true, records: [nextContact] };
+      };
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain('  [dry-run] Contact: 2 record(s) would be inserted');
+    });
+
     it('leaves out an object --exclude-object names, and says so where it prints the others', async () => {
       withFakeOrgs();
 
