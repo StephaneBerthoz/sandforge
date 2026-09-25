@@ -26,10 +26,10 @@ export const EMAIL_MESSAGE = 'EmailMessage';
 export const TASK = 'Task';
 
 /** A task's relation to its who and to its what. */
-export const TASK_RELATION = 'TaskRelation';
+const TASK_RELATION = 'TaskRelation';
 
 /** An event's relation to its who, to its what, and to each of its invitees. */
-export const EVENT_RELATION = 'EventRelation';
+const EVENT_RELATION = 'EventRelation';
 
 /** Contacts per `IN` list when the direct relations are looked up. */
 const DIRECT_RELATION_CHUNK = 200;

@@ -1,1 +1,1 @@
-export { escapeUserData, wrapAsUserData, stringifyAndEscape } from './escapeUserData.js';
+export { wrapAsUserData } from './escapeUserData.js';

@@ -397,22 +397,22 @@
     "test:smoke": "pnpm -w run build && pnpm compile:smoke && vscode-test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.126.0",
+    "@anthropic-ai/sdk": "0.128.0",
     "@sandforge/shared": "workspace:*",
-    "cron-parser": "^5.5.0",
+    "cron-parser": "^5.10.1",
     "jsforce": "^3",
-    "pino": "^10",
+    "pino": "^10.3.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "^20",
+    "@types/node": "^20.19.43",
     "@types/vscode": "^1.95",
     "@vitest/coverage-v8": "catalog:",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^3",
-    "esbuild": "^0.25.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
     "eslint": "catalog:",
     "fast-check": "catalog:",
     "typescript": "catalog:",

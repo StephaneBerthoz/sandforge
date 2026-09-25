@@ -16,6 +16,7 @@ import * as path from 'node:path';
 // Tests run with cwd = packages/extension → the workspace manifest is two levels up.
 const manifestPath = path.resolve(process.cwd(), '..', '..', 'pnpm-workspace.yaml');
 const manifest = fs.readFileSync(manifestPath, 'utf8');
+const lockfile = fs.readFileSync(path.resolve(manifestPath, '..', 'pnpm-lock.yaml'), 'utf8');
 
 interface Block {
   /** The contiguous `#` comment block directly above the key, if any. */
@@ -71,10 +72,14 @@ describe('pnpm build-script approvals', () => {
     expect(approvals.get('core-js-pure')).toBe('false');
   });
 
-  it('blocks the keytar native build', () => {
-    // keytar is an optional dep of @vscode/vsce for `vsce login` only; approving
-    // it runs node-gyp on every install for a code path releases never take.
-    expect(approvals.get('keytar')).toBe('false');
+  it('approves no native build for the keychain of `vsce login`', () => {
+    // vsce 3 pulled in keytar for that flow alone, and its node-gyp build was
+    // blocked here. vsce 4 goes through @napi-rs/keyring, prebuilt: nothing to
+    // approve, and the keytar entry went with it. Back in the tree, keytar
+    // would need its block again, for a code path releases never take.
+    const approved = [...approvals].filter(([, allowed]) => allowed === 'true');
+    expect(approved.map(([name]) => name).sort()).toEqual(['@vscode/vsce-sign', 'esbuild']);
+    expect(lockfile).not.toMatch(/^\s+'?keytar@/m);
   });
 
   it('writes approvals only in allowBuilds, the one list pnpm 11 reads', () => {
@@ -121,5 +126,13 @@ describe('pnpm security overrides', () => {
     expect(overrides.comment).not.toMatch(/All devDep-only/);
     expect(overrides.comment).toMatch(/flatted and lodash are devDep-only/);
     expect(overrides.comment).toMatch(/Recharts 3 does not/);
+  });
+
+  it('leaves vsce the minimatch it calls by name', () => {
+    // vsce 3 took minimatch 3 as a default import, and a pin held it there.
+    // vsce 4 calls `minimatch_1.minimatch`, which 3.x does not export: the
+    // same pin would fail `vsce package` on its first ignore pattern.
+    expect(pins.has('@vscode/vsce>minimatch')).toBe(false);
+    expect(overrides.comment).toMatch(/vsce 4 calls/);
   });
 });

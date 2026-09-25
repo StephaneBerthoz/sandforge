@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
       "entry": ["scripts/*.test.{ts,mjs}"]
@@ -13,7 +13,7 @@
     },
     "packages/webview": {
       "entry": ["src/main.sidepanel.tsx", "src/PanelApp.tsx", "vite.config.e2e.ts"],
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx,css}"]
     }
   },
   "rules": {
@@ -26,7 +26,6 @@
     "@vscode/vsce",
     "@axe-core/playwright",
     "@playwright/test",
-    "@vscode/test-electron",
-    "tailwindcss"
+    "@vscode/test-electron"
   ]
 }
