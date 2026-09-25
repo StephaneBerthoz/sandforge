@@ -1943,6 +1943,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1396": "A cancel says what each object wrote",
+      "fixRound1396Desc": "A cancelled Forge or Frozen run ends every object on a line that says what it wrote, the emails and price book entries included, and Seed and DataOps send no batch after a cancel, not even a failed one again.",
       "toolchain1396": "Tailwind 4 under every page",
       "toolchain1396Desc": "The panels' styles are built with Tailwind 4, and their charts, icons, translations and dates run on Recharts 3, lucide-react 1, i18next 26 and date-fns 4; every page renders as before, and the Forge graph may order a row's objects differently.",
       "fixRound1395": "A cancel stops what has not gone out",

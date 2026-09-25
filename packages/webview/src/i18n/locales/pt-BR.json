@@ -1943,6 +1943,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1396": "Um cancelamento diz o que cada objeto gravou",
+      "fixRound1396Desc": "Uma execução do Forge ou do Frozen cancelada encerra cada objeto com uma linha que diz o que ele gravou, e-mails e entradas de catálogo de preços incluídos, e o Seed e o DataOps não enviam nenhum lote depois de um cancelamento, nem mesmo um lote com falha de novo.",
       "toolchain1396": "Tailwind 4 sob cada página",
       "toolchain1396Desc": "Os estilos dos painéis são gerados com Tailwind 4, e seus gráficos, ícones, traduções e datas rodam no Recharts 3, lucide-react 1, i18next 26 e date-fns 4; cada página é exibida como antes, e o grafo do Forge pode ordenar de outra forma os objetos de uma linha.",
       "fixRound1395": "Um cancelamento para o que ainda não saiu",

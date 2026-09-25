@@ -84,6 +84,12 @@ export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
       titleKey: 'onboarding.whatsNew.toolchain1396',
       descKey: 'onboarding.whatsNew.toolchain1396Desc',
     },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.fixRound1396',
+      descKey: 'onboarding.whatsNew.fixRound1396Desc',
+      navigateTo: 'forge',
+    },
   ],
   '1.39.5': [
     {

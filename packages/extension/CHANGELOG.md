@@ -19,6 +19,15 @@ libraries; every page renders as before.
 - **The Forge graph is laid out by dagre 3**, which may order the objects of a
   row differently.
 
+### Fixed
+
+- **A cancelled Forge or Frozen run says what each object wrote**, the emails
+  that waited for their task and the price book entries included.
+- **A Frozen load cancelled before an object's turn** no longer counts that
+  object as failed.
+- **Seed and DataOps check the cancel before every batch**, and Seed sends no
+  failed batch again after it.
+
 ## [1.39.5] - 2026-09-25
 
 A cancel stops every write that has not gone out, and the command-line tools

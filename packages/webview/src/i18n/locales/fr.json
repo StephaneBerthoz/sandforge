@@ -1943,6 +1943,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1396": "Une annulation dit ce que chaque objet a écrit",
+      "fixRound1396Desc": "Une exécution Forge ou Frozen annulée termine chaque objet sur une ligne qui dit ce qu'il a écrit, e-mails et entrées de catalogue de prix compris, et Seed et DataOps n'envoient plus aucun lot après une annulation, pas même un lot en échec renvoyé.",
       "toolchain1396": "Tailwind 4 sous chaque page",
       "toolchain1396Desc": "Les styles des panneaux sont construits avec Tailwind 4, et leurs graphiques, icônes, traductions et dates tournent sur Recharts 3, lucide-react 1, i18next 26 et date-fns 4 ; chaque page s'affiche comme avant, et le graphe Forge peut ordonner autrement les objets d'une rangée.",
       "fixRound1395": "Une annulation arrête ce qui n'est pas parti",

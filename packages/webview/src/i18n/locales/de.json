@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1396": "Ein Abbruch sagt, was jedes Objekt geschrieben hat",
+      "fixRound1396Desc": "Ein abgebrochener Forge- oder Frozen-Lauf schließt jedes Objekt mit einer Zeile ab, die sagt, was es geschrieben hat, E-Mails und Preisbucheinträge eingeschlossen, und Seed und DataOps senden nach einem Abbruch keinen Stapel mehr, auch keinen fehlgeschlagenen erneut.",
       "toolchain1396": "Tailwind 4 unter jeder Seite",
       "toolchain1396Desc": "Die Stile der Panels werden mit Tailwind 4 erstellt, und ihre Diagramme, Symbole, Übersetzungen und Datumsangaben laufen auf Recharts 3, lucide-react 1, i18next 26 und date-fns 4; jede Seite wird wie bisher dargestellt, und der Forge-Graph kann die Objekte einer Reihe anders anordnen.",
       "fixRound1395": "Ein Abbruch stoppt, was noch nicht gesendet ist",
