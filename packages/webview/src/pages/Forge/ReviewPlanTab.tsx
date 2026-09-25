@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
@@ -19,6 +19,26 @@ export interface ReviewPlanTabProps {
 export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) => {
   const { t } = useTranslation();
   const plan = useForgeStore((s) => s.plan);
+  const graph = useForgeStore((s) => s.graph);
+  /*
+   * The objects whose records nobody counted. The plan reckons its records,
+   * its calls and its duration from the graph's counts, and a starter
+   * template's graph skips discovery and holds each at a placeholder zero:
+   * the tab said "0 records · 0 API calls · ~0s", and each wave "0 API
+   * calls", of a run that reads every object of the template. Said as the
+   * preview card says it.
+   */
+  const notCounted = useMemo(
+    () =>
+      new Set(
+        (graph?.nodes ?? [])
+          .filter((node) => node.recordCountUnknown === true)
+          .map((node) => node.objectApiName),
+      ),
+    [graph],
+  );
+  const counted = (objects: readonly string[]): boolean =>
+    !objects.some((objectApiName) => notCounted.has(objectApiName));
 
   // A failed plan request used to be indistinguishable from a slow one: both
   // showed the loading text forever.
@@ -44,15 +64,21 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
   return (
     <div data-testid="review-plan-tab" className="flex flex-col gap-3">
       {/* Summary */}
-      <div className="flex gap-4 text-xs text-text-secondary">
-        <span>
-          {t('common.recordCountFormatted', {
-            count: plan.totalRecords,
-            formatted: plan.totalRecords.toLocaleString(uiLocale()),
-          })}
-        </span>
-        <span>{t('common.apiCallCount', { count: plan.totalApiCalls })}</span>
-        <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
+      <div data-testid="review-plan-summary" className="flex gap-4 text-xs text-text-secondary">
+        {plan.waves.every((wave) => counted(wave.objectApiNames)) ? (
+          <>
+            <span>
+              {t('common.recordCountFormatted', {
+                count: plan.totalRecords,
+                formatted: plan.totalRecords.toLocaleString(uiLocale()),
+              })}
+            </span>
+            <span>{t('common.apiCallCount', { count: plan.totalApiCalls })}</span>
+            <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
+          </>
+        ) : (
+          <span>{t('forge.preview.recordsNotCounted')}</span>
+        )}
       </div>
 
       {/* Waves */}
@@ -66,10 +92,12 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             <span className="text-xs font-semibold text-text-primary">
               {t('forge.review.wave', 'Wave')} {wave.order + 1}
             </span>
-            <span className="text-[10px] text-text-secondary">
-              {t('common.apiCallCount', { count: wave.estimatedApiCalls })} · ~
-              {wave.estimatedDurationSeconds.toFixed(1)}s
-            </span>
+            {counted(wave.objectApiNames) && (
+              <span className="text-[10px] text-text-secondary">
+                {t('common.apiCallCount', { count: wave.estimatedApiCalls })} · ~
+                {wave.estimatedDurationSeconds.toFixed(1)}s
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {wave.objectApiNames.map((obj) => (

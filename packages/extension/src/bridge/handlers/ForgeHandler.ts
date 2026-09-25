@@ -189,6 +189,44 @@ function throttle<T extends (...args: never[]) => void>(
   return wrapped;
 }
 
+/** What a run has found an object to hold, as its progress events say it. */
+type CountsSoFar = Pick<ForgeProgressEvent, 'recordCount' | 'fieldCount' | 'createableFieldCount'>;
+
+/**
+ * The executor's progress events, each with what its object has turned out to
+ * hold so far in the run: the records of every write of it added up, and its
+ * fields as last described. An event of an object no write has named yet
+ * goes as it came.
+ *
+ * The executor names an object's records on the first event of each write of
+ * it alone, and an object can be written more than once — the emails that
+ * waited for their task after the others, the standard prices before the
+ * custom ones. The page's events are throttled, and the throttle keeps the
+ * last of those that come within its interval: a write's first event followed
+ * at once by its first batch never reached the page, and its records were
+ * lost from the node card, which added up what each event named. Carried on
+ * every event of the object, the count reaches the page with whichever event
+ * does, and the page takes it as it comes.
+ */
+function countsSoFar(): (event: ForgeProgressEvent) => ForgeProgressEvent {
+  const found = new Map<string, CountsSoFar>();
+  return (event) => {
+    const before = found.get(event.objectName) ?? {};
+    const counts: CountsSoFar = {
+      ...before,
+      ...(typeof event.recordCount === 'number'
+        ? { recordCount: (before.recordCount ?? 0) + event.recordCount }
+        : {}),
+      ...(typeof event.fieldCount === 'number' ? { fieldCount: event.fieldCount } : {}),
+      ...(typeof event.createableFieldCount === 'number'
+        ? { createableFieldCount: event.createableFieldCount }
+        : {}),
+    };
+    found.set(event.objectName, counts);
+    return { ...event, ...counts };
+  };
+}
+
 /**
  * Local alias for the shared payload validator (bridge/validatePayload.ts).
  * Kept as a one-line wrapper so the call sites below stay readable.
@@ -326,6 +364,27 @@ function forgeCarried(
       row.created + row.linked + (row.updated ?? 0),
     ]),
   );
+}
+
+/**
+ * What Production Guard is told a run will write: the objects of the graph
+ * the run takes, and their records — an unknown number when one of them was
+ * never counted.
+ *
+ * A starter template's graph skips discovery and holds each count at a
+ * placeholder zero, and the guard was given the graph's total and its first
+ * node: a production confirmation read "INSERT 0 Account record(s)" of a run
+ * that writes every object of the template, and a graph whose first node the
+ * user had left out was named after that node alone, with its records.
+ */
+function guardedWrites(graph: ForgeGraph): { objectName: string; recordCount: number | 'unknown' } {
+  const written = graph.nodes.filter((node) => node.included);
+  return {
+    objectName: written.map((node) => node.objectApiName).join(', ') || 'ForgeData',
+    recordCount: written.some((node) => node.recordCountUnknown === true)
+      ? 'unknown'
+      : written.reduce((sum, node) => sum + node.recordCount, 0),
+  };
 }
 
 /**
@@ -988,8 +1047,7 @@ export class ForgeHandler implements DomainHandler {
       orgId: config.targetOrgId,
       orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
       operation: 'insert' as const,
-      objectName: graph.nodes?.[0]?.objectApiName ?? 'ForgeData',
-      recordCount: graph.totalRecords ?? 0,
+      ...guardedWrites(graph),
       module: 'forge',
     };
     // Made before the guard is asked, where forge:abort reaches it while the
@@ -1158,7 +1216,9 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(progressMsg);
     }, 100);
     const reportToLiveOperations = this.liveProgressOf(operationId, graph);
-    const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
+    const withCountsSoFar = countsSoFar();
+    const unsubProgress = this.orchestrator.on('forge:progress', (reported) => {
+      const event = withCountsSoFar(reported);
       reportToLiveOperations(event);
       /*
        * Always pass through terminal states so the UI can finalize — and
@@ -1439,24 +1499,22 @@ export class ForgeHandler implements DomainHandler {
    * An object written in two goes names the records of each: the emails that
    * waited for their task after the others, the standard prices before the
    * others. Kept as the last one named, the count held the second go alone.
+   * The events come with the records of every write of the object so far
+   * (`countsSoFar`), as the page has them.
    */
   private liveProgressOf(
     operationId: string,
     graph: ForgeGraph,
   ): (event: ForgeProgressEvent) => void {
     const objects = graph.nodes.filter((node) => node.included).length;
-    const recordsOf = new Map<string, number>();
     const settled = new Set<string>();
     let records = 0;
     return (event) => {
-      if (typeof event.recordCount === 'number') {
-        recordsOf.set(event.objectName, (recordsOf.get(event.objectName) ?? 0) + event.recordCount);
-      }
       const terminal =
         event.status === 'done' || event.status === 'error' || event.status === 'skipped';
       if (terminal && !settled.has(event.objectName)) {
         settled.add(event.objectName);
-        records += recordsOf.get(event.objectName) ?? 0;
+        records += event.recordCount ?? 0;
       }
       const percent = objects > 0 ? Math.min(100, Math.round((settled.size / objects) * 100)) : 0;
       this.liveTracker?.updateProgress(operationId, percent, records, 0, event.message);

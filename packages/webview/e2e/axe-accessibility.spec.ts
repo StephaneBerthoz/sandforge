@@ -1503,6 +1503,28 @@ for (const theme of SCANNED_THEMES) {
         '4 objects · records not counted',
       );
       await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveText('Skipped (empty)0');
+      // The plan the extension makes of that graph reckons from its zeros:
+      // the Plan tab says the records are not counted, and no call or
+      // duration reckoned from them.
+      await answerAll(page, 'forge:plan:request', 'forge:plan:response', {
+        plan: {
+          waves: [
+            {
+              order: 0,
+              objectApiNames: ['Account', 'Contact', 'Opportunity', 'Case'],
+              totalRecords: 0,
+              estimatedDurationSeconds: 0,
+              estimatedApiCalls: 0,
+            },
+          ],
+          totalRecords: 0,
+          totalApiCalls: 0,
+          estimatedDurationSeconds: 0,
+          cycleResolutions: [],
+        },
+      });
+      await expect(page.getByTestId('review-plan-summary')).toHaveText('records not counted');
+      await expect(page.getByTestId('wave-0')).not.toContainText('API call');
       const review = await checkAccessibility(page);
       expectNoViolations(review);
       expect(

@@ -850,10 +850,12 @@ describe('useForgeStore', () => {
       ]);
     });
 
-    it('counts every write of an object, not the last one alone', () => {
+    it('takes the records the extension counted of an object as they come, every write of it so far', () => {
       // The emails that waited for their task are written after the others,
-      // the standard prices before the custom ones: the card said the records
-      // of the last write alone.
+      // the standard prices before the custom ones. The extension adds up the
+      // writes of an object and sends the total with each of its events, as
+      // the throttle lets any one of them through: added up again here, each
+      // event counted the object's records once more.
       runOnScreen();
 
       post('forge:progress', 'wv-run-1', {
@@ -862,12 +864,17 @@ describe('useForgeStore', () => {
         progress: 0,
         recordCount: 12,
       });
-      post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'done', progress: 100 });
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'done',
+        progress: 100,
+        recordCount: 12,
+      });
       post('forge:progress', 'wv-run-1', {
         objectName: 'Contact',
         status: 'running',
         progress: 0,
-        recordCount: 3,
+        recordCount: 15,
       });
 
       expect(getState().graph?.nodes[1]).toMatchObject({

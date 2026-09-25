@@ -9,6 +9,7 @@ import type {
   ForgeTemplate,
   ForgePlan,
 } from '@sandforge/shared';
+import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
@@ -1633,6 +1634,126 @@ describe('ForgeHandler', () => {
     });
   });
 
+  describe('forge:progress on its way to the page', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** What the page was told of `objectName`, event by event. */
+    function toldOf(objectName: string): Array<Record<string, unknown>> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'forge:progress' && m.payload.objectName === objectName)
+        .map((m) => m.payload);
+    }
+
+    /** A run whose executor reports `events` one after the other, the clock standing still. */
+    async function runReporting(events: ForgeProgressEvent[]): Promise<void> {
+      // Every event after the first comes within the interval the page's
+      // events are throttled to.
+      vi.useFakeTimers();
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        for (const event of events) listener?.(event);
+        return createMockResult();
+      });
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+    }
+
+    it('carries the records of a write to the page when its first batch follows at once', async () => {
+      // The write's first event names its records, and the throttle kept the
+      // batch that came right after it: the node card never heard of them.
+      await runReporting([
+        {
+          objectName: 'Account',
+          status: 'running',
+          progress: 0,
+          recordCount: 10,
+          message: 'Inserting 10 Account records in 1 batch(es)...',
+        },
+        {
+          objectName: 'Account',
+          status: 'done',
+          progress: 100,
+          message: 'Completed Account: 10 succeeded, 0 failed',
+        },
+        {
+          objectName: 'Contact',
+          status: 'running',
+          progress: 0,
+          recordCount: 12,
+          fieldCount: 30,
+          createableFieldCount: 21,
+          message: 'Inserting 12 Contact records in 1 batch(es)...',
+        },
+        {
+          objectName: 'Contact',
+          status: 'running',
+          progress: 100,
+          message: 'batch 1/1 — 12/12 records',
+        },
+        {
+          objectName: 'Contact',
+          status: 'done',
+          progress: 100,
+          message: 'Completed Contact: 12 succeeded, 0 failed',
+        },
+      ]);
+
+      expect(toldOf('Contact').at(-1)).toMatchObject({
+        status: 'done',
+        recordCount: 12,
+        fieldCount: 30,
+        createableFieldCount: 21,
+      });
+    });
+
+    it('tells the page the records of every write of an object so far, not those of the last write', async () => {
+      // The standard prices go before the others: two writes of one object,
+      // each naming its own records.
+      await runReporting(
+        [2, 3].flatMap((recordCount): ForgeProgressEvent[] => [
+          {
+            objectName: 'PricebookEntry',
+            status: 'running',
+            progress: 0,
+            recordCount,
+            message: `Inserting ${recordCount} PricebookEntry records in 1 batch(es)...`,
+          },
+          {
+            objectName: 'PricebookEntry',
+            status: 'done',
+            progress: 100,
+            message: `Completed PricebookEntry: ${recordCount} succeeded, 0 failed`,
+          },
+        ]),
+      );
+
+      expect(toldOf('PricebookEntry').map((event) => event.recordCount)).toEqual([2, 2, 5, 5]);
+    });
+
+    it('says nothing of the records of an object no write has named', async () => {
+      await runReporting([
+        {
+          objectName: 'Account',
+          status: 'skipped',
+          progress: 100,
+          message: 'Skipped Account (excluded)',
+        },
+      ]);
+
+      expect(toldOf('Account')).toHaveLength(1);
+      expect(toldOf('Account')[0]).not.toHaveProperty('recordCount');
+    });
+  });
+
   describe('forge:execute duplicate guard', () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -2007,6 +2128,63 @@ describe('ForgeHandler', () => {
         .filter((m) => m.type === 'forge:execute:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('GUARD_DECLINED');
+    });
+
+    /** A real guard on a production target, whose question is declined; its spy. */
+    function askedOnProduction(): ReturnType<typeof vi.fn> {
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      deps.infraServices = {
+        productionGuard: new ProductionGuard({ requestConfirmation }),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      mockTargetOrgType('Production');
+      return requestConfirmation;
+    }
+
+    it('asks about a starter template as an unknown number of records, naming every object it writes', async () => {
+      // Its graph skips discovery and holds each count at a placeholder zero:
+      // the question read "INSERT 0 Account record(s)" of a run that reads and
+      // writes the four objects of the template.
+      const requestConfirmation = askedOnProduction();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: buildSyntheticForgeGraph(['Account', 'Contact', 'Opportunity', 'Case']),
+          config: createMockConfig(),
+        }),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT an unknown number of Account, Contact, Opportunity, Case record(s) on production org tgt-org [module: forge]',
+        'production',
+      );
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+    });
+
+    it('asks about the objects the run writes and their records, none of an object left out', async () => {
+      const requestConfirmation = askedOnProduction();
+      const account = createMockGraph().nodes[0];
+      const graph: ForgeGraph = {
+        ...createMockGraph(),
+        nodes: [
+          {
+            ...account,
+            objectApiName: 'Contact',
+            recordCount: 500,
+            included: false,
+            leftOutByUser: true,
+          },
+          account,
+          { ...account, objectApiName: 'Case', recordCount: 4, level: 1 },
+        ],
+        totalRecords: 514,
+      };
+
+      await handler.handle(buildMsg('forge:execute', { graph, config: createMockConfig() }));
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 14 Account, Case record(s) on production org tgt-org [module: forge]',
+        'production',
+      );
     });
 
     it('lets sandbox executions through once the guard has judged them', async () => {
