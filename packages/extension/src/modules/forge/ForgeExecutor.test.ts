@@ -3395,6 +3395,423 @@ describe('ForgeExecutor', () => {
           );
           expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
         });
+
+        it('reads again under the shipment a note read at its turn through a lookup it may leave empty', async () => {
+          // The note's turn comes before the lines that name the shipment: read
+          // under the warehouse alone, and not again once the shipment was
+          // read, the note on the shipment was left out without a word.
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Warehouse__c: [{ Id: WAREHOUSE, Name: 'Main' }],
+              Shipment__c: shipments,
+              Shipment_Line__c: lines,
+              Shipment_Note__c: [
+                { Id: 'a0T000000000001AAA', Name: 'On the warehouse', Warehouse__c: WAREHOUSE },
+                { Id: 'a0T000000000002AAA', Name: 'On the shipment', Shipment__c: SHIPMENT },
+                {
+                  Id: 'a0T000000000009AAA',
+                  Name: 'Elsewhere',
+                  Shipment__c: 'a0S000000000009AAA',
+                },
+              ],
+            },
+            {
+              Warehouse__c: [idField, text('Name')],
+              Shipment__c: [idField, text('Name'), lookup('First_Line__c', 'Shipment_Line__c')],
+              Shipment_Line__c: [
+                idField,
+                text('Name'),
+                lookup('Shipment__c', 'Shipment__c', true),
+                lookup('Warehouse__c', 'Warehouse__c'),
+              ],
+              Shipment_Note__c: [
+                idField,
+                text('Name'),
+                lookup('Warehouse__c', 'Warehouse__c'),
+                lookup('Shipment__c', 'Shipment__c'),
+              ],
+            },
+          );
+          const read = recordReads(orgDeps);
+          const graph = makeGraph(
+            [
+              makeNode('Warehouse__c'),
+              makeNode('Shipment__c'),
+              makeNode('Shipment_Note__c'),
+              makeNode('Shipment_Line__c'),
+            ],
+            [
+              edge('Warehouse__c', 'Shipment_Line__c'),
+              { ...edge('Shipment__c', 'Shipment_Line__c'), required: true },
+              edge('Shipment_Line__c', 'Shipment__c'),
+              edge('Warehouse__c', 'Shipment_Note__c'),
+              edge('Shipment__c', 'Shipment_Note__c'),
+            ],
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(read['Shipment_Note__c']).toEqual(
+            new Set(['a0T000000000001AAA', 'a0T000000000002AAA']),
+          );
+          expect(inserted['Shipment_Note__c']).toEqual([
+            { Name: 'On the warehouse', Warehouse__c: 'Warehouse__c:Main' },
+            { Name: 'On the shipment', Shipment__c: 'Shipment__c:Outbound' },
+          ]);
+        });
+
+        it('reads again under a shipment read after the catalog only what cannot be written without it', async () => {
+          // Read after the catalog, by what a product names, the shipment is
+          // shared as the catalog is: its lines are read again under it, and
+          // the note read before it under the warehouse is left as read.
+          const PRODUCT = '01t000000000001AAA';
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Warehouse__c: [{ Id: WAREHOUSE, Name: 'Main', Main_Product__c: PRODUCT }],
+              Product2: [{ Id: PRODUCT, Name: 'Widget', Sample_Line__c: MAIN_LINE }],
+              Shipment__c: shipments,
+              Shipment_Line__c: lines,
+              Shipment_Note__c: [
+                { Id: 'a0T000000000001AAA', Name: 'On the warehouse', Warehouse__c: WAREHOUSE },
+                { Id: 'a0T000000000002AAA', Name: 'On the shipment', Shipment__c: SHIPMENT },
+              ],
+            },
+            {
+              Warehouse__c: [idField, text('Name'), lookup('Main_Product__c', 'Product2')],
+              Product2: [idField, text('Name'), lookup('Sample_Line__c', 'Shipment_Line__c')],
+              Shipment__c: [idField, text('Name'), lookup('First_Line__c', 'Shipment_Line__c')],
+              Shipment_Line__c: [idField, text('Name'), lookup('Shipment__c', 'Shipment__c', true)],
+              Shipment_Note__c: [
+                idField,
+                text('Name'),
+                lookup('Warehouse__c', 'Warehouse__c'),
+                lookup('Shipment__c', 'Shipment__c'),
+              ],
+            },
+          );
+          const graph = makeGraph(
+            [
+              makeNode('Warehouse__c'),
+              makeNode('Product2'),
+              makeNode('Shipment_Note__c'),
+              makeNode('Shipment_Line__c'),
+              makeNode('Shipment__c'),
+            ],
+            [
+              edge('Product2', 'Warehouse__c'),
+              edge('Shipment_Line__c', 'Product2'),
+              { ...edge('Shipment__c', 'Shipment_Line__c'), required: true },
+              edge('Shipment_Line__c', 'Shipment__c'),
+              edge('Warehouse__c', 'Shipment_Note__c'),
+              edge('Shipment__c', 'Shipment_Note__c'),
+            ],
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(inserted['Shipment_Line__c'].map((r) => r['Name'])).toEqual(
+            everyLineOfTheShipment,
+          );
+          expect(inserted['Shipment_Note__c']).toEqual([
+            { Name: 'On the warehouse', Warehouse__c: 'Warehouse__c:Main' },
+          ]);
+        });
+
+        it('still reads again under a shipment read after the catalog a note read while it waited for its turn', async () => {
+          // The shipment waits for its carrier's turn, is put off at the end of
+          // it, and is read after the catalog: the note read while it waited
+          // was read out of the order of the pass, and is read again under it.
+          const PRODUCT = '01t000000000001AAA';
+          const CARRIER = 'a0C000000000001AAA';
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Warehouse__c: [{ Id: WAREHOUSE, Name: 'Main', Main_Product__c: PRODUCT }],
+              Product2: [{ Id: PRODUCT, Name: 'Widget', Sample_Shipment__c: SHIPMENT }],
+              Shipment__c: [{ Id: SHIPMENT, Name: 'Outbound', Carrier__c: CARRIER }],
+              Carrier__c: [{ Id: CARRIER, Name: 'Road', Last_Shipment__c: null }],
+              Shipment_Note__c: [
+                { Id: 'a0T000000000001AAA', Name: 'On the warehouse', Warehouse__c: WAREHOUSE },
+                { Id: 'a0T000000000002AAA', Name: 'On the shipment', Shipment__c: SHIPMENT },
+              ],
+            },
+            {
+              Warehouse__c: [idField, text('Name'), lookup('Main_Product__c', 'Product2')],
+              Product2: [idField, text('Name'), lookup('Sample_Shipment__c', 'Shipment__c')],
+              Shipment__c: [idField, text('Name'), lookup('Carrier__c', 'Carrier__c', true)],
+              Carrier__c: [idField, text('Name'), lookup('Last_Shipment__c', 'Shipment__c')],
+              Shipment_Note__c: [
+                idField,
+                text('Name'),
+                lookup('Warehouse__c', 'Warehouse__c'),
+                lookup('Shipment__c', 'Shipment__c'),
+              ],
+            },
+          );
+          const graph = makeGraph(
+            [
+              makeNode('Warehouse__c'),
+              makeNode('Product2'),
+              makeNode('Shipment__c'),
+              makeNode('Shipment_Note__c'),
+              makeNode('Carrier__c'),
+            ],
+            [
+              edge('Product2', 'Warehouse__c'),
+              edge('Shipment__c', 'Product2'),
+              { ...edge('Carrier__c', 'Shipment__c'), required: true },
+              edge('Shipment__c', 'Carrier__c'),
+              edge('Warehouse__c', 'Shipment_Note__c'),
+              edge('Shipment__c', 'Shipment_Note__c'),
+            ],
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(inserted['Shipment_Note__c'].map((r) => r['Name'])).toEqual([
+            'On the warehouse',
+            'On the shipment',
+          ]);
+        });
+      });
+
+      describe('a record read before a parent put off, through a lookup it may leave empty', () => {
+        // A note hangs from the opportunity or from a quote only the
+        // opportunity's order names. At the quote's turn nothing had named
+        // it, so it was put off, and the note was read under the opportunity
+        // alone: not read again once the quote was, the note on the quote was
+        // left out without a word, with what hangs under it. Between two
+        // sandboxes, a product's clone read its quotes so, and the email and
+        // the task on one of them were not cloned.
+        const QUOTE = '0Q0000000000001AAA';
+        const ELSEWHERE_QUOTE = '0Q0000000000009AAA';
+        const QUOTE_NOTE = 'a0N000000000002AAA';
+        const ELSEWHERE_NOTE = 'a0N000000000009AAA';
+
+        /**
+         * The opportunity, its order, the quote the order names, their notes
+         * and what hangs under those, `levels` deep.
+         */
+        function notedQuote(levels: 1 | 3 | 4) {
+          const tables: Record<string, FakeRow[]> = {
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Primary_Quote__c: null }],
+            Order: [{ Id: FIRST_ORDER, Name: 'First', OpportunityId: OPPORTUNITY, QuoteId: QUOTE }],
+            Quote: [
+              { Id: QUOTE, Name: 'Offer', Last_Order__c: null },
+              { Id: ELSEWHERE_QUOTE, Name: 'Elsewhere', Last_Order__c: null },
+            ],
+            Note__c: [
+              { Id: 'a0N000000000001AAA', Name: 'On the deal', Opportunity__c: OPPORTUNITY },
+              { Id: QUOTE_NOTE, Name: 'On the offer', Quote__c: QUOTE },
+              { Id: ELSEWHERE_NOTE, Name: 'Elsewhere', Quote__c: ELSEWHERE_QUOTE },
+            ],
+          };
+          const fields: Record<string, FieldInfo[]> = {
+            Opportunity: [idField, text('Name'), lookup('Primary_Quote__c', 'Quote')],
+            Order: [
+              idField,
+              text('Name'),
+              lookup('OpportunityId', 'Opportunity'),
+              lookup('QuoteId', 'Quote'),
+            ],
+            Quote: [idField, text('Name'), lookup('Last_Order__c', 'Order')],
+            Note__c: [
+              idField,
+              text('Name'),
+              lookup('Opportunity__c', 'Opportunity'),
+              lookup('Quote__c', 'Quote'),
+            ],
+          };
+          // The quote, the order and the opportunity name each other: the
+          // graph's order stands, the quote's turn first, then the notes',
+          // then the order's.
+          const nodes = [makeNode('Opportunity'), makeNode('Quote'), makeNode('Note__c')];
+          const edges = [
+            edge('Quote', 'Opportunity'),
+            edge('Opportunity', 'Order'),
+            edge('Quote', 'Order'),
+            edge('Order', 'Quote'),
+            edge('Opportunity', 'Note__c'),
+            edge('Quote', 'Note__c'),
+          ];
+          // Each level hangs from the one above it — a comment on a note, a
+          // reply to the comment, a like of the reply — one row under the
+          // deal's, one under the offer's, one elsewhere: each level is read at
+          // its turn, under the deal's.
+          const chain = ['Note_Comment__c', 'Comment_Reply__c', 'Reply_Like__c'].slice(
+            0,
+            levels - 1,
+          );
+          const whose: Record<string, string> = {
+            1: 'on the deal',
+            2: 'on the offer',
+            9: 'elsewhere',
+          };
+          const noteOf: Record<string, string> = {
+            1: 'a0N000000000001AAA',
+            2: QUOTE_NOTE,
+            9: ELSEWHERE_NOTE,
+          };
+          chain.forEach((object, i) => {
+            const above = i === 0 ? 'Note__c' : chain[i - 1];
+            tables[object] = ['1', '2', '9'].map((n) => ({
+              Id: `a0${i + 1}00000000000${n}AAA`,
+              Name: `${object} ${whose[n]}`,
+              Parent__c: i === 0 ? noteOf[n] : `a0${i}00000000000${n}AAA`,
+            }));
+            fields[object] = [idField, text('Name'), lookup('Parent__c', above, true)];
+            nodes.push(makeNode(object));
+            edges.push({ ...edge(above, object), required: true });
+          });
+          nodes.push(makeNode('Order'));
+          const { orgDeps, inserted } = fakeOrgs(tables, fields);
+          return { orgDeps, inserted, graph: makeGraph(nodes, edges) };
+        }
+        const rooted = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+        it('reads it again under the quote once read, and what hangs under the rows that adds', async () => {
+          const { orgDeps, inserted, graph } = notedQuote(3);
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(read['Note__c']).toEqual(new Set(['a0N000000000001AAA', QUOTE_NOTE]));
+          expect(inserted['Note__c'].map((r) => r['Name'])).toEqual([
+            'On the deal',
+            'On the offer',
+          ]);
+          expect(inserted['Note_Comment__c']).toEqual([
+            { Name: 'Note_Comment__c on the deal', Parent__c: 'Note__c:On the deal' },
+            { Name: 'Note_Comment__c on the offer', Parent__c: 'Note__c:On the offer' },
+          ]);
+          expect(inserted['Comment_Reply__c'].map((r) => r['Parent__c'])).toEqual([
+            'Note_Comment__c:Note_Comment__c on the deal',
+            'Note_Comment__c:Note_Comment__c on the offer',
+          ]);
+          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+        });
+
+        it('says in a dry run what each read again adds', async () => {
+          const { orgDeps, graph } = notedQuote(3);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          const said = progressEvents.map((e) => e.message);
+          expect(said).toContain(
+            '[dry-run] Note__c: 1 more record(s) would be inserted, under the Quote records read after it',
+          );
+          expect(said).toContain(
+            '[dry-run] Note_Comment__c: 1 more record(s) would be inserted, under the Note__c records read after it',
+          );
+          expect(summary.wouldInsertCount).toBe(
+            1 /* opportunity */ +
+              1 /* order */ +
+              1 /* quote */ +
+              2 /* notes */ +
+              2 /* comments */ +
+              2 /* replies */,
+          );
+        });
+
+        it('follows the rows it adds three levels down, and no further', async () => {
+          // Bounded: the like of the offer's reply is a level past it, and
+          // stays out; the deal's, read at its turn, goes in.
+          const { orgDeps, inserted, graph } = notedQuote(4);
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(inserted['Comment_Reply__c']).toHaveLength(2);
+          expect(inserted['Reply_Like__c'].map((r) => r['Name'])).toEqual([
+            'Reply_Like__c on the deal',
+          ]);
+        });
+
+        it('reads the root once, and none of its siblings under a parent read after it', async () => {
+          // The root's object is read by the root's id alone: an opportunity
+          // clone takes no other opportunity of the quote read after it.
+          const { orgDeps, graph } = notedQuote(1);
+          const sibling: FakeRow = {
+            Id: '006000000000002AAA',
+            Name: 'Sibling',
+            Primary_Quote__c: QUOTE,
+          };
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            const rows = await query(org, soql, onTruncated);
+            return /\bFROM Opportunity\b/.test(soql)
+              ? [...rows, ...selectRows({ Opportunity: [sibling] }, soql)]
+              : rows;
+          };
+          const read = recordReads(orgDeps);
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(read['Opportunity']).toEqual(new Set([OPPORTUNITY]));
+        });
+      });
+
+      describe('a record read before a parent whose own turn comes after it', () => {
+        // Read at its turn, the parent is read in the order of the pass, and a
+        // note read before it is not read again under its rows unless the
+        // parent waited for its turn. Between two sandboxes, a product's clone
+        // read a feed item so before the opportunity it is on — a tracked
+        // change, which the platform writes itself; a post would be left out
+        // the same way. Read again under every such parent, the clones of an
+        // opportunity at both caps and of that product sent six, nineteen and
+        // sixteen requests more, and brought no row.
+        it('leaves it as it was read', async () => {
+          const QUOTE = '0Q0000000000001AAA';
+          const { orgDeps } = fakeOrgs(
+            {
+              Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Primary_Quote__c: null }],
+              Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+              Note__c: [
+                { Id: 'a0N000000000001AAA', Name: 'On the deal', Opportunity__c: OPPORTUNITY },
+                { Id: 'a0N000000000002AAA', Name: 'On the offer', Quote__c: QUOTE },
+              ],
+            },
+            {
+              Opportunity: [idField, text('Name'), lookup('Primary_Quote__c', 'Quote')],
+              Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+              Note__c: [
+                idField,
+                text('Name'),
+                lookup('Opportunity__c', 'Opportunity'),
+                lookup('Quote__c', 'Quote'),
+              ],
+            },
+          );
+          const read = recordReads(orgDeps);
+          // The quote and the opportunity name each other: the note's turn first.
+          const graph = makeGraph(
+            [makeNode('Opportunity'), makeNode('Note__c'), makeNode('Quote')],
+            [
+              edge('Opportunity', 'Quote'),
+              edge('Quote', 'Opportunity'),
+              edge('Opportunity', 'Note__c'),
+              edge('Quote', 'Note__c'),
+            ],
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+          });
+
+          expect(read['Quote']).toEqual(new Set([QUOTE]));
+          expect(read['Note__c']).toEqual(new Set(['a0N000000000001AAA']));
+        });
       });
     });
 
@@ -3805,6 +4222,103 @@ describe('ForgeExecutor', () => {
         ]);
         expect(inserted['Product2'].map((r) => r['Name'])).toEqual(['Widget', 'Gadget', 'Gizmo']);
         expect(summary.errors).toEqual([]);
+      });
+
+      describe('a category deeper in its tree than one level', () => {
+        // The category an assignment names is read with the catalog, and the
+        // parent its row names by the catalog's second read. That parent's
+        // own parent was named then, and read by nothing: the parent went to
+        // the target without it, and the second pass reported the lookup.
+        const HARDWARE = '0ZG000000000003AAA';
+        const EVERYTHING = '0ZG000000000004AAA';
+        const OUTDOORS = '0ZG000000000005AAA';
+        const tree = (): Record<string, FakeRow[]> => ({
+          ...tables(),
+          ProductCategory: [
+            { Id: TOOLS, Name: 'Tools', CatalogId: CATALOG, ParentCategoryId: HARDWARE },
+            { Id: HARDWARE, Name: 'Hardware', CatalogId: CATALOG, ParentCategoryId: EVERYTHING },
+            { Id: EVERYTHING, Name: 'Everything', CatalogId: CATALOG, ParentCategoryId: null },
+            { Id: TOYS, Name: 'Toys', CatalogId: CATALOG, ParentCategoryId: EVERYTHING },
+            { Id: OUTDOORS, Name: 'Outdoors', CatalogId: CATALOG, ParentCategoryId: HARDWARE },
+          ],
+        });
+        const walked = (): ForgeGraph =>
+          makeGraph(
+            [
+              makeNode('Product2'),
+              makeNode('ProductCatalog'),
+              makeNode('ProductCategory'),
+              makeNode('ProductCategoryProduct'),
+            ],
+            [
+              { ...edge('Product2', 'ProductCategoryProduct'), required: true },
+              { ...edge('ProductCategory', 'ProductCategoryProduct'), required: true },
+              { ...edge('ProductCatalog', 'ProductCategoryProduct'), required: true },
+              { ...edge('ProductCatalog', 'ProductCategory'), required: true },
+            ],
+          );
+
+        it('reads the category an assignment names up its tree to the top, and no other branch of it', async () => {
+          const { orgDeps, inserted, updated } = fakeOrgs(tree(), fields);
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked(),
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(read['ProductCategory']).toEqual(new Set([TOOLS, HARDWARE, EVERYTHING]));
+          expect(inserted['ProductCategory'].map((r) => r['Name']).sort()).toEqual([
+            'Everything',
+            'Hardware',
+            'Tools',
+          ]);
+          // Each category given the parent the source gives it.
+          const parentOf = new Map(
+            updated
+              .filter(({ object }) => object === 'ProductCategory')
+              .flatMap(({ rows }) => rows)
+              .map((row) => [row['Id'], row['ParentCategoryId']]),
+          );
+          expect(parentOf).toEqual(
+            new Map([
+              ['ProductCategory:Tools', 'ProductCategory:Hardware'],
+              ['ProductCategory:Hardware', 'ProductCategory:Everything'],
+            ]),
+          );
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('says so in a dry run, level by level', async () => {
+          const { orgDeps, inserted } = fakeOrgs(tree(), fields);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked(),
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          expect(inserted).toEqual({});
+          expect(
+            progressEvents
+              .filter((e) => e.objectName === 'ProductCategory')
+              .map((e) => e.message)
+              .filter((m) => m.startsWith('[dry-run]')),
+          ).toEqual([
+            '[dry-run] ProductCategory: 1 record(s) would be inserted',
+            '[dry-run] ProductCategory: 1 more record(s) would be inserted, named by records read after the catalog',
+            '[dry-run] ProductCategory: 1 more record(s) would be inserted, named by its own records read before them',
+          ]);
+          expect(summary.readByObject).toContainEqual({
+            objectApiName: 'ProductCategory',
+            read: 3,
+          });
+        });
       });
     });
 
@@ -5874,8 +6388,9 @@ describe('ForgeExecutor', () => {
               },
             ]),
           );
-          // Two prices and three lines, read to be cloned and not written.
-          expect(summary.failedCount).toBe(5);
+          // Two prices and three lines, read to be cloned and not written, and
+          // the product only two of those lines sell.
+          expect(summary.failedCount).toBe(6);
           expect(summary.readByObject).toContainEqual({
             objectApiName: 'OpportunityLineItem',
             read: 4,
@@ -5887,6 +6402,176 @@ describe('ForgeExecutor', () => {
           ).toBe(
             'Completed OpportunityLineItem: 2 succeeded, 0 failed, 2 not written without ' +
               'ProductSellingModelOption, excluded from this run',
+          );
+        });
+
+        it('reads no product only the lines it held back sell, and names it with them', async () => {
+          // The second widget is sold on a line and a quote line, both priced
+          // under the one-time model: held back, they were all that named it,
+          // and it was read with the catalog and written for nothing.
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+          const refused = platform(orgDeps, inserted);
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(refused).toEqual([]);
+          expect(read['Product2']).toEqual(new Set([product(1), product(3)]));
+          expect(inserted['Product2'].map((r) => r['Name'])).toEqual(['Widget 1', 'Widget 3']);
+          expect(summary.errors).toContainEqual({
+            objectApiName: 'Product2',
+            stage: 'scope',
+            failedCount: 1,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'named by OpportunityLineItem.Product2Id (1 record)',
+                messages: [
+                  'Not written: the only records that name it are OpportunityLineItem records ' +
+                    'held back for ProductSellingModelOption, excluded from this run.',
+                ],
+              },
+            ],
+          });
+          expect(summary.readByObject).toContainEqual({ objectApiName: 'Product2', read: 3 });
+        });
+
+        it('reads and writes such a product after all when a record read after the catalog names it', async () => {
+          // A classification's record names the second widget as its default:
+          // left out of the catalog's read, it is read by the second one, and
+          // is no longer held back.
+          const HARDWARE = '11B000000000001AAA';
+          const base = tables();
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              ...base,
+              Product2: base.Product2.map((row) => ({ ...row, BasedOnId: HARDWARE })),
+              ProductClassification: [{ Id: HARDWARE, Name: 'Hardware' }],
+              Classification_Default__c: [
+                {
+                  Id: 'a0C000000000001AAA',
+                  Name: 'Hardware default',
+                  Classification__c: HARDWARE,
+                  Default_Product__c: product(2),
+                },
+              ],
+            },
+            {
+              ...fields,
+              Product2: [...fields.Product2, lookup('BasedOnId', 'ProductClassification')],
+              ProductClassification: [idField, text('Name')],
+              Classification_Default__c: [
+                idField,
+                text('Name'),
+                lookup('Classification__c', 'ProductClassification', true),
+                lookup('Default_Product__c', 'Product2'),
+              ],
+            },
+          );
+          const walked = graph();
+          walked.nodes.push(
+            makeNode('ProductClassification'),
+            makeNode('Classification_Default__c'),
+          );
+          walked.edges.push(
+            edge('ProductClassification', 'Product2'),
+            { ...edge('ProductClassification', 'Classification_Default__c'), required: true },
+            edge('Product2', 'Classification_Default__c'),
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked,
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(inserted['Product2'].map((r) => r['Name'])).toEqual([
+            'Widget 1',
+            'Widget 3',
+            'Widget 2',
+          ]);
+          expect(inserted['Classification_Default__c']).toEqual([
+            expect.objectContaining({ Default_Product__c: 'Product2:Widget 2' }),
+          ]);
+          expect(summary.errors.map((e) => e.objectApiName)).not.toContain('Product2');
+          // Two prices and three lines, the product counted once, as written.
+          expect(summary.failedCount).toBe(5);
+          expect(summary.readByObject).toContainEqual({ objectApiName: 'Product2', read: 3 });
+        });
+
+        it('holds back, once read, a product the lines that named it were held back after', async () => {
+          // The custom book is left in a region the user excluded: held back
+          // with the catalog, after the products its prices sell were read.
+          // The lines on those prices go with them, and the widget only they
+          // sell has nothing left to be written for.
+          const base = tables();
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              ...base,
+              Pricebook2: base.Pricebook2.map((row) =>
+                row['Id'] === CUSTOM ? { ...row, Region__c: 'a0R000000000001AAA' } : row,
+              ),
+              // No standard price: none names the widget in its stead.
+              PricebookEntry: base.PricebookEntry.filter((row) => row['Pricebook2Id'] !== STANDARD),
+              OpportunityLineItem: base.OpportunityLineItem.filter(
+                (row) => row['Id'] === '00k000000000002AAA',
+              ),
+              QuoteLineItem: [],
+            },
+            {
+              ...fields,
+              Pricebook2: [...fields.Pricebook2, lookup('Region__c', 'Region__c', true)],
+            },
+          );
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['Region__c'],
+            },
+          );
+
+          expect(read['Product2']).toEqual(new Set([product(2)]));
+          expect(inserted['Product2']).toBeUndefined();
+          expect(inserted['OpportunityLineItem']).toBeUndefined();
+          // Nor the option that sells it under its model, which needs it.
+          expect(inserted['ProductSellingModelOption']).toBeUndefined();
+          expect(summary.errors).toContainEqual(
+            expect.objectContaining({
+              objectApiName: 'Product2',
+              failedCount: 1,
+              samples: [
+                {
+                  recordSummary: 'named by PricebookEntry.Product2Id (1 record)',
+                  messages: [
+                    'Not written: the only records that name it are PricebookEntry ' +
+                      'records held back for Region__c, excluded from this run.',
+                  ],
+                },
+              ],
+            }),
           );
         });
 
@@ -5918,11 +6603,11 @@ describe('ForgeExecutor', () => {
               'written without it will be skipped.',
           );
           // Every row it read to clone, less the two prices and three lines
-          // held back.
+          // held back, and the product only those lines sell, never read.
           expect(summary.wouldInsertCount).toBe(
             summary.readByObject.reduce((sum, r) => sum + r.read, 0) - summary.failedCount,
           );
-          expect(summary.failedCount).toBe(5);
+          expect(summary.failedCount).toBe(6);
           expect(summary.errors).toEqual(
             expect.arrayContaining([
               expect.objectContaining({ objectApiName: 'OpportunityLineItem', failedCount: 2 }),
@@ -5967,8 +6652,8 @@ describe('ForgeExecutor', () => {
               },
             ]),
           );
-          // Two prices and three lines.
-          expect(summary.failedCount).toBe(5);
+          // Two prices and three lines, and the two products they alone sell.
+          expect(summary.failedCount).toBe(7);
         });
 
         it('holds back what hangs from a line it held back, round after round', async () => {

@@ -68,6 +68,17 @@ export class RecordScopeCache {
     );
   }
 
+  /**
+   * Take IDs of `objectApiName` out of what the cache holds for it, before
+   * its read: no read fetches them. The IDs its read took stay in its scope.
+   * Met again afterwards, an ID is cached again as any other.
+   */
+  forget(objectApiName: string, ids: Iterable<string>): void {
+    const bucket = this.map.get(objectApiName);
+    if (!bucket) return;
+    for (const id of ids) bucket.delete(id);
+  }
+
   /** Get the set of IDs cached for an object, or undefined if none. */
   get(objectApiName: string): ReadonlySet<string> | undefined {
     return this.map.get(objectApiName);

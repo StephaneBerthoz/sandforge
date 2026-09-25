@@ -45,8 +45,11 @@ the items the run adds them — those of the orders past Draft, and their prices
 The records read after the catalog, under what its rows
 name (the classification a product is based on), can name rows of it in turn:
 the catalog is then read a second time, by id, for those rows only, and they
-bring nothing under them. A clone that leaves price books out takes the
-standard book alone, and reads no price in another book under a product.
+bring nothing under them. That read also follows a row of the catalog to the
+rows of its own object it names — a category's parent, then that parent's
+parent — up the tree as far as the rows name, ten reads at most. A clone that
+leaves price books out takes the standard book alone, and reads no price in
+another book under a product.
 
 An object excluded by name (`ExecuteOptions.excludedObjects`, the clone
 command's `--exclude-object`) stays out whether discovery reached it or the
@@ -54,8 +57,11 @@ run would add it: its node is left out, and none of it is added past the cap.
 What that costs is said, not written: a record that cannot be written without
 one of its records — a line whose price is excluded, a price whose product is —
 is held back, named per object in the run's errors and counted as failed, in a
-dry run too; and an order past Draft left with no item the run writes stays a
-draft, said so instead of refused its status. An object unchecked on the Forge
+dry run too; a row of the catalog that only such records name — a product only
+lines held back sell — is held back with them, not read when they were held
+back before the catalog's read, not written when after; and an order past
+Draft left with no item the run writes stays a draft, said so instead of
+refused its status. An object unchecked on the Forge
 page is excluded the same way (the node carries `leftOutByUser`), and Review
 says before the run what it costs, as far as the graph can tell before a row is
 read; the objects discovery left out itself — its empty tables, and those it
@@ -84,8 +90,12 @@ ForgeOrchestrator.execute(graph, config)
        │  written without a parent whose turn is still to come waits for it,
        │  as the members of a cycle come in no order of their own, and a node
        │  read under such a waiting parent is read again under its rows once
-       │  they are read — as is a node read before a parent it cannot be
-       │  written without, put off because nothing had named it at its turn):
+       │  they are read — as is every node read before a parent put off
+       │  because nothing had named it at its turn, or, when that parent is
+       │  read after the catalog, every such node that cannot be written
+       │  without it; what that adds is followed down the nodes read under
+       │  it, three levels at most; neither the root's object nor the
+       │  catalog is read again so):
        │    1. describeFields (source + target → intersect createable)
        │    2. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
        │       statements when the ID lists outgrow one query URI)
@@ -249,3 +259,15 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
 - **FLS profile awareness**: `Asset.RecordType ID not valid for the user`
   errors come from the running user's profile lacking access. The cloner
   reports them; resolution is org-side (assign permission set).
+- **A node read before a parent whose turn comes after its own**: in a cycle
+  the order of the first pass is the graph's, and a node whose turn comes
+  first is read under the parents in scope then; the parent, read at its own
+  turn, does not have it read again under its rows unless it waited for that
+  turn. A product's clone read a feed item on an opportunity so — a tracked
+  change, which the platform writes itself; a post would be left out the same
+  way. Read again under every such parent, the reference clones sent up to a
+  sixth more requests and brought no row, so they are not.
+- **Rows followed down three levels**: the rows a parent read late brings are
+  read again under by the nodes read before, and what that adds, three levels
+  below the parent at most. Past that, the rows are as the order of the reads
+  left them.

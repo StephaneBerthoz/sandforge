@@ -108,6 +108,25 @@ describe('RecordScopeCache', () => {
     expect(cache.scopeOf('Product2')).toEqual(new Set(['01t1']));
   });
 
+  it('forgets ids of an object still to be read, and caches one met again', () => {
+    // A product only held-back lines name: left out of the read to come.
+    const cache = new RecordScopeCache();
+    cache.add('Product2', ['01t1', '01t2']);
+
+    cache.forget('Product2', ['01t2']);
+    expect(cache.get('Product2')).toEqual(new Set(['01t1']));
+    expect(cache.scopeOf('Product2')).toEqual(new Set(['01t1']));
+
+    cache.add('Product2', ['01t2']);
+    expect(cache.get('Product2')).toEqual(new Set(['01t1', '01t2']));
+  });
+
+  it('forgets nothing of an object it holds no id of', () => {
+    const cache = new RecordScopeCache();
+    cache.forget('Product2', ['01t1']);
+    expect(cache.get('Product2')).toBeUndefined();
+  });
+
   it('forgets what was read on clear', () => {
     const cache = new RecordScopeCache();
     cache.addRead('Account', ['001A']);
