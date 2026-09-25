@@ -1,8 +1,8 @@
 import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import ReactFlow, { MiniMap, Controls, Background } from 'reactflow';
-import type { Node, Edge } from 'reactflow';
-import 'reactflow/dist/style.css';
+import { ReactFlow, MiniMap, Controls, Background } from '@xyflow/react';
+import type { Node, Edge } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { ForgeGraph, ForgeGraphEdge } from '@sandforge/shared';
 import { ProgressNode } from './ProgressNode';

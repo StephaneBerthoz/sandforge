@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProgressNode } from './ProgressNode';
-import type { ProgressNodeData } from './ProgressNode';
-import type { NodeProps } from 'reactflow';
+import type { ProgressFlowNode, ProgressNodeData } from './ProgressNode';
+import type { NodeProps } from '@xyflow/react';
 import en from '../../i18n/locales/en.json';
 
 /** Helper to build minimal NodeProps for ProgressNode. */
-function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<ProgressNodeData> {
+function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<ProgressFlowNode> {
   const data: ProgressNodeData = {
     objectApiName: 'Account',
     recordCount: 120,
@@ -29,8 +29,11 @@ function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<Pro
     type: 'progressNode',
     selected: false,
     isConnectable: true,
-    xPos: 0,
-    yPos: 0,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+    draggable: true,
+    selectable: true,
+    deletable: true,
     zIndex: 0,
     dragging: false,
   };
@@ -58,7 +61,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('reactflow', () => ({
+vi.mock('@xyflow/react', () => ({
   Handle: ({ type, position }: { type: string; position: string }) => (
     <div data-testid={`handle-${type}`} data-position={position} />
   ),

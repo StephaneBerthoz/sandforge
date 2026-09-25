@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { AnimatedEdge } from './AnimatedEdge';
-import type { AnimatedEdgeData } from './AnimatedEdge';
-import type { EdgeProps } from 'reactflow';
-import { Position } from 'reactflow';
+import type { AnimatedEdgeData, AnimatedFlowEdge } from './AnimatedEdge';
+import type { EdgeProps } from '@xyflow/react';
+import { Position } from '@xyflow/react';
 
-vi.mock('reactflow', async () => {
-  const actual = await vi.importActual<typeof import('reactflow')>('reactflow');
+vi.mock('@xyflow/react', async () => {
+  const actual = await vi.importActual<typeof import('@xyflow/react')>('@xyflow/react');
   return {
     ...actual,
     getBezierPath: () => ['M 0 0 C 50 0 50 100 100 100', 50, 50] as const,
@@ -15,7 +15,7 @@ vi.mock('reactflow', async () => {
 });
 
 /** Build minimal EdgeProps for testing. */
-function makeEdgeProps(overrides: Partial<AnimatedEdgeData> = {}): EdgeProps<AnimatedEdgeData> {
+function makeEdgeProps(overrides: Partial<AnimatedEdgeData> = {}): EdgeProps<AnimatedFlowEdge> {
   return {
     id: 'edge-1',
     source: 'node-a',

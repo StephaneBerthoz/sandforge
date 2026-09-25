@@ -1,14 +1,14 @@
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Handle, Position } from 'reactflow';
-import type { NodeProps } from 'reactflow';
+import { Handle, Position } from '@xyflow/react';
+import type { Node, NodeProps } from '@xyflow/react';
 import { Check, Loader2, Clock, X, AlertTriangle, Minus, Shield } from 'lucide-react';
 import type { ForgeNodeStatus } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { uiLocale } from '../../utils/formatters';
 
 /** Data payload carried by a ProgressNode in the React Flow graph. */
-export interface ProgressNodeData {
+export type ProgressNodeData = {
   /** Salesforce object API name displayed as the node title. */
   objectApiName: string;
   /** Number of records to process. */
@@ -37,7 +37,7 @@ export interface ProgressNodeData {
   onSelect?: (objectName: string) => void;
   /** Callback when the include checkbox is toggled. */
   onIncludeToggle?: (objectName: string) => void;
-}
+};
 
 const borderByStatus: Record<ForgeNodeStatus, string> = {
   idle: 'border-subtle',
@@ -74,7 +74,10 @@ function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement
  * a progress bar during scanning/running, PII and error badges, edge type
  * indicator, and an include/exclude checkbox.
  */
-export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) => {
+/** The node LiveGraph draws for one object of the graph. */
+export type ProgressFlowNode = Node<ProgressNodeData, 'progressNode'>;
+
+export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) => {
   const { t } = useTranslation();
   const {
     objectApiName,

@@ -1,17 +1,17 @@
 import React, { useMemo } from 'react';
-import { getBezierPath } from 'reactflow';
-import type { EdgeProps } from 'reactflow';
+import { getBezierPath } from '@xyflow/react';
+import type { Edge, EdgeProps } from '@xyflow/react';
 import { cn } from '../../../theme';
 
 /** Data payload for the RelationEdge custom ReactFlow edge. */
-export interface RelationEdgeData {
+export type RelationEdgeData = {
   /** Type of Salesforce relationship */
   relationshipType: 'lookup' | 'master_detail' | 'hierarchical' | 'polymorphic';
   /** Whether the relationship field is required */
   required: boolean;
   /** Whether the parent node is currently active (extracting/loading/anonymizing) */
   isActive: boolean;
-}
+};
 
 /** Unique marker ID for the polymorphic diamond end marker. */
 const DIAMOND_MARKER_ID = 'sf-diamond-marker';
@@ -95,7 +95,10 @@ function getEdgeStyle(
  *
  * Active edges (parent node processing) get an animated dash stroke.
  */
-export const RelationEdge: React.FC<EdgeProps<RelationEdgeData>> = ({
+/** The edge the Autopilot graph draws for one relationship of the plan. */
+export type RelationFlowEdge = Edge<RelationEdgeData, 'relationEdge'>;
+
+export const RelationEdge: React.FC<EdgeProps<RelationFlowEdge>> = ({
   id,
   sourceX,
   sourceY,

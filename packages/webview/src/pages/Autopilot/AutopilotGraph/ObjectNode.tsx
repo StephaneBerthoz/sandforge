@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
-import { Handle, Position } from 'reactflow';
-import type { NodeProps } from 'reactflow';
+import { Handle, Position } from '@xyflow/react';
+import type { Node, NodeProps } from '@xyflow/react';
 import { m, useReducedMotion, type Variants } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 import { formatDuration } from '../../../utils/formatters';
 
 /** Data payload for the ObjectNode custom ReactFlow node. */
-export interface ObjectNodeData {
+export type ObjectNodeData = {
   /** Salesforce object API name */
   objectApiName: string;
   /** Total record count to transfer */
@@ -28,7 +28,7 @@ export interface ObjectNodeData {
   hasPii: boolean;
   /** Whether this node is currently selected */
   isSelected: boolean;
-}
+};
 
 /**
  * Map of node statuses to their corresponding Tailwind color classes. A phase
@@ -78,7 +78,10 @@ const pulseVariants: Variants = {
  * Displays object name, progress bar, record counts, elapsed time,
  * and a PII indicator. Active nodes pulse with framer-motion.
  */
-export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
+/** The node the Autopilot graph draws for one object of the plan. */
+export type ObjectFlowNode = Node<ObjectNodeData, 'objectNode'>;
+
+export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
   const { t } = useTranslation();
   // MotionConfig's reducedMotion="user" stops transforms, not opacity: under
   // the system setting the scale stopped and the node went on fading between

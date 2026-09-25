@@ -1,14 +1,14 @@
 import React from 'react';
-import { getBezierPath } from 'reactflow';
-import type { EdgeProps } from 'reactflow';
+import { getBezierPath } from '@xyflow/react';
+import type { Edge, EdgeProps } from '@xyflow/react';
 
 /** Data payload carried by an AnimatedEdge in the React Flow graph. */
-export interface AnimatedEdgeData {
+export type AnimatedEdgeData = {
   /** Salesforce relationship type. */
   relationshipType: 'master-detail' | 'lookup';
   /** Display name of the relationship. */
   relationshipName: string;
-}
+};
 
 /** CSS keyframe id for the dash-offset animation. */
 const EDGE_ANIMATION_NAME = 'sf-edge-dash';
@@ -31,7 +31,10 @@ const animationStyle = `
  * - Lookup edges are rendered as dashed, thinner lines (strokeWidth 1).
  * - Both animate the dash offset to convey data flow direction.
  */
-export const AnimatedEdge: React.FC<EdgeProps<AnimatedEdgeData>> = ({
+/** The edge LiveGraph draws for one relationship of the graph. */
+export type AnimatedFlowEdge = Edge<AnimatedEdgeData, 'animatedEdge'>;
+
+export const AnimatedEdge: React.FC<EdgeProps<AnimatedFlowEdge>> = ({
   id,
   sourceX,
   sourceY,

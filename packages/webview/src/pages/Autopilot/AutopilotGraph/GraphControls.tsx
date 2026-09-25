@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { useReactFlow } from 'reactflow';
+import { useReactFlow } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 

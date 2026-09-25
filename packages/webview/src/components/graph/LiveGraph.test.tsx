@@ -52,9 +52,9 @@ function MockReactFlow({
   );
 }
 
-vi.mock('reactflow', () => ({
+vi.mock('@xyflow/react', () => ({
   __esModule: true,
-  default: MockReactFlow,
+  ReactFlow: MockReactFlow,
   MiniMap: () => React.createElement('div', { 'data-testid': 'minimap' }),
   Controls: () => React.createElement('div', { 'data-testid': 'controls' }),
   Background: () => React.createElement('div', { 'data-testid': 'background' }),

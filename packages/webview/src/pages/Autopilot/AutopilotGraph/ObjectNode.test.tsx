@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ReactFlowProvider } from 'reactflow';
+import { ReactFlowProvider } from '@xyflow/react';
 import '../../../i18n';
 import { ObjectNode } from './ObjectNode';
-import type { ObjectNodeData } from './ObjectNode';
-import type { NodeProps } from 'reactflow';
+import type { ObjectFlowNode, ObjectNodeData } from './ObjectNode';
+import type { NodeProps } from '@xyflow/react';
 
 /** Default test data for ObjectNode. */
 const defaultData: ObjectNodeData = {
@@ -21,15 +21,18 @@ const defaultData: ObjectNodeData = {
 };
 
 /** Minimal NodeProps wrapper for testing a custom node. */
-function makeNodeProps(data: ObjectNodeData): NodeProps<ObjectNodeData> {
+function makeNodeProps(data: ObjectNodeData): NodeProps<ObjectFlowNode> {
   return {
     id: 'test-node',
     data,
     type: 'objectNode',
     selected: false,
     isConnectable: true,
-    xPos: 0,
-    yPos: 0,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+    draggable: true,
+    selectable: true,
+    deletable: true,
     zIndex: 0,
     dragging: false,
   };

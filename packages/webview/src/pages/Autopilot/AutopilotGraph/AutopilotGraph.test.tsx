@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ReactFlowProvider } from 'reactflow';
+import { ReactFlowProvider } from '@xyflow/react';
 import '../../../i18n';
 import { AutopilotGraph } from './AutopilotGraph';
 

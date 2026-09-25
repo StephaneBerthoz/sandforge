@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import { ReactFlowProvider } from 'reactflow';
-import type { NodeProps } from 'reactflow';
+import { ReactFlowProvider } from '@xyflow/react';
+import type { NodeProps } from '@xyflow/react';
 import '../../../i18n';
 import { MotionProvider } from '../../../motion/MotionProvider';
 import { ObjectNode } from './ObjectNode';
-import type { ObjectNodeData } from './ObjectNode';
+import type { ObjectFlowNode, ObjectNodeData } from './ObjectNode';
 
 /**
  * framer-motion reads the system setting once, the first time a component asks
@@ -47,11 +47,14 @@ describe('ObjectNode under reduced motion', () => {
       type: 'objectNode',
       selected: false,
       isConnectable: true,
-      xPos: 0,
-      yPos: 0,
+      positionAbsoluteX: 0,
+      positionAbsoluteY: 0,
+      draggable: true,
+      selectable: true,
+      deletable: true,
       zIndex: 0,
       dragging: false,
-    } as NodeProps<ObjectNodeData>;
+    } as NodeProps<ObjectFlowNode>;
     render(
       <MotionProvider>
         <ReactFlowProvider>

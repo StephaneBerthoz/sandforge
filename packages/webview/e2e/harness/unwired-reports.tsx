@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import 'reactflow/dist/style.css';
+import '@xyflow/react/dist/style.css';
 import '../../src/index.css';
 import { i18nReady } from '../../src/i18n';
 import { AnalyticsDashboard } from '../../src/pages/Reports/AnalyticsDashboard';

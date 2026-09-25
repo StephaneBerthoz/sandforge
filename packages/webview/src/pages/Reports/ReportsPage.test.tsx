@@ -6,9 +6,9 @@ import type { GeneratedReport, AuditLogEntry, DataLineageGraph } from '@sandforg
 import type { AnalyticsSummary } from './AnalyticsDashboard';
 
 /* Mock ReactFlow */
-vi.mock('reactflow', () => ({
+vi.mock('@xyflow/react', () => ({
   __esModule: true,
-  default: ({ nodes, edges }: { nodes: unknown[]; edges: unknown[] }) => (
+  ReactFlow: ({ nodes, edges }: { nodes: unknown[]; edges: unknown[] }) => (
     <div data-testid="mock-reactflow" data-nodes={nodes.length} data-edges={edges.length} />
   ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },

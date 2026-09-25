@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import ReactFlow, { Background, MiniMap, ReactFlowProvider } from 'reactflow';
-import type { Node, Edge } from 'reactflow';
-import 'reactflow/dist/style.css';
+import { ReactFlow, Background, MiniMap, ReactFlowProvider } from '@xyflow/react';
+import type { Node, Edge } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import type {
   AutopilotNode as AutopilotNodeType,
   AutopilotEdge as AutopilotEdgeType,

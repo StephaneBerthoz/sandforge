@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import ReactFlow, { type Node, type Edge, Position } from 'reactflow';
+import { ReactFlow, type Node, type Edge, Position } from '@xyflow/react';
 import type { DataLineageGraph, LineageNode } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';

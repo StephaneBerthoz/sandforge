@@ -9,9 +9,9 @@ import type { DataLineageGraph } from '@sandforge/shared';
  * out what React Flow would draw as text — node labels, edge labels — and where
  * each node sits, so what the graph hands it can be read.
  */
-vi.mock('reactflow', () => ({
+vi.mock('@xyflow/react', () => ({
   __esModule: true,
-  default: ({
+  ReactFlow: ({
     nodes,
     edges,
   }: {

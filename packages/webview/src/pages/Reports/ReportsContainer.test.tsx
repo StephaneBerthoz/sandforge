@@ -13,9 +13,9 @@ vi.mock('../../hooks/useVSCodeApi', () => {
 });
 
 /* React Flow needs a measured DOM; the graph's own tests cover its drawing. */
-vi.mock('reactflow', () => ({
+vi.mock('@xyflow/react', () => ({
   __esModule: true,
-  default: ({ nodes }: { nodes: unknown[] }) => (
+  ReactFlow: ({ nodes }: { nodes: unknown[] }) => (
     <div data-testid="mock-reactflow" data-nodes={nodes.length} />
   ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },

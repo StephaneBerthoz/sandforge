@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { ReactFlowProvider } from 'reactflow';
+import { ReactFlowProvider } from '@xyflow/react';
 import { RelationEdge } from './RelationEdge';
-import type { RelationEdgeData } from './RelationEdge';
-import type { EdgeProps } from 'reactflow';
-import { Position } from 'reactflow';
+import type { RelationEdgeData, RelationFlowEdge } from './RelationEdge';
+import type { EdgeProps } from '@xyflow/react';
+import { Position } from '@xyflow/react';
 
 /** Minimal EdgeProps wrapper for testing a custom edge. */
 function makeEdgeProps(
   data: RelationEdgeData,
-  overrides?: Partial<EdgeProps<RelationEdgeData>>,
-): EdgeProps<RelationEdgeData> {
+  overrides?: Partial<EdgeProps<RelationFlowEdge>>,
+): EdgeProps<RelationFlowEdge> {
   return {
     id: 'test-edge',
     source: 'Account',
