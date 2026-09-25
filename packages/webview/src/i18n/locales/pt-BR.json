@@ -1956,7 +1956,7 @@
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
       "fixRound1398": "Cada resposta fica na sua conversa",
-      "fixRound1398Desc": "Uma resposta da IA fica na conversa em que a pergunta foi feita, e a página avisa quando outra está aberta. Cada linha do Forge e do Frozen agora termina, seja o que for que interrompa a execução, e diz por quê.",
+      "fixRound1398Desc": "Uma resposta da IA fica na conversa em que a pergunta foi feita, e a página avisa quando outra está aberta. Cada linha do Forge e do Frozen agora termina, seja o que for que interrompa a execução, e diz por quê. A entrada de auditoria de uma execução do Forge conta o que um cancelamento reteve, e o chat atende uma pergunta por vez em cada conversa.",
       "aiSonnet1397": "Os recursos de IA consultam o Claude Sonnet 5",
       "aiSonnet1397Desc": "O chat, o NL2SOQL, os rascunhos de pipeline, a resolução de erros e o Seed consultam o Claude Sonnet 5 por padrão, e as Configurações indicam o modelo configurado. Uma resposta recusada, cortada ou vazia agora avisa isso no seu idioma. Uma pergunta que falhou não é mais reenviada com a seguinte.",
       "fixRound1397": "Um objeto interrompido aparece como interrompido",

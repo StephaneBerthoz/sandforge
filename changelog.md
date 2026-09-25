@@ -17,10 +17,13 @@ Frozen line ends, whatever stops the run.
   error ends its wait.
 - **A Forge email object whose emails all wait for their task** ends when the
   run stops before them, those emails counted as not sent.
-- **A Frozen step that fails ends its line with the reason**: pass 2, the
-  statuses, PersonContact and the purge; the reload's line says what the
-  purge could not do.
-- **A model name with spaces around it** is read without them.
+- **A Frozen step that fails ends its line with the reason**: the entry
+  guards, the alignment, the required-fields check, the placeholders, pass 2,
+  the statuses, PersonContact and the purge.
+- **A Forge run's audit entry counts what a cancel kept from the target**, as
+  Frozen's does.
+- **The AI chat takes one question at a time in a conversation**, and a model
+  name with spaces around it is read without them.
 
 ## [1.39.7] - 2026-09-25
 

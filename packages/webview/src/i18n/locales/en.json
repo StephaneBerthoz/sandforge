@@ -1956,7 +1956,7 @@
     "viewChangelog": "View full changelog",
     "whatsNew": {
       "fixRound1398": "Each answer stays with its conversation",
-      "fixRound1398Desc": "An AI answer stays with the conversation its question was asked in, and the page says so when another one is open. Every Forge and Frozen line now ends, whatever stops the run, and says why.",
+      "fixRound1398Desc": "An AI answer stays with the conversation its question was asked in, and the page says so when another one is open. Every Forge and Frozen line now ends, whatever stops the run, and says why. A Forge run's audit entry counts what a cancel kept back, and the chat takes one question at a time in a conversation.",
       "aiSonnet1397": "The AI features ask Claude Sonnet 5",
       "aiSonnet1397Desc": "Chat, NL2SOQL, pipeline drafts, error resolution and Seed ask Claude Sonnet 5 by default, and Settings names the model configured. An answer refused, cut off or empty now says so in your language. A question that failed is not sent again with the next one.",
       "fixRound1397": "A stopped object reads as stopped",

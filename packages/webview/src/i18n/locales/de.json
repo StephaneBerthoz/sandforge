@@ -1956,7 +1956,7 @@
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
       "fixRound1398": "Jede Antwort bleibt in ihrer Unterhaltung",
-      "fixRound1398Desc": "Eine KI-Antwort bleibt in der Unterhaltung, in der ihre Frage gestellt wurde, und die Seite weist darauf hin, wenn eine andere geöffnet ist. Jede Forge- und Frozen-Zeile endet jetzt, was auch immer den Lauf stoppt, und sagt, warum.",
+      "fixRound1398Desc": "Eine KI-Antwort bleibt in der Unterhaltung, in der ihre Frage gestellt wurde, und die Seite weist darauf hin, wenn eine andere geöffnet ist. Jede Forge- und Frozen-Zeile endet jetzt, was auch immer den Lauf stoppt, und sagt, warum. Der Audit-Eintrag eines Forge-Laufs zählt, was ein Abbruch zurückgehalten hat, und der Chat nimmt pro Unterhaltung eine Frage nach der anderen an.",
       "aiSonnet1397": "Die KI-Funktionen fragen Claude Sonnet 5",
       "aiSonnet1397Desc": "Chat, NL2SOQL, Pipeline-Entwürfe, Fehlerbehebung und Seed fragen standardmäßig Claude Sonnet 5, und die Einstellungen nennen das konfigurierte Modell. Eine abgelehnte, abgeschnittene oder leere Antwort sagt das jetzt in Ihrer Sprache. Eine fehlgeschlagene Frage wird nicht mit der nächsten erneut gesendet.",
       "fixRound1397": "Ein angehaltenes Objekt wird als angehalten angezeigt",
