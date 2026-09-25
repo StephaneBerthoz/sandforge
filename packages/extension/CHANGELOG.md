@@ -5,6 +5,17 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.2] - 2026-09-25
+
+The webview is built with Vite 8 and payloads are validated with zod 4; every
+page renders as before.
+
+### Changed
+
+- **The webview is built with Vite 8**, its pages and styles unchanged.
+- **Payloads are validated with zod 4**, which parses without eval in the
+  webview, as its content security policy requires.
+
 ## [1.39.1] - 2026-09-25
 
 Seed Clone writes only where it previewed, and Production Guard is told what

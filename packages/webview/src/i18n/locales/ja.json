@@ -1836,6 +1836,8 @@
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
     "whatsNew": {
+      "toolchain1392": "すべてのページの土台を更新",
+      "toolchain1392Desc": "パネルは Vite 8 でビルドされ、受け取る内容を zod 4 で検証します。VS Code の Webview ポリシーに従い eval は使いません。どのページも以前と同じように表示されます。",
       "fixRound1391": "Seed のクローンはプレビューした組織に書き込みます",
       "fixRound1391Desc": "Seed のクローンは、プレビューを作成した組織に対して実行され、そうでない実行は拒否されます。Production Guard には Forge の実行が書き込むオブジェクトと最大レコード数が伝えられ、結果には実際に送信された API 呼び出しの数が表示されます。",
       "frozenTakeBack": "凍結データセットのロードを取り消す",

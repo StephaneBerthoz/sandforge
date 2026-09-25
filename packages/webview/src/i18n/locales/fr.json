@@ -1943,6 +1943,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "toolchain1392": "Une construction plus récente sous chaque page",
+      "toolchain1392Desc": "Les panneaux sont construits avec Vite 8 et vérifient ce qu'ils reçoivent avec zod 4, sans eval, comme l'exige la politique des webviews de VS Code ; chaque page s'affiche comme avant.",
       "fixRound1391": "Le clonage Seed écrit là où il a prévisualisé",
       "fixRound1391Desc": "Un clonage Seed s'exécute sur les orgs pour lesquelles son aperçu a été fait, et l'extension refuse celui qui ne l'est pas ; Production Guard apprend quels objets une exécution Forge écrit et au plus combien d'enregistrements, et les résultats comptent les appels API réellement faits.",
       "frozenTakeBack": "Retirer un chargement de Jeu figé",

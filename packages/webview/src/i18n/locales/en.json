@@ -1943,6 +1943,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "toolchain1392": "A newer build under every page",
+      "toolchain1392Desc": "The panels are built with Vite 8 and check what they receive with zod 4, without eval, as the VS Code webview policy requires; every page renders as before.",
       "fixRound1391": "Seed Clone writes where it previewed",
       "fixRound1391Desc": "A Seed Clone runs against the orgs its preview was made for, and the extension refuses one that is not; Production Guard is told which objects a Forge run writes and at most how many records, and the results count the API calls the run made.",
       "frozenTakeBack": "Take back a Frozen load",

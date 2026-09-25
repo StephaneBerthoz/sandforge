@@ -1943,6 +1943,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "toolchain1392": "Ein neuerer Build unter jeder Seite",
+      "toolchain1392Desc": "Die Panels werden mit Vite 8 gebaut und prüfen, was sie empfangen, mit zod 4 – ohne eval, wie es die Webview-Richtlinie von VS Code verlangt; jede Seite wird wie zuvor angezeigt.",
       "fixRound1391": "Der Seed-Klon schreibt dorthin, wofür er die Vorschau erstellt hat",
       "fixRound1391Desc": "Ein Seed-Klon läuft gegen die Orgs, für die seine Vorschau erstellt wurde, und die Erweiterung lehnt einen anderen ab; Production Guard erfährt, welche Objekte ein Forge-Lauf schreibt und höchstens wie viele Datensätze, und die Ergebnisse zählen die tatsächlich gesendeten API-Aufrufe.",
       "frozenTakeBack": "Einen Ladevorgang des Eingefrorenen Datensatzes zurücknehmen",

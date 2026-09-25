@@ -1943,6 +1943,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "toolchain1392": "Uma compilação mais recente sob cada página",
+      "toolchain1392Desc": "Os painéis são compilados com o Vite 8 e validam o que recebem com o zod 4, sem eval, como exige a política de webviews do VS Code; cada página é exibida como antes.",
       "fixRound1391": "A clonagem do Seed grava onde fez a pré-visualização",
       "fixRound1391Desc": "Uma clonagem do Seed é executada nas orgs para as quais sua pré-visualização foi feita, e a extensão recusa a que não for; o Production Guard sabe quais objetos uma execução do Forge grava e no máximo quantos registros, e os resultados contam as chamadas de API realmente feitas.",
       "frozenTakeBack": "Desfazer uma carga do Dataset congelado",
