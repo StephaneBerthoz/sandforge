@@ -158,7 +158,15 @@ describe('SeedCloneHandler — the describes it asks for', () => {
   });
 
   it('describes each object once in each org for a run, though it orders by both', async () => {
-    await handler.handle(buildMsg('seed:clone:execute', PICKED));
+    // The run follows its preview, which describes them too: counted apart.
+    await handler.handle(buildMsg('seed:clone:preview', PICKED));
+    expect(posted(deps, 'seed:clone:preview:response')).toHaveLength(1);
+    source.describe.mockClear();
+    target.describe.mockClear();
+
+    await handler.handle(
+      buildMsg('seed:clone:execute', { ...PICKED, previewId: 'msg-seed:clone:preview' }),
+    );
 
     expect(writer.insert.mock.calls.map(([name]) => name)).toEqual(['Account', 'Contact', 'Case']);
     expect(describedIn(source)).toEqual(['Account', 'Case', 'Contact']);

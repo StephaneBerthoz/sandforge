@@ -79,12 +79,19 @@ function buildMsg(type: string, payload?: unknown): InboundRequest {
   } as BaseMessage);
 }
 
-/** A valid `seed:clone:execute` payload (one object, insert mode). */
+/** The id of the preview each test's handler answered first, for the orgs of `clonePayload`. */
+const PREVIEW_ID = 'msg-seed:clone:preview';
+
+/**
+ * A valid `seed:clone:execute` payload (one object, insert mode), naming the
+ * preview the handler answered for its orgs: a run that names none is refused.
+ */
 function clonePayload(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',
     objects: [{ objectApiName: 'Account' }],
+    previewId: PREVIEW_ID,
     ...overrides,
   };
 }
@@ -125,7 +132,7 @@ describe('SeedCloneHandler', () => {
   let deps: HandlerDeps;
   let handler: SeedCloneHandler;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     deps = createMockDeps();
     handler = new SeedCloneHandler(deps);
@@ -142,6 +149,15 @@ describe('SeedCloneHandler', () => {
     fetcher.fetchRecords.mockResolvedValue([{ Id: '001SRC', Name: 'Acme' }]);
     writer.insert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
     writer.upsert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
+
+    // A run follows the preview it names, which the handler answered for the
+    // run's orgs: `clonePayload` names this one, as the page names its own.
+    // What the preview asked and posted is forgotten: a test reads its own.
+    fetcher.countRecords.mockResolvedValue(0);
+    fetcher.fetchSample.mockResolvedValue([]);
+    await handler.handle(buildMsg('seed:clone:preview', clonePayload()));
+    expect(posted(deps, 'seed:clone:preview:response')).toHaveLength(1);
+    vi.clearAllMocks();
   });
 
   describe('routing', () => {
@@ -264,6 +280,88 @@ describe('SeedCloneHandler', () => {
           { objectApiName: 'FeedComment', recordCount: 1, leftToThePlatform: 1 },
         ],
         insertOrder: ['FeedItem', 'FeedComment'],
+      });
+    });
+
+    it('asks the source for rows by the lookups its describe has, and by no other', async () => {
+      // A lookup the target requires and the source does not have — a field
+      // deployed to the target alone — pointing at feed items, whose tracked
+      // changes the clone leaves to the platform: read from the target's
+      // describe, it went into the query the source counts and samples by,
+      // and a field the source lacks is refused there, "No such column".
+      const feedItem = { fields: [{ name: 'Type', type: 'picklist', nillable: true }] };
+      const onItsFeedItem = {
+        name: 'FeedItemId',
+        type: 'reference',
+        referenceTo: ['FeedItem'],
+        nillable: false,
+      };
+      const source = {
+        describe: vi.fn(async (name: string) =>
+          name === 'FeedComment' ? { fields: [onItsFeedItem] } : feedItem,
+        ),
+        limitInfo: undefined,
+      };
+      const target = {
+        describe: vi.fn(async (name: string) =>
+          name === 'FeedComment'
+            ? {
+                fields: [
+                  onItsFeedItem,
+                  {
+                    name: 'Thread_Item__c',
+                    type: 'reference',
+                    referenceTo: ['FeedItem'],
+                    nillable: false,
+                    createable: true,
+                  },
+                ],
+              }
+            : feedItem,
+        ),
+        limitInfo: undefined,
+      };
+      mockGetConn.mockImplementation(
+        async (orgId: string) =>
+          (orgId === 'src-org' ? source : target) as unknown as Awaited<
+            ReturnType<typeof getJsforceConnection>
+          >,
+      );
+      linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+      fetcher.countRecords.mockResolvedValue(1);
+      fetcher.fetchSample.mockResolvedValue([]);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:preview',
+          clonePayload({
+            objects: [{ objectApiName: 'FeedItem' }, { objectApiName: 'FeedComment' }],
+          }),
+        ),
+      );
+
+      const NOT_ON_A_TRACKED_CHANGE = [
+        "FeedItemId NOT IN (SELECT Id FROM FeedItem WHERE (Type = 'TrackedChange'))",
+      ];
+      expect(fetcher.countRecords).toHaveBeenCalledWith(
+        source,
+        'FeedComment',
+        undefined,
+        NOT_ON_A_TRACKED_CHANGE,
+      );
+      expect(fetcher.fetchSample).toHaveBeenCalledWith(
+        source,
+        'FeedComment',
+        5,
+        undefined,
+        NOT_ON_A_TRACKED_CHANGE,
+      );
+      // What the target requires is still named, above Execute.
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        targetOnlyRequiredLookups: [
+          { objectApiName: 'FeedComment', field: 'Thread_Item__c', referenceTo: 'FeedItem' },
+        ],
       });
     });
 
@@ -455,6 +553,29 @@ describe('SeedCloneHandler', () => {
         expect(posted(deps, 'seed:clone:error')[0]).toMatchObject({
           correlationId: 'wv-run',
           payload: { code: 'PREVIEWED_FOR_OTHER_ORGS' },
+        });
+      });
+
+      it('refuses a run that names no preview, before reading either org, under its own code', async () => {
+        // Naming the preview was left to the caller: a run that named none
+        // went to whichever orgs it said, previewed for them or not.
+        await handler.handle(
+          request('seed:clone:execute', 'wv-run', {
+            sourceOrgId: 'src-org',
+            targetOrgId: 'tgt-org',
+            objects: [{ objectApiName: 'Account' }],
+          }),
+        );
+
+        expect(mockGetConn).not.toHaveBeenCalled();
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(posted(deps, 'operation:started')).toEqual([]);
+        expect(posted(deps, 'seed:clone:execute:response')).toEqual([]);
+        const refused = posted(deps, 'seed:clone:error');
+        expect(refused).toHaveLength(1);
+        expect(refused[0]).toMatchObject({
+          correlationId: 'wv-run',
+          payload: { code: 'NOT_PREVIEWED' },
         });
       });
     });

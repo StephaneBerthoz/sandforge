@@ -781,6 +781,7 @@
       },
       "preview": {
         "title": "Klon-Vorschau",
+        "loading": "Vorschau wird vorbereitet: SandForge liest jedes Objekt in beiden Orgs und zählt die zu klonenden Datensätze.",
         "insertOrder": "Einfügereihenfolge",
         "filledAfterInsert": "Leer geschrieben und ausgefüllt, sobald der Datensatz, auf den sie verweisen, vorhanden ist (zweiter Durchlauf):",
         "sourceOnlyLookups": "Nur in der Quell-Org — die Ziel-Org hat diese Verknüpfungen nicht, ihre Werte werden daher nicht geschrieben:",
@@ -829,6 +830,7 @@
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
         "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge hat diesen Lauf abgelehnt, bevor etwas geschrieben wurde: Er galt nicht den Orgs, für die seine Vorschau erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
+        "NOT_PREVIEWED": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Er nannte keine Vorschau, und ein Klonvorgang läuft nur aus der Vorschau, für die er erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
         "detail": "Einzelheiten: {{detail}}"
       }

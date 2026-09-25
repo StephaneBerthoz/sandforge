@@ -737,6 +737,64 @@ test.describe('Seed Clone — the orgs its preview was made for', () => {
     await expect(page.getByTestId('clone-executing')).toBeVisible();
     expect(await outgoing(page, 'seed:clone:execute')).toHaveLength(1);
   });
+
+  test('shows the steps it has passed as not clickable while the clone runs', async ({ page }) => {
+    // Clicks on them were ignored while it ran, and they kept the pointer and
+    // the hover of a step the wizard goes back to.
+    await previewAccounts(page);
+
+    await page.getByTestId('clone-preview-execute').click();
+
+    await expect(page.getByTestId('clone-executing')).toBeVisible();
+    for (const step of ['source', 'objects', 'preview']) {
+      await expect(page.getByTestId(`clone-step-${step}`)).toBeDisabled();
+      await expect(page.getByTestId(`clone-step-${step}`)).toHaveCSS('cursor', 'default');
+    }
+  });
+});
+
+/** What the Clone wizard says while its preview is on its way. */
+const PREPARING_THE_PREVIEW =
+  'Preparing the preview: SandForge is reading each object in both orgs and counting the ' +
+  'records to clone.';
+
+test.describe('Seed Clone — a preview on its way', () => {
+  test('is shown being prepared on its step, in words, and set aside on Back', async ({ page }) => {
+    // Next left the wizard on the objects until the answer came: nothing said
+    // a preview was on its way, and Next stayed on to send another.
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await page.getByTestId('mode-card-clone').click();
+    await page.getByTestId('clone-source-select').selectOption(MOCK_ORGS[1].id);
+    await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+    await respondToAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+      objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+    });
+    await page.getByTestId('clone-wizard-next').click();
+    await page.getByTestId('clone-obj-check-Account').check();
+
+    await page.getByTestId('clone-wizard-next').click();
+
+    await expect(page.getByTestId('clone-preview-loading').getByRole('status')).toHaveText(
+      PREPARING_THE_PREVIEW,
+    );
+    await expect(page.getByTestId('clone-wizard-next')).toBeDisabled();
+    await page.getByTestId('clone-wizard-back').click();
+    await expect(page.getByTestId('clone-obj-check-Account')).toBeChecked();
+    // Answered once the wizard went back, it no longer brings the wizard forward.
+    await respondToAll(page, 'seed:clone:preview', 'seed:clone:preview:response', {
+      objects: [{ objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] }],
+      insertOrder: ['Account'],
+    });
+    await expect(page.getByTestId('clone-preview-panel')).toHaveCount(0);
+    await expect(page.getByTestId('clone-obj-check-Account')).toBeVisible();
+    expect(await outgoing(page, 'seed:clone:preview')).toHaveLength(1);
+  });
 });
 
 /** The graph a discovery of one Account and its Contacts answers with. */

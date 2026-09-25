@@ -133,6 +133,28 @@ describe('Wizard', () => {
     expect(onStepChange).toHaveBeenCalledWith(0);
   });
 
+  it('shows completed steps as not clickable while they may not be gone back to', () => {
+    // A wizard that ignored the click left them with the hover and the
+    // pointer of a step one can go back to.
+    const onStepChange = vi.fn();
+    render(
+      <Wizard steps={steps} currentStep={2} onStepChange={onStepChange} canRevisitSteps={false}>
+        <div>Content</div>
+      </Wizard>,
+    );
+
+    for (const id of ['alpha', 'beta']) {
+      const step = screen.getByTestId(`wizard-step-${id}`);
+      expect(step).toHaveProperty('disabled', true);
+      expect(step.className).not.toContain('cursor-pointer');
+      expect(step.className).not.toContain('hover:');
+      // Still shown as done.
+      expect(screen.getByTestId(`wizard-check-${id}`)).toBeDefined();
+    }
+    fireEvent.click(screen.getByTestId('wizard-step-alpha'));
+    expect(onStepChange).not.toHaveBeenCalled();
+  });
+
   it('should disable future steps', () => {
     render(
       <Wizard steps={steps} currentStep={0} onStepChange={vi.fn()}>

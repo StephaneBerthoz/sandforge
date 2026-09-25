@@ -201,6 +201,47 @@ describe('CloneWizard', () => {
       });
     });
 
+    it('shows the preview being prepared on its step, in words a screen reader reads out', () => {
+      // Next left the wizard on the objects until the answer came: nothing
+      // said a preview was on its way, and Next stayed on to send another.
+      const view = render(<CloneWizard onBack={vi.fn()} />);
+      pickSourceAndAccount();
+
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+
+      const loading = screen.getByTestId('clone-preview-loading');
+      expect(within(loading).getByRole('status').textContent).toBe(en.seed.clone.preview.loading);
+      expect(screen.getByTestId('clone-wizard-next')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('clone-wizard-back')).toHaveProperty('disabled', false);
+
+      previewAnswer = {
+        objects: [
+          { objectApiName: 'Account', recordCount: 3, sampleRecords: [], relationships: [] },
+        ],
+        insertOrder: ['Account'],
+      };
+      view.rerender(<CloneWizard onBack={vi.fn()} />);
+
+      expect(screen.queryByTestId('clone-preview-loading')).toBeNull();
+      expect(screen.getByTestId('clone-preview-panel')).toBeDefined();
+    });
+
+    it('sets the preview being prepared aside on Back, and stays on the objects', () => {
+      // Its answer would have brought the wizard back to a preview of what
+      // was picked before.
+      render(<CloneWizard onBack={vi.fn()} />);
+      pickSourceAndAccount();
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      mockPreviewReset.mockClear();
+
+      fireEvent.click(screen.getByTestId('clone-wizard-back'));
+
+      expect(mockPreviewReset).toHaveBeenCalled();
+      expect(screen.queryByTestId('clone-preview-loading')).toBeNull();
+      expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
+      expect(screen.getByTestId('clone-wizard-next')).toHaveProperty('disabled', false);
+    });
+
     it('dismisses only the banner of a failed preview: the objects stay picked', () => {
       // Dismissing the banner reset the wizard to its first step, the source
       // and the objects picked gone with it.
@@ -338,6 +379,27 @@ describe('CloneWizard', () => {
       expect(screen.getByTestId('clone-executing')).toBeDefined();
       expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
       expect(mockPreviewMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the steps it has passed as not clickable while the clone runs, and as clickable once it ends', () => {
+      // Clicks on them were ignored while it ran, and they kept the hover and
+      // the pointer of a step the wizard goes back to.
+      const view = previewShown();
+      fireEvent.click(screen.getByTestId('clone-preview-execute'));
+
+      for (const step of ['source', 'objects', 'preview']) {
+        const passed = screen.getByTestId(`clone-step-${step}`);
+        expect(passed).toHaveProperty('disabled', true);
+        expect(passed.className).not.toContain('cursor-pointer');
+        expect(passed.className).not.toContain('hover:');
+      }
+
+      executeAnswer = RESULT;
+      view.rerender(<CloneWizard onBack={vi.fn()} />);
+
+      const preview = screen.getByTestId('clone-step-preview');
+      expect(preview).toHaveProperty('disabled', false);
+      expect(preview.className).toContain('cursor-pointer');
     });
 
     it('shows a finished run again on Next from its preview, without running it twice', () => {

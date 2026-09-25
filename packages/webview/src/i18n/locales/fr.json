@@ -781,6 +781,7 @@
       },
       "preview": {
         "title": "Aperçu du clonage",
+        "loading": "Préparation de l'aperçu : SandForge lit chaque objet dans les deux orgs et compte les enregistrements à cloner.",
         "insertOrder": "Ordre d'insertion",
         "filledAfterInsert": "Écrits vides, puis remplis une fois l'enregistrement qu'ils désignent écrit (seconde passe) :",
         "sourceOnlyLookups": "Seulement dans l'org source — l'org cible n'a pas ces liens, leurs valeurs ne seront donc pas écrites :",
@@ -829,6 +830,7 @@
         "CLONE_FAILED": "Le clonage s'est arrêté avant la fin.",
         "INVALID_PAYLOAD": "SandForge a refusé cette demande avant de lire l'une ou l'autre org. Un clonage a besoin d'une org source, d'une org cible et de 1 à 100 objets, et un filtre ne peut que sélectionner des enregistrements : ni LIMIT, ni ORDER BY, ni sous-requête, ni point-virgule, ni commentaire. Le canal de sortie SandForge indique la partie refusée.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge a refusé cette exécution avant d'écrire quoi que ce soit : elle ne visait pas les orgs pour lesquelles son aperçu avait été fait. Refaites l'aperçu, puis lancez le clonage.",
+        "NOT_PREVIEWED": "SandForge a refusé cette exécution avant de lire l'une ou l'autre org : elle ne désignait aucun aperçu, et un clonage ne part que de l'aperçu pour lequel il a été fait. Refaites l'aperçu, puis lancez le clonage.",
         "generic": "Le clonage n'a pas pu être mené à son terme.",
         "detail": "Détail : {{detail}}"
       }

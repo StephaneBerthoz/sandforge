@@ -114,13 +114,21 @@ function sourceRows(rows: Record<string, Array<Record<string, unknown>>>): void 
   fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) => rows[name] ?? []);
 }
 
-function buildMsg(type: string, payload?: unknown): InboundRequest {
+function buildMsg(type: string, payload?: unknown, id = `msg-${type}`): InboundRequest {
   return inboundRequest({
-    id: `msg-${type}`,
+    id,
     type,
     timestamp: Date.now(),
     payload,
   } as BaseMessage);
+}
+
+/** The id a preview is asked under, which the run that follows it names. */
+const PREVIEW_ID = 'msg-seed:clone:preview';
+
+/** The run of `picked` as the page sends it: naming the preview it follows. */
+function runOf(picked: Record<string, unknown>): InboundRequest {
+  return buildMsg('seed:clone:execute', { ...picked, previewId: PREVIEW_ID });
 }
 
 /** Contacts and accounts, picked on the page in that order: the order is the clone's to decide. */
@@ -175,7 +183,20 @@ describe('SeedCloneHandler — the second pass', () => {
     targetUpdate.mockImplementation(async (_name: string, records: Array<{ Id: string }>) =>
       records.map((record) => ({ id: record.Id, success: true, errors: [] })),
     );
+    fetcher.countRecords.mockResolvedValue(0);
+    fetcher.fetchSample.mockResolvedValue([]);
   });
+
+  /**
+   * Answer the preview of `picked` under the describes the orgs give now, as
+   * the page asks for one before any run, which names it (`runOf`). What it
+   * posted is forgotten: a test reads what its run posts.
+   */
+  async function previewed(picked: Record<string, unknown>): Promise<void> {
+    await handler.handle(buildMsg('seed:clone:preview', picked));
+    expect(posted(deps, 'seed:clone:preview:response')).toHaveLength(1);
+    vi.mocked(deps.broker.postToWebview).mockClear();
+  }
 
   /** Insert answers giving each source row its marked id, in the order read. */
   function targetGivesIds(rows: Record<string, Array<Record<string, unknown>>>): void {
@@ -199,7 +220,8 @@ describe('SeedCloneHandler — the second pass', () => {
     sourceRows(rows);
     targetGivesIds(rows);
 
-    await handler.handle(buildMsg('seed:clone:execute', ACCOUNTS_AND_CONTACTS));
+    await previewed(ACCOUNTS_AND_CONTACTS);
+    await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
 
     expect(writer.insert.mock.calls.map(([name, records]) => [name, records])).toEqual([
       ['Account', [{ Name: 'Acme' }]],
@@ -236,12 +258,9 @@ describe('SeedCloneHandler — the second pass', () => {
     sourceRows(rows);
     targetGivesIds(rows);
 
-    await handler.handle(
-      buildMsg('seed:clone:execute', {
-        ...ACCOUNTS_AND_CONTACTS,
-        objects: [{ objectApiName: 'Account' }],
-      }),
-    );
+    const accounts = { ...ACCOUNTS_AND_CONTACTS, objects: [{ objectApiName: 'Account' }] };
+    await previewed(accounts);
+    await handler.handle(runOf(accounts));
 
     expect(writer.insert).toHaveBeenCalledWith(
       'Account',
@@ -285,7 +304,8 @@ describe('SeedCloneHandler — the second pass', () => {
       },
     ]);
 
-    await handler.handle(buildMsg('seed:clone:execute', ACCOUNTS_AND_CONTACTS));
+    await previewed(ACCOUNTS_AND_CONTACTS);
+    await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
 
     // Only what can be filled is sent.
     expect(targetUpdate.mock.calls).toEqual([
@@ -329,7 +349,8 @@ describe('SeedCloneHandler — the second pass', () => {
         : [{ id: inTarget(DOE), success: true, errors: [] }],
     );
 
-    await handler.handle(buildMsg('seed:clone:execute', ACCOUNTS_AND_CONTACTS));
+    await previewed(ACCOUNTS_AND_CONTACTS);
+    await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
 
     expect(targetUpdate).not.toHaveBeenCalled();
     const [response] = posted(deps, 'seed:clone:execute:response');
@@ -353,7 +374,8 @@ describe('SeedCloneHandler — the second pass', () => {
       return [{ id: inTarget(name === 'Account' ? ACME : DOE), success: true, errors: [] }];
     });
 
-    await handler.handle(buildMsg('seed:clone:execute', ACCOUNTS_AND_CONTACTS));
+    await previewed(ACCOUNTS_AND_CONTACTS);
+    await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
 
     expect(targetUpdate).not.toHaveBeenCalled();
     const [response] = posted(deps, 'seed:clone:execute:response');
@@ -397,12 +419,9 @@ describe('SeedCloneHandler — the second pass', () => {
       return records.map((record) => ({ id: record.Id, success: true, errors: [] }));
     });
 
-    await handler.handle(
-      buildMsg('seed:clone:execute', {
-        ...ACCOUNTS_AND_CONTACTS,
-        objects: [{ objectApiName: 'Account' }],
-      }),
-    );
+    const accounts = { ...ACCOUNTS_AND_CONTACTS, objects: [{ objectApiName: 'Account' }] };
+    await previewed(accounts);
+    await handler.handle(runOf(accounts));
 
     expect(targetUpdate).toHaveBeenCalledTimes(1);
     const [response] = posted(deps, 'seed:clone:execute:response');
@@ -427,9 +446,13 @@ describe('SeedCloneHandler — the second pass', () => {
   });
 
   it('stops before writing anything at a cycle of lookups that must be set at insert', async () => {
+    // Previewed before the two lookups were made required: the run reads
+    // both orgs again, and stops on what it finds there.
+    orgWithAccountsAndContacts();
+    await previewed(ACCOUNTS_AND_CONTACTS);
     orgWithAccountsAndContacts({ keyContact: true, account: true });
 
-    await handler.handle(buildMsg('seed:clone:execute', ACCOUNTS_AND_CONTACTS));
+    await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
 
     expect(writer.insert).not.toHaveBeenCalled();
     expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
@@ -608,7 +631,7 @@ describe('SeedCloneHandler — the second pass', () => {
       });
 
       await handler.handle(buildMsg('seed:clone:preview', PICKED));
-      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+      await handler.handle(runOf(PICKED));
 
       const written = writer.insert.mock.calls.map(([name]) => name);
       expect(written).toEqual(['Invoice__c', 'Account']);
@@ -683,7 +706,7 @@ describe('SeedCloneHandler — the second pass', () => {
       });
 
       await handler.handle(buildMsg('seed:clone:preview', PICKED));
-      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+      await handler.handle(runOf(PICKED));
 
       const written = writer.insert.mock.calls.map(([name]) => name);
       expect(written).toEqual(['Invoice__c', 'Account']);
@@ -733,7 +756,14 @@ describe('SeedCloneHandler — the second pass', () => {
 
     it('names the object the target cannot describe when the run stops on it, before writing anything', async () => {
       // The preview named it; the run stopped on the org's answer alone,
-      // which names none.
+      // which names none. Previewed while the target still had the object:
+      // the run describes both orgs again.
+      const PICKED = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
+      };
+      twoOrgs({ Invoice__c: [NAME], Account: [NAME] }, { Invoice__c: [NAME], Account: [NAME] });
+      await previewed(PICKED);
       twoOrgs(
         { Invoice__c: [NAME], Account: [NAME] },
         {
@@ -743,12 +773,7 @@ describe('SeedCloneHandler — the second pass', () => {
       );
       sourceRows({ Account: [{ Id: ACME, Name: 'Acme' }] });
 
-      await handler.handle(
-        buildMsg('seed:clone:execute', {
-          ...ACCOUNTS_AND_CONTACTS,
-          objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
-        }),
-      );
+      await handler.handle(runOf(PICKED));
 
       expect(writer.insert).not.toHaveBeenCalled();
       expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
@@ -765,6 +790,11 @@ describe('SeedCloneHandler — the second pass', () => {
         ...ACCOUNTS_AND_CONTACTS,
         objects: [{ objectApiName: 'Account' }, { objectApiName: 'Invoice__c' }],
       };
+      // A run follows a preview that was answered: the one made while the
+      // source still had the object. Previewed again, and run, once it no
+      // longer has it.
+      twoOrgs({ Invoice__c: [NAME], Account: [NAME] }, { Invoice__c: [NAME], Account: [NAME] });
+      await previewed(PICKED);
       twoOrgs(
         {
           Invoice__c: new Error("INVALID_TYPE: sObject type 'Invoice__c' is not supported."),
@@ -774,8 +804,8 @@ describe('SeedCloneHandler — the second pass', () => {
       );
       sourceRows({ Account: [{ Id: ACME, Name: 'Acme' }] });
 
-      await handler.handle(buildMsg('seed:clone:preview', PICKED));
-      await handler.handle(buildMsg('seed:clone:execute', PICKED));
+      await handler.handle(buildMsg('seed:clone:preview', PICKED, 'msg-preview-again'));
+      await handler.handle(runOf(PICKED));
 
       const said =
         "Invoice__c could not be described in the source org: INVALID_TYPE: sObject type 'Invoice__c' is not supported.";
@@ -1010,16 +1040,16 @@ describe('SeedCloneHandler — the second pass', () => {
         records.map((record) => ({ id: idOf.get(record.Subject), success: true, errors: [] })),
       );
 
-      await handler.handle(
-        buildMsg('seed:clone:execute', {
-          ...ACCOUNTS_AND_CONTACTS,
-          objects: [
-            { objectApiName: 'Task' },
-            { objectApiName: 'EmailMessage' },
-            { objectApiName: 'Case' },
-          ],
-        }),
-      );
+      const picked = {
+        ...ACCOUNTS_AND_CONTACTS,
+        objects: [
+          { objectApiName: 'Task' },
+          { objectApiName: 'EmailMessage' },
+          { objectApiName: 'Case' },
+        ],
+      };
+      await previewed(picked);
+      await handler.handle(runOf(picked));
 
       expect(writer.insert.mock.calls.map(([name, records]) => [name, records])).toEqual([
         ['Case', [{ Subject: 'Broken' }]],

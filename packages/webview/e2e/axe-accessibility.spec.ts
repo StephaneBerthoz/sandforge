@@ -1689,6 +1689,26 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Seed Clone while its preview is prepared, saying so', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await page.getByTestId('mode-card-clone').click();
+      await page.getByTestId('clone-source-select').selectOption(QA_SANDBOX.id);
+      await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
+      await answerAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
+        objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
+      });
+      await page.getByTestId('clone-wizard-next').click();
+      await page.getByTestId('clone-obj-check-Account').check();
+      await page.getByTestId('clone-wizard-next').click();
+      // Never answered: the preview stays on its way.
+      await page.waitForSelector('[data-testid="clone-preview-loading"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-preview-loading"]'),
+      ).toBeGreaterThan(0);
+    });
+
     /** The Seed Clone wizard at its preview of accounts and contacts, their lookups both ways. */
     async function previewAccountsAndContacts(page: Page): Promise<void> {
       await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });

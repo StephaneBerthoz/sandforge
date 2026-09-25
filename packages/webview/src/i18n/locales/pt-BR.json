@@ -781,6 +781,7 @@
       },
       "preview": {
         "title": "Pré-visualização de clonagem",
+        "loading": "Preparando a pré-visualização: o SandForge lê cada objeto nas duas orgs e conta os registros a clonar.",
         "insertOrder": "Ordem de inserção",
         "filledAfterInsert": "Gravados vazios e preenchidos depois de gravado o registro para o qual apontam (segunda passagem):",
         "sourceOnlyLookups": "Somente na org de origem — a org de destino não tem estes vínculos, então seus valores não serão gravados:",
@@ -829,6 +830,7 @@
         "CLONE_FAILED": "A clonagem parou antes de terminar.",
         "INVALID_PAYLOAD": "O SandForge recusou esta solicitação antes de ler qualquer uma das orgs. Uma clonagem precisa de uma org de origem, de uma org de destino e de 1 a 100 objetos, e um filtro só pode selecionar registros: sem LIMIT, ORDER BY, subconsulta, ponto e vírgula ou comentário. O canal de saída do SandForge indica qual parte foi recusada.",
         "PREVIEWED_FOR_OTHER_ORGS": "O SandForge recusou esta execução antes de gravar qualquer coisa: ela não era para as orgs para as quais sua pré-visualização foi feita. Refaça a pré-visualização e depois execute a clonagem.",
+        "NOT_PREVIEWED": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: ela não indicava nenhuma pré-visualização, e uma clonagem só é executada a partir da pré-visualização para a qual foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "generic": "Não foi possível concluir a clonagem.",
         "detail": "Detalhes: {{detail}}"
       }

@@ -134,6 +134,9 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
         onStepChange={handleStepChange}
         canGoNext={canGoNext()}
         canGoBack={clone.executionStatus !== 'executing'}
+        // The steps passed ignore a click while the clone runs: drawn as
+        // steps to go back to, they kept the hover and the pointer of one.
+        canRevisitSteps={clone.executionStatus !== 'executing'}
         isFinished={isFinished}
         onFinish={handleFinish}
         testIdPrefix="clone"
@@ -180,6 +183,11 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
                 className="flex flex-col gap-[var(--sf-space-3)]"
                 data-testid="clone-preview-loading"
               >
+                {/* Said as well as drawn: the placeholders are hidden from a
+                    screen reader, and this is what it reads out. */}
+                <p role="status" className="text-xs text-[var(--sf-text-secondary)]">
+                  {t('seed.clone.preview.loading')}
+                </p>
                 <Skeleton variant="text" width="40%" height="1em" />
                 <Skeleton variant="rect" height="100px" />
                 <Skeleton variant="rect" height="80px" />

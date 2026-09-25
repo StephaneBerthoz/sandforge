@@ -99,11 +99,11 @@ function createTestImportResult(overrides: Partial<SfdxImportResult> = {}): Sfdx
  * Builds an enveloped inbound message. The broker drops raw (non-enveloped)
  * messages, so every dispatch in this suite goes through the envelope path.
  */
-function msg(type: string, payload?: Record<string, unknown>): unknown {
+function msg(type: string, payload?: Record<string, unknown>, id = 'test-1'): unknown {
   return {
     protocolVersion: PROTOCOL_VERSION,
     payload: {
-      id: 'test-1',
+      id,
       type,
       timestamp: Date.now(),
       ...(payload ? { payload } : {}),
@@ -1849,14 +1849,18 @@ describe('ExtensionHandlers', () => {
         })),
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
-
-      broker['dispatch'](
-        msg('seed:clone:execute', {
-          sourceOrgId: 'org-1',
-          targetOrgId: 'org-2',
-          objects: [{ objectApiName: 'Account' }],
-        }),
+      const picked = {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objects: [{ objectApiName: 'Account' }],
+      };
+      // A run names the preview it follows, which the extension answered.
+      broker['dispatch'](msg('seed:clone:preview', picked, 'test-preview'));
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'seed:clone:preview:response')).toBe(true),
       );
+
+      broker['dispatch'](msg('seed:clone:execute', { ...picked, previewId: 'test-preview' }));
       await vi.waitFor(
         () => expect(posted.some((p) => p.type === 'seed:clone:execute:response')).toBe(true),
         { timeout: 10000 },

@@ -21,6 +21,12 @@ export interface WizardProps {
   children: React.ReactNode;
   canGoNext?: boolean;
   canGoBack?: boolean;
+  /**
+   * Whether a completed step in the sidebar can be clicked to go back to it.
+   * Off while the wizard must stay where it is — a run in flight — so a step
+   * it would not go to is not drawn as one it would. Defaults to true.
+   */
+  canRevisitSteps?: boolean;
   onFinish?: () => void;
   isFinished?: boolean;
   /**
@@ -48,6 +54,7 @@ export const Wizard: React.FC<WizardProps> = ({
   children,
   canGoNext = true,
   canGoBack = true,
+  canRevisitSteps = true,
   onFinish,
   isFinished = false,
   onCancel,
@@ -73,6 +80,8 @@ export const Wizard: React.FC<WizardProps> = ({
           // One status, so what a step paints for one state is never read with
           // what it paints for another.
           const status = i === currentStep ? 'current' : i < currentStep ? 'completed' : 'future';
+          /** A completed step the wizard goes back to when it is clicked. */
+          const revisitable = status === 'completed' && canRevisitSteps;
 
           return (
             <button
@@ -81,11 +90,13 @@ export const Wizard: React.FC<WizardProps> = ({
                 'flex items-start gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors w-full',
                 status === 'current' && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
                 status === 'completed' &&
-                  'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer',
+                  (canRevisitSteps
+                    ? 'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer'
+                    : 'cursor-default'),
                 status === 'future' && 'cursor-default',
               )}
-              onClick={() => status === 'completed' && onStepChange(i)}
-              disabled={status === 'future'}
+              onClick={() => revisitable && onStepChange(i)}
+              disabled={status !== 'current' && !revisitable}
               aria-current={status === 'current' ? 'step' : undefined}
               data-testid={tid(testIdPrefix, `step-${step.id}`)}
             >

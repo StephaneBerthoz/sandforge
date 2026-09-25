@@ -781,6 +781,7 @@
       },
       "preview": {
         "title": "Vista previa de clonación",
+        "loading": "Preparando la vista previa: SandForge lee cada objeto en las dos orgs y cuenta los registros que se van a clonar.",
         "insertOrder": "Orden de inserción",
         "filledAfterInsert": "Se escriben vacíos y se rellenan una vez escrito el registro al que apuntan (segunda pasada):",
         "sourceOnlyLookups": "Solo en la org de origen — la org de destino no tiene estos vínculos, así que sus valores no se escribirán:",
@@ -829,6 +830,7 @@
         "CLONE_FAILED": "La clonación se detuvo antes de finalizar.",
         "INVALID_PAYLOAD": "SandForge rechazó esta solicitud antes de leer ninguna de las dos orgs. Una clonación necesita una org de origen, una org de destino y de 1 a 100 objetos, y un filtro solo puede seleccionar registros: sin LIMIT, ORDER BY, subconsulta, punto y coma ni comentario. El canal de salida de SandForge indica qué parte se rechazó.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge rechazó esta ejecución antes de escribir nada: no era para las orgs para las que se hizo su vista previa. Vuelva a generar la vista previa y luego ejecute la clonación.",
+        "NOT_PREVIEWED": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: no indicaba ninguna vista previa, y una clonación solo se ejecuta a partir de la vista previa para la que se hizo. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "generic": "No se pudo completar la clonación.",
         "detail": "Detalles: {{detail}}"
       }

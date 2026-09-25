@@ -498,7 +498,9 @@ export const seedCloneDescribeSourcePayloadSchema = z.object({ sourceOrgId: orgI
  * optional extensions (the current UI always inserts; the CLI shows the
  * upsert flow for re-runs against orgs with external Id fields). A run names
  * the preview it follows by that request's id (`previewId`), and goes only to
- * the orgs that preview was made for.
+ * the orgs that preview was made for. Optional here, as the preview is read by
+ * this schema too: the handler refuses a run that names none, under a code of
+ * its own, which a refusal of the payload would not give it.
  */
 export const seedCloneExecutePayloadSchema = z
   .object({

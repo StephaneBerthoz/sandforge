@@ -44,6 +44,13 @@ const CLONE_ERROR_CODES = [
   'CLONE_FAILED',
 ];
 
+/**
+ * The codes `seed:clone:error` carries for a request refused before either org
+ * is read: by the bridge's check of the payload, or, for a run, because it
+ * names no preview or is not for the orgs of the one it names.
+ */
+const REFUSAL_CODES = ['INVALID_PAYLOAD', 'NOT_PREVIEWED', 'PREVIEWED_FOR_OTHER_ORGS'];
+
 /** The orgs and the objects a preview was asked for: what the run that follows it goes to. */
 interface PreviewedFor {
   sourceOrgId: string;
@@ -88,7 +95,7 @@ export interface UseCloneReturn {
    * for; while it runs, show it instead of sending another.
    */
   handleExecute: () => void;
-  /** Set wizard step manually. */
+  /** Go to a step; one left while its preview is prepared sets that preview aside. */
   setStep: (step: CloneStep) => void;
   /** Dismiss the error, and nothing else: the orgs, the objects and the preview stay. */
   dismissError: () => void;
@@ -179,6 +186,12 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   if (step === 'execute' && executionStatus !== 'executing' && executionResult === null) {
     setStep(previewResult ? 'preview' : 'objects');
   }
+  // The preview step shows a preview: the one being prepared, or its answer.
+  // One that ended without an answer — refused, failed, out of time — goes
+  // back to the objects, where the banner says why and Next asks again.
+  if (step === 'preview' && executionStatus !== 'previewing' && previewResult === null) {
+    setStep('objects');
+  }
 
   // SeedCloneHandler uses the execute request id as the operationId and reports
   // an execution failure on operation:failed only. Nothing listened here, so a
@@ -217,24 +230,37 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     setStep((current) => (current === 'preview' || current === 'execute' ? 'objects' : current));
   }, [previewMutation]);
 
+  /**
+   * Go to a step. Another step gone to while the preview is prepared sets that
+   * preview aside: answered after the wizard went back, it would bring the
+   * wizard forward again, to a preview of what was picked before.
+   */
+  const goToStep = useCallback(
+    (next: CloneStep) => {
+      if (executionStatus === 'previewing' && next !== 'preview') dropPreview();
+      setStep(next);
+    },
+    [executionStatus, dropPreview],
+  );
+
   // A preview or a run the bridge refuses comes back on seed:clone:error with
   // the check's own English — "Invalid payload — targetOrgId: String must
   // contain at least 1 character(s)" — which the mutation hands on as it is.
   // Its code is what the wizard shows, in words; any other failure there
   // carries what the org said, and stays as it came. A run the extension
-  // refuses because it is not for the orgs of the preview it names takes that
-  // preview with it: Next previews again.
+  // refuses because it names no preview, or is not for the orgs of the one it
+  // names, takes the preview shown with it: Next previews again.
   const previewRequestId = previewMutation.requestId;
   useMessageListener<CloneErrorMessage>('seed:clone:error', (message) => {
     const code = message.payload?.code;
-    if (code !== 'INVALID_PAYLOAD' && code !== 'PREVIEWED_FOR_OTHER_ORGS') return;
+    if (typeof code !== 'string' || !REFUSAL_CODES.includes(code)) return;
     const refused =
       (executionStatus === 'previewing' && message.correlationId === previewRequestId) ||
       (executionStatus === 'executing' && message.correlationId === executeRequestId);
     if (!refused) return;
     setError(t(`seed.clone.error.${code}`));
-    if (code === 'PREVIEWED_FOR_OTHER_ORGS') dropPreview();
-    else setExecutionStatus('error');
+    if (code === 'INVALID_PAYLOAD') setExecutionStatus('error');
+    else dropPreview();
   });
 
   // The target is the org selected in SandForge, which can change at any
@@ -316,6 +342,9 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     executeMutation.reset();
     setPreviewResult(null);
     setExecutionStatus('previewing');
+    // Shown being prepared on its own step: left on the objects until the
+    // answer came, the wizard said nothing of it, and Next sent it again.
+    setStep('preview');
     setError(null);
     // What the run that follows goes to, whatever is selected by then.
     setPreviewedFor({ sourceOrgId, targetOrgId, objects: selectedObjects });
@@ -334,7 +363,10 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       setStep('execute');
       return;
     }
-    if (!previewedFor || !previewResult) return;
+    // Every run names the preview it follows: the extension refuses one that
+    // names none.
+    const previewId = previewMutation.requestId;
+    if (!previewedFor || !previewResult || !previewId) return;
     // Its results stay on screen when another org is selected; back on its
     // preview, Execute would have written to the org selected now.
     if (previewedFor.targetOrgId !== targetOrgId) {
@@ -352,7 +384,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       sourceOrgId: previewedFor.sourceOrgId,
       targetOrgId: previewedFor.targetOrgId,
       objects: previewedFor.objects,
-      ...(previewMutation.requestId ? { previewId: previewMutation.requestId } : {}),
+      previewId,
     });
   }, [
     executionStatus,
@@ -406,7 +438,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     handleWhereClauseChange,
     handlePreview,
     handleExecute,
-    setStep,
+    setStep: goToStep,
     dismissError,
     reset,
   };

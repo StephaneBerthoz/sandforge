@@ -398,6 +398,77 @@ describe('useClone', () => {
     });
   });
 
+  describe('a preview, while it is prepared', () => {
+    /** Select a source and an object, and send the preview, as request `wv-preview`. */
+    function previewAskedFor(): RenderHookResult<UseCloneReturn, unknown> {
+      const hook = renderHook(() => useClone('target-1'));
+      act(() => {
+        hook.result.current.handleSourceOrgSelected('source-1');
+      });
+      act(() => {
+        hook.result.current.handleObjectToggle('Account');
+      });
+      act(() => {
+        hook.result.current.handlePreview();
+      });
+      mockPreviewState = { ...mockPreviewState, loading: true, requestId: 'wv-preview' };
+      hook.rerender();
+      return hook;
+    }
+
+    it('is shown on the preview step from the moment it is asked for', () => {
+      // The wizard stayed on the objects until the answer came, and the
+      // preview step's own loading state was never drawn.
+      const { result } = previewAskedFor();
+
+      expect(result.current.step).toBe('preview');
+      expect(result.current.executionStatus).toBe('previewing');
+    });
+
+    it('goes back to the objects when it fails, where the banner says why', () => {
+      const { result, rerender } = previewAskedFor();
+      const failed =
+        'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist';
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: failed };
+        cloneError('wv-preview', failed, 'UNKNOWN');
+      });
+      rerender();
+
+      expect(result.current.step).toBe('objects');
+      expect(result.current.error).toBe(failed);
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+    });
+
+    it('goes back to the objects when the bridge refuses it', () => {
+      const { result, rerender } = previewAskedFor();
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: REFUSED };
+        cloneError('wv-preview', REFUSED, 'INVALID_PAYLOAD');
+      });
+      rerender();
+
+      expect(result.current.step).toBe('objects');
+      expect(result.current.error).toBe(en.seed.clone.error.INVALID_PAYLOAD);
+    });
+
+    it('is set aside when another step is gone to, so its answer cannot bring the wizard back', () => {
+      const { result } = previewAskedFor();
+      mockPreviewReset.mockClear();
+
+      act(() => {
+        result.current.setStep('objects');
+      });
+
+      expect(mockPreviewReset).toHaveBeenCalled();
+      expect(result.current.step).toBe('objects');
+      expect(result.current.executionStatus).toBe('idle');
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+    });
+  });
+
   describe('a run, which goes by its preview', () => {
     it('runs the clone of the orgs and objects its preview was made for, naming that preview', () => {
       const { result } = previewed();
@@ -418,6 +489,40 @@ describe('useClone', () => {
         objects: [{ objectApiName: 'Account' }],
         previewId: 'wv-preview',
       });
+    });
+
+    it('sends no run that does not name its preview', () => {
+      // The extension refuses a run that names none: the page never sends one.
+      const { result, rerender } = previewed();
+      mockPreviewState = { ...mockPreviewState, requestId: null };
+      rerender();
+
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+    });
+
+    it('says in words that the extension refused a run naming no preview, and drops the preview it had', () => {
+      const { result, rerender } = previewed();
+      act(() => {
+        result.current.handleExecute();
+      });
+      mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+      rerender();
+      const refused = 'Clone refused: it names no preview. Preview it, then run the preview shown.';
+
+      act(() => {
+        mockExecuteState = { ...mockExecuteState, loading: false, error: refused };
+        cloneError('wv-clone-run', refused, 'NOT_PREVIEWED');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(en.seed.clone.error.NOT_PREVIEWED);
+      expect(result.current.previewResult).toBeNull();
+      expect(result.current.step).toBe('objects');
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
     });
 
     it('sends no run without a preview', () => {
@@ -656,9 +761,20 @@ describe('useClone', () => {
     expect(result.current.step).toBe('objects');
 
     act(() => {
+      result.current.setStep('source');
+    });
+    expect(result.current.step).toBe('source');
+  });
+
+  it('leaves a preview step with no preview to show for the objects', () => {
+    // Neither prepared nor answered, the preview step stood empty.
+    const { result } = renderHook(() => useClone('target-1'));
+
+    act(() => {
       result.current.setStep('preview');
     });
-    expect(result.current.step).toBe('preview');
+
+    expect(result.current.step).toBe('objects');
   });
 
   /* ------------------------------------------------------------------ */

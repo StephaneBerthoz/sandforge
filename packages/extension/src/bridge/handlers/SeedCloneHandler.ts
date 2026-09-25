@@ -117,6 +117,12 @@ const CLONE_FAILURE_CODES = {
 const PREVIEWED_FOR_OTHER_ORGS = 'PREVIEWED_FOR_OTHER_ORGS';
 
 /**
+ * The code `seed:clone:error` carries for a run refused because it names no
+ * preview, before either org is read.
+ */
+const NOT_PREVIEWED = 'NOT_PREVIEWED';
+
+/**
  * How many answered previews the handler keeps the orgs of, the latest: a run
  * names the one it follows, which its page asked for just before.
  */
@@ -241,9 +247,10 @@ export class SeedCloneHandler implements DomainHandler {
    * The order, the dependencies and the lookups left to the second pass are
    * read as the run reads them: from the target's describe, by the lookups
    * the source's has too (`lookupsBothHave`); what the clone sends, from the
-   * target's. Read from the source's alone, a lookup one org has and the
-   * other lacks made the preview show an order and a second pass the run
-   * does not make.
+   * target's, by the required lookups the source's has too
+   * (`requiredLookupsOf`). Read from the source's alone, a lookup one org has
+   * and the other lacks made the preview show an order and a second pass the
+   * run does not make.
    * The rows are counted and sampled in the source, where the run reads them.
    * A request without a target is refused with its payload — the schema asks
    * for one, as it does of the run — and never falls back on the source's
@@ -314,6 +321,7 @@ export class SeedCloneHandler implements DomainHandler {
           requiredLookupsOf(
             objectConfig.objectApiName,
             describeMap.get(objectConfig.objectApiName),
+            sourceDescribes.get(objectConfig.objectApiName),
           ),
           copied,
         );
@@ -410,22 +418,36 @@ export class SeedCloneHandler implements DomainHandler {
   }
 
   /**
-   * Why a run that names the preview it follows may not go ahead, or
-   * `undefined` when it may: it goes only to the orgs that preview was made
-   * for. The page read the target from the org selected when Execute was
-   * pressed, and one selected after the preview took a run previewed for
-   * another.
+   * Why a run may not go ahead, and the code that says it, or `undefined`
+   * when it may: it names the preview it follows, and goes only to the orgs
+   * that preview was made for. The page read the target from the org
+   * selected when Execute was pressed, and one selected after the preview
+   * took a run previewed for another; a run that named no preview went to
+   * whichever orgs it said.
    */
   private refusedAgainstItsPreview(
     run: PreviewedOrgs & { previewId?: string },
-  ): string | undefined {
-    if (run.previewId === undefined) return undefined;
+  ): { code: string; reason: string } | undefined {
+    if (run.previewId === undefined) {
+      return {
+        code: NOT_PREVIEWED,
+        reason: 'Clone refused: it names no preview. Preview it, then run the preview shown.',
+      };
+    }
     const previewed = this.previewedOrgs.get(run.previewId);
     if (!previewed) {
-      return 'Clone refused: the preview it names is not one SandForge answered, or no longer holds. Preview it again.';
+      return {
+        code: PREVIEWED_FOR_OTHER_ORGS,
+        reason:
+          'Clone refused: the preview it names is not one SandForge answered, or no longer holds. Preview it again.',
+      };
     }
     if (previewed.sourceOrgId !== run.sourceOrgId || previewed.targetOrgId !== run.targetOrgId) {
-      return 'Clone refused: its preview was made for another source or target org. Preview it again.';
+      return {
+        code: PREVIEWED_FOR_OTHER_ORGS,
+        reason:
+          'Clone refused: its preview was made for another source or target org. Preview it again.',
+      };
     }
     return undefined;
   }
@@ -434,8 +456,8 @@ export class SeedCloneHandler implements DomainHandler {
    * Execute the clone: fetch source records in topological order, remap in-set
    * references to the new target IDs, and write via BulkDataWriter (insert by
    * default, upsert when the payload opts in with an external Id field). A
-   * run that names its preview and is not for that preview's orgs is refused
-   * on `seed:clone:error`, before either org is read.
+   * run that names no preview, or is not for the orgs of the one it names, is
+   * refused on `seed:clone:error`, before either org is read.
    */
   private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -448,8 +470,8 @@ export class SeedCloneHandler implements DomainHandler {
     if (!parsed) return;
     const refused = this.refusedAgainstItsPreview(parsed);
     if (refused !== undefined) {
-      sendHandlerError(this.deps, msg.type, 'seed:clone:error', msg, new Error(refused), {
-        code: PREVIEWED_FOR_OTHER_ORGS,
+      sendHandlerError(this.deps, msg.type, 'seed:clone:error', msg, new Error(refused.reason), {
+        code: refused.code,
       });
       return;
     }
@@ -933,7 +955,11 @@ export class SeedCloneHandler implements DomainHandler {
         let sourceRecords = leftToThePlatform.keep(
           objectApiName,
           read,
-          requiredLookupsOf(objectApiName, describeMap.get(objectApiName)).map(({ name }) => name),
+          requiredLookupsOf(
+            objectApiName,
+            describeMap.get(objectApiName),
+            sourceDescribes.get(objectApiName),
+          ).map(({ name }) => name),
         );
         const leftOut = read.length - sourceRecords.length;
         if (objectApiName === EMAIL_MESSAGE) {
@@ -1253,18 +1279,31 @@ function cloneRun(
 }
 
 /**
- * The lookups the rows of an object may not leave empty, as its describe gives
- * them: what ties a row to one it cannot go in without. One reading for the
- * preview and the clone, so the preview counts what the clone sends.
+ * The lookups the rows of an object may not leave empty, as the target's
+ * describe gives them, of those the source's describe has: what ties a row to
+ * one it cannot go in without. One reading for the preview and the clone, so
+ * the preview counts what the clone sends.
+ *
+ * The rows are read by the fields the source describes, and the preview asks
+ * the source for them by these lookups. One only the target has holds no value
+ * in any row read: named in the preview's query, it put a field the source
+ * lacks there, which the source refuses, "No such column".
+ *
+ * @param describe - The target's describe of the object.
+ * @param sourceDescribe - The source's, which the rows are read by.
  */
 function requiredLookupsOf(
   objectApiName: string,
   describe: DescribeSObjectResultLike | undefined,
+  sourceDescribe: DescribeSObjectResultLike | undefined,
 ): RequiredLookup[] {
+  const read = new Set((sourceDescribe?.fields ?? []).map((field) => field.name));
   return (describe?.fields ?? [])
     .filter(
       (field) =>
-        field.type === 'reference' && isRequiredLookup(objectApiName, field.name, field.nillable),
+        field.type === 'reference' &&
+        read.has(field.name) &&
+        isRequiredLookup(objectApiName, field.name, field.nillable),
     )
     .map((field) => ({ name: field.name, referenceTo: field.referenceTo ?? [] }));
 }
