@@ -876,6 +876,16 @@ async function forgeGraphFitted(page: Page): Promise<void> {
 }
 
 /**
+ * The height of the Forge graph's pane, as Chromium lays it out. Its wrapper
+ * gave it a minimum and no height, so the pane took the height of the panel
+ * beside it: 52px on discovery at 1280×720, under a minimap of 150.
+ */
+async function forgeGraphPaneHeight(page: Page): Promise<number> {
+  const box = await page.getByTestId('live-graph').boundingBox();
+  return box?.height ?? 0;
+}
+
+/**
  * The objects of the Forge graph the minimap is drawn over, as Chromium lays
  * them out: each box cut to the graph's pane, which hides what is drawn past
  * its edges.
@@ -1524,18 +1534,21 @@ for (const theme of SCANNED_THEMES) {
       // to the whole of a pane whose right side the minimap takes.
       await discoverForgeGraph(bridge, page, theme);
       await forgeGraphFitted(page);
+      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(350);
       expect(await forgeNodesUnderMinimap(page)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
       await forgeGraphFitted(page);
+      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(350);
       expect(await forgeNodesUnderMinimap(page)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByTestId('execute-button').click();
       await page.getByTestId('forge-execution').waitFor({ timeout: 10_000 });
       await forgeGraphFitted(page);
+      expect(await forgeGraphPaneHeight(page)).toBeGreaterThanOrEqual(300);
       expect(await forgeNodesUnderMinimap(page)).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
     });

@@ -344,7 +344,9 @@ export const ForgeExecution: React.FC = () => {
       </m.div>
 
       {/* ---- Middle: SplitView (graph + logs) ---- */}
-      <div className="flex-1 min-h-0 min-h-[300px]">
+      {/* A height of its own, as the discovery graph has: under a minimum
+          alone, the graph took the height of the log beside it. */}
+      <div className="h-[60vh] min-h-[300px]">
         <SplitView
           ratio="60/40"
           left={

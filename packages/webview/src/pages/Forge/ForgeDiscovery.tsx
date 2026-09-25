@@ -371,7 +371,10 @@ export const ForgeDiscovery: React.FC = () => {
       </m.div>
 
       {/* Split view: graph/table + detail */}
-      <m.div variants={slideUp} className="flex-1 min-h-0 min-h-[350px]">
+      {/* A height of its own, not a minimum: under a minimum alone the split
+          view's h-full had nothing to be a share of, and the graph took the
+          height of the panel beside it, 52px at 1280×720. */}
+      <m.div variants={slideUp} className="h-[60vh] min-h-[350px]">
         <SplitView
           ratio="60/40"
           left={
