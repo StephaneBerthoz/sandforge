@@ -321,6 +321,9 @@ test.describe('DataOps — with a connected org', () => {
       ],
       saved: true,
     };
+    // Counted before the answer: the mount already asked twice under
+    // StrictMode, and an answer sent before the request it waits for is lost.
+    const listsBeforeSave = (await outgoing(page, 'dataops:anonymization-templates')).length;
     await respondToAll(
       page,
       'dataops:anonymization-template:save',
@@ -330,7 +333,7 @@ test.describe('DataOps — with a connected org', () => {
     // The page asks the host for the list again rather than patching its own.
     await expect
       .poll(async () => (await outgoing(page, 'dataops:anonymization-templates')).length)
-      .toBeGreaterThan(1);
+      .toBeGreaterThan(listsBeforeSave);
     await respondToAll(
       page,
       'dataops:anonymization-templates',
@@ -697,6 +700,9 @@ test.describe('DataOps — Compliance', () => {
       records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
       dryRun: false,
     });
+    // Counted before the answer: the log was asked for on mount and after the
+    // search, and an answer sent before the request it waits for is lost.
+    const logsBeforeErasure = (await outgoing(page, 'dataops:dsr:log')).length;
     await respondToLast(page, 'dataops:dsr:erase', 'dataops:dsr:erase:response', {
       requestId: REQUEST_ID,
       mode: 'anonymize',
@@ -717,7 +723,7 @@ test.describe('DataOps — Compliance', () => {
     // The log is asked for again, and lists the request in counts.
     await expect
       .poll(async () => (await outgoing(page, 'dataops:dsr:log')).length)
-      .toBeGreaterThan(1);
+      .toBeGreaterThan(logsBeforeErasure);
     await respondToAll(page, 'dataops:dsr:log', 'dataops:dsr:log:response', {
       entries: [
         {
