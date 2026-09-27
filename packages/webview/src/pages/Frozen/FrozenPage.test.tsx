@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { FrozenPage } from './FrozenPage';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import type { FrozenStatusInfo } from '@sandforge/shared';
@@ -247,6 +248,42 @@ describe('FrozenPage', () => {
     render(<FrozenPage />);
     expect(screen.getByTestId('frozen-load-progress')).toBeDefined();
     expect(screen.getByText(/Inserting/)).toBeDefined();
+  });
+
+  it('names each phase of a load in words, not by its code', () => {
+    // The badge printed the phase's code itself: "guards", "insert", "pass2".
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      progress: [
+        { phase: 'guards', status: 'done', progress: 5, message: 'Entry guards passed' },
+        { phase: 'pass2', status: 'started', progress: 82, message: 'Patching cycle FKs' },
+      ],
+    });
+    render(<FrozenPage />);
+
+    const badgeOf = (line: RegExp): string =>
+      screen.getByText(line).closest('li')?.firstElementChild?.textContent ?? '';
+    expect(badgeOf(/Entry guards passed/)).toBe('Entry guards');
+    expect(badgeOf(/Patching cycle FKs/)).toBe('Second pass');
+  });
+
+  it('names a phase in the language the panel is set to', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      useFrozenStore.setState({
+        tab: 'load',
+        status: statusFixture(),
+        progress: [{ phase: 'insert', status: 'started', progress: 40, message: 'Inserting' }],
+      });
+      render(<FrozenPage />);
+      expect(screen.getByText(/Inserting/).closest('li')?.firstElementChild?.textContent).toBe(
+        fr.frozen.loadPhase.insert,
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('marks an object a cancel stopped while it was written apart from the ones written whole', () => {

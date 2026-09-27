@@ -2930,6 +2930,20 @@
       "filesLeftOut": "除外 — 承認済みの keep ルールがないとファイルを仮名化できません: {{objects}}",
       "leftToThePlatform": "除外 — プラットフォーム自身が書き込むレコード、またはそれに依存するレコード: {{objects}}",
       "exclusionCosts": "このままでは読み込めません — excludedObjects が除外するオブジェクトが必要なレコード: {{objects}}"
+    },
+    "loadPhase": {
+      "guards": "事前チェック",
+      "mapping": "マッピング",
+      "pilot": "パイロット範囲",
+      "reload": "再読み込み",
+      "align": "整合",
+      "placeholders": "プレースホルダー",
+      "insert": "挿入",
+      "pass2": "第 2 パス",
+      "personcontact": "個人取引先責任者",
+      "persist": "保存",
+      "done": "完了",
+      "verify": "検証"
     }
   },
   "grappe": {

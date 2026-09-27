@@ -352,7 +352,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     key={index}
                     className="flex items-center gap-2 text-[11px] text-text-secondary"
                   >
-                    <Badge variant={PROGRESS_VARIANTS[event.status]}>{event.phase}</Badge>
+                    <Badge variant={PROGRESS_VARIANTS[event.status]}>
+                      {t(`frozen.loadPhase.${event.phase}`)}
+                    </Badge>
                     <span className="truncate">
                       {event.objectName ? `${event.objectName} — ` : ''}
                       {event.message}

@@ -274,6 +274,10 @@ const UNION_BACKED = [
     from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeNodeStatus' },
   },
   {
+    prefix: 'frozen.loadPhase.',
+    from: { file: 'packages/shared/src/types/frozen.types.ts', union: 'FrozenLoadPhase' },
+  },
+  {
     prefix: 'seed.objectStatus.',
     from: {
       file: 'packages/webview/src/pages/Seed/Step7_Execute.tsx',

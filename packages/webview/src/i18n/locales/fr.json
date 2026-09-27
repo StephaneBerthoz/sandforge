@@ -3072,6 +3072,20 @@
       "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}",
       "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "exclusionCosts": "Ne peuvent pas être chargés tels quels — il leur faut un objet qu'excludedObjects laisse de côté : {{objects}}"
+    },
+    "loadPhase": {
+      "guards": "Garde-fous",
+      "mapping": "Correspondances",
+      "pilot": "Périmètre pilote",
+      "reload": "Rechargement",
+      "align": "Alignement",
+      "placeholders": "Substituts",
+      "insert": "Insertion",
+      "pass2": "Seconde passe",
+      "personcontact": "Contacts personnes",
+      "persist": "Enregistrement",
+      "done": "Terminé",
+      "verify": "Vérification"
     }
   },
   "grappe": {

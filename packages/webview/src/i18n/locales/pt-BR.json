@@ -3072,6 +3072,20 @@
       "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}",
       "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
       "exclusionCosts": "Não podem ser carregados como estão — precisam de um objeto que excludedObjects deixa de fora: {{objects}}"
+    },
+    "loadPhase": {
+      "guards": "Verificações de entrada",
+      "mapping": "Mapeamento",
+      "pilot": "Escopo piloto",
+      "reload": "Recarga",
+      "align": "Alinhamento",
+      "placeholders": "Espaços reservados",
+      "insert": "Inserção",
+      "pass2": "Segunda passagem",
+      "personcontact": "Contatos pessoais",
+      "persist": "Salvamento",
+      "done": "Concluído",
+      "verify": "Verificação"
     }
   },
   "grappe": {

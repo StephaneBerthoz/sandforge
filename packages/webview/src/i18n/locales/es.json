@@ -3072,6 +3072,20 @@
       "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
       "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
       "exclusionCosts": "No se pueden cargar tal cual — necesitan un objeto que excludedObjects deja fuera: {{objects}}"
+    },
+    "loadPhase": {
+      "guards": "Controles de entrada",
+      "mapping": "Correspondencias",
+      "pilot": "Ámbito piloto",
+      "reload": "Recarga",
+      "align": "Alineación",
+      "placeholders": "Marcadores de posición",
+      "insert": "Inserción",
+      "pass2": "Segunda pasada",
+      "personcontact": "Contactos de personas",
+      "persist": "Guardado",
+      "done": "Hecho",
+      "verify": "Verificación"
     }
   },
   "grappe": {

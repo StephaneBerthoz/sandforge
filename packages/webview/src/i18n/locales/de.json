@@ -3072,6 +3072,20 @@
       "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}",
       "leftToThePlatform": "Ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
       "exclusionCosts": "Lassen sich nicht unverändert laden — sie brauchen ein Objekt, das excludedObjects auslässt: {{objects}}"
+    },
+    "loadPhase": {
+      "guards": "Eingangsprüfungen",
+      "mapping": "Zuordnung",
+      "pilot": "Pilotumfang",
+      "reload": "Neuladen",
+      "align": "Abgleich",
+      "placeholders": "Platzhalter",
+      "insert": "Einfügen",
+      "pass2": "Zweiter Durchlauf",
+      "personcontact": "Personenkontakte",
+      "persist": "Speichern",
+      "done": "Fertig",
+      "verify": "Überprüfung"
     }
   },
   "grappe": {
