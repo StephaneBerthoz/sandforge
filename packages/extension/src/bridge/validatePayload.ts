@@ -631,7 +631,7 @@ export const dataOpsSubjectSearchPayloadSchema = z
   .object({
     orgId: orgIdSchema,
     objects: complianceObjectsSchema,
-    requestId: z.string().uuid().optional(),
+    requestId: z.uuid().optional(),
     email: z.string().trim().refine(isSubjectEmail, 'Not an email address').optional(),
     name: z.string().refine(isSubjectName, 'Not a name').optional(),
     phone: z.string().refine(isSubjectPhone, 'Not a phone number').optional(),
@@ -643,7 +643,7 @@ export const dataOpsSubjectSearchPayloadSchema = z
 /** A request the local log holds, on one org. */
 export const dataOpsSubjectRequestPayloadSchema = z.object({
   orgId: orgIdSchema,
-  requestId: z.string().uuid(),
+  requestId: z.uuid(),
 });
 
 /** A Salesforce record Id, 15 or 18 characters. */

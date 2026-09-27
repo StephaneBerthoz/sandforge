@@ -71,8 +71,8 @@ export const syncObjectConfigSchema = z.object({
 export const syncConfigSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
-  sourceOrgId: z.string().uuid(),
-  targetOrgId: z.string().uuid(),
+  sourceOrgId: z.uuid(),
+  targetOrgId: z.uuid(),
   direction: z.enum(['source_to_target', 'target_to_source', 'bidirectional']),
   mode: z.enum(['full', 'incremental', 'delta', 'cdc']),
   objects: z.array(syncObjectConfigSchema).min(1),
