@@ -1289,7 +1289,7 @@ export const marketplaceInstallPayloadSchema = z.object({ templateId: opaqueIdSc
  * @param deps - Handler dependencies (log, broker, nextId).
  */
 export function validatePayload<T>(
-  schema: z.ZodSchema<T>,
+  schema: z.ZodType<T>,
   msg: InboundRequest & { readonly payload?: unknown },
   responseType: string,
   deps: Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>,

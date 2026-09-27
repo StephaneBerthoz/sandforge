@@ -237,7 +237,7 @@ function countsSoFar(): (event: ForgeProgressEvent) => ForgeProgressEvent {
  * Kept as a one-line wrapper so the call sites below stay readable.
  */
 function parsePayload<T>(
-  schema: z.ZodSchema<T>,
+  schema: z.ZodType<T>,
   msg: InboundRequest,
   responseType: string,
   deps: HandlerDeps,
