@@ -1955,6 +1955,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1399": "Frozen nomme chaque phase",
+      "fixRound1399Desc": "Le chargement Frozen nomme chacune de ses phases en toutes lettres dans votre langue, avec des lignes à part pour la lecture des correspondances et du dossier d'un pilote, et l'entrée d'audit d'une exécution Forge compte comme échouées les lignes qu'elle a retenues.",
       "fixRound1398": "Chaque réponse reste dans sa conversation",
       "fixRound1398Desc": "Une réponse de l'IA reste dans la conversation où sa question a été posée, et la page le signale quand une autre est ouverte. Chaque ligne Forge et Frozen se termine désormais, quoi qui arrête l'exécution, et dit pourquoi. L'entrée d'audit d'une exécution Forge compte ce qu'une annulation a retenu, et le chat traite une question à la fois par conversation.",
       "aiSonnet1397": "Les fonctions d'IA interrogent Claude Sonnet 5",

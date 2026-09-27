@@ -5,6 +5,21 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.9] - 2026-09-27
+
+The Frozen load names each of its phases in words, and Forge's audit entry
+counts the rows a run held back.
+
+### Fixed
+
+- **The Frozen load names each phase in words** in every locale, where its
+  badge printed the phase's code.
+- **A Frozen reload ends its reference data line** once its reads are done,
+  and reading the mapping of earlier loads and a pilot's root folder each
+  have a line of their own.
+- **A Forge run's audit entry counts the rows it held back as failed**, as
+  the run's totals do.
+
 ## [1.39.8] - 2026-09-25
 
 The AI chat keeps each answer with its conversation, and every Forge and

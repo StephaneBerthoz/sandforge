@@ -1955,6 +1955,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1399": "O Frozen nomeia cada fase",
+      "fixRound1399Desc": "O carregamento do Frozen nomeia cada uma de suas fases no seu idioma, com linhas próprias para a leitura do mapeamento e da pasta de um piloto, e a entrada de auditoria de uma execução do Forge conta como falhas as linhas que reteve.",
       "fixRound1398": "Cada resposta fica na sua conversa",
       "fixRound1398Desc": "Uma resposta da IA fica na conversa em que a pergunta foi feita, e a página avisa quando outra está aberta. Cada linha do Forge e do Frozen agora termina, seja o que for que interrompa a execução, e diz por quê. A entrada de auditoria de uma execução do Forge conta o que um cancelamento reteve, e o chat atende uma pergunta por vez em cada conversa.",
       "aiSonnet1397": "Os recursos de IA consultam o Claude Sonnet 5",
