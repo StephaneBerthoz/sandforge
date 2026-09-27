@@ -721,6 +721,104 @@ describe('AIChatHandler', () => {
     });
   });
 
+  describe('an answer that comes once the assistant was replaced', () => {
+    const CONFIG: AIModelConfig = { provider: 'anthropic', model: 'test-model', maxTokens: 1024 };
+
+    /** A real assistant whose call to the model waits for `answer`, and is answered "Case". */
+    function waitingAssistant(): { assistant: AIAssistant; answer: () => void } {
+      let answer: () => void = () => undefined;
+      const assistant = new AIAssistant(
+        vi.fn<AICallFn>(
+          () =>
+            new Promise((resolve) => {
+              answer = () =>
+                resolve({ content: 'Case', tokenCount: 3, model: 'test-model', durationMs: 1 });
+            }),
+        ),
+        CONFIG,
+      );
+      return { assistant, answer: () => answer() };
+    }
+
+    /** Every message the handler posted, in order. */
+    const postedMessages = () =>
+      vi.mocked(deps.broker.postToWebview).mock.calls.map(([m]) => m as BaseMessage);
+
+    /** The messages the store holds of a conversation, as the AI page reloads them. */
+    const storedContents = (id: string) =>
+      deps.configStore
+        .get<{ messages: Array<{ content: string }> }>(`ai:conversation:${id}`)
+        ?.messages.map((m) => m.content);
+
+    // A change to a `sandforge.ai.*` setting builds a new assistant while a
+    // question waits, and the exchange was stored from that one: holding no
+    // copy of the conversation, it left the answer the user read unstored;
+    // holding one restored before the answer came, it stored that copy, which
+    // lacked the exchange.
+    it.each([
+      ['knows nothing of the conversation', false],
+      ['holds the copy the store had before the answer', true],
+    ] as const)(
+      'stores the exchange of the assistant that answered, and nothing of one that %s',
+      async (_state, restored) => {
+        const first = waitingAssistant();
+        handler.setAIAssistant(first.assistant);
+        await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+        const [{ id }] = first.assistant.listConversations();
+
+        const asked = handler.handle(
+          createMsg('ai:chat', { conversationId: id, message: 'which object holds cases?' }),
+        );
+        const replacement = new AIAssistant(vi.fn<AICallFn>(), CONFIG);
+        const copy = deps.configStore.get<{ id: string; title: string; createdAt: string }>(
+          `ai:conversation:${id}`,
+        );
+        if (restored && copy) {
+          replacement.restoreConversation({
+            ...copy,
+            messages: [],
+            updatedAt: copy.createdAt,
+            totalTokens: 0,
+          });
+        }
+        handler.setAIAssistant(replacement);
+        expect(replacement.getConversation(id) !== undefined).toBe(restored);
+        first.answer();
+        await asked;
+
+        expect(storedContents(id)).toEqual(['which object holds cases?', 'Case']);
+        expect(replacement.getConversation(id)?.messages ?? []).toEqual([]);
+        expect(postedMessages().map((m) => m.type)).toEqual([
+          'ai:conversation:created',
+          'ai:chat:response',
+        ]);
+      },
+    );
+
+    // Unchecking `sandforge.ai.enabled` takes the assistant away: the answer
+    // that came after it was reported as an error of the handler's own, and
+    // the exchange the model had answered was not stored.
+    it('answers and stores the exchange when AI was turned off while the question waited', async () => {
+      const first = waitingAssistant();
+      handler.setAIAssistant(first.assistant);
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      const [{ id }] = first.assistant.listConversations();
+
+      const asked = handler.handle(
+        createMsg('ai:chat', { conversationId: id, message: 'which object holds cases?' }),
+      );
+      handler.setAIAssistant(undefined);
+      first.answer();
+      await asked;
+
+      expect(postedMessages().map((m) => m.type)).toEqual([
+        'ai:conversation:created',
+        'ai:chat:response',
+      ]);
+      expect(storedContents(id)).toEqual(['which object holds cases?', 'Case']);
+    });
+  });
+
   describe('message cap enforcement', () => {
     it('prunes messages exceeding 200 cap on save', async () => {
       // Create a conversation with 210 messages

@@ -234,6 +234,14 @@ export interface ForgeExecutionError {
   attemptedCount: number;
   /** Up to 3 sample failures, kept small enough to render in the wizard. */
   samples: ForgeExecutionErrorSample[];
+  /**
+   * Set on the report of reference data rows the target holds no match for by
+   * name. Matched, never written, they are neither created nor failed, and
+   * the run counts them among neither. The other `'scope'` reports that count
+   * rows count the ones the run held back before sending them, which it
+   * counts as failed. Absent from every other report.
+   */
+  referenceData?: boolean;
 }
 
 /**

@@ -339,9 +339,13 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
  * their task — as the object's line says them.
  *
  * A row linked to one the target already held was never written and is
- * neither. The `scope` reports are left out — reference data unmatched by
- * name was never going to be written — and so are the reports that name a
- * pass rather than an object (`__pass2__`, `__expandOrphanParents__`).
+ * neither. Of the `scope` reports, the rows the run held back before sending
+ * them — for want of their parent, for a record type the running user cannot
+ * use in the target, for an object the user excluded — are failed, as the run
+ * counts them. Reference data unmatched by name is left out: it was never
+ * going to be written. So is a note, which counts no row, and so are the
+ * reports that name a pass rather than an object (`__pass2__`,
+ * `__expandOrphanParents__`).
  */
 function forgeAuditObjects(
   result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'> &
@@ -360,7 +364,12 @@ function forgeAuditObjects(
     counts.updated += row.updated ?? 0;
   }
   for (const error of result.errors ?? []) {
-    if (error.stage === 'scope' || error.objectApiName.startsWith('__')) continue;
+    if (error.objectApiName.startsWith('__') || error.referenceData === true) continue;
+    // Left out with the notes, the rows held back were in no count: a run
+    // that held back an object for its record type recorded no object at
+    // all, and one that held back rows for an object left out read as a run
+    // that wrote all it read. A note still names no object.
+    if (error.stage === 'scope' && error.failedCount === 0) continue;
     countsOf(error.objectApiName).failed += error.failedCount;
   }
   // Neither written nor failed. Said on the object's line alone, the entry of

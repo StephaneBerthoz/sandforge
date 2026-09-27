@@ -268,7 +268,14 @@ export class AIChatHandler implements DomainHandler {
     if (!parsed) return;
     const payload = parsed;
 
-    if (!this.aiAssistant) {
+    // The assistant asked holds the answer in its conversation. A
+    // `sandforge.ai.*` change sets another, or none — aborting the calls in
+    // flight as it does, which the handler does not count on. Read once the
+    // answer came, the new one's copy of the conversation was stored, which
+    // lacked the exchange, or nothing when it had none; and with no assistant
+    // left, the answer was reported as an error of the handler's own.
+    const assistant = this.aiAssistant;
+    if (!assistant) {
       const errResponse = buildResponse(this.deps, msg, 'ai:error', {
         message: 'AI is not configured. Set your API key in Settings > AI.',
       });
@@ -279,10 +286,10 @@ export class AIChatHandler implements DomainHandler {
     this.restoreConversationIfNeeded(payload.conversationId);
 
     try {
-      const aiResponse = await this.aiAssistant.chat(payload.conversationId, payload.message);
+      const aiResponse = await assistant.chat(payload.conversationId, payload.message);
 
       // Persist conversation to ConfigStore after chat
-      const conversation = this.aiAssistant.getConversation(payload.conversationId);
+      const conversation = assistant.getConversation(payload.conversationId);
       if (conversation) {
         this.persistConversationFromMemory(conversation);
       }

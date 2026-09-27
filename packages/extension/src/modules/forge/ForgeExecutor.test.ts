@@ -11456,6 +11456,43 @@ describe('ForgeExecutor', () => {
       expect(summary.linkedCount).toBe(1);
     });
 
+    it('says of the reference data the target holds no match for that it is reference data, counted as no failure', async () => {
+      // Its report counted rows as the reports of rows held back do, and the
+      // run counts those as failed: the audit trail could not tell them apart.
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt'
+          ? [{ Id: '01m000000000001AAA', Name: 'Default' }]
+          : [
+              { Id: '01m000000000001SRC', Name: 'Default' },
+              { Id: '01m000000000002SRC', Name: 'Weekend' },
+            ],
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('BusinessHours', { recordCount: 40 })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary.errors).toEqual([
+        {
+          objectApiName: 'BusinessHours',
+          stage: 'scope',
+          failedCount: 1,
+          attemptedCount: 2,
+          referenceData: true,
+          samples: [
+            {
+              recordSummary: 'Id=01m000000000002SRC matchValue=Weekend',
+              messages: ['Reference-data row not found on target org'],
+            },
+          ],
+        },
+      ]);
+      expect(summary.failedCount).toBe(0);
+    });
+
     it('names the standard price book among the records the target already held', async () => {
       const SOURCE_BOOK = '01s000000000001SRC';
       const TARGET_BOOK = '01s000000000001AAA';

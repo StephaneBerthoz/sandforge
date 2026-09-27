@@ -559,6 +559,11 @@ export interface ExecutionObjectError {
   attemptedCount: number;
   /** Up to 3 sample failures (truncated to keep payloads UI-friendly). */
   samples: ExecutionErrorSample[];
+  /**
+   * Set on the report of reference data rows the target holds no match for:
+   * see `ForgeExecutionError.referenceData`. Absent from every other report.
+   */
+  referenceData?: boolean;
 }
 
 /**
@@ -3832,6 +3837,10 @@ export class ForgeExecutor {
             stage: 'scope',
             failedCount: refResolve.unmatched.length,
             attemptedCount: records.length,
+            // Never meant to be written, these rows are neither written nor
+            // failed, where the rows the run holds back, said at this stage
+            // too, are failures: the audit trail tells the two apart by it.
+            referenceData: true,
             samples: refResolve.unmatched.slice(0, 3).map((u) => ({
               recordSummary: `Id=${u.sourceId} matchValue=${u.matchValue ?? 'null'}`,
               messages: [`Reference-data row not found on target org`],

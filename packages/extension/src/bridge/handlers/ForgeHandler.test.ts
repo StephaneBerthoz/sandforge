@@ -704,6 +704,29 @@ describe('ForgeHandler', () => {
       ]);
     });
 
+    it('records the object held back for its record type as failed in the audit trail', async () => {
+      // The entry named no object: a run that failed without touching one,
+      // where it had read the account and held it back.
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      recordTypeConnections();
+      realRun(false, async (_o, _n, records) =>
+        records.map(() => ({ id: '001Fk00000NeWaSIAV', success: true, errors: [] })),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'failure',
+          objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 1 }],
+        }),
+      ]);
+    });
+
     it('answers with the record linked, not failed, when the target already holds it', async () => {
       recordTypeConnections();
       realRun(true, async (_o, _n, records) =>
@@ -864,6 +887,32 @@ describe('ForgeHandler', () => {
           },
         ],
       });
+    });
+
+    it('records the rows held back for the object left out as failed in the audit trail', async () => {
+      // The entry said the project alone: a run that wrote all it read, and
+      // ended partial for no reason it gave.
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      realRun();
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: projectGraph({ included: false, leftOutByUser: true }),
+          config: createMockConfig({ recordId: PROJECT }),
+        }),
+      );
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'partial',
+          objects: [
+            { objectApiName: 'Project__c', created: 1, updated: 0, deleted: 0, failed: 0 },
+            { objectApiName: 'Task__c', created: 0, updated: 0, deleted: 0, failed: 2 },
+          ],
+        }),
+      ]);
     });
 
     it('still sends the rows under an object discovery could not read, which nobody left out', async () => {
@@ -2553,6 +2602,7 @@ describe('ForgeHandler', () => {
               failedCount: 4,
               attemptedCount: 4,
               samples: [],
+              referenceData: true,
             },
           ],
         }),
@@ -3063,6 +3113,212 @@ describe('ForgeHandler', () => {
               },
             ],
           }),
+        ]);
+      });
+    });
+
+    describe('the rows a run held back from the target', () => {
+      /** A `scope` report on an object: the rows the run held back, or a note when it counts none. */
+      const scope = (objectApiName: string, failedCount: number) => ({
+        objectApiName,
+        stage: 'scope' as const,
+        failedCount,
+        attemptedCount: 0,
+        samples: [],
+      });
+
+      /** A field that is no lookup, as a describe answers it. */
+      const field = (name: string) => ({
+        name,
+        queryable: true,
+        createable: name !== 'Id',
+        isReference: false,
+      });
+
+      it('counts as failed, per object, the rows a finished run held back, and names no object for a note', async () => {
+        // Every `scope` report was left out: the feed items held back for want
+        // of their parent, the opportunities held back for their record type
+        // and the price held back for an object left out were in no count, and
+        // the run read as one that wrote all it read. A note — a describe that
+        // failed, an object the target takes no insert of — counts no row.
+        const store = recordingStore();
+        vi.mocked(orchestrator.execute).mockResolvedValue(
+          createMockResult({
+            status: 'partial',
+            idRemapByObject: [{ objectApiName: 'FeedItem', created: 1, linked: 0 }],
+            errors: [
+              scope('FeedItem', 2),
+              scope('Opportunity', 3),
+              scope('PricebookEntry', 1),
+              scope('Account', 0),
+              scope('Case', 0),
+            ],
+          }),
+        );
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+          { objectApiName: 'FeedItem', created: 1, updated: 0, deleted: 0, failed: 2 },
+          { objectApiName: 'Opportunity', created: 0, updated: 0, deleted: 0, failed: 3 },
+          { objectApiName: 'PricebookEntry', created: 0, updated: 0, deleted: 0, failed: 1 },
+        ]);
+      });
+
+      it('counts the rows held back before a cancel stopped the run', async () => {
+        // The cancel came once the project was written: the tasks held back
+        // for the team left out were in no count of the entry.
+        const store = recordingStore();
+        vi.mocked(orchestrator.execute).mockRejectedValue(
+          cancelledWith({
+            successCount: 1,
+            failedCount: 2,
+            remapCount: 1,
+            remapByObject: [{ objectApiName: 'Project__c', created: 1, linked: 0 }],
+            errors: [scope('Task__c', 2)],
+            readByObject: [
+              { objectApiName: 'Project__c', read: 1 },
+              { objectApiName: 'Task__c', read: 2 },
+            ],
+          }),
+        );
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [
+              { objectApiName: 'Project__c', created: 1, updated: 0, deleted: 0, failed: 0 },
+              { objectApiName: 'Task__c', created: 0, updated: 0, deleted: 0, failed: 2 },
+            ],
+          }),
+        ]);
+      });
+
+      it('records as failed the rows a real run held back for want of their parent', async () => {
+        // The target refused the project, and the notes on it — whose parent
+        // can be a record of several objects — were held back one by one:
+        // among the run's failures, and in no count of its entry.
+        const store = recordingStore();
+        const PROJECT = 'a01000000000001';
+        const fields: Record<string, Awaited<ReturnType<ForgeExecutorDeps['describeFields']>>> = {
+          Project__c: [field('Id'), field('Name')],
+          Note__c: [
+            field('Id'),
+            field('Name'),
+            {
+              name: 'Parent__c',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Project__c', 'Team__c'],
+              nillable: false,
+            },
+          ],
+        };
+        const rows: Record<string, Array<Record<string, unknown>>> = {
+          Project__c: [{ Id: PROJECT, Name: 'Launch' }],
+          Note__c: [
+            { Id: 'a04000000000001', Name: 'Kick-off', Parent__c: PROJECT },
+            { Id: 'a04000000000002', Name: 'Review', Parent__c: PROJECT },
+          ],
+        };
+        const sent: string[] = [];
+        handler.setForgeOrchestrator(
+          new ForgeOrchestrator({
+            discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+            executor: new ForgeExecutor({
+              describeFields: async (_org, object) => fields[object] ?? [field('Id')],
+              queryRecords: async (org, soql) => {
+                const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+                return org === 'src-org' ? (rows[object] ?? []).map((row) => ({ ...row })) : [];
+              },
+              insertRecords: async (_org, object, records) => {
+                sent.push(object);
+                return records.map(() => ({
+                  id: '',
+                  success: false,
+                  errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
+                }));
+              },
+            }),
+          }),
+        );
+        const [root] = createMockGraph().nodes;
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: {
+              ...createMockGraph(),
+              nodes: [
+                { ...root, objectApiName: 'Project__c', recordCount: 1 },
+                { ...root, objectApiName: 'Note__c', recordCount: 2, level: 1 },
+              ],
+              edges: [
+                {
+                  sourceObject: 'Project__c',
+                  targetObject: 'Note__c',
+                  relationshipName: 'Notes__r',
+                  type: 'lookup',
+                  required: true,
+                },
+              ],
+            },
+            config: createMockConfig({ recordId: PROJECT }),
+          }),
+        );
+
+        expect(sent).toEqual(['Project__c']);
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'failure',
+            objects: [
+              { objectApiName: 'Project__c', created: 0, updated: 0, deleted: 0, failed: 1 },
+              { objectApiName: 'Note__c', created: 0, updated: 0, deleted: 0, failed: 2 },
+            ],
+          }),
+        ]);
+      });
+
+      it('leaves out the reference data a real run found no match for, counted neither written nor failed', async () => {
+        // Matched by name and never written: counted as failed, the hours the
+        // target lacks would read as a row lost by a run that succeeded.
+        const store = recordingStore();
+        handler.setForgeOrchestrator(
+          new ForgeOrchestrator({
+            discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+            executor: new ForgeExecutor({
+              describeFields: async () => [field('Id'), field('Name')],
+              queryRecords: async (org) =>
+                org === 'src-org'
+                  ? [
+                      { Id: '01m000000000001SRC', Name: 'Default' },
+                      { Id: '01m000000000002SRC', Name: 'Weekend' },
+                    ]
+                  : [{ Id: '01m000000000001AAA', Name: 'Default' }],
+              insertRecords: async () => [],
+            }),
+          }),
+        );
+        const [root] = createMockGraph().nodes;
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: {
+              ...createMockGraph(),
+              nodes: [{ ...root, objectApiName: 'BusinessHours', recordCount: 2 }],
+            },
+            config: createMockConfig({
+              inputMode: 'soql',
+              recordId: undefined,
+              soqlQuery: 'SELECT Id FROM BusinessHours',
+            }),
+          }),
+        );
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({ outcome: 'success', objects: [] }),
         ]);
       });
     });
