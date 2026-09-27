@@ -319,11 +319,12 @@ interface RunningLoad {
   /** What a failure keeps, from the load's first write on. */
   load?: LoadInProgress;
   /**
-   * End the lines the load left open when it stopped: the alignment's, while
-   * it aligns the schema, and from its insert pass on, the line of the object
-   * it was writing, when a write of that object's own threw, and the email
-   * object's, whose first write is said as a step while some of its emails
-   * wait for their task. See `emailsWrittenFirst`.
+   * End the lines the load left open when it stopped: a reload's, while it
+   * reads what it reuses; the alignment's, while it aligns the schema; and
+   * from its insert pass on, the line of the object it was writing, when a
+   * write of that object's own threw, and the email object's, whose first
+   * write is said as a step while some of its emails wait for their task.
+   * See `emailsWrittenFirst`.
    */
   endOpenLine?: (stoppedBy: unknown) => void;
 }
@@ -579,7 +580,8 @@ function endOfAStep(refused: number, keptBack: number): FrozenLoadProgressEvent[
 
 /**
  * The line that ends a check the load makes before its first write — the
- * entry guards, the alignment of the schema, the required fields — when it
+ * entry guards, the mapping of earlier loads, the pilot's root folder, what a
+ * reload reuses, the alignment of the schema, the required fields — when it
  * refuses the load or a read of it throws: what the check could not say
  * (`notDone`: `Schema not aligned`), and why. Nothing is written by then, so
  * nothing is kept back. Left at the step that began it, a check that stopped
@@ -702,12 +704,13 @@ export class FrozenDatasetLoader {
     try {
       return await this.loadInto(options, running);
     } catch (err: unknown) {
-      // A read of the alignment that threw left its line at the step that
-      // began it, as a write of an object's own that threw left the object's
-      // line at the step that began its turn; and a failure between the email
-      // object's first write and the task object's turn left that object's
-      // line open, its last word the step its first write said: what it
-      // inserted, and what it held back, went unsaid. Each ends on its line.
+      // A read of a reload's reuse, or of the alignment, that threw left its
+      // line at the step that began it, as a write of an object's own that
+      // threw left the object's line at the step that began its turn; and a
+      // failure between the email object's first write and the task object's
+      // turn left that object's line open, its last word the step its first
+      // write said: what it inserted, and what it held back, went unsaid.
+      // Each ends on its line.
       running.endOpenLine?.(err);
       const load = running.load;
       if (err instanceof FrozenLoadCancelledError || !load?.wroteSome()) throw err;
@@ -746,13 +749,55 @@ export class FrozenDatasetLoader {
     }
     emit({ phase: 'guards', status: 'done', progress: 2, message: 'Entry guards passed' });
 
-    const previousLoads = await this.deps.mappingStore.previousLoads();
+    // What the loads before it wrote, as the sas's mapping records them — what
+    // a reload purges — read on a line of its own, which a mapping the load
+    // cannot read ends failed, with why. Read with no line open, such a
+    // mapping showed only in the error banner, the Load tab's last line
+    // saying the entry guards had passed.
+    emit({
+      phase: 'mapping',
+      status: 'started',
+      progress: 2,
+      message: 'Reading the mapping of earlier loads',
+    });
+    const previousLoads = await this.deps.mappingStore.previousLoads().catch((err: unknown) => {
+      emit(endOfACheck('mapping', 3, 'Mapping not read', err));
+      throw err;
+    });
+    emit({
+      phase: 'mapping',
+      status: 'done',
+      progress: 3,
+      message: `Mapping read: ${previousLoads.length} earlier load(s)`,
+    });
 
     // 2. Pilot scope — one root folder: its descendants plus the reference
-    //    records it (transitively) points at.
-    const working = options.pilot
-      ? this.filterPilotScope(options.dataset, options.pilot.rootReferenceId)
-      : options.dataset;
+    //    records it (transitively) points at — on a line of its own, which
+    //    ends failed, with why, when the configuration cannot scope the
+    //    pilot. Selected with no line open, such a pilot showed only in the
+    //    error banner.
+    let working = options.dataset;
+    if (options.pilot) {
+      emit({
+        phase: 'pilot',
+        status: 'started',
+        progress: 3,
+        message: 'Selecting the root folder',
+      });
+      try {
+        working = this.filterPilotScope(options.dataset, options.pilot.rootReferenceId);
+      } catch (err: unknown) {
+        emit(endOfACheck('pilot', 4, 'Root folder not selected', err));
+        throw err;
+      }
+      const inScope = working.objects.reduce((sum, o) => sum + o.records.length, 0);
+      emit({
+        phase: 'pilot',
+        status: 'done',
+        progress: 4,
+        message: `Root folder selected: ${inScope} record(s)`,
+      });
+    }
     const refIndex = buildReferenceIndex(working);
     const dependencies = buildObjectDependencies(working, refIndex);
     const groups = insertionGroups(dependencies);
@@ -880,8 +925,14 @@ export class FrozenDatasetLoader {
       written: { perObject, placeholders, purge },
     };
 
+    const linkedBefore = reused.size;
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
+      // Open until its reads are done — the identity keys, then what the
+      // target keeps one of, below: one that throws ends it failed, with why.
+      // See `running.endOpenLine`.
+      running.endOpenLine = (stoppedBy) =>
+        emit(endOfACheck('reload', 10, 'Reference data not reused', stoppedBy));
       await this.reuseByIdentityKeys(options, loading, mapping, reused);
     }
     // What the target already holds and keeps one of is linked on every load,
@@ -889,6 +940,20 @@ export class FrozenDatasetLoader {
     // load created and this one finds again is kept, as its own.
     await this.matchByNaturalKey(orgId, loading, mapping, reused);
     await this.matchSellingModelOptions(orgId, loading, mapping, reused);
+    if (options.reload) {
+      // Ended here, with what it reused, before the alignment begins; the
+      // purge has a line of its own once the required fields are checked.
+      // Ended by the purge's line alone, it held the alignment and the check:
+      // a load that stopped at either, or at a read of its own, left it at
+      // the step that began it.
+      emit({
+        phase: 'reload',
+        status: 'done',
+        progress: 10,
+        message: `Reference data: ${reused.size - linkedBefore} reused`,
+      });
+      running.endOpenLine = undefined;
+    }
 
     // 4. RecordType resolution by DeveloperName + PersonContactId strip
     //    (the sidecar restores it post-load — the field does not exist at insert).
@@ -1117,6 +1182,8 @@ export class FrozenDatasetLoader {
           failedOn,
         );
       };
+      // A pilot's reload purges nothing, and its line has ended with what it
+      // reused: nothing is left to end here.
       if (!options.pilot) {
         emit({
           phase: 'reload',
@@ -1159,17 +1226,17 @@ export class FrozenDatasetLoader {
           if (previous.created) continue;
           for (const id of previous.mapping.values()) settled.add(recordKey(id));
         }
+        emit(
+          notReached.residuals > 0 || purge.failures.length > 0
+            ? purgeLine()
+            : {
+                phase: 'reload',
+                status: 'done',
+                progress: 24,
+                message: `Reload pass done${leftInPlace}`,
+              },
+        );
       }
-      emit(
-        notReached.residuals > 0 || purge.failures.length > 0
-          ? purgeLine()
-          : {
-              phase: 'reload',
-              status: 'done',
-              progress: 24,
-              message: `Reload pass done${leftInPlace}`,
-            },
-      );
     }
 
     // What fills a required field goes into the records the load writes. One

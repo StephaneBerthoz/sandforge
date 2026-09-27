@@ -426,9 +426,15 @@ export interface FrozenLoadReportInfo {
   contractPath: string;
 }
 
-/** Load/verify phases surfaced in progress events. */
+/**
+ * Load/verify phases surfaced in progress events. `mapping` reads what earlier
+ * loads wrote, from the sas, and `pilot` selects a pilot's root folder, both
+ * between the entry guards and what the load reuses.
+ */
 export type FrozenLoadPhase =
   | 'guards'
+  | 'mapping'
+  | 'pilot'
   | 'reload'
   | 'align'
   | 'placeholders'
@@ -453,8 +459,9 @@ export interface FrozenLoadProgress {
    * back of them. `error` ends a purge the target refused records of, and an
    * object, a purge, the placeholders or a pass a write of its own threw at,
    * its line saying what the failure kept back of it, and why; and a check
-   * before the first write — the entry guards, the alignment, the required
-   * fields — that refused the load or threw, saying why.
+   * before the first write — the entry guards, the mapping, the root folder,
+   * what a reload reuses, the alignment, the required fields — that refused
+   * the load or threw, saying why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100). */

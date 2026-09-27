@@ -706,6 +706,50 @@ describe('FrozenDatasetLoader — fresh load', () => {
       ['error', 'Schema not aligned — INVALID_SESSION_ID: Session expired or invalid'],
     ]);
   });
+
+  it('ends the line of the mapping of earlier loads failed when it cannot be read, saying why', async () => {
+    // Read with no line open, a mapping the load could not read showed only
+    // in the error banner, the Load tab's last line saying the entry guards
+    // had passed.
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+    fs.writeFileSync(
+      path.join(deps.sasDir, 'referenceid-mapping.json'),
+      '{"version": 1, "mapping": {',
+    );
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(SyntaxError);
+    expect(calls).toEqual([]);
+    expect(progress.map((e) => [e.phase, e.status, e.message])).toEqual([
+      ['guards', 'started', 'Evaluating entry guards'],
+      ['guards', 'done', 'Entry guards passed'],
+      ['mapping', 'started', 'Reading the mapping of earlier loads'],
+      ['mapping', 'error', `Mapping not read — ${(error as Error).message}`],
+    ]);
+  });
+
+  it('says on a line of its own how many earlier loads the mapping names', async () => {
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset });
+    const loader = new FrozenDatasetLoader(deps);
+    await loader.load(makeOptions(deps, dataset));
+
+    await loader.load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }));
+
+    expect(progress.filter((e) => e.phase === 'mapping').map((e) => [e.status, e.message])).toEqual(
+      [
+        ['started', 'Reading the mapping of earlier loads'],
+        ['done', 'Mapping read: 1 earlier load(s)'],
+      ],
+    );
+  });
 });
 
 describe('FrozenDatasetLoader — required lookup placeholder', () => {
@@ -2378,11 +2422,15 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
       makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
     );
 
+    // What it reused ends a line of its own first, before the alignment.
     expect(
       progress
         .filter((e) => e.phase === 'reload' && e.status !== 'started')
         .map((e) => [e.status, e.message]),
-    ).toEqual([['error', 'Purge: 1 deleted, 0 deactivated, 1 failed']]);
+    ).toEqual([
+      ['done', 'Reference data: 0 reused'],
+      ['error', 'Purge: 1 deleted, 0 deactivated, 1 failed'],
+    ]);
   });
 
   it('says the check of the required fields, the purge and the placeholders in the order they run', async () => {
@@ -2426,6 +2474,7 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
         .map((e) => [e.phase, e.status, e.message]),
     ).toEqual([
       ['reload', 'started', 'Reusing reference data'],
+      ['reload', 'done', 'Reference data: 0 reused'],
       ['placeholders', 'started', 'Checking required fields'],
       ['placeholders', 'done', 'Required fields checked'],
       ['reload', 'started', 'Purging what earlier loads created'],
@@ -2436,6 +2485,137 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     // Read in order on the Load tab: its share done never goes back.
     const percents = progress.map((e) => e.progress);
     expect(percents).toEqual([...percents].sort((a, b) => a - b));
+  });
+
+  describe('its line of the reference data it reuses', () => {
+    // Begun before the alignment and ended by the purge's line alone, the
+    // line was left at the step that began it whenever the load stopped
+    // before the purge: a read of its own that threw, the alignment, the
+    // check of the required fields.
+
+    /** Each line the load said of the reload, in order: its status and its words. */
+    const reloadLines = (progress: readonly FrozenLoadProgressEvent[]) =>
+      progress.filter((e) => e.phase === 'reload').map((e) => [e.status, e.message]);
+
+    /** Accounts reused by their external id: the target holds the dataset's one. */
+    const reusingTheAccount = {
+      config: { identityKeys: { Account: ['ExternalId__c'] } },
+      queryImpl: async (_org: string, soql: string) =>
+        soql.includes('ExternalId__c') ? [{ Id: '001TARGETS-OWN', ExternalId__c: 'ACC-1' }] : [],
+    };
+
+    it('ends it failed when a read of it throws, saying why', async () => {
+      const dataset = makeAccountContactDataset();
+      const calls: DmlCall[] = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: makeWriter(calls),
+        config: { identityKeys: { Account: ['ExternalId__c'] } },
+        queryImpl: async (_org, soql) => {
+          if (soql.includes('ExternalId__c')) {
+            throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+          }
+          return [];
+        },
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe(
+        'QUERY_TIMEOUT: Your query request was running for too long.',
+      );
+      expect(calls).toEqual([]);
+      expect(reloadLines(progress)).toEqual([
+        ['started', 'Reusing reference data'],
+        [
+          'error',
+          'Reference data not reused — QUERY_TIMEOUT: Your query request was running for too long.',
+        ],
+      ]);
+      // The alignment never began.
+      expect(progress.some((e) => e.phase === 'align')).toBe(false);
+    });
+
+    it('ends it with what it reused before the alignment begins, whose failure then ends its own line alone', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.objects[1].records[0].fields.RecordTypeId = 'Business';
+      dataset.recordTypes = { Contact: [{ name: 'Business', developerName: 'Business_Contact' }] };
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({ dataset, ...reusingTheAccount });
+      deps.recordTypeResolver.resolveByDeveloperName = vi.fn(async () => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+      expect(
+        progress
+          .filter((e) => e.phase === 'reload' || e.phase === 'align')
+          .map((e) => [e.phase, e.status, e.message]),
+      ).toEqual([
+        ['reload', 'started', 'Reusing reference data'],
+        ['reload', 'done', 'Reference data: 1 reused'],
+        ['align', 'started', 'Resolving record types'],
+        ['align', 'error', 'Schema not aligned — INVALID_SESSION_ID: Session expired or invalid'],
+      ]);
+    });
+
+    it('ends it with what it reused before the check of the required fields, whose refusal then ends its own line alone', async () => {
+      const dataset = makeAccountContactDataset();
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        ...reusingTheAccount,
+        describes: describeFromDataset(dataset, {
+          Contact: [field({ name: 'Region__c', nillable: false })],
+        }),
+      });
+
+      const refusal: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect(refusal).toBeInstanceOf(LoadConfigError);
+      expect(reloadLines(progress)).toEqual([
+        ['started', 'Reusing reference data'],
+        ['done', 'Reference data: 1 reused'],
+      ]);
+      expect(
+        progress.filter((e) => e.phase === 'placeholders').map((e) => [e.status, e.message]),
+      ).toEqual([
+        ['started', 'Checking required fields'],
+        ['error', `Required fields not covered — ${(refusal as Error).message}`],
+      ]);
+    });
+
+    it("ends a pilot's reload with what it reused alone: the purge it skips says nothing", async () => {
+      const dataset = makeAccountContactDataset();
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        ...reusingTheAccount,
+        config: { ...reusingTheAccount.config, rootObjectApiName: 'Account' },
+      });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, {
+          reload: true,
+          pilot: {},
+          onProgress: (e) => progress.push(e),
+        }),
+      );
+
+      expect(reloadLines(progress)).toEqual([
+        ['started', 'Reusing reference data'],
+        ['done', 'Reference data: 1 reused'],
+      ]);
+    });
   });
 
   it('keeps the loads before a pilot, whose reload purges nothing', async () => {
@@ -2528,9 +2708,10 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
         ProductSellingModel: 1,
         ProductSellingModelOption: 1,
       });
-      expect(events.find((e) => e.phase === 'reload' && e.status === 'done')?.message).toContain(
-        '4 record(s) left in place',
-      );
+      // Said by the line that ends the purge, after the one of what it reused.
+      expect(
+        events.filter((e) => e.phase === 'reload' && e.status === 'done').at(-1)?.message,
+      ).toContain('4 record(s) left in place');
     });
 
     it('judges its records once: the next reload finds none of them', async () => {
@@ -3045,6 +3226,46 @@ describe('FrozenDatasetLoader — pilot mode', () => {
     await expect(loader.load(makeOptions(deps, dataset, { pilot: {} }))).rejects.toThrow(
       LoadConfigError,
     );
+  });
+
+  it('ends the line of the root folder failed when the configuration names no root object, saying why', async () => {
+    // Selected with no line open, a pilot the configuration could not scope
+    // showed only in the error banner.
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { pilot: {}, onProgress: (e) => progress.push(e) }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(LoadConfigError);
+    expect(progress.filter((e) => e.phase === 'pilot').map((e) => [e.status, e.message])).toEqual([
+      ['started', 'Selecting the root folder'],
+      ['error', `Root folder not selected — ${(error as Error).message}`],
+    ]);
+  });
+
+  it('says on a line of its own how many records the root folder it selected holds, between the mapping and the alignment', async () => {
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({ dataset, config: { rootObjectApiName: 'Account' } });
+
+    await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { pilot: {}, onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(progress.filter((e) => e.phase === 'pilot').map((e) => [e.status, e.message])).toEqual([
+      ['started', 'Selecting the root folder'],
+      ['done', 'Root folder selected: 2 record(s)'],
+    ]);
+    // In the order the steps run: the guards, the mapping, the root folder, the alignment.
+    expect([...new Set(progress.map((e) => e.phase))].slice(0, 4)).toEqual([
+      'guards',
+      'mapping',
+      'pilot',
+      'align',
+    ]);
   });
 });
 
@@ -3889,7 +4110,9 @@ describe('FrozenDatasetLoader — a cancel', () => {
           .catch((e: unknown) => e);
 
         expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+        // What it reused ends its own line first, before the alignment.
         expect(endsOfPhase(progress, 'reload')).toEqual([
+          ['done', 'Reference data: 0 reused'],
           [
             'stopped',
             'Purge: 1 deleted, 0 deactivated, 0 failed, 1 not purged: the load was cancelled first',
@@ -3964,6 +4187,7 @@ describe('FrozenDatasetLoader — a cancel', () => {
 
         expect(error).toBeInstanceOf(FrozenLoadCancelledError);
         expect(endsOfPhase(progress, 'reload')).toEqual([
+          ['done', 'Reference data: 0 reused'],
           [
             'stopped',
             'Purge: 2 deleted, 0 deactivated, 0 failed, 1 not purged: the load was cancelled first',
@@ -5165,8 +5389,10 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
       );
 
       expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      // What it reused ends its own line before the alignment; the purge has one of its own.
       expect(linesOfPhase(progress, 'reload')).toEqual([
         ['started', 'Reusing reference data'],
+        ['done', 'Reference data: 0 reused'],
         ['started', 'Purging what earlier loads created'],
         [
           'error',
@@ -5223,6 +5449,7 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
           .map((e) => [e.phase, e.status, e.message]),
       ).toEqual([
         ['reload', 'started', 'Reusing reference data'],
+        ['reload', 'done', 'Reference data: 0 reused'],
         ['placeholders', 'started', 'Checking required fields'],
         ['placeholders', 'done', 'Required fields checked'],
         ['reload', 'started', 'Purging what earlier loads created'],
