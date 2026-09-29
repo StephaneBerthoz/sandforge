@@ -5,15 +5,24 @@ import type {
   ForgeRunObjectRecords,
   ForgeUndoObjectResult,
 } from '@sandforge/shared';
-import { isPricebookEntry } from '@sandforge/shared';
+import {
+  PRICEBOOK_ENTRY_CURRENCY_FIELD,
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  SELLING_MODEL_OPTION_OBJECT,
+  isPricebookEntry,
+} from '@sandforge/shared';
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  LOCKED_PAST_DRAFT,
   STATUS_LIFECYCLES,
   standardPriceIds,
   statusCategories,
   type SoqlQuery,
+  type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import type { OrgSession } from '../dataops/RecordRemoval.js';
@@ -64,6 +73,15 @@ const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
 
 /** Key prefix of a user: the owner a file's first link names. */
 const USER_KEY_PREFIX = '005';
+
+/** A file's link to a record, which the org deletes with the record. */
+const FILE_LINK = 'ContentDocumentLink';
+
+/** A file, which the org keeps when a record it was attached to goes. */
+const FILE = 'ContentDocument';
+
+/** Files named per object: the count says how many there were. */
+const FILE_NAME_LIMIT = 5;
 
 /** Whether `value` is the id of one of the run's records. */
 function isRunRecord(value: unknown, runRecords: ReadonlySet<string>): boolean {
@@ -340,6 +358,11 @@ class ObjectRemoval {
   held: string[] = [];
   /** Keys of the records deleted, or found gone, once the removal reached them. */
   readonly gone = new Set<string>();
+  /**
+   * The files attached to the records deleted that the run did not create, by
+   * their document's key: each named by its title, or its id.
+   */
+  readonly filesLeft = new Map<string, string>();
 
   constructor(objectApiName: string, planned: number) {
     this.result = {
@@ -381,6 +404,12 @@ class ObjectRemoval {
     if (this.held.length === 0) this.result.heldBy = [];
     const reasons = [...this.notes, ...[...this.refused.values()].map((r) => r.reason)];
     this.result.reasons = [...new Set(reasons)].slice(0, REASON_LIMIT);
+    if (this.filesLeft.size > 0) {
+      this.result.filesLeft = {
+        count: this.filesLeft.size,
+        names: [...this.filesLeft.values()].slice(0, FILE_NAME_LIMIT),
+      };
+    }
     return this.result;
   }
 }
@@ -423,9 +452,22 @@ class ObjectRemoval {
  * the contact of a person account, a task a flow opened on insert — came with
  * the run and goes with it.
  *
+ * And a record is kept while one that stays would have the org refuse its
+ * delete, whoever made that one: a record pointing at it through a lookup the
+ * org restricts the delete by — an order's item at the price it uses — a
+ * custom price at its product's standard price, an active price at its
+ * selling model option, and an order or a contract past Draft that stays at
+ * the rows the platform locks under it (`LOCKED_PAST_DRAFT`). Run for real, a
+ * removal kept two activated orders for the files the org had attached to
+ * them, sent the deletes of their items and actions all the same, then of the
+ * prices and options behind those: each refused, and the org's refusals were
+ * all it said of why the removal ended partial.
+ *
  * The rest are deleted {@link RECORDS_PER_CALL} at a time. A record the org
  * refuses is counted with its reason, and the rest go on; so does the next
- * object when one cannot be read at all.
+ * object when one cannot be read at all. The files attached to a record
+ * deleted, which the run did not create, stay in the org once their record is
+ * gone: each object's result names them, and the removal leaves them there.
  *
  * @param org - The run's target org.
  * @param plan - The run's records, children before their parents as far as
@@ -1022,6 +1064,9 @@ async function removeCandidates(
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
   for (const batch of await deleteRounds(org, objectApiName, toDelete)) {
     if (hooks.stopped()) return true;
+    // Named before the delete: a file seen through its record may be out of
+    // the session's reach once the record is gone.
+    const files = await dependents.filesOn(batch);
     const outcomes = await deleteBatch(org, objectApiName, batch);
     batch.forEach((id, index) => {
       const result = outcomes[index];
@@ -1031,8 +1076,12 @@ async function removeCandidates(
       }
       removal.refused.delete(id);
       removal.gone.add(recordKey(id));
-      if (result.kind === 'deleted') removal.result.deleted++;
-      else removal.result.alreadyGone++;
+      if (result.kind === 'deleted') {
+        removal.result.deleted++;
+        for (const file of files.get(recordKey(id)) ?? []) {
+          removal.filesLeft.set(file.key, file.name);
+        }
+      } else removal.result.alreadyGone++;
     });
     hooks.onDeleted?.(batch.length);
   }
@@ -1255,11 +1304,53 @@ interface HeldVerdict {
 }
 
 /**
+ * A relationship read for the records that hang from a record: whether the
+ * org refuses the record's delete over one of them, rather than take it along.
+ */
+interface DependentRelationship {
+  childSObject: string;
+  field: string;
+  restricted: boolean;
+}
+
+/** A file attached to a record: its document's key, and its title or its id. */
+interface AttachedFile {
+  key: string;
+  name: string;
+}
+
+/**
+ * Products per read of their prices: a product may have a price in every
+ * book, currency and selling model, and a read that fills
+ * {@link DEPENDENTS_READ_LIMIT} may hold more than it read.
+ */
+const PRODUCTS_PER_PRICE_READ = 50;
+
+/** A row's values for `fields`, as one key: the rows that agree on each share it. */
+function valuesKey(row: Record<string, unknown>, fields: readonly string[]): string {
+  return JSON.stringify(fields.map((field) => row[field] ?? null));
+}
+
+/**
  * Finds, among records about to be deleted, the ones records that stay in the
- * org hang from: the children the org would delete along with them.
+ * org hang from: the children the org would delete along with them, and the
+ * records that would have it refuse their delete.
  */
 class DependentsCheck {
   private worked?: Promise<ReadonlyMap<string, string>>;
+  /** Each lifecycle's statuses, read once per removal. */
+  private readonly statuses = new Map<string, Promise<StatusCategories | undefined>>();
+  /**
+   * The key of each row the platform locks under a record past Draft, and the
+   * key of that record: the row stays because the record does, and does not
+   * hold it.
+   */
+  private readonly lockedUnder = new Map<string, string>();
+  /**
+   * Per record read, by its key, the documents of the files attached to it
+   * that the run did not create.
+   */
+  private readonly files = new Map<string, Set<string>>();
 
   constructor(
     private readonly org: RemovalOrg,
@@ -1268,24 +1359,34 @@ class DependentsCheck {
 
   /**
    * The records among `candidates` that a record staying in the org depends
-   * on, through a relationship the org deletes along.
+   * on: through a relationship the org deletes along, or one it restricts
+   * their delete by; as the rows a record past Draft locks under it; or by a
+   * rule of the platform's that no relationship lists.
    *
    * Only the objects a person works with are read — queryable, createable and
    * given a page layout: an object's history, sharing rows and feed are the
    * org's own bookkeeping and go with it. An object that cannot be described
-   * keeps every candidate, with the org's reason; a relationship the org does
-   * not let be read by the record it depends on is named as not checked.
+   * keeps every candidate, with the org's reason; a relationship the org
+   * deletes along that it does not let be read by the record it depends on is
+   * named as not checked.
    */
   async heldAmong(objectApiName: string, candidates: readonly string[]): Promise<HeldVerdict> {
     const verdict: HeldVerdict = { held: new Set(), holders: new Set(), unchecked: new Set() };
     if (candidates.length === 0) return verdict;
-    let relationships: Array<{ childSObject: string; field: string }>;
+    let relationships: DependentRelationship[];
     try {
       const described = describedObjectSchema.parse(await this.org.describe(objectApiName));
       const worked = await this.workedObjects();
-      relationships = (described.childRelationships ?? []).filter(
-        (r) => r.cascadeDelete === true && worked.has(r.childSObject),
-      );
+      relationships = (described.childRelationships ?? [])
+        .filter(
+          (r) =>
+            (r.cascadeDelete === true || r.restrictedDelete === true) && worked.has(r.childSObject),
+        )
+        .map((r) => ({
+          childSObject: r.childSObject,
+          field: r.field,
+          restricted: r.cascadeDelete !== true,
+        }));
     } catch (err: unknown) {
       verdict.reason = extractErrorMessage(err);
       candidates.forEach((id) => verdict.held.add(recordKey(id)));
@@ -1299,6 +1400,11 @@ class DependentsCheck {
         if (holding.size > 0) verdict.holders.add(relationship.childSObject);
         holding.forEach((key) => verdict.held.add(key));
       }
+    }
+    await this.lockedPastDraft(objectApiName, candidates, verdict);
+    if (isPricebookEntry(objectApiName)) await this.standardPricesHeld(candidates, verdict);
+    if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
+      await this.sellingModelOptionsHeld(candidates, verdict);
     }
     return verdict;
   }
@@ -1314,10 +1420,15 @@ class DependentsCheck {
    * engagement list (ActionableListMember) cannot be read by the record it
    * points at at all. A record read without any date is taken to stay; a
    * relationship that cannot be read holds nothing and is named as not
-   * checked, or no record with such a relationship could ever be removed.
+   * checked, or no record with such a relationship could ever be removed. One
+   * the org restricts the delete by is not named: the org's refusal says what
+   * it holds.
+   *
+   * The links of a file to the records read also say which files stay in the
+   * org once those records are gone: see {@link filesOn}.
    */
   private async holdingIn(
-    relationship: { childSObject: string; field: string },
+    relationship: DependentRelationship,
     chunk: readonly string[],
     verdict: HeldVerdict,
   ): Promise<Set<string>> {
@@ -1345,14 +1456,272 @@ class DependentsCheck {
         if (typeof record !== 'object' || record === null) continue;
         const row = record as Record<string, unknown>;
         const parent = row[relationship.field];
-        if (typeof parent === 'string' && typeof row.Id === 'string' && this.stays(row, child)) {
-          holding.add(recordKey(parent));
-        }
+        if (typeof parent !== 'string' || typeof row.Id !== 'string') continue;
+        if (child === FILE_LINK && field === 'LinkedEntityId') this.noteFile(row);
+        // Locked under this very record, the row stays because the record does.
+        if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
+        if (this.stays(row, child, relationship.restricted)) holding.add(recordKey(parent));
       }
       return holding;
     }
-    verdict.unchecked.add(relationship.childSObject);
+    if (!relationship.restricted) verdict.unchecked.add(relationship.childSObject);
     return new Set();
+  }
+
+  /**
+   * Note the file a link attaches to a record, unless the run created it: a
+   * file of the run's goes with the run, any other stays in the org once the
+   * record is gone.
+   */
+  private noteFile(row: Record<string, unknown>): void {
+    const record = row.LinkedEntityId;
+    const document = row.ContentDocumentId;
+    if (typeof record !== 'string' || typeof document !== 'string') return;
+    if (isRunRecord(document, this.context.runRecords)) return;
+    const files = this.files.get(recordKey(record)) ?? new Set<string>();
+    files.add(document);
+    this.files.set(recordKey(record), files);
+  }
+
+  /**
+   * The files attached to the records `ids` that the run did not create, by
+   * record key, as the links last read said: each by its title, or by its id
+   * where the title could not be read.
+   *
+   * Run for real, removing a Frozen load with the records changed since took
+   * two activated orders, and with them the links to the PDFs the org had
+   * generated as it activated them: the org kept the files, linked to their
+   * owner alone, and nothing named them.
+   */
+  async filesOn(ids: readonly string[]): Promise<Map<string, AttachedFile[]>> {
+    const byRecord = new Map<string, string[]>();
+    for (const id of ids) {
+      const documents = this.files.get(recordKey(id));
+      if (documents && documents.size > 0) byRecord.set(recordKey(id), [...documents]);
+    }
+    const documents = [...new Set([...byRecord.values()].flat())];
+    if (documents.length === 0) return new Map();
+    const titles = new Map<string, string>();
+    try {
+      for (const row of await readRecordsById(this.org, FILE, ['Title'], documents)) {
+        if (typeof row.Id === 'string' && typeof row.Title === 'string' && row.Title !== '') {
+          titles.set(recordKey(row.Id), row.Title);
+        }
+      }
+    } catch {
+      // Unread, each file is named by its id.
+    }
+    return new Map(
+      [...byRecord].map(([record, attached]) => [
+        record,
+        attached.map((document) => ({
+          key: recordKey(document),
+          name: titles.get(recordKey(document)) ?? document,
+        })),
+      ]),
+    );
+  }
+
+  /**
+   * Hold, among `candidates`, the rows the platform will not delete under a
+   * record past Draft (`LOCKED_PAST_DRAFT`) — an activated order's items and
+   * actions — held by that record's object, and no longer holding it in turn.
+   *
+   * Read as the object's turn comes: the removal has set to Draft by then
+   * every record of the run it deletes, so one still past Draft stays — held
+   * for records that stay, changed since the run, one the org would not set to
+   * Draft, or one the run did not create. Unread, the rows are sent, and the
+   * org's refusal says why they stay.
+   */
+  private async lockedPastDraft(
+    objectApiName: string,
+    candidates: readonly string[],
+    verdict: HeldVerdict,
+  ): Promise<void> {
+    for (const [parentObject, locked] of Object.entries(LOCKED_PAST_DRAFT)) {
+      const lookup = locked.find((rows) => rows.object === objectApiName)?.lookup;
+      const lifecycle = STATUS_LIFECYCLES[parentObject];
+      if (!lookup || !lifecycle) continue;
+      const categories = await this.statusCategoriesOf(lifecycle);
+      if (!categories) continue;
+      let rows: Array<Record<string, unknown>>;
+      let parents: Array<Record<string, unknown>>;
+      try {
+        rows = await readRecordsById(this.org, objectApiName, [lookup], candidates);
+        const parentIds = [
+          ...new Set(
+            rows.map((row) => row[lookup]).filter((id): id is string => typeof id === 'string'),
+          ),
+        ];
+        parents =
+          parentIds.length > 0
+            ? await readRecordsById(this.org, parentObject, ['Status'], parentIds)
+            : [];
+      } catch {
+        continue;
+      }
+      const pastDraft = new Set(
+        parents
+          .filter((row) => {
+            const category = categories.categoryOf.get(String(row.Status));
+            return category !== undefined && category !== 'Draft';
+          })
+          .map((row) => recordKey(String(row.Id))),
+      );
+      for (const row of rows) {
+        const parent = row[lookup];
+        if (typeof row.Id !== 'string' || typeof parent !== 'string') continue;
+        if (!pastDraft.has(recordKey(parent))) continue;
+        verdict.held.add(recordKey(row.Id));
+        verdict.holders.add(parentObject);
+        this.lockedUnder.set(recordKey(row.Id), recordKey(parent));
+      }
+    }
+  }
+
+  /** A lifecycle's statuses, each with its category, read once per removal. */
+  private statusCategoriesOf(lifecycle: string): Promise<StatusCategories | undefined> {
+    let categories = this.statuses.get(lifecycle);
+    if (!categories) {
+      categories = statusCategories(queryOf(this.org), lifecycle);
+      this.statuses.set(lifecycle, categories);
+    }
+    return categories;
+  }
+
+  /**
+   * Hold, among the price book entries `candidates`, the standard prices a
+   * custom price that stays needs: of the same product — under the same
+   * selling model, and in the same currency, where the org keeps them. The
+   * org refuses such a standard price, and says only `UNKNOWN_EXCEPTION`.
+   *
+   * A custom price among the candidates stays when it is held itself; the
+   * others are deleted first (`deleteRounds`). Unread, the standard prices are
+   * sent, and the org's refusal says why they stay.
+   */
+  private async standardPricesHeld(
+    candidates: readonly string[],
+    verdict: HeldVerdict,
+  ): Promise<void> {
+    try {
+      const query = queryOf(this.org);
+      const standard = [...(await standardPriceIds(query, candidates))];
+      if (standard.length === 0) return;
+      const fields = await this.priceKeyFields();
+      const own = await readRecordsById(this.org, PRICEBOOK_ENTRY_OBJECT, fields, standard);
+      const prices = await this.pricesOfProducts(own, fields);
+      const priceIds = prices.flatMap((price) => (typeof price.Id === 'string' ? [price.Id] : []));
+      const standardPrices = new Set([...(await standardPriceIds(query, priceIds))].map(recordKey));
+      const deleting = new Set(candidates.map(recordKey));
+      const needed = new Set<string>();
+      for (const price of prices) {
+        if (typeof price.Id !== 'string') continue;
+        const key = recordKey(price.Id);
+        if (standardPrices.has(key)) continue;
+        const stays = deleting.has(key)
+          ? verdict.held.has(key)
+          : this.stays(price, PRICEBOOK_ENTRY_OBJECT, true);
+        if (stays) needed.add(valuesKey(price, fields));
+      }
+      for (const row of own) {
+        if (typeof row.Id !== 'string' || !needed.has(valuesKey(row, fields))) continue;
+        verdict.held.add(recordKey(row.Id));
+        verdict.holders.add(PRICEBOOK_ENTRY_OBJECT);
+      }
+    } catch {
+      // Unread: see above.
+    }
+  }
+
+  /**
+   * Hold, among the selling model options `candidates`, the ones an active
+   * price that stays is sold under: of the same product, under the same
+   * selling model. The org refuses such an option — "this combination of
+   * product and product selling model is associated with an active price
+   * book entry". Unread, the options are sent, and the org's refusal says why
+   * they stay.
+   */
+  private async sellingModelOptionsHeld(
+    candidates: readonly string[],
+    verdict: HeldVerdict,
+  ): Promise<void> {
+    const fields = [PRICEBOOK_ENTRY_PRODUCT_FIELD, PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
+    try {
+      const options = await readRecordsById(
+        this.org,
+        SELLING_MODEL_OPTION_OBJECT,
+        fields,
+        candidates,
+      );
+      const prices = await this.pricesOfProducts(options, [...fields, 'IsActive']);
+      const sold = new Set(
+        prices
+          .filter(
+            (price) =>
+              typeof price.Id === 'string' &&
+              price.IsActive === true &&
+              this.stays(price, PRICEBOOK_ENTRY_OBJECT, true),
+          )
+          .map((price) => valuesKey(price, fields)),
+      );
+      for (const option of options) {
+        if (typeof option.Id !== 'string' || !sold.has(valuesKey(option, fields))) continue;
+        verdict.held.add(recordKey(option.Id));
+        verdict.holders.add(PRICEBOOK_ENTRY_OBJECT);
+      }
+    } catch {
+      // Unread: see above.
+    }
+  }
+
+  /**
+   * What a standard price answers to a custom price by: their product, and
+   * their selling model and currency where the org keeps them — a custom price
+   * needs the standard price of its own (`dedupePricebookEntries`).
+   */
+  private async priceKeyFields(): Promise<string[]> {
+    const described = describedObjectSchema.parse(await this.org.describe(PRICEBOOK_ENTRY_OBJECT));
+    const kept = new Set(described.fields.map((field) => field.name));
+    return [
+      PRICEBOOK_ENTRY_PRODUCT_FIELD,
+      ...[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD, PRICEBOOK_ENTRY_CURRENCY_FIELD].filter((field) =>
+        kept.has(field),
+      ),
+    ];
+  }
+
+  /**
+   * Every price, in any book, of the products `rows` name, with `fields`. A
+   * read that fills its limit throws: what it left unread could hold anything.
+   */
+  private async pricesOfProducts(
+    rows: ReadonlyArray<Record<string, unknown>>,
+    fields: readonly string[],
+  ): Promise<Array<Record<string, unknown>>> {
+    const products = [
+      ...new Set(
+        rows
+          .map((row) => row[PRICEBOOK_ENTRY_PRODUCT_FIELD])
+          .filter((id): id is string => typeof id === 'string'),
+      ),
+    ];
+    const columns = [...new Set(['Id', ...fields])].map(assertSoqlIdentifier).join(', ');
+    const prices: Array<Record<string, unknown>> = [];
+    for (const list of idLists(products, PRODUCTS_PER_PRICE_READ)) {
+      const answer = await this.org.query(
+        `SELECT ${columns} FROM ${PRICEBOOK_ENTRY_OBJECT} ` +
+          `WHERE ${PRICEBOOK_ENTRY_PRODUCT_FIELD} IN (${list}) LIMIT ${DEPENDENTS_READ_LIMIT}`,
+      );
+      if (answer.records.length >= DEPENDENTS_READ_LIMIT) {
+        throw new Error('More prices than one read takes.');
+      }
+      for (const record of answer.records) {
+        if (typeof record === 'object' && record !== null) {
+          prices.push(record as Record<string, unknown>);
+        }
+      }
+    }
+    return prices;
   }
 
   /**
@@ -1378,9 +1747,14 @@ class DependentsCheck {
    * is that removal's doing. An object that keeps no created and modified
    * dates is read by its system stamp; one that keeps no date at all stays.
    *
+   * A record that has the org refuse the delete of the one it points at,
+   * rather than go with it, stays whatever its dates, unless it is the run's.
+   *
    * @param object - The record's object.
+   * @param restricted - Whether the org refuses the delete of the record it
+   *   points at over it.
    */
-  private stays(row: Record<string, unknown>, object: string): boolean {
+  private stays(row: Record<string, unknown>, object: string, restricted = false): boolean {
     const key = recordKey(row.Id as string);
     const {
       runRecords,
@@ -1393,6 +1767,7 @@ class DependentsCheck {
       includeChanged,
     } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
+    if (restricted) return true;
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     const dated =
       'CreatedDate' in row ? 'CreatedDate' : 'SystemModstamp' in row ? 'SystemModstamp' : undefined;

@@ -22,6 +22,8 @@ interface Relationship {
   childSObject: string;
   field: string;
   cascadeDelete: boolean;
+  /** The org refuses the parent's delete while such a child points at it. */
+  restrictedDelete?: boolean;
 }
 
 /**
@@ -31,6 +33,8 @@ interface Relationship {
 class FakeOrg implements RemovalOrg {
   readonly rows = new Map<string, Row[]>();
   readonly relationships = new Map<string, Relationship[]>();
+  /** The fields an object's describe lists, where a test needs them. */
+  readonly fields = new Map<string, string[]>();
   /** Objects a person works with: every object holding rows, unless removed. */
   readonly notWorked = new Set<string>();
   /** Ids the org refuses to delete, with the error it answers. */
@@ -80,7 +84,11 @@ class FakeOrg implements RemovalOrg {
     return {
       name: objectApiName,
       label: objectApiName,
-      fields: [],
+      fields: (this.fields.get(objectApiName) ?? []).map((name) => ({
+        name,
+        label: name,
+        type: 'string',
+      })),
       childRelationships: this.relationships.get(objectApiName) ?? [],
     };
   }
@@ -1115,6 +1123,511 @@ describe('removeRunRecords', () => {
       expect(statusOf(org)).toBe('Live');
       expect(outcome.stamps).toEqual({});
     });
+  });
+
+  describe('an activated order the removal keeps, and what the platform locks under it', () => {
+    const ACCOUNT = id('001', 1);
+    const BOOK = id('01s', 1);
+    const STANDARD_BOOK = id('01s', 9);
+    const MODEL = id('0jP', 1);
+    const KEPT = id('801', 1);
+    const DRAFTED = id('801', 2);
+    const KEPT_ITEMS = [id('802', 1), id('802', 2)];
+    const DRAFTED_ITEM = id('802', 3);
+    const KEPT_ACTION = id('0YN', 1);
+    const DRAFTED_ACTION = id('0YN', 2);
+    const KEPT_PRODUCT = id('01t', 1);
+    const DRAFTED_PRODUCT = id('01t', 2);
+    const KEPT_STANDARD = id('01u', 1);
+    const KEPT_CUSTOM = id('01u', 2);
+    const DRAFTED_STANDARD = id('01u', 3);
+    const DRAFTED_CUSTOM = id('01u', 4);
+    const KEPT_OPTION = id('0iO', 1);
+    const DRAFTED_OPTION = id('0iO', 2);
+    const PDF = id('069', 1);
+    const PDF_TITLE = 'OrderConfirmation-0001.pdf';
+    /** In the order a load writes them, reversed. */
+    const PLAN = [
+      { objectApiName: 'OrderItem', ids: [...KEPT_ITEMS, DRAFTED_ITEM] },
+      { objectApiName: 'OrderAction', ids: [KEPT_ACTION, DRAFTED_ACTION] },
+      {
+        objectApiName: 'PricebookEntry',
+        ids: [KEPT_CUSTOM, DRAFTED_CUSTOM, KEPT_STANDARD, DRAFTED_STANDARD],
+      },
+      { objectApiName: 'Order', ids: [KEPT, DRAFTED] },
+      { objectApiName: 'ProductSellingModelOption', ids: [KEPT_OPTION, DRAFTED_OPTION] },
+      { objectApiName: 'Product2', ids: [KEPT_PRODUCT, DRAFTED_PRODUCT] },
+      { objectApiName: 'Pricebook2', ids: [BOOK] },
+      { objectApiName: 'Account', ids: [ACCOUNT] },
+    ];
+    const refusal = (statusCode: string, message: string) => ({ statusCode, message });
+
+    /**
+     * A load's two activated orders, as a client sandbox held them: on the
+     * activation of one, the org generated a confirmation PDF and linked it to
+     * the order after the load's last write. Each order has an action and
+     * items; each item is priced from a custom price of its product, which
+     * needs the product's standard price, and both sell under the product's
+     * selling model option. The org refuses what a real one refused: an
+     * activated order, and its items and action; a price an item uses; a
+     * standard price while a custom price of its product under its selling
+     * model is left; an option an active price sells under; a product an item
+     * names.
+     */
+    function activatedOrders(): FakeOrg {
+      const org = new FakeOrg();
+      org.add('OrderStatus', { Id: 'status-open', ApiName: 'Open', StatusCode: 'Draft' });
+      org.add('OrderStatus', { Id: 'status-live', ApiName: 'Live', StatusCode: 'Activated' });
+      org.add('Account', runRow(ACCOUNT));
+      org.add('Pricebook2', runRow(BOOK));
+      org.add('Product2', runRow(KEPT_PRODUCT), runRow(DRAFTED_PRODUCT));
+      const price = (priceId: string, product: string, standard: boolean): Row =>
+        runRow(priceId, {
+          Product2Id: product,
+          Pricebook2Id: standard ? STANDARD_BOOK : BOOK,
+          ProductSellingModelId: MODEL,
+          IsActive: true,
+          IsStandardPrice: standard,
+        });
+      org.add(
+        'PricebookEntry',
+        price(KEPT_STANDARD, KEPT_PRODUCT, true),
+        price(KEPT_CUSTOM, KEPT_PRODUCT, false),
+        price(DRAFTED_STANDARD, DRAFTED_PRODUCT, true),
+        price(DRAFTED_CUSTOM, DRAFTED_PRODUCT, false),
+      );
+      org.add(
+        'ProductSellingModelOption',
+        runRow(KEPT_OPTION, { Product2Id: KEPT_PRODUCT, ProductSellingModelId: MODEL }),
+        runRow(DRAFTED_OPTION, { Product2Id: DRAFTED_PRODUCT, ProductSellingModelId: MODEL }),
+      );
+      org.add(
+        'Order',
+        runRow(KEPT, { AccountId: ACCOUNT, Status: 'Live' }),
+        runRow(DRAFTED, { AccountId: ACCOUNT, Status: 'Live' }),
+      );
+      org.add(
+        'OrderAction',
+        runRow(KEPT_ACTION, { OrderId: KEPT }),
+        runRow(DRAFTED_ACTION, { OrderId: DRAFTED }),
+      );
+      org.add(
+        'OrderItem',
+        ...KEPT_ITEMS.map((item) =>
+          runRow(item, { OrderId: KEPT, PricebookEntryId: KEPT_CUSTOM, Product2Id: KEPT_PRODUCT }),
+        ),
+        runRow(DRAFTED_ITEM, {
+          OrderId: DRAFTED,
+          PricebookEntryId: DRAFTED_CUSTOM,
+          Product2Id: DRAFTED_PRODUCT,
+        }),
+      );
+      org.add('ContentDocument', {
+        Id: PDF,
+        Title: PDF_TITLE,
+        CreatedDate: AFTER_RUN,
+        LastModifiedDate: AFTER_RUN,
+      });
+      org.columns.set('ContentDocumentLink', [
+        'Id',
+        'ContentDocumentId',
+        'LinkedEntityId',
+        'SystemModstamp',
+      ]);
+      org.add(
+        'ContentDocumentLink',
+        {
+          Id: id('06A', 1),
+          ContentDocumentId: PDF,
+          LinkedEntityId: KEPT,
+          SystemModstamp: AFTER_RUN,
+        },
+        {
+          Id: id('06A', 2),
+          ContentDocumentId: PDF,
+          LinkedEntityId: COLLEAGUE,
+          SystemModstamp: AFTER_RUN,
+        },
+      );
+      org.relationships.set('Account', [
+        { childSObject: 'Order', field: 'AccountId', cascadeDelete: true },
+      ]);
+      org.relationships.set('Order', [
+        { childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true },
+        { childSObject: 'OrderAction', field: 'OrderId', cascadeDelete: true },
+        { childSObject: 'ContentDocumentLink', field: 'LinkedEntityId', cascadeDelete: true },
+      ]);
+      org.relationships.set('PricebookEntry', [
+        {
+          childSObject: 'OrderItem',
+          field: 'PricebookEntryId',
+          cascadeDelete: false,
+          restrictedDelete: true,
+        },
+      ]);
+      org.relationships.set('Product2', [
+        {
+          childSObject: 'PricebookEntry',
+          field: 'Product2Id',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+        { childSObject: 'ProductSellingModelOption', field: 'Product2Id', cascadeDelete: true },
+        {
+          childSObject: 'OrderItem',
+          field: 'Product2Id',
+          cascadeDelete: false,
+          restrictedDelete: true,
+        },
+      ]);
+      org.relationships.set('Pricebook2', [
+        { childSObject: 'PricebookEntry', field: 'Pricebook2Id', cascadeDelete: true },
+      ]);
+      org.refuse = (object, row) => {
+        const live = (orderId: unknown): boolean =>
+          (org.rows.get('Order') ?? []).some((o) => o.Id === orderId && o.Status === 'Live');
+        const items = org.rows.get('OrderItem') ?? [];
+        const prices = org.rows.get('PricebookEntry') ?? [];
+        if (object === 'Order' && row.Status === 'Live') {
+          return refusal('DELETE_FAILED', 'cannot delete an activated order');
+        }
+        if (object === 'OrderItem' && live(row.OrderId)) {
+          return refusal('DELETE_FAILED', 'unable to modify activated or superseded order');
+        }
+        if (object === 'OrderAction' && live(row.OrderId)) {
+          return refusal('ENTITY_IS_LOCKED', 'not on an activated or superseded order');
+        }
+        if (object === 'PricebookEntry' && items.some((i) => i.PricebookEntryId === row.Id)) {
+          return refusal('DELETE_FAILED', 'the products will not be removed from these orders');
+        }
+        const customLeft = prices.some(
+          (p) =>
+            p.IsStandardPrice === false &&
+            p.Product2Id === row.Product2Id &&
+            p.ProductSellingModelId === row.ProductSellingModelId,
+        );
+        if (object === 'PricebookEntry' && row.IsStandardPrice === true && customLeft) {
+          return refusal('UNKNOWN_EXCEPTION', 'An unexpected error occurred.');
+        }
+        const sold = prices.some(
+          (p) =>
+            p.IsActive === true &&
+            p.Product2Id === row.Product2Id &&
+            p.ProductSellingModelId === row.ProductSellingModelId,
+        );
+        if (object === 'ProductSellingModelOption' && sold) {
+          return refusal('UNKNOWN_EXCEPTION', 'associated with an active price book entry');
+        }
+        if (object === 'Product2' && items.some((i) => i.Product2Id === row.Id)) {
+          return refusal('DELETE_FAILED', 'this product is on order products');
+        }
+        return undefined;
+      };
+      return org;
+    }
+
+    const byObject = (outcome: { objects: ForgeUndoObjectResult[] }): unknown[] =>
+      outcome.objects.map((o) => [
+        o.objectApiName,
+        o.deleted,
+        o.keptDependents,
+        o.refused,
+        o.heldBy,
+      ]);
+    const statusOf = (org: FakeOrg): unknown =>
+      (org.rows.get('Order') ?? []).find((o) => o.Id === KEPT)?.Status;
+
+    it('keeps with an order it keeps activated the items and action the platform locks under it, for the order', async () => {
+      const org = activatedOrders();
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.objects.slice(0, 2)).toEqual([
+        expect.objectContaining({
+          objectApiName: 'OrderItem',
+          deleted: 1,
+          keptDependents: 2,
+          refused: 0,
+          heldBy: ['Order'],
+          reasons: [],
+        }),
+        expect.objectContaining({
+          objectApiName: 'OrderAction',
+          deleted: 1,
+          keptDependents: 1,
+          refused: 0,
+          heldBy: ['Order'],
+          reasons: [],
+        }),
+      ]);
+      // Held by the file the org attached to it, not by what it locks itself.
+      expect(outcome.objects.find((o) => o.objectApiName === 'Order')).toMatchObject({
+        deleted: 1,
+        keptDependents: 1,
+        heldBy: ['ContentDocumentLink'],
+      });
+      const sent = org.deletes.flatMap((d) => d.ids);
+      for (const locked of [...KEPT_ITEMS, KEPT_ACTION]) expect(sent).not.toContain(locked);
+      expect(statusOf(org)).toBe('Live');
+    });
+
+    it('keeps what those hold in turn — their price, its standard price, their option — sending no delete the org refuses', async () => {
+      const org = activatedOrders();
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(byObject(outcome)).toEqual([
+        ['OrderItem', 1, 2, 0, ['Order']],
+        ['OrderAction', 1, 1, 0, ['Order']],
+        ['PricebookEntry', 2, 2, 0, ['OrderItem', 'PricebookEntry']],
+        ['Order', 1, 1, 0, ['ContentDocumentLink']],
+        ['ProductSellingModelOption', 1, 1, 0, ['PricebookEntry']],
+        ['Product2', 1, 1, 0, ['PricebookEntry', 'ProductSellingModelOption', 'OrderItem']],
+        ['Pricebook2', 0, 1, 0, ['PricebookEntry']],
+        ['Account', 0, 1, 0, ['Order']],
+      ]);
+      expect(outcome.objects.flatMap((o) => o.reasons)).toEqual([]);
+      expect(org.deletes.flatMap((d) => d.ids).sort()).toEqual(
+        [
+          DRAFTED_ITEM,
+          DRAFTED_ACTION,
+          DRAFTED_CUSTOM,
+          DRAFTED_STANDARD,
+          DRAFTED,
+          DRAFTED_OPTION,
+          DRAFTED_PRODUCT,
+        ].sort(),
+      );
+    });
+
+    it.each<[string, (org: FakeOrg) => void, Partial<ForgeUndoObjectResult>]>([
+      [
+        'kept for a file the org attached since the run',
+        () => undefined,
+        { keptDependents: 1, heldBy: ['ContentDocumentLink'] },
+      ],
+      [
+        'changed since the run',
+        (org) => {
+          const order = (org.rows.get('Order') ?? []).find((o) => o.Id === KEPT);
+          if (order) order.LastModifiedDate = AFTER_RUN;
+          org.rows.set(
+            'ContentDocumentLink',
+            (org.rows.get('ContentDocumentLink') ?? []).filter((l) => l.LinkedEntityId !== KEPT),
+          );
+        },
+        { keptChanged: 1 },
+      ],
+    ])('keeps the items of an activated order it keeps: %s', async (_why, arrange, orderLine) => {
+      const org = activatedOrders();
+      arrange(org);
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.objects.find((o) => o.objectApiName === 'OrderItem')).toMatchObject({
+        keptDependents: 2,
+        refused: 0,
+        heldBy: ['Order'],
+      });
+      expect(outcome.objects.find((o) => o.objectApiName === 'Order')).toMatchObject(orderLine);
+      const sent = org.deletes.flatMap((d) => d.ids);
+      for (const item of KEPT_ITEMS) expect(sent).not.toContain(item);
+    });
+
+    it('keeps an item the run added to an activated order it did not create', async () => {
+      const org = activatedOrders();
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'OrderItem', ids: KEPT_ITEMS }],
+        options(),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ keptDependents: 2, refused: 0, heldBy: ['Order'] }),
+      ]);
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('lets the items of an order it set to Draft go', async () => {
+      const org = activatedOrders();
+
+      await removeRunRecords(org, PLAN, options());
+
+      expect(org.has('OrderItem', DRAFTED_ITEM)).toBe(false);
+      expect(org.has('OrderAction', DRAFTED_ACTION)).toBe(false);
+    });
+
+    it('names the file the org attached to an order it deletes, and leaves it in the org', async () => {
+      // With the records changed since the run, what was added to them since
+      // goes too: the order goes, and its link to the PDF with it.
+      const org = activatedOrders();
+
+      const outcome = await removeRunRecords(org, PLAN, options({ includeChanged: true }));
+
+      expect(outcome.objects.find((o) => o.objectApiName === 'Order')).toMatchObject({
+        deleted: 2,
+        filesLeft: { count: 1, names: [PDF_TITLE] },
+      });
+      expect(
+        outcome.objects.filter((o) => o.filesLeft !== undefined).map((o) => o.objectApiName),
+      ).toEqual(['Order']);
+      expect(PLAN.flatMap((p) => org.rows.get(p.objectApiName) ?? [])).toEqual([]);
+      expect(org.has('ContentDocument', PDF)).toBe(true);
+      expect(org.deletes.map((d) => d.object)).not.toContain('ContentDocument');
+    });
+
+    it('names a file by its id when its title cannot be read', async () => {
+      const org = activatedOrders();
+      org.failingQueries.push(/FROM ContentDocument WHERE/);
+
+      const outcome = await removeRunRecords(org, PLAN, options({ includeChanged: true }));
+
+      expect(outcome.objects.find((o) => o.objectApiName === 'Order')?.filesLeft).toEqual({
+        count: 1,
+        names: [PDF],
+      });
+    });
+
+    it('names no file of an order it keeps: the file stays attached to it', async () => {
+      const org = activatedOrders();
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.objects.some((o) => o.filesLeft !== undefined)).toBe(false);
+    });
+  });
+
+  describe('a record that would have the org refuse the delete of the one it points at', () => {
+    const PRICE = id('01u', 1);
+    const LINE_ITEM = id('00k', 9);
+
+    /**
+     * A price of the run's, and a line item someone else priced from it while
+     * the run went: the org takes no line item along with its price, it
+     * refuses the price's delete.
+     */
+    function pricedFrom(): FakeOrg {
+      const org = new FakeOrg();
+      org.add(
+        'PricebookEntry',
+        runRow(PRICE, { Product2Id: id('01t', 1), IsStandardPrice: false }),
+      );
+      org.add('OpportunityLineItem', {
+        Id: LINE_ITEM,
+        PricebookEntryId: PRICE,
+        CreatedDate: DURING_RUN,
+        LastModifiedDate: DURING_RUN,
+        CreatedById: COLLEAGUE,
+      });
+      org.relationships.set('PricebookEntry', [
+        {
+          childSObject: 'OpportunityLineItem',
+          field: 'PricebookEntryId',
+          cascadeDelete: false,
+          restrictedDelete: true,
+        },
+      ]);
+      org.refuse = (object, row) =>
+        object === 'PricebookEntry' &&
+        (org.rows.get('OpportunityLineItem') ?? []).some((i) => i.PricebookEntryId === row.Id)
+          ? { statusCode: 'DELETE_FAILED', message: 'this price is used by opportunity products' }
+          : undefined;
+      return org;
+    }
+
+    it('keeps a price another record is priced from, whenever that record came, and sends no delete', async () => {
+      const org = pricedFrom();
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'PricebookEntry', ids: [PRICE] }],
+        options({ includeChanged: true }),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({
+        deleted: 0,
+        keptDependents: 1,
+        refused: 0,
+        heldBy: ['OpportunityLineItem'],
+        reasons: [],
+      });
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('names no such relationship as not checked when it cannot read it: the org says what it holds', async () => {
+      const org = pricedFrom();
+      org.failingQueries.push(/FROM OpportunityLineItem WHERE/);
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'PricebookEntry', ids: [PRICE] }],
+        options(),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({
+        refused: 1,
+        unchecked: [],
+        reasons: ['DELETE_FAILED: this price is used by opportunity products'],
+      });
+    });
+  });
+
+  it('keeps a standard price only for a custom price that stays under its own selling model', async () => {
+    // Where the org sells by selling models, a custom price needs the
+    // standard price of its product under its own model.
+    const org = new FakeOrg();
+    const product = id('01t', 1);
+    const [oneTime, term] = [id('0jP', 1), id('0jP', 2)];
+    const custom = id('01u', 1);
+    const [standardOneTime, standardTerm] = [id('01u', 2), id('01u', 3)];
+    org.fields.set('PricebookEntry', ['Id', 'Product2Id', 'ProductSellingModelId']);
+    org.add(
+      'PricebookEntry',
+      // Changed since the run: kept.
+      runRow(custom, {
+        Product2Id: product,
+        ProductSellingModelId: oneTime,
+        IsStandardPrice: false,
+        LastModifiedDate: AFTER_RUN,
+      }),
+      runRow(standardOneTime, {
+        Product2Id: product,
+        ProductSellingModelId: oneTime,
+        IsStandardPrice: true,
+      }),
+      runRow(standardTerm, {
+        Product2Id: product,
+        ProductSellingModelId: term,
+        IsStandardPrice: true,
+      }),
+    );
+    org.refuse = (object, row) =>
+      object === 'PricebookEntry' &&
+      row.IsStandardPrice === true &&
+      (org.rows.get('PricebookEntry') ?? []).some(
+        (p) =>
+          p.IsStandardPrice === false &&
+          p.Product2Id === row.Product2Id &&
+          p.ProductSellingModelId === row.ProductSellingModelId,
+      )
+        ? { statusCode: 'UNKNOWN_EXCEPTION', message: 'An unexpected error occurred.' }
+        : undefined;
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'PricebookEntry', ids: [custom, standardOneTime, standardTerm] }],
+      options(),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 1,
+      keptChanged: 1,
+      keptDependents: 1,
+      refused: 0,
+      heldBy: ['PricebookEntry'],
+    });
+    expect(org.deletes.flatMap((d) => d.ids)).toEqual([standardTerm]);
   });
 
   describe('a record the org restamps as the removal deletes, and the removal leaves', () => {

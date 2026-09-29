@@ -39,6 +39,12 @@ const CHANGED_KEYS: Record<RemovalSubject, string> = {
   load: 'frozen.removal.resultChanged',
 };
 
+/** What the files a removal leaves in the org are said not to have come with. */
+const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
+  run: 'forge.history.resultFilesLeft',
+  load: 'frozen.removal.resultFilesLeft',
+};
+
 /** The colour of that first line. */
 const RESULT_TITLE_CLASSES: Record<ForgeUndoStatus, string> = {
   success: 'text-status-success',
@@ -148,8 +154,9 @@ export interface ForgeRunRemovalResultProps {
 /**
  * What a removal did, object by object — deleted, already gone, kept because
  * changed since the run or because records that stay depend on them, refused
- * — with what the org said about the refusals, and, for a removal of what an
- * earlier one left, which one.
+ * — with what the org said about the refusals, the files attached to the
+ * records deleted that stay in the org (the removal takes only what the run
+ * created), and, for a removal of what an earlier one left, which one.
  */
 export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   result,
@@ -196,6 +203,19 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
                   <li key={reason}>{reason}</li>
                 ))}
               </ul>
+            )}
+            {object.filesLeft && object.filesLeft.count > 0 && (
+              <p
+                data-testid={`forge-removal-files-${object.objectApiName}`}
+                className="ml-3 mt-0.5 wrap-break-word"
+              >
+                {counted(t, FILES_LEFT_KEYS[subject], object.filesLeft.count, {
+                  org,
+                  names:
+                    object.filesLeft.names.join(', ') +
+                    (object.filesLeft.count > object.filesLeft.names.length ? ', …' : ''),
+                })}
+              </p>
             )}
           </li>
         ))}

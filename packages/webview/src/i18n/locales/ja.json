@@ -2475,6 +2475,7 @@
       "resultChanged_other": "{{formatted}} 件は実行後に変更されたため残しました",
       "resultHeld_other": "{{formatted}} 件は残る {{objects}} レコードが依存しているため残しました",
       "resultHeldUnread_other": "{{formatted}} 件は依存するレコードを読み取れなかったため残しました",
+      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、この実行が作成したものではないため {{org}} に残ります: {{names}}",
       "resultUnchecked": "未確認: {{objects}} のレコードは依存先のレコードから読み取れないため、そのレコードと一緒に削除されます。",
       "resultKept_other": "{{formatted}} 件を残しました",
       "resultRefused_other": "{{formatted}} 件は拒否されました"
@@ -2932,7 +2933,8 @@
       "resultSuccess": "このロードが作成したレコードは {{org}} に残っていません。",
       "resultPartial": "このロードが作成したレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
       "resultFailure": "このロードが作成したレコードは {{org}} から 1 件も削除されませんでした。",
-      "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました"
+      "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました",
+      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}"
     },
     "coverage": {
       "truncated": "検出は {{objects}} オブジェクト（上限 {{maxNodes}}）で停止しました。ルートから遠いオブジェクトは読み込まれていないため、このデータセットには欠けがある可能性があります。詳細設定で maxNodes を引き上げて、再実行してください。",

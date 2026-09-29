@@ -226,6 +226,70 @@ describe('ForgeRunRemovalResult of a Frozen load', () => {
       'Contact: 1 deleted · 2 kept, changed since the load',
     );
   });
+
+  it('names the files attached to the records it deleted that stay in the org, which the load did not create', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="load"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Order',
+              deleted: 2,
+              filesLeft: { count: 2, names: ['Confirmation-0001.pdf', 'Confirmation-0002.pdf'] },
+            }),
+            outcome({ objectApiName: 'Contact', deleted: 1 }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-files-Order').textContent).toBe(
+      '2 files attached to them stay in DEV-SANDBOX, as the load did not create them: Confirmation-0001.pdf, Confirmation-0002.pdf',
+    );
+    expect(screen.queryByTestId('forge-removal-files-Contact')).toBeNull();
+  });
+});
+
+describe('ForgeRunRemovalResult of the files a run did not create', () => {
+  it('names one file, and says more are left than it names', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Case',
+              deleted: 1,
+              filesLeft: { count: 1, names: ['Photo.png'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-files-Case').textContent).toBe(
+      '1 file attached to them stays in DEV-SANDBOX, as the run did not create it: Photo.png',
+    );
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          objects: [
+            outcome({
+              objectApiName: 'Case',
+              deleted: 7,
+              filesLeft: { count: 7, names: ['a.png', 'b.png', 'c.png', 'd.png', 'e.png'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-files-Case').textContent).toBe(
+      '7 files attached to them stay in DEV-SANDBOX, as the run did not create them: a.png, b.png, c.png, d.png, e.png, …',
+    );
+  });
 });
 
 describe('ForgeRunRemovalMark', () => {

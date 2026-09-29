@@ -2601,6 +2601,8 @@
       "resultHeld_other": "{{formatted}} conservados, dependen de ellos registros de {{objects}} que se quedan",
       "resultHeldUnread_one": "{{formatted}} conservado: no se pudo leer lo que depende de él",
       "resultHeldUnread_other": "{{formatted}} conservados: no se pudo leer lo que depende de ellos",
+      "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que la ejecución no lo creó: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la ejecución no los creó: {{names}}",
       "resultUnchecked": "Sin comprobar: los registros de {{objects}} no se pueden leer a partir del registro del que dependen, y se eliminan con él.",
       "resultKept_one": "{{formatted}} conservado",
       "resultKept_other": "{{formatted}} conservados",
@@ -3074,7 +3076,9 @@
       "resultPartial": "Se eliminaron de {{org}} registros creados por esta carga; los demás se quedan, como se indica.",
       "resultFailure": "No se eliminó de {{org}} ningún registro creado por esta carga.",
       "resultChanged_one": "{{formatted}} conservado, modificado desde la carga",
-      "resultChanged_other": "{{formatted}} conservados, modificados desde la carga"
+      "resultChanged_other": "{{formatted}} conservados, modificados desde la carga",
+      "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que la carga no lo creó: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la carga no los creó: {{names}}"
     },
     "coverage": {
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",

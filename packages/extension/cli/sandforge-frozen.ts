@@ -280,6 +280,18 @@ function removalCounts(object: {
 }
 
 /**
+ * The files attached to an object's records the removal deleted, which stay in
+ * the org: the load did not create them, and the removal leaves them there.
+ */
+function filesLeftLine(files: { count: number; names: string[] }): string {
+  const more = files.count > files.names.length ? ', …' : '';
+  return (
+    `${files.count} file(s) attached to them stay in the org, as the load did not create them: ` +
+    `${files.names.join(', ')}${more}`
+  );
+}
+
+/**
  * How far discovery reached, and whether it stopped short. The objects can
  * outnumber the cap — each parent a record reached cannot be written without
  * raises it by one, to twice it — and "100 object(s) at a cap of 50" read as
@@ -504,6 +516,7 @@ export function messageLines(message: Posted): string[] {
           heldBy: string[];
           unchecked: string[];
           reasons: string[];
+          filesLeft?: { count: number; names: string[] };
         }>;
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
@@ -513,6 +526,7 @@ export function messageLines(message: Posted): string[] {
         ...r.objects.flatMap((o) => [
           `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
           ...o.reasons.map((reason) => `      ${reason}`),
+          ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
         ]),
         ...(unchecked.length > 0
           ? [`not checked, deleted with their parent: ${unchecked.join(', ')}`]

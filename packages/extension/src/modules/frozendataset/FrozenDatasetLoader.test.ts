@@ -5992,7 +5992,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
     });
     return outcome.objects.map(
       (o) =>
-        `${o.objectApiName}: ${o.deleted} deleted, ${o.keptChanged} kept changed, ${o.refused} refused`,
+        `${o.objectApiName}: ${o.deleted} deleted, ${o.keptChanged} kept changed, ` +
+        `${o.keptDependents} kept for ${o.heldBy.join(', ') || 'nothing'}, ${o.refused} refused`,
     );
   }
 
@@ -6061,8 +6062,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
     // What the reload left on it is its doing, not a change: the removal of
     // the load that created the order takes it.
     expect(await removeNextLoad(sasDir, target)).toEqual([
-      'OrderItem: 1 deleted, 0 kept changed, 0 refused',
-      'Order: 1 deleted, 0 kept changed, 0 refused',
+      'OrderItem: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
+      'Order: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
     ]);
   });
 
@@ -6108,8 +6109,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
       [ORDER]: target.row('Order', ORDER)?.LastModifiedDate,
     });
     expect(await removeNextLoad(sasDir, target)).toEqual([
-      'OrderItem: 1 deleted, 0 kept changed, 0 refused',
-      'Order: 1 deleted, 0 kept changed, 0 refused',
+      'OrderItem: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
+      'Order: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
     ]);
   });
 
@@ -6189,10 +6190,11 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
     const loads = await recordedLoads(sasDir);
     expect(loads).toHaveLength(1);
     expect(loads[0].removalStamps).toEqual({});
-    // Its item is refused under an order still activated.
+    // Its item stays with the order, still activated, which the platform
+    // locks it under: kept for the order, and never sent to be refused.
     expect(await removeNextLoad(sasDir, target)).toEqual([
-      'OrderItem: 0 deleted, 0 kept changed, 1 refused',
-      'Order: 0 deleted, 1 kept changed, 0 refused',
+      'OrderItem: 0 deleted, 0 kept changed, 1 kept for Order, 0 refused',
+      'Order: 0 deleted, 1 kept changed, 0 kept for nothing, 0 refused',
     ]);
   });
 
@@ -6249,8 +6251,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
         [ORDER]: target.row('Order', ORDER)?.LastModifiedDate,
       });
       expect(await removeNextLoad(sasDir, target)).toEqual([
-        'OrderItem: 1 deleted, 0 kept changed, 0 refused',
-        'Order: 1 deleted, 0 kept changed, 0 refused',
+        'OrderItem: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
+        'Order: 1 deleted, 0 kept changed, 0 kept for nothing, 0 refused',
       ]);
     });
 
@@ -6268,8 +6270,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
       const [load] = await recordedLoads(sasDir);
       expect(load.removalStamps).toEqual({});
       expect(await removeNextLoad(sasDir, target)).toEqual([
-        'OrderItem: 0 deleted, 0 kept changed, 1 refused',
-        'Order: 0 deleted, 1 kept changed, 0 refused',
+        'OrderItem: 0 deleted, 0 kept changed, 1 kept for Order, 0 refused',
+        'Order: 0 deleted, 1 kept changed, 0 kept for nothing, 0 refused',
       ]);
     });
 
@@ -6310,8 +6312,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
     expect(loads).toHaveLength(1);
     expect(loads[0].removalStamps).toEqual({});
     expect(await removeNextLoad(sasDir, target)).toEqual([
-      'OrderItem: 0 deleted, 0 kept changed, 1 refused',
-      'Order: 0 deleted, 1 kept changed, 0 refused',
+      'OrderItem: 0 deleted, 0 kept changed, 1 kept for Order, 0 refused',
+      'Order: 0 deleted, 1 kept changed, 0 kept for nothing, 0 refused',
     ]);
     expect(target.row('Order', ORDER)?.Description).toBe('Keep for the audit');
   });

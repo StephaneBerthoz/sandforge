@@ -403,7 +403,23 @@ const FROZEN_REMOVAL_RESULT = {
   status: 'partial',
   includeChanged: false,
   finishedAt: '2026-09-24T11:00:00.000Z',
-  objects: FORGE_REMOVAL_RESULT.objects,
+  objects: [
+    ...FORGE_REMOVAL_RESULT.objects,
+    // An order deleted with the file the org attached to it, which stays.
+    {
+      objectApiName: 'Order',
+      planned: 1,
+      deleted: 1,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+      filesLeft: { count: 1, names: ['Confirmation-0001.pdf'] },
+    },
+  ],
 };
 
 /**
@@ -3280,6 +3296,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-removal-result')).toContainText(
         'changed since the load',
       );
+      await expect(page.getByTestId('forge-removal-files-Order')).toBeVisible();
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);

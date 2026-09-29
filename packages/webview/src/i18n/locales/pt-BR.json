@@ -2601,6 +2601,8 @@
       "resultHeld_other": "{{formatted}} mantidos, deles dependem registros de {{objects}} que ficam",
       "resultHeldUnread_one": "{{formatted}} mantido: não foi possível ler o que depende dele",
       "resultHeldUnread_other": "{{formatted}} mantidos: não foi possível ler o que depende deles",
+      "resultFilesLeft_one": "{{formatted}} arquivo anexado a eles fica em {{org}}, pois a execução não o criou: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois a execução não os criou: {{names}}",
       "resultUnchecked": "Não verificado: os registros de {{objects}} não podem ser lidos a partir do registro do qual dependem, e são excluídos com ele.",
       "resultKept_one": "{{formatted}} mantido",
       "resultKept_other": "{{formatted}} mantidos",
@@ -3074,7 +3076,9 @@
       "resultPartial": "Registros criados por esta carga foram removidos de {{org}}; os demais ficam, como listado.",
       "resultFailure": "Nenhum registro criado por esta carga foi removido de {{org}}.",
       "resultChanged_one": "{{formatted}} mantido, alterado desde a carga",
-      "resultChanged_other": "{{formatted}} mantidos, alterados desde a carga"
+      "resultChanged_other": "{{formatted}} mantidos, alterados desde a carga",
+      "resultFilesLeft_one": "{{formatted}} arquivo anexado a eles fica em {{org}}, pois a carga não o criou: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois a carga não os criou: {{names}}"
     },
     "coverage": {
       "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",

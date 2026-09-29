@@ -273,6 +273,41 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('names the files attached to the records a removal deleted, which stay in the org', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-1',
+        result: {
+          status: 'success',
+          includeChanged: true,
+          finishedAt: '2026-09-24T11:00:00.000Z',
+          objects: [
+            {
+              objectApiName: 'Order',
+              planned: 2,
+              deleted: 2,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+              filesLeft: { count: 2, names: ['Confirmation-0001.pdf', 'Confirmation-0002.pdf'] },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: SUCCESS',
+      '  Order: 2 deleted of 2',
+      '      2 file(s) attached to them stay in the org, as the load did not create them: Confirmation-0001.pdf, Confirmation-0002.pdf',
+    ]);
+  });
+
   it('names what a load left to the platform after the objects it wrote', () => {
     const lines = messageLines({
       type: 'frozen:load:response',

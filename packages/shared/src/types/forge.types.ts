@@ -321,6 +321,20 @@ export interface ForgeCreatedRecords {
 export type ForgeUndoStatus = 'success' | 'partial' | 'failure' | 'cancelled';
 
 /**
+ * Files a removal leaves in the org: attached to records it deleted, and not
+ * created by what it took back.
+ */
+export interface ForgeRemovalFilesLeft {
+  /** How many. */
+  count: number;
+  /**
+   * The first few by their title, as the org has it — by their id where the
+   * title could not be read.
+   */
+  names: string[];
+}
+
+/**
  * What removing the records a Forge run created did to one object.
  *
  * Every record the run created of the object is in exactly one of the counts
@@ -340,9 +354,13 @@ export interface ForgeUndoObjectResult {
   keptChanged: number;
   /**
    * Records kept because records that stay in the org would be deleted along
-   * with them: one from before the run, one of the run's own the removal keeps
-   * or the org refused to delete, and — unless the request included what
-   * changed since the run — one added or changed since.
+   * with them — one from before the run, one of the run's own the removal keeps
+   * or the org refused to delete, and, unless the request included what changed
+   * since the run, one added or changed since — or would have the org refuse
+   * their delete: a record pointing at them through a lookup the org restricts
+   * the delete by, a custom price holding its product's standard one, an
+   * active price its selling model option, and an order past Draft that stays
+   * the items and actions the platform locks under it.
    */
   keptDependents: number;
   /** Records the org refused to delete. */
@@ -364,6 +382,14 @@ export interface ForgeUndoObjectResult {
    * not: each reason once, and a few at most.
    */
   reasons: string[];
+  /**
+   * The files attached to the records the removal deleted, which the run did
+   * not create — a PDF the org generated as an order was activated. The org
+   * keeps a file when the record it was attached to goes, linked to whoever
+   * owns it; the removal names them and leaves them there. Absent when there
+   * were none.
+   */
+  filesLeft?: ForgeRemovalFilesLeft;
 }
 
 /** What removing the records a Forge run created did, object by object. */

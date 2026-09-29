@@ -99,6 +99,7 @@ export const describedObjectSchema = z
             childSObject: z.string(),
             field: z.string(),
             cascadeDelete: z.boolean().optional(),
+            restrictedDelete: z.boolean().optional(),
           })
           .passthrough(),
       )

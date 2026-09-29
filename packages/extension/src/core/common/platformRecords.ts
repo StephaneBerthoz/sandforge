@@ -801,6 +801,32 @@ export const STATUS_LIFECYCLES: Readonly<Record<string, string>> = {
   Contract: 'ContractStatus',
 };
 
+/** Rows of another object the platform will not delete under a record past Draft. */
+export interface LockedPastDraft {
+  /** The object of the rows. */
+  readonly object: string;
+  /** Their lookup that names the record. */
+  readonly lookup: string;
+}
+
+/**
+ * Objects of {@link STATUS_LIFECYCLES} whose records, past Draft, lock rows of
+ * other objects under them: the platform refuses to delete those rows for as
+ * long as the record keeps its status.
+ *
+ * Run for real, a removal kept two activated orders — the org had attached a
+ * file to each on its activation — and still sent the deletes of their items,
+ * refused "unable to modify activated or superseded order", and of their
+ * actions, refused `ENTITY_IS_LOCKED`. Only what a real refusal named is
+ * listed: an activated contract has not been seen to lock anything.
+ */
+export const LOCKED_PAST_DRAFT: Readonly<Record<string, readonly LockedPastDraft[]>> = {
+  Order: [
+    { object: 'OrderItem', lookup: 'OrderId' },
+    { object: 'OrderAction', lookup: 'OrderId' },
+  ],
+};
+
 /**
  * Objects of {@link STATUS_LIFECYCLES} whose records take their status past
  * Draft back only with rows of another object under them, and those rows.
