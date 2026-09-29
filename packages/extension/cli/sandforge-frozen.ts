@@ -17,8 +17,9 @@
  *   extract  read those roots' graphs, pseudonymize, check, freeze
  *   load     replay the frozen dataset into a sandbox — writes
  *   verify   check the last load against the dataset, read-only
- *   remove   delete from the sandbox the records the last load created — or,
- *            once they went, those of the load before it — deletes
+ *   remove   delete from the sandbox the records the last load created — what an
+ *            earlier removal left of them, or, once they all went, those of the
+ *            load before it — deletes
  *   status   what the store knows so far
  *
  * The configuration is the panel's own (`FrozenProjectConfig`, as JSON) and
@@ -211,26 +212,48 @@ interface LoadRecords {
   created: Array<{ objectApiName: string; count: number }>;
   linked: number;
   recorded: boolean;
+  /** Set once a removal took records: `created` counts what it left, if any. */
   removed?: { removedAt: string };
   /** A load before the last one, whose records the loads after it left in the org. */
   earlier?: boolean;
 }
 
+/** How many records a removal of the load would take. */
+function recordsToTake(records: LoadRecords): number {
+  return records.created.reduce((sum, object) => sum + object.count, 0);
+}
+
 /**
  * What a removal of the load would take, for the person asked to confirm it:
- * which load, the org, the records per object in the order they go, and what
- * stays. Exported so it can be tested.
+ * which load, the org, the records per object in the order they go — once a
+ * removal left some in the org, those — and what stays. Exported so it can be
+ * tested.
  */
 export function removalPlanLines(records: LoadRecords, org: string): string[] {
-  const total = records.created.reduce((sum, object) => sum + object.count, 0);
+  const total = recordsToTake(records);
   const which = records.earlier
     ? 'a load before the last one, whose records the loads after it left in place,'
     : 'the last load';
+  let takes = `a removal deletes the ${total} record(s) it created, children first:`;
+  if (records.removed && total === 0) {
+    takes = `its records were removed on ${records.removed.removedAt}, and none is left to remove`;
+  } else if (records.removed) {
+    takes = `the removal of ${records.removed.removedAt} left ${total} of the records it created, and a removal deletes those, children first:`;
+  }
   return [
-    `${which} wrote to ${org} at ${records.loadedAt}; a removal deletes the ${total} record(s) it created, children first:`,
+    `${which} wrote to ${org} at ${records.loadedAt}; ${takes}`,
     ...records.created.map((object) => `  ${object.objectApiName}: ${object.count}`),
     `${records.linked} record(s) it linked to or reused stay`,
   ];
+}
+
+/**
+ * Whether the person is asked to type the org's name before the removal: when
+ * it would delete something — records the load created, or what an earlier
+ * removal left of them. Exported so it can be tested.
+ */
+export function removalAsks(records: LoadRecords): boolean {
+  return records.recorded && recordsToTake(records) > 0;
 }
 
 /** What became of one object's records in a removal, the counts that are not zero. */
@@ -469,6 +492,7 @@ export function messageLines(message: Posted): string[] {
     case 'frozen:remove:response': {
       const r = p.result as {
         status: string;
+        leftBy?: string;
         objects: Array<{
           objectApiName: string;
           planned: number;
@@ -484,7 +508,8 @@ export function messageLines(message: Posted): string[] {
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
       return [
-        `removal: ${r.status.toUpperCase()}`,
+        `removal: ${r.status.toUpperCase()}` +
+          (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
         ...r.objects.flatMap((o) => [
           `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
           ...o.reasons.map((reason) => `      ${reason}`),
@@ -601,7 +626,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         return;
       }
       for (const line of removalPlanLines(records, args.target ?? '')) log(line);
-      if (!args.yes && records.recorded && !records.removed) {
+      if (!args.yes && removalAsks(records)) {
         // Typed, as the panel asks it: the name of the org the records leave.
         const answer = await typed(`Type ${args.target} to delete them:`);
         if (answer !== args.target) {

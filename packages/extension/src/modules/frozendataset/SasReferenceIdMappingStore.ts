@@ -57,7 +57,10 @@ interface LoadPayload {
    * and from files written before it was recorded.
    */
   writtenBetween?: ForgeWrittenBetween;
-  /** Once the records the load created were removed: when, and how many went each way. */
+  /**
+   * Once a removal of the records the load created deleted some, or found
+   * none left to go: when the last one ended, and how many went each way.
+   */
   removal?: ForgeUndoMark;
   /**
    * What earlier removals of the load left on records they did not delete —
@@ -189,7 +192,11 @@ export interface RecordedLoad {
    * reads the load's span by. Undefined when the file does not say.
    */
   writtenBetween?: ForgeWrittenBetween;
-  /** Set once the records the load created were removed. */
+  /**
+   * Set once a removal of the records the load created deleted some, or found
+   * none left to go. The load is still to remove while its mapping names
+   * records the last removal left.
+   */
   removal?: ForgeUndoMark;
   /**
    * What earlier removals of the load left on the records they did not delete,
@@ -210,7 +217,10 @@ export interface RecordedRemoval {
   stamps: Readonly<Record<string, string>>;
   /** When it ran, when it wrote to the org. */
   span?: ForgeRemovalSpan;
-  /** Set when the load's records went, so the removal is not offered again. */
+  /**
+   * Set when records went, or none was left to go: the removal is not
+   * offered again once it left none, and is offered for what it left otherwise.
+   */
   mark?: ForgeUndoMark;
 }
 

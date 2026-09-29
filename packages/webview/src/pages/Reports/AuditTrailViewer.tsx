@@ -239,6 +239,19 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                           {t('reports.fromOrg', { org: source })}
                         </div>
                       )}
+                      {/* A removal of what an earlier one left counts those
+                          records alone: said, it does not read as the run's
+                          whole removal. */}
+                      {entry.leftBy && (
+                        <div
+                          data-testid={`audit-left-by-${entry.id}`}
+                          className="mt-1 text-[10px] text-[var(--sf-text-secondary)]"
+                        >
+                          {t('reports.leftBy', {
+                            date: entry.leftBy.slice(0, 19).replace('T', ' '),
+                          })}
+                        </div>
+                      )}
                       {objects.length > 0 && (
                         <ul className="mt-1 text-[10px] text-[var(--sf-text-secondary)]">
                           {objects.map((o) => (

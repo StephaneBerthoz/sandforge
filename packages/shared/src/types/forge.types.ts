@@ -378,22 +378,31 @@ export interface ForgeUndoResult {
   objects: ForgeUndoObjectResult[];
   /** ISO 8601 timestamp of when the removal ended. */
   finishedAt: string;
+  /**
+   * Set on a removal of what an earlier removal of the run left in the org:
+   * when that one ended, ISO 8601. It set out to take only those records.
+   */
+  leftBy?: string;
 }
 
 /**
- * What a history entry remembers once the records its run created were
- * removed, so the removal is not offered again.
+ * What a history entry remembers of the removals of the records its run
+ * created, once one ended having deleted some, or finding none left to go:
+ * when the last such removal ended, the records deleted and found gone by
+ * all of them, and what the last one kept or had refused. One that left
+ * none in the org took the run back, and is not offered again; one that left
+ * some is offered again, for those.
  */
 export interface ForgeUndoMark {
-  /** ISO 8601 timestamp of when the removal ended. */
+  /** ISO 8601 timestamp of when the last removal ended. */
   removedAt: string;
-  /** Records deleted. */
+  /** Records deleted, by every removal that marked the run. */
   deleted: number;
-  /** Records no longer in the org when the removal reached them. */
+  /** Records no longer in the org when a removal that marked the run reached them. */
   alreadyGone: number;
-  /** Records kept: modified since the run, or holding records that stay. */
+  /** Records the last removal kept: modified since the run, or holding records that stay. */
   kept: number;
-  /** Records the org refused to delete. */
+  /** Records the org refused the last removal. */
   refused: number;
 }
 
@@ -644,7 +653,10 @@ export interface ForgeExecutionResult {
    * for runs recorded before it.
    */
   targetOrgId?: string;
-  /** Set once the records this run created were removed from its target. */
+  /**
+   * Set once a removal of the records this run created deleted some, or found
+   * none left to go: see {@link ForgeUndoMark}.
+   */
   undo?: ForgeUndoMark;
   /**
    * The run this one retried, by its `forgeId`: the rows that run had written
@@ -711,6 +723,14 @@ export interface ForgeExecutionResult {
    * added since the run. Absent until a removal wrote.
    */
   removalSpans?: ForgeRemovalSpan[];
+  /**
+   * The records the run created that its removals have not deleted or found
+   * gone, by target id: what the next removal sets out to take. A removal
+   * that kept a few for a change since, or had them refused, left those, and
+   * one cancelled left what it had not reached. Absent until a removal took
+   * a record: the next one takes what the run created.
+   */
+  removalLeft?: string[];
   /**
    * The configuration that produced this run, minus the org ids.
    *

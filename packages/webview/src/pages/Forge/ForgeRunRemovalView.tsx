@@ -8,7 +8,7 @@ import type {
   ForgeUndoStatus,
 } from '@sandforge/shared';
 import { cn } from '../../theme';
-import { formatNumber } from '../../utils/formatters';
+import { formatNumber, formatStoredDate } from '../../utils/formatters';
 
 /**
  * What a removal takes back — a Forge run, or a Frozen load — which is all
@@ -90,16 +90,31 @@ export interface ForgeRunRemovalPlanProps {
   plan: ReadonlyArray<{ objectApiName: string; count: number }>;
   /** Records the run or load linked to, which the removal leaves where they are. */
   linked: number;
+  /**
+   * When the removal that left these records in the org ended, written as the
+   * panel writes its dates: absent before any removal left some.
+   */
+  leftBy?: string;
 }
 
 /**
  * What a removal would take, object by object in the order it takes them,
- * and the linked records it leaves: the counts a confirmation names.
+ * and the linked records it leaves: the counts a confirmation names — once a
+ * removal left records in the org, the ones it left, and it says so.
  */
-export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({ plan, linked }) => {
+export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
+  plan,
+  linked,
+  leftBy,
+}) => {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1.5" data-testid="forge-removal-plan">
+      {leftBy !== undefined && (
+        <p data-testid="forge-removal-left-by">
+          {t('forge.history.removeLeftBy', { date: leftBy })}
+        </p>
+      )}
       <ul className="flex flex-col gap-0.5">
         {plan.map((object) => (
           <li
@@ -122,8 +137,8 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({ plan, 
 
 /** Props for {@link ForgeRunRemovalResult}. */
 export interface ForgeRunRemovalResultProps {
-  /** What the removal did. */
-  result: Pick<ForgeUndoResult, 'status' | 'objects'>;
+  /** What the removal did, and the removal whose leftovers it took up, if any. */
+  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy'>;
   /** The org it removed from, as the user knows it. */
   org: string;
   /** What it took back: a Forge run unless said. */
@@ -133,7 +148,8 @@ export interface ForgeRunRemovalResultProps {
 /**
  * What a removal did, object by object — deleted, already gone, kept because
  * changed since the run or because records that stay depend on them, refused
- * — with what the org said about the refusals.
+ * — with what the org said about the refusals, and, for a removal of what an
+ * earlier one left, which one.
  */
 export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   result,
@@ -157,6 +173,13 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
       >
         {t(RESULT_TITLE_KEYS[subject][result.status], { org })}
       </h4>
+      {result.leftBy !== undefined && (
+        <p data-testid="forge-removal-result-left-by" className="text-text-secondary">
+          {t('forge.history.resultLeftBy', {
+            date: formatStoredDate(result.leftBy, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+          })}
+        </p>
+      )}
       <ul className="flex flex-col gap-1">
         {result.objects.map((object) => (
           <li

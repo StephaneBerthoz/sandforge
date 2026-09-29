@@ -337,6 +337,180 @@ describe('forge:undo', () => {
     expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
   });
 
+  describe('what a removal left in the org', () => {
+    /** The first removal: the contact changed since the run is kept, and the account under it. */
+    async function partlyRemoved(): Promise<ForgeUndoResult | undefined> {
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+      const first = answer();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+      return first;
+    }
+
+    it('is removed by the next removal, which takes those records alone and says so', async () => {
+      const first = await partlyRemoved();
+      expect(first?.status).toBe('partial');
+      expect(history()[0].removalLeft).toEqual([id('003', 1), id('001', 1)]);
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(errors()).toEqual([]);
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [id('003', 1)] },
+        { object: 'Account', ids: [id('001', 1)] },
+      ]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        leftBy: first?.finishedAt,
+        objects: [
+          { objectApiName: 'Contact', planned: 1, deleted: 1 },
+          { objectApiName: 'Account', planned: 1, deleted: 1 },
+        ],
+      });
+      expect(trail()[0]).toMatchObject({ outcome: 'success', leftBy: first?.finishedAt });
+      expect(trail()[1]).not.toHaveProperty('leftBy');
+      // The run's line counts what both removals took.
+      expect(history()[0].undo).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+      expect(history()[0].removalLeft).toEqual([]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+      expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+    });
+
+    it('asks Production Guard about the records left, not all the run created', async () => {
+      await partlyRemoved();
+      const check = vi.spyOn(ProductionGuard.prototype, 'check');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(check).toHaveBeenCalledWith(
+        expect.objectContaining({ objectName: 'Contact, Account', recordCount: 2 }),
+      );
+      check.mockRestore();
+    });
+
+    it('stays offered while a removal of it keeps them again', async () => {
+      const first = await partlyRemoved();
+
+      // Without the records changed since: the contact is kept again, and
+      // the account for it; nothing went, and the mark stays the first one's.
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+      expect(answer()).toMatchObject({ status: 'failure', leftBy: first?.finishedAt });
+      expect(history()[0].undo).toMatchObject({ removedAt: first?.finishedAt, kept: 2 });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(org.rows.get('Account')).toEqual([]);
+    });
+
+    it('reads what the first removal left on the records as its own doing, not as changes since the run', async () => {
+      // The org refuses a contact, once. Deleting the other restamps their
+      // account, a roll-up counting them, as the session's user, and feed
+      // tracking records the change on it; the account is kept for the
+      // refused contact, and the removal ends partial.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        org.accountChildren.push({
+          childSObject: 'FeedItem',
+          field: 'ParentId',
+          cascadeDelete: true,
+        });
+        let refusing = true;
+        org.refuseDelete((object, row) =>
+          refusing && object === 'Contact' && row.Id === id('003', 1)
+            ? 'A validation rule refused it.'
+            : undefined,
+        );
+        org.onDelete((object) => {
+          const account = (org.rows.get('Account') ?? [])[0];
+          if (object !== 'Contact' || !account || org.rows.has('FeedItem')) return;
+          const now = org.orgNow();
+          Object.assign(account, { LastModifiedDate: now, LastModifiedById: USER });
+          org.rows.set('FeedItem', [
+            {
+              Id: id('0D5', 1),
+              ParentId: account.Id,
+              CreatedDate: now,
+              LastModifiedDate: now,
+              CreatedById: USER,
+            },
+          ]);
+        });
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+        const first = answer();
+        expect(first).toMatchObject({ status: 'partial' });
+        expect(history()[0].undo).toMatchObject({ deleted: 1, kept: 1, refused: 1 });
+
+        // A minute later, the org takes the contact, and the records changed
+        // since the run are not asked for: the account's stamp and its feed
+        // item were the first removal's doing.
+        refusing = false;
+        org.onDelete(() => {});
+        vi.setSystemTime(Date.now() + 60_000);
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+        expect(answer()).toMatchObject({
+          status: 'success',
+          includeChanged: false,
+          leftBy: first?.finishedAt,
+          objects: [
+            { objectApiName: 'Contact', planned: 1, deleted: 1 },
+            { objectApiName: 'Account', planned: 1, deleted: 1, keptChanged: 0, keptDependents: 0 },
+          ],
+        });
+        expect(org.rows.get('Account')).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('takes up a run marked before removals kept what they left: what went reads as gone', async () => {
+      // The mark of a partial removal, and the contact it deleted gone from the org.
+      store.set(
+        'forge:history',
+        [
+          runEntry({
+            undo: {
+              removedAt: '2026-09-21T08:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 2,
+              refused: 0,
+            },
+          }),
+        ],
+        'forge',
+      );
+      org.rows.set(
+        'Contact',
+        (org.rows.get('Contact') ?? []).filter((row) => row.Id !== id('003', 2)),
+      );
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        leftBy: '2026-09-21T08:00:00.000Z',
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 1, alreadyGone: 1 },
+          { objectApiName: 'Account', planned: 1, deleted: 1 },
+        ],
+      });
+    });
+  });
+
   it('keeps a contact modified since the run, and the account it hangs from, unless asked', async () => {
     (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
 
@@ -443,6 +617,8 @@ describe('forge:undo', () => {
       expect(history()[0].removalSpans).toEqual([
         { first: expect.any(String), last: expect.any(String), userId: USER.slice(0, 15) },
       ]);
+      // What it did not reach, for the next removal to take.
+      expect(history()[0].removalLeft).toEqual([id('001', 1)]);
 
       org.onDelete(() => {});
       vi.setSystemTime(Date.now() + 60_000);
@@ -451,10 +627,7 @@ describe('forge:undo', () => {
 
       expect(answer()).toMatchObject({
         status: 'success',
-        objects: [
-          { objectApiName: 'Contact', alreadyGone: 2 },
-          { objectApiName: 'Account', deleted: 1, keptChanged: 0, keptDependents: 0 },
-        ],
+        objects: [{ objectApiName: 'Account', deleted: 1, keptChanged: 0, keptDependents: 0 }],
       });
       expect(org.rows.get('Account')).toEqual([]);
     } finally {

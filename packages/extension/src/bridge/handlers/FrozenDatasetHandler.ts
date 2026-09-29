@@ -97,8 +97,8 @@ import {
   createBulkDmlWriter,
   datasetRecordCount,
   leftToThePlatformCoverage,
-  loadCreatedRecords,
   loadRecordsInfo,
+  loadRecordsLeft,
   loadToRemove,
   loadTokensFromSas,
   parseManifest,
@@ -1759,23 +1759,25 @@ export class FrozenDatasetHandler implements DomainHandler {
    * Remove from its target org the records the last load created, as the sas
    * mapping names them — never what the request names: the request says which
    * load, the mapping says what it created, and nothing it linked or reused
-   * goes. Once the last load's records went, or when it created none, the
-   * load removed is the newest one before it whose records the loads after it
-   * left in the org: see {@link loadToRemove}.
+   * goes. A removal that left some of them in the org — kept, or refused —
+   * is followed by one of what it left. Once the last load's records all
+   * went, or when it created none, the load removed is the newest one before
+   * it whose records the loads after it left in the org: see
+   * {@link loadToRemove}.
    *
    * Refused before anything is read from the org when no load wrote a mapping,
    * when the mapping holds another load than the one confirmed, predates loads
-   * keeping what they created, was removed already, holds nothing created, or
-   * is being removed now. Then Production Guard judges the delete — a
-   * production org is refused, a missing guard refuses too — the target is
-   * asked whether it is still the org the load wrote to, and Forge's removal
-   * runs: children before their parents, what records staying in the org
-   * depend on kept, what changed since the load kept unless included. It runs
-   * on the registry and in Live Operations, where Cancel stops it before its
-   * next call to the org. The audit trail records it whatever the outcome; the
-   * mapping forgets the records that went, keeps what the removal left on the
-   * others for the next one, and is marked once records went, so the removal
-   * is not offered twice.
+   * keeping what they created, had its records all removed already, holds
+   * nothing created, or is being removed now. Then Production Guard judges the
+   * delete — a production org is refused, a missing guard refuses too — the
+   * target is asked whether it is still the org the load wrote to, and Forge's
+   * removal runs: children before their parents, what records staying in the
+   * org depend on kept, what changed since the load kept unless included. It
+   * runs on the registry and in Live Operations, where Cancel stops it before
+   * its next call to the org. The audit trail records it whatever the outcome;
+   * the mapping forgets the records that went, keeps what the removal left on
+   * the others for the next one, and is marked once records went, so the
+   * removal is not offered again once none is left.
    */
   private async handleRemove(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
@@ -1820,16 +1822,19 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
       return;
     }
-    if (load.removal) {
-      refuse(
-        `The records this load created were already removed, on ${load.removal.removedAt}.`,
-        'ALREADY_REMOVED',
-      );
-      return;
-    }
-    const plan = loadCreatedRecords(load);
+    // What an earlier removal left, when one did: a removal that ended
+    // partial marked the load, and the next one was refused as done already
+    // while the status still counted the records it left.
+    const plan = loadRecordsLeft(load);
     if (plan.length === 0) {
-      refuse('This load created no record to remove.', 'NOTHING_TO_REMOVE');
+      if (load.removal) {
+        refuse(
+          `The records this load created were already removed, on ${load.removal.removedAt}.`,
+          'ALREADY_REMOVED',
+        );
+      } else {
+        refuse('This load created no record to remove.', 'NOTHING_TO_REMOVE');
+      }
       return;
     }
     const claim = store.filePath;
@@ -2017,11 +2022,15 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
       });
+      // A removal after one that marked the load takes what that one left:
+      // the result and the audit trail say so, with when it ended.
+      const leftBy = load.removal?.removedAt;
       const result: FrozenRemovalResult = {
         status: removalStatus(outcome.objects, outcome.cancelled),
         includeChanged,
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
+        ...(leftBy ? { leftBy } : {}),
       };
 
       recordWriteRun(this.deps, {
@@ -2032,13 +2041,16 @@ export class FrozenDatasetHandler implements DomainHandler {
         outcome: removalAuditOutcome(result),
         guard: decision,
         objects: removalAuditObjects(result.objects),
+        ...(leftBy ? { leftBy } : {}),
       });
 
       // The mapping forgets what went, keeps what the removal left on the
       // rest and when it ran, which the next removal reads as its doing, and
-      // is marked once records went, or none was left to go. A removal
-      // stopped part way, or one that deleted nothing, is offered again.
-      const mark = removalMarks(result.status) ? removalMark(result) : undefined;
+      // is marked once records went, or none was left to go, adding to what
+      // the removals before it took. A removal stopped part way, or one that
+      // deleted nothing, is offered again; so is one that left records in
+      // the org, for those.
+      const mark = removalMarks(result.status) ? removalMark(result, load.removal) : undefined;
       if (
         outcome.gone.length > 0 ||
         Object.keys(outcome.stamps).length > 0 ||

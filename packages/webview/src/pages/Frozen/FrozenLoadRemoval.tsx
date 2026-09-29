@@ -48,9 +48,11 @@ export interface FrozenLoadRemovalProps {
  * load wrote only to write the dataset again. This removes what the load
  * created and nothing else — the extension reads which records from the sas
  * mapping — with Forge's removal: the confirmation names the org, typed, and
- * the records per object; what the load linked to or reused stays. Once the
- * last load's records went, the card offers the load before it whose records
- * the loads after it left in the org, and says so.
+ * the records per object; what the load linked to or reused stays. A removal
+ * that left some of them in the org — kept, or refused — says so on the card,
+ * which then offers to remove what is left. Once the last load's records all
+ * went, the card offers the load before it whose records the loads after it
+ * left in the org, and says so.
  */
 export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
@@ -102,28 +104,28 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     setConfirming(false);
   };
 
+  // When the last removal ended, said with its mark above the action and not
+  // in its place: a removal that left records in the org marked the load,
+  // and the card offered nothing more while the status still counted them.
+  const removedOn = records.removed
+    ? (formatStoredDate(records.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
+    : undefined;
   let action: React.ReactNode = null;
-  if (records.removed) {
-    action = (
-      <ForgeRunRemovalMark
-        mark={records.removed}
-        date={
-          formatStoredDate(records.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown')
-        }
-      />
-    );
-  } else if (!records.recorded) {
+  if (!records.recorded) {
     action = (
       <p data-testid="frozen-removal-not-recorded" className="text-[11px] text-text-secondary">
         {t('frozen.removal.notRecorded')}
       </p>
     );
   } else if (created === 0) {
-    action = (
-      <p data-testid="frozen-removal-nothing" className="text-[11px] text-text-secondary">
-        {t('frozen.removal.nothingCreated')}
-      </p>
-    );
+    // Once a removal took them all, its mark alone says so.
+    if (!records.removed) {
+      action = (
+        <p data-testid="frozen-removal-nothing" className="text-[11px] text-text-secondary">
+          {t('frozen.removal.nothingCreated')}
+        </p>
+      );
+    }
   } else if (!org) {
     action = (
       <p data-testid="frozen-removal-org-gone" className="text-[11px] text-text-secondary">
@@ -145,7 +147,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         data-testid="frozen-removal-remove"
         className="self-start text-[11px]"
       >
-        {t('frozen.removal.remove')}
+        {records.removed ? t('frozen.removal.removeLeft') : t('frozen.removal.remove')}
       </Button>
     );
   }
@@ -164,6 +166,9 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-earlier">
               {t('frozen.removal.earlierNote', { org: org ?? records.orgId })}
             </p>
+          )}
+          {records.removed && removedOn !== undefined && (
+            <ForgeRunRemovalMark mark={records.removed} date={removedOn} />
           )}
           {action}
           {removal.loading && (
@@ -191,7 +196,11 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         description={t('frozen.removal.removeDescription', { org: org ?? '' })}
         confirmText={org ?? ''}
       >
-        <ForgeRunRemovalPlan plan={records.created} linked={records.linked} />
+        <ForgeRunRemovalPlan
+          plan={records.created}
+          linked={records.linked}
+          {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
+        />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"

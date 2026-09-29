@@ -9,6 +9,7 @@
  */
 
 import type { ForgeRunObjectRecords, FrozenLoadRecordsInfo } from '@sandforge/shared';
+import { removalTookAll } from '@sandforge/shared';
 import type { RecordedLoad } from './SasReferenceIdMappingStore.js';
 
 /** A Salesforce record id: 15 or 18 letters and digits. */
@@ -89,16 +90,32 @@ export function loadCreatedRecords(
 }
 
 /**
+ * What a removal of a load takes now: what it created and a removal has not
+ * taken — the mapping forgets what went — or nothing once one took all that
+ * was left.
+ *
+ * A removal that left records in the org — kept for a change since or for
+ * records that stay, refused by the org — used to mark the load as removed
+ * all the same: the next one was refused as done already, while the page
+ * still counted the records it left, and they were deleted by hand.
+ */
+export function loadRecordsLeft(
+  load: Pick<RecordedLoad, 'mapping' | 'created' | 'removal'>,
+): ForgeRunObjectRecords[] {
+  return removalTookAll(load.removal) ? [] : loadCreatedRecords(load);
+}
+
+/**
  * The load a removal takes next, of the loads a mapping records, the last one
- * first: the newest whose created records are still to take and that no
- * removal marked. A load's records can only depend on those of the loads
- * before it, so the newest goes first. With none left to take, the last load,
- * for the page to say why.
+ * first: the newest whose created records are still to take, whether no
+ * removal reached them yet or one left them in the org. A load's records can
+ * only depend on those of the loads before it, so the newest goes first. With
+ * none left to take, the last load, for the page to say why.
  *
  * @returns Undefined when no load wrote a mapping yet.
  */
 export function loadToRemove(loads: readonly RecordedLoad[]): RecordedLoad | undefined {
-  return loads.find((load) => !load.removal && loadCreatedRecords(load).length > 0) ?? loads[0];
+  return loads.find((load) => loadRecordsLeft(load).length > 0) ?? loads[0];
 }
 
 /**
@@ -110,7 +127,7 @@ export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
   return {
     orgId: load.orgId,
     loadedAt: load.endedAt,
-    created: loadCreatedRecords(load).map(({ objectApiName, ids }) => ({
+    created: loadRecordsLeft(load).map(({ objectApiName, ids }) => ({
       objectApiName,
       count: ids.length,
     })),

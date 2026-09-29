@@ -1,4 +1,4 @@
-import type { ForgeExecutionResult } from '../types/forge.types.js';
+import type { ForgeExecutionResult, ForgeUndoMark } from '../types/forge.types.js';
 
 /** A Salesforce record id: 15 or 18 letters and digits. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -69,4 +69,46 @@ export function forgeRunCreatedRecords(
     if (ids.length > 0) objects.push({ objectApiName, ids });
   }
   return objects;
+}
+
+/**
+ * Whether the removals of a run's records — a Forge run's, a Frozen load's —
+ * are through: the last one that marked it left none of them in the org.
+ * One that kept some, changed since or held by records that stay, or had
+ * some refused, leaves them for a removal of what is left.
+ *
+ * @param mark - What the run keeps of its removals; undefined before one marked it.
+ */
+export function removalTookAll(mark: ForgeUndoMark | undefined): boolean {
+  return mark !== undefined && mark.kept + mark.refused === 0;
+}
+
+/**
+ * What a removal of a run's records takes now: the records it created, as
+ * {@link forgeRunCreatedRecords} reads them, that its removals have not taken
+ * — in the same order — and nothing once one of them took all that was left.
+ *
+ * A removal that ended partial marked the run, and the next one was refused
+ * as a removal done already: nothing in the product could take what it left,
+ * and a person deleted it by hand. An entry kept before removals recorded
+ * what they left names what the run created: the removal finds the rest gone.
+ *
+ * @param entry - A run's history entry.
+ */
+export function forgeRunRecordsLeft(
+  entry: Pick<
+    ForgeExecutionResult,
+    'idRemapTable' | 'idRemapExisting' | 'idRemapCreated' | 'undo' | 'removalLeft'
+  >,
+): ForgeRunObjectRecords[] {
+  if (removalTookAll(entry.undo)) return [];
+  const created = forgeRunCreatedRecords(entry);
+  if (!Array.isArray(entry.removalLeft)) return created;
+  const left = new Set(
+    entry.removalLeft.filter((id): id is string => typeof id === 'string').map(recordKey),
+  );
+  return created.flatMap(({ objectApiName, ids }) => {
+    const still = ids.filter((id) => left.has(recordKey(id)));
+    return still.length > 0 ? [{ objectApiName, ids: still }] : [];
+  });
 }

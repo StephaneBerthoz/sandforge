@@ -55,17 +55,25 @@ export function removalAuditObjects(
 
 /**
  * The removal as the run it took back keeps it — when, and how many records
- * went each way — so it is not offered twice.
+ * went each way — so that it is not offered twice once it left none of them,
+ * and is offered for what it left otherwise.
+ *
+ * A removal of what an earlier one left adds what it deleted, or found gone,
+ * to what the earlier ones took, and says what it kept and had refused: the
+ * run's line then counts the run's records, and not the few taken last.
+ *
+ * @param earlier - The mark the removals before this one left on the run.
  */
 export function removalMark(
   result: Pick<ForgeUndoResult, 'objects' | 'finishedAt'>,
+  earlier?: ForgeUndoMark,
 ): ForgeUndoMark {
   const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
     result.objects.reduce((total, o) => total + count(o), 0);
   return {
     removedAt: result.finishedAt,
-    deleted: sum((o) => o.deleted),
-    alreadyGone: sum((o) => o.alreadyGone),
+    deleted: (earlier?.deleted ?? 0) + sum((o) => o.deleted),
+    alreadyGone: (earlier?.alreadyGone ?? 0) + sum((o) => o.alreadyGone),
     kept: sum((o) => o.keptChanged + o.keptDependents),
     refused: sum((o) => o.refused),
   };
@@ -73,8 +81,10 @@ export function removalMark(
 
 /**
  * Whether a removal that ended so marks its run: once records went, or none
- * was left to go. One stopped part way, or that deleted nothing, is offered
- * again.
+ * was left to go. One stopped part way, or that deleted nothing, leaves the
+ * run as it found it, and is offered again. A mark does not end the removals
+ * of a run by itself: one that left records in the org is offered again for
+ * those (`removalTookAll`).
  */
 export function removalMarks(status: ForgeUndoStatus): boolean {
   return status === 'success' || status === 'partial';

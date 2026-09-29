@@ -268,6 +268,78 @@ describe('FrozenLoadRemoval', () => {
     );
   });
 
+  describe('once a removal left records in the org', () => {
+    /** The first removal deleted a contact, and kept the other, changed since, and its account. */
+    const PARTLY_REMOVED: FrozenLoadRecordsInfo = {
+      ...LOADED,
+      created: [
+        { objectApiName: 'Contact', count: 1 },
+        { objectApiName: 'Account', count: 1 },
+      ],
+      removed: {
+        removedAt: '2026-09-24T11:00:00.000Z',
+        deleted: 1,
+        alreadyGone: 0,
+        kept: 2,
+        refused: 0,
+      },
+    };
+
+    it('says what that removal did, and offers to remove what it left', () => {
+      render(<FrozenLoadRemoval records={PARTLY_REMOVED} onAnswered={vi.fn()} />);
+
+      expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
+        /^Records removed on 2026-09-24 \d\d:\d\d: 1 deleted · 2 kept$/,
+      );
+      expect(screen.getByTestId('frozen-removal-remove').textContent).toBe(
+        "Remove what is left of this load's records",
+      );
+    });
+
+    it('names only what is left in its confirmation, and which removal left it', () => {
+      render(<FrozenLoadRemoval records={PARTLY_REMOVED} onAnswered={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+
+      expect(screen.getByTestId('forge-removal-left-by').textContent).toMatch(
+        /^The removal of 2026-09-24 \d\d:\d\d left these records:$/,
+      );
+      expect(
+        within(screen.getByTestId('forge-removal-plan'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Contact: 1 record', 'Account: 1 record']);
+    });
+
+    it('sends the load, and says of the answer that it picked up where that removal left off', () => {
+      render(<FrozenLoadRemoval records={PARTLY_REMOVED} onAnswered={vi.fn()} />);
+      confirmRemoval({ includeChanged: true });
+
+      expect(sent('frozen:remove')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: '2026-09-24T10:05:00.000Z',
+        includeChanged: true,
+      });
+      answerRemoval('frozen:remove:response', {
+        operationId: 'frozen-remove-8',
+        result: {
+          ...PARTIAL,
+          status: 'success',
+          includeChanged: true,
+          leftBy: '2026-09-24T11:00:00.000Z',
+          objects: [
+            { ...PARTIAL.objects[0], planned: 1, deleted: 1, keptChanged: 0 },
+            { ...PARTIAL.objects[1], deleted: 1, keptDependents: 0, heldBy: [] },
+          ],
+        },
+      });
+
+      expect(screen.getByTestId('forge-removal-result-left-by').textContent).toMatch(
+        /^Picked up where the removal of 2026-09-24 \d\d:\d\d left off\.$/,
+      );
+    });
+  });
+
   it('says why a load recorded before loads kept what they created cannot be removed', () => {
     render(
       <FrozenLoadRemoval

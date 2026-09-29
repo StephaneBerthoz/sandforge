@@ -155,6 +155,25 @@ describe('recordWriteRun', () => {
     expect(typeof recorded.id).toBe('string');
   });
 
+  it('says a removal took up what an earlier one left, and when that one ended', () => {
+    const deps = makeDeps();
+
+    recordWriteRun(
+      deps,
+      run({
+        action: 'cleanup_delete',
+        objects: [{ ...emptyCounts('Order'), deleted: 2 }],
+        source: undefined,
+        leftBy: '2026-09-29T15:51:27.295Z',
+      }),
+    );
+    recordWriteRun(deps, run({ action: 'cleanup_delete', operationId: 'op-2', source: undefined }));
+
+    const [second, first] = new AuditTrailStore(deps.configStore).list().entries;
+    expect(first).toMatchObject({ action: 'cleanup_delete', leftBy: '2026-09-29T15:51:27.295Z' });
+    expect(second).not.toHaveProperty('leftBy');
+  });
+
   it('keeps the lineage of a run that carried records: source, one node per object, target', () => {
     const deps = makeDeps();
 

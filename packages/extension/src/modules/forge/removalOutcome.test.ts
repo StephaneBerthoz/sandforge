@@ -94,6 +94,33 @@ describe('removalMark', () => {
       refused: 1,
     });
   });
+
+  it('adds what a removal of what was left took to what the earlier ones took, and says what it left', () => {
+    // The first removal deleted 249 records and kept 24; the second took them.
+    const earlier = {
+      removedAt: '2026-09-29T15:51:27.295Z',
+      deleted: 249,
+      alreadyGone: 0,
+      kept: 24,
+      refused: 0,
+    };
+
+    expect(
+      removalMark(
+        {
+          finishedAt: '2026-09-29T16:10:00.000Z',
+          objects: [object({ deleted: 22, alreadyGone: 1 }), object({ deleted: 1 })],
+        },
+        earlier,
+      ),
+    ).toEqual({
+      removedAt: '2026-09-29T16:10:00.000Z',
+      deleted: 272,
+      alreadyGone: 1,
+      kept: 0,
+      refused: 0,
+    });
+  });
 });
 
 describe('removalMarks', () => {

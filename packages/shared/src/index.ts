@@ -140,7 +140,12 @@ export * from './utils/sf-utils.js';
 export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
-export { forgeRunCreatedRecords, type ForgeRunObjectRecords } from './utils/forge-run-records.js';
+export {
+  forgeRunCreatedRecords,
+  forgeRunRecordsLeft,
+  removalTookAll,
+  type ForgeRunObjectRecords,
+} from './utils/forge-run-records.js';
 export {
   leftOutAsEmptyTable,
   leftOutByTheUser,

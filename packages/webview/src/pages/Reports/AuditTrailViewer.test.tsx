@@ -205,6 +205,32 @@ describe('AuditTrailViewer', () => {
     ]);
   });
 
+  it('says a removal took up what an earlier one left, and when that one ended', () => {
+    // Counted alone, the few records a second removal took read as the
+    // removal of the whole run.
+    const removal: AuditLogEntry = {
+      id: 'aud-removal',
+      action: 'cleanup_delete',
+      module: 'frozen',
+      orgId: '00D000000000001AAA',
+      orgAlias: 'target-sandbox',
+      outcome: 'success',
+      guard: 'allowed',
+      objects: [{ objectApiName: 'Order', created: 0, updated: 0, deleted: 2, failed: 0 }],
+      leftBy: '2026-09-29T15:51:27.295Z',
+      details: {},
+      timestamp: '2026-09-29T16:10:00.000Z',
+    };
+    render(
+      <AuditTrailViewer entries={[removal, { ...removal, id: 'aud-first', leftBy: undefined }]} />,
+    );
+
+    expect(screen.getByTestId('audit-left-by-aud-removal').textContent).toBe(
+      'picked up where the removal of 2026-09-29 15:51:27 left off',
+    );
+    expect(screen.queryByTestId('audit-left-by-aud-first')).toBeNull();
+  });
+
   it('should show filters', () => {
     render(<AuditTrailViewer entries={entries} />);
     expect(screen.getByTestId('audit-filters')).toBeDefined();

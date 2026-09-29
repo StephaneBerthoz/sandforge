@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRunCreatedRecords } from '@sandforge/shared';
+import { forgeRunRecordsLeft } from '@sandforge/shared';
 import type { ForgeUndoResult } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatStoredDate } from '../../utils/formatters';
@@ -80,6 +80,8 @@ export interface ForgeHistoryPanelProps {
  * a command-line cleanup of everything the user had created since a date. The
  * confirmation names the org and the records per object; the extension
  * removes what its own history says the run created, and nothing it linked.
+ * A removal that left some of them in the org — kept, or refused — says so
+ * on the run, which then offers to remove what is left.
  */
 export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   entries,
@@ -109,15 +111,14 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
 
   const orgLabel = (orgId: string | undefined): string | undefined =>
     orgs.find((o) => o.id === orgId)?.alias;
-  /** The runs that created records a removal could take, by `forgeId`. */
+  /** The runs whose records a removal could take now, by `forgeId`. */
   const removable = useMemo(
-    () =>
-      new Set(entries.filter((e) => forgeRunCreatedRecords(e).length > 0).map((e) => e.forgeId)),
+    () => new Set(entries.filter((e) => forgeRunRecordsLeft(e).length > 0).map((e) => e.forgeId)),
     [entries],
   );
   const confirmingPlan = useMemo(
     () =>
-      (confirming ? forgeRunCreatedRecords(confirming) : []).map(({ objectApiName, ids }) => ({
+      (confirming ? forgeRunRecordsLeft(confirming) : []).map(({ objectApiName, ids }) => ({
         objectApiName,
         count: ids.length,
       })),
@@ -146,23 +147,29 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     setConfirming(null);
   };
 
-  /** Under a run: the removal it offers, what became of it, or why it offers none. */
+  /**
+   * Under a run: what its removals did, the removal it offers — of what they
+   * left, once one left records in the org — what became of it, or why it
+   * offers none.
+   */
   const removalOf = (entry: ForgeExecutionResult): React.ReactNode => {
     const mine = removingId === entry.forgeId;
     const org = orgLabel(entry.targetOrgId);
     const answer = mine ? removal.data?.result : undefined;
+    // Said above the action, not in its place: a removal that left records
+    // marked the run, and the run offered nothing more — what it left could
+    // only be deleted by hand.
+    const mark = entry.undo ? (
+      <ForgeRunRemovalMark
+        mark={entry.undo}
+        date={shown(entry.undo.removedAt) ?? t('common.dateUnknown')}
+      />
+    ) : null;
     let action: React.ReactNode = null;
-    if (entry.undo) {
-      action = (
-        <ForgeRunRemovalMark
-          mark={entry.undo}
-          date={shown(entry.undo.removedAt) ?? t('common.dateUnknown')}
-        />
-      );
-    } else if (!entry.idRemapCreated || !entry.targetOrgId) {
+    if (!entry.idRemapCreated || !entry.targetOrgId) {
       // Recorded before a run kept what it created and where: said only of a
       // run that did write something.
-      if ((entry.createdCount ?? entry.idRemapCount) > 0) {
+      if (!entry.undo && (entry.createdCount ?? entry.idRemapCount) > 0) {
         action = (
           <p
             data-testid={`forge-history-remove-unrecorded-${entry.forgeId}`}
@@ -187,7 +194,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           data-testid={`forge-history-remove-${entry.forgeId}`}
           className="self-start text-[11px]"
         >
-          {t('forge.history.remove')}
+          {entry.undo ? t('forge.history.removeLeft') : t('forge.history.remove')}
         </Button>
       ) : (
         <p
@@ -198,9 +205,10 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         </p>
       );
     }
-    if (!action && !mine) return null;
+    if (!mark && !action && !mine) return null;
     return (
       <div className="flex flex-col gap-1">
+        {mark}
         {action}
         {mine && removal.loading && (
           <p role="status" className="text-[10px] text-text-secondary">
@@ -305,6 +313,9 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         <ForgeRunRemovalPlan
           plan={confirmingPlan}
           linked={confirming?.idRemapExisting?.length ?? 0}
+          {...(confirming?.undo
+            ? { leftBy: shown(confirming.undo.removedAt) ?? t('common.dateUnknown') }
+            : {})}
         />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input

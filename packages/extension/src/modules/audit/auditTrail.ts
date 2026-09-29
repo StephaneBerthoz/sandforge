@@ -162,6 +162,11 @@ export interface WriteRun {
    * `PRODUCTION_GUARD_MISSING`, never a message.
    */
   code?: string;
+  /**
+   * For a removal that took up what an earlier removal of the same run or load
+   * left in the org: when that one ended.
+   */
+  leftBy?: string;
 }
 
 /** What {@link recordWriteRun} needs from the window. */
@@ -223,6 +228,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       outcome: run.outcome,
       ...(decisionsKept && run.guard ? { guard: run.guard } : {}),
       objects: [...objects],
+      ...(run.leftBy ? { leftBy: run.leftBy } : {}),
       details: run.code ? { code: run.code } : {},
       timestamp,
     });

@@ -64,6 +64,24 @@ describe('ForgeRunRemovalPlan', () => {
       '3 linked records are kept.',
     );
   });
+
+  it('says which removal left the records it names, when one did', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalPlan plan={[{ objectApiName: 'Order', count: 2 }]} linked={0} />,
+    );
+    expect(screen.queryByTestId('forge-removal-left-by')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalPlan
+        plan={[{ objectApiName: 'Order', count: 2 }]}
+        linked={0}
+        leftBy="2026-09-29 15:51"
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-left-by').textContent).toBe(
+      'The removal of 2026-09-29 15:51 left these records:',
+    );
+  });
 });
 
 describe('ForgeRunRemovalResult', () => {
@@ -157,6 +175,33 @@ describe('ForgeRunRemovalResult', () => {
     rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" result={result({ status: 'cancelled' })} />);
     expect(screen.getByRole('heading').textContent).toBe(
       'Stopped before the end: what was done by then is listed, and the rest is still in DEV-SANDBOX.',
+    );
+  });
+
+  it('says a removal of what an earlier one left picked up where that one left off', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalResult org="DEV-SANDBOX" result={result({ status: 'success' })} />,
+    );
+    expect(screen.queryByTestId('forge-removal-result-left-by')).toBeNull();
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({ status: 'success', leftBy: '2026-09-29T15:51:27.295Z' })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-result-left-by').textContent).toMatch(
+      /^Picked up where the removal of 2026-09-29 \d\d:\d\d left off\.$/,
+    );
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({ status: 'success', leftBy: 'not a date' })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-result-left-by').textContent).toBe(
+      'Picked up where the removal of unknown left off.',
     );
   });
 });

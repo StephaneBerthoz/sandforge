@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { messageLines, parseArgs, removalPlanLines } from './sandforge-frozen.js';
+import { messageLines, parseArgs, removalAsks, removalPlanLines } from './sandforge-frozen.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -126,7 +126,101 @@ describe('removalPlanLines', () => {
   });
 });
 
+describe('removalPlanLines, once a removal left records in the org', () => {
+  /** The last load, after a removal that kept its two orders and what hangs from them. */
+  const left = {
+    orgId: '00D000000000001AAA',
+    loadedAt: '2026-09-29T15:49:35.673Z',
+    created: [
+      { objectApiName: 'OrderItem', count: 6 },
+      { objectApiName: 'Order', count: 2 },
+      { objectApiName: 'Account', count: 1 },
+    ],
+    linked: 4,
+    recorded: true,
+    removed: { removedAt: '2026-09-29T15:51:27.295Z' },
+  };
+
+  it('names what the removal left as what the next one deletes', () => {
+    expect(removalPlanLines(left, 'TGT')).toEqual([
+      'the last load wrote to TGT at 2026-09-29T15:49:35.673Z; the removal of 2026-09-29T15:51:27.295Z left 9 of the records it created, and a removal deletes those, children first:',
+      '  OrderItem: 6',
+      '  Order: 2',
+      '  Account: 1',
+      '4 record(s) it linked to or reused stay',
+    ]);
+  });
+
+  it('says none is left once the removal took them all', () => {
+    expect(removalPlanLines({ ...left, created: [] }, 'TGT')[0]).toBe(
+      'the last load wrote to TGT at 2026-09-29T15:49:35.673Z; its records were removed on 2026-09-29T15:51:27.295Z, and none is left to remove',
+    );
+  });
+});
+
+describe('removalAsks', () => {
+  const loaded = {
+    orgId: '00D000000000001AAA',
+    loadedAt: '2026-09-29T15:49:35.673Z',
+    created: [{ objectApiName: 'Account', count: 1 }],
+    linked: 0,
+    recorded: true,
+  };
+
+  it('asks before deleting what the load created, or what a removal left of it', () => {
+    expect(removalAsks(loaded)).toBe(true);
+    expect(removalAsks({ ...loaded, removed: { removedAt: '2026-09-29T15:51:27.295Z' } })).toBe(
+      true,
+    );
+  });
+
+  it('does not ask when the handler will refuse: nothing left, or nothing recorded', () => {
+    expect(
+      removalAsks({
+        ...loaded,
+        created: [],
+        removed: { removedAt: '2026-09-29T15:51:27.295Z' },
+      }),
+    ).toBe(false);
+    expect(removalAsks({ ...loaded, created: [], recorded: false })).toBe(false);
+  });
+});
+
 describe('messageLines', () => {
+  it('says a removal took up what an earlier one left', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-2',
+        result: {
+          status: 'success',
+          includeChanged: true,
+          finishedAt: '2026-09-29T16:10:00.000Z',
+          leftBy: '2026-09-29T15:51:27.295Z',
+          objects: [
+            {
+              objectApiName: 'Order',
+              planned: 2,
+              deleted: 2,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: SUCCESS — of what the removal of 2026-09-29T15:51:27.295Z left',
+      '  Order: 2 deleted of 2',
+    ]);
+  });
+
   it('says what a removal did per object, with the reasons the org gave', () => {
     const outcome = {
       planned: 0,

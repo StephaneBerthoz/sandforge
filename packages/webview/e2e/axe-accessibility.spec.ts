@@ -407,6 +407,62 @@ const FROZEN_REMOVAL_RESULT = {
 };
 
 /**
+ * The removable run once that removal left part of its records in the org —
+ * the contact changed since the run, the case the org refused and the account
+ * the contact hangs from — which its entry offers to remove next.
+ */
+const FORGE_PARTLY_REMOVED_RUN = {
+  ...FORGE_REMOVABLE_RUN,
+  undo: {
+    removedAt: FORGE_REMOVAL_RESULT.finishedAt,
+    deleted: 1,
+    alreadyGone: 0,
+    kept: 2,
+    refused: 1,
+  },
+  removalLeft: [fakeId('003', 1), fakeId('500', 1), fakeId('001', 1)],
+};
+
+/** What the removal of those three records did: each deleted, where the first left off. */
+const FORGE_REMOVAL_OF_WHAT_WAS_LEFT = {
+  ...FORGE_REMOVAL_RESULT,
+  status: 'success',
+  includeChanged: true,
+  finishedAt: '2026-09-24T10:00:00.000Z',
+  leftBy: FORGE_REMOVAL_RESULT.finishedAt,
+  objects: FORGE_REMOVAL_RESULT.objects.map((object) => ({
+    ...object,
+    planned: 1,
+    deleted: 1,
+    keptChanged: 0,
+    keptDependents: 0,
+    refused: 0,
+    heldBy: [],
+    reasons: [],
+  })),
+};
+
+/** The last load once a removal left part of its records in the org: its orders and their items. */
+const FROZEN_STATUS_PARTLY_REMOVED = {
+  ...FROZEN_STATUS_AFTER_LOAD,
+  lastLoadRecords: {
+    ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
+    created: [
+      { objectApiName: 'OrderItem', count: 6 },
+      { objectApiName: 'Order', count: 2 },
+      { objectApiName: 'Account', count: 1 },
+    ],
+    removed: {
+      removedAt: FROZEN_REMOVAL_RESULT.finishedAt,
+      deleted: 29,
+      alreadyGone: 0,
+      kept: 3,
+      refused: 6,
+    },
+  },
+};
+
+/**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
  * guard asked about, with an object it skipped before counting its records,
  * and a restore the guard refused.
@@ -440,6 +496,23 @@ const REPORTS_AUDIT = {
       timestamp: '2026-09-12T10:00:00.000Z',
     },
     {
+      id: 'audit-removal',
+      action: 'cleanup_delete',
+      module: 'frozen',
+      orgId: '00D000000000001AAA',
+      orgAlias: QA_SANDBOX.alias,
+      operationId: 'op-3',
+      outcome: 'success',
+      guard: 'allowed',
+      objects: [
+        { objectApiName: 'OrderItem', created: 0, updated: 0, deleted: 6, failed: 0 },
+        { objectApiName: 'Order', created: 0, updated: 0, deleted: 2, failed: 0 },
+      ],
+      leftBy: '2026-09-11T11:00:00.000Z',
+      details: {},
+      timestamp: '2026-09-11T12:00:00.000Z',
+    },
+    {
       id: 'audit-restore',
       action: 'backup_restore',
       module: 'dataops',
@@ -456,7 +529,7 @@ const REPORTS_AUDIT = {
   total: 240,
   offset: 0,
   facets: {
-    modules: ['dataops', 'forge'],
+    modules: ['dataops', 'forge', 'frozen'],
     orgs: [{ orgId: '00D000000000001AAA', orgAlias: QA_SANDBOX.alias }],
   },
 };
@@ -992,20 +1065,22 @@ async function startAutopilotRun(
   await page.getByTestId(AUTOPILOT_GRAPH).waitFor({ timeout: 10_000 });
 }
 
-/** The Forge page with its recent runs listed: one run whose records can be removed. */
+/**
+ * The Forge page with its recent runs listed: one run whose records can be
+ * removed — all it created, or what a removal left of them.
+ */
 async function openForgeHistory(
   bridge: MockBridge,
   page: Page,
   theme: ScannedTheme,
+  run: typeof FORGE_REMOVABLE_RUN = FORGE_REMOVABLE_RUN,
 ): Promise<void> {
   await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
   await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
   await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
-    history: [FORGE_REMOVABLE_RUN],
+    history: [run],
   });
-  await page
-    .getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`)
-    .waitFor({ timeout: 10_000 });
+  await page.getByTestId(`forge-history-remove-${run.forgeId}`).waitFor({ timeout: 10_000 });
 }
 
 for (const theme of SCANNED_THEMES) {
@@ -2299,6 +2374,8 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
         'Contract skipped, record count unknown',
       );
+      // So is the line a removal of what an earlier one left carries.
+      await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByRole('tab', { name: 'Data Lineage' }).click();
@@ -3252,6 +3329,81 @@ for (const theme of SCANNED_THEMES) {
       });
       await expect(page.getByTestId('frozen-removal-earlier')).toBeVisible();
       await expect(page.getByTestId('frozen-removal-remove')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge run a removal left records of, offering and confirming the removal of what is left', async ({
+      page,
+    }) => {
+      await openForgeHistory(bridge, page, theme, FORGE_PARTLY_REMOVED_RUN);
+      await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
+      await expect(
+        page.getByTestId(`forge-history-remove-${FORGE_PARTLY_REMOVED_RUN.forgeId}`),
+      ).toHaveText("Remove what is left of this run's records");
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId(`forge-history-remove-${FORGE_PARTLY_REMOVED_RUN.forgeId}`).click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this run's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('forge-removal-left-by')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge removal of what an earlier one left, with its result', async ({ page }) => {
+      await openForgeHistory(bridge, page, theme, FORGE_PARTLY_REMOVED_RUN);
+      await page.getByTestId(`forge-history-remove-${FORGE_PARTLY_REMOVED_RUN.forgeId}`).click();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo', 'forge:undo:response', {
+        result: FORGE_REMOVAL_OF_WHAT_WAS_LEFT,
+        operationId: 'forge-undo-2',
+      });
+      await page.getByTestId('forge-removal-result-left-by').waitFor({ timeout: 10_000 });
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen last load a removal left records of, offering and confirming the removal of what is left', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme, FROZEN_STATUS_PARTLY_REMOVED);
+      await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
+      await expect(page.getByTestId('frozen-removal-remove')).toHaveText(
+        "Remove what is left of this load's records",
+      );
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('frozen-removal-remove').click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('forge-removal-left-by')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen removal of what an earlier one left, with its result', async ({ page }) => {
+      await openFrozenLastLoad(bridge, page, theme, FROZEN_STATUS_PARTLY_REMOVED);
+      await page.getByTestId('frozen-removal-remove').click();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('frozen:remove', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove', 'frozen:remove:response', {
+        result: {
+          ...FROZEN_REMOVAL_RESULT,
+          status: 'success',
+          includeChanged: true,
+          finishedAt: '2026-09-24T12:00:00.000Z',
+          leftBy: FROZEN_REMOVAL_RESULT.finishedAt,
+          objects: FORGE_REMOVAL_OF_WHAT_WAS_LEFT.objects,
+        },
+        operationId: 'frozen-remove-2',
+      });
+      await page.getByTestId('forge-removal-result-left-by').waitFor({ timeout: 10_000 });
 
       expectNoViolations(await checkAccessibility(page));
     });

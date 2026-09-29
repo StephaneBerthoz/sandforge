@@ -519,7 +519,7 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     );
   });
 
-  it('does not offer it twice: a run whose records were removed says when', () => {
+  it('does not offer it again once a removal took all its records: says when', () => {
     render(
       <ForgeHistoryPanel
         entries={[
@@ -528,8 +528,8 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
             undo: {
               removedAt: '2026-09-23T10:00:00.000Z',
               deleted: 2,
-              alreadyGone: 0,
-              kept: 1,
+              alreadyGone: 1,
+              kept: 0,
               refused: 0,
             },
           },
@@ -541,8 +541,83 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
 
     expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
     expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
-      /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 2 deleted · 1 kept$/,
+      /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 2 deleted · 1 already gone$/,
     );
+  });
+
+  describe('once a removal left records in the org', () => {
+    /** The first removal deleted a contact, and kept the other, changed since, and its account. */
+    const PARTLY_REMOVED: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      undo: {
+        removedAt: '2026-09-23T10:00:00.000Z',
+        deleted: 1,
+        alreadyGone: 0,
+        kept: 2,
+        refused: 0,
+      },
+      removalLeft: [rid('003', 1), rid('001', 1)],
+    };
+
+    it('says what that removal did, and offers to remove what it left', () => {
+      render(<ForgeHistoryPanel entries={[PARTLY_REMOVED]} error={null} onReuseConfig={vi.fn()} />);
+
+      expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
+        /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 1 deleted · 2 kept$/,
+      );
+      expect(screen.getByTestId('forge-history-remove-forge-removable').textContent).toBe(
+        "Remove what is left of this run's records",
+      );
+    });
+
+    it('names only what is left in its confirmation, and which removal left it', () => {
+      render(<ForgeHistoryPanel entries={[PARTLY_REMOVED]} error={null} onReuseConfig={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+
+      expect(screen.getByTestId('forge-removal-left-by').textContent).toMatch(
+        /^The removal of \d{4}-\d{2}-\d{2} \d{2}:\d{2} left these records:$/,
+      );
+      expect(
+        within(screen.getByTestId('forge-removal-plan'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Contact: 1 record', 'Account: 1 record']);
+    });
+
+    it('sends the run, with or without the records changed since', () => {
+      render(<ForgeHistoryPanel entries={[PARTLY_REMOVED]} error={null} onReuseConfig={vi.fn()} />);
+
+      confirmRemoval({ includeChanged: true });
+
+      expect(sent('forge:undo')?.payload).toEqual({
+        forgeId: 'forge-removable',
+        includeChanged: true,
+      });
+    });
+
+    it('says, of the answer, that it picked up where that removal left off', () => {
+      render(<ForgeHistoryPanel entries={[PARTLY_REMOVED]} error={null} onReuseConfig={vi.fn()} />);
+      confirmRemoval({ includeChanged: true });
+
+      answerRemoval('forge:undo:response', {
+        operationId: 'forge-undo-8',
+        result: {
+          ...PARTIAL_ANSWER,
+          status: 'success',
+          includeChanged: true,
+          leftBy: '2026-09-23T10:00:00.000Z',
+          objects: [
+            { ...PARTIAL_ANSWER.objects[0], planned: 1, deleted: 1, keptChanged: 0 },
+            { ...PARTIAL_ANSWER.objects[1], deleted: 1, keptDependents: 0, heldBy: [] },
+          ],
+        },
+      });
+
+      expect(screen.getByTestId('forge-removal-result-left-by').textContent).toMatch(
+        /^Picked up where the removal of \d{4}-\d{2}-\d{2} \d{2}:\d{2} left off\.$/,
+      );
+    });
   });
 
   it('says when records were removed is unknown when the stored time is not a date', () => {

@@ -63,7 +63,8 @@ type Row = Record<string, unknown> & { Id: string };
 /**
  * The target org as jsforce shows it: the account and two contacts the load
  * created, the standard price book it matched, a delete that takes what
- * cascades along, and the Organization row that says which org it is.
+ * cascades along — or that the org refuses, record by record — and the
+ * Organization row that says which org it is.
  */
 function targetOrg() {
   const children = new Map([
@@ -85,6 +86,7 @@ function targetOrg() {
   const organization = { id: ORGANIZATION };
   const deletes: Array<{ object: string; ids: string[] }> = [];
   let beforeDelete: (object: string) => void | Promise<void> = () => {};
+  let refuseDelete: (object: string, row: Row) => string | undefined = () => undefined;
   const conn = {
     limitInfo: undefined,
     query: vi.fn(async (soql: string) => {
@@ -135,6 +137,15 @@ function targetOrg() {
               }
             }
           };
+          const row = (rows.get(object) ?? []).find((r) => r.Id === recordId);
+          const refused = row && refuseDelete(object, row);
+          if (refused) {
+            return {
+              id: recordId,
+              success: false,
+              errors: [{ statusCode: 'FIELD_INTEGRITY_EXCEPTION', message: refused, fields: [] }],
+            };
+          }
           remove(object, recordId);
           return { id: recordId, success: true, errors: [] };
         });
@@ -148,9 +159,14 @@ function targetOrg() {
     conn,
     rows,
     deletes,
+    children,
     organization,
     onDelete: (hook: (object: string) => void | Promise<void>) => {
       beforeDelete = hook;
+    },
+    /** Refuse the delete of a record, with the message the org gives. */
+    refuseDelete: (rule: (object: string, row: Row) => string | undefined) => {
+      refuseDelete = rule;
     },
   };
 }
@@ -342,6 +358,165 @@ describe('frozen:remove', () => {
       { objectApiName: 'Account', referenceIds: ['Account-000001'] },
       { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
     ]);
+  });
+
+  describe('what a removal left in the org', () => {
+    /** The first removal: the contact changed since the load is kept, and the account under it. */
+    async function partlyRemoved(): Promise<FrozenRemovalResult | undefined> {
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_LOAD;
+      await remove();
+      const first = answer();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+      return first;
+    }
+
+    const status = async (): Promise<FrozenStatusInfo> => {
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('frozen:status'));
+      return posted<BaseMessage & { payload: { status: FrozenStatusInfo } }>(
+        'frozen:status:response',
+      )[0].payload.status;
+    };
+
+    it('is removed by the next removal, which takes those records alone and says so', async () => {
+      const first = await partlyRemoved();
+      expect(first?.status).toBe('partial');
+
+      await remove({ includeChanged: true });
+
+      expect(errors()).toEqual([]);
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [CONTACTS[0]] },
+        { object: 'Account', ids: [ACCOUNT] },
+      ]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        leftBy: first?.finishedAt,
+        objects: [
+          { objectApiName: 'Contact', planned: 1, deleted: 1 },
+          { objectApiName: 'Account', planned: 1, deleted: 1 },
+        ],
+      });
+      expect(trail()[0]).toMatchObject({ outcome: 'success', leftBy: first?.finishedAt });
+      expect(trail()[1]).not.toHaveProperty('leftBy');
+      // The load's mark counts what both removals took.
+      const load = await recorded();
+      expect(load?.removal).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+      expect(load?.mapping).toEqual(new Map([['Pricebook2-000001', STANDARD_BOOK]]));
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await remove({ includeChanged: true });
+      expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+    });
+
+    it('is what the page is told a removal takes, with the mark of the one that left it', async () => {
+      const first = await partlyRemoved();
+
+      expect((await status()).lastLoadRecords).toEqual({
+        orgId: TARGET_ORG,
+        loadedAt: LOAD_ENDED,
+        created: [
+          { objectApiName: 'Contact', count: 1 },
+          { objectApiName: 'Account', count: 1 },
+        ],
+        linked: 1,
+        recorded: true,
+        removed: {
+          removedAt: first?.finishedAt,
+          deleted: 1,
+          alreadyGone: 0,
+          kept: 2,
+          refused: 0,
+        },
+      });
+    });
+
+    it('stays offered while a removal of it keeps them again', async () => {
+      const first = await partlyRemoved();
+
+      await remove();
+      expect(answer()).toMatchObject({ status: 'failure', leftBy: first?.finishedAt });
+      expect((await recorded())?.removal).toMatchObject({ removedAt: first?.finishedAt, kept: 2 });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await remove({ includeChanged: true });
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(org.rows.get('Account')).toEqual([]);
+    });
+
+    it('reads what the first removal left on the records as its own doing, not as changes since the load', async () => {
+      // The org refuses a contact, once. Deleting the other restamps their
+      // account, a roll-up counting them, as the session's user, and feed
+      // tracking records the change on it; the account is kept for the
+      // refused contact, and the removal ends partial.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        org.children.get('Account')?.push({
+          childSObject: 'FeedItem',
+          field: 'ParentId',
+          cascadeDelete: true,
+        });
+        let refusing = true;
+        org.refuseDelete((object, row) =>
+          refusing && object === 'Contact' && row.Id === CONTACTS[0]
+            ? 'A validation rule refused it.'
+            : undefined,
+        );
+        org.onDelete((object) => {
+          const account = (org.rows.get('Account') ?? [])[0];
+          if (object !== 'Contact' || !account || org.rows.has('FeedItem')) return;
+          const now = new Date().toISOString();
+          Object.assign(account, { LastModifiedDate: now, LastModifiedById: USER });
+          org.rows.set('FeedItem', [
+            {
+              Id: id('0D5', 1),
+              ParentId: ACCOUNT,
+              CreatedDate: now,
+              LastModifiedDate: now,
+              CreatedById: USER,
+            },
+          ]);
+        });
+
+        await remove();
+        const first = answer();
+        expect(first).toMatchObject({ status: 'partial' });
+        const load = await recorded();
+        expect(load?.removal).toMatchObject({ deleted: 1, kept: 1, refused: 1 });
+        expect(load?.removalStamps).toEqual({
+          [ACCOUNT]: org.rows.get('Account')?.[0].LastModifiedDate,
+        });
+
+        // A minute later, the org takes the contact, and the records changed
+        // since the load are not asked for: the account's stamp and its feed
+        // item were the first removal's doing.
+        refusing = false;
+        org.onDelete(() => {});
+        vi.setSystemTime(Date.now() + 60_000);
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        await remove();
+
+        expect(answer()).toMatchObject({
+          status: 'success',
+          includeChanged: false,
+          leftBy: first?.finishedAt,
+          objects: [
+            { objectApiName: 'Contact', planned: 1, deleted: 1 },
+            { objectApiName: 'Account', planned: 1, deleted: 1, keptChanged: 0, keptDependents: 0 },
+          ],
+        });
+        expect(org.rows.get('Account')).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('removes a contact modified since the load when the request includes it', async () => {

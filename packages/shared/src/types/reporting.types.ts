@@ -156,6 +156,12 @@ export interface AuditLogEntry {
   guard?: GuardDecision;
   /** Per object, what the run did. Empty when it wrote nothing. */
   objects?: AuditObjectCounts[];
+  /**
+   * Set on a removal of the records a run or a load created that took up what
+   * an earlier removal of them left in the org: when that one ended. Its
+   * counts are of those records alone.
+   */
+  leftBy?: ISODateString;
   userId?: string;
   details: Record<string, unknown>;
   timestamp: ISODateString;

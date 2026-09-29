@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadCreatedRecords, loadRecordsInfo, loadToRemove } from './loadRecords.js';
+import {
+  loadCreatedRecords,
+  loadRecordsInfo,
+  loadRecordsLeft,
+  loadToRemove,
+} from './loadRecords.js';
 import type { RecordedLoad } from './SasReferenceIdMappingStore.js';
 
 /** A fake record id: the object's prefix, then a counter. */
@@ -108,6 +113,33 @@ describe('loadRecordsInfo', () => {
     });
   });
 
+  it('counts what a removal left, with its mark, and nothing once one took all', () => {
+    const partial = {
+      removedAt: '2026-09-24T11:00:00.000Z',
+      deleted: 3,
+      alreadyGone: 0,
+      kept: 2,
+      refused: 0,
+    };
+    // The mapping forgot what went: the placeholder account and a contact stay.
+    const left = recordedLoad({
+      removal: partial,
+      created: [
+        { objectApiName: 'Account', referenceIds: ['placeholder:Account:Contact.AccountId'] },
+        { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+      ],
+    });
+
+    expect(loadRecordsInfo(left)).toMatchObject({
+      created: [
+        { objectApiName: 'Contact', count: 1 },
+        { objectApiName: 'Account', count: 1 },
+      ],
+      removed: partial,
+    });
+    expect(loadRecordsInfo({ ...left, removal: { ...partial, kept: 0 } }).created).toEqual([]);
+  });
+
   it('carries the mark of a removal', () => {
     const removal = {
       removedAt: '2026-09-24T11:00:00.000Z',
@@ -145,6 +177,14 @@ describe('loadToRemove', () => {
     expect(loadToRemove([recordedLoad({ created: [] }), earlierLoad])).toBe(earlierLoad);
   });
 
+  it('takes the last load again while a removal of it left records in the org', () => {
+    // Its orders kept for the files the org linked to them since, and what
+    // hangs from them: the load before it waits until those went.
+    const last = recordedLoad({ removal: { ...removal, kept: 2 } });
+
+    expect(loadToRemove([last, earlierLoad])).toBe(last);
+  });
+
   it('never offers a load that does not say what it created, and falls back to the last one', () => {
     const last = recordedLoad({ removal });
     expect(loadToRemove([last, recordedLoad({ created: undefined, earlier: true })])).toBe(last);
@@ -152,5 +192,26 @@ describe('loadToRemove', () => {
 
   it('has no load before the first one', () => {
     expect(loadToRemove([])).toBeUndefined();
+  });
+});
+
+describe('loadRecordsLeft', () => {
+  const removal = {
+    removedAt: '2026-09-24T11:00:00.000Z',
+    deleted: 3,
+    alreadyGone: 0,
+    kept: 0,
+    refused: 0,
+  };
+
+  it('takes what the mapping still says the load created while a removal left some, or none ran', () => {
+    expect(loadRecordsLeft(recordedLoad())).toEqual(loadCreatedRecords(recordedLoad()));
+    expect(loadRecordsLeft(recordedLoad({ removal: { ...removal, refused: 1 } }))).toEqual(
+      loadCreatedRecords(recordedLoad()),
+    );
+  });
+
+  it('takes nothing once a removal left none of the records in the org', () => {
+    expect(loadRecordsLeft(recordedLoad({ removal }))).toEqual([]);
   });
 });

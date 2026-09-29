@@ -501,8 +501,9 @@ export interface FrozenLoadRecordsInfo {
   loadedAt: string;
   /**
    * Per object, the records the load created — inserted, or a technical
-   * placeholder — the object it wrote last first. Empty when it created none,
-   * or when the mapping does not say.
+   * placeholder — that a removal would take, the object it wrote last first:
+   * once a removal left some in the org, those. Empty when it created none,
+   * when the mapping does not say, and once a removal took them all.
    */
   created: Array<{ objectApiName: string; count: number }>;
   /**
@@ -517,12 +518,15 @@ export interface FrozenLoadRecordsInfo {
    * and its records cannot be removed from here.
    */
   recorded: boolean;
-  /** Set once the records the load created were removed. */
+  /**
+   * Set once a removal of the load's records deleted some, or found none left
+   * to go. `created` then counts what it left in the org, if any.
+   */
   removed?: ForgeUndoMark;
   /**
    * Set when this is a load before the last one, whose records the loads
    * after it left in the org — a load without Reload purges nothing, and the
-   * target can refuse part of a purge — once the last load's records went,
+   * target can refuse part of a purge — once the last load's records all went,
    * or when it created none: its removal comes next.
    */
   earlier?: true;
@@ -541,6 +545,11 @@ export interface FrozenRemovalResult {
   objects: ForgeUndoObjectResult[];
   /** ISO 8601 timestamp of when the removal ended. */
   finishedAt: string;
+  /**
+   * Set on a removal of what an earlier removal of the load left in the org:
+   * when that one ended, ISO 8601. It set out to take only those records.
+   */
+  leftBy?: string;
 }
 
 /** Module status snapshot returned by `frozen:status`. */

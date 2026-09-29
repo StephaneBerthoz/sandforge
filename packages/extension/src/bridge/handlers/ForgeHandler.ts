@@ -16,7 +16,7 @@ import {
   forgeConfigSchema,
   forgeFileCopyOptionSchema,
   forgeGraphSchema,
-  forgeRunCreatedRecords,
+  forgeRunRecordsLeft,
   forgeTemplateSchema,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
@@ -1869,10 +1869,12 @@ export class ForgeHandler implements DomainHandler {
   /**
    * Remove from its target org the records a past run created, as its history
    * entry names them — never what the request names: the request says which
-   * run, the history says what it created.
+   * run, the history says what it created, and what earlier removals of it
+   * left. A removal that kept some of them, or had some refused, is followed
+   * by one of what it left.
    *
    * Refused before anything is read when the entry is gone, was recorded
-   * before runs kept what they created, created nothing, had its records
+   * before runs kept what they created, created nothing, had its records all
    * removed already, or is being removed now. Then Production Guard judges the
    * delete — a production org is refused, a missing guard refuses too — and
    * the removal runs on the background registry, listed in Live Operations,
@@ -1880,7 +1882,7 @@ export class ForgeHandler implements DomainHandler {
    * back a status it set to Draft for a delete, and reading what it left on
    * the records it leaves. The audit trail records it whatever the outcome,
    * and the entry is marked once records went, so the removal is not offered
-   * twice.
+   * again once none is left.
    */
   private async handleUndo(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(undoPayloadSchema, msg, 'forge:undo:error', this.deps);
@@ -1902,17 +1904,19 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    if (entry.undo) {
-      refuse(
-        `The records this run created were already removed, on ${entry.undo.removedAt}.`,
-        'ALREADY_REMOVED',
-      );
-      return;
-    }
-    const plan = forgeRunCreatedRecords(entry);
+    // What earlier removals left, when one did: a removal that ended partial
+    // marked the run, and the next one was refused as done already.
+    const plan = forgeRunRecordsLeft(entry);
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     if (total === 0) {
-      refuse('This run created no record to remove.', 'NOTHING_TO_REMOVE');
+      if (entry.undo) {
+        refuse(
+          `The records this run created were already removed, on ${entry.undo.removedAt}.`,
+          'ALREADY_REMOVED',
+        );
+      } else {
+        refuse('This run created no record to remove.', 'NOTHING_TO_REMOVE');
+      }
       return;
     }
     if (this.removing.has(forgeId)) {
@@ -2042,12 +2046,16 @@ export class ForgeHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
       });
+      // A removal after one that marked the run takes what that one left:
+      // the result and the audit trail say so, with when it ended.
+      const leftBy = entry.undo?.removedAt;
       const result: ForgeUndoResult = {
         forgeId,
         status: removalStatus(outcome.objects, outcome.cancelled),
         includeChanged,
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
+        ...(leftBy ? { leftBy } : {}),
       };
 
       recordWriteRun(this.deps, {
@@ -2058,16 +2066,22 @@ export class ForgeHandler implements DomainHandler {
         outcome: removalAuditOutcome(result),
         guard: decision,
         objects: removalAuditObjects(result.objects),
+        ...(leftBy ? { leftBy } : {}),
       });
 
-      // Marked once records went, or none was left to go. A removal stopped
-      // part way, or one that deleted nothing, is offered again — with what
-      // it wrote to the records it left, and when it ran, which the next one
-      // reads as its doing, not as changes since the run.
-      const mark = removalMarks(result.status) ? removalMark(result) : undefined;
+      // Marked once records went, or none was left to go, adding to what the
+      // removals before it took. Whatever it ended on, the entry keeps the
+      // run's records it did not take, which the next removal sets out to
+      // take — offered while there are any — with what it wrote to them and
+      // when it ran, which the next one reads as its doing, not as changes
+      // since the run.
+      const mark = removalMarks(result.status) ? removalMark(result, entry.undo) : undefined;
       const stamped = Object.keys(outcome.stamps).length > 0;
       const ran = outcome.span;
-      if (mark || stamped || ran) {
+      const gone = new Set(outcome.gone);
+      const left =
+        gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
+      if (mark || stamped || ran || left) {
         this.saveHistory(
           this.loadHistory().map((e) =>
             e.forgeId === forgeId
@@ -2076,6 +2090,7 @@ export class ForgeHandler implements DomainHandler {
                   ...(mark ? { undo: mark } : {}),
                   ...(stamped ? { removalStamps: { ...e.removalStamps, ...outcome.stamps } } : {}),
                   ...(ran ? { removalSpans: [...(e.removalSpans ?? []), ran] } : {}),
+                  ...(left ? { removalLeft: left } : {}),
                 }
               : e,
           ),

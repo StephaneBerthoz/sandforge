@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ForgeExecutionResult } from '../types/forge.types.js';
-import { forgeRunCreatedRecords } from './forge-run-records.js';
+import {
+  forgeRunCreatedRecords,
+  forgeRunRecordsLeft,
+  removalTookAll,
+} from './forge-run-records.js';
 
 /** A source id and the target id the run gave it: `<prefix>` then a counter. */
 const src = (prefix: string, n: number): string => `${prefix}00000000000${n}AAA`;
@@ -102,5 +106,79 @@ describe('forgeRunCreatedRecords', () => {
 
     expect(forgeRunCreatedRecords(entry)).toEqual([]);
     expect(forgeRunCreatedRecords({})).toEqual([]);
+  });
+});
+
+/** What a removal leaves on the entry: when it ended, and how many went each way. */
+const mark = (kept: number, refused = 0) => ({
+  removedAt: '2026-09-29T15:51:27.295Z',
+  deleted: 3,
+  alreadyGone: 0,
+  kept,
+  refused,
+});
+
+describe('removalTookAll', () => {
+  it('says the removals are through once the last one left none of the records in the org', () => {
+    expect(removalTookAll(mark(0))).toBe(true);
+  });
+
+  it('says there is more to take while the last one kept some, or had some refused', () => {
+    expect(removalTookAll(mark(2))).toBe(false);
+    expect(removalTookAll(mark(0, 1))).toBe(false);
+  });
+
+  it('says nothing was taken before a removal marked the run', () => {
+    expect(removalTookAll(undefined)).toBe(false);
+  });
+});
+
+describe('forgeRunRecordsLeft', () => {
+  it('takes what the run created while no removal took any of it', () => {
+    expect(forgeRunRecordsLeft(accountsThenContacts())).toEqual(
+      forgeRunCreatedRecords(accountsThenContacts()),
+    );
+  });
+
+  it('takes what the removals left, in the order of the whole, once one left some', () => {
+    const entry = {
+      ...accountsThenContacts(),
+      undo: mark(3),
+      // A contact kept for a change since, and the account it hangs from: the
+      // 18-letter ids as the plan names them, or their first fifteen.
+      removalLeft: [tgt('001', 1), tgt('003', 2).slice(0, 15)],
+    };
+
+    expect(forgeRunRecordsLeft(entry)).toEqual([
+      { objectApiName: 'Contact', ids: [tgt('003', 2)] },
+      { objectApiName: 'Account', ids: [tgt('001', 1)] },
+    ]);
+  });
+
+  it('takes nothing once a removal left none of the records in the org', () => {
+    expect(forgeRunRecordsLeft({ ...accountsThenContacts(), undo: mark(0) })).toEqual([]);
+    // An entry marked before removals kept what they left: its mark says so.
+    expect(
+      forgeRunRecordsLeft({ ...accountsThenContacts(), undo: mark(0), removalLeft: [] }),
+    ).toEqual([]);
+  });
+
+  it('takes what the run created from an entry marked before removals kept what they left', () => {
+    // The removal finds the records that went gone, and takes the rest.
+    expect(forgeRunRecordsLeft({ ...accountsThenContacts(), undo: mark(2) })).toEqual(
+      forgeRunCreatedRecords(accountsThenContacts()),
+    );
+  });
+
+  it('reads past what is not an id in what the removals left: the entry comes back from storage', () => {
+    const entry = {
+      ...accountsThenContacts(),
+      undo: mark(1),
+      removalLeft: [tgt('003', 3), 42 as unknown as string],
+    };
+
+    expect(forgeRunRecordsLeft(entry)).toEqual([
+      { objectApiName: 'Contact', ids: [tgt('003', 3)] },
+    ]);
   });
 });
