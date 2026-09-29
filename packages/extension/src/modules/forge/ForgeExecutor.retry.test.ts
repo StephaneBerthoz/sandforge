@@ -173,6 +173,86 @@ describe('ForgeExecutor, retrying a run', () => {
     );
   });
 
+  it('counts as failed, of an object skipped for a parent that failed, only the rows the run retried did not write', async () => {
+    // The run retried wrote the project, a task and the step under it; this
+    // one fails the tasks before sending the other, and skips the steps. The
+    // step it wrote is in the target: no row of it was lost.
+    const PROJECT = 'a01000000000001SRC';
+    const TASK_WRITTEN = 'a03000000000001SRC';
+    const STEP_WRITTEN = 'a05000000000001SRC';
+    const { deps } = orgs(
+      {
+        Project__c: [idField, text('Name')],
+        Task__c: [idField, text('Name'), lookup('Project__c', 'Project__c', false)],
+        Step__c: [idField, text('Name'), lookup('Task__c', 'Task__c', false)],
+      },
+      {
+        Project__c: [{ Id: PROJECT, Name: 'Launch' }],
+        Task__c: [
+          { Id: TASK_WRITTEN, Name: 'Plan', Project__c: PROJECT },
+          { Id: 'a03000000000002SRC', Name: 'Build', Project__c: PROJECT },
+        ],
+        Step__c: [
+          { Id: STEP_WRITTEN, Name: 'Draft', Task__c: TASK_WRITTEN },
+          { Id: 'a05000000000002SRC', Name: 'Ship', Task__c: 'a03000000000002SRC' },
+        ],
+      },
+      {},
+    );
+    const failingTasks: ForgeExecutorDeps = {
+      ...deps,
+      anonymize: (request) => {
+        if (request.objectApiName === 'Task__c') throw new Error('The anonymizer stopped');
+        return request.records;
+      },
+    };
+    const required = (parent: string, child: string): ForgeGraphEdge => ({
+      sourceObject: parent,
+      targetObject: child,
+      relationshipName: parent,
+      type: 'lookup',
+      required: true,
+    });
+
+    const summary = await new ForgeExecutor(failingTasks).execute(
+      graphOf(
+        [node('Project__c', 0), node('Task__c', 1), node('Step__c', 2)],
+        [required('Project__c', 'Task__c'), required('Task__c', 'Step__c')],
+      ),
+      'src',
+      'tgt',
+      () => undefined,
+      {
+        rootRecordId: PROJECT,
+        rootObjectApiName: 'Project__c',
+        writtenBefore: {
+          [PROJECT]: 'a01000000000001TGT',
+          [TASK_WRITTEN]: 'a03000000000001TGT',
+          [STEP_WRITTEN]: 'a05000000000001TGT',
+        },
+        anonymization: { fields: { Task__c: ['Name'] }, methods: {} },
+      },
+    );
+
+    expect(summary.errors).toContainEqual({
+      objectApiName: 'Step__c',
+      stage: 'scope',
+      failedCount: 1,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [
+        {
+          recordSummary: '(node-level skip)',
+          messages: [
+            'Not written: its records cannot be written without Task__c, which failed in this run.',
+          ],
+        },
+      ],
+    });
+    // The task this run failed to send, and the step under it.
+    expect(summary.failedCount).toBe(2);
+  });
+
   describe('a lookup the run it retries had to leave empty', () => {
     const PROJECT = 'a01000000000001SRC';
     const SPONSOR = 'a02000000000001SRC';

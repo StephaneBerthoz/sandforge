@@ -82,9 +82,10 @@ ForgeOrchestrator.execute(graph, config)
        │    but reference data (target), on a dry run too, six describes in
        │    flight at a time. An object the target refuses is skipped: at most
        │    one row of it is read, into no scope, and it is an error only when
-       │    the clone holds records of it. A check that failed is reported for
-       │    that object, which is still attempted. Reference data is matched
-       │    by name, never inserted, so it is not asked about.
+       │    the clone holds records of it — an object skipped whole, which the
+       │    audit entry names, its count unknown. A check that failed is
+       │    reported for that object, which is still attempted. Reference data
+       │    is matched by name, never inserted, so it is not asked about.
        │
        ├─ for each node (root-first, then topo; a node whose rows cannot be
        │  written without a parent whose turn is still to come waits for it,
@@ -193,7 +194,23 @@ for either kind of run.
 `ForgeExecutionResult.errors: ForgeExecutionError[]` is populated whenever any
 record or object failed. An object the clone holds no record of — no record
 read points at it or sits above it, or the target refuses it and there is none
-to write — is counted among the skipped objects, not among the errors. Shape:
+to write — is counted among the skipped objects, not among the errors.
+
+An object skipped because a record its rows cannot be written without failed
+in this run is counted among the skipped objects and named among the errors,
+its `scope` report flagged `skipped` and naming the objects it could not do
+without. The rows the run had read of it — a record-scoped run reads every
+object before it writes one — are counted as failed, in the report and in the
+run's `failedCount`, as the rows held back one by one for want of their parent
+are; its line says how many (`Skipped QuoteLineItem (parent failed): 1
+failed`). Skipped before its read, as a run of whole tables skips it, it counts
+none: the run never learned how many rows it held. An object the target takes
+no insert of, whose records the clone holds, is flagged the same way and
+counts none either, one row having been read to know. The run's audit entry
+names such an object either way, marked skipped — `counted`, or `uncounted`
+when the run never learned its rows — and the Audit Trail page says it was
+skipped, and that its record count is unknown when it is. An object read with
+no row left to write lost nothing, and is only skipped. Shape:
 
 ```ts
 interface ForgeExecutionError {
@@ -205,8 +222,25 @@ interface ForgeExecutionError {
     recordSummary: string; // first ~4 fields key=value
     messages: string[]; // STATUS_CODE: message
   }>;
+  skipped?: boolean; // the object was skipped whole
 }
 ```
+
+The rows held back before the write are counted with the rows the target
+refused on the object's line, as the run's totals and its audit entry count
+them, and the line says how many of them each reason held back: a feed item
+whose parent, one of several objects its lookup can name, was not written —
+`Completed FeedItem: 1 succeeded, 2 failed, 2 of them held back for want of
+their parent` — and a record that cannot be written without one of an object
+excluded by name, said once, on the line that ends the object —
+`Completed OpportunityLineItem: 2 succeeded, 2 failed, 2 of them held back for
+want of ProductSellingModelOption, excluded from this run`. So do the lines of
+a write that mostly failed (`4/5 FeedItem records failed (>50%), 2 of them
+held back for want of their parent`) or failed whole. A line that counts no
+failure of the object — a dry run's, or that of an email object whose other
+emails the run never sent — says them failed on their own: `[dry-run]
+OpportunityLineItem: 2 fewer would be inserted, 2 failed, held back for want of
+ProductSellingModelOption, excluded from this run`.
 
 The wizard webview consumes this via `forge:execute:response` and renders a
 grouped error panel (see `ForgeResults.tsx`).

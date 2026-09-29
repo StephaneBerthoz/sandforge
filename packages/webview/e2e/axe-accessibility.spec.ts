@@ -408,7 +408,8 @@ const FROZEN_REMOVAL_RESULT = {
 
 /**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
- * guard asked about, and a restore the guard refused.
+ * guard asked about, with an object it skipped before counting its records,
+ * and a restore the guard refused.
  */
 const REPORTS_AUDIT = {
   entries: [
@@ -426,6 +427,14 @@ const REPORTS_AUDIT = {
       objects: [
         { objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 1 },
         { objectApiName: 'Contact', created: 0, updated: 0, deleted: 0, failed: 0, upserted: 12 },
+        {
+          objectApiName: 'Contract',
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          skipped: 'uncounted',
+        },
       ],
       details: {},
       timestamp: '2026-09-12T10:00:00.000Z',
@@ -2286,6 +2295,10 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByRole('tab', { name: 'Audit Trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
+      // The skipped object's row is scanned with the rest of the entry.
+      await expect(page.getByTestId('audit-audit-forge')).toContainText(
+        'Contract skipped, record count unknown',
+      );
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByRole('tab', { name: 'Data Lineage' }).click();

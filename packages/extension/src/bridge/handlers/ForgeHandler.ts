@@ -345,7 +345,12 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
  * counts them. Reference data unmatched by name is left out: it was never
  * going to be written. So is a note, which counts no row, and so are the
  * reports that name a pass rather than an object (`__pass2__`,
- * `__expandOrphanParents__`).
+ * `__expandOrphanParents__`). An object skipped whole — a parent it cannot be
+ * written without failed, or the target takes no insert of it while the clone
+ * holds records of it — is named and marked skipped, whether or not it counts
+ * a row: its rows read before the skip are failed, as the run counts them,
+ * and one it never learned the rows of is marked uncounted, for the page to
+ * say so rather than show nothing.
  */
 function forgeAuditObjects(
   result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'> &
@@ -368,9 +373,14 @@ function forgeAuditObjects(
     // Left out with the notes, the rows held back were in no count: a run
     // that held back an object for its record type recorded no object at
     // all, and one that held back rows for an object left out read as a run
-    // that wrote all it read. A note still names no object.
-    if (error.stage === 'scope' && error.failedCount === 0) continue;
-    countsOf(error.objectApiName).failed += error.failedCount;
+    // that wrote all it read. A note still names no object; an object skipped
+    // whole does, counting no row when the run never learned how many it
+    // held: left out, the entry of a run that lost a whole object read as one
+    // that never met it.
+    if (error.stage === 'scope' && error.failedCount === 0 && error.skipped !== true) continue;
+    const counts = countsOf(error.objectApiName);
+    counts.failed += error.failedCount;
+    if (error.skipped === true) counts.skipped = error.failedCount > 0 ? 'counted' : 'uncounted';
   }
   // Neither written nor failed. Said on the object's line alone, the entry of
   // a run a cancel cut short read as if it had written whole each object it

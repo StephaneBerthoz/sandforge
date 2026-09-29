@@ -591,6 +591,42 @@ describe('ForgeExecutor', () => {
         ).toContain('parent failed');
       });
 
+      it('names the children it skipped among the errors, counting none of the records it never read', async () => {
+        // Said on its line alone, the object was in no report of the run, and
+        // the entry of a run that lost it read as one that never met it. A
+        // run of whole tables skips it before its read: the graph's count is
+        // discovery's, and the run never learned how many it would have written.
+        failAccounts(7);
+        const graph = makeGraph(
+          [makeNode('Account', { recordCount: 10 }), makeNode('Contact', { recordCount: 40 })],
+          [accountToContact],
+        );
+
+        const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+        expect(summary.errors).toContainEqual({
+          objectApiName: 'Contact',
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          skipped: true,
+          samples: [
+            {
+              recordSummary: '(node-level skip)',
+              messages: [
+                'Not written: its records cannot be written without Account, which failed in this run.',
+                'Skipped before its records were read: how many there were is not known.',
+              ],
+            },
+          ],
+        });
+        // The accounts the target refused, and no more.
+        expect(summary.failedCount).toBe(7);
+        expect(
+          progressEvents.find((e) => e.objectName === 'Contact' && e.status === 'skipped')?.message,
+        ).toBe('Skipped Contact (parent failed)');
+      });
+
       it('still clones the children when 4 of 10 parent records failed', async () => {
         failAccounts(4);
         const graph = makeGraph(
@@ -6582,6 +6618,46 @@ describe('ForgeExecutor', () => {
           ],
         });
 
+        it('counts the lines it held back among the failures on the line of a write that failed them all', async () => {
+          // "Failed all" said nothing of the two lines held back before the
+          // write, which the run counts among the object's failures.
+          const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+          platform(orgDeps, inserted);
+          const insert = orgDeps.insertRecords;
+          orgDeps.insertRecords = async (org, object, rows) =>
+            object === 'OpportunityLineItem'
+              ? rows.map(() => ({
+                  id: '',
+                  success: false,
+                  errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: the period is closed'],
+                }))
+              : insert(org, object, rows);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+            },
+          );
+
+          expect(
+            progressEvents.filter((e) => e.objectName === 'OpportunityLineItem').pop(),
+          ).toMatchObject({
+            status: 'error',
+            message:
+              'Failed all OpportunityLineItem records, 2 of them held back for want of ' +
+              'ProductSellingModelOption, excluded from this run',
+          });
+          expect(summary.errors).toContainEqual(
+            expect.objectContaining({ objectApiName: 'OpportunityLineItem', failedCount: 2 }),
+          );
+        });
+
         it('holds back and names the lines whose price it held back, and sends none of them', async () => {
           const { orgDeps, inserted } = fakeOrgs(tables(), fields);
           const refused = platform(orgDeps, inserted);
@@ -6630,13 +6706,15 @@ describe('ForgeExecutor', () => {
             objectApiName: 'OpportunityLineItem',
             read: 4,
           });
+          // Counted with the failures, as the run's totals and its audit entry
+          // count them: said apart as not written, the line read "0 failed".
           expect(
             progressEvents.find(
               (e) => e.objectName === 'OpportunityLineItem' && e.status === 'done',
             )?.message,
           ).toBe(
-            'Completed OpportunityLineItem: 2 succeeded, 0 failed, 2 not written without ' +
-              'ProductSellingModelOption, excluded from this run',
+            'Completed OpportunityLineItem: 2 succeeded, 2 failed, 2 of them held back for want ' +
+              'of ProductSellingModelOption, excluded from this run',
           );
         });
 
@@ -6687,7 +6765,7 @@ describe('ForgeExecutor', () => {
           // written without ProductSellingModelOption", as it says of a price
           // that needs one, where its errors said it exactly.
           const NAMED_ONLY =
-            '1 not written, named only by records held back for ProductSellingModelOption, ' +
+            'held back, named only by records held back for ProductSellingModelOption, ' +
             'excluded from this run';
           const optionsExcluded = {
             rootRecordId: OPPORTUNITY,
@@ -6710,7 +6788,7 @@ describe('ForgeExecutor', () => {
             expect(
               progressEvents.find((e) => e.objectName === 'Product2' && e.status === 'done')
                 ?.message,
-            ).toBe(`Completed Product2: 2 succeeded, 0 failed, ${NAMED_ONLY}`);
+            ).toBe(`Completed Product2: 2 succeeded, 1 failed, 1 of them ${NAMED_ONLY}`);
           });
 
           it('says it in a dry run too', async () => {
@@ -6721,8 +6799,9 @@ describe('ForgeExecutor', () => {
               dryRun: true,
             });
 
+            // Counted as failed by the dry run too, which says so.
             expect(progressEvents.map((e) => e.message)).toContain(
-              `[dry-run] Product2: 2 record(s) would be inserted, ${NAMED_ONLY}`,
+              `[dry-run] Product2: 2 record(s) would be inserted, 1 failed, ${NAMED_ONLY}`,
             );
           });
 
@@ -6908,8 +6987,8 @@ describe('ForgeExecutor', () => {
           });
 
           expect(progressEvents.map((e) => e.message)).toContain(
-            '[dry-run] Product2: 1 fewer would be inserted, not written, named only by records ' +
-              'held back for Region__c, excluded from this run',
+            '[dry-run] Product2: 1 fewer would be inserted, 1 failed, held back, named only by ' +
+              'records held back for Region__c, excluded from this run',
           );
         });
 
@@ -6931,9 +7010,11 @@ describe('ForgeExecutor', () => {
 
           expect(inserted).toEqual({});
           const messages = progressEvents.map((e) => e.message);
+          // Taken off what it would insert, and counted as failed, as the dry
+          // run's totals count them.
           expect(messages).toContain(
-            '[dry-run] OpportunityLineItem: 2 fewer would be inserted, not written without ' +
-              'ProductSellingModelOption, excluded from this run',
+            '[dry-run] OpportunityLineItem: 2 fewer would be inserted, 2 failed, held back for ' +
+              'want of ProductSellingModelOption, excluded from this run',
           );
           expect(messages).toContain(
             'Held back QuoteLineItem, nothing written: every record needs ' +
@@ -7104,13 +7185,14 @@ describe('ForgeExecutor', () => {
           ]);
         });
 
-        it('holds back a price the catalog is read again for, when it is sold under a model', async () => {
-          // A classification's record names a price no line uses, read by the
-          // catalog's second read: sold under a model whose options were left
-          // out, it went to the target, and was refused for want of one.
+        /**
+         * The products based on a classification whose record names a price
+         * no line uses, sold under a model: read by the catalog's second read.
+         */
+        function aClassificationsDefaultPrice() {
           const HARDWARE = '11B000000000001AAA';
           const base = tables();
-          const { orgDeps, inserted } = fakeOrgs(
+          const run = fakeOrgs(
             {
               ...base,
               Product2: base.Product2.map((row) => ({ ...row, BasedOnId: HARDWARE })),
@@ -7136,7 +7218,6 @@ describe('ForgeExecutor', () => {
               ],
             },
           );
-          const refused = platform(orgDeps, inserted);
           const walked = graph();
           walked.nodes.push(
             makeNode('ProductClassification'),
@@ -7147,6 +7228,15 @@ describe('ForgeExecutor', () => {
             { ...edge('ProductClassification', 'Classification_Default__c'), required: true },
             edge('PricebookEntry', 'Classification_Default__c'),
           );
+          return { ...run, walked };
+        }
+
+        it('holds back a price the catalog is read again for, when it is sold under a model', async () => {
+          // A classification's record names a price no line uses, read by the
+          // catalog's second read: sold under a model whose options were left
+          // out, it went to the target, and was refused for want of one.
+          const { orgDeps, inserted, walked } = aClassificationsDefaultPrice();
+          const refused = platform(orgDeps, inserted);
 
           const summary = await new ForgeExecutor(orgDeps).execute(
             walked,
@@ -7165,6 +7255,40 @@ describe('ForgeExecutor', () => {
             (inserted['PricebookEntry'] ?? []).filter((r) => r['ProductSellingModelId']),
           ).toEqual([]);
           // The two prices its lines use, and the one the record names.
+          expect(summary.errors).toContainEqual(
+            expect.objectContaining({ objectApiName: 'PricebookEntry', failedCount: 3 }),
+          );
+        });
+
+        it('says in a dry run that the prices its reads hold back failed, as its totals count them', async () => {
+          // Said as not written — "1 more not written without" — they read as
+          // rows that had not failed, where the dry run counts them failed.
+          const { orgDeps, walked } = aClassificationsDefaultPrice();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            walked,
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption'],
+              dryRun: true,
+            },
+          );
+
+          expect(
+            progressEvents
+              .map((e) => e.message)
+              .filter((message) => message.startsWith('[dry-run] PricebookEntry: ')),
+          ).toEqual([
+            '[dry-run] PricebookEntry: 4 record(s) would be inserted, 2 failed, held back for ' +
+              'want of ProductSellingModelOption, excluded from this run',
+            '[dry-run] PricebookEntry: 0 more record(s) would be inserted, named by records read ' +
+              'after the catalog, 1 more failed, held back for want of ProductSellingModelOption, ' +
+              'excluded from this run',
+          ]);
           expect(summary.errors).toContainEqual(
             expect.objectContaining({ objectApiName: 'PricebookEntry', failedCount: 3 }),
           );
@@ -8039,12 +8163,71 @@ describe('ForgeExecutor', () => {
           { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
         ]);
         expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
-        // The two quotes the target refused, and the two feed items under them.
-        expect(summary.failedCount).toBe(4);
+        // The two quotes the target refused, the two feed items under them,
+        // and the line of the first quote, skipped with the quotes.
+        expect(summary.failedCount).toBe(5);
+        // Counted with the failures, as the run's totals and its audit entry
+        // count them: said apart as not written, the line read "0 failed".
         expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
           status: 'done',
           message:
-            'Completed FeedItem: 1 succeeded, 0 failed, 2 not written for want of their parent',
+            'Completed FeedItem: 1 succeeded, 2 failed, 2 of them held back for want of their parent',
+        });
+      });
+
+      it('counts the rows it held back among the failures on the line of a write that mostly failed', async () => {
+        // The line counted the rows sent alone, "2/3": the two feed items held
+        // back for want of their quote, which the run counts among the
+        // object's failures, were on no line of it.
+        const rows = tables();
+        rows['FeedItem'] = [
+          ...rows['FeedItem'],
+          { Id: '0D5000000000004AAA', Body: 'Refused once', ParentId: OPPORTUNITY },
+          { Id: '0D5000000000005AAA', Body: 'Refused twice', ParentId: OPPORTUNITY },
+        ];
+        const { orgDeps } = orgs(['First', 'Second'], rows);
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, records) => {
+          const results = await insert(org, object, records);
+          if (object !== 'FeedItem') return results;
+          return results.map((result, i) =>
+            String(records[i]['Body']).startsWith('Refused')
+              ? { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'] }
+              : result,
+          );
+        };
+
+        await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, scoped);
+
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
+          status: 'error',
+          message:
+            '4/5 FeedItem records failed (>50%), 2 of them held back for want of their parent ' +
+            '— objects that cannot be written without it will be skipped',
+        });
+      });
+
+      it('counts the rows it held back with the failures on the line of a write a cancel stopped', async () => {
+        // Said after the rows the cancel kept from the target, as not written,
+        // they read as neither sent nor failed, where the run counts them failed.
+        const { orgDeps } = orgs(['First', 'Second']);
+        const executor = new ForgeExecutor(orgDeps);
+        const describe = orgDeps.describeFields;
+        orgDeps.describeFields = async (org, object) => {
+          if (org === 'tgt' && object === 'FeedItem') executor.abort();
+          return describe(org, object);
+        };
+
+        const error: unknown = await executor
+          .execute(graph(), 'src', 'tgt', onProgress, scoped)
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ForgeAbortedError);
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
+          status: 'stopped',
+          message:
+            'Stopped FeedItem: 0 succeeded, 2 failed, 2 of them held back for want of their ' +
+            'parent, 1 not sent',
         });
       });
 
@@ -8064,7 +8247,60 @@ describe('ForgeExecutor', () => {
         expect(
           progressEvents.find((e) => e.objectName === 'QuoteLineItem' && e.status === 'skipped')
             ?.message,
+        ).toBe('Skipped QuoteLineItem (parent failed): 1 failed');
+      });
+
+      it('names the object it skipped among the errors, the rows it had read of it counted as failed', async () => {
+        // Said on its line alone, the line of the refused quote was in no
+        // report of the run: its history entry and its audit entry left the
+        // object out, and its row was in no count, read and never written.
+        const { orgDeps } = orgs(['First', 'Second']);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(summary.errors).toContainEqual({
+          objectApiName: 'QuoteLineItem',
+          stage: 'scope',
+          failedCount: 1,
+          attemptedCount: 0,
+          skipped: true,
+          samples: [
+            {
+              recordSummary: '(node-level skip)',
+              messages: [
+                'Not written: its records cannot be written without Quote, which failed in this run.',
+              ],
+            },
+          ],
+        });
+        expect(summary.readByObject).toContainEqual({ objectApiName: 'QuoteLineItem', read: 1 });
+      });
+
+      it('only skips an object it read no record of, which lost nothing', async () => {
+        const rows = tables();
+        rows['QuoteLineItem'] = [];
+        const { orgDeps } = orgs(['First', 'Second'], rows);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(summary.skippedCount).toBe(1);
+        expect(
+          progressEvents.find((e) => e.objectName === 'QuoteLineItem' && e.status === 'skipped')
+            ?.message,
         ).toBe('Skipped QuoteLineItem (parent failed)');
+        expect(summary.errors.map((e) => e.objectApiName)).not.toContain('QuoteLineItem');
       });
 
       it('holds back the feed item of the one quote refused, and writes that of the quote written', async () => {
@@ -8113,7 +8349,7 @@ describe('ForgeExecutor', () => {
         expect(
           progressEvents.find((e) => e.objectName === 'FeedComment' && e.status === 'skipped')
             ?.message,
-        ).toBe('Skipped FeedComment (parent failed)');
+        ).toBe('Skipped FeedComment (parent failed): 1 failed');
       });
 
       it('decides row by row in a run of whole tables, telling the parents apart by the ids it read', async () => {
@@ -9586,7 +9822,13 @@ describe('ForgeExecutor', () => {
               },
             );
           const regionsExcluded = { ...fromTheAccount, excludedObjects: ['Region__c'] };
-          const heldBack = ', 1 not written without Region__c, excluded from this run';
+          // Counted with the failures, as the run counts it: said as not
+          // written beside "0 failed", the line read as if it had not failed.
+          const why = 'held back for want of Region__c, excluded from this run';
+          /** Said after the failures of a write that counts it with them. */
+          const ofThem = `, 1 of them ${why}`;
+          /** Said on a line that counts no failure of it. */
+          const failedOnItsOwn = `, 1 failed, ${why}`;
 
           it('says it once, on the line of the emails that waited for their task', async () => {
             const { orgDeps, graph } = withARegionalOffer(mixedTables());
@@ -9603,7 +9845,7 @@ describe('ForgeExecutor', () => {
               [
                 'done',
                 'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
-                  `after their task: 2 succeeded, 0 failed${heldBack}`,
+                  `after their task: 2 succeeded, 1 failed${ofThem}`,
               ],
             ]);
           });
@@ -9630,8 +9872,8 @@ describe('ForgeExecutor', () => {
             expect(emailEnds()).toEqual([
               [
                 'stopped',
-                'Stopped EmailMessage: 0 succeeded, 0 failed, ' +
-                  `3 not sent (2 on a case waiting for their tasks)${heldBack}`,
+                `Stopped EmailMessage: 0 succeeded, 1 failed${ofThem}, ` +
+                  '3 not sent (2 on a case waiting for their tasks)',
               ],
             ]);
           });
@@ -9654,7 +9896,7 @@ describe('ForgeExecutor', () => {
               [
                 'stopped',
                 'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; ' +
-                  `stopped: 2 not sent${heldBack}`,
+                  `stopped: 2 not sent${failedOnItsOwn}`,
               ],
             ]);
           });
@@ -9675,7 +9917,7 @@ describe('ForgeExecutor', () => {
             expect(emailEnds()).toEqual([
               [
                 'stopped',
-                `EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent${heldBack}`,
+                `EmailMessage: 2 on a case waiting for their tasks; stopped: 2 not sent${failedOnItsOwn}`,
               ],
             ]);
           });
@@ -11645,11 +11887,13 @@ describe('ForgeExecutor', () => {
         ],
       );
 
+      /** Skipped whole, so the audit trail names it; one row was read to know, so it counts none. */
       const NOT_CREATEABLE = {
         objectApiName: 'Case',
         stage: 'scope',
         failedCount: 0,
         attemptedCount: 0,
+        skipped: true,
         samples: [
           {
             recordSummary: '(node-level skip)',
@@ -12252,7 +12496,8 @@ describe('ForgeExecutor', () => {
           },
         ],
       });
-      expect(summary.failedCount).toBe(2);
+      // The two cases held back, and the comment read under them, skipped.
+      expect(summary.failedCount).toBe(3);
       const caseEnd = progressEvents.filter((e) => e.objectName === 'Case').pop();
       expect(caseEnd?.status).toBe('error');
       expect(caseEnd?.message).toContain('Held back Case');

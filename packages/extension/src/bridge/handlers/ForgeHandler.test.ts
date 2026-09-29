@@ -3135,12 +3135,15 @@ describe('ForgeHandler', () => {
         isReference: false,
       });
 
-      it('counts as failed, per object, the rows a finished run held back, and names no object for a note', async () => {
+      it('counts as failed, per object, the rows a finished run held back, names an object it skipped whole, and no object for a note', async () => {
         // Every `scope` report was left out: the feed items held back for want
         // of their parent, the opportunities held back for their record type
         // and the price held back for an object left out were in no count, and
         // the run read as one that wrote all it read. A note — a describe that
-        // failed, an object the target takes no insert of — counts no row.
+        // failed, after which the object is still attempted — counts no row
+        // and names no object. An object the target takes no insert of, whose
+        // records the clone holds, is skipped whole: it counts none, one row
+        // having been read to know, and is named, its count unknown.
         const store = recordingStore();
         vi.mocked(orchestrator.execute).mockResolvedValue(
           createMockResult({
@@ -3151,7 +3154,7 @@ describe('ForgeHandler', () => {
               scope('Opportunity', 3),
               scope('PricebookEntry', 1),
               scope('Account', 0),
-              scope('Case', 0),
+              { ...scope('Case', 0), skipped: true },
             ],
           }),
         );
@@ -3162,6 +3165,14 @@ describe('ForgeHandler', () => {
           { objectApiName: 'FeedItem', created: 1, updated: 0, deleted: 0, failed: 2 },
           { objectApiName: 'Opportunity', created: 0, updated: 0, deleted: 0, failed: 3 },
           { objectApiName: 'PricebookEntry', created: 0, updated: 0, deleted: 0, failed: 1 },
+          {
+            objectApiName: 'Case',
+            created: 0,
+            updated: 0,
+            deleted: 0,
+            failed: 0,
+            skipped: 'uncounted',
+          },
         ]);
       });
 
@@ -3276,6 +3287,243 @@ describe('ForgeHandler', () => {
             objects: [
               { objectApiName: 'Project__c', created: 0, updated: 0, deleted: 0, failed: 1 },
               { objectApiName: 'Note__c', created: 0, updated: 0, deleted: 0, failed: 2 },
+            ],
+          }),
+        ]);
+      });
+
+      it('names an object skipped for a failed parent, with the rows read of it, or none when it was skipped before its read', async () => {
+        // Its report counts no row when the run never read it, as a note does:
+        // left out with the notes, the object was not in the entry at all.
+        // Named with nothing in any column, it read as an object the run did
+        // nothing to, which the page does not list: it is marked uncounted.
+        const store = recordingStore();
+        vi.mocked(orchestrator.execute).mockResolvedValue(
+          createMockResult({
+            status: 'failure',
+            errors: [
+              {
+                objectApiName: 'Account',
+                stage: 'insert',
+                failedCount: 7,
+                attemptedCount: 10,
+                samples: [],
+              },
+              { ...scope('Contact', 0), skipped: true },
+              { ...scope('Opportunity', 2), skipped: true },
+              scope('Case', 0),
+            ],
+          }),
+        );
+
+        await execute();
+
+        expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+          { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 7 },
+          {
+            objectApiName: 'Contact',
+            created: 0,
+            updated: 0,
+            deleted: 0,
+            failed: 0,
+            skipped: 'uncounted',
+          },
+          {
+            objectApiName: 'Opportunity',
+            created: 0,
+            updated: 0,
+            deleted: 0,
+            failed: 2,
+            skipped: 'counted',
+          },
+        ]);
+      });
+
+      describe('an object a real run skipped because its parent failed', () => {
+        const PROJECT = 'a01000000000001';
+
+        /**
+         * A real run whose target refuses every project: the tasks, which
+         * cannot be written without theirs, are skipped whole.
+         */
+        async function runWithProjectsRefused(config: ForgeConfig): Promise<void> {
+          const fields: Record<string, Awaited<ReturnType<ForgeExecutorDeps['describeFields']>>> = {
+            Project__c: [field('Id'), field('Name')],
+            Task__c: [
+              field('Id'),
+              field('Name'),
+              {
+                name: 'Project__c',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['Project__c'],
+                nillable: false,
+              },
+            ],
+          };
+          const rows: Record<string, Array<Record<string, unknown>>> = {
+            Project__c: [{ Id: PROJECT, Name: 'Launch' }],
+            Task__c: [
+              { Id: 'a03000000000001', Name: 'Plan', Project__c: PROJECT },
+              { Id: 'a03000000000002', Name: 'Build', Project__c: PROJECT },
+            ],
+          };
+          handler.setForgeOrchestrator(
+            new ForgeOrchestrator({
+              discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+              executor: new ForgeExecutor({
+                describeFields: async (_org, object) => fields[object] ?? [field('Id')],
+                queryRecords: async (org, soql) => {
+                  const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+                  return org === 'src-org' ? (rows[object] ?? []).map((row) => ({ ...row })) : [];
+                },
+                insertRecords: async (_org, _object, records) =>
+                  records.map(() => ({
+                    id: '',
+                    success: false,
+                    errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'],
+                  })),
+              }),
+            }),
+          );
+          const [root] = createMockGraph().nodes;
+
+          await handler.handle(
+            buildMsg('forge:execute', {
+              graph: {
+                ...createMockGraph(),
+                nodes: [
+                  { ...root, objectApiName: 'Project__c', recordCount: 1 },
+                  { ...root, objectApiName: 'Task__c', recordCount: 2, level: 1 },
+                ],
+                edges: [
+                  {
+                    sourceObject: 'Project__c',
+                    targetObject: 'Task__c',
+                    relationshipName: 'Tasks__r',
+                    type: 'lookup',
+                    required: true,
+                  },
+                ],
+              },
+              config,
+            }),
+          );
+        }
+
+        it('records as failed the rows a record-scoped run had read of it', async () => {
+          // Read before any was written, the tasks were in no count: the
+          // entry named the project alone.
+          const store = recordingStore();
+
+          await runWithProjectsRefused(createMockConfig({ recordId: PROJECT }));
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({
+              outcome: 'failure',
+              objects: [
+                { objectApiName: 'Project__c', created: 0, updated: 0, deleted: 0, failed: 1 },
+                {
+                  objectApiName: 'Task__c',
+                  created: 0,
+                  updated: 0,
+                  deleted: 0,
+                  failed: 2,
+                  skipped: 'counted',
+                },
+              ],
+            }),
+          ]);
+        });
+
+        it('names it with no count in a run of whole tables, which skipped it before its read', async () => {
+          const store = recordingStore();
+
+          await runWithProjectsRefused(
+            createMockConfig({
+              inputMode: 'soql',
+              recordId: undefined,
+              soqlQuery: 'SELECT Id FROM Project__c',
+            }),
+          );
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({
+              outcome: 'failure',
+              objects: [
+                { objectApiName: 'Project__c', created: 0, updated: 0, deleted: 0, failed: 1 },
+                {
+                  objectApiName: 'Task__c',
+                  created: 0,
+                  updated: 0,
+                  deleted: 0,
+                  failed: 0,
+                  skipped: 'uncounted',
+                },
+              ],
+            }),
+          ]);
+        });
+      });
+
+      it('names as skipped, its count unknown, an object a real run found the target takes no insert of', async () => {
+        // The clone holds a case the target cannot take: its report was read
+        // as a note, and the entry named the account alone, as if the run had
+        // never met the case. Frozen's entry names such an object too.
+        const store = recordingStore();
+        const ACCOUNT = '001000000000001';
+        const rows: Record<string, Array<Record<string, unknown>>> = {
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          Case: [{ Id: '500000000000001', Name: 'Outage' }],
+        };
+        handler.setForgeOrchestrator(
+          new ForgeOrchestrator({
+            discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+            executor: new ForgeExecutor({
+              describeFields: async () => [field('Id'), field('Name')],
+              queryRecords: async (org, soql) => {
+                const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+                return org === 'src-org' ? (rows[object] ?? []).map((row) => ({ ...row })) : [];
+              },
+              insertRecords: async (_org, _object, records) =>
+                records.map((_, i) => ({ id: `001TGT00000000${i}`, success: true, errors: [] })),
+              isObjectCreatable: async (_org, object) => object !== 'Case',
+            }),
+          }),
+        );
+        const [root] = createMockGraph().nodes;
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: {
+              ...createMockGraph(),
+              nodes: [
+                { ...root, objectApiName: 'Account', recordCount: 1 },
+                { ...root, objectApiName: 'Case', recordCount: 1, level: 1 },
+              ],
+              edges: [],
+            },
+            config: createMockConfig({
+              inputMode: 'soql',
+              recordId: undefined,
+              soqlQuery: 'SELECT Id FROM Account',
+            }),
+          }),
+        );
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            objects: [
+              { objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 },
+              {
+                objectApiName: 'Case',
+                created: 0,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                skipped: 'uncounted',
+              },
             ],
           }),
         ]);

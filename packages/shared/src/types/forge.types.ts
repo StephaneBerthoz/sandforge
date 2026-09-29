@@ -242,6 +242,17 @@ export interface ForgeExecutionError {
    * counts as failed. Absent from every other report.
    */
   referenceData?: boolean;
+  /**
+   * Set on the report of an object skipped whole: a record its rows cannot be
+   * written without failed in this run, or the target takes no insert of it
+   * and the clone holds records of it. `failedCount` counts the rows the run
+   * had read of it, which it counts as failed; skipped before its read, or
+   * read only to know whether the clone holds any, it counts none, the run
+   * never having learned how many there were. The object is named either
+   * way, where a `'scope'` report that counts no row is otherwise a note.
+   * Absent from every other report.
+   */
+  skipped?: boolean;
 }
 
 /**

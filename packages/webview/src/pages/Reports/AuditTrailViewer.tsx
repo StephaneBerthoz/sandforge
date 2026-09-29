@@ -143,11 +143,24 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
     ...offered.orgs.map((o) => ({ value: o.orgId, label: o.orgAlias ?? o.orgId })),
   ];
 
-  /** "3 created · 1 failed", naming only the columns the run filled. */
+  /**
+   * "3 created · 1 failed", naming only the columns the run filled — after
+   * "skipped" when the run skipped the object whole, told apart from an
+   * object it did nothing to when no column says a count: nothing in any
+   * column, a skipped object whose records the run never counted was not
+   * listed, and a run that lost it read as one that never met it.
+   */
   const countsLine = (counts: AuditObjectCounts): string =>
-    COUNT_COLUMNS.filter((column) => (counts[column] ?? 0) > 0)
-      .map((column) => t(`reports.counts.${column}`, { count: counts[column] ?? 0 }))
-      .join(' · ');
+    [
+      ...(counts.skipped === 'uncounted'
+        ? [t('reports.counts.skippedUncounted')]
+        : counts.skipped === 'counted'
+          ? [t('reports.counts.skipped')]
+          : []),
+      ...COUNT_COLUMNS.filter((column) => (counts[column] ?? 0) > 0).map((column) =>
+        t(`reports.counts.${column}`, { count: counts[column] ?? 0 }),
+      ),
+    ].join(' · ');
 
   const shown = entries?.length ?? 0;
   const hasMore = total !== undefined && total > shown && onShowMore !== undefined;

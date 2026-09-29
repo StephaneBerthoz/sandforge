@@ -1852,7 +1852,9 @@
       "failed_one": "{{count}} com falha",
       "failed_other": "{{count}} com falha",
       "notSent_one": "{{count}} não enviado",
-      "notSent_other": "{{count}} não enviados"
+      "notSent_other": "{{count}} não enviados",
+      "skipped": "ignorado",
+      "skippedUncounted": "ignorado, quantidade de registros desconhecida"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar mais",

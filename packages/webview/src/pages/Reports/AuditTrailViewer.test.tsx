@@ -166,6 +166,45 @@ describe('AuditTrailViewer', () => {
     expect(row.textContent).toContain('code: RUN_CANCELLED');
   });
 
+  it('names an object the run skipped whole, told apart from one it did nothing to', () => {
+    // Nothing in any column, an object a clone skipped before it could count
+    // its records was not listed: the entry of a run that lost it read as
+    // that of a run that never met it.
+    const skippedRun: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-forge-skipped',
+      outcome: 'failure',
+      objects: [
+        { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 7 },
+        {
+          objectApiName: 'Contract',
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          skipped: 'uncounted',
+        },
+        {
+          objectApiName: 'Task__c',
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          failed: 2,
+          skipped: 'counted',
+        },
+        { objectApiName: 'Case', created: 0, updated: 0, deleted: 0, failed: 0 },
+      ],
+    };
+    render(<AuditTrailViewer entries={[skippedRun]} />);
+    const row = screen.getByTestId('audit-aud-forge-skipped');
+
+    expect([...row.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Account 7 failed',
+      'Contract skipped, record count unknown',
+      'Task__c skipped · 2 failed',
+    ]);
+  });
+
   it('should show filters', () => {
     render(<AuditTrailViewer entries={entries} />);
     expect(screen.getByTestId('audit-filters')).toBeDefined();

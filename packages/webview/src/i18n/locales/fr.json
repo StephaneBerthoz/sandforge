@@ -1852,7 +1852,9 @@
       "failed_one": "{{count}} en échec",
       "failed_other": "{{count}} en échec",
       "notSent_one": "{{count}} non envoyé",
-      "notSent_other": "{{count}} non envoyés"
+      "notSent_other": "{{count}} non envoyés",
+      "skipped": "ignoré",
+      "skippedUncounted": "ignoré, nombre d'enregistrements inconnu"
     },
     "auditShowing": "{{shown}} affichées sur {{total}}",
     "showMore": "Afficher plus",

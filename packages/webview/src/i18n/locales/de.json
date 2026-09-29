@@ -1852,7 +1852,9 @@
       "failed_one": "{{count}} fehlgeschlagen",
       "failed_other": "{{count}} fehlgeschlagen",
       "notSent_one": "{{count}} nicht gesendet",
-      "notSent_other": "{{count}} nicht gesendet"
+      "notSent_other": "{{count}} nicht gesendet",
+      "skipped": "übersprungen",
+      "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt"
     },
     "auditShowing": "{{shown}} von {{total}} angezeigt",
     "showMore": "Mehr anzeigen",

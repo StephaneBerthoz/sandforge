@@ -708,6 +708,12 @@ export function jsonResult(summary: ExecutionSummary) {
       failedCount: e.failedCount,
       attemptedCount: e.attemptedCount,
       samples: e.samples,
+      // What tells the rows of a report apart, as the audit trail tells them:
+      // reference data unmatched by name, counted neither written nor failed,
+      // and an object skipped whole, whose count may be none for want of a
+      // read. Left out, a CI job read either as the rows the run held back.
+      ...(e.referenceData === true ? { referenceData: true } : {}),
+      ...(e.skipped === true ? { skipped: true } : {}),
     })),
     // remapTable only included in JSON output for CI consumers; the
     // text output stays terse (use --remap-csv for the file dump).

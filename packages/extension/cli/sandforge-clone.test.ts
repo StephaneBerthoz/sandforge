@@ -423,6 +423,41 @@ describe('sandforge-clone summary', () => {
     expect(failedOutright({ ...unread, successCount: 2 })).toBe(false);
   });
 
+  it('tells a CI job which errors are reference data unmatched and which an object skipped whole', () => {
+    // Dropped from each error, the two flags left a job reading unmatched
+    // reference data as rows held back, and a skipped object counting none
+    // as a note.
+    const reference = {
+      objectApiName: 'BusinessHours',
+      stage: 'scope' as const,
+      failedCount: 1,
+      attemptedCount: 2,
+      referenceData: true,
+      samples: [],
+    };
+    const skipped = {
+      objectApiName: 'Contract',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [],
+    };
+    const held = {
+      objectApiName: 'FeedItem',
+      stage: 'scope' as const,
+      failedCount: 2,
+      attemptedCount: 0,
+      samples: [],
+    };
+
+    expect(jsonResult(summary({ errors: [reference, skipped, held] })).errors).toEqual([
+      reference,
+      skipped,
+      held,
+    ]);
+  });
+
   it('names the objects whose read failed on the failed line, and to a CI job', () => {
     const unread = summary({ failedCount: 1, failedReads: ['Contact', 'Case'] });
 
