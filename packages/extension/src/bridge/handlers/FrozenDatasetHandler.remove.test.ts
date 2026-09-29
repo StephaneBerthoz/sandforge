@@ -438,6 +438,39 @@ describe('frozen:remove', () => {
       });
     });
 
+    it('refuses to verify a load a removal took part of, saying how many records it left and how to take them', async () => {
+      const first = await partlyRemoved();
+      store.set(
+        'frozen:lastRun',
+        {
+          contractPath: writeCountingContract(new SasPathGuard(), sasDir, {
+            version: 1,
+            orgId: TARGET_ORG,
+            datasetVersion: '1.0.0',
+            writtenAt: LOAD_ENDED,
+            loadStartedAt: LOAD_STARTED,
+            objects: {},
+          }),
+          datasetDir: path.join(sasDir, 'dataset'),
+          manifestPath: path.join(sasDir, 'dataset', 'manifest.json'),
+          targetOrgId: TARGET_ORG,
+          status: 'completed',
+          at: LOAD_ENDED,
+        },
+        'frozen',
+      );
+
+      await handler.handle(buildMsg('frozen:verify', { targetOrgId: TARGET_ORG }));
+
+      const refusals = posted<BaseMessage & { payload: { code: string; message: string } }>(
+        'frozen:verify:error',
+      );
+      expect(refusals.map((e) => e.payload.code)).toEqual(['LOAD_REMOVED']);
+      expect(refusals[0].payload.message).toBe(
+        `The removal of ${first?.finishedAt} took part of the records the last load created and left 2 in the org: a verification would read the ones it took as missing. Remove what is left, or reload the dataset, which purges or finds it again; then verify.`,
+      );
+    });
+
     it('stays offered while a removal of it keeps them again', async () => {
       const first = await partlyRemoved();
 

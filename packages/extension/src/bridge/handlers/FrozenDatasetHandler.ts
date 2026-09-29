@@ -1638,17 +1638,22 @@ export class FrozenDatasetHandler implements DomainHandler {
         return;
       }
       // Its records went: every one would read as missing, and the verdict
-      // would blame the load.
+      // would blame the load. A removal that left some took only part of it:
+      // said as gone, the load read as removed whole, and loaded again
+      // without Reload, the dataset would go in beside what the removal left.
       const last = await mappingStore.recorded();
       const removed = last?.removal;
-      if (removed) {
+      if (last && removed) {
+        const left = loadRecordsLeft(last).reduce((sum, object) => sum + object.ids.length, 0);
         sendHandlerError(
           this.deps,
           'frozen:verify',
           'frozen:verify:error',
           msg,
           new Error(
-            `The records the last load created were removed on ${removed.removedAt}. Load the dataset again, then verify.`,
+            left > 0
+              ? `The removal of ${removed.removedAt} took part of the records the last load created and left ${left} in the org: a verification would read the ones it took as missing. Remove what is left, or reload the dataset, which purges or finds it again; then verify.`
+              : `The records the last load created were removed on ${removed.removedAt}. Load the dataset again, then verify.`,
           ),
           { code: 'LOAD_REMOVED' },
         );
