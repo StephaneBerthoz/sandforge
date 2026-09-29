@@ -1957,6 +1957,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound13910": "Un chargement annulé se retire",
+      "fixRound13910Desc": "Un chargement Frozen annulé indique qu'un retrait reprend ce qu'il a créé, la recherche du catalogue a sa propre ligne, et l'entrée d'audit d'une exécution Forge nomme les objets qu'elle a entièrement ignorés, jusque dans le journal d'audit.",
       "fixRound1399": "Frozen nomme chaque phase",
       "fixRound1399Desc": "Le chargement Frozen nomme chacune de ses phases en toutes lettres dans votre langue, avec des lignes à part pour la lecture des correspondances et du dossier d'un pilote, et l'entrée d'audit d'une exécution Forge compte comme échouées les lignes qu'elle a retenues.",
       "fixRound1398": "Chaque réponse reste dans sa conversation",

@@ -1957,6 +1957,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound13910": "Las cargas canceladas se pueden deshacer",
+      "fixRound13910Desc": "Una carga de Frozen cancelada indica que una eliminación deshace lo que creó, la búsqueda del catálogo tiene su propia línea, y la entrada de auditoría de una ejecución de Forge nombra los objetos que omitió por completo, también en el registro de auditoría.",
       "fixRound1399": "Frozen nombra cada fase",
       "fixRound1399Desc": "La carga de Frozen nombra cada una de sus fases en su idioma, con líneas propias para la lectura de las correspondencias y de la carpeta de un piloto, y la entrada de auditoría de una ejecución de Forge cuenta como fallidas las filas que retuvo.",
       "fixRound1398": "Cada respuesta se queda en su conversación",

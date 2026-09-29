@@ -1957,6 +1957,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound13910": "Cancelled loads can be taken back",
+      "fixRound13910Desc": "A cancelled Frozen load says a removal takes back what it created, the catalog it looks up has a line of its own, and a Forge run's audit entry names the objects it skipped whole, on the Audit Trail page too.",
       "fixRound1399": "Frozen names each phase",
       "fixRound1399Desc": "The Frozen load names each of its phases in words in your language, with lines of their own for reading the mapping and a pilot's folder, and a Forge run's audit entry counts the rows it held back as failed.",
       "fixRound1398": "Each answer stays with its conversation",

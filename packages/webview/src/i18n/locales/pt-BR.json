@@ -1957,6 +1957,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound13910": "Carregamentos cancelados podem ser desfeitos",
+      "fixRound13910Desc": "Um carregamento do Frozen cancelado informa que uma remoção desfaz o que ele criou, a busca do catálogo tem uma linha própria, e a entrada de auditoria de uma execução do Forge nomeia os objetos que ela ignorou por inteiro, também no registro de auditoria.",
       "fixRound1399": "O Frozen nomeia cada fase",
       "fixRound1399Desc": "O carregamento do Frozen nomeia cada uma de suas fases no seu idioma, com linhas próprias para a leitura do mapeamento e da pasta de um piloto, e a entrada de auditoria de uma execução do Forge conta como falhas as linhas que reteve.",
       "fixRound1398": "Cada resposta fica na sua conversa",

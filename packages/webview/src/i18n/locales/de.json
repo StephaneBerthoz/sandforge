@@ -1957,6 +1957,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound13910": "Abgebrochene Ladevorgänge lassen sich zurücknehmen",
+      "fixRound13910Desc": "Ein abgebrochener Frozen-Ladevorgang sagt, dass eine Entfernung zurücknimmt, was er erstellt hat, die Katalogsuche hat eine eigene Zeile, und der Audit-Eintrag eines Forge-Laufs nennt die Objekte, die er ganz übersprungen hat, auch im Audit-Protokoll.",
       "fixRound1399": "Frozen benennt jede Phase",
       "fixRound1399Desc": "Der Frozen-Ladevorgang benennt jede seiner Phasen in Ihrer Sprache, mit eigenen Zeilen für das Lesen der Zuordnung und des Pilotordners, und der Audit-Eintrag eines Forge-Laufs zählt die zurückgehaltenen Zeilen als fehlgeschlagen.",
       "fixRound1398": "Jede Antwort bleibt in ihrer Unterhaltung",

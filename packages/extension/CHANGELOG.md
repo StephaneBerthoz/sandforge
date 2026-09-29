@@ -5,6 +5,24 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.10] - 2026-09-29
+
+A cancelled Frozen load says a removal takes it back, and Forge's audit entry
+names the objects a run skipped.
+
+### Fixed
+
+- **A cancelled Frozen load says a removal takes it back**, with what it
+  created, and Re-verify's refusal of a load that stopped part way says to
+  reload or remove it first.
+- **The Frozen load looks up the catalog the target holds on a line of its
+  own**, which says what it linked, or why a read failed.
+- **A Forge run's audit entry names the objects it skipped whole**, for a
+  failed parent or an object the target takes no insert of, and the Audit
+  Trail page shows them.
+- **A Forge object's line counts the rows it held back with its failures**,
+  as the run's totals and its audit entry do.
+
 ## [1.39.9] - 2026-09-27
 
 The Frozen load names each of its phases in words, and Forge's audit entry
