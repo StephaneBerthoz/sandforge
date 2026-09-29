@@ -429,13 +429,17 @@ export interface FrozenLoadReportInfo {
 /**
  * Load/verify phases surfaced in progress events. `mapping` reads what earlier
  * loads wrote, from the sas, and `pilot` selects a pilot's root folder, both
- * between the entry guards and what the load reuses.
+ * between the entry guards and what the load reuses. `catalog` looks up what
+ * the target already holds of the catalog — the standard price book, the
+ * selling models and their options — after what a reload reuses and before
+ * the alignment.
  */
 export type FrozenLoadPhase =
   | 'guards'
   | 'mapping'
   | 'pilot'
   | 'reload'
+  | 'catalog'
   | 'align'
   | 'placeholders'
   | 'insert'
@@ -460,8 +464,8 @@ export interface FrozenLoadProgress {
    * object, a purge, the placeholders or a pass a write of its own threw at,
    * its line saying what the failure kept back of it, and why; and a check
    * before the first write — the entry guards, the mapping, the root folder,
-   * what a reload reuses, the alignment, the required fields — that refused
-   * the load or threw, saying why.
+   * what a reload reuses, the catalog, the alignment, the required fields —
+   * that refused the load or threw, saying why.
    */
   status: 'started' | 'done' | 'error' | 'stopped';
   /** Progress percentage (0-100). */

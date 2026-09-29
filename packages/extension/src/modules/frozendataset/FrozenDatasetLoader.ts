@@ -7,10 +7,10 @@
  * Pipeline (every divergence is listed in the report, nothing is silent):
  *   1. entry guards (LoadGuards.ts) — sandbox-only, protected envs,
  *      mocked callouts, non-empty dataset;
- *   2. what the target already holds is matched: the standard price book,
- *      a selling model by its natural key, the option joining a product and
- *      a model both matched — and on a reload the records its identity keys
- *      find;
+ *   2. what the target already holds is matched: on a reload the records its
+ *      identity keys find, then the catalog — the standard price book, a
+ *      selling model by its natural key, the option joining a product and a
+ *      model both matched;
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks; an object the
  *      target lacks, or takes no insert of, is left out, listed, and its
@@ -222,9 +222,14 @@ export class LoadConfigError extends Error {
 
 /**
  * Raised when the load's cancel stops it between two writes. The mapping is
- * kept by then, so a reload finds what the load wrote — unless it created or
- * purged nothing, and the mapping is left as it was; `written` says what that
- * was, for the audit trail.
+ * kept by then, so a removal takes back what the load created and a reload
+ * finds it — unless it created or purged nothing, and the mapping is left as
+ * it was; `written` says what that was, for the audit trail.
+ *
+ * The message says what the load left and what takes it back, as a failed
+ * load's does. It named the reload alone: a cancel that had created 65
+ * records read as one only a reload could undo, where a removal took all 65
+ * back without loading again.
  */
 export class FrozenLoadCancelledError extends Error {
   constructor(
@@ -234,8 +239,7 @@ export class FrozenLoadCancelledError extends Error {
   ) {
     super(
       mappingKept
-        ? 'The load was cancelled before it had written the whole dataset. What it wrote is kept ' +
-            'in the mapping: a reload reuses or purges it.'
+        ? `The load was cancelled ${whatTheLoadLeft(written, undefined)}`
         : 'The load was cancelled before it created or purged a record: the mapping is left as it was.',
     );
     this.name = 'FrozenLoadCancelledError';
@@ -269,11 +273,25 @@ export class FrozenLoadFailedError extends Error {
 
 /**
  * What a load that failed once it had written says after why it failed: what
- * it left in the target — the records it created, per object, and how many
- * of the earlier loads' it purged — and whether the mapping names them.
+ * it left in the target, and whether the mapping names it. See
+ * {@link whatTheLoadLeft}.
  */
 function failedLoadMessage(
   cause: unknown,
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+  notKept: string | undefined,
+): string {
+  return `${extractErrorMessage(cause)}\nThe load failed ${whatTheLoadLeft(written, notKept)}`;
+}
+
+/**
+ * What a load that stopped once it had written — failed, or cancelled — left
+ * in the target: the records it created, per object, and how many of the
+ * earlier loads' it purged; and whether the mapping names them, for a removal
+ * and a reload, which the panel and the command line both offer. Follows
+ * `The load failed ` or `The load was cancelled `.
+ */
+function whatTheLoadLeft(
   written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
   notKept: string | undefined,
 ): string {
@@ -311,7 +329,9 @@ function failedLoadMessage(
         ? 'What it created is kept in the mapping: a removal takes it back, and a reload purges it or finds it again.'
         : 'What the earlier loads created and it did not purge is still named in the mapping, for a removal or the next reload.';
   }
-  return `${extractErrorMessage(cause)}\nThe load failed after it had ${left}. ${named}`;
+  return left === ''
+    ? `before it had written the whole dataset. ${named}`
+    : `after it had ${left}. ${named}`;
 }
 
 /** What `load` is handed of a load as it runs, to end it however it stops. */
@@ -581,11 +601,12 @@ function endOfAStep(refused: number, keptBack: number): FrozenLoadProgressEvent[
 /**
  * The line that ends a check the load makes before its first write — the
  * entry guards, the mapping of earlier loads, the pilot's root folder, what a
- * reload reuses, the alignment of the schema, the required fields — when it
- * refuses the load or a read of it throws: what the check could not say
- * (`notDone`: `Schema not aligned`), and why. Nothing is written by then, so
- * nothing is kept back. Left at the step that began it, a check that stopped
- * the load read as one still going beside the error the load ended on.
+ * reload reuses, the catalog the target holds, the alignment of the schema,
+ * the required fields — when it refuses the load or a read of it throws: what
+ * the check could not say (`notDone`: `Schema not aligned`), and why. Nothing
+ * is written by then, so nothing is kept back. Left at the step that began
+ * it, a check that stopped the load read as one still going beside the error
+ * the load ended on.
  */
 function endOfACheck(
   phase: FrozenLoadProgressEvent['phase'],
@@ -678,6 +699,15 @@ interface PlaceholderPlan {
 
 /** How one required field the dataset leaves empty will be filled. */
 type RequiredFieldPlan = PlaceholderPlan | { kind: 'default'; missing: MissingRequiredField };
+
+/** What looking up one object of the catalog in the target found. */
+interface CatalogLookup {
+  objectApiName: string;
+  /** How many of the dataset's records of it the load links to the target's. */
+  linked: number;
+  /** Why the target could not be asked, when it could not: it lacks the object, say. */
+  notAsked?: string;
+}
 
 export class FrozenDatasetLoader {
   private readonly config: FrozenLoadConfig;
@@ -836,21 +866,12 @@ export class FrozenDatasetLoader {
       })),
     };
 
-    // 3. What the target already holds, found before anything is written: the
-    //    standard price book, what the platform keeps one of, and on a reload
-    //    what the identity keys find.
+    // 3. What the target already holds, found before anything is written: on
+    //    a reload what the identity keys find, then the catalog — the
+    //    standard price book, what the platform keeps one of, the options
+    //    joining what the load links.
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
-    // The standard price book is matched, never inserted: every org has
-    // exactly one and none can be created. Matched before a reload purges,
-    // so the purge never reaches for it.
-    if (working.standardPricebook) {
-      const [book] = await this.deps.orgAccess.query(orgId, STANDARD_PRICEBOOK_SOQL);
-      if (typeof book?.Id === 'string') {
-        mapping.set(working.standardPricebook, book.Id);
-        reused.add(working.standardPricebook);
-      }
-    }
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     const placeholders: PlaceholderCreation[] = [];
     const perObject: PerObjectLoadResult[] = [];
@@ -925,23 +946,14 @@ export class FrozenDatasetLoader {
       written: { perObject, placeholders, purge },
     };
 
-    const linkedBefore = reused.size;
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
-      // Open until its reads are done — the identity keys, then what the
-      // target keeps one of, below: one that throws ends it failed, with why.
-      // See `running.endOpenLine`.
+      // Open until its reads are done: one that throws ends it failed, with
+      // why. See `running.endOpenLine`.
       running.endOpenLine = (stoppedBy) =>
         emit(endOfACheck('reload', 10, 'Reference data not reused', stoppedBy));
       await this.reuseByIdentityKeys(options, loading, mapping, reused);
-    }
-    // What the target already holds and keeps one of is linked on every load,
-    // and before a reload purges, as the standard book is: a model an earlier
-    // load created and this one finds again is kept, as its own.
-    await this.matchByNaturalKey(orgId, loading, mapping, reused);
-    await this.matchSellingModelOptions(orgId, loading, mapping, reused);
-    if (options.reload) {
-      // Ended here, with what it reused, before the alignment begins; the
+      // Ended here, with what it reused, before the catalog is looked up; the
       // purge has a line of its own once the required fields are checked.
       // Ended by the purge's line alone, it held the alignment and the check:
       // a load that stopped at either, or at a read of its own, left it at
@@ -950,9 +962,42 @@ export class FrozenDatasetLoader {
         phase: 'reload',
         status: 'done',
         progress: 10,
-        message: `Reference data: ${reused.size - linkedBefore} reused`,
+        message: `Reference data: ${reused.size} reused`,
       });
       running.endOpenLine = undefined;
+    }
+
+    // What the target already holds of the catalog is linked on every load
+    // that has some: after what a reload reuses by its identity keys, since
+    // an option joins a product they may find, and before a reload purges —
+    // the purge never reaches for the standard book, and a model an earlier
+    // load created and this one finds again is kept, as its own. On a line of
+    // its own, which a read that throws ends failed, with why. The standard
+    // book was read with no line open, and so were the selling models and
+    // their options on a load without Reload: a read that threw left the Load
+    // tab's last line at the step before it, ended done, and said why only in
+    // the error banner. A reload read them on the line of what it reuses,
+    // which a read of theirs that threw ended failed as its own.
+    if (loading.standardPricebook || catalogObjectsOf(loading).length > 0) {
+      emit({
+        phase: 'catalog',
+        status: 'started',
+        progress: 10,
+        message: 'Looking up the catalog the target already holds',
+      });
+      let found: string[];
+      try {
+        found = await this.lookUpTheCatalog(orgId, loading, mapping, reused);
+      } catch (err: unknown) {
+        emit(endOfACheck('catalog', 11, 'Catalog not looked up', err));
+        throw err;
+      }
+      emit({
+        phase: 'catalog',
+        status: 'done',
+        progress: 11,
+        message: `Catalog looked up: ${found.join('; ')}`,
+      });
     }
 
     // 4. RecordType resolution by DeveloperName + PersonContactId strip
@@ -2090,8 +2135,53 @@ export class FrozenDatasetLoader {
   }
 
   /**
+   * Link what the target already holds of the catalog, before anything is
+   * written: the standard price book, each record of an object the target
+   * keeps one of per natural key, then each option joining a product and a
+   * model this load links. What it found, as the catalog's line says it: the
+   * standard book linked or not found; for each object the dataset holds
+   * records of, how many of them it linked; and last, each object the target
+   * could not be asked about, with why.
+   */
+  private async lookUpTheCatalog(
+    orgId: string,
+    dataset: FrozenDataset,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<string[]> {
+    const found: string[] = [];
+    // The standard price book is matched, never inserted: every org has
+    // exactly one and none can be created.
+    const standardBook = dataset.standardPricebook;
+    if (standardBook) {
+      const [book] = await this.deps.orgAccess.query(orgId, STANDARD_PRICEBOOK_SOQL);
+      if (typeof book?.Id === 'string') {
+        mapping.set(standardBook, book.Id);
+        reused.add(standardBook);
+        found.push('standard price book linked');
+      } else {
+        found.push('standard price book not found');
+      }
+    }
+    const lookups = await this.matchByNaturalKey(orgId, dataset, mapping, reused);
+    const options = await this.matchSellingModelOptions(orgId, dataset, mapping, reused);
+    if (catalogObjectsOf(dataset).includes(SELLING_MODEL_OPTION_OBJECT)) {
+      lookups.push({ objectApiName: SELLING_MODEL_OPTION_OBJECT, linked: options });
+    }
+    for (const { objectApiName, linked, notAsked } of lookups) {
+      if (notAsked === undefined) found.push(`${objectApiName}: ${linked} linked`);
+    }
+    for (const { objectApiName, notAsked } of lookups) {
+      if (notAsked !== undefined) found.push(`${objectApiName} not looked up — ${notAsked}`);
+    }
+    return found;
+  }
+
+  /**
    * Link each record of an object the platform keeps one of per natural key
-   * to the one the target holds under that key (`NATURAL_KEYS`).
+   * to the one the target holds under that key (`NATURAL_KEYS`), and say, of
+   * each such object the dataset holds records of, how many it linked — or
+   * why the target could not be asked.
    *
    * A selling model is one per type, pricing term and unit, and a target that
    * sells under selling models holds the ones it sells under. Inserted again,
@@ -2113,36 +2203,44 @@ export class FrozenDatasetLoader {
     working: FrozenDataset,
     mapping: Map<string, string>,
     reused: Set<string>,
-  ): Promise<void> {
+  ): Promise<CatalogLookup[]> {
+    const lookups: CatalogLookup[] = [];
     for (const [objectApiName, keyFields] of Object.entries(NATURAL_KEYS)) {
-      const records = (
-        working.objects.find((o) => o.objectApiName === objectApiName)?.records ?? []
-      ).filter(
+      const held = working.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
+      if (held.length === 0) continue;
+      const records = held.filter(
         (r) =>
           !mapping.has(r.referenceId) &&
           keyFields.every((f) => r.fields[f] !== undefined && r.fields[f] !== ''),
       );
-      if (records.length === 0) continue;
-      let found: Array<string | undefined>;
-      try {
-        found = await recordsByNaturalKey(
-          (soql) => this.deps.orgAccess.query(orgId, soql),
-          objectApiName,
-          keyFields,
-          records.map((r) => r.fields),
-        );
-      } catch {
-        // A target without the object cannot be asked. Its absence is listed
-        // by the alignment, and any other refusal by the insert.
-        continue;
+      let found: Array<string | undefined> = [];
+      if (records.length > 0) {
+        try {
+          found = await recordsByNaturalKey(
+            (soql) => this.deps.orgAccess.query(orgId, soql),
+            objectApiName,
+            keyFields,
+            records.map((r) => r.fields),
+          );
+        } catch (err: unknown) {
+          // A target without the object cannot be asked. Its absence is
+          // listed by the alignment, and any other refusal by the insert; the
+          // catalog's line says why it was not asked.
+          lookups.push({ objectApiName, linked: 0, notAsked: extractErrorMessage(err) });
+          continue;
+        }
       }
+      let linked = 0;
       records.forEach((record, i) => {
         const id = found[i];
         if (id === undefined) return;
         mapping.set(record.referenceId, id);
         reused.add(record.referenceId);
+        linked++;
       });
+      lookups.push({ objectApiName, linked });
     }
+    return lookups;
   }
 
   /**
@@ -2156,13 +2254,15 @@ export class FrozenDatasetLoader {
    * it would be refused. Found the way Forge finds it, by the pair, before a
    * reload purges, for the reason the models are. An option of a product
    * this load writes is new with its product.
+   *
+   * @returns How many options it linked.
    */
   private async matchSellingModelOptions(
     orgId: string,
     working: FrozenDataset,
     mapping: Map<string, string>,
     reused: Set<string>,
-  ): Promise<void> {
+  ): Promise<number> {
     const joined: Array<{ referenceId: string; pair: Record<string, string> }> = [];
     for (const record of working.objects.find(
       (o) => o.objectApiName === SELLING_MODEL_OPTION_OBJECT,
@@ -2181,7 +2281,7 @@ export class FrozenDatasetLoader {
         },
       });
     }
-    if (joined.length === 0) return;
+    if (joined.length === 0) return 0;
     const held = await existingSellingModelOptions(
       (soql) => this.deps.orgAccess.query(orgId, soql),
       joined.map((j) => j.pair),
@@ -2190,6 +2290,7 @@ export class FrozenDatasetLoader {
       mapping.set(joined[index].referenceId, id);
       reused.add(joined[index].referenceId);
     }
+    return held.size;
   }
 
   /**
@@ -3789,6 +3890,18 @@ function catalogThePricesNeed(dataset: FrozenDataset, reached: ReadonlySet<strin
     soldUnder.has(keyOf(r.fields, optionKey)),
   );
   return [...standardPrices, ...options].map((r) => r.referenceId);
+}
+
+/**
+ * The objects of the catalog the target may already hold records of — each it
+ * keeps one of per natural key, and the option joining a product and a
+ * selling model — that the dataset holds records of: with the standard price
+ * book, what the load looks up in the target before it writes.
+ */
+function catalogObjectsOf(dataset: FrozenDataset): string[] {
+  return [...Object.keys(NATURAL_KEYS), SELLING_MODEL_OPTION_OBJECT].filter((objectApiName) =>
+    dataset.objects.some((o) => o.objectApiName === objectApiName && o.records.length > 0),
+  );
 }
 
 /** Find a record by referenceId across the dataset. */

@@ -1946,6 +1946,213 @@ describe('FrozenDatasetLoader — a catalog sold under selling models', () => {
       report.perObject.find((o) => o.objectApiName === 'ProductSellingModel')?.skippedDuplicates,
     ).toHaveLength(1);
   });
+
+  describe('its line, which says what the target already holds of it', () => {
+    // Looked up with no line open, a read of the catalog that threw left the
+    // Load tab's last line at the step before it, ended done, and said why
+    // only in the error banner. On a reload, the options were read inside the
+    // line of what it reused, which a read of theirs that threw ended failed
+    // as though the identity keys had.
+
+    /** Each line the load said of the catalog, in order: its status and its words. */
+    const catalogLines = (progress: readonly FrozenLoadProgressEvent[]) =>
+      progress.filter((e) => e.phase === 'catalog').map((e) => [e.status, e.message]);
+
+    /** The target of {@link sellingTarget}, whose reads of `failing` throw `error`. */
+    function failingReads(
+      target: ReturnType<typeof sellingTarget>,
+      failing: string,
+      error: string,
+    ): (orgId: string, soql: string) => Promise<Array<Record<string, unknown>>> {
+      return async (orgId, soql) => {
+        if (soql.includes(failing)) throw new Error(error);
+        return target.queryImpl(orgId, soql);
+      };
+    }
+
+    it('says what it linked, between the mapping and the alignment, on a load without Reload', async () => {
+      const dataset = soldUnderAModel();
+      const target = sellingTarget();
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({ dataset, writer: target.writer, queryImpl: target.queryImpl });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+
+      // The option joins a product this load writes: none is looked up.
+      expect(catalogLines(progress)).toEqual([
+        ['started', 'Looking up the catalog the target already holds'],
+        [
+          'done',
+          'Catalog looked up: standard price book linked; ProductSellingModel: 1 linked; ' +
+            'ProductSellingModelOption: 0 linked',
+        ],
+      ]);
+      expect([...new Set(progress.map((e) => e.phase))].slice(0, 4)).toEqual([
+        'guards',
+        'mapping',
+        'catalog',
+        'align',
+      ]);
+    });
+
+    it('ends it failed when the standard price book cannot be read, saying why', async () => {
+      // The mapping's line, ended done, was the last the Load tab showed.
+      const dataset = soldUnderAModel();
+      const target = sellingTarget();
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: target.writer,
+        queryImpl: failingReads(
+          target,
+          'IsStandard = true',
+          'INVALID_SESSION_ID: Session expired or invalid',
+        ),
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+      expect(target.calls).toEqual([]);
+      expect(progress.map((e) => [e.phase, e.status, e.message]).slice(-3)).toEqual([
+        ['mapping', 'done', 'Mapping read: 0 earlier load(s)'],
+        ['catalog', 'started', 'Looking up the catalog the target already holds'],
+        [
+          'catalog',
+          'error',
+          'Catalog not looked up — INVALID_SESSION_ID: Session expired or invalid',
+        ],
+      ]);
+    });
+
+    it("ends it failed on a reload when the options the target holds cannot be read, once the reload's line has said what it reused", async () => {
+      const dataset = soldUnderAModel();
+      const target = sellingTarget({ products: true, options: true });
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: target.writer,
+        queryImpl: failingReads(
+          target,
+          'FROM ProductSellingModelOption WHERE',
+          'QUERY_TIMEOUT: Your query request was running for too long.',
+        ),
+        config: { identityKeys: { Product2: ['ProductCode'] } },
+      });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe(
+        'QUERY_TIMEOUT: Your query request was running for too long.',
+      );
+      expect(target.calls).toEqual([]);
+      expect(
+        progress
+          .filter((e) => e.phase === 'reload' || e.phase === 'catalog')
+          .map((e) => [e.phase, e.status, e.message]),
+      ).toEqual([
+        ['reload', 'started', 'Reusing reference data'],
+        ['reload', 'done', 'Reference data: 1 reused'],
+        ['catalog', 'started', 'Looking up the catalog the target already holds'],
+        [
+          'catalog',
+          'error',
+          'Catalog not looked up — QUERY_TIMEOUT: Your query request was running for too long.',
+        ],
+      ]);
+      expect(progress.some((e) => e.phase === 'align')).toBe(false);
+    });
+
+    it('says, on a reload, what it linked once the identity keys found the product, before the purge, which leaves it in place', async () => {
+      const dataset = soldUnderAModel();
+      const sasDir = makeTmpDir();
+      await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+        new Map([
+          ['Product2-000001', TARGET_PRODUCT],
+          ['ProductSellingModel-000001', TARGET_MODEL],
+          ['ProductSellingModelOption-000001', TARGET_OPTION],
+          ['PricebookEntry-000001', '01uLASTLOAD'],
+        ]),
+      );
+      const target = sellingTarget({ products: true, options: true });
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        sasDir,
+        writer: target.writer,
+        queryImpl: target.queryImpl,
+        config: { identityKeys: { Product2: ['ProductCode'] } },
+      });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+      );
+
+      expect(
+        progress
+          .filter((e) => e.phase === 'reload' || e.phase === 'catalog')
+          .map((e) => [e.phase, e.status, e.message]),
+      ).toEqual([
+        ['reload', 'started', 'Reusing reference data'],
+        ['reload', 'done', 'Reference data: 1 reused'],
+        ['catalog', 'started', 'Looking up the catalog the target already holds'],
+        [
+          'catalog',
+          'done',
+          'Catalog looked up: standard price book linked; ProductSellingModel: 1 linked; ' +
+            'ProductSellingModelOption: 1 linked',
+        ],
+        ['reload', 'started', 'Purging what earlier loads created'],
+        ['reload', 'done', 'Reload pass done'],
+      ]);
+      expect(target.calls.filter((c) => c.op === 'delete').map((c) => c.payload)).toEqual([
+        ['01uLASTLOAD'],
+      ]);
+    });
+
+    it('says why the target could not be asked for a selling model, and goes on', async () => {
+      // A target without the object cannot be asked, and the alignment lists
+      // its absence: the line says why nothing of it was linked.
+      const dataset = soldUnderAModel();
+      const target = sellingTarget();
+      const describes = describeFromDataset(dataset);
+      delete describes.ProductSellingModel;
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes,
+        writer: target.writer,
+        queryImpl: failingReads(
+          target,
+          'FROM ProductSellingModel WHERE',
+          "INVALID_TYPE: sObject type 'ProductSellingModel' is not supported.",
+        ),
+      });
+
+      const report = await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+
+      expect(catalogLines(progress)).toEqual([
+        ['started', 'Looking up the catalog the target already holds'],
+        [
+          'done',
+          'Catalog looked up: standard price book linked; ProductSellingModelOption: 0 linked; ' +
+            "ProductSellingModel not looked up — INVALID_TYPE: sObject type 'ProductSellingModel' " +
+            'is not supported.',
+        ],
+      ]);
+      expect(report.alignment.excludedObjects.map((o) => o.objectApiName)).toEqual([
+        'ProductSellingModel',
+      ]);
+    });
+  });
 });
 
 describe('FrozenDatasetLoader — statuses with a lifecycle', () => {
@@ -3409,6 +3616,94 @@ describe('FrozenDatasetLoader — a cancel', () => {
     expect(calls.filter((c) => c.op === 'delete')).toEqual([
       { op: 'delete', objectApiName: 'Account', payload: ['001OLD-ACCOUNT'] },
     ]);
+  });
+
+  describe('its message', () => {
+    // It named the reload alone: "What it wrote is kept in the mapping: a
+    // reload reuses or purges it." Cancelled after the quotes, a real load
+    // had created 65 records, which a removal took back, all 65, without
+    // loading again.
+
+    /** What a removal would take next, per object, as its confirmation lists it. */
+    async function removalPlan(sasDir: string) {
+      const load = loadToRemove(
+        await new SasReferenceIdMappingStore(sasDir, {
+          guard: new SasPathGuard(repoRoot),
+        }).recordedLoads(),
+      );
+      return load ? loadCreatedRecords(load) : [];
+    }
+
+    it('says what the load created, and that a removal takes it back as a reload purges it', async () => {
+      const dataset = makeAccountContactDataset();
+      const calls: DmlCall[] = [];
+      const stop = new AbortController();
+      const writer = makeWriter(calls);
+      // A record id, the only kind a removal takes.
+      writer.insert = vi.fn(
+        async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+          calls.push({ op: 'insert', objectApiName, payload: records });
+          stop.abort();
+          return records.map(() => ({ id: '001000000000001', success: true, errors: [] }));
+        },
+      );
+      const deps = makeDeps({ dataset, writer });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { signal: stop.signal }))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect((error as Error).message).toBe(
+        'The load was cancelled after it had created 1 record(s) (Account: 1). What it created ' +
+          'is kept in the mapping: a removal takes it back, and a reload purges it or finds it again.',
+      );
+      expect(await removalPlan(deps.sasDir)).toEqual([
+        { objectApiName: 'Account', ids: ['001000000000001'] },
+      ]);
+    });
+
+    it('says what a reload purged, and that what the earlier load created and it did not purge is still named for a removal', async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+        new Map([
+          ['Account-000001', '001000000000091'],
+          ['Contact-000001', '003000000000092'],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+            { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+          ],
+          startedAt: new Date('2026-09-23T10:00:00.000Z'),
+        },
+      );
+      const calls: DmlCall[] = [];
+      const stop = new AbortController();
+      const writer = makeWriter(calls);
+      const remove = writer.delete;
+      writer.delete = vi.fn(async (...args: Parameters<FrozenDmlWriter['delete']>) => {
+        stop.abort();
+        return remove(...args);
+      });
+      const deps = makeDeps({ dataset, sasDir, writer });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { reload: true, signal: stop.signal }))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['delete:Contact']);
+      expect((error as Error).message).toBe(
+        'The load was cancelled after it had purged 1 record(s) that earlier loads created. ' +
+          'What the earlier loads created and it did not purge is still named in the mapping, ' +
+          'for a removal or the next reload.',
+      );
+      expect(await removalPlan(sasDir)).toEqual([
+        { objectApiName: 'Account', ids: ['001000000000091'] },
+      ]);
+    });
   });
 
   it('ends the placeholders stopped when the cancel comes before one, saying what they created and what it kept back', async () => {

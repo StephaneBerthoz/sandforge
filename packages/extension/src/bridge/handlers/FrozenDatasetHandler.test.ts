@@ -752,9 +752,15 @@ describe('FrozenDatasetHandler', () => {
         const [ended] = posted(deps, 'operation:completed');
         expect(ended.payload.result).toEqual({ aborted: true });
         expect(registry.get(String(ended.payload.operationId))?.status).toBe('aborted');
-        // The page's request is settled, with a code it shows as it is.
+        // The page's request is settled, with a code it shows as it is, and
+        // words the panel and the command line both print: what the load
+        // left, and that a removal takes it back without loading again.
         expect(posted(deps, 'frozen:load:error')[0].payload).toMatchObject({
           code: 'LOAD_CANCELLED',
+          message:
+            'The load was cancelled after it had created 2 record(s) (Account: 2). What it ' +
+            'created is kept in the mapping: a removal takes it back, and a reload purges it or ' +
+            'finds it again.',
         });
         expect(posted(deps, 'frozen:load:response')).toEqual([]);
         expect(new AuditTrailStore(store).list().entries).toEqual([
@@ -1341,8 +1347,17 @@ describe('FrozenDatasetHandler', () => {
 
         const errors = posted(deps, 'frozen:verify:error');
         expect(errors.map((error) => error.payload.code)).toEqual(['LOAD_STOPPED']);
-        expect(String(errors[0].payload.message)).toContain(
-          'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract',
+        // What to do, in words the panel and the command line both answer:
+        // the reload, or the removal first. It said to load the dataset again,
+        // and a load that is not a reload writes it beside what the stopped
+        // load wrote.
+        expect(String(errors[0].payload.message)).toBe(
+          'The last load stopped part way — it was cancelled, or failed once it had written — ' +
+            'and wrote no counting contract: the one in the sas counts an earlier load, and would ' +
+            'judge this one by it. Reload the dataset, which purges or finds again what the ' +
+            'stopped load wrote, or remove that load before loading the dataset again; then ' +
+            'verify. Loaded again without a reload, the dataset would go in beside what the ' +
+            'stopped load wrote.',
         );
         expect(posted(deps, 'frozen:verify:result')).toEqual([]);
         // No verdict written anywhere.

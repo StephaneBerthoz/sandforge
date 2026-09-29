@@ -268,6 +268,34 @@ describe('FrozenPage', () => {
     expect(badgeOf(/Patching cycle FKs/)).toBe('Second pass');
   });
 
+  it("names the catalog's line by its step, marked failed when a read of it threw", () => {
+    // Read with no line open, the catalog's read that threw left the mapping's
+    // line last, marked done, and said why only in the error banner.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      progress: [
+        {
+          phase: 'mapping',
+          status: 'done',
+          progress: 3,
+          message: 'Mapping read: 0 earlier load(s)',
+        },
+        {
+          phase: 'catalog',
+          status: 'error',
+          progress: 11,
+          message: 'Catalog not looked up — INVALID_SESSION_ID: Session expired or invalid',
+        },
+      ],
+    });
+    render(<FrozenPage />);
+
+    const badge = screen.getByText(/Catalog not looked up/).closest('li')?.firstElementChild;
+    expect(badge?.textContent).toBe('Catalog');
+    expect(badge?.className).toContain('bg-status-error');
+  });
+
   it('names a phase in the language the panel is set to', async () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await i18n.changeLanguage('fr');

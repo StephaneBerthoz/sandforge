@@ -1672,6 +1672,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       // keeps its mapping and writes no contract: verified after it, its
       // records were judged by the contract of the load before, and the
       // verdict was written into the manifest.
+      //
+      // What to do names the reload and the removal, which the panel and the
+      // command line both offer. It said to load the dataset again, and a load
+      // that is not a reload writes it again beside what the stopped load
+      // wrote, which stays in the org.
       if (!contractCountsLoad(readCountingContract(guard, lastRun.contractPath), last)) {
         sendHandlerError(
           this.deps,
@@ -1679,7 +1684,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           'frozen:verify:error',
           msg,
           new Error(
-            'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
+            'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Reload the dataset, which purges or finds again what the stopped load wrote, or remove that load before loading the dataset again; then verify. Loaded again without a reload, the dataset would go in beside what the stopped load wrote.',
           ),
           { code: 'LOAD_STOPPED' },
         );

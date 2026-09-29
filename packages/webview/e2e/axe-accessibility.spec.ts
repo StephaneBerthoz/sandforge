@@ -4650,8 +4650,9 @@ for (const theme of STATE_THEMES) {
       }
       await answerAll(page, 'frozen:load', 'frozen:load:error', {
         message:
-          'The load was cancelled before it had written the whole dataset. What it wrote is ' +
-          'kept in the mapping: a reload reuses or purges it.',
+          'The load was cancelled after it had created 204 record(s) (Account: 3, ' +
+          'Opportunity: 1, Contact: 200). What it created is kept in the mapping: a removal ' +
+          'takes it back, and a reload purges it or finds it again.',
         code: 'LOAD_CANCELLED',
         retryable: false,
       });
