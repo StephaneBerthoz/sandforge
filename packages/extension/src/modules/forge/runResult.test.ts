@@ -89,6 +89,30 @@ describe('finishedRunStatus', () => {
       'partial',
     );
   });
+
+  it('calls a run that skipped an object whole partial, though its report counts no record', () => {
+    // The target takes no insert of the object, and the run read one row of
+    // it only to know: nothing is counted as failed, and the object is lost.
+    const skipped = {
+      objectApiName: 'Case',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [],
+    };
+
+    expect(finishedRunStatus(summary({ errors: [skipped] }))).toBe('partial');
+    expect(
+      finishedRunStatus(
+        summary({ successCount: 0, linkedCount: 0, remapCount: 0, errors: [skipped] }),
+      ),
+    ).toBe('failure');
+    // A note counts no record and loses no object: the run still succeeded.
+    expect(finishedRunStatus(summary({ errors: [{ ...skipped, skipped: undefined }] }))).toBe(
+      'success',
+    );
+  });
 });
 
 describe('forgeRunResult', () => {

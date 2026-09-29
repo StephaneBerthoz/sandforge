@@ -17,20 +17,28 @@ export type ForgeRunStatus = ForgeExecutionResult['status'];
 /**
  * The status of a run the executor saw through to its end.
  *
- * A run with no failure succeeded: no record failed, and no object's read. A
- * read that failed is a failure whatever rows it counts — a record-scoped run
- * never learned how many its scope held, and counts none. One that failed
- * and settled records as well — created them, wrote over a match by external
- * id, or linked them to the record the target already held — did part of its
- * job, not none of it.
+ * A run with no failure succeeded: no record failed, no object's read, and no
+ * object was skipped whole. A read that failed is a failure whatever rows it
+ * counts — a record-scoped run never learned how many its scope held, and
+ * counts none. So is an object skipped whole, for a failed parent or because
+ * the target takes no insert of it while the run holds records of it: its
+ * report may count none, the run having read one row only to know, and a run
+ * that lost a whole object ended a success beside an audit entry naming it
+ * skipped. One that failed and settled records as well — created them, wrote
+ * over a match by external id, or linked them to the record the target
+ * already held — did part of its job, not none of it.
  */
 export function finishedRunStatus(
   summary: Pick<
     ExecutionSummary,
     'successCount' | 'updatedCount' | 'linkedCount' | 'failedCount' | 'failedReads'
-  >,
+  > &
+    Partial<Pick<ExecutionSummary, 'errors'>>,
 ): ForgeRunStatus {
-  if (summary.failedCount === 0 && summary.failedReads.length === 0) return 'success';
+  const skippedWhole = (summary.errors ?? []).some((error) => error.skipped === true);
+  if (summary.failedCount === 0 && summary.failedReads.length === 0 && !skippedWhole) {
+    return 'success';
+  }
   const settled = summary.successCount + summary.updatedCount + summary.linkedCount;
   return settled > 0 ? 'partial' : 'failure';
 }

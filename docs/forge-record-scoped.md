@@ -139,7 +139,11 @@ it meant to read, no more than `maxRecordsPerObject`. Either way a failed read
 is a failure of the run: it ends partial when it settled other records, and
 failed when it settled none. The run's history entry keeps them under the same
 name, and its results name them next to the success rate, which counts the
-records read and so leaves them out.
+records read and so leaves them out. So is an object skipped whole — for a
+failed parent, or because the target takes no insert of it while the clone
+holds records of it — though its report may count none: the run ends partial
+or failed the same way, where it ended a success beside an audit entry naming
+the object skipped.
 
 A run asked to copy files reads every object before it writes one, whatever
 its input mode: the files are measured against the target before anything is
