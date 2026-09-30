@@ -45,6 +45,8 @@ if (process.env.CI) reporter.push(['github']);
 
 export default defineConfig({
   testDir: './e2e',
+  // The panel is loaded once before the tests: see the file.
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
