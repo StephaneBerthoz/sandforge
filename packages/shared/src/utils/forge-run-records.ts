@@ -74,13 +74,14 @@ export function forgeRunCreatedRecords(
 /**
  * Whether the removals of a run's records — a Forge run's, a Frozen load's —
  * are through: the last one that marked it left none of them in the org.
- * One that kept some, changed since or held by records that stay, or had
- * some refused, leaves them for a removal of what is left.
+ * One that kept some, changed since or held by records that stay, had some
+ * refused, or was cancelled before it reached them all, leaves them for a
+ * removal of what is left.
  *
  * @param mark - What the run keeps of its removals; undefined before one marked it.
  */
 export function removalTookAll(mark: ForgeUndoMark | undefined): boolean {
-  return mark !== undefined && mark.kept + mark.refused === 0;
+  return mark !== undefined && mark.kept + mark.refused + (mark.notReached ?? 0) === 0;
 }
 
 /**

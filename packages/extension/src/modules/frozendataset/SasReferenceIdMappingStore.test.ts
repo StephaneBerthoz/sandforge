@@ -309,6 +309,23 @@ describe('SasReferenceIdMappingStore', () => {
       expect(recorded?.endedAt).toBe(ENDED);
     });
 
+    it('reads back from the file what a cancelled removal did not reach, with its mark', async () => {
+      const dir = makeTmpDir();
+      const store = await loaded(dir);
+      const mark = {
+        removedAt: '2026-09-24T11:00:00.000Z',
+        deleted: 1,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+        notReached: 1,
+      };
+
+      await store.recordRemoval(ENDED, { gone: [CONTACT], stamps: {}, mark });
+
+      expect((await store.recorded())?.removal).toEqual(mark);
+    });
+
     it('drops a stamp a later removal left on a record that then went', async () => {
       const dir = makeTmpDir();
       const store = await loaded(dir);

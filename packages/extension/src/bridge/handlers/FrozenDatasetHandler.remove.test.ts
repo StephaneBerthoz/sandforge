@@ -471,6 +471,51 @@ describe('frozen:remove', () => {
       );
     });
 
+    it('counts in the mark a removal cancelled between two others, and offers what it did not reach', async () => {
+      const first = await partlyRemoved();
+
+      // Cancelled from Live Operations while the contact left goes: the
+      // account is not reached.
+      org.onDelete(() => {
+        const [running] = registry.getRunning();
+        if (running) registry.abort(running.operationId);
+      });
+      await remove({ includeChanged: true });
+      const cancelled = answer();
+      expect(cancelled).toMatchObject({
+        status: 'cancelled',
+        leftBy: first?.finishedAt,
+        objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
+      });
+      expect((await status()).lastLoadRecords).toMatchObject({
+        created: [{ objectApiName: 'Account', count: 1 }],
+        removed: {
+          removedAt: cancelled?.finishedAt,
+          deleted: 2,
+          alreadyGone: 0,
+          kept: 0,
+          refused: 0,
+          notReached: 1,
+        },
+      });
+
+      org.onDelete(() => {});
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+      await remove();
+
+      expect(org.deletes).toEqual([{ object: 'Account', ids: [ACCOUNT] }]);
+      expect(answer()).toMatchObject({ status: 'success', leftBy: cancelled?.finishedAt });
+      // Every record the load created, whichever removal took it.
+      expect((await recorded())?.removal).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+    });
+
     it('stays offered while a removal of it keeps them again', async () => {
       const first = await partlyRemoved();
 
@@ -583,9 +628,18 @@ describe('frozen:remove', () => {
       expect.objectContaining({ module: 'frozen', status: 'cancelled', totalRecords: 3 }),
     ]);
     expect(trail()[0]).toMatchObject({ outcome: 'partial' });
-    // Not marked: the account is still there, and still the load's to remove.
+    // Marked with what it deleted and what it did not reach: the account is
+    // still there, and still the load's to remove.
+    const cancelled = answer();
     const load = await recorded();
-    expect(load?.removal).toBeUndefined();
+    expect(load?.removal).toEqual({
+      removedAt: cancelled?.finishedAt,
+      deleted: 2,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+      notReached: 1,
+    });
     expect(load?.created).toEqual([{ objectApiName: 'Account', referenceIds: ['Account-000001'] }]);
 
     org.onDelete(() => {});
@@ -594,7 +648,16 @@ describe('frozen:remove', () => {
 
     expect(answer()).toMatchObject({
       status: 'success',
+      leftBy: cancelled?.finishedAt,
       objects: [{ objectApiName: 'Account', deleted: 1 }],
+    });
+    // The mark counts what the cancelled removal took too.
+    expect((await recorded())?.removal).toEqual({
+      removedAt: answer()?.finishedAt,
+      deleted: 3,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
     });
   });
 

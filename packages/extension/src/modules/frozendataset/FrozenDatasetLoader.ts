@@ -56,6 +56,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
+  DELETED_PAST_DRAFT,
   EMAIL_MESSAGE,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
@@ -82,7 +83,7 @@ import type { OperationOutcome } from '../sync/DataSync.js';
 import { leftToThePlatformCoverage } from './manifest.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
-import { CLOCK_LEEWAY_MS } from '../forge/ForgeRunRemoval.js';
+import { CLOCK_LEEWAY_MS, takenAlong } from '../forge/ForgeRunRemoval.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
@@ -2483,11 +2484,11 @@ export class FrozenDatasetLoader {
    * objects are deactivated instead. Each record deleted, found deleted or
    * deactivated is noted in `settled`: no longer the earlier load's.
    *
-   * An order or a contract past Draft is set to Draft before anything is
-   * deleted, and one the purge leaves in the org — its delete refused, or not
-   * reached when a cancel or a failure stopped the purge — gets its status
-   * back on the way out, as Forge's removal gives it back: see
-   * {@link giveStatusesBack}.
+   * An order past Draft is set to Draft before anything is deleted, and one
+   * the purge leaves in the org — its delete refused, or not reached when a
+   * cancel or a failure stopped the purge — gets its status back on the way
+   * out, as Forge's removal gives it back: see {@link giveStatusesBack}. A
+   * contract past Draft is deleted as it stands (`DELETED_PAST_DRAFT`).
    *
    * @param notReached - Set on the way out to how many residuals no write of
    *   the purge answered for: at its end, the ones the load's cancel kept
@@ -2594,17 +2595,57 @@ export class FrozenDatasetLoader {
       countNotReached();
       throw err;
     }
+    // Read once every delete went out, as the removal reads it, and not after
+    // a cancel: stopped, the purge sends nothing more but its statuses back.
+    if (!options.signal?.aborted) await this.settleTakenAlong(options.orgId, purge, settled);
     await giveBack();
     countNotReached();
   }
 
   /**
+   * Count as purged the records the target refused that it no longer holds:
+   * a parent the purge deleted after them took them along (`takenAlong`),
+   * and each is no longer the earlier load's (`settled`).
+   *
+   * Children go first, and the target refuses some of them under their
+   * parent: a sandbox would not delete a contract item price under its
+   * activated contract, then deleted the contract, and the price with it.
+   * Counted among the failures, such a price ended the purge's line failed
+   * and the load with errors, for a record no longer in the org, and the
+   * mapping kept it with the earlier load, for the next reload or removal to
+   * find gone.
+   */
+  private async settleTakenAlong(
+    orgId: string,
+    purge: PurgeReport,
+    settled: Set<string>,
+  ): Promise<void> {
+    for (const objectApiName of new Set(purge.failures.map((failure) => failure.objectApiName))) {
+      const refused = purge.failures
+        .filter((failure) => failure.objectApiName === objectApiName)
+        .map((failure) => failure.recordId);
+      const read = (ids: readonly string[]) => this.readRecords(orgId, objectApiName, [], ids);
+      const gone = new Set((await takenAlong(refused, read)).map(recordKey));
+      if (gone.size === 0) continue;
+      const left = purge.failures.filter(
+        (failure) =>
+          failure.objectApiName !== objectApiName || !gone.has(recordKey(failure.recordId)),
+      );
+      purge.failures.splice(0, purge.failures.length, ...left);
+      purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + gone.size;
+      for (const key of gone) settled.add(key);
+    }
+  }
+
+  /**
    * Set to Draft the records to purge of an object with a status lifecycle —
-   * an order, a contract — that are past Draft, each noted in `drafted` with
-   * the status it had before the call is made: an update the target applied
-   * without answering is given back all the same. A refusal here shows again,
-   * with its reason, as the delete that follows; so does a record whose
-   * status could not be read, which is left as it is.
+   * an order — that are past Draft, each noted in `drafted` with the status
+   * it had before the call is made: an update the target applied without
+   * answering is given back all the same. A refusal here shows again, with
+   * its reason, as the delete that follows; so does a record whose status
+   * could not be read, which is left as it is. A contract is left as it
+   * stands, with no status to give back: the target deletes an activated one,
+   * and would not set it back to Draft (`DELETED_PAST_DRAFT`).
    */
   private async draftResiduals(
     options: FrozenLoadOptions,
@@ -2613,6 +2654,7 @@ export class FrozenDatasetLoader {
     stop: () => Promise<void>,
   ): Promise<void> {
     for (const [objectApiName, lifecycle] of Object.entries(STATUS_LIFECYCLES)) {
+      if (DELETED_PAST_DRAFT.has(objectApiName)) continue;
       const ids = plan.residuals.get(objectApiName);
       if (!ids || ids.length === 0) continue;
       const categories = await this.statusCategories(options.orgId, lifecycle);

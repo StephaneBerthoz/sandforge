@@ -68,7 +68,6 @@ import {
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
-  removalMarks,
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
 import { finishedRunStatus, forgeRunResult } from '../../modules/forge/runResult.js';
@@ -2126,13 +2125,13 @@ export class ForgeHandler implements DomainHandler {
         ...(leftBy ? { leftBy } : {}),
       });
 
-      // Marked once records went, or none was left to go, adding to what the
+      // Marked once records went, cancelled or not, adding to what the
       // removals before it took. Whatever it ended on, the entry keeps the
       // run's records it did not take, which the next removal sets out to
       // take — offered while there are any — with what it wrote to them and
       // when it ran, which the next one reads as its doing, not as changes
       // since the run.
-      const mark = removalMarks(result.status) ? removalMark(result, entry.undo) : undefined;
+      const mark = removalMark(result, total, entry.undo);
       const stamped = Object.keys(outcome.stamps).length > 0;
       const ran = outcome.span;
       const gone = new Set(outcome.gone);

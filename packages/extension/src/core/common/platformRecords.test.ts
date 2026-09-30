@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  DELETED_PAST_DRAFT,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   STATUS_NEEDS_CHILDREN,
@@ -1098,6 +1099,15 @@ describe('statusCategories', () => {
     });
 
     await expect(statusCategories(query, 'ContractStatus')).resolves.toBeUndefined();
+  });
+});
+
+describe('DELETED_PAST_DRAFT', () => {
+  it('names objects whose status follows a lifecycle, and not the order, deleted only as a draft', () => {
+    for (const objectApiName of DELETED_PAST_DRAFT) {
+      expect(STATUS_LIFECYCLES[objectApiName]).toBeDefined();
+    }
+    expect([...DELETED_PAST_DRAFT]).toEqual(['Contract']);
   });
 });
 

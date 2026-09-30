@@ -305,4 +305,17 @@ describe('ForgeRunRemovalMark', () => {
       'Records removed on 2026-09-23 12:00: 5 deleted · 1 already gone · 2 refused',
     );
   });
+
+  it('says how many records the last removal did not reach, once it was cancelled', () => {
+    render(
+      <ForgeRunRemovalMark
+        date="2026-09-30 09:10"
+        mark={{ removedAt: '', deleted: 6, alreadyGone: 0, kept: 0, refused: 0, notReached: 3 }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-mark').textContent).toBe(
+      'Records removed on 2026-09-30 09:10: 6 deleted · 3 not reached before the cancel',
+    );
+  });
 });

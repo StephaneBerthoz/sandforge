@@ -801,6 +801,22 @@ export const STATUS_LIFECYCLES: Readonly<Record<string, string>> = {
   Contract: 'ContractStatus',
 };
 
+/**
+ * Objects of {@link STATUS_LIFECYCLES} whose records past Draft the platform
+ * deletes as they stand, and will not set back to Draft: a removal of a run's
+ * records and a reload's purge send their delete with no Draft update before
+ * it, and have no status to give back after it. An order past Draft is not
+ * one: the platform deletes neither it nor its products until it is a draft
+ * again.
+ *
+ * On a real sandbox, an activated contract set back to Draft was refused —
+ * `FAILED_ACTIVATION`, "choisissez un statut du contrat valide et enregistrez
+ * vos modifications" — and, still activated, was deleted with the rows
+ * hanging from it. The removal and the purge sent that update all the same,
+ * the purge asking Production Guard about it first, for a refusal.
+ */
+export const DELETED_PAST_DRAFT: ReadonlySet<string> = new Set(['Contract']);
+
 /** Rows of another object the platform will not delete under a record past Draft. */
 export interface LockedPastDraft {
   /** The object of the rows. */
@@ -817,14 +833,24 @@ export interface LockedPastDraft {
  * Run for real, a removal kept two activated orders — the org had attached a
  * file to each on its activation — and still sent the deletes of their items,
  * refused "unable to modify activated or superseded order", and of their
- * actions, refused `ENTITY_IS_LOCKED`. Only what a real refusal named is
- * listed: an activated contract has not been seen to lock anything.
+ * actions, refused `ENTITY_IS_LOCKED`.
+ *
+ * On a real sandbox, the one row under an activated contract the org would
+ * not delete was its item price — `INVALID_INPUT`, "vous ne pouvez pas
+ * supprimer un prix de l'élément du contrat dans un contrat actif" — and it
+ * took one under a contract still in Draft. It deleted the rest hanging from
+ * the activated contract: an order in Draft, a contact role, an opportunity
+ * and a quote naming it, a task, an event, a note, an attachment, a file's
+ * link, feed items. It deleted the activated contract too, and its item
+ * prices with it ({@link DELETED_PAST_DRAFT}). Only what a real refusal named
+ * is listed.
  */
 export const LOCKED_PAST_DRAFT: Readonly<Record<string, readonly LockedPastDraft[]>> = {
   Order: [
     { object: 'OrderItem', lookup: 'OrderId' },
     { object: 'OrderAction', lookup: 'OrderId' },
   ],
+  Contract: [{ object: 'ContractItemPrice', lookup: 'ContractId' }],
 };
 
 /**

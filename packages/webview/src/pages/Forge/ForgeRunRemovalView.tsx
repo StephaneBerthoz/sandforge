@@ -237,14 +237,20 @@ export interface ForgeRunRemovalMarkProps {
   date: string;
 }
 
-/** The line a run whose records were removed carries in place of the action. */
+/**
+ * The line a run whose records were removed carries above its action: what
+ * every removal took, and what the last one left — kept, refused, or not
+ * reached before a cancel.
+ */
 export const ForgeRunRemovalMark: React.FC<ForgeRunRemovalMarkProps> = ({ mark, date }) => {
   const { t } = useTranslation();
+  const notReached = mark.notReached ?? 0;
   const parts = [
     mark.deleted > 0 ? counted(t, 'forge.history.resultDeleted', mark.deleted) : undefined,
     mark.alreadyGone > 0 ? counted(t, 'forge.history.resultGone', mark.alreadyGone) : undefined,
     mark.kept > 0 ? counted(t, 'forge.history.resultKept', mark.kept) : undefined,
     mark.refused > 0 ? counted(t, 'forge.history.resultRefused', mark.refused) : undefined,
+    notReached > 0 ? counted(t, 'forge.history.resultNotReached', notReached) : undefined,
   ].filter((part): part is string => part !== undefined);
   return (
     <p data-testid="forge-removal-mark" className="text-[10px] text-text-secondary">

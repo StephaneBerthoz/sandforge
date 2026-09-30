@@ -2482,7 +2482,8 @@
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、この実行が作成したものではないため {{org}} に残ります: {{names}}",
       "resultUnchecked": "未確認: {{objects}} のレコードは依存先のレコードから読み取れないため、そのレコードと一緒に削除されます。",
       "resultKept_other": "{{formatted}} 件を残しました",
-      "resultRefused_other": "{{formatted}} 件は拒否されました"
+      "resultRefused_other": "{{formatted}} 件は拒否されました",
+      "resultNotReached_other": "{{formatted}} 件はキャンセルまでに処理されませんでした"
     },
     "error": {
       "duplicateValue": {

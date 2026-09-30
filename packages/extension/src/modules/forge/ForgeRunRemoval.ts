@@ -17,6 +17,7 @@ import {
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  DELETED_PAST_DRAFT,
   LOCKED_PAST_DRAFT,
   STATUS_LIFECYCLES,
   standardPriceIds,
@@ -430,9 +431,10 @@ class ObjectRemoval {
  * with when it ran (`RunRemovalOutcome.span`), whether it ended, was stopped,
  * or was cancelled.
  *
- * An order or a contract past Draft is set to Draft before anything is
- * deleted, and one the removal leaves in the org — kept, refused, or not
- * reached when it was cancelled — gets its status back as it ends.
+ * An order past Draft is set to Draft before anything is deleted, and one the
+ * removal leaves in the org — kept, refused, or not reached when it was
+ * cancelled — gets its status back as it ends. A contract past Draft is
+ * deleted as it stands (`DELETED_PAST_DRAFT`).
  *
  * The objects go in the order their records can go, not the reverse of the
  * one they were written in. A clone writes its root first and its optional
@@ -692,6 +694,29 @@ export async function removeRunRecords(
 }
 
 /**
+ * Of the records the org refused to delete, the ones it no longer holds: a
+ * parent deleted after them took them along. Read back by their ids; unread,
+ * none is taken for gone. Shared by the removal of a run's records and a
+ * reload's purge, which both delete children before their parents.
+ *
+ * @param stillThere - Reads the records of `refused` the org holds now.
+ */
+export async function takenAlong(
+  refused: readonly string[],
+  stillThere: (ids: readonly string[]) => Promise<ReadonlyArray<Record<string, unknown>>>,
+): Promise<string[]> {
+  if (refused.length === 0) return [];
+  let rows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    rows = await stillThere(refused);
+  } catch {
+    return [];
+  }
+  const still = new Set(rows.map((row) => recordKey(String(row.Id))));
+  return refused.filter((id) => !still.has(recordKey(id)));
+}
+
+/**
  * Count as gone the refused records the org no longer holds: a parent the
  * removal deleted took them along.
  *
@@ -702,17 +727,10 @@ export async function removeRunRecords(
  * them, and that it ended partial.
  */
 async function settleTakenAlong(org: RemovalOrg, removal: ObjectRemoval): Promise<void> {
-  const refused = [...removal.refused.keys()];
-  if (refused.length === 0) return;
-  let rows: Array<Record<string, unknown>>;
-  try {
-    rows = await readRecordsById(org, removal.result.objectApiName, [], refused);
-  } catch {
-    return;
-  }
-  const still = new Set(rows.map((row) => recordKey(String(row.Id))));
-  for (const id of refused) {
-    if (still.has(recordKey(id))) continue;
+  const gone = await takenAlong([...removal.refused.keys()], (ids) =>
+    readRecordsById(org, removal.result.objectApiName, [], ids),
+  );
+  for (const id of gone) {
     removal.refused.delete(id);
     removal.gone.add(recordKey(id));
     removal.result.alreadyGone++;
@@ -788,8 +806,9 @@ interface Drafted {
 
 /**
  * Return to a Draft status, before anything is deleted, the run's records of
- * an object with a status lifecycle — an order, a contract — that are past
- * Draft and set to go.
+ * an object with a status lifecycle — an order — that are past Draft and set
+ * to go. A contract is left as it stands: the org deletes an activated one,
+ * and would not set it back to Draft (`DELETED_PAST_DRAFT`).
  *
  * An activated order keeps its products and itself from being deleted —
  * "unable to modify activated order" — and a clone now writes orders back as
@@ -816,7 +835,7 @@ async function backToDraft(
   const drafted: Drafted[] = [];
   for (const { objectApiName, ids } of order) {
     const lifecycle = STATUS_LIFECYCLES[objectApiName];
-    if (!lifecycle) continue;
+    if (!lifecycle || DELETED_PAST_DRAFT.has(objectApiName)) continue;
     const candidates = ids.filter((id) => goes(objectApiName, id));
     if (candidates.length === 0) continue;
     if (stopped()) return { drafted, cancelled: true };
@@ -1525,13 +1544,16 @@ class DependentsCheck {
   /**
    * Hold, among `candidates`, the rows the platform will not delete under a
    * record past Draft (`LOCKED_PAST_DRAFT`) — an activated order's items and
-   * actions — held by that record's object, and no longer holding it in turn.
+   * actions, an activated contract's item prices — held by that record's
+   * object, and no longer holding it in turn.
    *
    * Read as the object's turn comes: the removal has set to Draft by then
-   * every record of the run it deletes, so one still past Draft stays — held
-   * for records that stay, changed since the run, one the org would not set to
-   * Draft, or one the run did not create. Unread, the rows are sent, and the
-   * org's refusal says why they stay.
+   * every order of the run it deletes, so one still past Draft stays — held
+   * for records that stay, changed since the run, one the org would not set
+   * to Draft, or one the run did not create. An activated contract of the
+   * run's that the removal takes goes as it stands, its item prices with it
+   * (`DELETED_PAST_DRAFT`). Unread, the rows are sent, and the org's refusal
+   * says why they stay.
    */
   private async lockedPastDraft(
     objectApiName: string,

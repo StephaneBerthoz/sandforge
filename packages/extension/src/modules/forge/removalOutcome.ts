@@ -59,33 +59,45 @@ export function removalAuditObjects(
  * and is offered for what it left otherwise.
  *
  * A removal of what an earlier one left adds what it deleted, or found gone,
- * to what the earlier ones took, and says what it kept and had refused: the
- * run's line then counts the run's records, and not the few taken last.
+ * to what the earlier ones took, and says what it kept, had refused, and did
+ * not reach: the run's line then counts the run's records, and not the few
+ * taken last.
  *
+ * Every removal that took records marks the run, whether it ended or was
+ * cancelled. Only one that ended used to: cancelled between two others, a
+ * removal's deletes were in no count, and the line undercounted what went.
+ * What a cancel kept it from reaching is counted too, so the run stays
+ * offered for those (`removalTookAll`).
+ *
+ * @param planned - How many records the removal set out to take.
  * @param earlier - The mark the removals before this one left on the run.
+ * @returns Nothing when the removal took no record: it leaves the run, and
+ *   its mark, as it found them.
  */
 export function removalMark(
-  result: Pick<ForgeUndoResult, 'objects' | 'finishedAt'>,
+  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'finishedAt'>,
+  planned: number,
   earlier?: ForgeUndoMark,
-): ForgeUndoMark {
+): ForgeUndoMark | undefined {
   const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
     result.objects.reduce((total, o) => total + count(o), 0);
+  const deleted = sum((o) => o.deleted);
+  const alreadyGone = sum((o) => o.alreadyGone);
+  if (deleted + alreadyGone === 0) return undefined;
+  const kept = sum((o) => o.keptChanged + o.keptDependents);
+  const refused = sum((o) => o.refused);
+  // A removal that ended settled every record it set out to take; one
+  // cancelled left the rest where they were.
+  const notReached =
+    result.status === 'cancelled'
+      ? Math.max(0, planned - deleted - alreadyGone - kept - refused)
+      : 0;
   return {
     removedAt: result.finishedAt,
-    deleted: (earlier?.deleted ?? 0) + sum((o) => o.deleted),
-    alreadyGone: (earlier?.alreadyGone ?? 0) + sum((o) => o.alreadyGone),
-    kept: sum((o) => o.keptChanged + o.keptDependents),
-    refused: sum((o) => o.refused),
+    deleted: (earlier?.deleted ?? 0) + deleted,
+    alreadyGone: (earlier?.alreadyGone ?? 0) + alreadyGone,
+    kept,
+    refused,
+    ...(notReached > 0 ? { notReached } : {}),
   };
-}
-
-/**
- * Whether a removal that ended so marks its run: once records went, or none
- * was left to go. One stopped part way, or that deleted nothing, leaves the
- * run as it found it, and is offered again. A mark does not end the removals
- * of a run by itself: one that left records in the org is offered again for
- * those (`removalTookAll`).
- */
-export function removalMarks(status: ForgeUndoStatus): boolean {
-  return status === 'success' || status === 'partial';
 }

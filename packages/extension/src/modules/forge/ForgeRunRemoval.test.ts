@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/shared';
 
-import { removeRunRecords, type RemovalOrg, type RunRemovalOptions } from './ForgeRunRemoval.js';
+import {
+  removeRunRecords,
+  takenAlong,
+  type RemovalOrg,
+  type RunRemovalOptions,
+} from './ForgeRunRemoval.js';
 
 /** A fake record id: the object's prefix, then a counter. */
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -1498,6 +1503,158 @@ describe('removeRunRecords', () => {
     });
   });
 
+  describe('an activated contract, and the item prices the platform locks under it', () => {
+    const CONTRACT = id('800', 1);
+    const PRICES = [id('1Au', 1), id('1Au', 2)];
+
+    /**
+     * A contract activated in the target and item prices under it, as a real
+     * sandbox answered: it refuses to delete an item price while its contract
+     * is activated, and to set the contract back to Draft; it deletes the
+     * activated contract, and its item prices with it.
+     */
+    function activatedContract(contract: Row): FakeOrg {
+      const org = new FakeOrg();
+      org.add('ContractStatus', { Id: 'status-draft', ApiName: 'Draft', StatusCode: 'Draft' });
+      org.add('ContractStatus', {
+        Id: 'status-activated',
+        ApiName: 'Activated',
+        StatusCode: 'Activated',
+      });
+      org.add('Contract', contract);
+      org.add(
+        'ContractItemPrice',
+        ...PRICES.map((price) => runRow(price, { ContractId: CONTRACT })),
+      );
+      org.relationships.set('Contract', [
+        { childSObject: 'ContractItemPrice', field: 'ContractId', cascadeDelete: true },
+      ]);
+      org.refuse = (object, row) => {
+        const activated = (org.rows.get('Contract') ?? []).some(
+          (c) => c.Id === row.ContractId && c.Status === 'Activated',
+        );
+        return object === 'ContractItemPrice' && activated
+          ? {
+              statusCode: 'INVALID_INPUT',
+              message: 'cannot delete a contract item price in an active contract',
+            }
+          : undefined;
+      };
+      org.refuseUpdate = (object, record) =>
+        object === 'Contract' && record.Status === 'Draft'
+          ? { statusCode: 'FAILED_ACTIVATION', message: 'Choose a valid contract status.' }
+          : undefined;
+      return org;
+    }
+
+    it('keeps the item prices the run added to an activated contract it did not create, for the contract', async () => {
+      const org = activatedContract({
+        Id: CONTRACT,
+        CreatedDate: BEFORE_RUN,
+        LastModifiedDate: BEFORE_RUN,
+        Status: 'Activated',
+      });
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'ContractItemPrice', ids: PRICES }],
+        options(),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'ContractItemPrice',
+          deleted: 0,
+          keptDependents: 2,
+          refused: 0,
+          heldBy: ['Contract'],
+          reasons: [],
+        }),
+      ]);
+      expect(org.deletes).toEqual([]);
+    });
+
+    it("lets the item prices go with an activated contract of the run's, which the org will not set back to Draft", async () => {
+      const org = activatedContract(runRow(CONTRACT, { Status: 'Activated' }));
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'ContractItemPrice', ids: PRICES },
+          { objectApiName: 'Contract', ids: [CONTRACT] },
+        ],
+        options(),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'ContractItemPrice',
+          deleted: 0,
+          alreadyGone: 2,
+          keptDependents: 0,
+          refused: 0,
+        }),
+        expect.objectContaining({ objectApiName: 'Contract', deleted: 1, refused: 0 }),
+      ]);
+      // Sent first and refused, the item prices held their contract, and the
+      // removal left both. Held for the contract, they no longer hold it: it
+      // goes first, and takes them along.
+      expect(org.deletes[0]).toEqual({ object: 'Contract', ids: [CONTRACT] });
+      expect(org.rows.get('ContractItemPrice')).toEqual([]);
+    });
+
+    it("deletes an activated contract of the run's as it stands, sending no Draft update the org would refuse", async () => {
+      const org = activatedContract(runRow(CONTRACT, { Status: 'Activated' }));
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'ContractItemPrice', ids: PRICES },
+          { objectApiName: 'Contract', ids: [CONTRACT] },
+        ],
+        options(),
+      );
+
+      expect(org.updates).toEqual([]);
+      expect(outcome.objects.find((o) => o.objectApiName === 'Contract')).toMatchObject({
+        deleted: 1,
+        reasons: [],
+      });
+    });
+
+    it('says nothing of a status to give back to an activated contract that stays: it never lost one', async () => {
+      // Its delete refused, the contract stays; set to Draft first, its status
+      // was then read back to be restored, and a read that failed was said to
+      // have left it at Draft.
+      const org = activatedContract(runRow(CONTRACT, { Status: 'Activated' }));
+      org.rows.set('ContractItemPrice', []);
+      org.refusals.set(CONTRACT, { statusCode: 'DELETE_FAILED', message: 'A flow refused it.' });
+      let statusReads = 0;
+      org.onQuery = (soql) => {
+        if (soql.startsWith('SELECT Id, Status FROM Contract ') && ++statusReads > 1) {
+          org.failingQueries.push(/^SELECT Id, Status FROM Contract /);
+        }
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'Contract', ids: [CONTRACT] }],
+        options(),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Contract',
+          deleted: 0,
+          refused: 1,
+          reasons: ['DELETE_FAILED: A flow refused it.'],
+        }),
+      ]);
+      expect(org.updates).toEqual([]);
+      expect(org.rows.get('Contract')?.[0]?.Status).toBe('Activated');
+    });
+  });
+
   describe('a record that would have the org refuse the delete of the one it points at', () => {
     const PRICE = id('01u', 1);
     const LINE_ITEM = id('00k', 9);
@@ -2250,5 +2407,26 @@ describe('removeRunRecords', () => {
     expect(progress.map(([settled]) => settled)).toEqual(
       [...progress.map(([s]) => s)].sort((a, b) => a - b),
     );
+  });
+});
+
+describe('takenAlong', () => {
+  it('names the refused records the org no longer holds, whichever length their id comes back in', async () => {
+    const refused = [id('0ER', 1), id('0ER', 2), id('0ER', 3)];
+
+    const gone = await takenAlong(refused, async () => [{ Id: refused[1].slice(0, 15) }]);
+
+    expect(gone).toEqual([refused[0], refused[2]]);
+  });
+
+  it('takes none for gone when they cannot be read, and reads nothing for none', async () => {
+    const failing = vi.fn(async (): Promise<Array<Record<string, unknown>>> => {
+      throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+    });
+    const idle = vi.fn(async (): Promise<Array<Record<string, unknown>>> => []);
+
+    await expect(takenAlong([id('0ER', 1)], failing)).resolves.toEqual([]);
+    await expect(takenAlong([], idle)).resolves.toEqual([]);
+    expect(idle).not.toHaveBeenCalled();
   });
 });

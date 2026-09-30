@@ -620,6 +620,39 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  it('offers what a cancelled removal did not reach, and says what it took', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[
+          {
+            ...REMOVABLE_RUN,
+            undo: {
+              removedAt: '2026-09-30T09:10:00.000Z',
+              deleted: 2,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+              notReached: 1,
+            },
+            removalLeft: [rid('001', 1)],
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
+      /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 2 deleted · 1 not reached before the cancel$/,
+    );
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Account: 1 record']);
+  });
+
   it('says when records were removed is unknown when the stored time is not a date', () => {
     render(
       <ForgeHistoryPanel

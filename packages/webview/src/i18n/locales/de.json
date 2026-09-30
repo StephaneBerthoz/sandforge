@@ -2611,7 +2611,9 @@
       "resultKept_one": "{{formatted}} behalten",
       "resultKept_other": "{{formatted}} behalten",
       "resultRefused_one": "{{formatted}} abgelehnt",
-      "resultRefused_other": "{{formatted}} abgelehnt"
+      "resultRefused_other": "{{formatted}} abgelehnt",
+      "resultNotReached_one": "{{formatted}} vor dem Abbruch nicht erreicht",
+      "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht"
     },
     "error": {
       "duplicateValue": {

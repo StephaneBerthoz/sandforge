@@ -359,8 +359,9 @@ export interface ForgeUndoObjectResult {
    * since the run, one added or changed since — or would have the org refuse
    * their delete: a record pointing at them through a lookup the org restricts
    * the delete by, a custom price holding its product's standard one, an
-   * active price its selling model option, and an order past Draft that stays
-   * the items and actions the platform locks under it.
+   * active price its selling model option, an order past Draft that stays
+   * the items and actions the platform locks under it, and an activated
+   * contract that stays its item prices.
    */
   keptDependents: number;
   /** Records the org refused to delete. */
@@ -413,11 +414,12 @@ export interface ForgeUndoResult {
 
 /**
  * What a history entry remembers of the removals of the records its run
- * created, once one ended having deleted some, or finding none left to go:
- * when the last such removal ended, the records deleted and found gone by
- * all of them, and what the last one kept or had refused. One that left
- * none in the org took the run back, and is not offered again; one that left
- * some is offered again, for those.
+ * created, once one deleted some or found some gone, whether it ended or was
+ * cancelled: when the last such removal ended, the records deleted and found
+ * gone by all of them, and what the last one left in the org — kept, refused,
+ * or not reached before a cancel. One that left none in the org took the run
+ * back, and is not offered again; one that left some is offered again, for
+ * those.
  */
 export interface ForgeUndoMark {
   /** ISO 8601 timestamp of when the last removal ended. */
@@ -430,6 +432,12 @@ export interface ForgeUndoMark {
   kept: number;
   /** Records the org refused the last removal. */
   refused: number;
+  /**
+   * Records the last removal did not reach, cancelled before their turn: the
+   * next removal takes them. Absent when it reached every record it set out
+   * to take, and from marks kept before cancelled removals marked the run.
+   */
+  notReached?: number;
 }
 
 /**
@@ -681,7 +689,7 @@ export interface ForgeExecutionResult {
   targetOrgId?: string;
   /**
    * Set once a removal of the records this run created deleted some, or found
-   * none left to go: see {@link ForgeUndoMark}.
+   * some gone, cancelled or not: see {@link ForgeUndoMark}.
    */
   undo?: ForgeUndoMark;
   /**

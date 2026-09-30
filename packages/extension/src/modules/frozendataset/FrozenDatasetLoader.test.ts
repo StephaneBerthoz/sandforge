@@ -2566,6 +2566,16 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     ).resolves.toHaveLength(1);
   });
 
+  /**
+   * The target, as the purge reads it back once its deletes went out: the
+   * account it refused is still there.
+   */
+  const refusedAccountStays = async (
+    _org: string,
+    soql: string,
+  ): Promise<Array<Record<string, unknown>>> =>
+    soql.startsWith('SELECT Id FROM Account WHERE Id IN') ? [{ Id: '001OLD-ACCOUNT' }] : [];
+
   it('keeps what the target refused to purge, for the next reload and for a removal', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
@@ -2581,7 +2591,7 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
           : { id, success: true, errors: [] },
       ),
     );
-    const deps = makeDeps({ dataset, sasDir, writer });
+    const deps = makeDeps({ dataset, sasDir, writer, queryImpl: refusedAccountStays });
 
     const report = await new FrozenDatasetLoader(deps).load(
       makeOptions(deps, dataset, { reload: true }),
@@ -2623,7 +2633,7 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
       ),
     );
     const progress: FrozenLoadProgressEvent[] = [];
-    const deps = makeDeps({ dataset, sasDir, writer });
+    const deps = makeDeps({ dataset, sasDir, writer, queryImpl: refusedAccountStays });
 
     await new FrozenDatasetLoader(deps).load(
       makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
@@ -3089,6 +3099,72 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
       [{ Id: '801OLD-ORDER', Status: 'ST001' }],
     ]);
     expect(report.purge.deleted).toMatchObject({ Order: 2, OrderItem: 1 });
+  });
+
+  it('deletes an activated contract of the last load as it stands: no Draft update, and nothing left at Draft', async () => {
+    // A sandbox refused an activated contract its Draft, and deleted it as it
+    // was. Sent all the same, the update asked Production Guard first, and a
+    // contract whose status could not be read back on the way out was listed
+    // among the purge's failures as set to Draft and left there.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await seedPreviousMapping(sasDir, {
+      'Contract-000001': '800OLD-CONTRACT',
+      'Order-000001': '801OLD-ORDER',
+    });
+    const calls: DmlCall[] = [];
+    const writer = makeWriter(calls);
+    const update = writer.update;
+    writer.update = vi.fn(async (...args: Parameters<FrozenDmlWriter['update']>) => {
+      const [, objectApiName, records] = args;
+      if (objectApiName !== 'Contract') return update(...args);
+      calls.push({ op: 'update', objectApiName, payload: records });
+      return records.map((r) => ({
+        id: String(r.Id),
+        success: false,
+        errors: ['FAILED_ACTIVATION: Choose a valid contract status and save your changes.'],
+      }));
+    });
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer,
+      queryImpl: async (_org, soql) => {
+        if (soql.includes('FROM OrderStatus') || soql.includes('FROM ContractStatus')) {
+          return [
+            { ApiName: 'Draft', StatusCode: 'Draft' },
+            { ApiName: 'Activated', StatusCode: 'Activated' },
+          ];
+        }
+        if (soql.startsWith('SELECT Id, Status FROM Contract WHERE')) {
+          throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+        }
+        const pastDraft = { Status: 'Activated', LastModifiedDate: '2026-09-23T10:00:05Z' };
+        if (soql.startsWith('SELECT Id, Status, LastModifiedDate FROM Contract WHERE')) {
+          return [{ Id: '800OLD-CONTRACT', ...pastDraft }];
+        }
+        return soql.startsWith('SELECT Id, Status, LastModifiedDate FROM Order WHERE')
+          ? [{ Id: '801OLD-ORDER', ...pastDraft }]
+          : [];
+      },
+    });
+    const check = vi.spyOn(deps.guard, 'check');
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true }),
+    );
+
+    // The order still goes back to Draft first; the contract is left as it is.
+    expect(calls.filter((c) => c.op === 'update').map((c) => c.payload)).toEqual([
+      [{ Id: '801OLD-ORDER', Status: 'Draft' }],
+    ]);
+    expect(
+      check.mock.calls.filter(
+        ([request]) => request.operation === 'update' && request.objectName === 'Contract',
+      ),
+    ).toEqual([]);
+    expect(report.purge.deleted).toMatchObject({ Contract: 1, Order: 1 });
+    expect(report.purge.failures).toEqual([]);
   });
 
   it('deletes the custom prices of the last load before the standard ones', async () => {
@@ -6337,6 +6413,240 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
     expect(target.row('Order', ORDER)?.Status).toBe('ST002');
     const [, earlier] = await recordedLoads(sasDir);
     expect(earlier.removalStamps).toEqual({});
+  });
+});
+
+describe("FrozenDatasetLoader — what a reload's purge is refused, and a parent then takes along", () => {
+  // A sandbox would not delete a contract item price under its activated
+  // contract, then deleted the contract, and the price with it. Purged
+  // children first, the price was counted among the failures: the purge's
+  // line ended failed, and the load with errors, for a record that was gone.
+
+  const CONTRACT = '800000000000001AAA';
+  const PRICE = '1Au000000000001AAA';
+  const AT_LOAD = '2026-09-23T10:00:05.000+0000';
+
+  type Row = Record<string, unknown> & { Id: string };
+
+  /**
+   * The target in memory: the earlier load's activated contract and its item
+   * price. It refuses to delete an item price while its contract is
+   * activated, and deletes the contract, and its item prices with it.
+   */
+  class ContractTarget {
+    readonly rows = new Map<string, Row[]>([
+      [
+        'ContractStatus',
+        [
+          { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' },
+          { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' },
+        ],
+      ],
+      [
+        'Contract',
+        [{ Id: CONTRACT, Status: 'Activated', CreatedDate: AT_LOAD, LastModifiedDate: AT_LOAD }],
+      ],
+      [
+        'ContractItemPrice',
+        [{ Id: PRICE, ContractId: CONTRACT, CreatedDate: AT_LOAD, LastModifiedDate: AT_LOAD }],
+      ],
+    ]);
+    readonly queries: string[] = [];
+    private inserted = 0;
+
+    /** What a query of the shapes the loader sends answers. */
+    select(soql: string): Row[] {
+      this.queries.push(soql);
+      const match = /^SELECT (.+?) FROM (\w+)(?: WHERE (\w+) IN \((.*?)\))?(?: LIMIT \d+)?$/.exec(
+        soql,
+      );
+      if (!match) return [];
+      const [, columns, object, field, list] = match;
+      const wanted = list?.split(', ').map((quoted) => quoted.slice(1, -1));
+      return (this.rows.get(object) ?? [])
+        .filter((row) => !wanted || wanted.includes(String(row[field])))
+        .map((row) => ({
+          Id: row.Id,
+          ...Object.fromEntries(columns.split(', ').map((c) => [c, row[c]])),
+        }));
+    }
+
+    delete(object: string, ids: string[]): OperationOutcome[] {
+      return ids.map((id) => {
+        const row = (this.rows.get(object) ?? []).find((r) => r.Id === id);
+        if (!row) return { id, success: false, errors: ['ENTITY_IS_DELETED: entity is deleted'] };
+        const contract = (this.rows.get('Contract') ?? []).find((c) => c.Id === row.ContractId);
+        if (object === 'ContractItemPrice' && contract?.Status === 'Activated') {
+          return {
+            id,
+            success: false,
+            errors: ['INVALID_INPUT: cannot delete a contract item price in an active contract'],
+          };
+        }
+        this.rows.set(
+          object,
+          (this.rows.get(object) ?? []).filter((r) => r.Id !== id),
+        );
+        if (object === 'Contract') {
+          this.rows.set(
+            'ContractItemPrice',
+            (this.rows.get('ContractItemPrice') ?? []).filter((price) => price.ContractId !== id),
+          );
+        }
+        return { id, success: true, errors: [] };
+      });
+    }
+
+    /** The loader's writer, answering as the target answers. */
+    writer(): FrozenDmlWriter {
+      return {
+        insert: vi.fn(async (_org: string, object: string, records: Record<string, unknown>[]) =>
+          records.map((record) => {
+            const id = `${object.slice(0, 3)}${String(++this.inserted).padStart(12, '0')}NEW`;
+            this.rows.set(object, [...(this.rows.get(object) ?? []), { ...record, Id: id }]);
+            return { id, success: true, errors: [] };
+          }),
+        ),
+        update: vi.fn(async (_org: string, _object: string, records: Record<string, unknown>[]) =>
+          records.map((record) => ({ id: String(record.Id), success: true, errors: [] })),
+        ),
+        delete: vi.fn(async (_org: string, object: string, ids: string[]) =>
+          this.delete(object, ids),
+        ),
+      };
+    }
+  }
+
+  /** The mapping of the load that created the contract and its item price. */
+  async function contractLoaded(sasDir: string): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+      now: () => new Date('2026-09-23T10:00:06.000Z'),
+    }).persist(
+      new Map([
+        ['Contract-000001', CONTRACT],
+        ['ContractItemPrice-000001', PRICE],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Contract', referenceIds: ['Contract-000001'] },
+          { objectApiName: 'ContractItemPrice', referenceIds: ['ContractItemPrice-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+  }
+
+  /** The dataset loaded again: a contract, and an item price under it, written after it. */
+  const contractDataset = (): FrozenDataset => ({
+    datasetVersion: '1.0.0',
+    objects: [
+      {
+        objectApiName: 'Contract',
+        records: [{ referenceId: 'Contract-000001', fields: { Status: 'Draft' } }],
+      },
+      {
+        objectApiName: 'ContractItemPrice',
+        records: [
+          { referenceId: 'ContractItemPrice-000001', fields: { ContractId: 'Contract-000001' } },
+        ],
+      },
+    ],
+    recordTypes: {},
+    personContactSidecar: [],
+  });
+
+  /** The loads the sas records, the last first. */
+  const recordedLoads = (sasDir: string) =>
+    new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recordedLoads();
+
+  /** Whether a load the sas records still names the item price. */
+  const namesThePrice = async (sasDir: string): Promise<boolean> =>
+    (await recordedLoads(sasDir)).some((load) =>
+      loadCreatedRecords(load).some(({ ids }) => ids.includes(PRICE)),
+    );
+
+  it('counts as purged an item price the target refused under its activated contract, which the contract took along', async () => {
+    const target = new ContractTarget();
+    const sasDir = makeTmpDir();
+    await contractLoaded(sasDir);
+    const dataset = contractDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+    );
+
+    expect(target.rows.get('ContractItemPrice')?.map((row) => row.Id)).not.toContain(PRICE);
+    expect(report.purge.deleted).toEqual({ ContractItemPrice: 1, Contract: 1 });
+    expect(report.purge.failures).toEqual([]);
+    expect(report.status).toBe('completed');
+    expect(
+      progress
+        .filter((e) => e.phase === 'reload' && e.status !== 'started')
+        .map((e) => [e.status, e.message])
+        .at(-1),
+    ).toEqual(['done', 'Reload pass done']);
+    // No longer the earlier load's: neither the next reload nor a removal
+    // sets out to take it again.
+    expect(await namesThePrice(sasDir)).toBe(false);
+    expect(await recordedLoads(sasDir)).toHaveLength(1);
+  });
+
+  it('leaves an item price the cancel came after to the next reload, which finds it gone', async () => {
+    const target = new ContractTarget();
+    const sasDir = makeTmpDir();
+    await contractLoaded(sasDir);
+    const dataset = contractDataset();
+    // Cancelled as the contract's delete goes out: the purge sends nothing
+    // more, not even the read that would find its item price gone.
+    const stop = new AbortController();
+    const writes = target.writer();
+    const writer: FrozenDmlWriter = {
+      ...writes,
+      delete: async (...args) => {
+        const outcomes = await writes.delete(...args);
+        if (args[1] === 'Contract') stop.abort();
+        return outcomes;
+      },
+    };
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer,
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+
+    const error = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { reload: true, signal: stop.signal }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(target.queries.filter((q) => q.startsWith('SELECT Id FROM ContractItemPrice'))).toEqual(
+      [],
+    );
+    // Kept with the earlier load: what a removal of it would take, and find gone.
+    expect(await namesThePrice(sasDir)).toBe(true);
+
+    const deps2 = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+    const report = await new FrozenDatasetLoader(deps2).load(
+      makeOptions(deps2, dataset, { reload: true }),
+    );
+
+    expect(report.purge.deleted).toEqual({ ContractItemPrice: 1 });
+    expect(report.purge.failures).toEqual([]);
+    expect(await namesThePrice(sasDir)).toBe(false);
   });
 });
 

@@ -28,7 +28,6 @@ import {
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
-  removalMarks,
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -2051,11 +2050,11 @@ export class FrozenDatasetHandler implements DomainHandler {
 
       // The mapping forgets what went, keeps what the removal left on the
       // rest and when it ran, which the next removal reads as its doing, and
-      // is marked once records went, or none was left to go, adding to what
-      // the removals before it took. A removal stopped part way, or one that
-      // deleted nothing, is offered again; so is one that left records in
-      // the org, for those.
-      const mark = removalMarks(result.status) ? removalMark(result, load.removal) : undefined;
+      // is marked once records went, cancelled or not, adding to what the
+      // removals before it took. A removal that left records in the org —
+      // kept, refused, or not reached before a cancel — is offered again for
+      // those; so is one that took nothing.
+      const mark = removalMark(result, total, load.removal);
       if (
         outcome.gone.length > 0 ||
         Object.keys(outcome.stamps).length > 0 ||

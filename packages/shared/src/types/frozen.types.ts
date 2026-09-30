@@ -519,8 +519,9 @@ export interface FrozenLoadRecordsInfo {
    */
   recorded: boolean;
   /**
-   * Set once a removal of the load's records deleted some, or found none left
-   * to go. `created` then counts what it left in the org, if any.
+   * Set once a removal of the load's records deleted some, or found some
+   * gone, cancelled or not. `created` then counts what it left in the org, if
+   * any.
    */
   removed?: ForgeUndoMark;
   /**

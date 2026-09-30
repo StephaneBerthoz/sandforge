@@ -128,6 +128,13 @@ describe('removalTookAll', () => {
     expect(removalTookAll(mark(0, 1))).toBe(false);
   });
 
+  it('says there is more to take after a removal cancelled before it reached them all', () => {
+    // It deleted three, kept none, had none refused: the rest it never reached.
+    expect(removalTookAll({ ...mark(0), notReached: 2 })).toBe(false);
+    // Cancelled once it had reached them all, it left none in the org.
+    expect(removalTookAll({ ...mark(0), notReached: 0 })).toBe(true);
+  });
+
   it('says nothing was taken before a removal marked the run', () => {
     expect(removalTookAll(undefined)).toBe(false);
   });
@@ -152,6 +159,18 @@ describe('forgeRunRecordsLeft', () => {
     expect(forgeRunRecordsLeft(entry)).toEqual([
       { objectApiName: 'Contact', ids: [tgt('003', 2)] },
       { objectApiName: 'Account', ids: [tgt('001', 1)] },
+    ]);
+  });
+
+  it('takes what a cancelled removal did not reach, which it marked', () => {
+    const entry = {
+      ...accountsThenContacts(),
+      undo: { ...mark(0), notReached: 2 },
+      removalLeft: [tgt('001', 1), tgt('001', 2)],
+    };
+
+    expect(forgeRunRecordsLeft(entry)).toEqual([
+      { objectApiName: 'Account', ids: [tgt('001', 2), tgt('001', 1)] },
     ]);
   });
 

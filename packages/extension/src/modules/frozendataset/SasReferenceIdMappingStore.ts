@@ -59,7 +59,8 @@ interface LoadPayload {
   writtenBetween?: ForgeWrittenBetween;
   /**
    * Once a removal of the records the load created deleted some, or found
-   * none left to go: when the last one ended, and how many went each way.
+   * some gone, cancelled or not: when the last one ended, and how many went
+   * each way.
    */
   removal?: ForgeUndoMark;
   /**
@@ -108,6 +109,9 @@ const removalMarkSchema = z.object({
   alreadyGone: z.number(),
   kept: z.number(),
   refused: z.number(),
+  // Dropped on the read, what a cancel left unreached would read as taken,
+  // and the load as removed whole.
+  notReached: z.number().optional(),
 });
 const removalStampsSchema = z.record(z.string(), z.string());
 const removalSpansSchema = z.array(
@@ -194,8 +198,8 @@ export interface RecordedLoad {
   writtenBetween?: ForgeWrittenBetween;
   /**
    * Set once a removal of the records the load created deleted some, or found
-   * none left to go. The load is still to remove while its mapping names
-   * records the last removal left.
+   * some gone, cancelled or not. The load is still to remove while its
+   * mapping names records the last removal left.
    */
   removal?: ForgeUndoMark;
   /**
@@ -218,8 +222,8 @@ export interface RecordedRemoval {
   /** When it ran, when it wrote to the org. */
   span?: ForgeRemovalSpan;
   /**
-   * Set when records went, or none was left to go: the removal is not
-   * offered again once it left none, and is offered for what it left otherwise.
+   * Set when records went, cancelled or not: the removal is not offered again
+   * once it left none, and is offered for what it left otherwise.
    */
   mark?: ForgeUndoMark;
 }

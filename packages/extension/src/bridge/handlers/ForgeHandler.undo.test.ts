@@ -5,6 +5,7 @@ import type {
   ForgeGraph,
   ForgeUndoResult,
 } from '@sandforge/shared';
+import { forgeRunRecordsLeft } from '@sandforge/shared';
 
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -385,6 +386,50 @@ describe('forge:undo', () => {
       expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
     });
 
+    it("counts in the run's line a removal cancelled between two others, and offers what it did not reach", async () => {
+      const first = await partlyRemoved();
+      expect(history()[0].undo).toMatchObject({ deleted: 1, kept: 2 });
+
+      // Cancelled from Live Operations while the contact left goes: the
+      // account is not reached.
+      org.onDelete(() => {
+        const [running] = registry.getRunning();
+        if (running) registry.abort(running.operationId);
+      });
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+      const cancelled = answer();
+      expect(cancelled).toMatchObject({
+        status: 'cancelled',
+        leftBy: first?.finishedAt,
+        objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
+      });
+      expect(history()[0].undo).toEqual({
+        removedAt: cancelled?.finishedAt,
+        deleted: 2,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+        notReached: 1,
+      });
+      expect(history()[0].removalLeft).toEqual([id('001', 1)]);
+
+      org.onDelete(() => {});
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(org.deletes).toEqual([{ object: 'Account', ids: [id('001', 1)] }]);
+      expect(answer()).toMatchObject({ status: 'success', leftBy: cancelled?.finishedAt });
+      // Every record the run created, whichever removal took it.
+      expect(history()[0].undo).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+    });
+
     it('asks Production Guard about the records left, not all the run created', async () => {
       await partlyRemoved();
       const check = vi.spyOn(ProductionGuard.prototype, 'check');
@@ -569,9 +614,20 @@ describe('forge:undo', () => {
     expect(tracker.getAll()).toEqual([
       expect.objectContaining({ module: 'forge', status: 'cancelled', totalRecords: 3 }),
     ]);
-    // Stopped part way: recorded with what it deleted, and offered again.
+    // Stopped part way: recorded with what it deleted, marked with it and
+    // with what it did not reach, and offered again for that.
     expect(trail()[0]).toMatchObject({ outcome: 'partial' });
-    expect(history()[0].undo).toBeUndefined();
+    expect(history()[0].undo).toEqual({
+      removedAt: answer()?.finishedAt,
+      deleted: 2,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+      notReached: 1,
+    });
+    expect(forgeRunRecordsLeft(history()[0])).toEqual([
+      { objectApiName: 'Account', ids: [id('001', 1)] },
+    ]);
   });
 
   it('keeps on the entry what a cancelled removal left on the account and when it ran, and the next removal takes the account', async () => {
@@ -606,11 +662,12 @@ describe('forge:undo', () => {
 
       await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
 
-      expect(answer()).toMatchObject({
+      const cancelled = answer();
+      expect(cancelled).toMatchObject({
         status: 'cancelled',
         objects: [{ objectApiName: 'Contact', deleted: 2 }],
       });
-      expect(history()[0].undo).toBeUndefined();
+      expect(history()[0].undo).toMatchObject({ deleted: 2, notReached: 1 });
       expect(history()[0].removalStamps).toEqual({
         [id('001', 1)]: org.rows.get('Account')?.[0].LastModifiedDate,
       });
@@ -627,9 +684,18 @@ describe('forge:undo', () => {
 
       expect(answer()).toMatchObject({
         status: 'success',
+        leftBy: cancelled?.finishedAt,
         objects: [{ objectApiName: 'Account', deleted: 1, keptChanged: 0, keptDependents: 0 }],
       });
       expect(org.rows.get('Account')).toEqual([]);
+      // The run's line counts what the cancelled removal took too.
+      expect(history()[0].undo).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
     } finally {
       vi.useRealTimers();
     }

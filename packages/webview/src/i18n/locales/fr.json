@@ -2611,7 +2611,9 @@
       "resultKept_one": "{{formatted}} conservé",
       "resultKept_other": "{{formatted}} conservés",
       "resultRefused_one": "{{formatted}} refusé",
-      "resultRefused_other": "{{formatted}} refusés"
+      "resultRefused_other": "{{formatted}} refusés",
+      "resultNotReached_one": "{{formatted}} non atteint avant l'annulation",
+      "resultNotReached_other": "{{formatted}} non atteints avant l'annulation"
     },
     "error": {
       "duplicateValue": {
