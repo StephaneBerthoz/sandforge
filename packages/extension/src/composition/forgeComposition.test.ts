@@ -3,14 +3,28 @@ import type { Connection } from 'jsforce';
 import type { ForgeConfig } from '@sandforge/shared';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
 
-vi.mock('vscode', () => ({ workspace: { workspaceFolders: undefined } }));
+/** What VS Code calls when a setting changes, as the listeners registered below gave it. */
+type ConfigurationListener = (event: {
+  affectsConfiguration: (section: string) => boolean;
+}) => void;
+const configurationListeners = vi.hoisted((): ConfigurationListener[] => []);
+
+vi.mock('vscode', () => ({
+  workspace: {
+    workspaceFolders: undefined,
+    onDidChangeConfiguration: (listener: ConfigurationListener) => {
+      configurationListeners.push(listener);
+      return { dispose: () => undefined };
+    },
+  },
+}));
 vi.mock('../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../core/connection/ConnectionHelper.js', () => ({ getJsforceConnection: vi.fn() }));
 
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
-import { initForgeComposition } from './forgeComposition.js';
+import { initForgeComposition, registerForgeGraphViewListener } from './forgeComposition.js';
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
@@ -885,5 +899,37 @@ describe('initForgeComposition', () => {
       objectApiName: 'ContentDocument',
       sourceIds: [DOCUMENT],
     });
+  });
+});
+
+describe('registerForgeGraphViewListener', () => {
+  /** A change of the settings `changed` names, as VS Code reports it. */
+  const change = (...changed: string[]) => ({
+    affectsConfiguration: (section: string) =>
+      changed.some((key) => key === section || key.startsWith(`${section}.`)),
+  });
+
+  beforeEach(() => {
+    configurationListeners.length = 0;
+  });
+
+  it('tells the panels the settings again when the Forge graph view changes', () => {
+    const postSettings = vi.fn();
+    registerForgeGraphViewListener({ postSettings });
+
+    configurationListeners.forEach((listener) => listener(change('sandforge.forge.graphView')));
+
+    expect(postSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing when another setting changes', () => {
+    const postSettings = vi.fn();
+    registerForgeGraphViewListener({ postSettings });
+
+    configurationListeners.forEach((listener) =>
+      listener(change('sandforge.seed.defaultBatchSize', 'editor.fontSize')),
+    );
+
+    expect(postSettings).not.toHaveBeenCalled();
   });
 });

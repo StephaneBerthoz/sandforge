@@ -6,6 +6,7 @@ import { useBridgeMutation } from '../hooks/useBridgeMutation';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import { useForgeViewStore } from '../stores/useForgeViewStore';
 import i18n, { changeLanguageLazy } from '../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -518,6 +519,33 @@ describe('BridgeProvider', () => {
 
     // Restore the shared i18n instance for the rest of the suite.
     await i18n.changeLanguage('en');
+  });
+
+  it('takes the Forge graph view from each settings answer, the pushed one too', () => {
+    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-settings-1',
+      type: 'settings:response',
+      correlationId: 'wv-settings-get',
+      timestamp: Date.now(),
+      payload: { settings: {}, forgeGraphView: 'table' },
+    });
+    expect(useForgeViewStore.getState().setting).toBe('table');
+
+    // Sent again, with no request behind it, when the setting changes.
+    fireMessage({
+      id: 'ext-settings-2',
+      type: 'settings:response',
+      timestamp: Date.now(),
+      payload: { settings: {}, forgeGraphView: 'graph' },
+    });
+    expect(useForgeViewStore.getState().setting).toBe('graph');
   });
 
   /**

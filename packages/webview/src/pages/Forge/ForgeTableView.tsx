@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { memo, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import type { ForgeNodeStatus } from '@sandforge/shared';
@@ -16,9 +16,9 @@ type SortDirection = 'asc' | 'desc';
  * Status badge colors, one per node status. Keyed by strings, the map held
  * `failed` and `queued`, which no node has, and no `error`: a node that
  * failed took the idle style. A status added to the union is a compile error
- * here until it has its colors.
+ * here until it has its colors. The execution's table takes the same.
  */
-const statusColors: Record<ForgeNodeStatus, string> = {
+export const statusColors: Record<ForgeNodeStatus, string> = {
   idle: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
   scanning: 'bg-status-info/10 text-status-info',
   running: 'bg-status-info/10 text-status-info',
@@ -35,10 +35,16 @@ export interface ForgeTableViewProps {
   /** The full forge graph containing nodes to display. */
   graph: ForgeGraph;
   /** Currently selected node name, if any. */
-  selectedNodeName: string | null;
-  /** Callback when a row is clicked (selects the node). */
-  onNodeClick: (objectName: string) => void;
-  /** Callback to toggle a node's included state. */
+  selectedNodeName?: string | null;
+  /**
+   * Callback when an object's name is clicked (selects the node). Without
+   * one, as on Review, which has no detail to show, the name is plain text.
+   */
+  onNodeClick?: (objectName: string) => void;
+  /**
+   * Callback to toggle a node's included state. Pass a stable function, such
+   * as the store's action: a row is drawn again when its callbacks change.
+   */
   onToggleIncluded: (objectName: string) => void;
   /** Search query to filter rows. */
   searchQuery?: string;
@@ -46,9 +52,96 @@ export interface ForgeTableViewProps {
   className?: string;
 }
 
+/** Props for one row of the table. */
+interface ForgeTableRowProps {
+  /** The object the row is about. */
+  node: ForgeGraphNode;
+  /** Whether its detail is the one shown beside the table. */
+  selected: boolean;
+  onNodeClick?: (objectName: string) => void;
+  onToggleIncluded: (objectName: string) => void;
+}
+
+/**
+ * One object of the graph. Drawn again only when its node, its selection or
+ * its callbacks change: the store gives the node a checkbox changed a new
+ * value and keeps every other node as it was, so a box ticked in a table of
+ * hundreds of objects draws its own row again, not the others.
+ */
+const ForgeTableRow = memo(function ForgeTableRow({
+  node,
+  selected,
+  onNodeClick,
+  onToggleIncluded,
+}: ForgeTableRowProps) {
+  const { t } = useTranslation();
+  return (
+    <tr
+      data-testid="forge-table-row"
+      className={cn(
+        'border-b border-subtle transition-colors hover:bg-surface-2',
+        // An opaque surface, so each status badge's tint is the only one under it.
+        selected && 'bg-surface-2 border-l-2 border-forge',
+      )}
+    >
+      <td className="px-3 py-2">
+        <input
+          type="checkbox"
+          data-testid={`forge-table-include-${node.objectApiName}`}
+          // The column header is the bare word "PII" two cells away:
+          // the row's object is the only thing that names this box.
+          aria-label={t('a11y.includeObject', { object: node.objectApiName })}
+          checked={node.included}
+          onChange={() => onToggleIncluded(node.objectApiName)}
+          className="accent-forge"
+        />
+      </td>
+      {/* Selection hangs off the object name rather than the whole row:
+          a keyboard user already tabs through the row's checkbox, so a
+          focusable `<tr>` on top of it would be a second stop for the
+          same record. With nothing to select, the name is text. */}
+      <td className="px-3 py-2 font-medium text-text-primary">
+        {onNodeClick ? (
+          <button
+            type="button"
+            data-testid={`forge-table-select-${node.objectApiName}`}
+            className="w-full cursor-pointer text-left"
+            onClick={() => onNodeClick(node.objectApiName)}
+          >
+            {node.objectApiName}
+          </button>
+        ) : (
+          node.objectApiName
+        )}
+      </td>
+      <td className="px-3 py-2 text-text-secondary">{node.recordCount}</td>
+      <td className="px-3 py-2 text-text-secondary">{node.fieldCount}</td>
+      <td className="px-3 py-2">
+        {/* In words: the column printed the code — "done", "error" —
+            in every language. */}
+        <span
+          data-testid={`forge-table-status-${node.objectApiName}`}
+          className={cn(
+            'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
+            statusColors[node.status],
+          )}
+        >
+          {t(`forge.nodeStatus.${node.status}`)}
+        </span>
+      </td>
+      <td className="px-3 py-2 text-text-secondary">
+        {node.piiFields.length > 0 ? node.piiFields.length : '-'}
+      </td>
+    </tr>
+  );
+});
+
 /**
  * Table view of forge graph nodes with sortable columns and include toggles.
- * Provides an alternative to the LiveGraph for scanning large numbers of objects.
+ * Provides an alternative to the LiveGraph for scanning large numbers of objects,
+ * on discovery and on Review. Given the same props, it is not drawn again: a
+ * Review answered by the extension — its plan, its metadata diff — leaves it
+ * as it is.
  *
  * Virtualization note (audit cycle 2): intentionally NOT virtualized with the
  * existing primitives. `DataTable enableVirtualization` is a different
@@ -61,14 +154,14 @@ export interface ForgeTableViewProps {
  * with a table-aware virtualizer (padding-row technique) if node counts in
  * the thousands prove to be a real perf issue.
  */
-export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
+export const ForgeTableView = memo(function ForgeTableView({
   graph,
-  selectedNodeName,
+  selectedNodeName = null,
   onNodeClick,
   onToggleIncluded,
   searchQuery = '',
   className,
-}) => {
+}: ForgeTableViewProps) {
   const { t } = useTranslation();
   const [sortField, setSortField] = useState<SortField>('objectApiName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -172,63 +265,16 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
         </thead>
         <tbody>
           {sortedNodes.map((node: ForgeGraphNode) => (
-            <tr
+            <ForgeTableRow
               key={node.objectApiName}
-              data-testid="forge-table-row"
-              className={cn(
-                'border-b border-subtle transition-colors hover:bg-surface-2',
-                // An opaque surface, so each status badge's tint is the only one under it.
-                selectedNodeName === node.objectApiName && 'bg-surface-2 border-l-2 border-forge',
-              )}
-            >
-              <td className="px-3 py-2">
-                <input
-                  type="checkbox"
-                  data-testid={`forge-table-include-${node.objectApiName}`}
-                  // The column header is the bare word "PII" two cells away:
-                  // the row's object is the only thing that names this box.
-                  aria-label={t('a11y.includeObject', { object: node.objectApiName })}
-                  checked={node.included}
-                  onChange={() => onToggleIncluded(node.objectApiName)}
-                  className="accent-forge"
-                />
-              </td>
-              {/* Selection hangs off the object name rather than the whole row:
-                  a keyboard user already tabs through the row's checkbox, so a
-                  focusable `<tr>` on top of it would be a second stop for the
-                  same record. */}
-              <td className="px-3 py-2 font-medium text-text-primary">
-                <button
-                  type="button"
-                  data-testid={`forge-table-select-${node.objectApiName}`}
-                  className="w-full cursor-pointer text-left"
-                  onClick={() => onNodeClick(node.objectApiName)}
-                >
-                  {node.objectApiName}
-                </button>
-              </td>
-              <td className="px-3 py-2 text-text-secondary">{node.recordCount}</td>
-              <td className="px-3 py-2 text-text-secondary">{node.fieldCount}</td>
-              <td className="px-3 py-2">
-                {/* In words: the column printed the code — "done", "error" —
-                    in every language. */}
-                <span
-                  data-testid={`forge-table-status-${node.objectApiName}`}
-                  className={cn(
-                    'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                    statusColors[node.status],
-                  )}
-                >
-                  {t(`forge.nodeStatus.${node.status}`)}
-                </span>
-              </td>
-              <td className="px-3 py-2 text-text-secondary">
-                {node.piiFields.length > 0 ? node.piiFields.length : '-'}
-              </td>
-            </tr>
+              node={node}
+              selected={selectedNodeName === node.objectApiName}
+              onNodeClick={onNodeClick}
+              onToggleIncluded={onToggleIncluded}
+            />
           ))}
         </tbody>
       </table>
     </div>
   );
-};
+});

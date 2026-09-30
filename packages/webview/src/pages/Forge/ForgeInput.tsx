@@ -9,6 +9,7 @@ import {
   Loader2,
   ArrowLeftRight,
   AlertTriangle,
+  FastForward,
   Flame,
   RefreshCw,
 } from 'lucide-react';
@@ -545,6 +546,35 @@ export const ForgeInput: React.FC = () => {
                           : t('forge.hintNoInput')}
             </p>
           )}
+
+          {/* Clone directly — the discovery, then the run of what it found,
+              sent as Review sends it by default, with no stop on the graph or
+              Review. Gated as Discover is. What it skips is said here, where
+              the path is chosen: the metadata diff runs on Review only. */}
+          <button
+            type="button"
+            data-testid="forge-clone-directly-btn"
+            disabled={!canDiscoverNow}
+            onClick={form.handleCloneDirectly}
+            aria-describedby="forge-clone-directly-hint"
+            className={cn(
+              'w-full py-2 mt-1 rounded-lg text-xs font-medium',
+              'border border-forge/30 bg-forge/5 text-hue-forge',
+              'hover:bg-forge/10 hover:border-forge/50',
+              'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-forge/5',
+              'transition-all flex items-center justify-center gap-2',
+            )}
+          >
+            <FastForward size={12} />
+            {t('forge.direct.action')}
+          </button>
+          <p
+            id="forge-clone-directly-hint"
+            data-testid="forge-clone-directly-hint"
+            className="text-[10px] text-text-secondary text-center"
+          >
+            {t('forge.direct.hint')}
+          </p>
 
           {/* Reuse last graph — skip BFS rediscovery (~30s on large orgs) */}
           {form.canReuseLastGraph && (

@@ -21,6 +21,9 @@ export const forgeNodeStatusSchema = z.enum([
   'stopped',
 ]);
 
+/** Zod schema for ForgeGraphView, the `sandforge.forge.graphView` setting */
+export const forgeGraphViewSchema = z.enum(['auto', 'graph', 'table']);
+
 /** Zod schema for ForgeGraphEdge relationship type */
 export const forgeEdgeTypeSchema = z.enum(['master-detail', 'lookup']);
 

@@ -36,6 +36,7 @@
   "config.title": "SandForge",
   "config.telemetry.description": "Registrar localmente os erros da extensão para diagnóstico. Nada é enviado pela rede.",
   "config.orgs.validateOnStartup.description": "Validar organizações registradas na inicialização e atualizar automaticamente sessões expiradas via CLI sf",
+  "config.forge.graphView.description": "Como o Forge mostra os objetos de um grafo nas telas de descoberta, de revisão e de execução. `auto` os desenha como grafo até 25 objetos e, acima disso, os lista em uma tabela; `graph` e `table` sempre mostram essa visualização. O seletor Visualização em grafo / Visualização em tabela de qualquer uma das telas prevalece sobre esta configuração até o painel ser fechado.",
   "config.seed.defaultBatchSize.description": "Tamanho de lote padrão para operações de dados do Seed",
   "config.sync.defaultBatchSize.description": "Tamanho de lote padrão para operações de dados do Sync",
   "config.sync.maxConcurrentOps.description": "Número máximo de operações de sincronização simultâneas",

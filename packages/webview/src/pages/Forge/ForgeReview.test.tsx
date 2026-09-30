@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { ForgeReview } from './ForgeReview';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
+import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
 
@@ -144,6 +145,7 @@ describe('ForgeReview', () => {
     mockConfig = { ...defaultConfig };
     mockMetadataDiffs = [];
     mockFileCopy = { ...NO_FILES };
+    useForgeViewStore.setState({ setting: 'auto', choice: null });
   });
 
   /** Deliver an extension -> webview message the way the real bus does. */
@@ -265,6 +267,45 @@ describe('ForgeReview', () => {
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
     expect(mockSetPhase).not.toHaveBeenCalledWith('execution');
+  });
+
+  describe('the graph or its table', () => {
+    /** A graph of `count` objects, as a wide discovery answers. */
+    function graphOf(count: number): ForgeGraph {
+      return {
+        ...defaultGraph,
+        nodes: Array.from({ length: count }, (_, i) =>
+          makeNode({ objectApiName: `Object${String(i)}__c` }),
+        ),
+      };
+    }
+
+    it('lists a graph of more objects than auto draws, each box leaving out its own object', () => {
+      mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS + 1);
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getAllByTestId('forge-table-row')).toHaveLength(FORGE_GRAPH_MAX_OBJECTS + 1);
+
+      fireEvent.click(screen.getByTestId('forge-table-include-Object3__c'));
+      expect(mockToggleNodeIncluded).toHaveBeenCalledWith('Object3__c');
+    });
+
+    it('draws a graph of that many objects, and follows the setting and the switch', () => {
+      mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS);
+      const { unmount } = render(<ForgeReview />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      unmount();
+
+      useForgeViewStore.getState().adoptSetting('table');
+      render(<ForgeReview />);
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('forge-view-graph'));
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      expect(useForgeViewStore.getState().choice).toBe('graph');
+    });
   });
 
   describe('the files of the cloned records', () => {

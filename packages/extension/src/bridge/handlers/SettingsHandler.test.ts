@@ -74,6 +74,56 @@ describe('SettingsHandler', () => {
     expect(response.correlationId).toBe('req-42');
   });
 
+  describe('the Forge graph view, an editor setting the blob does not hold', () => {
+    /** The editor's settings, as `getSandforgeSetting` reads them. */
+    function editorHolds(settings: Record<string, unknown>): void {
+      deps.services = {
+        getSandforgeSetting: (key: string, fallback: unknown) =>
+          key in settings ? settings[key] : fallback,
+      } as unknown as NonNullable<HandlerDeps['services']>;
+    }
+
+    /** The payload of the n-th message posted to the panels. */
+    const posted = (n = 0) =>
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[n][0] as {
+        type: string;
+        correlationId?: string;
+        payload: { settings: Record<string, unknown>; forgeGraphView: string };
+      };
+
+    it('goes with the answer to settings:get and to settings:update', async () => {
+      editorHolds({ 'forge.graphView': 'table' });
+
+      await handler.handle(createMsg('settings:get'));
+      await handler.handle(createMsg('settings:update', { key: 'lang', value: 'fr' }));
+
+      expect(posted(0).payload.forgeGraphView).toBe('table');
+      expect(posted(1).payload.forgeGraphView).toBe('table');
+    });
+
+    it('is auto when settings.json holds a value the setting does not offer', async () => {
+      editorHolds({ 'forge.graphView': 'list' });
+
+      await handler.handle(createMsg('settings:get'));
+
+      expect(posted().payload.forgeGraphView).toBe('auto');
+    });
+
+    it('is told every panel again, with the blob and no request behind it', () => {
+      store.set('settings', { language: 'fr' }, 'settings');
+      editorHolds({ 'forge.graphView': 'graph' });
+
+      handler.postSettings();
+
+      expect(posted().type).toBe('settings:response');
+      expect(posted().correlationId).toBeUndefined();
+      expect(posted().payload).toEqual({
+        settings: { settings: { language: 'fr' } },
+        forgeGraphView: 'graph',
+      });
+    });
+  });
+
   it('no longer exposes the plugins:* surface', async () => {
     // plugins:load dynamic-imported an arbitrary filesystem path supplied over
     // the bridge, validated only as a 1-1000 char string — an arbitrary module

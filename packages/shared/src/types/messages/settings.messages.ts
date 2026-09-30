@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type { ActiveOperation } from '../execution.types.js';
+import type { ForgeGraphView } from '../forge.types.js';
 
 /** Settings messages */
 export interface SettingsGetRequest extends BaseMessage {
@@ -18,10 +19,14 @@ export interface SettingsUpdateRequest extends BaseMessage {
  * NOTE: `settings` is a flat key/value bag straight from
  * `ConfigStore.getByCategory('settings')` (e.g. `{ theme: 'dark' }`), NOT the
  * nested {@link AppSettings} structure from `settings.types.ts`.
+ *
+ * `forgeGraphView` is the `sandforge.forge.graphView` editor setting, which
+ * the blob does not hold. Sent with every answer, and again, with no request
+ * behind it, whenever the setting changes.
  */
 export interface SettingsResponse extends BaseMessage {
   type: 'settings:response';
-  payload: { settings: Record<string, unknown> };
+  payload: { settings: Record<string, unknown>; forgeGraphView?: ForgeGraphView };
 }
 
 /**

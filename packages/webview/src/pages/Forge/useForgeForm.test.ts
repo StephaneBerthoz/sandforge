@@ -806,3 +806,61 @@ describe('applying a saved template', () => {
     });
   });
 });
+
+describe('cloning directly', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.getState().reset();
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  /** A record run from the source org to `target`, as the Record tab sets it. */
+  function recordRun(
+    result: { current: ReturnType<typeof useForgeForm> },
+    target = 'org-tgt',
+  ): void {
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId(target);
+      result.current.handleRecordIdChange('001AB00000ABCDEFGH');
+    });
+  }
+
+  it('discovers with the config Discover sends, and waits on it to start the run', () => {
+    const { result } = renderHook(() => useForgeForm());
+    recordRun(result);
+
+    act(() => result.current.handleDiscover());
+    const discovered = lastPayload<{ config: Record<string, unknown> }>('forge:discover').config;
+    act(() => result.current.handleCloneDirectly());
+    const direct = lastPayload<{ config: Record<string, unknown> }>('forge:discover').config;
+
+    expect(direct).toEqual(discovered);
+    // Waited on by its request: only the answer to this discovery starts the run.
+    const requests = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: BaseMessage }).payload)
+      .filter((message) => message.type === 'forge:discover');
+    expect(useForgeStore.getState().directDiscoveryId).toBe(requests[requests.length - 1].id);
+    expect(useForgeStore.getState().phase).toBe('discovery');
+  });
+
+  it('leaves no Clone directly waiting behind a plain Discover', () => {
+    const { result } = renderHook(() => useForgeForm());
+    recordRun(result);
+
+    act(() => result.current.handleCloneDirectly());
+    act(() => result.current.handleDiscover());
+
+    expect(useForgeStore.getState().directDiscoveryId).toBeNull();
+  });
+
+  it('starts nothing between two orgs that are one, as Discover does not', () => {
+    const { result } = renderHook(() => useForgeForm());
+    recordRun(result, 'org-src');
+
+    act(() => result.current.handleCloneDirectly());
+
+    expect(sentTypes()).not.toContain('forge:discover');
+    expect(useForgeStore.getState().directDiscoveryId).toBeNull();
+  });
+});

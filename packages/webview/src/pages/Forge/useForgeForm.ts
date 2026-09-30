@@ -149,6 +149,12 @@ export interface ForgeFormState {
   /** The SOQL query of the selected template, when it saved one. */
   templateSoqlQuery: string | null;
   handleDiscover: () => void;
+  /**
+   * Discover, then start the run on the graph discovery answers with, sent
+   * as Review sends it by default: no stop on the discovery and Review
+   * screens, and no metadata diff. Gated as Discover is.
+   */
+  handleCloneDirectly: () => void;
   canQuickStartTemplate: boolean;
   builtinTplCandidate: (typeof BUILTIN_FORGE_TEMPLATES)[number] | null;
   handleQuickStartTemplate: () => void;
@@ -183,6 +189,7 @@ export interface ForgeFormState {
  */
 export function useForgeForm(): ForgeFormState {
   const setConfig = useForgeStore((s) => s.setConfig);
+  const awaitDirectRun = useForgeStore((s) => s.awaitDirectRun);
   const setPhase = useForgeStore((s) => s.setPhase);
   const setGraph = useForgeStore((s) => s.setGraph);
   const history = useForgeStore((s) => s.history);
@@ -500,43 +507,61 @@ export function useForgeForm(): ForgeFormState {
     setTargetOrgId(tmp);
   }, [sourceOrgId, targetOrgId]);
 
-  /** Build config and transition to discovery phase. */
-  const handleDiscover = useCallback(() => {
-    if (!canDiscover) return;
+  /**
+   * Build the config and start its discovery. With `direct`, the discovery is
+   * a Clone directly's: its answer starts the run, with no stop on the
+   * discovery and Review screens. Both send the same config, from the same
+   * gate: the orgs set and apart, and an input the extension takes.
+   */
+  const startDiscovery = useCallback(
+    (direct: boolean) => {
+      if (!canDiscover) return;
 
-    const config: ForgeConfig = {
-      ...runInput,
+      const config: ForgeConfig = {
+        ...runInput,
+        depth,
+        customDepth: depth === 'custom' ? customDepth : undefined,
+        maxNodes,
+        anonymizePII: anonymize,
+        skipEmpty,
+        expandOrphanParents,
+        maxRecordsPerObject: recordLimitValue,
+        sourceOrgId,
+        targetOrgId,
+        batchSize: 'auto',
+      };
+
+      setConfig(config);
+      const request = buildMessage<{ config: ForgeConfig }>('forge:discover', { config });
+      // By its request: only the answer to this discovery starts the run.
+      if (direct) awaitDirectRun(request.id);
+      sendMessage(request);
+      setPhase('discovery');
+    },
+    [
+      canDiscover,
+      runInput,
       depth,
-      customDepth: depth === 'custom' ? customDepth : undefined,
+      customDepth,
       maxNodes,
-      anonymizePII: anonymize,
+      anonymize,
       skipEmpty,
       expandOrphanParents,
-      maxRecordsPerObject: recordLimitValue,
+      recordLimitValue,
       sourceOrgId,
       targetOrgId,
-      batchSize: 'auto',
-    };
+      setConfig,
+      awaitDirectRun,
+      setPhase,
+      sendMessage,
+    ],
+  );
 
-    setConfig(config);
-    sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
-    setPhase('discovery');
-  }, [
-    canDiscover,
-    runInput,
-    depth,
-    customDepth,
-    maxNodes,
-    anonymize,
-    skipEmpty,
-    expandOrphanParents,
-    recordLimitValue,
-    sourceOrgId,
-    targetOrgId,
-    setConfig,
-    setPhase,
-    sendMessage,
-  ]);
+  /** Build config and transition to discovery phase. */
+  const handleDiscover = useCallback(() => startDiscovery(false), [startDiscovery]);
+
+  /** Discover, then run what discovery answers with, as Review would send it. */
+  const handleCloneDirectly = useCallback(() => startDiscovery(true), [startDiscovery]);
 
   /** Quick-start path: starter template selected → synthetic graph, no BFS. */
   const builtinTplCandidate = useMemo(() => {
@@ -783,6 +808,7 @@ export function useForgeForm(): ForgeFormState {
     objectNameRefused,
     templateSoqlQuery,
     handleDiscover,
+    handleCloneDirectly,
     canQuickStartTemplate,
     builtinTplCandidate,
     handleQuickStartTemplate,

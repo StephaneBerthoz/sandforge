@@ -19,6 +19,13 @@ export type ForgeNodeStatus =
   'idle' | 'scanning' | 'running' | 'done' | 'error' | 'skipped' | 'stopped';
 
 /**
+ * How the discovery, Review and execution screens show a graph's objects, as
+ * the `sandforge.forge.graphView` setting says: drawn as a graph up to a
+ * number of objects and as a table past it (`auto`), or always one way.
+ */
+export type ForgeGraphView = 'auto' | 'graph' | 'table';
+
+/**
  * Configuration for a Forge operation.
  *
  * Describes the input source, traversal depth, source/target orgs,

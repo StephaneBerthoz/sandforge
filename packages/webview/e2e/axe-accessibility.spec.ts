@@ -917,11 +917,39 @@ const FORGE_TWO_NODE_GRAPH = {
 };
 
 /**
+ * More objects than `auto` draws as a graph, so both screens list them: an
+ * account and thirty objects under it — one left out, one whose size was
+ * never measured, one discovery could not read, and personal fields on some.
+ */
+const FORGE_WIDE_GRAPH = {
+  ...FORGE_RUN_GRAPH,
+  nodes: [
+    FORGE_RUN_GRAPH.nodes[0],
+    ...Array.from({ length: 30 }, (_, i) => ({
+      ...FORGE_RUN_GRAPH.nodes[0],
+      objectApiName: `Related${String(i + 1)}__c`,
+      recordCount: i + 1,
+      level: 1,
+      included: i !== 2,
+      ...(i === 3 ? { fieldCount: 0, createableFieldCount: 0 } : {}),
+      ...(i === 4 ? { errors: ['INSUFFICIENT_ACCESS: cannot count this object'] } : {}),
+      ...(i % 5 === 0 ? { piiFields: ['Email__c'], anonymizeFields: ['Email__c'] } : {}),
+    })),
+  ],
+  totalRecords: 466,
+};
+
+/**
  * Start a Forge run of that graph from the SOQL tab, up to its execution
  * screen, and give back the id of its `forge:execute` request: what the
  * extension correlates the run's progress and its answer to.
  */
-async function startForgeRun(bridge: MockBridge, page: Page, theme: ScannedTheme): Promise<string> {
+async function startForgeRun(
+  bridge: MockBridge,
+  page: Page,
+  theme: ScannedTheme,
+  graph: Record<string, unknown> = FORGE_TWO_NODE_GRAPH,
+): Promise<string> {
   await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
   await page.getByTestId('forge-tab-soql').click();
   await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
@@ -929,9 +957,7 @@ async function startForgeRun(bridge: MockBridge, page: Page, theme: ScannedTheme
   await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
   await page.getByTestId('forge-discover-btn').click();
   await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
-  await answerAll(page, 'forge:discover', 'forge:discover:response', {
-    graph: FORGE_TWO_NODE_GRAPH,
-  });
+  await answerAll(page, 'forge:discover', 'forge:discover:response', { graph });
   await page.getByTestId('forge-execute-btn').click();
   await page.getByTestId('execute-button').click();
   await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
@@ -960,6 +986,7 @@ async function discoverForgeGraph(
   bridge: MockBridge,
   page: Page,
   theme: ScannedTheme,
+  graph: Record<string, unknown> = FORGE_TWO_NODE_GRAPH,
 ): Promise<void> {
   await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
   await page.getByTestId('forge-tab-soql').click();
@@ -968,9 +995,7 @@ async function discoverForgeGraph(
   await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
   await page.getByTestId('forge-discover-btn').click();
   await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
-  await answerAll(page, 'forge:discover', 'forge:discover:response', {
-    graph: FORGE_TWO_NODE_GRAPH,
-  });
+  await answerAll(page, 'forge:discover', 'forge:discover:response', { graph });
   await page.getByTestId('forge-discovery').waitFor({ timeout: 10_000 });
 }
 
@@ -1757,6 +1782,171 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge discovery listing a graph wider than auto draws, in a table from the start', async ({
+      page,
+    }) => {
+      // Drawn as a graph, a discovery of hundreds of objects was heavy and
+      // unreadable, and it started on the graph every time.
+      await discoverForgeGraph(bridge, page, theme, FORGE_WIDE_GRAPH);
+
+      await expect(page.getByTestId('forge-table-view')).toBeVisible();
+      await expect(page.getByTestId(FORGE_GRAPH)).toHaveCount(0);
+      await expect(page.getByTestId('forge-view-table')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('forge-table-row')).toHaveCount(FORGE_WIDE_GRAPH.nodes.length);
+      const discovery = await checkAccessibility(page);
+      expectNoViolations(discovery);
+      expect(
+        await contrastMeasuredIn(page, discovery, '[data-testid="forge-table-view"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge run listed in a table, each row following its object as the run goes', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme, FORGE_WIDE_GRAPH);
+      await sendExtensionMessage(page, {
+        type: 'forge:progress',
+        id: 'progress-running',
+        correlationId: request,
+        payload: { objectName: 'Related1__c', status: 'running', progress: 40 },
+      });
+      await forgeProgress(page, request, 'Account', 'done');
+      await forgeProgress(
+        page,
+        request,
+        'Related2__c',
+        'error',
+        'Related2__c: REQUIRED_FIELD_MISSING',
+      );
+
+      const table = page.getByTestId('forge-execution-table');
+      await expect(table).toBeVisible();
+      await expect(page.getByTestId(FORGE_GRAPH)).toHaveCount(0);
+      await expect(page.getByTestId('forge-execution-status-Account')).toHaveText('Done');
+      await expect(page.getByTestId('forge-execution-status-Related2__c')).toHaveText('Failed');
+      await expect(table.getByRole('progressbar', { name: 'Related1__c' })).toHaveAttribute(
+        'aria-valuenow',
+        '40',
+      );
+      await expect(page.getByTestId('forge-execution-records-Related4__c')).toHaveText(
+        'Size not measured yet',
+      );
+      const run = await checkAccessibility(page);
+      expectNoViolations(run);
+      expect(
+        await contrastMeasuredIn(page, run, '[data-testid="forge-execution-table"]'),
+      ).toBeGreaterThan(0);
+
+      // The switch draws the graph instead, and the table comes back with it.
+      await page.getByTestId('forge-view-graph').click();
+      await expect(page.getByTestId(FORGE_GRAPH)).toBeVisible();
+      await page.getByTestId('forge-view-table').click();
+      await expect(table).toBeVisible();
+    });
+
+    test('Forge Clone directly, from what it skips to the run it starts without Review', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+
+      // Said where the path is chosen: no metadata diff on it.
+      await expect(page.getByTestId('forge-clone-directly-hint')).toContainText('metadata diff');
+      const input = await checkAccessibility(page);
+      expectNoViolations(input);
+      expect(
+        await contrastMeasuredIn(page, input, '[data-testid="forge-clone-directly-hint"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-clone-directly-btn').click();
+      await page.getByTestId('forge-discovery-direct').waitFor({ timeout: 10_000 });
+      const discovering = await checkAccessibility(page);
+      expectNoViolations(discovering);
+      expect(
+        await contrastMeasuredIn(page, discovering, '[data-testid="forge-discovery-direct"]'),
+      ).toBeGreaterThan(0);
+
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_TWO_NODE_GRAPH,
+      });
+      await page.getByTestId('forge-execution-review-skipped').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-review')).toHaveCount(0);
+      expect(await bridge.getMessages('forge:metadata-diff:request')).toEqual([]);
+      const run = await checkAccessibility(page);
+      expectNoViolations(run);
+      expect(
+        await contrastMeasuredIn(page, run, '[data-testid="forge-execution-review-skipped"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge Clone directly whose page is left, its run started meanwhile, and the page back on it', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-clone-directly-btn').click();
+      await page.getByTestId('forge-discovery-direct').waitFor({ timeout: 10_000 });
+
+      // To another page of the panel, as the G then L shortcut takes it: Help.
+      const shortcut = async (key: string): Promise<void> => {
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.keyboard.press('g');
+        await page.keyboard.press(key);
+      };
+      await shortcut('l');
+      await page.getByTestId('help-page').waitFor({ timeout: 10_000 });
+
+      // The discovery answers with no Forge screen open: the run starts.
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_TWO_NODE_GRAPH,
+      });
+      await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+
+      await shortcut('f');
+      await page.getByTestId('forge-execution-review-skipped').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-discovery-loading')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge Review listing a graph wider than auto draws, each box including its own object', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme, FORGE_WIDE_GRAPH);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+
+      // Review drew the graph whatever its size.
+      const table = page.getByTestId('forge-review').getByTestId('forge-table-view');
+      await expect(table).toBeVisible();
+      await expect(page.getByTestId(FORGE_GRAPH)).toHaveCount(0);
+      await expect(page.getByTestId('forge-view-table')).toHaveAttribute('aria-pressed', 'true');
+      // Laid over its panel, the table scrolls there rather than stretching Review.
+      expect(await table.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+        true,
+      );
+      // Nothing to open beside it: the names are text.
+      await expect(table.getByRole('button', { name: 'Related1__c' })).toHaveCount(0);
+
+      await page.getByTestId('forge-table-include-Related1__c').click();
+      await expect(page.getByTestId('forge-table-include-Related1__c')).not.toBeChecked();
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          review,
+          '[data-testid="forge-review"] [data-testid="forge-table-view"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge run whose abort goes unanswered, then the way back to the start and the run in Recent runs', async ({
       page,
     }) => {
@@ -2452,6 +2642,18 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'help', 'help-page', { theme });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Help on Forge, naming Clone directly and the Graph/Table choice', async ({ page }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      await page.getByTestId('help-section-forge').getByRole('button').click();
+
+      const content = page.locator('#help-content-forge');
+      await expect(content).toContainText('Clone directly');
+      await expect(content).toContainText('Graph View / Table View');
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(await contrastMeasuredIn(page, results, '#help-content-forge')).toBeGreaterThan(0);
     });
 
     test('AI page', async ({ page }) => {

@@ -258,6 +258,9 @@ const INITIAL_STATE = {
   stopRequestedAt: null as number | null,
   apiCallsSoFar: null as number | null,
   runsEnded: 0,
+  directDiscoveryId: null as string | null,
+  directDiscoveryError: null as string | null,
+  reviewSkipped: false,
 };
 
 /** Forge state machine store — state and actions. */
@@ -413,6 +416,52 @@ export interface ForgeState {
   stoppedAt: number | null;
   /** Record where a run stopped, or clear it (null). */
   setStoppedAt: (percent: number | null) => void;
+  /**
+   * The `forge:discover` request a Clone directly waits on, by its id, or
+   * null. Once that discovery answers, the run starts on its graph, with no
+   * stop on the discovery and Review screens, whether the Forge page is on
+   * screen or not (`pages/Forge/directRun.ts`). A discovery that fails or is
+   * left starts none.
+   */
+  directDiscoveryId: string | null;
+  /**
+   * Why the discovery of a Clone directly failed, kept for the discovery
+   * screen until the user leaves it or starts again: an error that comes
+   * while the page is away would show on no screen, and the page would come
+   * back to a spinner with no discovery behind it.
+   */
+  directDiscoveryError: string | null;
+  /**
+   * Make the discovery about to be sent, request `discoveryId`, a Clone
+   * directly's. The graph an earlier discovery left goes: the discovery screen
+   * waits on the new one instead of drawing the old one meanwhile, and the run
+   * is only ever of the graph this discovery answers with.
+   */
+  awaitDirectRun: (discoveryId: string) => void;
+  /**
+   * Take the answer to request `requestId` for the Clone directly waiting on
+   * it, clearing the wait: said once. Nothing while none waits, for another
+   * request, or once the flow has left the discovery.
+   *
+   * @returns whether the answer is the waiting Clone directly's.
+   */
+  takeDirectDiscovery: (requestId: unknown) => boolean;
+  /** The discovery a Clone directly waits on, request `requestId`, failed with `message`. */
+  failDirectDiscovery: (requestId: unknown, message: string) => void;
+  /**
+   * Drop the Clone directly the discovery was started for, and the error its
+   * discovery ended on: the user left the discovery, or runs it again alone.
+   *
+   * @returns whether one was waiting.
+   */
+  settleDirectRun: () => boolean;
+  /**
+   * Whether the run on screen was started without Review (Clone directly).
+   * Set as such a run starts; a run started from Review has it off.
+   */
+  reviewSkipped: boolean;
+  /** Mark the run just started as one that skipped Review. */
+  markReviewSkipped: () => void;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -516,7 +565,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   setConfig(config: ForgeConfig): void {
     // A new run starts with no file copied: the choice and its acceptance
-    // belong to the run they were made for.
+    // belong to the run they were made for. Nor does it clone directly
+    // unless it is asked to, after this.
     set({
       config,
       plan: null,
@@ -524,7 +574,41 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       metadataDiffs: [],
       result: null,
       fileCopy: { ...NO_FILE_COPY },
+      directDiscoveryId: null,
+      directDiscoveryError: null,
     });
+  },
+
+  awaitDirectRun(discoveryId: string): void {
+    set({
+      directDiscoveryId: discoveryId,
+      directDiscoveryError: null,
+      graph: null,
+      statusesBeyondGraph: {},
+    });
+  },
+
+  takeDirectDiscovery(requestId: unknown): boolean {
+    const state = get();
+    if (state.directDiscoveryId === null || requestId !== state.directDiscoveryId) return false;
+    set({ directDiscoveryId: null });
+    return state.phase === 'discovery';
+  },
+
+  failDirectDiscovery(requestId: unknown, message: string): void {
+    const state = get();
+    if (state.directDiscoveryId === null || requestId !== state.directDiscoveryId) return;
+    set({ directDiscoveryId: null, directDiscoveryError: message });
+  },
+
+  settleDirectRun(): boolean {
+    const pending = get().directDiscoveryId !== null;
+    set({ directDiscoveryId: null, directDiscoveryError: null });
+    return pending;
+  },
+
+  markReviewSkipped(): void {
+    set({ reviewSkipped: true });
   },
 
   setFileCopy(change: Partial<ForgeFileCopyChoice>): void {
@@ -555,6 +639,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       stoppedAt: null,
       stopRequestedAt: null,
       apiCallsSoFar: null,
+      reviewSkipped: false,
       runClock:
         executionRequestId === null
           ? null
@@ -960,6 +1045,9 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       runClock: null,
       stopRequestedAt: null,
       fileCopy: { ...NO_FILE_COPY },
+      directDiscoveryId: null,
+      directDiscoveryError: null,
+      reviewSkipped: false,
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
   },

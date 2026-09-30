@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BaseMessage, ForgeExecuteRequest, ForgePlanResponse } from '@sandforge/shared';
+import type { BaseMessage, ForgePlanResponse } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { LiveGraph } from '../../components/graph/LiveGraph';
+import { ForgeTableView } from './ForgeTableView';
+import { ForgeViewToggle } from './ForgeViewToggle';
 import { ReviewPlanTab } from './ReviewPlanTab';
 import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
@@ -13,6 +16,7 @@ import { ReviewMetadataTab } from './ReviewMetadataTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
+import { startForgeRun } from './startForgeRun';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata';
@@ -30,8 +34,8 @@ const METADATA_DIFF_MAX_OBJECTS = 100;
 /**
  * Main review phase component for the Forge wizard.
  *
- * Split layout with the dependency graph on the left (60%) and a
- * tabbed panel on the right (40%) covering Plan, Anonymization,
+ * Split layout with the dependency graph, or its table, on the left (60%)
+ * and a tabbed panel on the right (40%) covering Plan, Anonymization,
  * Compliance, and Metadata tabs. Action bar with Back and Execute buttons.
  */
 export const ForgeReview: React.FC = () => {
@@ -42,6 +46,8 @@ export const ForgeReview: React.FC = () => {
   const plan = useForgeStore((s) => s.plan);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
+  /** The graph or its table, as on the discovery and execution screens around it. */
+  const view = useForgeObjectsView(graph?.nodes.length ?? 0);
   const metadataDiffs = useForgeStore((s) => s.metadataDiffs);
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
@@ -129,41 +135,10 @@ export const ForgeReview: React.FC = () => {
     }, []),
   );
 
-  /**
-   * Start the forge run.
-   *
-   * The phase switch alone is not enough: ForgeExecution renders mission
-   * control and then waits on `forge:progress`, which the extension only ever
-   * emits from inside its `forge:execute` handler. Without this request the
-   * run never starts and the view spins indefinitely.
-   */
+  /** Start the forge run, as Clone directly starts one (see `startForgeRun`). */
   const handleExecute = useCallback(() => {
-    if (!graph || !config || filesBlockExecute(useForgeStore.getState())) return;
-    // Clear the previous run's node statuses first: they live as long as the
-    // panel, so a run after an abort opened already half "done" and sat there.
-    useForgeStore.getState().resetNodeStatuses();
-    const { anonymizationRules, fileCopy } = useForgeStore.getState();
-    // The methods chosen in the Anonymization tab go with the run: the fields
-    // travel on the graph's nodes, and the run used to receive only those, so
-    // every category was written with no method at all. So does the choice
-    // to copy the files, which is not part of the config.
-    const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
-      graph,
-      config,
-      anonymizationRules,
-      ...(fileCopy.enabled
-        ? {
-            files: {
-              maxFileSizeMB: fileCopy.maxFileSizeMB,
-              acceptedAsIs: fileCopy.acceptedAsIs,
-            },
-          }
-        : {}),
-    });
-    // Mission control takes only the messages correlated to this request.
-    useForgeStore.getState().setExecutionRequestId(requestId);
-    setPhase('execution');
-  }, [graph, config, setPhase]);
+    startForgeRun();
+  }, []);
 
   const tabs: Array<{
     id: ReviewTab;
@@ -197,10 +172,30 @@ export const ForgeReview: React.FC = () => {
         />
       )}
       {graph && <ReviewLeftOutCost graph={graph} />}
+      {/* The view follows the sandforge.forge.graphView setting and the switch
+          of the discovery before it: Review drew the graph whatever its size,
+          hundreds of objects included. */}
+      {graph && (
+        <div className="flex items-center gap-2">
+          <ForgeViewToggle view={view} />
+        </div>
+      )}
       <div className="flex gap-4 min-h-[500px]">
-        {/* Graph panel (60%) */}
-        <div className="w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">
-          {graph && <LiveGraph graph={graph} onIncludeToggle={toggleNodeIncluded} />}
+        {/* Graph or table panel (60%). The table is laid over the panel
+            rather than in its flow: in the flow, hundreds of rows would make
+            the panel, and the tabs beside it, as tall as the list; laid over,
+            it scrolls within the height the row already has. */}
+        <div className="relative w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">
+          {graph &&
+            (view === 'graph' ? (
+              <LiveGraph graph={graph} onIncludeToggle={toggleNodeIncluded} />
+            ) : (
+              <ForgeTableView
+                graph={graph}
+                onToggleIncluded={toggleNodeIncluded}
+                className="absolute inset-0"
+              />
+            ))}
         </div>
 
         {/* Tabbed panel (40%) */}

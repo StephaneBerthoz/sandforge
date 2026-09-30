@@ -93,20 +93,22 @@ const ERROR_CHANNEL_EXCEPTIONS = [
 
 /**
  * Success answers built by hand rather than through `buildResponse`, as
- * `<site>:<channel>`. Three are pushes no request asked for: the AI status feed
- * and a real-time session's change of state through `broker.postToWebview`, and
+ * `<site>:<channel>`. Four are pushes no request asked for: the AI status feed,
+ * a real-time session's change of state and the settings told again when
+ * `sandforge.forge.graphView` changes, through `broker.postToWebview`, and
  * the org list sent on a change through `SidebarViewProvider.postMessage`. The
  * other three answer the sidebar's raw,
  * unenveloped requests (`sidebar:requestOrgs`, `sidebar:requestSettings`,
  * `i18n:locale`), which reach `SidebarViewProvider` without a branded origin
  * to hand `buildResponse`; the locale answer copies the request id by hand,
- * the other two are matched by type. A seventh is a reviewed edit of this list:
+ * the other two are matched by type. An eighth is a reviewed edit of this list:
  * an answer to a broker request belongs in `buildResponse`, which stamps the id
  * from the branded origin.
  */
 const RESPONSE_BROADCAST_SITES = [
   'composition/aiComposition.ts#postAIStatus:ai:status:response',
   'bridge/handlers/RealtimeHandler.ts#RealtimeHandler.pushStatus:realtime:status:response',
+  'bridge/handlers/SettingsHandler.ts#SettingsHandler.postSettings:settings:response',
   'extension.ts#activate:org:list:response',
   'providers/SidebarViewProvider.ts#SidebarViewProvider.answerLocaleRequest:i18n:locale:response',
   'providers/SidebarViewProvider.ts#SidebarViewProvider.resolveWebviewView:org:list:response',

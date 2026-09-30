@@ -5,6 +5,7 @@ import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 import '../../i18n';
 import type { ForgeLogEntry, ForgeRunClock, ForgeRunError } from '../../stores/useForgeStore';
 import { ForgeExecution, STOP_ANSWER_WAIT_MS } from './ForgeExecution';
+import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 
 /* ---- Mocks ---- */
 
@@ -51,6 +52,8 @@ let mockRunClock: ForgeRunClock | null = null;
 let mockStopRequestedAt: number | null = null;
 /** The calls the run has made so far, once its progress counts them. */
 let mockApiCallsSoFar: number | null = null;
+/** Whether the run was started by Clone directly, with no stop on Review. */
+let mockReviewSkipped = false;
 // The store's own moves, as it makes them: the screen draws what they leave.
 const mockPauseRun = vi.fn(() => {
   if (mockRunClock) mockRunClock = { ...mockRunClock, pausedSince: Date.now() };
@@ -177,6 +180,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     runClock: mockRunClock,
     stopRequestedAt: mockStopRequestedAt,
     apiCallsSoFar: mockApiCallsSoFar,
+    reviewSkipped: mockReviewSkipped,
     setPhase: mockSetPhase,
     setStoppedAt: mockSetStoppedAt,
     addLog: mockAddLog,
@@ -227,6 +231,68 @@ describe('ForgeExecution', () => {
     mockRunClock = startedAgo(0);
     mockStopRequestedAt = null;
     mockApiCallsSoFar = null;
+    mockReviewSkipped = false;
+    useForgeViewStore.setState({ setting: 'auto', choice: null });
+  });
+
+  describe('a run Clone directly started', () => {
+    it('says the review was skipped, and the metadata diff with it', () => {
+      mockReviewSkipped = true;
+      render(<ForgeExecution />);
+
+      expect(screen.getByTestId('forge-execution-review-skipped').textContent).toBe(
+        'Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run.',
+      );
+    });
+
+    it('says nothing of it for a run started from Review', () => {
+      render(<ForgeExecution />);
+      expect(screen.queryByTestId('forge-execution-review-skipped')).toBeNull();
+    });
+  });
+
+  describe('the objects of the run, as a graph or a table', () => {
+    /** The run's graph with `extra` objects more, not started. */
+    function withObjects(extra: number): void {
+      const base = mockGraph.nodes[2];
+      mockGraph = {
+        ...mockGraph,
+        nodes: [
+          ...mockGraph.nodes,
+          ...Array.from({ length: extra }, (_, i) => ({
+            ...base,
+            objectApiName: `Object${String(i)}__c`,
+          })),
+        ],
+      };
+    }
+
+    it('lists a run of more objects than auto draws, and draws a smaller one', () => {
+      withObjects(FORGE_GRAPH_MAX_OBJECTS + 1 - mockGraph.nodes.length);
+      const { unmount } = render(<ForgeExecution />);
+      expect(screen.getByTestId('forge-execution-table')).toBeDefined();
+      expect(screen.getAllByTestId('forge-execution-row')).toHaveLength(
+        FORGE_GRAPH_MAX_OBJECTS + 1,
+      );
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      unmount();
+
+      mockGraph = makeMockGraph();
+      render(<ForgeExecution />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+    });
+
+    it('switches between the two, and keeps the view picked over the setting', () => {
+      useForgeViewStore.getState().adoptSetting('graph');
+      render(<ForgeExecution />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('forge-view-table'));
+
+      expect(screen.getByTestId('forge-execution-table')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(useForgeViewStore.getState().choice).toBe('table');
+    });
   });
 
   describe('a run whose objects have all settled', () => {

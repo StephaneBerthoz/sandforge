@@ -33,6 +33,8 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 3. Click "Discover Graph"
      → Forge walks the relationship graph from your root record
        (Account → Contacts, Opportunities, Cases…)
+     → or "Clone directly", to clone as soon as discovery answers,
+       with no stop on the graph or on Review (see below)
 4. Tune the options:
      • Depth: "Direct only" / "Full tree" / "Custom depth"
      • "Records per object" — cap rows per object (Smart / 10…1000 / All)
@@ -55,6 +57,25 @@ Salesforce-code → human-friendly explanation + action hint.
 > In a hurry? The "Template" tab ships starter graphs (Account 360,
 > Case Workflow, Lead → Opportunity) and the "Quick start" button skips
 > discovery entirely — record counts are then queried during execution.
+
+## Clone directly
+
+**Clone directly**, under **Discover Graph**, runs the discovery and, once it answers, the clone of what it found, without stopping on the graph or on the Review screen: it lands on the execution screen, which says the review was skipped. The run is sent as **Execute Forge** sends it when nothing was changed on Review:
+
+- the objects discovery included and, with **Anonymize PII** on, the personal fields it selected on each — narrowed to the preset a template or an earlier Review in the panel kept, if any — each anonymized with the method set for its category;
+- no file: copying the files is an option of the Review screen;
+- no dry run.
+
+What the path skips is said beside the button: the metadata diff between the two orgs, which runs on the Review screen, is not run. Everything that guards a run still does. The button is off whenever **Discover Graph** is: a source and a target that are two orgs, and an input the extension accepts. Production Guard, its confirmation for a production org and the duplicate-run cooldown answer the run as they answer one started from Review. The page can be left while the discovery runs — for another page of the panel, through the command palette or a shortcut: the run still starts as the discovery answers, and the page comes back on it. A discovery that fails stops on the discovery screen with its error, shown when the page comes back if it failed while the page was away, and one you leave with **Back** starts nothing; **Retry Discovery** then runs the discovery alone, and its graph waits for Review.
+
+## Graph or table
+
+The discovery, Review and execution screens show a graph's objects either as a graph, drawn with its relationships, or as a table. On discovery and Review, each row has the box that includes or leaves out its object. The execution's table gives each object a row with what its node on the graph says: its status, its progress while it is written, its records and fields, its personal fields and the errors discovery met, updated as the run goes. The `sandforge.forge.graphView` setting chooses between them:
+
+- `auto` (the default): the graph up to 25 objects, the table past that;
+- `graph` or `table`: always that view.
+
+The **Graph View** / **Table View** switch on any of these screens overrides the setting on all three, for every run, until the panel is closed. Why 25: each progress event of a run redraws the whole execution graph, and past a few dozen objects the redraw takes longer than the time between two events the extension sends, so the panel stops answering until the run ends — a record clone can reach hundreds of objects. The table redraws only the row of the object an event is about.
 
 ## Copy the files of the cloned records
 

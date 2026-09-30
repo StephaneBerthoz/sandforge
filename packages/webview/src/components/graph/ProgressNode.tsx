@@ -49,8 +49,11 @@ const borderByStatus: Record<ForgeNodeStatus, string> = {
   stopped: 'border-status-warning',
 };
 
-/** Render the appropriate status icon for a given ForgeNodeStatus. */
-function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement | null {
+/**
+ * Render the appropriate status icon for a given ForgeNodeStatus: on the
+ * node, and beside the status on each row of the execution's table.
+ */
+export function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement | null {
   switch (status) {
     case 'done':
       return <Check className="h-3 w-3 text-status-success" />;

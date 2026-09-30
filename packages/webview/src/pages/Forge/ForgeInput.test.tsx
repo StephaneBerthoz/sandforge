@@ -58,6 +58,7 @@ const mockUpsertTemplate = vi.fn();
 const mockRemoveTemplate = vi.fn();
 const mockSetAnonymizationRules = vi.fn();
 const mockSetAnonymizationPresetId = vi.fn();
+const mockAwaitDirectRun = vi.fn();
 
 /* Mutable user-template list — tests push into it before rendering. */
 const mockTemplates = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }));
@@ -71,6 +72,7 @@ vi.mock('../../stores/useForgeStore', () => {
     result: null,
     history: [],
     setConfig: (...args: unknown[]) => mockSetConfig(...args),
+    awaitDirectRun: (...args: unknown[]) => mockAwaitDirectRun(...args),
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     setTemplates: (...args: unknown[]) => mockSetTemplates(...args),
     upsertTemplate: (...args: unknown[]) => mockUpsertTemplate(...args),
@@ -163,6 +165,7 @@ describe('ForgeInput', () => {
     mockRemoveTemplate.mockClear();
     mockSetAnonymizationRules.mockClear();
     mockSetAnonymizationPresetId.mockClear();
+    mockAwaitDirectRun.mockClear();
     mockPostMessage.mockClear();
     mockTemplates.list.length = 0;
   });
@@ -714,6 +717,67 @@ describe('ForgeInput', () => {
     fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
     expect(screen.getByTestId('forge-same-org-warning')).toBeDefined();
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /* ---- Clone directly ---- */
+  describe('Clone directly', () => {
+    it('says, where it is chosen, that it stops on neither screen and runs no metadata diff', () => {
+      render(<ForgeInput />);
+
+      const button = screen.getByTestId('forge-clone-directly-btn');
+      const hint = screen.getByTestId('forge-clone-directly-hint');
+      expect(button.getAttribute('aria-describedby')).toBe(hint.id);
+      expect(hint.textContent).toContain('without stopping on the graph or on Review');
+      expect(hint.textContent).toContain('The metadata diff between the two orgs is not run.');
+    });
+
+    it('stays off where Discover does: no input, and two orgs that are one', () => {
+      render(<ForgeInput />);
+      const button = screen.getByTestId('forge-clone-directly-btn') as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+
+      fireEvent.change(screen.getByTestId('forge-input-record'), {
+        target: { value: '001XXXXXXXXXXXXXXX' },
+      });
+      selectOrg('forge-target-org', 'org-src');
+      expect(button.disabled).toBe(true);
+
+      selectOrg('forge-target-org', 'org-tgt');
+      expect(button.disabled).toBe(false);
+    });
+
+    it('discovers the config Discover would, as a discovery the run waits on', () => {
+      render(<ForgeInput />);
+      fireEvent.change(screen.getByTestId('forge-input-record'), {
+        target: { value: '001XXXXXXXXXXXXXXX' },
+      });
+      selectOrg('forge-target-org', 'org-tgt');
+
+      fireEvent.click(screen.getByTestId('forge-clone-directly-btn'));
+
+      expect(mockAwaitDirectRun).toHaveBeenCalledTimes(1);
+      expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+      const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
+      expect(discover.config).toEqual(mockSetConfig.mock.calls[0][0]);
+      expect(discover.config).toMatchObject({
+        inputMode: 'record',
+        recordId: '001XXXXXXXXXXXXXXX',
+        sourceOrgId: 'org-src',
+        targetOrgId: 'org-tgt',
+      });
+    });
+
+    it('is not a Clone directly when Discover is clicked', () => {
+      render(<ForgeInput />);
+      fireEvent.change(screen.getByTestId('forge-input-record'), {
+        target: { value: '001XXXXXXXXXXXXXXX' },
+      });
+      selectOrg('forge-target-org', 'org-tgt');
+
+      fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+      expect(mockAwaitDirectRun).not.toHaveBeenCalled();
+    });
   });
 
   /* ---- Swap orgs ---- */

@@ -13,6 +13,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import type { NotificationAction } from '../stores/useNotificationStore';
 import { useGrappeStore } from '../stores/useGrappeStore';
+import { useForgeViewStore } from '../stores/useForgeViewStore';
 import { importLanguageFromSettings } from '../i18n';
 import { buildMessage } from './messageHelpers';
 import { isRequestFromHere } from './sendBridgeMessage';
@@ -220,10 +221,13 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   // One-shot language recovery: the webview state (per-document) may have
   // lost the persisted language while the extension-side settings blob still
   // carries it — adopt the blob value once (see importLanguageFromSettings).
-  useMessageListener<BaseMessage & { payload: { settings?: unknown } }>(
+  // The same answer carries `sandforge.forge.graphView`, taken whenever it
+  // comes: the extension sends it again when the setting changes.
+  useMessageListener<BaseMessage & { payload: { settings?: unknown; forgeGraphView?: unknown } }>(
     'settings:response',
     (msg) => {
       importLanguageFromSettings(msg.payload?.settings);
+      useForgeViewStore.getState().adoptSetting(msg.payload?.forgeGraphView);
     },
   );
 

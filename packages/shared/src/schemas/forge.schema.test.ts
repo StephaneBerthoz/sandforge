@@ -4,6 +4,7 @@ import {
   forgeInputModeSchema,
   forgeDepthSchema,
   forgeNodeStatusSchema,
+  forgeGraphViewSchema,
   forgeEdgeTypeSchema,
   forgeBatchStrategySchema,
   forgeAnonymizationCategorySchema,
@@ -133,6 +134,19 @@ describe('forgeNodeStatusSchema', () => {
 
   it('should reject invalid status', () => {
     expect(() => forgeNodeStatusSchema.parse('pending')).toThrow();
+  });
+});
+
+describe('forgeGraphViewSchema', () => {
+  it('accepts the three values the setting offers', () => {
+    for (const view of ['auto', 'graph', 'table']) {
+      expect(forgeGraphViewSchema.parse(view)).toBe(view);
+    }
+  });
+
+  it('refuses a value typed into settings.json by hand that the setting does not offer', () => {
+    expect(forgeGraphViewSchema.safeParse('list').success).toBe(false);
+    expect(forgeGraphViewSchema.safeParse(undefined).success).toBe(false);
   });
 });
 

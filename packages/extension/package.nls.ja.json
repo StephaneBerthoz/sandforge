@@ -36,6 +36,7 @@
   "config.title": "SandForge",
   "config.telemetry.description": "診断のため拡張機能のエラーをローカルに記録します。ネットワーク経由では何も送信されません。",
   "config.orgs.validateOnStartup.description": "起動時に登録済み組織を検証し、期限切れのセッションを sf CLI で自動的に更新する",
+  "config.forge.graphView.description": "Forge の検出画面・確認画面・実行画面でグラフのオブジェクトをどう表示するかを指定します。`auto` は 25 オブジェクトまではグラフとして描き、それを超えるとテーブルに一覧表示します。`graph` と `table` は常にそのビューで表示します。いずれの画面でも、グラフビュー / テーブルビューの切り替えはパネルを閉じるまでこの設定より優先されます。",
   "config.seed.defaultBatchSize.description": "Seed データ操作の既定のバッチサイズ",
   "config.sync.defaultBatchSize.description": "Sync データ操作の既定のバッチサイズ",
   "config.sync.maxConcurrentOps.description": "同時同期操作の最大数",

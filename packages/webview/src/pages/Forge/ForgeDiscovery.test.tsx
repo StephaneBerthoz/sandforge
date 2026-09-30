@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import '../../i18n';
 import { ForgeDiscovery } from './ForgeDiscovery';
 import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
+import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 
 /* ---- Mocks ---- */
 
@@ -84,6 +85,10 @@ vi.mock('../../stores/useForgeStore', () => {
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     toggleAnonymizeField: (...args: unknown[]) => mockToggleAnonymizeField(...args),
     setNodesIncluded: (...args: unknown[]) => mockSetNodesIncluded(...args),
+    // No Clone directly waits on these discoveries.
+    directDiscoveryId: null,
+    directDiscoveryError: null,
+    settleDirectRun: () => false,
     reset: vi.fn(),
   };
 
@@ -139,6 +144,7 @@ describe('ForgeDiscovery', () => {
     mockSendMessage.mockClear();
     mockGraph = defaultGraph;
     mockConfig = null;
+    useForgeViewStore.setState({ setting: 'auto', choice: null });
   });
 
   it('should render with forge-discovery test id', () => {
@@ -343,6 +349,55 @@ describe('ForgeDiscovery', () => {
     // Switch back to graph
     fireEvent.click(screen.getByTestId('forge-view-graph'));
     expect(screen.getByTestId('live-graph')).toBeDefined();
+  });
+
+  describe('graph or table, by setting', () => {
+    /** A graph of `count` objects, as a wide discovery answers. */
+    function graphOf(count: number): ForgeGraph {
+      return {
+        ...defaultGraph,
+        nodes: Array.from({ length: count }, (_, i) =>
+          makeNode({ objectApiName: i === 0 ? 'Account' : `Object${String(i)}__c` }),
+        ),
+        edges: [],
+      };
+    }
+
+    it('lists a graph of more objects than auto draws, and draws one of that many', () => {
+      mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS + 1);
+      const { unmount } = render(<ForgeDiscovery />);
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      expect(screen.queryByTestId('live-graph')).toBeNull();
+      expect(screen.getByTestId('forge-view-table').getAttribute('aria-pressed')).toBe('true');
+      unmount();
+
+      mockGraph = graphOf(FORGE_GRAPH_MAX_OBJECTS);
+      render(<ForgeDiscovery />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+    });
+
+    it('shows the view the setting names, whatever the graph holds', () => {
+      useForgeViewStore.getState().adoptSetting('table');
+      const { unmount } = render(<ForgeDiscovery />);
+      expect(screen.getByTestId('forge-table-view')).toBeDefined();
+      unmount();
+
+      useForgeViewStore.getState().adoptSetting('graph');
+      mockGraph = graphOf(400);
+      render(<ForgeDiscovery />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+    });
+
+    it('comes back on the view picked with the switch, over the setting', () => {
+      mockGraph = graphOf(400);
+      const { unmount } = render(<ForgeDiscovery />);
+      fireEvent.click(screen.getByTestId('forge-view-graph'));
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+      unmount();
+
+      render(<ForgeDiscovery />);
+      expect(screen.getByTestId('live-graph')).toBeDefined();
+    });
   });
 
   // Select All

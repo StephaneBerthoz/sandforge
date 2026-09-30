@@ -288,6 +288,16 @@
           "default": true,
           "description": "%config.orgs.validateOnStartup.description%"
         },
+        "sandforge.forge.graphView": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "graph",
+            "table"
+          ],
+          "description": "%config.forge.graphView.description%"
+        },
         "sandforge.seed.defaultBatchSize": {
           "type": "number",
           "default": 200,

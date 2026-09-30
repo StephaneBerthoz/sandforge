@@ -1,4 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, ForgeGraphView } from '@sandforge/shared';
+import { forgeGraphViewSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import {
@@ -8,6 +9,18 @@ import {
 } from '../validatePayload.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+
+/**
+ * The `sandforge.forge.graphView` setting as the panels are told it: what the
+ * editor holds when it is one of the three values the setting offers, `auto`
+ * otherwise. VS Code hands back whatever a settings.json edited by hand says.
+ */
+function forgeGraphViewOf(deps: HandlerDeps): ForgeGraphView {
+  const held = forgeGraphViewSchema.safeParse(
+    deps.services?.getSandforgeSetting?.<unknown>('forge.graphView', 'auto'),
+  );
+  return held.success ? held.data : 'auto';
+}
 
 /** Message types handled by SettingsHandler. */
 const SETTINGS_TYPES = new Set([
@@ -65,10 +78,35 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Tell every panel the settings again, with no request behind them: the
+   * `sandforge.forge.graphView` setting changed in the editor, and a panel
+   * reads it only as it opens otherwise. Each panel takes the message by its
+   * type; a request waiting for its own answer lets it pass.
+   */
+  postSettings(): void {
+    this.deps.broker.postToWebview({
+      id: this.deps.nextId(),
+      type: 'settings:response',
+      timestamp: Date.now(),
+      payload: this.settingsPayload(),
+    } as BaseMessage);
+  }
+
+  /**
+   * What every `settings:response` carries: the blob the panels save, and the
+   * editor setting the Forge screens read, which the blob does not hold.
+   */
+  private settingsPayload(): { settings: Record<string, unknown>; forgeGraphView: ForgeGraphView } {
+    return {
+      settings: this.deps.configStore.getByCategory('settings'),
+      forgeGraphView: forgeGraphViewOf(this.deps),
+    };
+  }
+
   private handleSettingsGet(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const settings = this.deps.configStore.getByCategory('settings');
-    const response = buildResponse(this.deps, msg, 'settings:response', { settings });
+    const response = buildResponse(this.deps, msg, 'settings:response', this.settingsPayload());
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -81,8 +119,7 @@ export class SettingsHandler implements DomainHandler {
 
     this.deps.configStore.set(payload.key, payload.value, 'settings');
 
-    const settings = this.deps.configStore.getByCategory('settings');
-    const response = buildResponse(this.deps, msg, 'settings:response', { settings });
+    const response = buildResponse(this.deps, msg, 'settings:response', this.settingsPayload());
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }

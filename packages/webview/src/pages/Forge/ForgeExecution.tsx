@@ -2,7 +2,16 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import { AlertTriangle, ArrowLeft, FileText, Pause, Play, Square, Flame } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  FastForward,
+  FileText,
+  Pause,
+  Play,
+  Square,
+  Flame,
+} from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import type { ForgeGraph as SharedForgeGraph } from '@sandforge/shared';
@@ -22,7 +31,10 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
+import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { estimatedApiCallsOf } from './forgeApiCalls';
+import { ForgeExecutionTable } from './ForgeExecutionTable';
+import { ForgeViewToggle } from './ForgeViewToggle';
 
 /**
  * What the top bar says: that the run is forging, or held paused; that it is
@@ -74,6 +86,14 @@ export const ForgeExecution: React.FC = () => {
   const showStoppedRun = useForgeStore((s) => s.showStoppedRun);
   const reviewAgain = useForgeStore((s) => s.reviewAgain);
   const leaveStoppingRun = useForgeStore((s) => s.leaveStoppingRun);
+  /** Whether the run was started by Clone directly, with no stop on Review. */
+  const reviewSkipped = useForgeStore((s) => s.reviewSkipped);
+  /**
+   * The run's objects as a graph or as a table: each progress event redraws
+   * the whole graph, which past a few dozen objects takes longer than the time
+   * between two events (see FORGE_GRAPH_MAX_OBJECTS).
+   */
+  const view = useForgeObjectsView(graph?.nodes.length ?? 0);
   /** Whether an error ended the run: nothing is left to pause or abort. */
   const stopped = Boolean(runError);
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
@@ -259,6 +279,18 @@ export const ForgeExecution: React.FC = () => {
         </m.div>
       )}
 
+      {/* A run Clone directly started went from its discovery to here with
+          no stop on the graph or on Review, where the metadata diff runs. */}
+      {reviewSkipped && (
+        <p
+          data-testid="forge-execution-review-skipped"
+          className="flex items-start gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-secondary"
+        >
+          <FastForward size={14} className="mt-0.5 shrink-0 text-hue-forge" />
+          {t('forge.direct.reviewSkipped')}
+        </p>
+      )}
+
       {/* ---- Top bar: progress, timer, status ---- */}
       <m.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
         <div className="flex items-center justify-between text-sm">
@@ -343,7 +375,12 @@ export const ForgeExecution: React.FC = () => {
         />
       </m.div>
 
-      {/* ---- Middle: SplitView (graph + logs) ---- */}
+      {/* ---- Middle: SplitView (graph or table + logs) ---- */}
+      {graph && (
+        <div className="flex items-center gap-2">
+          <ForgeViewToggle view={view} />
+        </div>
+      )}
       {/* A height of its own, as the discovery graph has: under a minimum
           alone, the graph took the height of the log beside it. */}
       <div className="h-[60vh] min-h-[300px]">
@@ -351,7 +388,11 @@ export const ForgeExecution: React.FC = () => {
           ratio="60/40"
           left={
             graph ? (
-              <LiveGraph graph={graph as unknown as SharedForgeGraph} className="h-full" />
+              view === 'graph' ? (
+                <LiveGraph graph={graph as unknown as SharedForgeGraph} className="h-full" />
+              ) : (
+                <ForgeExecutionTable className="h-full" />
+              )
             ) : (
               <div className="flex h-full items-center justify-center text-text-secondary">
                 {t('common.noData')}

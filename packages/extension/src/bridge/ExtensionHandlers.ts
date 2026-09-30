@@ -275,6 +275,14 @@ export class ExtensionHandlers {
   }
 
   /**
+   * Tell every panel the settings again, as a setting the panels read changed
+   * in the editor (see `composition/forgeComposition.ts`).
+   */
+  postSettings(): void {
+    this.settingsHandler.postSettings();
+  }
+
+  /**
    * Drop everything held about an org that is no longer the org it was.
    *
    * A refreshed sandbox answers from a new org behind the same registered id,

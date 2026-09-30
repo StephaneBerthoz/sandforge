@@ -9,8 +9,6 @@ import {
   HardDrive,
   Clock,
   Loader2,
-  LayoutGrid,
-  List,
   RotateCcw,
   CheckSquare,
   XSquare,
@@ -21,12 +19,14 @@ import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
 import { ForgeTableView } from './ForgeTableView';
+import { ForgeViewToggle } from './ForgeViewToggle';
+import { adoptDiscoveredGraph } from './directRun';
 
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import type { ForgeGraphNode, ForgeGraph, ForgeConfig } from '../../stores/useForgeStore';
 import type { BaseMessage } from '@sandforge/shared';
-import { findForgeAnonymizationPreset } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { slideUp, staggerContainer } from '../../motion/presets';
@@ -42,19 +42,32 @@ import { cn } from '../../theme';
 export const ForgeDiscovery: React.FC = () => {
   const { t } = useTranslation();
   const graph = useForgeStore((s) => s.graph);
-  const setGraph = useForgeStore((s) => s.setGraph);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   const toggleAnonymizeField = useForgeStore((s) => s.toggleAnonymizeField);
 
   const config = useForgeStore((s) => s.config);
   const setNodesIncluded = useForgeStore((s) => s.setNodesIncluded);
+  /**
+   * Whether a Clone directly waits on this discovery to start its run. Its
+   * answer and its error are taken by `directRun.ts`, which outlives this
+   * screen; the error is kept for it in the store.
+   */
+  const directRunPending = useForgeStore((s) => typeof s.directDiscoveryId === 'string');
+  const directDiscoveryError = useForgeStore((s) => s.directDiscoveryError ?? null);
+  const settleDirectRun = useForgeStore((s) => s.settleDirectRun);
   const sendMessage = useSendMessage();
 
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [loading, setLoading] = useState(!graph);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
+  /**
+   * The error the discovery ended on: this screen's, or a Clone directly's,
+   * which may have come while the page was away. Either ends the spinner.
+   */
+  const shownError = error ?? directDiscoveryError;
+  const discovering = loading && directDiscoveryError === null;
+  const viewMode = useForgeObjectsView(graph?.nodes.length ?? 0);
   const [searchQuery, setSearchQuery] = useState('');
   /** Live counters streamed by the extension during graph discovery. */
   const [discoveryProgress, setDiscoveryProgress] = useState<{
@@ -65,33 +78,34 @@ export const ForgeDiscovery: React.FC = () => {
   /** Listen for graph discovery response from the extension. */
   useMessageListener<BaseMessage & { payload: { graph: ForgeGraph } }>(
     'forge:discover:response',
-    useCallback(
-      (msg) => {
-        // Discovery is fire-and-forget: leaving the phase does not stop the
-        // BFS, and the response still lands during the exit animation. Adopting
-        // that graph would drop the user back into a phase they walked out of.
-        if (useForgeStore.getState().phase !== 'discovery') return;
-        setGraph(msg.payload.graph);
-        // A preset picked in Review — or brought back by a template — applies
-        // to the graph it is shown beside. A new graph comes back with every
-        // PII field it found selected, and the Review tab would show the
-        // preset over fields it never chose.
-        const { anonymizationPresetId, config, applyAnonymizationPreset } =
-          useForgeStore.getState();
-        const preset = findForgeAnonymizationPreset(anonymizationPresetId);
-        if (preset && config?.anonymizePII) applyAnonymizationPreset(preset.rules);
-        setLoading(false);
-        setError(null);
-        setDiscoveryProgress(null);
-      },
-      [setGraph],
-    ),
+    useCallback((msg) => {
+      // Discovery is fire-and-forget: leaving the phase does not stop the
+      // BFS, and the response still lands during the exit animation. Adopting
+      // that graph would drop the user back into a phase they walked out of.
+      if (useForgeStore.getState().phase !== 'discovery') return;
+      // A Clone directly's answer is `directRun.ts`'s: it starts the run on
+      // the graph, sent as Review's Execute sends it, page or no page, and
+      // this screen draws nothing of it — a graph of hundreds of objects
+      // would be drawn only to be left.
+      if (typeof useForgeStore.getState().directDiscoveryId === 'string') return;
+      adoptDiscoveredGraph(msg.payload.graph);
+      setLoading(false);
+      setError(null);
+      setDiscoveryProgress(null);
+    }, []),
   );
 
-  /** Listen for graph discovery error from the extension. */
+  /**
+   * Listen for graph discovery error from the extension. A Clone directly's
+   * is `directRun.ts`'s, which keeps it for this screen: it stops here, with
+   * the error. Retry then runs the discovery alone, and its graph waits for
+   * Review: still waiting, the Clone directly would have written to the
+   * target on a click labelled "Retry Discovery".
+   */
   useMessageListener<BaseMessage & { payload: { message: string } }>(
     'forge:discover:error',
     useCallback((msg) => {
+      if (typeof useForgeStore.getState().directDiscoveryId === 'string') return;
       setLoading(false);
       setError(msg.payload.message);
       setDiscoveryProgress(null);
@@ -137,28 +151,34 @@ export const ForgeDiscovery: React.FC = () => {
   /**
    * Navigate back to input phase. Leaving while the BFS still runs also
    * stops it: otherwise it kept querying the org behind the input screen, and
-   * a second Discover started another one beside it.
+   * a second Discover started another one beside it. A Clone directly left
+   * with its discovery starts no run.
    */
   const handleBack = useCallback(() => {
-    if (loading) {
+    if (discovering) {
       sendMessage(buildMessage('forge:abort'));
     }
+    settleDirectRun();
     setPhase('input');
-  }, [loading, sendMessage, setPhase]);
+  }, [discovering, sendMessage, setPhase, settleDirectRun]);
 
   /** Advance to review phase. */
   const handleExecute = useCallback(() => {
     setPhase('review');
   }, [setPhase]);
 
-  /** Re-run the same discovery from the stored config. */
+  /**
+   * Re-run the same discovery from the stored config, alone: the error a
+   * Clone directly's discovery ended on goes with the Clone directly.
+   */
   const handleRetry = useCallback(() => {
     if (!config) return;
+    settleDirectRun();
     setLoading(true);
     setError(null);
     setDiscoveryProgress(null);
     sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
-  }, [config, sendMessage]);
+  }, [config, sendMessage, settleDirectRun]);
 
   /** Handle include toggle for the selected node. */
   const handleToggleIncluded = useCallback(() => {
@@ -217,7 +237,7 @@ export const ForgeDiscovery: React.FC = () => {
   }, [graph, searchQuery, viewMode]);
 
   // Loading state while waiting for extension response
-  if (loading) {
+  if (discovering) {
     return (
       <div
         data-testid="forge-discovery-loading"
@@ -225,6 +245,11 @@ export const ForgeDiscovery: React.FC = () => {
       >
         <Loader2 size={32} className="animate-spin text-hue-forge" />
         <p>{t('forge.discovery')}</p>
+        {directRunPending && (
+          <p data-testid="forge-discovery-direct" className="text-xs text-text-secondary">
+            {t('forge.direct.discovering')}
+          </p>
+        )}
         {discoveryProgress && (
           <p
             data-testid="forge-discovery-progress"
@@ -257,12 +282,12 @@ export const ForgeDiscovery: React.FC = () => {
         data-testid="forge-discovery-empty"
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
-        <p>{error ?? t('common.noData')}</p>
+        <p>{shownError ?? t('common.noData')}</p>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={handleBack} icon={<ArrowLeft size={14} />}>
             {t('common.back')}
           </Button>
-          {error && config && (
+          {shownError && config && (
             <Button
               variant="primary"
               data-testid="forge-retry-discovery"
@@ -291,7 +316,7 @@ export const ForgeDiscovery: React.FC = () => {
           false and the error had nowhere to render: the user kept reading the
           previous org's graph as if it were the new one, and could execute it.
           Say the run failed, next to the graph it failed to replace. */}
-      {error && (
+      {shownError && (
         <m.div
           variants={slideUp}
           role="alert"
@@ -299,7 +324,7 @@ export const ForgeDiscovery: React.FC = () => {
           className="flex items-center gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
         >
           <AlertTriangle size={14} className="shrink-0 text-status-error" />
-          <span className="flex-1">{error}</span>
+          <span className="flex-1">{shownError}</span>
           {config && (
             <Button
               variant="secondary"
@@ -314,40 +339,11 @@ export const ForgeDiscovery: React.FC = () => {
         </m.div>
       )}
 
-      {/* View mode toggle + search input */}
+      {/* View mode toggle + search input. The view follows the
+          sandforge.forge.graphView setting — a graph of hundreds of objects
+          is listed rather than drawn — until the switch picks one. */}
       <m.div variants={slideUp} className="flex items-center gap-2">
-        <div className="flex rounded-md border border-subtle overflow-hidden">
-          <button
-            type="button"
-            data-testid="forge-view-graph"
-            onClick={() => setViewMode('graph')}
-            className={cn(
-              'px-2.5 py-1.5 text-xs transition-colors',
-              viewMode === 'graph'
-                ? 'bg-hue-forge text-(--sf-bg-primary)'
-                : 'text-text-secondary hover:text-text-primary',
-            )}
-            aria-pressed={viewMode === 'graph'}
-          >
-            <LayoutGrid size={14} className="inline mr-1" />
-            {t('forge.graphView')}
-          </button>
-          <button
-            type="button"
-            data-testid="forge-view-table"
-            onClick={() => setViewMode('table')}
-            className={cn(
-              'px-2.5 py-1.5 text-xs transition-colors',
-              viewMode === 'table'
-                ? 'bg-hue-forge text-(--sf-bg-primary)'
-                : 'text-text-secondary hover:text-text-primary',
-            )}
-            aria-pressed={viewMode === 'table'}
-          >
-            <List size={14} className="inline mr-1" />
-            {t('forge.tableView')}
-          </button>
-        </div>
+        <ForgeViewToggle view={viewMode} />
         <div className="relative flex-1 max-w-xs">
           <Search
             size={14}
@@ -385,7 +381,7 @@ export const ForgeDiscovery: React.FC = () => {
                 graph={graph}
                 selectedNodeName={selectedNodeName}
                 onNodeClick={handleNodeClick}
-                onToggleIncluded={(name) => toggleNodeIncluded(name)}
+                onToggleIncluded={toggleNodeIncluded}
                 searchQuery={searchQuery}
                 className="h-full overflow-auto"
               />

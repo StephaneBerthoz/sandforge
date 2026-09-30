@@ -36,6 +36,7 @@
   "config.title": "SandForge",
   "config.telemetry.description": "Fehler der Erweiterung zur Diagnose lokal aufzeichnen. Es wird nichts über das Netzwerk gesendet.",
   "config.orgs.validateOnStartup.description": "Registrierte Organisationen beim Start validieren und abgelaufene Sitzungen automatisch über die sf CLI aktualisieren",
+  "config.forge.graphView.description": "Wie Forge die Objekte eines Graphen auf seinen Ermittlungs-, Überprüfungs- und Ausführungsbildschirmen zeigt. `auto` zeichnet sie bis 25 Objekte als Graph und listet sie darüber in einer Tabelle; `graph` und `table` zeigen immer diese Ansicht. Der Umschalter Graph-Ansicht / Tabellenansicht auf jedem dieser Bildschirme hat Vorrang vor dieser Einstellung, bis das Panel geschlossen wird.",
   "config.seed.defaultBatchSize.description": "Standard-Batchgröße für Seed-Datenvorgänge",
   "config.sync.defaultBatchSize.description": "Standard-Batchgröße für Sync-Datenvorgänge",
   "config.sync.maxConcurrentOps.description": "Maximale Anzahl gleichzeitiger Sync-Vorgänge",

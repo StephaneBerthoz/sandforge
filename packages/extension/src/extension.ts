@@ -26,7 +26,10 @@ import {
   wireOfflineNotifications,
   wireOfflineReplay,
 } from './composition/backgroundComposition';
-import { initForgeComposition } from './composition/forgeComposition';
+import {
+  initForgeComposition,
+  registerForgeGraphViewListener,
+} from './composition/forgeComposition';
 import { initAutopilotComposition } from './composition/autopilotComposition';
 import {
   createAIReinit,
@@ -269,6 +272,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // NOT_INITIALIZED / AI_NOT_CONFIGURED until then — contract documented in
   // composition/lateServices.ts).
   initForgeComposition({ handlers, orgRegistry, orgManager, configStore, piiDetector, log });
+  context.subscriptions.push(registerForgeGraphViewListener(handlers));
   // The autopilot orchestrator's grappe lifecycle events go straight to the
   // webview (they correlate to no request), so they carry their own id source
   // rather than a handler's response builder. Captured in a const because the

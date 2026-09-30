@@ -160,6 +160,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
 | `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                     | `false`           |
 | `sandforge.orgs.validateOnStartup`         | Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI                                                 | `true`            |
+| `sandforge.forge.graphView`                | Forge's discovery, Review and execution screens: `auto` shows a table past 25 objects, a graph below; `graph` or `table` always      | `auto`            |
 | `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                          | `200`             |
 | `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                          | `200`             |
 | `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                   | `3`               |

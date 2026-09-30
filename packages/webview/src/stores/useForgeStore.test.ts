@@ -1413,6 +1413,88 @@ describe('useForgeStore', () => {
       expect(getState().fileCopy.acceptedAsIs).toBe(false);
     });
   });
+
+  describe('a Clone directly', () => {
+    it('waits on the discovery about to start, with the graph an earlier one left gone', () => {
+      getState().setGraph(createMockGraph());
+      getState().updateNodeStatus('Opportunity', 'done');
+
+      getState().awaitDirectRun('wv-discover-1');
+
+      expect(getState().directDiscoveryId).toBe('wv-discover-1');
+      expect(getState().graph).toBeNull();
+      expect(getState().statusesBeyondGraph).toEqual({});
+    });
+
+    it('takes the answer to its own discovery, once, while the flow is on the discovery', () => {
+      getState().setPhase('discovery');
+      getState().awaitDirectRun('wv-discover-1');
+
+      expect(getState().takeDirectDiscovery('wv-discover-other')).toBe(false);
+      expect(getState().takeDirectDiscovery(undefined)).toBe(false);
+      expect(getState().directDiscoveryId).toBe('wv-discover-1');
+
+      expect(getState().takeDirectDiscovery('wv-discover-1')).toBe(true);
+      expect(getState().takeDirectDiscovery('wv-discover-1')).toBe(false);
+      expect(getState().directDiscoveryId).toBeNull();
+    });
+
+    it('starts nothing on an answer that comes once the flow has left the discovery', () => {
+      getState().awaitDirectRun('wv-discover-1');
+      getState().setPhase('execution');
+
+      expect(getState().takeDirectDiscovery('wv-discover-1')).toBe(false);
+      expect(getState().directDiscoveryId).toBeNull();
+    });
+
+    it('keeps the error of its discovery for the screen, and no other', () => {
+      getState().awaitDirectRun('wv-discover-1');
+
+      getState().failDirectDiscovery('wv-discover-other', 'Not this one');
+      expect(getState().directDiscoveryError).toBeNull();
+      expect(getState().directDiscoveryId).toBe('wv-discover-1');
+
+      getState().failDirectDiscovery('wv-discover-1', 'INVALID_SESSION_ID');
+      expect(getState().directDiscoveryError).toBe('INVALID_SESSION_ID');
+      expect(getState().directDiscoveryId).toBeNull();
+    });
+
+    it('is dropped, with the error its discovery ended on, by the way back or a retry', () => {
+      getState().awaitDirectRun('wv-discover-1');
+      expect(getState().settleDirectRun()).toBe(true);
+      expect(getState().settleDirectRun()).toBe(false);
+
+      getState().awaitDirectRun('wv-discover-2');
+      getState().failDirectDiscovery('wv-discover-2', 'INVALID_SESSION_ID');
+      expect(getState().settleDirectRun()).toBe(false);
+      expect(getState().directDiscoveryError).toBeNull();
+    });
+
+    it('is not waited on once a plain discovery is configured, nor once Forge starts again', () => {
+      getState().awaitDirectRun('wv-discover-1');
+      getState().setConfig(createMockConfig());
+      expect(getState().directDiscoveryId).toBeNull();
+
+      getState().awaitDirectRun('wv-discover-2');
+      getState().failDirectDiscovery('wv-discover-2', 'INVALID_SESSION_ID');
+      getState().forgeAgain();
+      expect(getState().directDiscoveryId).toBeNull();
+      expect(getState().directDiscoveryError).toBeNull();
+    });
+
+    it('says its review was skipped for the run it started, and not for the next one', () => {
+      getState().setExecutionRequestId('wv-run-direct');
+      getState().markReviewSkipped();
+      expect(getState().reviewSkipped).toBe(true);
+
+      getState().setExecutionRequestId('wv-run-reviewed');
+      expect(getState().reviewSkipped).toBe(false);
+
+      getState().markReviewSkipped();
+      getState().forgeAgain();
+      expect(getState().reviewSkipped).toBe(false);
+    });
+  });
 });
 
 describe('how far a run has gone', () => {

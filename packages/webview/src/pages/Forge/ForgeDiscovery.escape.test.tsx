@@ -35,6 +35,10 @@ vi.mock('../../stores/useForgeStore', () => {
     toggleNodeIncluded: vi.fn(),
     toggleAnonymizeField: vi.fn(),
     setNodesIncluded: vi.fn(),
+    // No Clone directly waits on these discoveries.
+    directDiscoveryId: null,
+    directDiscoveryError: null,
+    settleDirectRun: () => false,
     reset: vi.fn(),
   };
 

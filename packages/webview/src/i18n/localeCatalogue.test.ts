@@ -364,3 +364,52 @@ describe('the Frozen Dataset salt warning names what a mismatched salt changes',
     expect(LOAD[locale].test(value as string)).toBe(false);
   });
 });
+
+describe('where the app explains the Forge flow, Clone directly and the Graph/Table choice are there', () => {
+  const ALL = ['en', ...NON_EN] as const;
+  /** The walkthrough file suffix of each locale: VS Code's own token. */
+  const WALKTHROUGH: Record<(typeof ALL)[number], string> = {
+    en: '',
+    fr: '.nls.fr',
+    de: '.nls.de',
+    es: '.nls.es',
+    ja: '.nls.ja',
+    'pt-BR': '.nls.pt-br',
+  };
+  const WALKTHROUGH_DIR = join(SRC, '..', '..', 'extension', 'walkthrough');
+
+  /** A label as the reader finds it on screen, from the same catalogue. */
+  const label = (catalogue: Catalogue, key: string): string => {
+    const value = lookup(catalogue, key);
+    expect(typeof value, key).toBe('string');
+    return value as string;
+  };
+
+  it.each(ALL)('%s help names Clone directly and both views, by their labels', (locale) => {
+    const catalogue = load(locale);
+    const help = label(catalogue, 'help.forgeContent');
+    expect(help).toContain(label(catalogue, 'forge.direct.action'));
+    expect(help).toContain(label(catalogue, 'forge.graphView'));
+    expect(help).toContain(label(catalogue, 'forge.tableView'));
+    expect(help).toContain('sandforge.forge.graphView');
+  });
+
+  it.each(ALL)('%s Forge empty state names Clone directly among its steps', (locale) => {
+    const catalogue = load(locale);
+    expect(label(catalogue, 'forge.emptyState.step5')).toContain(
+      label(catalogue, 'forge.direct.action'),
+    );
+  });
+
+  it.each(ALL)('%s Get Started step on Forge names Clone directly and both views', (locale) => {
+    const catalogue = load(locale);
+    const body = readFileSync(
+      join(WALKTHROUGH_DIR, `forge-clone${WALKTHROUGH[locale]}.md`),
+      'utf8',
+    );
+    expect(body).toContain(label(catalogue, 'forge.direct.action'));
+    expect(body).toContain(label(catalogue, 'forge.graphView'));
+    expect(body).toContain(label(catalogue, 'forge.tableView'));
+    expect(body).toContain('sandforge.forge.graphView');
+  });
+});
