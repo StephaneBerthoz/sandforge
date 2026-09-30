@@ -27,7 +27,9 @@ concurrency:
 jobs:
   e2e-windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # The suite took 43 to 44 minutes here at 778 tests; at 794 it was
+    # cancelled at the 45-minute mark, before its count could say anything.
+    timeout-minutes: 60
     # Measured, not gated: see the header.
     continue-on-error: true
 
