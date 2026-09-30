@@ -66,6 +66,27 @@ const THINKING_OFF_MODELS: ReadonlySet<string> = new Set([
 
 const THINKING_OFF: Anthropic.ThinkingConfigDisabled = { type: 'disabled' };
 
+/**
+ * The models that turn their up-front thinking off with `between_tools`, the
+ * setting they take in place of `disabled`, from the same table.
+ *
+ * Claude Sonnet 5.5 thinks unless told not to, and answers `disabled` with a
+ * 400 at every effort level. Left without a setting, it thought at effort
+ * `high` inside the token cap the features are sized for, and an answer cut
+ * off there is not used. It takes `between_tools` at effort `high` or below;
+ * the adapter sends no effort, so the model's default, `high`, applies.
+ */
+const BETWEEN_TOOLS_MODELS: ReadonlySet<string> = new Set(['claude-sonnet-5-5']);
+
+const THINKING_BETWEEN_TOOLS: Anthropic.ThinkingConfigBetweenTools = { type: 'between_tools' };
+
+/** The `thinking` a request to `model` carries, or none: see the two lists above. */
+function thinkingFor(model: string): Anthropic.ThinkingConfigParam | undefined {
+  if (THINKING_OFF_MODELS.has(model)) return THINKING_OFF;
+  if (BETWEEN_TOOLS_MODELS.has(model)) return THINKING_BETWEEN_TOOLS;
+  return undefined;
+}
+
 /** English text of an answer the adapter does not hand on, when the host supplies none. */
 const ANSWER_PROBLEM_MESSAGES: Record<AIAnswerProblem, string> = {
   refused:
@@ -197,7 +218,8 @@ export class AnthropicAdapter implements AIClient {
    *
    * The request carries the model, its token cap, the system prompt and the
    * messages, plus `thinking: {type: "disabled"}` for the models documented to
-   * take it (see {@link THINKING_OFF_MODELS}). It carries no `temperature`,
+   * take it (see {@link THINKING_OFF_MODELS}), or `between_tools` for the ones
+   * that take it instead (see {@link BETWEEN_TOOLS_MODELS}). It carries no `temperature`,
    * `top_p` or `top_k`: every model from Claude Opus 4.7 on, Claude Sonnet 5
    * among them, answers a non-default value of any of them with a 400.
    *
@@ -212,13 +234,14 @@ export class AnthropicAdapter implements AIClient {
       'chat',
       async (signal) => {
         const client = await this.getClient();
+        const thinking = thinkingFor(this.model);
         const resp = await client.messages.create(
           {
             model: this.model,
             max_tokens: opts.maxTokens ?? AI_CONFIG.MAX_TOKENS,
             system: opts.system,
             messages: opts.messages,
-            ...(THINKING_OFF_MODELS.has(this.model) ? { thinking: THINKING_OFF } : {}),
+            ...(thinking ? { thinking } : {}),
           },
           { signal },
         );

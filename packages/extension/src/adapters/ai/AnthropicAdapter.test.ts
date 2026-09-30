@@ -581,6 +581,13 @@ describe('AnthropicAdapter — the request each model is sent', () => {
     expect((await bodySentTo(model)).thinking).toEqual({ type: 'disabled' });
   });
 
+  // Claude Sonnet 5.5 answers `disabled` with a 400 at every effort level:
+  // `between_tools` is the setting it takes to think only between tool calls,
+  // and left without one it thought at effort high inside the token cap.
+  it('tells claude-sonnet-5-5 to think only between tool calls, the setting it takes in place of disabled', async () => {
+    expect((await bodySentTo('claude-sonnet-5-5')).thinking).toEqual({ type: 'between_tools' });
+  });
+
   // The first six answer `disabled` with a 400. Claude Opus 5 takes it only
   // below effort xhigh, and a model named after the list was written may think
   // always: a request without the parameter is refused by none of them.

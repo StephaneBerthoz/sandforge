@@ -397,7 +397,7 @@
     "test:smoke": "pnpm -w run build && pnpm compile:smoke && vscode-test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "0.129.0",
     "@sandforge/shared": "workspace:*",
     "cron-parser": "^5.10.1",
     "jsforce": "^3",
