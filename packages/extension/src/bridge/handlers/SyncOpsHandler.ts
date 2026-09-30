@@ -154,7 +154,7 @@ const describedFieldsSchema = z.object({
         createable: z.boolean(),
         updateable: z.boolean(),
       })
-      .passthrough(),
+      .loose(),
   ),
 });
 type DescribedField = z.infer<typeof describedFieldsSchema>['fields'][number];

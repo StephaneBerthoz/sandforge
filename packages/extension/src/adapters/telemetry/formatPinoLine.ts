@@ -20,7 +20,7 @@ const PinoRecord = z
     time: z.number().finite().optional(),
     msg: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Turn one pino JSON chunk into an output channel line in the layout the

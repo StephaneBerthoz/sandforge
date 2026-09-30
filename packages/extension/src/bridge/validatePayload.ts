@@ -50,7 +50,7 @@ import { isUncopyableObject } from '@sandforge/shared';
  * Payload schemas below mirror what the webview actually sends (verified
  * against `packages/webview/src/pages/*`). Org ids are Salesforce 18-char
  * org IDs (not UUIDs), so the shared `syncConfigSchema` is extended with a
- * permissive org-id field rather than reused blindly. `.passthrough()` keeps
+ * permissive org-id field rather than reused blindly. `.loose()` keeps
  * extra keys the webview legitimately sends (config `id`, `createdAt`, …);
  * the sync schemas declare those keys instead and strip the rest, because what
  * they accept is persisted as-is.
@@ -406,7 +406,7 @@ export const seedObjectPayloadSchema = seedObjectConfigSchema
     recordCount: z.number().int().positive().max(MAX_SEED_RECORDS_PER_OBJECT),
     batchSize: z.number().int().positive().max(MAX_BATCH_SIZE).optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * A relation as sent by the webview. Its names become query text when the
@@ -439,7 +439,7 @@ export const seedTemplatePayloadSchema = seedConfigSchema
     objects: z.array(seedObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
     relations: z.array(seedRelationPayloadSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
-  .passthrough();
+  .loose();
 
 export const seedExecutePayloadSchema = z.object({
   orgId: orgIdSchema,
@@ -484,7 +484,7 @@ export const seedCloneObjectPayloadSchema = z
     objectApiName: sfApiNameSchema,
     whereClause: whereClauseSchema.optional(),
   })
-  .passthrough();
+  .loose();
 
 export const seedCloneDescribeSourcePayloadSchema = z.object({ sourceOrgId: orgIdSchema });
 
@@ -522,7 +522,7 @@ export const csvColumnMappingPayloadSchema = z
     sfFieldType: z.string().max(40),
     sfFieldLength: z.number().int().positive().nullable(),
   })
-  .passthrough();
+  .loose();
 
 export const seedCsvPayloadSchema = z.object({
   orgId: orgIdSchema,
@@ -922,7 +922,7 @@ export const quickSyncSuggestObjectsPayloadSchema = z
     sourceOrgId: orgIdSchema.optional(),
     alreadySelected: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
-  .passthrough();
+  .loose();
 
 export const quickSyncDetectRelationshipsPayloadSchema = z
   .object({
@@ -933,7 +933,7 @@ export const quickSyncDetectRelationshipsPayloadSchema = z
     selectedObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
     availableObjects: z.array(sfApiNameSchema).max(500).optional(),
   })
-  .passthrough();
+  .loose();
 
 export const quickSyncPreviewPayloadSchema = z
   .object({
@@ -943,7 +943,7 @@ export const quickSyncPreviewPayloadSchema = z
     selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
     parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
-  .passthrough();
+  .loose();
 
 /** Quick Sync config as sent inside `quicksync:execute` (`{ config }`). */
 export const quickSyncConfigPayloadSchema = QuickSyncConfigSchema.extend({
@@ -951,7 +951,7 @@ export const quickSyncConfigPayloadSchema = QuickSyncConfigSchema.extend({
   targetOrgId: orgIdSchema,
   selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
   parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).default([]),
-}).passthrough();
+}).loose();
 
 export const quickSyncExecutePayloadSchema = z
   .object({
@@ -964,7 +964,7 @@ export const quickSyncExecutePayloadSchema = z
     selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
     parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
-  .passthrough();
+  .loose();
 
 // ── ai:* payload schemas ──────────────────────────────────────────────────
 // Mirror what AIPage / useAIFeatures / BridgeProvider / useSeedNL2SOQL post.
@@ -1041,7 +1041,7 @@ export const executionAbortPayloadSchema = z
     executionId: opaqueIdSchema.optional(),
     objectName: z.string().min(1).max(200).optional(),
   })
-  .passthrough();
+  .loose();
 
 // ── governance:* payload schemas ──────────────────────────────────────────
 // Mirror what GovernancePanel posts. `policy` is deep-validated by
@@ -1114,7 +1114,7 @@ export const orgConnectPayloadSchema = z
     clientId: z.string().max(256).optional(),
     jwtKeyFile: z.string().max(4096).optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * An alias the CLI is given: letters, digits, dots, dashes and underscores, as
@@ -1178,7 +1178,7 @@ export const orgJwtConnectPayloadSchema = z
     clientId: consumerKeySchema,
     jwtKeyFile: keyFilePathSchema,
   })
-  .passthrough();
+  .loose();
 
 /** What a device-flow sign-in reads from `org:connect`: the app and the login host. */
 export const orgDeviceConnectPayloadSchema = z
@@ -1187,7 +1187,7 @@ export const orgDeviceConnectPayloadSchema = z
     loginUrl: z.string().max(500).optional(),
     clientId: consumerKeySchema,
   })
-  .passthrough();
+  .loose();
 
 /** Stop the sign-in the `org:connect` request `requestId` is waiting on. */
 export const orgConnectCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
@@ -1244,7 +1244,7 @@ export const pipelineRunPayloadSchema = z.object({
       name: z.string().min(1).max(200),
       // A step saved without a config has none to read; it is read as empty.
       steps: z
-        .array(z.object({ config: z.record(z.string(), z.unknown()).default({}) }).passthrough())
+        .array(z.object({ config: z.record(z.string(), z.unknown()).default({}) }).loose())
         .max(200),
       // A definition that carries no variables or no triggers — one written
       // by hand, drafted elsewhere, or saved before they existed — declares
@@ -1253,7 +1253,7 @@ export const pipelineRunPayloadSchema = z.object({
       variables: z.array(z.record(z.string(), z.unknown())).max(200).default([]),
       triggers: z.array(z.record(z.string(), z.unknown())).max(50).default([]),
     })
-    .passthrough(),
+    .loose(),
   variables: z.record(z.string(), z.string().max(2_000)).optional(),
 });
 /**
@@ -1274,7 +1274,7 @@ export const marketplaceListPayloadSchema = z
     category: z.string().max(100).optional(),
     query: z.string().max(500).optional(),
   })
-  .passthrough()
+  .loose()
   .optional();
 export const marketplaceInstallPayloadSchema = z.object({ templateId: opaqueIdSchema });
 

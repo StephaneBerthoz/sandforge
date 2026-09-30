@@ -291,13 +291,13 @@ const writeResultSchema = z
               errorCode: z.string().optional(),
               message: z.string().optional(),
             })
-            .passthrough(),
+            .loose(),
           z.string(),
         ]),
       )
       .optional(),
   })
-  .passthrough();
+  .loose();
 
 type WriteError = NonNullable<z.infer<typeof writeResultSchema>['errors']>[number];
 

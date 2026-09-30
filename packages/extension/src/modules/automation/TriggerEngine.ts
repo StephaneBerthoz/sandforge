@@ -29,7 +29,7 @@ export const savedTriggerSchema = z.object({
       timezone: z.string().max(100).optional(),
       orgId: z.string().max(200).optional(),
     })
-    .passthrough()
+    .loose()
     .default({}),
 });
 
