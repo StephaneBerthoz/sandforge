@@ -35,10 +35,10 @@ export type {
 export interface MetadataDiffEntry {
   /** Object API name. */
   objectApiName: string;
-  /** Field API name. */
+  /** Field API name; empty for an entry about the object as a whole. */
   fieldApiName: string;
-  /** Type of issue. */
-  issue: 'missing' | 'type_mismatch' | 'permission_denied';
+  /** Type of issue: `object_missing` and `unreadable` are about the object as a whole. */
+  issue: 'missing' | 'type_mismatch' | 'permission_denied' | 'object_missing' | 'unreadable';
   /** Severity level. */
   severity: 'info' | 'warning' | 'error';
   /** Human-readable description. */

@@ -81,7 +81,10 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
         >
           <div className="flex items-center justify-between mb-1">
             <span className="font-medium text-text-primary">
-              {diff.objectApiName}.{diff.fieldApiName}
+              {/* An entry about the object as a whole names no field. */}
+              {diff.fieldApiName
+                ? `${diff.objectApiName}.${diff.fieldApiName}`
+                : diff.objectApiName}
             </span>
             <span
               className={`text-[9px] px-1.5 py-0.5 rounded-sm ${SEVERITY_STYLES[diff.severity]}`}

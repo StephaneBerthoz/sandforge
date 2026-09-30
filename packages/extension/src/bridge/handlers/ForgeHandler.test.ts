@@ -29,6 +29,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { keepPartialSummary, partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { logger } from '../../logger.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
@@ -578,6 +579,51 @@ describe('ForgeHandler', () => {
       );
 
       expect(answeredResult().apiCalls).toBe(44);
+    });
+
+    // A run that ended left "Forge execute started" in the output channel and
+    // nothing else: a log read afterwards could not tell a failed run from one
+    // still going.
+    it('logs how the run ended in the output channel, counts and object names only', async () => {
+      recordTypesOn(1);
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          status: 'partial',
+          createdCount: 4,
+          linkedExistingCount: 1,
+          duration: 2500,
+          errors: [
+            {
+              objectApiName: 'Quote',
+              stage: 'scope',
+              failedCount: 2,
+              attemptedCount: 0,
+              samples: [],
+            },
+            {
+              objectApiName: '__pass2__',
+              stage: 'insert',
+              failedCount: 3,
+              attemptedCount: 3,
+              samples: [],
+            },
+          ],
+        }),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(vi.mocked(logger.info)).toHaveBeenCalledWith('Forge execute finished', {
+        status: 'partial',
+        created: 4,
+        linked: 1,
+        updated: 0,
+        failed: 2,
+        durationMs: 2500,
+        objectsWithFailures: ['Quote'],
+      });
     });
 
     it('gives no count of a run whose executor counted none, the record types alone not being it', async () => {

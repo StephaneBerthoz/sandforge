@@ -332,6 +332,42 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
 }
 
 /**
+ * What a finished run came to, for the output channel: its status, its counts,
+ * how long it took, and the objects it lost rows of or could not read. Counts
+ * and object names only, as the audit trail keeps them: never a record.
+ */
+function runLogMeta(
+  result: Pick<
+    ForgeExecutionResult,
+    | 'status'
+    | 'duration'
+    | 'idRemapCount'
+    | 'createdCount'
+    | 'linkedExistingCount'
+    | 'updatedCount'
+    | 'errors'
+    | 'failedReads'
+  >,
+): Record<string, unknown> {
+  const objectErrors = (result.errors ?? []).filter((e) => !e.objectApiName.startsWith('__'));
+  const withFailures = [
+    ...new Set(
+      objectErrors.filter((e) => e.failedCount > 0 || e.skipped).map((e) => e.objectApiName),
+    ),
+  ];
+  return {
+    status: result.status,
+    created: result.createdCount ?? result.idRemapCount - (result.linkedExistingCount ?? 0),
+    linked: result.linkedExistingCount ?? 0,
+    updated: result.updatedCount ?? 0,
+    failed: objectErrors.reduce((sum, e) => sum + e.failedCount, 0),
+    durationMs: result.duration,
+    ...(withFailures.length > 0 ? { objectsWithFailures: withFailures.slice(0, 20) } : {}),
+    ...(result.failedReads?.length ? { failedReads: result.failedReads } : {}),
+  };
+}
+
+/**
  * What a run did per object, for the audit trail: the rows it created,
  * counted from its remap table, the rows the run lost at read or at write,
  * and the rows a stop kept from the target — a cancel as the object was
@@ -1011,6 +1047,10 @@ export class ForgeHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
+      logger.info('Forge discover finished', {
+        objects: graph.nodes?.length ?? 0,
+        records: graph.totalRecords,
+      });
     } catch (error: unknown) {
       // Flush any pending throttled progress event so the UI gets
       // the latest queue state before the error response arrives. Without
@@ -1435,6 +1475,11 @@ export class ForgeHandler implements DomainHandler {
       });
 
       this.addToHistory(result, config);
+      // What the run came to, in the output channel as on the page: a run
+      // that ended left "Forge execute started" there and nothing else, and a
+      // log read afterwards could not tell a run that failed from one still
+      // going.
+      logger.info('Forge execute finished', runLogMeta(result));
 
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {
         result,
@@ -1484,6 +1529,18 @@ export class ForgeHandler implements DomainHandler {
         : outcome === 'stopped'
           ? RUN_CANCELLED
           : undefined;
+      // A failure is logged by the error it posts; a cancel posts none.
+      logger.info('Forge execute stopped', {
+        outcome,
+        ...(code ? { code } : {}),
+        ...(partial
+          ? {
+              created: partial.successCount,
+              linked: partial.linkedCount,
+              failed: partial.failedCount,
+            }
+          : {}),
+      });
       // Kept in the history with what it created and where, so those records
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
@@ -2294,6 +2351,11 @@ export class ForgeHandler implements DomainHandler {
       );
       const response = buildResponse(this.deps, msg, 'forge:metadata-diff:response', { diffs });
       this.deps.broker.postToWebview(response);
+      logger.info('Forge metadata diff finished', {
+        objects: objectApiNames.length,
+        differences: diffs.length,
+        objectsMissing: diffs.filter((d) => d.issue === 'object_missing').length,
+      });
       sendOperationCompleted(this.deps, operationId, { objectCount: objectApiNames.length });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;

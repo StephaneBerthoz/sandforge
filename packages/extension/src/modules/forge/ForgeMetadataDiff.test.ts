@@ -29,6 +29,68 @@ describe('ForgeMetadataDiff', () => {
       expect(result).toEqual([]);
     });
 
+    // Run for real, the target's NOT_FOUND on one object of the graph failed
+    // the whole comparison, and the Review tab showed nothing else.
+    it('names an object the target lacks, and still compares the others', async () => {
+      const notFound = Object.assign(new Error('The requested resource does not exist'), {
+        name: 'NOT_FOUND',
+        errorCode: 'NOT_FOUND',
+      });
+      const fields: DescribedField[] = [{ name: 'Name', type: 'string', createable: true }];
+      const diff = new ForgeMetadataDiff({
+        describeObject: async (orgId, objectApiName) => {
+          if (orgId === 'target' && objectApiName === 'Invoice__c') throw notFound;
+          if (orgId === 'target' && objectApiName === 'Account') return { fields: [] };
+          return { fields };
+        },
+      });
+
+      const result = await diff.compare('source', 'target', ['Invoice__c', 'Account']);
+
+      expect(result).toEqual([
+        {
+          objectApiName: 'Invoice__c',
+          fieldApiName: '',
+          issue: 'object_missing',
+          severity: 'error',
+          details:
+            'Invoice__c does not exist in the target org, or the running user cannot see it: its records cannot be written there',
+        },
+        {
+          objectApiName: 'Account',
+          fieldApiName: 'Name',
+          issue: 'missing',
+          severity: 'error',
+          details: 'Field Name exists in source but not in target',
+        },
+      ]);
+    });
+
+    it('names an object an org could not describe for another reason, and goes on', async () => {
+      const diff = new ForgeMetadataDiff({
+        describeObject: async (orgId, objectApiName) => {
+          if (orgId === 'source' && objectApiName === 'Case') {
+            throw Object.assign(new Error('Session expired or invalid'), {
+              name: 'INVALID_SESSION_ID',
+              errorCode: 'INVALID_SESSION_ID',
+            });
+          }
+          return { fields: [{ name: 'Name', type: 'string', createable: true }] };
+        },
+      });
+
+      const result = await diff.compare('source', 'target', ['Case', 'Account']);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        objectApiName: 'Case',
+        fieldApiName: '',
+        issue: 'unreadable',
+        severity: 'warning',
+      });
+      expect(result[0].details).toContain('the source org did not describe it');
+    });
+
     it('should detect missing fields as error severity', async () => {
       const deps = makeDeps({
         source: {

@@ -86,6 +86,22 @@ describe('ReviewMetadataTab', () => {
     expect(diff0.textContent).toContain('Account.CustomField__c');
   });
 
+  // An object the target lacks has no field to name: it read "Invoice__c.".
+  it('names an object the target lacks by itself, with no field after it', () => {
+    mockDiffs = [
+      {
+        objectApiName: 'Invoice__c',
+        fieldApiName: '',
+        issue: 'object_missing',
+        severity: 'error',
+        details: 'Invoice__c does not exist in the target org',
+      },
+    ];
+    render(<ReviewMetadataTab />);
+    const title = screen.getByTestId('diff-0').querySelector('span');
+    expect(title?.textContent).toBe('Invoice__c');
+  });
+
   it('should display severity badge text in uppercase', () => {
     mockDiffs = [
       {
