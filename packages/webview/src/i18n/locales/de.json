@@ -1958,6 +1958,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound13912": "Die Metadatenprüfung nennt, was dem Ziel fehlt",
+      "fixRound13912Desc": "Die Metadatenprüfung von Forge nennt ein Objekt, das der Ziel-Org fehlt oder das sie nicht beschreiben konnte, und vergleicht die übrigen, wo ein einziges fehlendes Objekt sie ganz scheitern ließ. Der Ausgabekanal sagt, wie jeder Forge-Schritt endete.",
       "fixRound13911": "Eine Entfernung beendet, was sie übrig ließ",
       "fixRound13911Desc": "Eine Forge- oder Frozen-Entfernung, die Datensätze übrig ließ, kann für den Rest erneut ausgeführt werden, behält bei einem aktivierten Auftrag, was die Org darunter nicht löscht, und nennt die Dateien, die die Org angehängt hat. Claude Sonnet 5.5 kann als KI-Modell gewählt werden.",
       "fixRound13910": "Abgebrochene Ladevorgänge lassen sich zurücknehmen",

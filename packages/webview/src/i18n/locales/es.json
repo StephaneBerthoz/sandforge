@@ -1958,6 +1958,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound13912": "La revisión de metadatos nombra lo que le falta al destino",
+      "fixRound13912Desc": "La revisión de metadatos de Forge nombra un objeto que falta en la org de destino, o que no pudo describir, y compara los demás, donde un solo objeto ausente la hacía fallar por completo. El canal de salida indica cómo terminó cada paso de Forge.",
       "fixRound13911": "Una eliminación termina lo que dejó",
       "fixRound13911Desc": "Una eliminación de Forge o Frozen que dejó registros se puede volver a ejecutar para lo que queda, conserva con un pedido activado lo que la org no elimina bajo él y nombra los archivos que la org adjuntó. Claude Sonnet 5.5 se puede elegir como modelo de IA.",
       "fixRound13910": "Las cargas canceladas se pueden deshacer",

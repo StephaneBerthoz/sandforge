@@ -5,6 +5,19 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.12] - 2026-09-30
+
+Forge's metadata review names what the target lacks, and the output channel
+says how each Forge step ended.
+
+### Fixed
+
+- **Forge's metadata review names an object the target org lacks**, or could
+  not describe, and compares the others, where one missing object failed it
+  whole.
+- **The output channel says how Forge's discovery, run and metadata review
+  ended**, with their counts, where it said only that they started.
+
 ## [1.39.11] - 2026-09-30
 
 A removal that left records can be run again for what is left, and keeps with

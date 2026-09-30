@@ -1958,6 +1958,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound13912": "The metadata review names what the target lacks",
+      "fixRound13912Desc": "Forge's metadata review names an object the target org lacks, or could not describe, and compares the others, where one missing object failed it whole. The output channel says how each Forge step ended.",
       "fixRound13911": "A removal finishes what it left",
       "fixRound13911Desc": "A Forge or Frozen removal that left records can be run again for what is left, keeps with an activated order what the org will not delete under it, and names the files the org attached. Claude Sonnet 5.5 can be chosen as the AI model.",
       "fixRound13910": "Cancelled loads can be taken back",
