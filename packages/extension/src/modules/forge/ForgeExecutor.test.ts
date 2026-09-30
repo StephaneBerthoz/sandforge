@@ -6645,17 +6645,24 @@ describe('ForgeExecutor', () => {
             },
           );
 
+          // How many, as the other lines say it: "2 of them" was said of no total.
           expect(
             progressEvents.filter((e) => e.objectName === 'OpportunityLineItem').pop(),
           ).toMatchObject({
             status: 'error',
             message:
-              'Failed all OpportunityLineItem records, 2 of them held back for want of ' +
-              'ProductSellingModelOption, excluded from this run',
+              'Failed all OpportunityLineItem records: 4 failed, 2 of them held back for want ' +
+              'of ProductSellingModelOption, excluded from this run',
           });
           expect(summary.errors).toContainEqual(
             expect.objectContaining({ objectApiName: 'OpportunityLineItem', failedCount: 2 }),
           );
+          // The four the line says, as the object's reports count them between them.
+          expect(
+            summary.errors
+              .filter((e) => e.objectApiName === 'OpportunityLineItem')
+              .reduce((sum, e) => sum + e.failedCount, 0),
+          ).toBe(4);
         });
 
         it('holds back and names the lines whose price it held back, and sends none of them', async () => {
@@ -6823,16 +6830,27 @@ describe('ForgeExecutor', () => {
               },
             );
 
-            await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
-              ...optionsExcluded,
-              excludedObjects: ['ProductSellingModelOption', 'Region__c'],
-              dryRun: true,
-            });
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph(),
+              'src',
+              'tgt',
+              onProgress,
+              {
+                ...optionsExcluded,
+                excludedObjects: ['ProductSellingModelOption', 'Region__c'],
+                dryRun: true,
+              },
+            );
 
             expect(progressEvents.map((e) => e.message)).toContain(
-              'Held back Product2, nothing written: 2 of its records need Region__c, and the ' +
-                'only records that name the rest are held back for ProductSellingModelOption, ' +
-                'excluded from this run. Objects that cannot be written without it will be skipped.',
+              'Held back Product2, nothing written, 3 failed: 2 of its records need Region__c, ' +
+                'and the only records that name the rest are held back for ' +
+                'ProductSellingModelOption, excluded from this run. Objects that cannot be ' +
+                'written without it will be skipped.',
+            );
+            // The three the line says, as its errors count them.
+            expect(summary.errors).toContainEqual(
+              expect.objectContaining({ objectApiName: 'Product2', failedCount: 3 }),
             );
           });
         });
@@ -7017,7 +7035,7 @@ describe('ForgeExecutor', () => {
               'want of ProductSellingModelOption, excluded from this run',
           );
           expect(messages).toContain(
-            'Held back QuoteLineItem, nothing written: every record needs ' +
+            'Held back QuoteLineItem, nothing written, 1 failed: every record needs ' +
               'ProductSellingModelOption, excluded from this run. Objects that cannot be ' +
               'written without it will be skipped.',
           );
@@ -7073,6 +7091,54 @@ describe('ForgeExecutor', () => {
           );
           // Two prices and three lines, and the two products they alone sell.
           expect(summary.failedCount).toBe(7);
+        });
+
+        it('says, on the line that holds back the last of the lines, those held back as they were read', async () => {
+          // The line of a region the user left out is held back as it is read,
+          // the others once their prices are. Said of those alone, the line
+          // counted 2 where the run's totals and its audit entry count 3, and
+          // no line said the third.
+          const onModels = tables();
+          onModels['OpportunityLineItem'] = [
+            ...onModels['OpportunityLineItem'].filter(
+              (row) => String(row['PricebookEntryId']).slice(12, 13) === '1',
+            ),
+            { ...line('00k000000000006AAA', 3, 'none'), Region__c: 'a0R000000000001AAA' },
+          ];
+          const { orgDeps, inserted } = fakeOrgs(onModels, {
+            ...fields,
+            OpportunityLineItem: [
+              ...fields.OpportunityLineItem,
+              lookup('Region__c', 'Region__c', true),
+            ],
+          });
+          platform(orgDeps, inserted);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              excludedObjects: ['ProductSellingModelOption', 'Region__c'],
+            },
+          );
+
+          expect(inserted['OpportunityLineItem']).toBeUndefined();
+          expect(
+            progressEvents.filter((e) => e.objectName === 'OpportunityLineItem').pop(),
+          ).toMatchObject({
+            status: 'error',
+            message:
+              'Held back OpportunityLineItem, nothing written, 3 failed: every record needs ' +
+              'ProductSellingModelOption, Region__c, excluded from this run. Objects that cannot ' +
+              'be written without it will be skipped.',
+          });
+          expect(summary.errors).toContainEqual(
+            expect.objectContaining({ objectApiName: 'OpportunityLineItem', failedCount: 3 }),
+          );
         });
 
         it('holds back what hangs from a line it held back, round after round', async () => {
@@ -7767,14 +7833,15 @@ describe('ForgeExecutor', () => {
 
             expect(inserted).toEqual({});
             const messages = progressEvents.map((e) => e.message);
+            // Each line says as many failed as the object's report counts.
             expect(messages).toEqual(
               expect.arrayContaining([
-                'Held back OpportunityLineItem, nothing written: every record needs ' +
+                'Held back OpportunityLineItem, nothing written, 4 failed: every record needs ' +
                   'PricebookEntry, excluded from this run. Objects that cannot be written ' +
                   'without it will be skipped.',
-                'Held back QuoteLineItem, nothing written: every record needs PricebookEntry, ' +
-                  'excluded from this run. Objects that cannot be written without it will be ' +
-                  'skipped.',
+                'Held back QuoteLineItem, nothing written, 1 failed: every record needs ' +
+                  'PricebookEntry, excluded from this run. Objects that cannot be written ' +
+                  'without it will be skipped.',
               ]),
             );
             expect(messages.some((m) => m?.startsWith('[dry-run] PricebookEntry'))).toBe(false);
@@ -8250,6 +8317,50 @@ describe('ForgeExecutor', () => {
         ).toBe('Skipped QuoteLineItem (parent failed): 1 failed');
       });
 
+      it('counts on the line of the object it skips the rows an exclusion held back as they were read', async () => {
+        // The second line of the refused quote is in a region the user left
+        // out, and was held back as it was read: its report counted it, and
+        // the line of the skip that ends the object said 1 failed.
+        const rows = tables();
+        rows['QuoteLineItem'] = [
+          ...rows['QuoteLineItem'],
+          {
+            Id: '0QL000000000002AAA',
+            Description: 'Regional line',
+            QuoteId: QUOTE,
+            Region__c: 'a0R000000000001AAA',
+          },
+        ];
+        const { orgDeps } = orgs(['First', 'Second'], rows);
+        const describe = orgDeps.describeFields;
+        orgDeps.describeFields = async (org, object) =>
+          object === 'QuoteLineItem'
+            ? [...(await describe(org, object)), lookup('Region__c', 'Region__c', true)]
+            : describe(org, object);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          { ...scoped, excludedObjects: ['Region__c'] },
+        );
+
+        expect(
+          progressEvents.find((e) => e.objectName === 'QuoteLineItem' && e.status === 'skipped')
+            ?.message,
+        ).toBe(
+          'Skipped QuoteLineItem (parent failed): 2 failed, 1 of them held back for want of ' +
+            'Region__c, excluded from this run',
+        );
+        // The two the line says, as the object's reports count them between them.
+        expect(
+          summary.errors
+            .filter((e) => e.objectApiName === 'QuoteLineItem')
+            .reduce((sum, e) => sum + e.failedCount, 0),
+        ).toBe(2);
+      });
+
       it('names the object it skipped among the errors, the rows it had read of it counted as failed', async () => {
         // Said on its line alone, the line of the refused quote was in no
         // report of the run: its history entry and its audit entry left the
@@ -8339,17 +8450,55 @@ describe('ForgeExecutor', () => {
         // Not even an empty call.
         expect(inserted['FeedItem']).toBeUndefined();
         expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+        // As many failed as its report counts: the line said why, not how many.
         expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
           status: 'error',
           message:
-            'Held back FeedItem, nothing written: every record points at a parent this run ' +
-            'did not write. Objects that cannot be written without it will be skipped.',
+            'Held back FeedItem, nothing written, 2 failed: every record points at a parent ' +
+            'this run did not write. Objects that cannot be written without it will be skipped.',
         });
         expect(inserted['FeedComment']).toBeUndefined();
         expect(
           progressEvents.find((e) => e.objectName === 'FeedComment' && e.status === 'skipped')
             ?.message,
         ).toBe('Skipped FeedComment (parent failed): 1 failed');
+      });
+
+      it('counts with them the feed items an exclusion held back as they were read, and says how many', async () => {
+        // A run of whole tables reads the post on an account the user left
+        // out, and holds it back as it reads it: in the run's totals and its
+        // audit entry, it was on no line, the node ending on this one.
+        const { orgDeps, inserted } = orgs(['First', 'Second']);
+        const everyRow = tables();
+        everyRow['FeedItem'] = [
+          ...everyRow['FeedItem'].filter((row) => row['ParentId'] !== OPPORTUNITY),
+          { Id: '0D5000000000004AAA', Body: 'On the account', ParentId: '001000000000001AAA' },
+        ];
+        orgDeps.queryRecords = async (_org, soql) => {
+          const object = /^SELECT .+ FROM (\w+)$/.exec(soql)?.[1] ?? '';
+          return (everyRow[object] ?? []).map((row) => ({ ...row }));
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          { excludedObjects: ['Account'] },
+        );
+
+        expect(inserted['FeedItem']).toBeUndefined();
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()?.message).toBe(
+          'Held back FeedItem, nothing written, 3 failed, 1 of them held back for want of ' +
+            'Account, excluded from this run: every record points at a parent this run did not ' +
+            'write. Objects that cannot be written without it will be skipped.',
+        );
+        // The three the line says, as the object's reports count them between them.
+        expect(
+          summary.errors
+            .filter((e) => e.objectApiName === 'FeedItem')
+            .reduce((sum, e) => sum + e.failedCount, 0),
+        ).toBe(3);
       });
 
       it('decides row by row in a run of whole tables, telling the parents apart by the ids it read', async () => {
@@ -9382,7 +9531,10 @@ describe('ForgeExecutor', () => {
             (e) => e.objectName === 'EmailMessage' && (e.status === 'done' || e.status === 'error'),
           );
           expect(emailEnds.map((e) => [e.status, e.message])).toEqual([
-            ['error', 'Failed all EmailMessage records; after their task: 2 succeeded, 0 failed'],
+            [
+              'error',
+              'Failed all EmailMessage records: 1 failed; after their task: 2 succeeded, 0 failed',
+            ],
           ]);
         });
 
@@ -9594,7 +9746,7 @@ describe('ForgeExecutor', () => {
             .catch((err: unknown) => err);
 
           expect(emailEnds()).toEqual([
-            ['error', 'Failed all EmailMessage records; stopped: 2 not sent'],
+            ['error', 'Failed all EmailMessage records: 1 failed; stopped: 2 not sent'],
           ]);
           // The offer the target refused counts as failed; the emails that
           // waited, as not sent.
@@ -12505,6 +12657,144 @@ describe('ForgeExecutor', () => {
         progressEvents.find((e) => e.objectName === 'CaseComment' && e.status === 'skipped')
           ?.message,
       ).toContain('parent failed');
+    });
+
+    // Run for real, the line of a quote object held back for its record types
+    // began "4 Quote records use record type …" while 26 quotes were held
+    // back: it said why, each record type counting its own, and not how many.
+    describe('the line of an object held back for its record types', () => {
+      const LEGACY_SOURCE_RT = '012Fk00000RtJkLIAV';
+      const CUSTOMER_SOURCE_RT = '012Fk00000RtMnOIAV';
+      const LEGACY_RT = '012Fk00000RtPqRIAV';
+      const REGION = 'a0RFk00000ReGiOIAV';
+      const LEGACY_REASON =
+        '1 Case record uses record type Legacy_Case (Legacy Case), which is inactive in the ' +
+        'target org. Activate record type Legacy_Case on Case in the target org, or map it to an ' +
+        'active one the running user has.';
+      const PARTNER_REASON =
+        '2 Case records use record type Partner_Case (Partner Case), which the running user ' +
+        'cannot use in the target org. Give the running user access to record type Partner_Case ' +
+        'on Case, or map it to one they have.';
+      const SKIPS = ' Objects that cannot be written without it will be skipped.';
+      const scoped = {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [
+          { sourceId: SOURCE_RT, targetId: PARTNER_RT, developerName: 'Partner_Case' },
+          { sourceId: LEGACY_SOURCE_RT, targetId: LEGACY_RT, developerName: 'Legacy_Case' },
+          { sourceId: CUSTOMER_SOURCE_RT, targetId: CUSTOMER_RT, developerName: 'Customer_Case' },
+        ],
+      };
+
+      /**
+       * Four cases of three record types in the target: two the running user
+       * may not use there, one inactive there, and the last open to them.
+       * With `region`, the last case names a region, through a lookup it may
+       * not leave empty.
+       */
+      function fourCases(region?: string): void {
+        vi.mocked(deps.describeFields).mockResolvedValue([
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Subject', queryable: true, createable: true, isReference: false },
+          {
+            name: 'RecordTypeId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['RecordType'],
+          },
+          ...(region
+            ? [
+                {
+                  name: 'Region__c',
+                  queryable: true,
+                  createable: true,
+                  isReference: true,
+                  referenceTo: ['Region__c'],
+                  nillable: false,
+                },
+              ]
+            : []),
+        ]);
+        vi.mocked(deps.queryRecords).mockResolvedValue([
+          { Id: ROOT_ID, Subject: 'A', RecordTypeId: SOURCE_RT },
+          { Id: '500Fk00000CaSeBIAV', Subject: 'B', RecordTypeId: SOURCE_RT },
+          { Id: '500Fk00000CaSeCIAV', Subject: 'C', RecordTypeId: LEGACY_SOURCE_RT },
+          {
+            Id: '500Fk00000CaSeDIAV',
+            Subject: 'D',
+            RecordTypeId: CUSTOMER_SOURCE_RT,
+            ...(region ? { Region__c: region } : {}),
+          },
+        ]);
+        deps.describeObject = vi.fn(async () => ({
+          keyPrefix: '500',
+          recordTypes: [
+            ...CASE_RECORD_TYPES,
+            {
+              recordTypeId: LEGACY_RT,
+              developerName: 'Legacy_Case',
+              name: 'Legacy Case',
+              available: false,
+              active: false,
+              master: false,
+              defaultRecordTypeMapping: false,
+            },
+          ],
+        }));
+        executor = new ForgeExecutor(deps);
+      }
+
+      /** What the run's reports count failed of the cases, as its audit entry adds them up. */
+      const failedIn = (errors: ReadonlyArray<{ objectApiName: string; failedCount: number }>) =>
+        errors.filter((e) => e.objectApiName === 'Case').reduce((sum, e) => sum + e.failedCount, 0);
+
+      it('says how many rows it held back, the one of a record type open to the user among them', async () => {
+        fourCases();
+
+        const summary = await executor.execute(
+          makeGraph([makeNode('Case')]),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(deps.insertRecords).not.toHaveBeenCalled();
+        expect(progressEvents.filter((e) => e.objectName === 'Case').pop()).toMatchObject({
+          status: 'error',
+          message: `Held back Case, nothing written, 4 failed: ${LEGACY_REASON} ${PARTNER_REASON}${SKIPS}`,
+        });
+        // The four the line says, as the run's totals and its report count them.
+        expect(summary.failedCount).toBe(4);
+        expect(failedIn(summary.errors)).toBe(4);
+      });
+
+      it('counts with them the rows an exclusion held back as they were read, and says how many', async () => {
+        // The case of the region the user left out was held back as it was
+        // read: in the run's totals and its audit entry, and on no line, the
+        // node ending on this one.
+        fourCases(REGION);
+
+        const summary = await executor.execute(
+          makeGraph([makeNode('Case')]),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            ...scoped,
+            excludedObjects: ['Region__c'],
+          },
+        );
+
+        expect(deps.insertRecords).not.toHaveBeenCalled();
+        expect(progressEvents.filter((e) => e.objectName === 'Case').pop()?.message).toBe(
+          'Held back Case, nothing written, 4 failed, 1 of them held back for want of ' +
+            `Region__c, excluded from this run: ${LEGACY_REASON} ${PARTNER_REASON}${SKIPS}`,
+        );
+        expect(summary.failedCount).toBe(4);
+        expect(failedIn(summary.errors)).toBe(4);
+      });
     });
 
     it('writes the object when every record type it uses is open to the running user', async () => {

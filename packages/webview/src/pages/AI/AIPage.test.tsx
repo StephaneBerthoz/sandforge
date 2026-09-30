@@ -507,6 +507,88 @@ describe('AIPage', () => {
     });
   });
 
+  describe('a conversation the host has not confirmed yet', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    /** The conversations listed, in order. */
+    const listed = (): Array<string | null> =>
+      screen
+        .queryAllByTestId(/^conversation-item-/)
+        .map((item) => item.getAttribute('data-testid'));
+
+    /** Create a conversation from the page, and return the id of the request that asks for it. */
+    function create(): string {
+      fireEvent.click(screen.getByTestId('new-conversation-btn'));
+      return lastSentId();
+    }
+
+    /** The host's confirmation of the conversation `id`, created by the request `request`. */
+    function confirm(id: string, request: string): void {
+      emit(
+        'ai:conversation:created',
+        { conversation: { id, title: 'New Chat', createdAt: '2025-01-03T00:00:00Z' } },
+        request,
+      );
+    }
+
+    // The page asks for the list as it opens. Answered after a conversation
+    // was created here and before the host confirmed it, the list took its
+    // entry away, and the conversation open was in no list until then.
+    it('stays in the list, open, when the list comes first', () => {
+      render(<AIPage />);
+      const request = create();
+
+      listConversations();
+
+      expect(listed()).toEqual([
+        'conversation-item-conv-1',
+        'conversation-item-conv-2',
+        `conversation-item-local-conv-${request}`,
+      ]);
+      expect(
+        screen.getByTestId(`conversation-item-local-conv-${request}`).getAttribute('aria-current'),
+      ).toBe('true');
+    });
+
+    it('gives way to the conversation the host confirms, beside those listed', () => {
+      render(<AIPage />);
+      const request = create();
+      listConversations();
+
+      confirm('conv-3', request);
+
+      expect(listed()).toEqual([
+        'conversation-item-conv-1',
+        'conversation-item-conv-2',
+        'conversation-item-conv-3',
+      ]);
+      expect(screen.getByTestId('conversation-item-conv-3').getAttribute('aria-current')).toBe(
+        'true',
+      );
+    });
+
+    // The first confirmation took every entry made here away: a conversation
+    // created while another was confirmed left the list until its own came.
+    it('gives way to its own confirmation only, when two are created one after the other', () => {
+      render(<AIPage />);
+      const first = create();
+      const second = create();
+
+      confirm('conv-1', first);
+
+      expect(listed()).toEqual([
+        'conversation-item-conv-1',
+        `conversation-item-local-conv-${second}`,
+      ]);
+
+      confirm('conv-2', second);
+
+      expect(listed()).toEqual(['conversation-item-conv-1', 'conversation-item-conv-2']);
+    });
+  });
+
   // The id of a question's bubble was the clock's millisecond: two made in
   // the same one shared a React key.
   it('gives two questions asked in the same millisecond ids of their own', () => {

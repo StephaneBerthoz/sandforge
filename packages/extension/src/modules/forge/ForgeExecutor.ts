@@ -1508,10 +1508,35 @@ function heldRowNamedBy(
 }
 
 /**
+ * How the line of an object held back whole begins: nothing of it written,
+ * and how many of its rows failed, as the run's totals and its audit entry
+ * count them — `Held back Quote, nothing written, 26 failed`. It said why,
+ * and not how many: run for real, the line of a quote object held back for
+ * its record types began "4 Quote records use record type …" while 26 quotes
+ * were held back, each record type counting its own.
+ *
+ * @param failed - The rows the line holds back.
+ * @param alsoHeld - The rows held back besides as they were read, for an
+ *   object the user excluded, when the line ends the object: counted with
+ *   the others, and said how many each reason held back, as the line of a
+ *   write says them.
+ */
+function heldBackWhole(
+  objectApiName: string,
+  failed: number,
+  alsoHeld: readonly HeldBackReason[] = [],
+): string {
+  const count = failed + heldBackCount(alsoHeld);
+  return `Held back ${objectApiName}, nothing written, ${count} failed${ofThemHeldBack(alsoHeld)}`;
+}
+
+/**
  * What an object says when every row of it the run read, or would have, is
  * held back for an object the user excluded — needing it, or named only by
  * rows that do.
  *
+ * @param held - Every row of the object held back so: the line ends the
+ *   object, and says all of them.
  * @param skipped - Whether the objects that cannot be written without it
  *   are skipped for it.
  */
@@ -1534,7 +1559,7 @@ function nothingWrittenMessage(
         : `${needing.length} of its records need ${objects(needing)}, and the only records ` +
           `that name the rest are held back for ${objects(namedOnly)}`;
   return (
-    `Held back ${objectApiName}, nothing written: ${why}, excluded from this run.` +
+    `${heldBackWhole(objectApiName, held.size)}: ${why}, excluded from this run.` +
     (skipped ? ' Objects that cannot be written without it will be skipped.' : '')
   );
 }
@@ -2794,7 +2819,11 @@ export class ForgeExecutor {
    * (`rowsWithoutTheirParent`). Skipped before its read, it counts none: the
    * run never learned how many rows it held, and the graph's count is
    * discovery's, of the whole table. A node read with no row left to write
-   * lost nothing, and is only skipped.
+   * lost nothing, and is only skipped. The line ends the node, and counts
+   * with those the rows an exclusion held back as they were read, as its
+   * audit entry adds them up: counted apart, the line of a node the write
+   * pass skipped said fewer failed than the entry, and those rows were on no
+   * line.
    *
    * @param fieldInfos - The node's source fields, once read: a lookup they say
    *   may not be left empty makes its object one the rows cannot do without,
@@ -2857,11 +2886,15 @@ export class ForgeExecutor {
         ],
       });
     }
+    const excluded = heldForExclusionsOf(state, node.objectApiName);
+    const count = (lost ?? 0) + heldBackCount(excluded);
     state.onProgress({
       objectName: node.objectApiName,
       status: 'skipped',
       progress: 100,
-      message: `Skipped ${node.objectApiName} (parent failed)${lost ? `: ${lost} failed` : ''}`,
+      message:
+        `Skipped ${node.objectApiName} (parent failed)` +
+        (count > 0 ? `: ${count} failed${ofThemHeldBack(excluded)}` : ''),
     });
     return true;
   }
@@ -4453,17 +4486,17 @@ export class ForgeExecutor {
       return;
     }
     // Nothing of the object left to write, as when every row it read
-    // was held back at its read.
+    // was held back at its read. The line ends the object: it says the rows
+    // held back as they were read too, which a real run said on no line of
+    // its own, and counts them with these, as the run's totals and its audit
+    // entry do.
     state.preread.delete(objectApiName);
     state.failedObjects.add(objectApiName);
     onProgress({
       objectName: objectApiName,
       status: 'error',
       progress: 100,
-      message: nothingWrittenMessage(
-        objectApiName,
-        new Map(heldNow.map(({ id, why }) => [id, why])),
-      ),
+      message: nothingWrittenMessage(objectApiName, held),
     });
   }
 
@@ -5657,12 +5690,18 @@ export class ForgeExecutor {
             messages: [recordTypeBlockedMessage(use)],
           })),
         });
+        // Every row is held back, those of a record type open to the user
+        // too, and the line says how many: each record type's reason counts
+        // its own rows. It ends the node, so the rows an exclusion held back
+        // as they were read are counted with them, as the line of a write
+        // counts them.
+        const excluded = heldForExclusionsOf(state, node.objectApiName);
         onProgress({
           objectName: node.objectApiName,
           status: 'error',
           progress: 100,
           message:
-            `Held back ${node.objectApiName}, nothing written: ` +
+            `${heldBackWhole(node.objectApiName, records.length, excluded)}: ` +
             heldBack.map(recordTypeBlockedReason).join(' ') +
             ' Objects that cannot be written without it will be skipped.',
         });
@@ -5722,13 +5761,18 @@ export class ForgeExecutor {
         });
         if (toWrite.length === 0) {
           state.failedObjects.add(node.objectApiName);
+          // Ending the node, the line counts the rows an exclusion held back
+          // as they were read with these; the emails waiting for their task
+          // end it later, on the line that says them.
+          const excluded = waiting === 0 ? heldForExclusionsOf(state, node.objectApiName) : [];
           onProgress({
             objectName: node.objectApiName,
             status: 'error',
             progress: 100,
             message:
-              `Held back ${node.objectApiName}, nothing written: every record points at a ` +
-              'parent this run did not write. Objects that cannot be written without it will be skipped.',
+              `${heldBackWhole(node.objectApiName, withoutParent.size, excluded)}: every ` +
+              'record points at a parent this run did not write. Objects that cannot be ' +
+              'written without it will be skipped.',
           });
           return;
         }
@@ -6003,7 +6047,9 @@ export class ForgeExecutor {
         state.failedObjects.add(node.objectApiName);
         // The rows held back are among the failures, as the run counts them:
         // left out of this line, they read as rows the node never had. The
-        // rate that made it fail is that of the rows sent.
+        // rate that made it fail is that of the rows sent. A write that failed
+        // every row says how many, as the other lines do: "Failed all" said
+        // none, and how many of them it held back was said of no total.
         const heldCount = heldBackCount(held);
         onProgress({
           objectName: node.objectApiName,
@@ -6011,7 +6057,8 @@ export class ForgeExecutor {
           progress: 100,
           message:
             settled === 0
-              ? `Failed all ${node.objectApiName} records${ofThemHeldBack(held)}`
+              ? `Failed all ${node.objectApiName} records: ` +
+                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
                 `failed (>50%)${ofThemHeldBack(held)} — objects that cannot be written without it will be skipped`,
         });

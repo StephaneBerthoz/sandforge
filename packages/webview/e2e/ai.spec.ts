@@ -27,11 +27,13 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  *
  * Everything the panel receives afterwards arrives through
  * `useMessageListener`, which dispatches on `type` alone, and is posted with
- * `sendExtensionMessage`. `ai:conversation:created`, `ai:conversation:loaded`
- * and `operation:failed` are taken as they come. `ai:chat:response` and
- * `ai:error` reach every open panel, so the page takes one only when it names
- * a request the page sent: those posted here carry the id of the `ai:chat`
- * above them, as the host's replies do.
+ * `sendExtensionMessage`. `ai:conversation:loaded` and `operation:failed` are
+ * taken as they come. `ai:conversation:created` takes the place of the entry
+ * the page made for the request it names: those posted here carry the id of
+ * the `ai:conversation:create` above them, as the host's confirmations do.
+ * `ai:chat:response` and `ai:error` reach every open panel, so the page takes
+ * one only when it names a request the page sent: those posted here carry the
+ * id of the `ai:chat` above them, as the host's replies do.
  */
 
 /** Boot the app into the AI panel with the assistant left switched off. */
@@ -102,12 +104,17 @@ async function outgoingPayloads(page: Page, type: string): Promise<Record<string
   return messages.map((m) => (m.payload as Record<string, unknown> | undefined) ?? {});
 }
 
-/** The id of the last `ai:chat` the page posted, which its answer names. */
-async function lastChatId(page: Page): Promise<string> {
-  const sent = await outgoing(page, 'ai:chat');
+/** The id of the last message of `type` the page posted, which the host's reply names. */
+async function lastSentId(page: Page, type: string): Promise<string> {
+  const sent = await outgoing(page, type);
   const id = sent.at(-1)?.id;
   expect(typeof id).toBe('string');
   return id as string;
+}
+
+/** The id of the last `ai:chat` the page posted, which its answer names. */
+async function lastChatId(page: Page): Promise<string> {
+  return lastSentId(page, 'ai:chat');
 }
 
 /** Create a conversation and let the host confirm it with a real id. */
@@ -116,6 +123,7 @@ async function createConversation(page: Page, id: string, title: string): Promis
   await sendExtensionMessage(page, {
     type: 'ai:conversation:created',
     id: `evt-${id}`,
+    correlationId: await lastSentId(page, 'ai:conversation:create'),
     payload: {
       conversation: { id, title, createdAt: new Date().toISOString() },
     },
@@ -184,6 +192,7 @@ test.describe('AI Module — Chat', () => {
     await sendExtensionMessage(page, {
       type: 'ai:conversation:created',
       id: 'evt-conv-1',
+      correlationId: await lastSentId(page, 'ai:conversation:create'),
       payload: {
         conversation: {
           id: 'conv-1',

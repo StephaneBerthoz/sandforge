@@ -207,14 +207,16 @@ without. The rows the run had read of it — a record-scoped run reads every
 object before it writes one — are counted as failed, in the report and in the
 run's `failedCount`, as the rows held back one by one for want of their parent
 are; its line says how many (`Skipped QuoteLineItem (parent failed): 1
-failed`). Skipped before its read, as a run of whole tables skips it, it counts
-none: the run never learned how many rows it held. An object the target takes
-no insert of, whose records the clone holds, is flagged the same way and
-counts none either, one row having been read to know. The run's audit entry
-names such an object either way, marked skipped — `counted`, or `uncounted`
-when the run never learned its rows — and the Audit Trail page says it was
-skipped, and that its record count is unknown when it is. An object read with
-no row left to write lost nothing, and is only skipped. Shape:
+failed`), and counts with them the rows an exclusion held back as they were
+read, as its audit entry does (`2 failed, 1 of them held back for want of …,
+excluded from this run`). Skipped before its read, as a run of whole tables
+skips it, it counts none: the run never learned how many rows it held. An
+object the target takes no insert of, whose records the clone holds, is flagged
+the same way and counts none either, one row having been read to know. The
+run's audit entry names such an object either way, marked skipped — `counted`,
+or `uncounted` when the run never learned its rows — and the Audit Trail page
+says it was skipped, and that its record count is unknown when it is. An object
+read with no row left to write lost nothing, and is only skipped. Shape:
 
 ```ts
 interface ForgeExecutionError {
@@ -240,11 +242,21 @@ excluded by name, said once, on the line that ends the object —
 `Completed OpportunityLineItem: 2 succeeded, 2 failed, 2 of them held back for
 want of ProductSellingModelOption, excluded from this run`. So do the lines of
 a write that mostly failed (`4/5 FeedItem records failed (>50%), 2 of them
-held back for want of their parent`) or failed whole. A line that counts no
-failure of the object — a dry run's, or that of an email object whose other
-emails the run never sent — says them failed on their own: `[dry-run]
+held back for want of their parent`) or failed whole (`Failed all FeedItem
+records: 3 failed, 2 of them held back for want of their parent`). A line that
+counts no failure of the object — a dry run's, or that of an email object whose
+other emails the run never sent — says them failed on their own: `[dry-run]
 OpportunityLineItem: 2 fewer would be inserted, 2 failed, held back for want of
 ProductSellingModelOption, excluded from this run`.
+
+An object held back whole — for a record type the running user cannot use in
+the target, for want of the parents its rows point at, or because every row
+needs an object excluded by name — says how many of its rows failed before it
+says why, each reason counting only its own rows: `Held back Quote, nothing
+written, 26 failed: 4 Quote records use record type …`. The line ends the
+object, so the rows an exclusion held back as they were read are counted there
+too, and said as the line of a write says them (`, 2 of them held back for want
+of …, excluded from this run`).
 
 The wizard webview consumes this via `forge:execute:response` and renders a
 grouped error panel (see `ForgeResults.tsx`).

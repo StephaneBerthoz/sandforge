@@ -871,6 +871,27 @@ async function answerAll(
   }
 }
 
+/**
+ * Create a conversation on the AI page and confirm it as the host does,
+ * naming the request that asked for it: the conversation takes the place of
+ * the entry the page made for that request.
+ */
+async function createConversation(
+  bridge: MockBridge,
+  page: Page,
+  id: string,
+  title: string,
+): Promise<void> {
+  await page.getByTestId('new-conversation-btn').click();
+  const [request] = (await bridge.getMessages('ai:conversation:create')).slice(-1);
+  await bridge.respond(
+    'ai:conversation:created',
+    { conversation: { id, title, createdAt: new Date().toISOString() } },
+    String(request?.id),
+  );
+  await page.getByTestId(`conversation-item-${id}`).waitFor({ state: 'visible', timeout: 5000 });
+}
+
 /** The Frozen page's Load tab, with the last load's records `status` names. */
 async function openFrozenLastLoad(
   bridge: MockBridge,
@@ -3077,18 +3098,7 @@ for (const theme of SCANNED_THEMES) {
     test('AI chat after conversation creation', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
 
-      // Create a conversation
-      await page.getByTestId('new-conversation-btn').click();
-      await bridge.respond('ai:conversation:created', {
-        conversation: {
-          id: 'axe-conv',
-          title: 'Axe Test',
-          createdAt: new Date().toISOString(),
-        },
-      });
-      await page
-        .getByTestId('conversation-item-axe-conv')
-        .waitFor({ state: 'visible', timeout: 5000 });
+      await createConversation(bridge, page, 'axe-conv', 'Axe Test');
 
       // Scan with conversation active
       const results = await checkAccessibility(page);
@@ -3098,17 +3108,7 @@ for (const theme of SCANNED_THEMES) {
     test('AI chat with assistant response', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
 
-      await page.getByTestId('new-conversation-btn').click();
-      await bridge.respond('ai:conversation:created', {
-        conversation: {
-          id: 'axe-conv-2',
-          title: 'Chat',
-          createdAt: new Date().toISOString(),
-        },
-      });
-      await page
-        .getByTestId('conversation-item-axe-conv-2')
-        .waitFor({ state: 'visible', timeout: 5000 });
+      await createConversation(bridge, page, 'axe-conv-2', 'Chat');
 
       // Send message and receive response
       await page.getByTestId('chat-input').fill('Test query');
@@ -4643,11 +4643,7 @@ for (const theme of STATE_THEMES) {
         ['axe-cases', 'Cases'],
         ['axe-leads', 'Leads'],
       ]) {
-        await page.getByTestId('new-conversation-btn').click();
-        await bridge.respond('ai:conversation:created', {
-          conversation: { id, title, createdAt: new Date().toISOString() },
-        });
-        await page.getByTestId(`conversation-item-${id}`).waitFor({ timeout: 5000 });
+        await createConversation(bridge, page, id, title);
         if (id === 'axe-cases') {
           await page.getByTestId('chat-input').fill('Which object holds cases?');
           await page.getByTestId('send-btn').click();

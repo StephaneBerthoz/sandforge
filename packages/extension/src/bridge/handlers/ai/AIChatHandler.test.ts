@@ -532,6 +532,56 @@ describe('AIChatHandler', () => {
       ]);
     });
 
+    // Stored before 1.39.7, a conversation can hold a question whose call
+    // failed and the question asked after it: sent side by side while both
+    // stayed in the window, where the models are trained on turns that
+    // alternate.
+    it('sends the two questions in a row of a conversation stored before 1.39.7 as one turn, and stores them as they were', async () => {
+      persistOldConversation();
+      const stored = deps.configStore.get<{ messages: Array<Record<string, unknown>> }>(
+        'ai:conversation:conv-old',
+      );
+      deps.configStore.set(
+        'ai:conversation:conv-old',
+        {
+          ...stored,
+          messages: [
+            {
+              id: 'm0',
+              role: 'user',
+              content: 'where are cases kept?',
+              timestamp: '2025-01-01T09:59:00Z',
+            },
+            ...(stored?.messages ?? []),
+          ],
+        },
+        'ai',
+      );
+      const { assistant, callFn } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+
+      const sent = (
+        callFn.mock.calls[0]?.[0] as Array<{ role: string; content: string }> | undefined
+      )?.filter((m) => m.role !== 'system');
+      expect(sent).toEqual([
+        { role: 'user', content: 'where are cases kept?\n\nwhich object holds cases' },
+        { role: 'assistant', content: 'Case' },
+        { role: 'user', content: 'sure?' },
+      ]);
+      const saved = deps.configStore.get<{ messages: Array<{ content: string }> }>(
+        'ai:conversation:conv-old',
+      );
+      expect(saved?.messages.map((m) => m.content)).toEqual([
+        'where are cases kept?',
+        'which object holds cases',
+        'Case',
+        'sure?',
+        'Yes, Case.',
+      ]);
+    });
+
     it('keeps the restored history when persisting the new exchange', async () => {
       persistOldConversation();
       const { assistant } = freshAssistant();

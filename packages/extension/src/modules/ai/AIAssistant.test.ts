@@ -257,6 +257,41 @@ describe('AIAssistant', () => {
     expect(sent.at(-1)).toEqual({ role: 'user', content: 'question 10' });
   });
 
+  // Before 1.39.7 a question whose call failed stayed in the conversation, and
+  // the next one was stored after it: the two went out side by side, and the
+  // API made one turn of them, which the answer after them replied to.
+  it('sends two questions in a row, as stored before 1.39.7, as the one turn their answer replied to', async () => {
+    const at = '2025-01-01T10:00:00Z';
+    assistant.restoreConversation({
+      id: 'conv-before-1397',
+      title: 'Kept a failed question',
+      messages: [
+        { id: 'm1', role: 'user', content: 'which object holds cases?', timestamp: at },
+        { id: 'm2', role: 'user', content: 'and which holds leads?', timestamp: at },
+        { id: 'm3', role: 'assistant', content: 'Case, and Lead.', timestamp: at },
+      ],
+      createdAt: at,
+      updatedAt: at,
+      totalTokens: 0,
+    });
+
+    await assistant.chat('conv-before-1397', 'which holds contacts?');
+
+    expect(turnsSent(0)).toEqual([
+      { role: 'user', content: 'which object holds cases?\n\nand which holds leads?' },
+      { role: 'assistant', content: 'Case, and Lead.' },
+      { role: 'user', content: 'which holds contacts?' },
+    ]);
+    // What the conversation holds is left as the user asked it.
+    expect(assistant.getConversation('conv-before-1397')?.messages.map((m) => m.id)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+      expect.stringMatching(/^msg-.+-user$/),
+      expect.stringMatching(/^msg-.+-assistant$/),
+    ]);
+  });
+
   // --- One question at a time per conversation ---
 
   describe('a question asked while another waits for its answer', () => {

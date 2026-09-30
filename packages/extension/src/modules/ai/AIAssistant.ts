@@ -81,14 +81,40 @@ function messageId(role: ChatRole): string {
 
 /**
  * The messages a turn sends, its new question last: the last 20, opening on a
- * question. Ten exchanges and a new question opened the window on the first
- * answer, cut from the question it replied to, and a history whose first turn
- * is the assistant's is one the API may refuse.
+ * question, one turn per role in a row. Ten exchanges and a new question
+ * opened the window on the first answer, cut from the question it replied to,
+ * and a history whose first turn is the assistant's is one the API may refuse.
  */
 function historyToSend(messages: ChatMessage[]): ChatMessage[] {
   const recent = messages.slice(-20);
   const firstQuestion = recent.findIndex((m) => m.role === 'user');
-  return firstQuestion > 0 ? recent.slice(firstQuestion) : recent;
+  return alternating(firstQuestion > 0 ? recent.slice(firstQuestion) : recent);
+}
+
+/**
+ * `messages` with each run of one role made one turn, its texts joined by a
+ * blank line.
+ *
+ * A conversation stored before 1.39.7 can hold two questions in a row: one
+ * whose call failed, kept then, and the question asked after it, sent as they
+ * were while both stayed in the window. The Messages API combines consecutive
+ * turns of one role into a single turn, its reference says, so the answer
+ * after them was written to both as one question. Merged, they are that
+ * question: the answer still replies to what the history holds, and what is
+ * sent alternates, as the models are trained to read it. The first dropped,
+ * that answer would reply to a question the history no longer holds.
+ */
+function alternating(messages: ChatMessage[]): ChatMessage[] {
+  const turns: ChatMessage[] = [];
+  for (const message of messages) {
+    const last = turns.at(-1);
+    if (last?.role === message.role) {
+      turns[turns.length - 1] = { ...last, content: `${last.content}\n\n${message.content}` };
+    } else {
+      turns.push(message);
+    }
+  }
+  return turns;
 }
 
 /** Default system prompt for SandForge assistant. */

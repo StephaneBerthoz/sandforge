@@ -34,7 +34,6 @@ export const AIPage: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([]);
-  const [localIdCounter, setLocalIdCounter] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
 
@@ -87,9 +86,16 @@ export const AIPage: React.FC = () => {
     }
   }, [aiAvailable, send]);
 
-  // Listen for conversation list response
+  // The list answers the request sent on mount, and a conversation can be
+  // created here before it comes: answered before the host confirmed that
+  // one, the list replaced its entry, and the conversation open was in no
+  // list until the confirmation came. An entry the host has not confirmed
+  // stays, for `ai:conversation:created` to replace.
   useMessageListener<AIConversationListResponse>('ai:conversation:list:response', (msg) => {
-    setConversations(msg.payload.conversations);
+    setConversations((prev) => [
+      ...msg.payload.conversations,
+      ...prev.filter((c) => c.id.startsWith('local-conv-')),
+    ]);
   });
 
   // An answer belongs to the conversation its question was asked in. It went to
@@ -120,11 +126,15 @@ export const AIPage: React.FC = () => {
   useMessageListener<AIConversationCreatedResponse>('ai:conversation:created', (msg) => {
     // The confirmation carries no count: a conversation just created holds no message.
     const conv: ConversationSummary = { ...msg.payload.conversation, messageCount: 0 };
-    setConversations((prev) => {
-      // Replace the optimistic local entry if it exists
-      const withoutLocal = prev.filter((c) => !c.id.startsWith('local-conv-'));
-      return [...withoutLocal, conv];
-    });
+    // The entry made for the conversation bears the id of the request that
+    // asked for it, which the confirmation names: the conversation takes that
+    // entry's place, and the entry of another still waits for its own. The
+    // first confirmation took every entry made here away, and a conversation
+    // created while another was confirmed left the list until its own came.
+    const own = msg.correlationId ? `local-conv-${msg.correlationId}` : undefined;
+    setConversations((prev) =>
+      prev.some((c) => c.id === own) ? prev.map((c) => (c.id === own ? conv : c)) : [...prev, conv],
+    );
     setActiveConversationId(conv.id);
     setMessages([]);
   });
@@ -211,10 +221,11 @@ export const AIPage: React.FC = () => {
 
   const handleNewConversation = useCallback(
     (title: string) => {
-      const nextId = localIdCounter + 1;
-      setLocalIdCounter(nextId);
+      const request = buildMessage<{ title: string }>('ai:conversation:create', { title });
       const localConv: ConversationSummary = {
-        id: `local-conv-${Date.now()}-${nextId}`,
+        // The request's id, which the host's confirmation names: see
+        // `ai:conversation:created`.
+        id: `local-conv-${request.id}`,
         title,
         createdAt: new Date().toISOString(),
         messageCount: 0,
@@ -223,9 +234,9 @@ export const AIPage: React.FC = () => {
       setActiveConversationId(localConv.id);
       setMessages([]);
       setErrorMessage(undefined);
-      send(buildMessage<{ title: string }>('ai:conversation:create', { title }));
+      send(request);
     },
-    [localIdCounter, send],
+    [send],
   );
 
   const handleSelectConversation = useCallback(

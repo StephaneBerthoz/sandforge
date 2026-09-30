@@ -214,6 +214,17 @@ describe('ForgeHandler', () => {
       .map((m) => m.payload.result);
   }
 
+  /** The last line the page was told of `objectName`. */
+  function lastLineOf(objectName: string): string | undefined {
+    return vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload?: Record<string, unknown> })
+      .filter((m) => m.type === 'forge:progress' && m.payload?.objectName === objectName)
+      .map((m) => m.payload?.message)
+      .filter((message): message is string => typeof message === 'string')
+      .pop();
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     deps = createMockDeps();
@@ -773,6 +784,40 @@ describe('ForgeHandler', () => {
       ]);
     });
 
+    // The line said why, "2 Account records use record type Partner", and not
+    // how many were held back: the third account, of no record type, went
+    // with the other two, as the audit entry counts it.
+    it('says on the line of the object held back for its record type as many failed as the audit trail records', async () => {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      recordTypeConnections();
+      const executorDeps = realRun(false, async (_o, _n, records) =>
+        records.map(() => ({ id: '001Fk00000NeWaSIAV', success: true, errors: [] })),
+      );
+      executorDeps.queryRecords = vi.fn(async () => [
+        { Id: ROOT_ID, Name: 'Acme', RecordTypeId: SOURCE_RT },
+        { Id: '001000000000124', Name: 'Acme Europe', RecordTypeId: SOURCE_RT },
+        { Id: '001000000000125', Name: 'Acme Asia', RecordTypeId: null },
+      ]);
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(lastLineOf('Account')).toBe(
+        'Held back Account, nothing written, 3 failed: 2 Account records use record type ' +
+          'Partner, which the running user cannot use in the target org. Give the running user ' +
+          'access to record type Partner on Account, or map it to one they have. Objects that ' +
+          'cannot be written without it will be skipped.',
+      );
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 3 }],
+        }),
+      ]);
+    });
+
     it('answers with the record linked, not failed, when the target already holds it', async () => {
       recordTypeConnections();
       realRun(true, async (_o, _n, records) =>
@@ -864,8 +909,15 @@ describe('ForgeHandler', () => {
       };
     }
 
-    /** A real run over a source holding the rows above; what the target was sent, per object. */
-    function realRun(): Record<string, Array<Record<string, unknown>>> {
+    /**
+     * A real run over a source holding `source`, the rows above unless a test
+     * gives its own, and a target that refuses every record of the objects
+     * in `refused`; what the target was sent, per object.
+     */
+    function realRun(
+      source: Record<string, Array<Record<string, unknown>>> = ROWS,
+      refused: ReadonlySet<string> = new Set(),
+    ): Record<string, Array<Record<string, unknown>>> {
       const inserted: Record<string, Array<Record<string, unknown>>> = {};
       let created = 0;
       const executorDeps: ForgeExecutorDeps = {
@@ -873,15 +925,23 @@ describe('ForgeHandler', () => {
         queryRecords: async (org, soql) => {
           const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
           // Copies: a run takes out of what it read the rows it holds back.
-          return org === 'src-org' ? (ROWS[object] ?? []).map((row) => ({ ...row })) : [];
+          return org === 'src-org' ? (source[object] ?? []).map((row) => ({ ...row })) : [];
         },
         insertRecords: async (_org, object, rows) => {
           (inserted[object] ??= []).push(...rows);
-          return rows.map(() => ({
-            id: `${object.slice(0, 3)}TGT${String(++created).padStart(9, '0')}`,
-            success: true,
-            errors: [],
-          }));
+          return rows.map(() =>
+            refused.has(object)
+              ? {
+                  id: '',
+                  success: false,
+                  errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: the project is closed'],
+                }
+              : {
+                  id: `${object.slice(0, 3)}TGT${String(++created).padStart(9, '0')}`,
+                  success: true,
+                  errors: [],
+                },
+          );
         },
       };
       handler.setForgeOrchestrator(
@@ -957,6 +1017,51 @@ describe('ForgeHandler', () => {
             { objectApiName: 'Project__c', created: 1, updated: 0, deleted: 0, failed: 0 },
             { objectApiName: 'Task__c', created: 0, updated: 0, deleted: 0, failed: 2 },
           ],
+        }),
+      ]);
+      // The tasks' line says as many failed as the entry records: it said why alone.
+      expect(lastLineOf('Task__c')).toBe(
+        'Held back Task__c, nothing written, 2 failed: every record needs Team__c, excluded ' +
+          'from this run. Objects that cannot be written without it will be skipped.',
+      );
+    });
+
+    // The target refuses the project, and its tasks are skipped with it. The
+    // task staffed by the team left out was held back as it was read: the
+    // entry counted it with the other, and the line said 1 failed.
+    it('says on the line of the tasks skipped with their project as many failed as the audit trail records', async () => {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      const [staffed, unstaffed] = ROWS['Task__c'];
+      realRun(
+        { ...ROWS, Task__c: [staffed, { ...unstaffed, Squad__c: undefined }] },
+        new Set(['Project__c']),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: projectGraph({ included: false, leftOutByUser: true }),
+          config: createMockConfig({ recordId: PROJECT }),
+        }),
+      );
+
+      expect(lastLineOf('Task__c')).toBe(
+        'Skipped Task__c (parent failed): 2 failed, 1 of them held back for want of Team__c, ' +
+          'excluded from this run',
+      );
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          objects: expect.arrayContaining([
+            {
+              objectApiName: 'Task__c',
+              created: 0,
+              updated: 0,
+              deleted: 0,
+              failed: 2,
+              skipped: 'counted',
+            },
+          ]),
         }),
       ]);
     });
