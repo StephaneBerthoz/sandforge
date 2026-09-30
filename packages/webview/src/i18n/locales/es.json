@@ -1958,6 +1958,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound13911": "Una eliminación termina lo que dejó",
+      "fixRound13911Desc": "Una eliminación de Forge o Frozen que dejó registros se puede volver a ejecutar para lo que queda, conserva con un pedido activado lo que la org no elimina bajo él y nombra los archivos que la org adjuntó. Claude Sonnet 5.5 se puede elegir como modelo de IA.",
       "fixRound13910": "Las cargas canceladas se pueden deshacer",
       "fixRound13910Desc": "Una carga de Frozen cancelada indica que una eliminación deshace lo que creó, la búsqueda del catálogo tiene su propia línea, y la entrada de auditoría de una ejecución de Forge nombra los objetos que omitió por completo, también en el registro de auditoría.",
       "fixRound1399": "Frozen nombra cada fase",

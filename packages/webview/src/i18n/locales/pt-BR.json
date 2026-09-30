@@ -1958,6 +1958,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound13911": "Uma remoção conclui o que deixou",
+      "fixRound13911Desc": "Uma remoção do Forge ou do Frozen que deixou registros pode ser executada de novo para o que resta, mantém com um pedido ativado o que a org não exclui sob ele e nomeia os arquivos que a org anexou. O Claude Sonnet 5.5 pode ser escolhido como modelo de IA.",
       "fixRound13910": "Carregamentos cancelados podem ser desfeitos",
       "fixRound13910Desc": "Um carregamento do Frozen cancelado informa que uma remoção desfaz o que ele criou, a busca do catálogo tem uma linha própria, e a entrada de auditoria de uma execução do Forge nomeia os objetos que ela ignorou por inteiro, também no registro de auditoria.",
       "fixRound1399": "O Frozen nomeia cada fase",

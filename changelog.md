@@ -5,6 +5,25 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.11] - 2026-09-30
+
+A removal that left records can be run again for what is left, and keeps with
+an activated order what the org will not delete under it.
+
+### Fixed
+
+- **A removal that left records can be run again for what is left**, in Forge
+  and Frozen, with or without the records changed since.
+- **A removal keeps an activated order's products and actions with it** when
+  the order stays, rather than sending deletes the org refuses, and names the
+  files the org attached to the records it deleted.
+- **Re-verify of a Frozen load a removal took part of** says how many records
+  it left, and to remove them or reload.
+- **A Forge run that skipped an object whole ends partial or failed**, rather
+  than a success.
+- **Claude Sonnet 5.5 can be chosen as the AI model**: it is told not to think
+  before answering, as the other models are.
+
 ## [1.39.10] - 2026-09-29
 
 A cancelled Frozen load says a removal takes it back, and Forge's audit entry

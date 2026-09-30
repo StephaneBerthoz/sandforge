@@ -1958,6 +1958,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound13911": "Un retrait peut finir ce qu'il a laissé",
+      "fixRound13911Desc": "Un retrait Forge ou Frozen qui a laissé des enregistrements peut être relancé pour ce qui reste, garde avec une commande activée ce que l'org refuse de supprimer sous elle, et nomme les fichiers que l'org a attachés. Claude Sonnet 5.5 peut être choisi comme modèle d'IA.",
       "fixRound13910": "Un chargement annulé se retire",
       "fixRound13910Desc": "Un chargement Frozen annulé indique qu'un retrait reprend ce qu'il a créé, la recherche du catalogue a sa propre ligne, et l'entrée d'audit d'une exécution Forge nomme les objets qu'elle a entièrement ignorés, jusque dans le journal d'audit.",
       "fixRound1399": "Frozen nomme chaque phase",

@@ -1958,6 +1958,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound13911": "A removal finishes what it left",
+      "fixRound13911Desc": "A Forge or Frozen removal that left records can be run again for what is left, keeps with an activated order what the org will not delete under it, and names the files the org attached. Claude Sonnet 5.5 can be chosen as the AI model.",
       "fixRound13910": "Cancelled loads can be taken back",
       "fixRound13910Desc": "A cancelled Frozen load says a removal takes back what it created, the catalog it looks up has a line of its own, and a Forge run's audit entry names the objects it skipped whole, on the Audit Trail page too.",
       "fixRound1399": "Frozen names each phase",
