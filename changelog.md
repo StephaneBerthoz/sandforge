@@ -5,6 +5,31 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-09-30
+
+Forge can show its graph as a table and clone directly, and every line it
+writes says how many rows an object lost.
+
+### Added
+
+- **Forge shows its graph as a table past 25 objects**, by the
+  `sandforge.forge.graphView` setting (auto, graph, table) and a Graph/Table
+  switch on discovery, review and execution.
+- **Clone directly** runs discovery and execution from the start, without
+  stopping on the discovery and review screens.
+
+### Fixed
+
+- **Forge's held-back, failed-whole and skip lines say how many rows failed**,
+  as the totals and the audit count them.
+- **A cancelled removal counts in the running total** and stays offered for
+  what it did not reach.
+- **An activated contract is deleted as it stands**, keeping its item prices
+  with it when it stays, and a reload's purge counts as purged what the org
+  took along after refusing it.
+- **The AI chat sends alternating turns** and keeps each unconfirmed
+  conversation until its own confirmation.
+
 ## [1.39.12] - 2026-09-30
 
 Forge's metadata review names what the target lacks, and the output channel

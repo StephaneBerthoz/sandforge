@@ -1958,6 +1958,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "forgeTableDirect1400": "Forge als Tabelle und direktes Klonen",
+      "forgeTableDirect1400Desc": "Forge zeigt seinen Graphen ab 25 Objekten als Tabelle, über die Einstellung sandforge.forge.graphView oder den Schalter auf jedem Bildschirm, und „Direkt klonen“ geht vom Start zur Ausführung, ohne bei Ermittlung und Prüfung anzuhalten. Seine Zeilen sagen, wie viele Datensätze jedes Objekt verlor.",
       "fixRound13912": "Die Metadatenprüfung nennt, was dem Ziel fehlt",
       "fixRound13912Desc": "Die Metadatenprüfung von Forge nennt ein Objekt, das der Ziel-Org fehlt oder das sie nicht beschreiben konnte, und vergleicht die übrigen, wo ein einziges fehlendes Objekt sie ganz scheitern ließ. Der Ausgabekanal sagt, wie jeder Forge-Schritt endete.",
       "fixRound13911": "Eine Entfernung beendet, was sie übrig ließ",

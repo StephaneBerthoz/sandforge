@@ -1958,6 +1958,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "forgeTableDirect1400": "Forge en tableau, et le clone direct",
+      "forgeTableDirect1400Desc": "Forge affiche son graphe en tableau au-delà de 25 objets, selon le réglage sandforge.forge.graphView ou le bouton de chaque écran, et Cloner directement passe du départ à l'exécution sans s'arrêter sur la découverte et la revue. Ses lignes disent combien d'enregistrements chaque objet a perdus.",
       "fixRound13912": "La revue des métadonnées nomme ce qui manque à la cible",
       "fixRound13912Desc": "La revue des métadonnées de Forge nomme un objet absent de l'org cible, ou qu'elle n'a pas pu décrire, et compare les autres, là où un seul objet manquant la faisait échouer entièrement. Le canal de sortie indique comment chaque étape de Forge s'est terminée.",
       "fixRound13911": "Un retrait peut finir ce qu'il a laissé",

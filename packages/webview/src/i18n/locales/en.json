@@ -1958,6 +1958,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "forgeTableDirect1400": "Forge as a table, and a direct clone",
+      "forgeTableDirect1400Desc": "Forge shows its graph as a table past 25 objects, set in sandforge.forge.graphView or switched on each screen, and Clone directly goes from the start to the run without stopping on discovery and review. Its lines say how many rows each object lost.",
       "fixRound13912": "The metadata review names what the target lacks",
       "fixRound13912Desc": "Forge's metadata review names an object the target org lacks, or could not describe, and compares the others, where one missing object failed it whole. The output channel says how each Forge step ended.",
       "fixRound13911": "A removal finishes what it left",

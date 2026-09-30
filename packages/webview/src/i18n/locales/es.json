@@ -1958,6 +1958,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeTableDirect1400": "Forge en tabla y la clonación directa",
+      "forgeTableDirect1400Desc": "Forge muestra su grafo como tabla a partir de 25 objetos, según el ajuste sandforge.forge.graphView o el conmutador de cada pantalla, y Clonar directamente pasa del inicio a la ejecución sin detenerse en el descubrimiento ni en la revisión. Sus líneas dicen cuántos registros perdió cada objeto.",
       "fixRound13912": "La revisión de metadatos nombra lo que le falta al destino",
       "fixRound13912Desc": "La revisión de metadatos de Forge nombra un objeto que falta en la org de destino, o que no pudo describir, y compara los demás, donde un solo objeto ausente la hacía fallar por completo. El canal de salida indica cómo terminó cada paso de Forge.",
       "fixRound13911": "Una eliminación termina lo que dejó",
