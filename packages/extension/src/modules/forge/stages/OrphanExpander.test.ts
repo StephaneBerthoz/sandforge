@@ -58,7 +58,7 @@ function makeDeps(overrides?: Partial<ExpanderDeps>): ExpanderDeps {
     ]),
     queryRecords: vi
       .fn<ExpanderDeps['queryRecords']>()
-      .mockResolvedValue([{ Id: ORPHAN_ID, Name: 'GAN ASSURANCES', OwnerId: '005USER' }]),
+      .mockResolvedValue([{ Id: ORPHAN_ID, Name: 'Acme Insurance', OwnerId: '005USER' }]),
     insertRecords: vi
       .fn<ExpanderDeps['insertRecords']>()
       .mockResolvedValue([{ id: '001NEW', success: true, errors: [] }]),
@@ -98,7 +98,7 @@ describe('OrphanExpander', () => {
     const [, objectName, payload] = vi.mocked(deps.insertRecords).mock.calls[0];
     expect(objectName).toBe('Account');
     // Minimal payload: Id not createable, OwnerId orphan-nullified (omitted).
-    expect(payload[0]).toEqual({ Name: 'GAN ASSURANCES' });
+    expect(payload[0]).toEqual({ Name: 'Acme Insurance' });
     expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
     // Parent registered in scope cache for multi-hop children.
     expect(input.scopeCache?.has('Account')).toBe(true);

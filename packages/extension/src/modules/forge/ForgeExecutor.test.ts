@@ -11107,7 +11107,7 @@ describe('ForgeExecutor', () => {
         if (soql.includes('FROM Asset'))
           return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001AP00ORPHAN12' }];
         if (soql.includes('FROM Account'))
-          return [{ Id: '001AP00ORPHAN12', Name: 'GAN ASSURANCES' }];
+          return [{ Id: '001AP00ORPHAN12', Name: 'Acme Insurance' }];
         return [];
       });
       vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
