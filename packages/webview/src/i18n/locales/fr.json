@@ -1960,6 +1960,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1402": "Forge clone davantage d'un vrai dossier",
+      "fixRound1402Desc": "Une ligne dont la cible refuse une valeur de liste est écrite sans ce champ, un enregistrement reçoit le parent obligatoire qui lui manquait, et les comptes personnels sont gérés dans Forge comme dans Frozen. La commande de clone supprime ce qu'un de ses runs a créé et refuse une org de production.",
       "fixRound1401": "Forge écrit davantage d'un vrai clone",
       "fixRound1401Desc": "Une valeur de liste est vérifiée selon le type d'enregistrement que la ligne reçoit dans la cible, une ligne qu'une règle de validation refuse sur un champ est réécrite sans lui, et le contact d'un compte personnel est relié au lieu d'être écrit deux fois. Les résultats disent ce qui a changé et pourquoi.",
       "forgeTableDirect1400": "Forge en tableau, et le clone direct",

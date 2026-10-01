@@ -1960,6 +1960,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1402": "O Forge clona mais de um caso real",
+      "fixRound1402Desc": "Uma linha cujo valor de lista de opções o destino recusa é escrita sem esse campo, um registro recebe o registro pai obrigatório que faltava, e as contas pessoais são tratadas no Forge e no Frozen. O comando de clonagem remove o que uma de suas execuções criou e recusa uma organização de produção.",
       "fixRound1401": "O Forge escreve mais de um clone real",
       "fixRound1401Desc": "Um valor de lista de opções é verificado conforme o tipo de registro que a linha recebe no destino, uma linha que uma regra de validação recusa por um campo é escrita de novo sem ele, e o contato de uma conta pessoal é vinculado em vez de escrito duas vezes. Os resultados dizem o que mudou e por quê.",
       "forgeTableDirect1400": "Forge em tabela e o clone direto",

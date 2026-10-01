@@ -1960,6 +1960,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1402": "Forge clona más de un caso real",
+      "fixRound1402Desc": "Una fila cuyo valor de lista de selección rechaza el destino se escribe sin ese campo, un registro recibe el registro principal obligatorio que le faltaba y las cuentas personales se gestionan tanto en Forge como en Frozen. El comando de clonación elimina lo que creó una de sus ejecuciones y rechaza una organización de producción.",
       "fixRound1401": "Forge escribe más de una clonación real",
       "fixRound1401Desc": "Un valor de lista de selección se comprueba según el tipo de registro que la fila recibe en el destino, una fila que una regla de validación rechaza por un campo se vuelve a escribir sin él, y el contacto de una cuenta personal se vincula en lugar de escribirse dos veces. Los resultados dicen qué cambió y por qué.",
       "forgeTableDirect1400": "Forge en tabla y la clonación directa",

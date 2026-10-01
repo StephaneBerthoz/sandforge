@@ -1960,6 +1960,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1402": "Forge clones more of a real case",
+      "fixRound1402Desc": "A row the target refuses for a picklist value goes in without that field, a record gets the required parent it was missing, and person accounts are handled in Forge and Frozen alike. The clone command removes what a run of it created, and refuses a production target.",
       "fixRound1401": "Forge writes more of a real clone",
       "fixRound1401Desc": "A picklist value is checked against the record type the row gets in the target, a row a validation rule refuses on one field is written again without it, and a person account's contact is linked rather than written twice. The results say what was changed and why.",
       "forgeTableDirect1400": "Forge as a table, and a direct clone",

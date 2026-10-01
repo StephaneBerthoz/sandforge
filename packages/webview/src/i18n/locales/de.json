@@ -1960,6 +1960,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1402": "Forge klont mehr von einem echten Fall",
+      "fixRound1402Desc": "Eine Zeile, deren Auswahllistenwert das Ziel ablehnt, wird ohne dieses Feld geschrieben, ein Datensatz erhält den erforderlichen übergeordneten Datensatz, der ihm fehlte, und Personenkonten werden in Forge wie in Frozen behandelt. Der Klonbefehl entfernt, was einer seiner Läufe erstellt hat, und lehnt eine Produktionsorganisation ab.",
       "fixRound1401": "Forge schreibt mehr von einem echten Klon",
       "fixRound1401Desc": "Ein Auswahllistenwert wird gegen den Datensatztyp geprüft, den die Zeile im Ziel erhält, eine Zeile, die eine Validierungsregel wegen eines Felds ablehnt, wird ohne dieses Feld erneut geschrieben, und der Kontakt eines Personenkontos wird verknüpft statt doppelt geschrieben. Die Ergebnisse sagen, was geändert wurde und warum.",
       "forgeTableDirect1400": "Forge als Tabelle und direktes Klonen",

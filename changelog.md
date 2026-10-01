@@ -5,6 +5,49 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.2] - 2026-10-01
+
+Forge clones more of a real case: a record type that takes none of a
+picklist's values, a policy whose insured was not read, person accounts on
+both sides. The clone command removes what it wrote.
+
+### Added
+
+- **The clone command removes what a run of it created** with
+  `--remove <summary.json>`, as the wizard's removal does; it refuses a
+  production target, for a clone as for a removal, and in `--json` mode only
+  the JSON goes to stdout.
+
+### Fixed
+
+- **A row the target refuses for a restricted picklist value is written again
+  without that field**, as one a validation rule refuses, and the results say
+  which refused each field: a record type never given values of a field takes
+  none, while the check before the write reads them all.
+- **A record whose required parent was not read gets that parent read**, so an
+  insurance policy whose named insured is not the case's account is cloned
+  with its coverages; a lookup left empty because its record is not in the
+  clone is said so, not counted as failed, and an object the target lacks is
+  said once.
+- **A Frozen load links each person account's contact to the one the platform
+  wrote with the account**, instead of sending a second one and setting a link
+  no write sets; where the target holds the account as a business account, or
+  has no person accounts, the contact goes in as a contact of that account.
+- **Forge sends a person account's contact as one of its own where the target
+  wrote none with its account**, a target without person accounts or a
+  business record type included, and the removal confirmation no longer counts
+  as kept what the platform deletes with the records the run created.
+- **A parent Forge copies from outside the graph gets the checks a row gets**:
+  its picklist values per record type, one more try without the fields the
+  target refuses, and its person account's contact linked.
+- **An unrestricted picklist or a combobox keeps the value read**; a standard
+  status, stage, priority or role is still checked.
+- **A lookup only an insert sets is never sent in an update**, a lookup the
+  user left out is never written, and a renamed lookup is owed under its
+  target name.
+- **A Forge discovery that answers while its page is away is kept** and shown
+  when the page comes back; only the latest discovery's answer counts.
+
 ## [1.40.1] - 2026-10-01
 
 Forge handles what a real clone met: picklist values per record type, a
