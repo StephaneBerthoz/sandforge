@@ -3078,7 +3078,7 @@
       "placeholder": "Placeholder",
       "skippedList": "Enregistrements ignorés (anti-doublon natif)",
       "errors": "Erreurs",
-      "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus, {{pass2Unresolved}} non résolus — PersonContact : {{personContact}} restaurés, {{personContactUnresolved}} non résolus",
+      "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus, {{pass2Unresolved}} non résolus — Contacts personnes : {{personContact}} liés, {{personContactUnresolved}} non liés",
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "excludedObjects": "Objets non chargés",
@@ -3097,6 +3097,7 @@
         "lookup": "Lien",
         "leftEmpty": "Liens laissés vides",
         "targetNotLoaded": "L'enregistrement qu'il désigne n'a pas été chargé",
+        "notAPersonAccount": "La cible tient le compte pour un compte professionnel, sans contact qui lui soit propre",
         "lostWithTheirRecord": "Perdus avec les enregistrements qui les portent, que le chargement n'a pas écrits : {{links}}"
       }
     },

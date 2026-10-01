@@ -2241,7 +2241,7 @@ describe('FrozenDatasetLoader — statuses with a lifecycle', () => {
   });
 });
 
-describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
+describe('FrozenDatasetLoader — cycles', () => {
   it('handles a 2-object cycle with the 2-pass pattern (nullify then patch)', async () => {
     const dataset: FrozenDataset = {
       datasetVersion: '1.0.0',
@@ -2280,30 +2280,6 @@ describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
     // Pass 2: targeted update patches the nullified FK.
     expect(calls[2].payload).toEqual([{ Id: 'REAL-ObjA__c-1', B__c: 'REAL-ObjB__c-2' }]);
     expect(report.pass2).toEqual({ resolved: 1, unresolved: [] });
-  });
-
-  it('restores Account.PersonContactId from the sidecar as targeted updates', async () => {
-    const dataset = makeAccountContactDataset();
-    // The frozen Account carries the sidecar referenceId in PersonContactId
-    // (the field does not exist at insert time).
-    dataset.objects[0].records[0].fields.PersonContactId = 'Contact-000001';
-    dataset.personContactSidecar = [
-      { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
-    ];
-    const calls: DmlCall[] = [];
-    const deps = makeDeps({ dataset, writer: makeWriter(calls) });
-    const loader = new FrozenDatasetLoader(deps);
-
-    const report = await loader.load(makeOptions(deps, dataset));
-
-    // PersonContactId is never inserted…
-    const accountPayload = calls.find((c) => c.op === 'insert' && c.objectApiName === 'Account')
-      ?.payload as Array<Record<string, unknown>>;
-    expect(accountPayload[0]).not.toHaveProperty('PersonContactId');
-    // …it is posted post-load as a targeted update, resolved via the mapping.
-    const update = calls.find((c) => c.op === 'update' && c.objectApiName === 'Account');
-    expect(update?.payload).toEqual([{ Id: 'REAL-Account-1', PersonContactId: 'REAL-Contact-2' }]);
-    expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
   });
 
   describe('a link it could not make, and why', () => {
@@ -2407,61 +2383,6 @@ describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
         ],
       });
       expect(report.status).toBe('completed-with-errors');
-    });
-
-    it('names the person account whose contact link the target refused, and why, and each link it could not resolve', async () => {
-      // A refused update was reported under the sidecar entry of its index,
-      // counted among every link, resolved or not: the first entry, whatever
-      // it was, stood for the refused one.
-      const records = (objectApiName: string, names: string[]) => ({
-        objectApiName,
-        records: names.map((name, i) => ({
-          referenceId: `${objectApiName}-00000${i + 1}`,
-          fields: objectApiName === 'Account' ? { Name: name } : { Name: name, LastName: name },
-        })),
-      });
-      const link = (n: number) => ({
-        accountReferenceId: `Account-00000${n}`,
-        contactReferenceId: `Contact-00000${n}`,
-      });
-      const dataset: FrozenDataset = {
-        datasetVersion: '1.0.0',
-        objects: [records('Account', ['P1', 'P2', 'P3']), records('Contact', ['C1', 'C2', 'C3'])],
-        recordTypes: {},
-        personContactSidecar: [link(1), link(2), link(3)],
-      };
-      const calls: DmlCall[] = [];
-      const deps = makeDeps({
-        dataset,
-        writer: refusingWriter(calls, ['P1', 'C2'], {
-          Account:
-            'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
-        }),
-      });
-
-      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
-
-      expect(report.personContact).toEqual({
-        restored: 0,
-        unresolved: [
-          {
-            ...link(1),
-            cause: 'record-not-loaded',
-            detail: 'person account was not loaded (see perObject failures/skips)',
-          },
-          {
-            ...link(2),
-            cause: 'target-not-loaded',
-            detail: 'contact Contact-000002 was not loaded (skipped, failed or excluded)',
-          },
-          {
-            ...link(3),
-            cause: 'update-refused',
-            detail:
-              'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
-          },
-        ],
-      });
     });
   });
 });
@@ -4146,27 +4067,41 @@ describe('FrozenDatasetLoader — a cancel', () => {
   });
 
   it('writes no contract over a load whose last pass the cancel came during', async () => {
-    const dataset = {
-      ...makeAccountContactDataset(),
-      personContactSidecar: [
-        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+    const dataset = makeAccountContactDataset();
+    dataset.objects.push({
+      objectApiName: 'Order',
+      records: [
+        {
+          referenceId: 'Order-000001',
+          fields: { Name: 'Repair', Status: 'Activated', AccountId: 'Account-000001' },
+        },
       ],
-    };
+    });
     const stop = new AbortController();
     const writer = makeWriter([]);
     writer.update = vi.fn(async () => {
-      // The PersonContact upload is the one the cancel aborts: nothing written.
+      // The statuses' update is the one the cancel aborts: nothing written.
       stop.abort();
       return [];
     });
-    const deps = makeDeps({ dataset, writer });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM OrderStatus')
+          ? [
+              { ApiName: 'Activated', StatusCode: 'Activated' },
+              { ApiName: 'Draft', StatusCode: 'Draft' },
+            ]
+          : [],
+    });
 
     await expect(
       new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { signal: stop.signal })),
     ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
 
     expect(writer.update).toHaveBeenCalledTimes(1);
-    // A contract would count the links as restored.
+    // A contract would count the status as applied.
     expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
   });
 
@@ -4396,39 +4331,6 @@ describe('FrozenDatasetLoader — a cancel', () => {
       expect(endsOfPhase(progress, 'pass2')).toEqual([
         ['done', 'Pass 2: 0 resolved, 0 unresolved'],
         ['stopped', 'Statuses: 1 applied, 0 refused, 1 not applied: the load was cancelled first'],
-      ]);
-    });
-
-    it('ends the PersonContact pass stopped when the cancel cuts its write short, saying what it restored and what it kept back', async () => {
-      const dataset = makeAccountContactDataset();
-      dataset.objects[0].records.push({
-        referenceId: 'Account-000002',
-        fields: { Name: 'Second', ExternalId__c: 'ACC-2' },
-      });
-      dataset.objects[1].records.push({
-        referenceId: 'Contact-000002',
-        fields: { LastName: 'Roe', AccountId: 'Account-000002' },
-      });
-      dataset.personContactSidecar = [1, 2].map((n) => ({
-        accountReferenceId: `Account-00000${n}`,
-        contactReferenceId: `Contact-00000${n}`,
-      }));
-      const stop = new AbortController();
-      const progress: FrozenLoadProgressEvent[] = [];
-      const deps = makeDeps({ dataset, writer: cutShortAt(stop, 'update', 'Account', 1) });
-
-      const error: unknown = await new FrozenDatasetLoader(deps)
-        .load(
-          makeOptions(deps, dataset, { signal: stop.signal, onProgress: (e) => progress.push(e) }),
-        )
-        .catch((e: unknown) => e);
-
-      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
-      expect(endsOfPhase(progress, 'personcontact')).toEqual([
-        [
-          'stopped',
-          'PersonContact: 1 restored, 0 unresolved, 1 not restored: the load was cancelled first',
-        ],
       ]);
     });
 
@@ -5320,31 +5222,6 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     ]);
   });
 
-  it('keeps what it wrote when the PersonContact pass throws', async () => {
-    const dataset = {
-      ...makeAccountContactDataset(),
-      personContactSidecar: [
-        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
-      ],
-    };
-    const writer = makeIdWriter([]);
-    writer.update = vi.fn(async () => {
-      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
-    });
-    const deps = makeDeps({ dataset, writer });
-
-    const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
-
-    expect(error).toBeInstanceOf(FrozenLoadFailedError);
-    expect((error as Error).message).toContain('created 2 record(s) (Account: 1, Contact: 1)');
-    expect(await removalPlan(deps.sasDir)).toEqual([
-      { objectApiName: 'Contact', ids: ['003000000000002'] },
-      { objectApiName: 'Account', ids: ['001000000000001'] },
-    ]);
-    // Nor is a contract written over it: the links it counts were never restored.
-    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
-  });
-
   it('keeps what the purge left of the earlier load when Production Guard refuses it part way', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
@@ -5703,38 +5580,6 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
           'error',
           'Statuses: 1 applied, 0 refused, 1 not applied: the load failed — ' +
             'REQUEST_RUNNING_TOO_LONG: Your request was running for too long',
-        ],
-      ]);
-    });
-
-    it('ends the PersonContact pass failed when its write throws, saying what it could not link, what it did not restore, and why', async () => {
-      const dataset = {
-        ...makeAccountContactDataset(),
-        personContactSidecar: [
-          { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
-          { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000009' },
-        ],
-      };
-      const progress: FrozenLoadProgressEvent[] = [];
-      const writer = makeIdWriter([]);
-      writer.update = vi.fn(async () => {
-        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
-      });
-      const deps = makeDeps({ dataset, writer });
-
-      const error = await failureOf(
-        new FrozenDatasetLoader(deps).load(
-          makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
-        ),
-      );
-
-      expect(error).toBeInstanceOf(FrozenLoadFailedError);
-      expect(linesOfPhase(progress, 'personcontact')).toEqual([
-        ['started', 'Restoring PersonContact links'],
-        [
-          'error',
-          'PersonContact: 0 restored, 1 unresolved, 1 not restored: the load failed — ' +
-            'INVALID_SESSION_ID: Session expired or invalid',
         ],
       ]);
     });

@@ -45,6 +45,28 @@ function linkedRecords(load: Pick<RecordedLoad, 'mapping' | 'created'>): Set<str
 }
 
 /**
+ * Of the records the load linked, the ones that go with an account it
+ * created: the contact the platform wrote with each person account, which it
+ * deletes with the account and refuses deleted on its own
+ * (`personContactsOfAccounts`). Never in what a removal takes, and never among
+ * the linked records it says it leaves in the org: counted with those, the
+ * confirmation would name as kept the contacts the platform deletes with the
+ * accounts. One whose account the load linked stays with it, as linked.
+ */
+function goWithTheirAccount(
+  load: Pick<RecordedLoad, 'mapping' | 'created' | 'personContacts'>,
+): Set<string> {
+  const created = new Set((load.created ?? []).flatMap((object) => object.referenceIds));
+  const going = new Set<string>();
+  for (const [contact, account] of Object.entries(load.personContacts ?? {})) {
+    if (!created.has(account)) continue;
+    const target = targetOf(load, contact);
+    if (target) going.add(recordKey(target));
+  }
+  return going;
+}
+
+/**
  * What removing a load's records takes from its target: per object, the ids
  * of the records the load created, the objects in the reverse of the order it
  * wrote them — children before their parents, as far as the load knew — and
@@ -55,7 +77,9 @@ function linkedRecords(load: Pick<RecordedLoad, 'mapping' | 'created'>): Set<str
  * earlier load created that the reload found again and kept. A record any
  * other key names — the standard price book, a selling model the target held,
  * a record a reload found by its identity keys that no load created — is
- * never the load's to remove, whichever key names it. A key the mapping no
+ * never the load's to remove, whichever key names it; nor is the contact the
+ * platform wrote with a person account, which goes with the account
+ * (`goWithTheirAccount`). A key the mapping no
  * longer holds, an id that is not a record id and an object whose name could
  * not be queried are left out: the file comes back from disk. An object named
  * twice is taken once, its records together.
@@ -124,6 +148,8 @@ export function loadToRemove(loads: readonly RecordedLoad[]): RecordedLoad | und
  */
 export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
   const recorded = load.created !== undefined;
+  const going = goWithTheirAccount(load);
+  const kept = [...linkedRecords(load)].filter((record) => !going.has(record));
   return {
     orgId: load.orgId,
     loadedAt: load.endedAt,
@@ -132,7 +158,7 @@ export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
       count: ids.length,
     })),
     // Unrecorded, every record reads as linked: nothing says which it created.
-    linked: recorded ? linkedRecords(load).size : 0,
+    linked: recorded ? kept.length : 0,
     recorded,
     ...(load.removal ? { removed: load.removal } : {}),
     ...(load.earlier ? { earlier: true as const } : {}),

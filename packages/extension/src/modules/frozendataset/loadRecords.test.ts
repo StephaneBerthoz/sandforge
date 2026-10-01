@@ -91,6 +91,27 @@ describe('loadCreatedRecords', () => {
 });
 
 describe('loadRecordsInfo', () => {
+  it("counts no person account's contact as kept when it goes with an account the load created, and one whose account it linked as linked", () => {
+    const load = recordedLoad();
+    const mapping = new Map(load.mapping);
+    // The contact the platform wrote with the account the load inserted.
+    mapping.set('Contact-000003', id('003', 3));
+    // An account a reload found by its keys, and the contact written with it.
+    mapping.set('Account-000002', id('001', 2));
+    mapping.set('Contact-000004', id('003', 4));
+    const withContacts = {
+      ...load,
+      mapping,
+      personContacts: { 'Contact-000003': 'Account-000001', 'Contact-000004': 'Account-000002' },
+    };
+
+    // The book, the account found and its contact stay; the inserted
+    // account's contact goes with it.
+    expect(loadRecordsInfo(withContacts).linked).toBe(3);
+    // And no removal names either contact.
+    expect(loadCreatedRecords(withContacts)).toEqual(loadCreatedRecords(load));
+  });
+
   it('counts per object what a removal takes, and the linked records it leaves', () => {
     expect(loadRecordsInfo(recordedLoad())).toEqual({
       orgId: 'org-dev',

@@ -4,8 +4,9 @@
  *
  *   - **counts**: per-object org counts vs the contract (files minus
  *     exclusions);
- *   - **link integrity**: orphans of the graph's MANDATORY lookups, and
- *     PersonContact pointers restored (sidecar + persisted mapping);
+ *   - **link integrity**: orphans of the graph's MANDATORY lookups, and each
+ *     person account holding the contact the load linked (sidecar +
+ *     persisted mapping);
  *   - **presence by key** (ExternalId) for the referential shared with
  *     the org;
  *   - **robustness**: after a heavy DML storm the org can read
@@ -232,7 +233,17 @@ export class PostLoadVerifier {
     return orphans;
   }
 
-  /** PersonContact pointers restored on Accounts (sidecar + mapping). */
+  /**
+   * Each person account's link to its contact (sidecar + mapping), for the
+   * accounts the load has in the target: the account names, as its
+   * `PersonContactId`, the contact the mapping holds for the dataset's — the
+   * one the platform wrote with it, which the load linked. One whose contact
+   * the load could not link is unrestored too: the target holds it as a
+   * business account, and what pointed at its contact went without. Counted
+   * only when both ends are mapped, such an account would pass unseen, the
+   * check reading every link in place beside a load that said it could not
+   * make them.
+   */
   private async measurePersonContacts(
     options: PostLoadVerifyOptions,
   ): Promise<VerificationSnapshot['personContact']> {
@@ -240,11 +251,7 @@ export class PostLoadVerifier {
     if (sidecar.length === 0 || !options.mapping) {
       return { checked: 0, unrestored: [] };
     }
-    const resolvable = sidecar.filter(
-      (link) =>
-        options.mapping?.has(link.accountReferenceId) &&
-        options.mapping?.has(link.contactReferenceId),
-    );
+    const resolvable = sidecar.filter((link) => options.mapping?.has(link.accountReferenceId));
     if (resolvable.length === 0) {
       return { checked: 0, unrestored: [] };
     }
@@ -267,8 +274,11 @@ export class PostLoadVerifier {
     const unrestored: string[] = [];
     for (const link of resolvable) {
       const accountId = options.mapping.get(link.accountReferenceId) as string;
-      const expectedContactId = options.mapping.get(link.contactReferenceId) as string;
-      if (personContactByAccount.get(accountId) !== expectedContactId) {
+      const expectedContactId = options.mapping.get(link.contactReferenceId);
+      if (
+        expectedContactId === undefined ||
+        personContactByAccount.get(accountId) !== expectedContactId
+      ) {
         unrestored.push(link.accountReferenceId);
       }
     }
@@ -354,8 +364,8 @@ export class PostLoadVerifier {
         passed: snapshot.personContact.unrestored.length === 0,
         detail:
           snapshot.personContact.unrestored.length === 0
-            ? `All ${snapshot.personContact.checked} PersonContact pointer(s) restored`
-            : `Unrestored PersonContact pointers — accounts: ${snapshot.personContact.unrestored.join(', ')}`,
+            ? `All ${snapshot.personContact.checked} person account(s) hold the contact the load linked`
+            : `Person accounts without the contact the load linked — accounts: ${snapshot.personContact.unrestored.join(', ')}`,
       });
     }
 

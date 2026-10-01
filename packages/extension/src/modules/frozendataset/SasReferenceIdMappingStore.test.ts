@@ -376,6 +376,106 @@ describe('SasReferenceIdMappingStore', () => {
     });
   });
 
+  describe("the person accounts' contacts a load linked", () => {
+    const PERSON = '001XX00000PeRsNAAA';
+    const PERSON_CONTACT = '003XX00000PeRsNAAA';
+    const FOUND = '001XX00000FoUnDAAA';
+    const CONTACT_OF_FOUND = '003XX00000FoUnDAAA';
+    const OTHER = '001XX00000OtHeRAAA';
+    const ENDED = '2026-09-24T10:02:00.000Z';
+
+    function storeAt(dir: string, now = ENDED) {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date(now),
+      });
+    }
+
+    /**
+     * A load that created a person account and linked the contact the
+     * platform wrote with it, and linked an account a reload found, with its
+     * contact.
+     */
+    async function loaded(dir: string): Promise<void> {
+      await storeAt(dir).persist(
+        new Map([
+          ['Account-000001', PERSON],
+          ['Contact-000001', PERSON_CONTACT],
+          ['Account-000002', FOUND],
+          ['Contact-000002', CONTACT_OF_FOUND],
+        ]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: new Date('2026-09-24T10:00:00.000Z'),
+          personContacts: {
+            'Contact-000001': 'Account-000001',
+            'Contact-000002': 'Account-000002',
+            'Contact-000404': 'Account-000001',
+          },
+        },
+      );
+    }
+
+    it('keeps each with the key of its account, of the contacts the mapping names', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+
+      expect((await storeAt(dir).recorded())?.personContacts).toEqual({
+        'Contact-000001': 'Account-000001',
+        'Contact-000002': 'Account-000002',
+      });
+    });
+
+    it('forgets a contact with its account once a removal took the account: the platform deleted it with the account', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+
+      await storeAt(dir, '2026-09-24T11:00:00.000Z').recordRemoval(ENDED, {
+        gone: [PERSON],
+        stamps: {},
+      });
+
+      const recorded = await storeAt(dir).recorded();
+      expect(recorded?.mapping).toEqual(
+        new Map([
+          ['Account-000002', FOUND],
+          ['Contact-000002', CONTACT_OF_FOUND],
+        ]),
+      );
+      expect(recorded?.personContacts).toEqual({ 'Contact-000002': 'Account-000002' });
+    });
+
+    it('forgets the contact of an account a reload purged, with the account, of the load it keeps', async () => {
+      const dir = makeTmpDir();
+      await storeAt(dir).persist(
+        new Map([
+          ['Account-000001', PERSON],
+          ['Contact-000001', PERSON_CONTACT],
+          ['Account-000003', OTHER],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000001', 'Account-000003'] },
+          ],
+          startedAt: new Date('2026-09-24T10:00:00.000Z'),
+          personContacts: { 'Contact-000001': 'Account-000001' },
+        },
+      );
+
+      // A reload purged the person account, and nothing else of that load.
+      await storeAt(dir, '2026-09-24T11:05:00.000Z').persist(new Map(), {
+        created: [],
+        startedAt: new Date('2026-09-24T11:00:00.000Z'),
+        earlier: { settled: [PERSON] },
+      });
+
+      const [, earlier] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(earlier.mapping).toEqual(new Map([['Account-000003', OTHER]]));
+      expect(earlier.personContacts).toBeUndefined();
+    });
+  });
+
   describe('the loads before the last one', () => {
     const FIRST_ACCOUNT = '001XX00000FirStAAA';
     const FIRST_CONTACT = '003XX00000FirStAAA';

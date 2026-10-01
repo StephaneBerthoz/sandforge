@@ -6,11 +6,12 @@
  * ONLY reliable address of a loaded record is the real ID captured in the
  * DML outcome. This store persists that mapping
  * as JSON inside the sas (outside the repo, enforced by SasPathGuard) so
- * reloads, PersonContact post-loads and the PostLoadVerifier can resolve
- * referenceIds to real IDs.
+ * reloads and the PostLoadVerifier can resolve referenceIds to real IDs.
  *
  * It also keeps what the removal of a load needs and nothing else holds: which
- * of the mapped records the load created rather than linked, when it ran —
+ * of the mapped records the load created rather than linked — and which of
+ * those it linked go with an account it created, as a person account's
+ * contact goes with its account — when it ran —
  * by this machine's clock, and by the target's — and what earlier removals of
  * it did; and the same of the loads before it that no reload purged, whose
  * records are still in the org. Record ids stay in the sas with the rest.
@@ -71,6 +72,14 @@ interface LoadPayload {
   removalStamps?: Record<string, string>;
   /** When earlier removals of the load that wrote to the org ran, and as which user. */
   removalSpans?: ForgeRemovalSpan[];
+  /**
+   * The person accounts' contacts the load linked to the one the platform
+   * wrote with each account, by their key, each with the key of its account:
+   * the platform deletes each with its account, and no removal sends its
+   * delete. Absent when the load linked none, and from files written before
+   * it was recorded.
+   */
+  personContacts?: Record<string, string>;
 }
 
 /** On-disk shape of the persisted mapping: the last load, and the ones it kept. */
@@ -117,6 +126,7 @@ const removalStampsSchema = z.record(z.string(), z.string());
 const removalSpansSchema = z.array(
   z.object({ first: z.string(), last: z.string(), userId: z.string() }),
 );
+const personContactsSchema = z.record(z.string(), z.string());
 
 /** The value a schema reads in `value`, or undefined when it reads none. */
 function readAs<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
@@ -145,6 +155,7 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
   const removal = readAs(removalMarkSchema, raw.removal);
   const removalStamps = readAs(removalStampsSchema, raw.removalStamps);
   const removalSpans = readAs(removalSpansSchema, raw.removalSpans);
+  const personContacts = readAs(personContactsSchema, raw.personContacts);
   return {
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
     mapping,
@@ -154,6 +165,7 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
     ...(removal ? { removal } : {}),
     ...(removalStamps ? { removalStamps } : {}),
     ...(removalSpans ? { removalSpans } : {}),
+    ...(personContacts ? { personContacts } : {}),
   };
 }
 
@@ -209,6 +221,12 @@ export interface RecordedLoad {
   removalStamps: Record<string, string>;
   /** When earlier removals of the load that wrote to the org ran, and as which user. */
   removalSpans: ForgeRemovalSpan[];
+  /**
+   * The person accounts' contacts the load linked, by their key, each with
+   * the key of its account: they go with their account. Undefined when the
+   * load linked none, or the file does not say.
+   */
+  personContacts?: Readonly<Record<string, string>>;
   /** Set for a load before the last one, which the last load kept. */
   earlier?: true;
 }
@@ -258,13 +276,23 @@ function recordKey(id: string): string {
 /**
  * A load without the records `keys` names: forgotten by its mapping, by what
  * it created and by what removals left on them. What a removal took, what a
- * reload purged or took over as its own, is no longer this load's.
+ * reload purged or took over as its own, is no longer this load's — nor is
+ * the contact of a person account among them, which the platform deleted, or
+ * now holds, with its account: no removal or purge names it, and kept, it
+ * read as a record the load linked and a removal leaves in the org.
  */
 function withoutRecords(load: LoadPayload, keys: ReadonlySet<string>): LoadPayload {
   if (keys.size === 0) return load;
   const mapping = Object.fromEntries(
     Object.entries(load.mapping).filter(([, id]) => !keys.has(recordKey(id))),
   );
+  const personContacts: Record<string, string> = {};
+  for (const [contact, account] of Object.entries(load.personContacts ?? {})) {
+    if (!Object.prototype.hasOwnProperty.call(mapping, account)) delete mapping[contact];
+    else if (Object.prototype.hasOwnProperty.call(mapping, contact)) {
+      personContacts[contact] = account;
+    }
+  }
   const created = load.created
     ?.map(({ objectApiName, referenceIds }) => ({
       objectApiName,
@@ -280,10 +308,12 @@ function withoutRecords(load: LoadPayload, keys: ReadonlySet<string>): LoadPaylo
   // from the file as it was, would outlive the record.
   const next: LoadPayload = { ...load, mapping };
   delete next.removalStamps;
+  delete next.personContacts;
   return {
     ...next,
     ...(created ? { created } : {}),
     ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
+    ...(Object.keys(personContacts).length > 0 ? { personContacts } : {}),
   };
 }
 
@@ -402,6 +432,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       ...(load.removal ? { removal: load.removal } : {}),
       removalStamps: load.removalStamps ?? {},
       removalSpans: load.removalSpans ?? [],
+      ...(load.personContacts ? { personContacts: load.personContacts } : {}),
     };
   }
 
@@ -485,6 +516,11 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     const kept = load?.earlier ? await this.keptLoads(load.earlier.settled) : [];
     const organizationId = await this.currentOrganizationId();
     const endedAt = this.now().toISOString();
+    const personContacts = Object.fromEntries(
+      Object.entries(load?.personContacts ?? {}).filter(
+        ([contact, account]) => mapping.has(contact) && mapping.has(account),
+      ),
+    );
     await this.write({
       version: 1,
       orgId: this.orgId,
@@ -501,6 +537,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
               .filter((object) => object.referenceIds.length > 0),
             load: { startedAt: load.startedAt.toISOString(), endedAt },
             ...(load.writtenBetween ? { writtenBetween: { ...load.writtenBetween } } : {}),
+            ...(Object.keys(personContacts).length > 0 ? { personContacts } : {}),
           }
         : {}),
       ...(kept.length > 0 ? { earlier: kept } : {}),

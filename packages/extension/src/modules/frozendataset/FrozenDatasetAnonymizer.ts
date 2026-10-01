@@ -17,8 +17,9 @@
  *      RecordType IDs of other pods and IDs pasted into free-text fields).
  *
  * The PersonContact sidecar is emitted here: Account →
- * PersonContact `referenceId → referenceId` pairs, resolved as targeted
- * updates by the load phase after insert.
+ * PersonContact `referenceId → referenceId` pairs. The load never sends the
+ * contacts it names: it maps each onto the contact the platform writes with
+ * its account.
  */
 
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';

@@ -210,7 +210,7 @@ describe('PostLoadVerifier — link integrity', () => {
     expect(verdict.checks.find((c) => c.name === 'orphans')?.passed).toBe(true);
   });
 
-  it('verifies PersonContact pointers restored via sidecar + mapping', async () => {
+  it('passes each person account that holds the contact the load linked, as sidecar and mapping name them', async () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
     const dataset: FrozenDataset = {
@@ -237,12 +237,12 @@ describe('PostLoadVerifier — link integrity', () => {
     const verdict = await new PostLoadVerifier(deps).verify(options);
 
     expect(verdict.status).toBe('passed');
-    expect(verdict.checks.find((c) => c.name === 'personcontact')?.detail).toContain(
-      '1 PersonContact',
+    expect(verdict.checks.find((c) => c.name === 'personcontact')?.detail).toBe(
+      'All 1 person account(s) hold the contact the load linked',
     );
   });
 
-  it('fails when a PersonContact pointer is not restored', async () => {
+  it('fails a person account that does not hold the contact the mapping names', async () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
     const dataset: FrozenDataset = {
@@ -272,6 +272,51 @@ describe('PostLoadVerifier — link integrity', () => {
     const check = verdict.checks.find((c) => c.name === 'personcontact');
     expect(check?.passed).toBe(false);
     expect(check?.detail).toContain('Account-000001');
+  });
+
+  it('fails a person account whose contact the load could not link, the target holding it as a business account', async () => {
+    // Only the accounts the load has in the target are checked. Checked only
+    // when both ends were mapped, such an account went unchecked: the load
+    // maps no contact it could not link.
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [],
+      recordTypes: {},
+      personContactSidecar: [
+        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+        { accountReferenceId: 'Account-000002', contactReferenceId: 'Contact-000002' },
+        { accountReferenceId: 'Account-000003', contactReferenceId: 'Contact-000003' },
+      ],
+    };
+    // The third account was not loaded: its link is none of the target's.
+    const mapping = new Map([
+      ['Account-000001', '001REAL-ACC'],
+      ['Contact-000001', '003REAL-CON'],
+      ['Account-000002', '001REAL-BIZ'],
+    ]);
+    const query = makeQuery([
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
+      {
+        match: 'PersonContactId FROM Account',
+        responses: [
+          [
+            { Id: '001REAL-ACC', PersonContactId: '003REAL-CON' },
+            { Id: '001REAL-BIZ', PersonContactId: null },
+          ],
+        ],
+      },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query, { dataset, mapping });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.checks.find((c) => c.name === 'personcontact')).toEqual({
+      name: 'personcontact',
+      passed: false,
+      detail: 'Person accounts without the contact the load linked — accounts: Account-000002',
+    });
   });
 });
 

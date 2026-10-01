@@ -446,7 +446,7 @@ describe('messageLines', () => {
     expect(purgeLines({ deleted: {}, deactivated: {}, failures: [] })).toEqual([]);
   });
 
-  it('says how many person accounts a load gave their contact back, and why the others kept none', () => {
+  it("says how many person accounts' contacts a load linked to the platform's, and why it linked none of the others", () => {
     // The Load tab says both; the command said neither.
     const personContactLines = (personContact: Record<string, unknown>): string[] =>
       messageLines({
@@ -472,24 +472,24 @@ describe('messageLines', () => {
           {
             accountReferenceId: 'Account-000003',
             contactReferenceId: 'Contact-000003',
-            cause: 'target-not-loaded',
-            detail: 'contact Contact-000003 was not loaded (skipped, failed or excluded)',
+            cause: 'record-not-loaded',
+            detail: 'person account was not loaded (see perObject failures/skips)',
           },
           {
             accountReferenceId: 'Account-000004',
             contactReferenceId: 'Contact-000004',
-            cause: 'update-refused',
+            cause: 'not-a-person-account',
             detail:
-              'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+              "the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
           },
         ],
       }),
     ).toEqual([
-      'PersonContact: 2 restored, 2 unresolved',
-      '  Account.PersonContactId: contact Contact-000003 was not loaded (skipped, failed or excluded)',
-      '  Account.PersonContactId: INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+      'person contacts: 2 linked, 2 not linked',
+      '  Contact-000003: person account was not loaded (see perObject failures/skips)',
+      "  Contact-000004: the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
     ]);
-    // A dataset with no person account has no link to give back.
+    // A dataset with no person account has no contact to link.
     expect(personContactLines({ restored: 0, unresolved: [] })).toEqual([]);
   });
 

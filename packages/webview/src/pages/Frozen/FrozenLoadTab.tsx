@@ -186,16 +186,21 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // load whose only errors were there read "Completed with errors" over a
   // report that named none.
   const unresolved = loadReport ? unresolvedLinks(loadReport) : [];
+  // The load's own words for a cause, the target's for a refused update.
+  const whyUnresolved = (link: (typeof unresolved)[number]): string => {
+    if (link.cause === 'target-not-loaded') return t('frozen.report.unresolved.targetNotLoaded');
+    if (link.cause === 'not-a-person-account') {
+      return t('frozen.report.unresolved.notAPersonAccount');
+    }
+    return link.message;
+  };
   const leftEmptyRows = unresolved
     .filter((link) => link.cause !== 'record-not-loaded')
     .map((link) => ({
       key: `${link.objectApiName}\u0000${link.field}\u0000${link.cause}\u0000${link.message}`,
       object: link.objectApiName,
       field: link.field,
-      why:
-        link.cause === 'target-not-loaded'
-          ? t('frozen.report.unresolved.targetNotLoaded')
-          : link.message,
+      why: whyUnresolved(link),
       count: link.count,
     }));
   const lostWithTheirRecord = unresolved.filter((link) => link.cause === 'record-not-loaded');

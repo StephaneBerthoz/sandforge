@@ -609,6 +609,15 @@ export function personAccountWriteEdges(
  * account's id, read from the target once they are in: written by the run, or
  * found there and linked. An account that is no person account has none, and
  * is not listed.
+ *
+ * That contact is the account's for as long as the account is there. A copy
+ * can create none and delete none on its own; the platform deletes it with its
+ * account, and it "is the only contact record that can be associated directly
+ * with the person account" (SOAP API Developer Guide, "Person Account Record
+ * Types": "You can modify a person contact but you can't create or delete a
+ * person contact … Instead, delete or modify the account"). A removal of a
+ * copy's records, or a reload's purge, never sends its delete: it goes when
+ * its account does.
  */
 export async function personContactsOfAccounts(
   query: SoqlQuery,

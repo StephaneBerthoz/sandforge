@@ -126,7 +126,9 @@ describe('unresolvedLinks', () => {
     ]);
   });
 
-  it("lists a person account's link to its contact as the account's PersonContactId", () => {
+  it("lists a person account's link to its contact as the account's PersonContactId, one row per cause", () => {
+    const businessAccount =
+      'the target holds the account as a business account, with no contact of its own';
     const links = unresolvedLinks(
       reportOf(
         [],
@@ -134,33 +136,40 @@ describe('unresolvedLinks', () => {
           {
             accountReferenceId: 'Account-000001',
             contactReferenceId: 'Contact-000001',
-            cause: 'target-not-loaded',
-            detail: 'contact Contact-000001 was not loaded (skipped, failed or excluded)',
+            cause: 'record-not-loaded',
+            detail: 'person account was not loaded (see perObject failures/skips)',
           },
           {
             accountReferenceId: 'Account-000002',
             contactReferenceId: 'Contact-000002',
-            cause: 'update-refused',
-            detail:
-              'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+            cause: 'not-a-person-account',
+            detail: `${businessAccount}: its record type there is no person account's`,
+          },
+          {
+            accountReferenceId: 'Account-000003',
+            contactReferenceId: 'Contact-000003',
+            cause: 'not-a-person-account',
+            detail: `${businessAccount}: RecordType Gone not found in target org — RecordTypeId dropped`,
           },
         ],
       ),
     );
 
+    // The load's words for a link it could not make name the record, and
+    // would part the rows: one per cause.
     expect(links).toEqual([
       {
         objectApiName: 'Account',
         field: 'PersonContactId',
-        cause: 'target-not-loaded',
+        cause: 'not-a-person-account',
         message: '',
-        count: 1,
+        count: 2,
       },
       {
         objectApiName: 'Account',
         field: 'PersonContactId',
-        cause: 'update-refused',
-        message: 'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+        cause: 'record-not-loaded',
+        message: '',
         count: 1,
       },
     ]);

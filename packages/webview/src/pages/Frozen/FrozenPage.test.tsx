@@ -747,9 +747,9 @@ describe('FrozenPage', () => {
             {
               accountReferenceId: 'Account-000002',
               contactReferenceId: 'Contact-000002',
-              cause: 'update-refused',
+              cause: 'not-a-person-account',
               detail:
-                'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+                "the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
             },
           ],
         },
@@ -762,7 +762,7 @@ describe('FrozenPage', () => {
 
     // Counted where the resolved ones are, lookup by lookup as they are.
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
-      'Pass 2: 5 cycle links resolved, 5 unresolved — PersonContact: 1 restored, 1 unresolved',
+      'Pass 2: 5 cycle links resolved, 5 unresolved — Person contacts: 1 linked, 1 not linked',
     );
     const unresolved = screen.getByTestId('frozen-report-unresolved');
     expect(unresolved.textContent).toContain('Links the load left unresolved');
@@ -774,10 +774,11 @@ describe('FrozenPage', () => {
       ),
     ).toEqual([
       ['Account', 'ParentId', 'FIELD_INTEGRITY_EXCEPTION: The parent account is merged', '1'],
+      // The platform's link, not the load's: said in the load's words.
       [
         'Account',
         'PersonContactId',
-        'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: PersonContactId',
+        'The target holds the account as a business account, with no contact of its own',
         '1',
       ],
       [
@@ -819,7 +820,7 @@ describe('FrozenPage', () => {
     render(<FrozenPage />);
 
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
-      'Pass 2: 2 cycle links resolved, 0 unresolved — PersonContact: 1 restored, 0 unresolved',
+      'Pass 2: 2 cycle links resolved, 0 unresolved — Person contacts: 1 linked, 0 not linked',
     );
     expect(screen.queryByTestId('frozen-report-unresolved')).toBeNull();
   });

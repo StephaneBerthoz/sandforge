@@ -402,7 +402,10 @@ export function messageLines(message: Posted): string[] {
           resolved: number;
           unresolved: Array<{ objectApiName: string; field: string; detail: string }>;
         };
-        personContact?: { restored: number; unresolved: Array<{ detail: string }> };
+        personContact?: {
+          restored: number;
+          unresolved: Array<{ contactReferenceId: string; detail: string }>;
+        };
         statuses?: {
           restored: number;
           refused: Array<{ objectApiName: string; status: string; detail: string }>;
@@ -444,17 +447,18 @@ export function messageLines(message: Posted): string[] {
       for (const u of r.pass2.unresolved.slice(0, 5)) {
         lines.push(`  ${u.objectApiName}.${u.field}: ${u.detail}`);
       }
-      // A person account's link to its contact, set once both are in: the
-      // Load tab says how many went back and why the others did not, and the
-      // command said neither. A dataset with no person account has none.
+      // A person account's contact, which the load never sends: linked to
+      // the one the platform wrote with its account, or not, and why. The
+      // Load tab says both, and the command said neither. A dataset with no
+      // person account has none.
       const personContact = r.personContact;
       if (personContact && personContact.restored + personContact.unresolved.length > 0) {
         lines.push(
-          `PersonContact: ${personContact.restored} restored, ` +
-            `${personContact.unresolved.length} unresolved`,
+          `person contacts: ${personContact.restored} linked, ` +
+            `${personContact.unresolved.length} not linked`,
         );
         for (const u of personContact.unresolved.slice(0, 5)) {
-          lines.push(`  Account.PersonContactId: ${u.detail}`);
+          lines.push(`  ${u.contactReferenceId}: ${u.detail}`);
         }
       }
       if (r.statuses && r.statuses.restored + r.statuses.refused.length > 0) {

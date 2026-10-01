@@ -121,10 +121,12 @@ export interface FrozenRecordTypeRef {
 }
 
 /**
- * Sidecar link between a person Account and its PersonContact:
- * `Account.PersonContactId` only exists after insert, so the
- * anonymization phase emits referenceId→referenceId pairs here and the
- * load phase resolves and posts them as targeted updates.
+ * Sidecar link between a person Account and its PersonContact, as
+ * referenceId→referenceId pairs emitted by the anonymization phase. The
+ * platform writes a person account's contact itself as it takes the account,
+ * and `Account.PersonContactId` is set by no insert and no update: the load
+ * never sends the contact, and maps it onto the one the platform wrote with
+ * its account (see `FrozenDatasetLoader.linkPersonContacts`).
  */
 export interface PersonContactLink {
   accountReferenceId: string;
@@ -220,6 +222,13 @@ export interface PersistedLoad {
    * created, judged by the purge. Absent, the mapping holds this load alone.
    */
   earlier?: { settled: readonly string[] };
+  /**
+   * The person accounts' contacts the load linked to the one the platform
+   * wrote with each account, by their key, each with the key of its account.
+   * Linked, not created, and never deleted on their own: the platform deletes
+   * each with its account. Absent when the load linked none.
+   */
+  personContacts?: Readonly<Record<string, string>>;
 }
 
 /**

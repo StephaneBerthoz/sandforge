@@ -14,10 +14,11 @@ export interface FrozenUnresolvedLinks {
 
 /**
  * The links a load left unresolved — the cycle lookups pass 2 owed, and each
- * person account's link to its contact — per object, lookup and cause, with
- * how many: object by object, then lookup by lookup, the most frequent cause
- * first. A lookup counts once per record, as pass 2 counts the ones it
- * resolved: a refused update of two lookups of one record leaves both.
+ * person account's link to the contact the platform writes with it — per
+ * object, lookup and cause, with how many: object by object, then lookup by
+ * lookup, the most frequent cause first. A lookup counts once per record, as
+ * pass 2 counts the ones it resolved: a refused update of two lookups of one
+ * record leaves both.
  */
 export function unresolvedLinks(
   report: Pick<FrozenLoadReportInfo, 'pass2' | 'personContact'>,

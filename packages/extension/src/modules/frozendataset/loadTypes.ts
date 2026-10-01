@@ -385,7 +385,12 @@ export interface FrozenLoadReport {
       detail: string;
     }>;
   };
-  /** PersonContact post-load: sidecar links restored as targeted updates. */
+  /**
+   * Each person account's contact, never sent: `restored` counts the ones
+   * linked to the contact the platform wrote with their account, `unresolved`
+   * says why each other one was not — its account not loaded, or held by the
+   * target as a business account (`not-a-person-account`).
+   */
   personContact: {
     restored: number;
     unresolved: Array<PersonContactLink & { cause: FrozenUnresolvedLinkCause; detail: string }>;
