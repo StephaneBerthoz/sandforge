@@ -5,6 +5,25 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.1] - 2026-10-01
+
+Forge handles what a real clone met: picklist values per record type, a
+validation rule on one field, and person accounts.
+
+### Fixed
+
+- **A restricted picklist value is checked against the record type the row
+  gets in the target**, and its controlling value: a refused value is replaced
+  by the record type's default or left out, and the results say which.
+- **A row a validation rule refuses on a field it names is written again
+  without that field**, and the results say which field and why; every
+  refusal now names its fields.
+- **A person account's contact is never written on its own**: the run links
+  the one the platform created with the account, and a reference no write can
+  set no longer orders the run.
+- **The output channel names the orgs a Forge run goes between** and, per
+  object that lost rows, the status codes the target answered with.
+
 ## [1.40.0] - 2026-09-30
 
 Forge can show its graph as a table and clone directly, and every line it

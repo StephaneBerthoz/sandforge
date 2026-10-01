@@ -1960,6 +1960,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1401": "O Forge escreve mais de um clone real",
+      "fixRound1401Desc": "Um valor de lista de opções é verificado conforme o tipo de registro que a linha recebe no destino, uma linha que uma regra de validação recusa por um campo é escrita de novo sem ele, e o contato de uma conta pessoal é vinculado em vez de escrito duas vezes. Os resultados dizem o que mudou e por quê.",
       "forgeTableDirect1400": "Forge em tabela e o clone direto",
       "forgeTableDirect1400Desc": "O Forge mostra seu grafo como tabela a partir de 25 objetos, conforme a configuração sandforge.forge.graphView ou o seletor de cada tela, e Clonar diretamente vai do início à execução sem parar na descoberta e na revisão. Suas linhas dizem quantos registros cada objeto perdeu.",
       "fixRound13912": "A revisão de metadados nomeia o que falta no destino",

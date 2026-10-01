@@ -1960,6 +1960,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1401": "Forge writes more of a real clone",
+      "fixRound1401Desc": "A picklist value is checked against the record type the row gets in the target, a row a validation rule refuses on one field is written again without it, and a person account's contact is linked rather than written twice. The results say what was changed and why.",
       "forgeTableDirect1400": "Forge as a table, and a direct clone",
       "forgeTableDirect1400Desc": "Forge shows its graph as a table past 25 objects, set in sandforge.forge.graphView or switched on each screen, and Clone directly goes from the start to the run without stopping on discovery and review. Its lines say how many rows each object lost.",
       "fixRound13912": "The metadata review names what the target lacks",
