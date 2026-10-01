@@ -158,7 +158,7 @@ const saveErrorSchema = z
     fields: z.array(z.unknown()).optional(),
     duplicateResult: z.unknown().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** The code a save error carries when Salesforce gave none. */
 export const NO_STATUS_CODE = 'UNKNOWN_ERROR';
@@ -194,23 +194,20 @@ const duplicateResultSchema = z
                     record: z
                       .object({
                         Id: z.string().optional(),
-                        attributes: z
-                          .object({ type: z.string().optional() })
-                          .passthrough()
-                          .optional(),
+                        attributes: z.object({ type: z.string().optional() }).loose().optional(),
                       })
-                      .passthrough()
+                      .loose()
                       .optional(),
                   })
-                  .passthrough(),
+                  .loose(),
               )
               .optional(),
           })
-          .passthrough(),
+          .loose(),
       )
       .optional(),
   })
-  .passthrough();
+  .loose();
 
 /** One record's save result, as jsforce hands back `create` and `upsert`. */
 const saveResultSchema = z
@@ -220,7 +217,7 @@ const saveResultSchema = z
     created: z.boolean().optional(),
     errors: z.array(z.unknown()).optional(),
   })
-  .passthrough();
+  .loose();
 
 /** `STATUS_CODE: message`, or the message alone when Salesforce gave no code. */
 export function codeAndMessage(detail: Pick<SaveErrorDetail, 'statusCode' | 'message'>): string {

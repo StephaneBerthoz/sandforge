@@ -28,12 +28,12 @@ export interface FileTransport {
 
 /** What `/limits` says of an org's file storage. */
 const fileStorageSchema = z
-  .object({ FileStorageMB: z.object({ Remaining: z.number() }).passthrough() })
-  .passthrough();
+  .object({ FileStorageMB: z.object({ Remaining: z.number() }).loose() })
+  .loose();
 
 /** The error body Salesforce answers a failed request with. */
 const errorBodySchema = z.array(
-  z.object({ errorCode: z.string().optional(), message: z.string().optional() }).passthrough(),
+  z.object({ errorCode: z.string().optional(), message: z.string().optional() }).loose(),
 );
 
 /**

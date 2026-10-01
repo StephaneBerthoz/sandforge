@@ -100,11 +100,9 @@ const saveResultSchema = z
   .object({
     success: z.boolean(),
     id: z.string().nullish(),
-    errors: z
-      .array(z.union([z.object({ message: z.string() }).passthrough(), z.string()]))
-      .optional(),
+    errors: z.array(z.union([z.object({ message: z.string() }).loose(), z.string()])).optional(),
   })
-  .passthrough();
+  .loose();
 
 /** One object of `describeGlobal`, as far as it is read here. */
 const globalObjectSchema = z
@@ -115,9 +113,9 @@ const globalObjectSchema = z
     createable: z.boolean().optional(),
     layoutable: z.boolean().optional(),
   })
-  .passthrough();
+  .loose();
 
-const describeGlobalSchema = z.object({ sobjects: z.array(globalObjectSchema) }).passthrough();
+const describeGlobalSchema = z.object({ sobjects: z.array(globalObjectSchema) }).loose();
 
 /**
  * The org's objects a person works with, by name, with their labels:

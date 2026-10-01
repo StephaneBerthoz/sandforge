@@ -223,7 +223,7 @@ const cliJsonSchema = z
     result: z.unknown().optional(),
     message: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /** The fields of a login result SandForge reads; the (redacted) token is not one of them. */
 const cliLoginResultSchema = z
@@ -232,7 +232,7 @@ const cliLoginResultSchema = z
     orgId: z.string().min(1),
     instanceUrl: z.string().min(1),
   })
-  .passthrough();
+  .loose();
 
 /**
  * The org a `sf org login … --json` run authorized, or its failure as the CLI

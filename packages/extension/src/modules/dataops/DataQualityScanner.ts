@@ -81,7 +81,7 @@ const describedFieldSchema = z
     calculated: z.boolean().optional(),
     referenceTo: z.array(z.string()).optional(),
   })
-  .passthrough();
+  .loose();
 
 /** An object's describe, as far as a scan reads it. */
 export const describedObjectSchema = z
@@ -101,11 +101,11 @@ export const describedObjectSchema = z
             cascadeDelete: z.boolean().optional(),
             restrictedDelete: z.boolean().optional(),
           })
-          .passthrough(),
+          .loose(),
       )
       .optional(),
   })
-  .passthrough();
+  .loose();
 
 /** A described object, checked. */
 export type DescribedObject = z.infer<typeof describedObjectSchema>;
@@ -122,7 +122,7 @@ const duplicateRowSchema = z
     k: z.union([z.string(), z.number(), z.boolean()]).nullable(),
     n: z.number().int().nonnegative(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Whether a person or an integration fills this field in. A field nobody can

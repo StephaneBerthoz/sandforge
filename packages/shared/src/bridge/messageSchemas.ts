@@ -12,7 +12,7 @@ import { z } from 'zod';
  *     discriminant value — including at the root).
  *   - Clear domain ownership when new messages are added.
  *   - Small schemas per member — each member validates only the fields it owns,
- *     with `.passthrough()` tolerated on nested objects whose exact shape isn't
+ *     with `.loose()` tolerated on nested objects whose exact shape isn't
  *     strictly guarded yet (i.e. the goal is envelope + type coverage, not full
  *     payload validation which will be tightened incrementally).
  *
@@ -41,9 +41,7 @@ const baseShape = {
  * passthrough. Keeps per-member declarations concise and consistent.
  */
 function msg<T extends string>(type: T) {
-  return z
-    .object({ ...baseShape, type: z.literal(type), payload: z.unknown().optional() })
-    .passthrough();
+  return z.object({ ...baseShape, type: z.literal(type), payload: z.unknown().optional() }).loose();
 }
 
 // ─── Domain: Org ─────────────────────────────────────────────────────────────

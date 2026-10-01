@@ -31,7 +31,7 @@ const lookupFieldSchema = z
     createable: z.boolean().optional(),
     updateable: z.boolean().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * The lookups among a describe's fields. A field that points at nothing, or

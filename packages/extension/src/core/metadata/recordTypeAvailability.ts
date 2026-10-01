@@ -70,7 +70,7 @@ const recordTypeInfoSchema = z
     master: z.boolean().optional(),
     defaultRecordTypeMapping: z.boolean().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * The record types of a describe, reduced to what the checks read. An entry
@@ -188,7 +188,7 @@ export function recordTypeCountSoql(objectApiName: string): string {
 /** One row of {@link recordTypeCountSoql}: external input, checked before it is read. */
 const recordTypeCountRowSchema = z
   .object({ RecordTypeId: z.string().nullable(), n: z.number().int().nonnegative() })
-  .passthrough();
+  .loose();
 
 /**
  * Records per `RecordTypeId` from the rows of {@link recordTypeCountSoql}.

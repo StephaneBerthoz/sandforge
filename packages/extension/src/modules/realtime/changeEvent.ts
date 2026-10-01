@@ -64,15 +64,15 @@ const changeEventHeaderSchema = z
     changedFields: z.array(z.string()).optional(),
     nulledFields: z.array(z.string()).optional(),
   })
-  .passthrough();
+  .loose();
 
 /** A change event message as it comes off the wire. */
 const changeEventMessageSchema = z
   .object({
-    event: z.object({ replayId: z.number() }).passthrough(),
-    payload: z.object({ ChangeEventHeader: changeEventHeaderSchema }).passthrough(),
+    event: z.object({ replayId: z.number() }).loose(),
+    payload: z.object({ ChangeEventHeader: changeEventHeaderSchema }).loose(),
   })
-  .passthrough();
+  .loose();
 
 /** Suffix of the event entity of every object that publishes change events. */
 const CHANGE_EVENT_SUFFIX = 'ChangeEvent';
