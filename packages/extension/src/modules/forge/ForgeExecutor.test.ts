@@ -65,6 +65,32 @@ function makeGraph(nodes: ForgeGraphNode[], edges: ForgeGraphEdge[] = []): Forge
   };
 }
 
+/**
+ * The note a run ends with for rows of `objectApiName` written with `field`
+ * empty, the record it points at — of `parent` — not in the clone.
+ */
+function leftEmptyOutsideTheClone(
+  objectApiName: string,
+  field: string,
+  parent: string,
+  rows: number,
+) {
+  return {
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: [
+      {
+        recordSummary: `${field} → ${parent} (${rows} record${rows === 1 ? '' : 's'})`,
+        messages: [
+          `Written with the lookup empty: the ${parent} record it points at is not in the clone.`,
+        ],
+      },
+    ],
+  };
+}
+
 describe('ForgeExecutor', () => {
   let deps: ForgeExecutorDeps;
   let executor: ForgeExecutor;
@@ -3506,7 +3532,11 @@ describe('ForgeExecutor', () => {
           expect(inserted['Note_Comment__c']).toEqual([
             { Name: 'On the first action', Note__c: 'Order_Note__c:On the first action' },
           ]);
-          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+          // The note of the other deal is none of the clone's: the order goes
+          // in without it, and says so.
+          expect(summary.errors).toEqual([
+            leftEmptyOutsideTheClone('Order', 'Pinned_Note__c', 'Order_Note__c', 1),
+          ]);
         });
 
         it('says in a dry run what the second read would add', async () => {
@@ -3638,9 +3668,10 @@ describe('ForgeExecutor', () => {
             summary.readByObject.find((r) => r.objectApiName === 'Shipment_Line__c')?.read,
           ).toBe(3);
           // The other warehouse is none of the clone's either: its line goes
-          // without it, and the second pass says so.
-          expect(summary.errors.map((e) => e.objectApiName)).toEqual(['__pass2__']);
-          expect(summary.errors[0].samples[0].messages[0]).toContain("'Warehouse__c'");
+          // without it, said as a lookup left empty, no failure of the run.
+          expect(summary.errors).toEqual([
+            leftEmptyOutsideTheClone('Shipment_Line__c', 'Warehouse__c', 'Warehouse__c', 1),
+          ]);
         });
 
         it('reads again under the shipment the lines read at their turn, the shipment put off at its own before', async () => {
@@ -3659,7 +3690,9 @@ describe('ForgeExecutor', () => {
           expect(inserted['Shipment_Line__c'].map((r) => r['Name'])).toEqual(
             everyLineOfTheShipment,
           );
-          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+          expect(summary.errors).toEqual([
+            leftEmptyOutsideTheClone('Shipment_Line__c', 'Warehouse__c', 'Warehouse__c', 1),
+          ]);
         });
 
         it('still reads the lines when the shipment is put off: they are what names it', async () => {
@@ -4373,10 +4406,11 @@ describe('ForgeExecutor', () => {
         expect(inserted['PricebookEntry']).toEqual([
           { Product2Id: 'Product2:Widget', Pricebook2Id: STANDARD_BOOK, UnitPrice: '10' },
         ]);
-        // The deal's own lookup at its book is the one left empty: the book is left out.
-        const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
-        expect(pass2?.failedCount).toBe(1);
-        expect(pass2?.samples[0].recordSummary).toContain(`Opportunity source=${DEAL}`);
+        // The deal's own lookup at its book is the one left empty: the book is
+        // left out, and so not in the clone.
+        expect(summary.errors).toEqual([
+          leftEmptyOutsideTheClone('Opportunity', 'Pricebook2Id', 'Pricebook2', 1),
+        ]);
       });
     });
 
@@ -5381,10 +5415,15 @@ describe('ForgeExecutor', () => {
                 Classification__c: 'ProductClassification:Services',
               });
               expect(read['Product2']).toEqual(new Set([product(1), product(6), product(5)]));
-              const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
-              expect(pass2?.samples.map((s) => s.recordSummary)).toEqual([
-                expect.stringContaining(`Default_Product__c=<source ${product(4)}>`),
-              ]);
+              expect(summary.errors).toContainEqual(
+                leftEmptyOutsideTheClone(
+                  'Classification_Default__c',
+                  'Default_Product__c',
+                  'Product2',
+                  1,
+                ),
+              );
+              expect(summary.errors.some((e) => e.objectApiName === '__pass2__')).toBe(false);
             });
 
             it('says in a dry run the rows it would add for it', async () => {
@@ -10845,7 +10884,10 @@ describe('ForgeExecutor', () => {
       expect(merged.Backup_Contact__c).toBe('003NEW1');
     });
 
-    it('reports unresolved cycle FKs in errors when target parent was never cloned', async () => {
+    it('says a lookup at a record never cloned left empty, in a note that counts no row, and owes the second pass nothing', async () => {
+      // The contact is outside the clone: the account went in, its lookup
+      // empty, and nothing failed. Said as a cycle's lookup that could not be
+      // resolved, with a failed count, it read as rows the run had lost.
       const updateRecords = vi
         .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
         .mockResolvedValue([]);
@@ -10872,10 +10914,105 @@ describe('ForgeExecutor', () => {
         rootObjectApiName: 'Account',
       });
 
-      // Pass 2 ran but the orphan FK was never resolved — should appear in errors
-      const pass2Error = summary.errors.find((e) => e.objectApiName === '__pass2__');
-      expect(pass2Error).toBeDefined();
-      expect(pass2Error?.samples[0].messages[0]).toContain('could not be resolved');
+      expect(summary.errors).toEqual([
+        leftEmptyOutsideTheClone('Account', 'PrimaryContactId', 'Contact', 1),
+      ]);
+      expect(summary.failedCount).toBe(0);
+      expect(finishedRunStatus(summary)).toBe('success');
+      expect(updateRecords).not.toHaveBeenCalled();
+      expect(progressEvents.some((e) => e.objectName === '__pass2__')).toBe(false);
+    });
+
+    it('still reports, as the second pass did, a lookup at a record the run read and could not write', async () => {
+      // The key contact is in the clone and was refused, its sibling written,
+      // so the contact object did not fail whole: the lookup at it is left
+      // empty for want of a record the run failed to write, which is no note.
+      const updateRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+        .mockResolvedValue([]);
+      const CONTACT_ID = '003000000000001AAA';
+      const cycleExecutor = new ForgeExecutor({
+        ...deps,
+        updateRecords,
+        describeFields: vi.fn(async (_org: string, object: string) =>
+          object === 'Account'
+            ? [
+                { name: 'Id', queryable: true, createable: false, isReference: false },
+                { name: 'Name', queryable: true, createable: true, isReference: false },
+                {
+                  name: 'PrimaryContactId',
+                  queryable: true,
+                  createable: true,
+                  isReference: true,
+                  referenceTo: ['Contact'],
+                },
+              ]
+            : [
+                { name: 'Id', queryable: true, createable: false, isReference: false },
+                { name: 'LastName', queryable: true, createable: true, isReference: false },
+                {
+                  name: 'AccountId',
+                  queryable: true,
+                  createable: true,
+                  isReference: true,
+                  referenceTo: ['Account'],
+                },
+              ],
+        ),
+        queryRecords: vi.fn(async (_org: string, soql: string) =>
+          selectRows(
+            {
+              Account: [{ Id: ROOT_ID, Name: 'Acme', PrimaryContactId: CONTACT_ID }],
+              Contact: [
+                { Id: CONTACT_ID, LastName: 'Key', AccountId: ROOT_ID },
+                { Id: '003000000000002AAA', LastName: 'Other', AccountId: ROOT_ID },
+              ],
+            },
+            soql,
+          ),
+        ),
+        insertRecords: vi.fn(
+          async (_org: string, object: string, rows: Record<string, unknown>[]) =>
+            object === 'Account'
+              ? [{ id: '001NEW1', success: true, errors: [] }]
+              : rows.map((row) =>
+                  row['LastName'] === 'Key'
+                    ? { id: '', success: false, errors: ['INVALID_EMAIL_ADDRESS: bad'] }
+                    : { id: '003NEW2', success: true, errors: [] },
+                ),
+        ),
+      });
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact')],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'PrimaryContact',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      const summary = await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Account',
+      });
+
+      const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
+      expect(pass2?.failedCount).toBe(1);
+      expect(pass2?.samples[0].messages[0]).toContain(
+        `Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source ${CONTACT_ID}) was not cloned`,
+      );
+      expect(summary.errors.some((e) => e.stage === 'scope' && e.objectApiName === 'Account')).toBe(
+        false,
+      );
     });
 
     describe('in a run that reads whole tables', () => {
@@ -12074,6 +12211,160 @@ describe('ForgeExecutor', () => {
       expect(summary.skippedCount).toBe(1);
       // One row of the refused object says the run holds some: no more is read.
       expect(deps.queryRecords).toHaveBeenCalledWith('src', 'SELECT Id, Name FROM Case LIMIT 1');
+    });
+
+    /** What jsforce rejects a describe of an object the org does not have with. */
+    const notFound = (): Error =>
+      Object.assign(new Error('The requested resource does not exist'), {
+        name: 'NOT_FOUND',
+        errorCode: 'NOT_FOUND',
+      });
+
+    it('skips an object the target does not have once, unread, as an object skipped whole', async () => {
+      // Run between two sandboxes, a custom object the target lacked was said
+      // twice, by this check and by its write's describe, both times as a
+      // describe that failed, and read under the source's schema all the same.
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, objectName) => {
+        if (objectName === 'Brochure__c') throw notFound();
+        return true;
+      });
+      executor = new ForgeExecutor(deps);
+      const graph = makeGraph([makeNode('Account'), makeNode('Brochure__c')]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.errors).toEqual([
+        {
+          objectApiName: 'Brochure__c',
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          skipped: true,
+          samples: [
+            {
+              recordSummary: '(node-level skip)',
+              messages: [
+                'Object is not in the target org, or the user the run writes as cannot see it: ' +
+                  'none of its records can be written there',
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(progressEvents).toContainEqual(
+        expect.objectContaining({
+          objectName: 'Brochure__c',
+          status: 'skipped',
+          message: 'Skipped Brochure__c (not in the target org)',
+        }),
+      );
+      expect(summary.skippedCount).toBe(1);
+      expect(
+        vi.mocked(deps.queryRecords).mock.calls.some(([, soql]) => soql.includes('Brochure__c')),
+      ).toBe(false);
+      // Nor asked of the target again, for a write that never comes.
+      expect(
+        vi
+          .mocked(deps.describeFields)
+          .mock.calls.some(([org, object]) => org === 'tgt' && object === 'Brochure__c'),
+      ).toBe(false);
+      expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1])).toEqual(['Account']);
+      // Skipped whole, it makes the run partial, not failed.
+      expect(finishedRunStatus(summary)).toBe('partial');
+    });
+
+    it('lets nothing wait in a record-scoped run for an object the target does not have', async () => {
+      // A note cannot be written without its brochure; the brochure's turn
+      // comes after the note's, and the target has no brochure at all.
+      const ACCOUNT = '001000000000001AAA';
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, objectName) => {
+        if (objectName === 'Brochure__c') throw notFound();
+        return true;
+      });
+      const idField: FieldInfo = {
+        name: 'Id',
+        queryable: true,
+        createable: false,
+        isReference: false,
+      };
+      const fields: Record<string, FieldInfo[]> = {
+        Account: [idField, { ...idField, name: 'Name', createable: true }],
+        Note__c: [
+          idField,
+          { ...idField, name: 'Name', createable: true },
+          {
+            name: 'Account__c',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Account'],
+            nillable: true,
+          },
+          {
+            name: 'Brochure__c',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Brochure__c'],
+            nillable: false,
+          },
+        ],
+      };
+      deps.describeFields = vi.fn(async (_org: string, object: string) => fields[object] ?? []);
+      deps.queryRecords = vi.fn(async (_org: string, soql: string) =>
+        selectRows(
+          {
+            Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+            Note__c: [
+              {
+                Id: 'a0N000000000001AAA',
+                Name: 'Spring',
+                Account__c: ACCOUNT,
+                Brochure__c: 'a0B000000000001AAA',
+              },
+            ],
+          },
+          soql,
+        ),
+      );
+      executor = new ForgeExecutor(deps);
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Note__c'), makeNode('Brochure__c')],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Note__c',
+            relationshipName: 'Notes',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Brochure__c',
+            targetObject: 'Note__c',
+            relationshipName: 'Notes',
+            type: 'lookup',
+            required: true,
+          },
+          {
+            sourceObject: 'Note__c',
+            targetObject: 'Brochure__c',
+            relationshipName: 'First_Note__c',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT,
+        rootObjectApiName: 'Account',
+      });
+
+      const read = vi.mocked(deps.queryRecords).mock.calls.map(([, soql]) => soql);
+      expect(read.some((soql) => soql.includes('FROM Brochure__c'))).toBe(false);
+      expect(read.some((soql) => soql.includes('FROM Note__c'))).toBe(true);
+      expect(summary.readByObject.find((r) => r.objectApiName === 'Note__c')?.read).toBe(1);
+      expect(summary.errors.map((e) => [e.objectApiName, e.skipped])).toEqual([
+        ['Brochure__c', true],
+      ]);
     });
 
     describe('in a record-scoped run', () => {

@@ -15,6 +15,7 @@ import type {
 import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
+import { isNotFound } from './ForgeMetadataDiff.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
@@ -921,6 +922,12 @@ interface ExecutionState {
    * any record of them, never written — on a dry run as on a real one.
    */
   readonly notCreatable: Set<string>;
+  /**
+   * Objects the target does not have — its describe answered `NOT_FOUND` —
+   * or does not show the user the run writes as: neither read nor written,
+   * each said once as an object skipped whole. See `reportNotInTarget`.
+   */
+  readonly notInTarget: Set<string>;
   readonly errors: ExecutionObjectError[];
   /** Objects whose source read hit a bound, in the order they were read. */
   readonly truncatedObjects: Set<string>;
@@ -954,6 +961,19 @@ interface ExecutionState {
    * `readUnderWhatWaited`.
    */
   readonly readAgainUnder: Map<string, NodeReadOnce[]>;
+  /**
+   * Per object, the ids of its records asked for by id because rows read
+   * after its read cannot be written without them: each asked once a run.
+   * See `readWhatTheyCannotBeWrittenWithout`.
+   */
+  readonly askedForRowsThatNeedThem: Map<string, Set<string>>;
+  /**
+   * The source id of every row a read of the run took, to clone it or to find
+   * it in the target: what tells a lookup at a record outside the clone from
+   * one at a record the run read and could not write. See
+   * `sayLookupsOutsideTheClone`.
+   */
+  readonly idsRead: Set<string>;
   /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
@@ -1294,6 +1314,14 @@ function namedSinceItsRead(cache: RecordScopeCache, objectApiName: string): Set<
   if (!cache.isRead(objectApiName)) return new Set(named);
   const taken = cache.scopeOf(objectApiName);
   return new Set([...named].filter((id) => !taken?.has(id)));
+}
+
+/** Keep the source id of each row a read took: see `ExecutionState.idsRead`. */
+function noteIdsRead(state: ExecutionState, rows: readonly Record<string, unknown>[]): void {
+  for (const row of rows) {
+    const id = row['Id'];
+    if (typeof id === 'string' && id !== '') state.idsRead.add(id);
+  }
 }
 
 /**
@@ -2134,6 +2162,7 @@ export class ForgeExecutor {
       batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy),
       failedObjects: new Set<string>(),
       notCreatable: new Set<string>(),
+      notInTarget: new Set<string>(),
       errors: [],
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
@@ -2142,6 +2171,8 @@ export class ForgeExecutor {
       turnsAhead: new Set<string>(),
       waitingFor: new Map<string, ForgeGraphNode[]>(),
       readAgainUnder: new Map<string, NodeReadOnce[]>(),
+      askedForRowsThatNeedThem: new Map<string, Set<string>>(),
+      idsRead: new Set<string>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
@@ -2482,9 +2513,24 @@ export class ForgeExecutor {
         wave.forEach((name, j) => creatableChecks.set(name, settled[j]));
       }
     }
+    // An object the target does not have is no failed describe: nothing of it
+    // can be written there, and the run reads none of it. Run between two
+    // sandboxes, a custom object of the source missing from the target was
+    // reported twice, by this check and by its write's describe, both as a
+    // describe that failed, and read under the source's schema all the same.
+    // Out of what the run reads, no required lookup at it holds a read back,
+    // nothing waits for its turn, and nothing read before it is read again
+    // under it.
+    for (const [name, check] of creatableChecks) {
+      if (check.status !== 'rejected' || !isNotFound(check.reason)) continue;
+      state.notInTarget.add(name);
+      state.readObjects.delete(name);
+      state.turnsAhead.delete(name);
+    }
     for (const node of graph.nodes) {
       const check = creatableChecks.get(node.objectApiName);
       if (!node.included || (check?.status === 'fulfilled' && !check.value)) continue;
+      if (state.notInTarget.has(node.objectApiName)) continue;
       state.writtenObjects.add(node.objectApiName);
     }
 
@@ -2512,6 +2558,12 @@ export class ForgeExecutor {
           progress: 100,
           message: `Skipped ${node.objectApiName} (${excludedReason(node)})`,
         });
+        continue;
+      }
+
+      if (state.notInTarget.has(node.objectApiName)) {
+        this.reportNotInTarget(node, state);
+        await this.endTurn(node.objectApiName, state);
         continue;
       }
 
@@ -2687,10 +2739,12 @@ export class ForgeExecutor {
     await this.writeEmailsAfterTheirTask(state);
 
     // Pass 2 — patch nullified cycle FKs whose targets are now cloned, and the
-    // lookups of rows the run retried wrote at records this run wrote.
+    // lookups of rows the run retried wrote at records this run wrote. Those
+    // at a record outside the clone are said, never owed: see
+    // `sayLookupsOutsideTheClone`.
     state.pendingFkUpdates.push(...this.owedNowWritten(state));
     const pass2Error = await patchCycleFkUpdates({
-      pendingFkUpdates: state.pendingFkUpdates,
+      pendingFkUpdates: this.sayLookupsOutsideTheClone(state, state.pendingFkUpdates),
       remapper: state.remapper,
       updateRecords: this.deps.updateRecords,
       targetOrgId,
@@ -3961,6 +4015,119 @@ export class ForgeExecutor {
   }
 
   /**
+   * Read by id the records `rows` of `objectApiName` cannot be written without
+   * that the run has not read: each named by a lookup of theirs that may not
+   * be left empty and names one object (`requiredParentsOf`), whose read is
+   * over and did not take it. Read now, before anything is written, such a
+   * record goes to the target in its object's turn, ahead of the rows that
+   * need it — or is linked to the record the target holds, as any row of its
+   * object is — and what is read under it follows as for any row read late
+   * (`readUnderRowsAdded`), three levels below it at most. What it cannot be
+   * written without is read in turn (`readMore`).
+   *
+   * Run between two sandboxes, a clone of a case read its two accounts, then
+   * the insurance policy the case names, whose named insured — a lookup the
+   * policy may not leave empty — was neither: the account's read was over,
+   * the policy was refused for want of it, and its three coverages were held
+   * back behind it.
+   *
+   * Only the records that would otherwise cost their rows: an optional lookup
+   * at a record outside the clone is left empty, as before, and a record the
+   * target already holds for the run, one the platform writes itself, or one
+   * held back for an object the user excluded is not asked for. Nor are the
+   * root's object, read by the root's id alone, and the catalog, read by what
+   * the records name once they are all read (`readCatalogAgain`); nor an
+   * object mapped by name, one that failed, or one the target cannot take.
+   * Each record is asked once a run, and the cap on each object holds.
+   */
+  private async readWhatTheyCannotBeWrittenWithout(
+    state: ExecutionState,
+    objectApiName: string,
+    fieldInfos: readonly FieldInfo[],
+    rows: readonly Record<string, unknown>[],
+  ): Promise<void> {
+    const cache = state.scopeCache;
+    if (!cache || rows.length === 0) return;
+    const { config } = state;
+    const leftOut = new Set(config.fieldExclusions[objectApiName] ?? []);
+    const toAsk = new Map<string, Set<string>>();
+    for (const field of fieldInfos) {
+      const targets = field.referenceTo ?? [];
+      if (
+        !field.isReference ||
+        targets.length !== 1 ||
+        leftOut.has(field.name) ||
+        !isSettableField(field) ||
+        !isRequiredLookup(objectApiName, field.name, field.nillable)
+      ) {
+        continue;
+      }
+      const [parent] = targets;
+      if (
+        parent === objectApiName ||
+        parent === config.rootObjectApiName ||
+        CATALOG_OBJECTS.has(parent) ||
+        config.referenceDataObjects.has(parent) ||
+        !state.readObjects.has(parent) ||
+        state.failedObjects.has(parent) ||
+        state.notCreatable.has(parent) ||
+        !cache.isRead(parent)
+      ) {
+        continue;
+      }
+      const taken = cache.scopeOf(parent);
+      const asked = state.askedForRowsThatNeedThem.get(parent);
+      const heldBack = state.heldForExclusions.get(parent);
+      for (const row of rows) {
+        const id = row[field.name];
+        if (
+          typeof id !== 'string' ||
+          id === '' ||
+          taken?.has(id) ||
+          asked?.has(id) ||
+          heldBack?.has(id) ||
+          state.remapper.get(id) ||
+          state.leftToThePlatform.has(id)
+        ) {
+          continue;
+        }
+        toAsk.set(parent, (toAsk.get(parent) ?? new Set<string>()).add(id));
+      }
+    }
+    for (const [parent, ids] of toAsk) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      const node = state.graph.nodes.find((n) => n.included && n.objectApiName === parent);
+      if (!node) continue;
+      const asked = state.askedForRowsThatNeedThem.get(parent) ?? new Set<string>();
+      for (const id of ids) asked.add(id);
+      state.askedForRowsThatNeedThem.set(parent, asked);
+      const again = await this.fieldsReadAgain(state, node);
+      if (!again) continue;
+      const selectFields = again.fields.filter((f) => f.queryable).map((f) => f.name);
+      const fresh = await this.readMore(
+        state,
+        node,
+        again.fields,
+        new ScopedSoqlBuilder().buildById({
+          objectApiName: parent,
+          selectFields: selectFields.length > 0 ? selectFields : ['Id'],
+          ids,
+          extraWhere: config.objectSoqlFilters?.[parent],
+        }),
+        `which the ${objectApiName} records read after it cannot be written without`,
+      );
+      if (fresh.length === 0) continue;
+      // Said as a read of the object says them, now that it has rows to write.
+      if (again.described) this.withoutFileContent(state, parent, again.described, true);
+      await this.readUnderRowsAdded(parent, state, 0);
+    }
+  }
+
+  /**
    * The turn of `objectApiName` in the first read pass is over: the nodes that
    * waited for it take theirs. Put off rather than read, it is read after the
    * pass, and what they read before it is read again under its rows then
@@ -4126,6 +4293,7 @@ export class ForgeExecutor {
           ),
         reached,
       );
+      noteIdsRead(state, records);
       this.keepWhatStatusesNeed(state, node, records, reached);
       const heldBack = this.holdBackWhatExclusionsCost(
         state,
@@ -4337,22 +4505,12 @@ export class ForgeExecutor {
       }
 
       if (config.dryRun) {
-        // A person account's contact is never inserted: the platform writes
-        // it with the account (`linkPersonContacts`) — but where it writes
-        // none, and the target takes it as any contact: one without person
-        // accounts, or one that takes its account as a business one.
-        if (node.objectApiName === ACCOUNT) {
-          await this.noteContactsOfBusinessAccounts(state, records, createableSet);
-        }
-        const ofPersons =
-          node.objectApiName === CONTACT
-            ? records.filter(
-                (row) =>
-                  isPersonAccountRow(row) && !state.contactsOnTheirOwn.has(String(row['Id'])),
-              ).length
-            : 0;
-        const withTheirAccount =
-          ofPersons > 0 && (await this.personAccountsInTarget(state)) !== false ? ofPersons : 0;
+        const withTheirAccount = await this.writtenWithTheirAccountOnADryRun(
+          state,
+          node.objectApiName,
+          records,
+          createableSet,
+        );
         const inserted = records.length - withTheirAccount;
         onProgress({
           objectName: node.objectApiName,
@@ -4367,9 +4525,11 @@ export class ForgeExecutor {
         });
         // Counted under their own name: a dry run creates nothing.
         state.wouldInsertCount += inserted;
-        return false;
       }
-      return true;
+      // What these rows cannot be written without and the run has not read,
+      // read before anything is written: see `readWhatTheyCannotBeWrittenWithout`.
+      await this.readWhatTheyCannotBeWrittenWithout(state, node.objectApiName, fieldInfos, records);
+      return !config.dryRun;
     } catch (err) {
       // An abort is a control-flow signal, not a node failure. Recording it as
       // one and continuing is what let a cancelled run carry on writing.
@@ -5234,6 +5394,35 @@ export class ForgeExecutor {
   }
 
   /**
+   * Of rows a dry run reads to clone, how many it says the platform would
+   * write with their person account instead of inserting them: a person
+   * account's contact is never inserted, the platform writing it with the
+   * account (`linkPersonContacts`) — save where it writes none, and the target
+   * takes it as any contact: one without person accounts, or one that takes
+   * its account as a business one. Of accounts, none; it notes the contacts of
+   * those the target would take as business accounts, which go on their own
+   * (`noteContactsOfBusinessAccounts`).
+   *
+   * @param createable - The fields of the object the source lets the run write.
+   */
+  private async writtenWithTheirAccountOnADryRun(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    createable: ReadonlySet<string>,
+  ): Promise<number> {
+    if (objectApiName === ACCOUNT) {
+      await this.noteContactsOfBusinessAccounts(state, rows, createable);
+      return 0;
+    }
+    if (objectApiName !== CONTACT) return 0;
+    const ofPersons = rows.filter(
+      (row) => isPersonAccountRow(row) && !state.contactsOnTheirOwn.has(String(row['Id'])),
+    ).length;
+    return ofPersons > 0 && (await this.personAccountsInTarget(state)) !== false ? ofPersons : 0;
+  }
+
+  /**
    * Of the contacts of person accounts the contact node read, those that go in
    * as contacts of their own, and why: the target wrote none with their
    * account. It has no person accounts, and each goes as any contact does, its
@@ -5399,6 +5588,42 @@ export class ForgeExecutor {
         ? `Skipped ${node.objectApiName} (target org rejects inserts on this entity)`
         : `Skipped ${node.objectApiName} (target org rejects inserts on this entity; ` +
           'the clone holds none of its records)',
+    });
+  }
+
+  /**
+   * Say, once, that a node the target does not have was skipped whole: no
+   * record of it can be written there. Not read, so how many records the
+   * clone holds of it is not known, and the error counts none — as an object
+   * skipped before its read is, which the audit trail marks uncounted.
+   *
+   * Told by the describe's `NOT_FOUND` (`isNotFound`), which an object the
+   * user the run writes as cannot see answers too. A describe that failed
+   * otherwise says nothing of the object, which is attempted all the same.
+   */
+  private reportNotInTarget(node: ForgeGraphNode, state: ExecutionState): void {
+    state.skippedCount++;
+    state.errors.push({
+      objectApiName: node.objectApiName,
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [
+        {
+          recordSummary: '(node-level skip)',
+          messages: [
+            'Object is not in the target org, or the user the run writes as cannot see it: ' +
+              'none of its records can be written there',
+          ],
+        },
+      ],
+    });
+    state.onProgress({
+      objectName: node.objectApiName,
+      status: 'skipped',
+      progress: 100,
+      message: `Skipped ${node.objectApiName} (not in the target org)`,
     });
   }
 
@@ -5706,6 +5931,7 @@ export class ForgeExecutor {
     const held = new Set(wasRead ? (cache.scopeOf(objectApiName) ?? []) : []);
     const unheld = (row: Record<string, unknown>): boolean =>
       typeof row['Id'] !== 'string' || !held.has(row['Id']);
+    let fresh: Record<string, unknown>[];
     try {
       const rows = await queryNodeRecords(
         {
@@ -5719,6 +5945,7 @@ export class ForgeExecutor {
             state.truncatedObjects.add(objectApiName),
           ),
       );
+      noteIdsRead(state, rows);
       const read = rows.filter(unheld);
       // Of a node the run added for the status of its parent's records, the
       // rows under a record past Draft alone, as at its read: read again under
@@ -5760,7 +5987,7 @@ export class ForgeExecutor {
         ([id]) => !heldBefore.has(id),
       );
       this.leaveToThePlatform(state, objectApiName, read, fields);
-      const fresh = (await keep(read)).filter(unheld);
+      fresh = (await keep(read)).filter(unheld);
       // What the rows name is met; what the object holds is what the reads took.
       seedScopeCache(cache, objectApiName, fresh, fields, {
         settle: false,
@@ -5791,16 +6018,13 @@ export class ForgeExecutor {
         ? dedupePricebookEntries([...earlier, ...fresh], { sellingModel: state.sellingModels })
         : [...earlier, ...fresh];
       const added = records.length - earlier.length;
+      const createableSet =
+        before?.createableSet ?? new Set(fields.filter((f) => f.createable).map((f) => f.name));
       state.preread.set(
         objectApiName,
         before
           ? { ...before, records }
-          : {
-              fieldInfos: fields,
-              createableSet: new Set(fields.filter((f) => f.createable).map((f) => f.name)),
-              records,
-              targetSetsPending: null,
-            },
+          : { fieldInfos: fields, createableSet, records, targetSetsPending: null },
       );
       // The rows held back were read to be cloned, and are counted with them.
       state.readByObject.set(
@@ -5808,17 +6032,29 @@ export class ForgeExecutor {
         (state.readByObject.get(objectApiName) ?? 0) + added + heldNow.length,
       );
       if (config.dryRun) {
-        state.wouldInsertCount += added;
+        // Said of the rows a read of the object would say it of: the contact
+        // of a person account read late is the platform's to write, as one
+        // read at the object's turn is.
+        const withTheirAccount = await this.writtenWithTheirAccountOnADryRun(
+          state,
+          objectApiName,
+          isPricebookEntry(objectApiName) ? [] : fresh,
+          createableSet,
+        );
+        state.wouldInsertCount += added - withTheirAccount;
         state.onProgress({
           objectName: objectApiName,
           status: 'done',
           progress: 100,
           message:
-            `[dry-run] ${objectApiName}: ${added} more record(s) would be inserted, ${note}` +
+            `[dry-run] ${objectApiName}: ${added - withTheirAccount} more record(s) would be inserted` +
+            (withTheirAccount > 0
+              ? `, ${withTheirAccount} more would be written by the platform with their person account`
+              : '') +
+            `, ${note}` +
             failedHeldBack(heldForExclusionsWhy(heldNow.map(([, why]) => why)), true),
         });
       }
-      return fresh;
     } catch (err) {
       if (err instanceof ForgeAbortedError) throw err;
       state.errors.push({
@@ -5830,6 +6066,10 @@ export class ForgeExecutor {
       });
       return [];
     }
+    // Rows read late are rows of the object all the same: what they cannot be
+    // written without is read too.
+    await this.readWhatTheyCannotBeWrittenWithout(state, objectApiName, fields, fresh);
+    return fresh;
   }
 
   /**
@@ -5909,6 +6149,7 @@ export class ForgeExecutor {
           if (typeof id === 'string' && seen.has(id)) continue;
           if (!pricedPairs.has(pairOf(row))) continue;
           records.push(row);
+          noteIdsRead(state, [row]);
           added++;
         }
       }
@@ -6135,6 +6376,93 @@ export class ForgeExecutor {
     }
     state.owedToRowsWrittenBefore = still;
     return now;
+  }
+
+  /**
+   * Of the lookups owed as the second pass begins, say those left empty
+   * because the record they point at is not in the clone, and hand back the
+   * others: their record is written by now, or the run read it and did not
+   * write it, or its object failed or cannot be written — what the pass fills
+   * in, or reports as before.
+   *
+   * A lookup a row may leave empty, at a record no read of the run took — the
+   * original policy a policy names, the policy of another asset — was owed to
+   * the pass as a cycle's lookup is, and reported as a cycle's lookup that
+   * "could not be resolved", counted as failed, in a run that wrote the row
+   * and lost nothing. It is no cycle: the record was never in the clone. Said
+   * instead once per object, in a note that counts no row: the lookup, the
+   * object it points at when the run can tell, and how many rows went in with
+   * it empty.
+   */
+  private sayLookupsOutsideTheClone(
+    state: ExecutionState,
+    updates: readonly PendingFkUpdate[],
+  ): PendingFkUpdate[] {
+    const owed: PendingFkUpdate[] = [];
+    /** Per object, the lookups left empty by field and object pointed at. */
+    const leftEmpty = new Map<
+      string,
+      Map<string, { field: string; parent: string | undefined; count: number }>
+    >();
+    for (const update of updates) {
+      if (state.remapper.get(update.sourceRefId) || state.idsRead.has(update.sourceRefId)) {
+        owed.push(update);
+        continue;
+      }
+      const parent = this.objectPointedAt(state, update);
+      if (
+        parent !== undefined &&
+        (state.failedObjects.has(parent) ||
+          state.notCreatable.has(parent) ||
+          state.notInTarget.has(parent))
+      ) {
+        owed.push(update);
+        continue;
+      }
+      const groups = leftEmpty.get(update.objectApiName) ?? new Map();
+      const key = `${update.fieldName}|${parent ?? ''}`;
+      const group = groups.get(key) ?? { field: update.fieldName, parent, count: 0 };
+      group.count++;
+      groups.set(key, group);
+      leftEmpty.set(update.objectApiName, groups);
+    }
+    for (const [objectApiName, groups] of leftEmpty) {
+      state.errors.push({
+        objectApiName,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [...groups.values()]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 3)
+          .map(({ field, parent, count }) => ({
+            recordSummary:
+              `${parent === undefined ? field : `${field} → ${parent}`} ` +
+              `(${count} record${count === 1 ? '' : 's'})`,
+            messages: [
+              `Written with the lookup empty: the ${parent === undefined ? '' : `${parent} `}` +
+                'record it points at is not in the clone.',
+            ],
+          })),
+      });
+    }
+    return owed;
+  }
+
+  /**
+   * The object of the record an owed lookup points at, as the lookup's fields
+   * tell it: the one object it can name, or, of several, the one the id's key
+   * prefix stands for as far as the run knows it. Nothing when it cannot tell.
+   */
+  private objectPointedAt(state: ExecutionState, update: PendingFkUpdate): string | undefined {
+    const rename = state.config.fieldMappings[update.objectApiName] ?? {};
+    const field = state.preread
+      .get(update.objectApiName)
+      ?.fieldInfos.find((f) => f.isReference && (rename[f.name] ?? f.name) === update.fieldName);
+    const targets = field?.referenceTo ?? [];
+    if (targets.length === 1) return targets[0];
+    const prefix = update.sourceRefId.slice(0, 3);
+    return targets.find((target) => state.sourceKeyPrefixes.get(target) === prefix);
   }
 
   /**

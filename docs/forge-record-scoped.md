@@ -83,9 +83,13 @@ ForgeOrchestrator.execute(graph, config)
        │    flight at a time. An object the target refuses is skipped: at most
        │    one row of it is read, into no scope, and it is an error only when
        │    the clone holds records of it — an object skipped whole, which the
-       │    audit entry names, its count unknown. A check that failed is
-       │    reported for that object, which is still attempted. Reference data
-       │    is matched by name, never inserted, so it is not asked about.
+       │    audit entry names, its count unknown. An object the target does
+       │    not have (its describe answers `NOT_FOUND`, as it does for one the
+       │    user the run writes as cannot see) is not read at all: skipped
+       │    whole, said once as not in the target org, its count unknown. A
+       │    check that failed otherwise is reported for that object, which is
+       │    still attempted. Reference data is matched by name, never
+       │    inserted, so it is not asked about.
        │
        ├─ for each node (root-first, then topo; a node whose rows cannot be
        │  written without a parent whose turn is still to come waits for it,
@@ -104,7 +108,10 @@ ForgeOrchestrator.execute(graph, config)
        │    4. (if reference-data object) ReferenceDataMapper.resolve(target by Name)
        │    5. seed cache (own IDs + FK values from results; an ID a lookup
        │       that can name several objects holds goes to the object its key
-       │       prefix names)
+       │       prefix names); a record the rows cannot be written without, of
+       │       an object whose read is over and did not take it, is read by
+       │       its id, before anything is written (see "A record whose
+       │       required parent was not read")
        │    6. clean records:
        │         - strip non-createable
        │         - strip Person Account __pc on Business Accounts
@@ -115,8 +122,9 @@ ForgeOrchestrator.execute(graph, config)
        │           would refuse, for the record type the row goes in with
        │           when the mapping knows it (see below)
        │         - omit nullified orphan FKs (don't send `null`); a lookup no
-       │           write can set is owed nothing by the second pass, and one
-       │           only an insert sets is said to be left empty, never sent
+       │           write can set is owed nothing by the second pass, one
+       │           only an insert sets is said to be left empty, never sent,
+       │           and so is one at a record outside the clone
        │         - apply RecordType mapping (DeveloperName)
        │    7. batch insert into target (never a person account's contact
        │       the target writes with its account: see "Person accounts");
@@ -293,6 +301,52 @@ renamed lookup is owed under the name the target has, the one the field map
 writes it under, on every path: the insert, the second pass, and a row the run
 retried wrote.
 
+A lookup a row may leave empty, at a record no read of the run took — the
+original policy a policy names, the policy of another asset — is no cycle and
+no failure: the row goes in with it empty, and the second pass owes it nothing.
+The object's report says it, counting no row (`Written with the lookup empty:
+the InsurancePolicy record it points at is not in the clone.`, per lookup and
+object, with how many rows went so), so the results page, the audit trail and
+the clone command count no failed row for it, and the run's status does not
+change. A lookup at a record the run read and could not write — refused, held
+back, or of an object whose read failed — is reported in `__pass2__` as
+before.
+
+## A record whose required parent was not read
+
+A scoped read goes outwards from the root, an object at a time: a record read
+after its parent's object was read can name, through a lookup it may not leave
+empty, a record that read did not take. Run between two sandboxes, a clone of a
+case read the case's two accounts, then the insurance policy the case names,
+whose named insured — an account the policy cannot be written without — was
+neither of them: the policy was refused (`REQUIRED_FIELD_MISSING`), and its
+three coverages were held back behind it.
+
+Once a node is read, the ids its rows hold in such lookups — the ones the write
+order treats as required: a lookup naming one object, not nillable and
+settable, or one `platform-required-fields.ts` lists — at records of an object
+already read and not among its rows are read by id, one statement per object
+(split as any scoped read is), before anything is written. The record is
+written in its object's turn, ahead of the rows that need it, or linked to the
+one the target holds, as any row of its object is; a person account goes
+through the person-account handling as any account does (see "Person
+accounts"). What is read under it follows the rule for rows read late: the
+nodes read before under its object are read again under its rows, and what
+that adds, three levels below it at most; neither the root's object nor the
+catalog is read again so. What it cannot be written without is read in turn.
+A dry run says it: `[dry-run] Account: 1 more record(s) would be inserted, which
+the InsurancePolicy records read after it cannot be written without`.
+
+Each record is asked once a run, and only for the rows that would otherwise be
+refused: a clone whose records name none sends no request more. Not asked: a
+record the target already holds for the run, one the platform writes itself,
+one held back for an object the user excluded; nor a record of the root's
+object, read by the root's id alone, of the catalog, read by what the records
+name once they are all read, of an object mapped by name, of one that failed
+or that the target cannot take. The cap on each object holds, and so does the
+user's filter on it. An optional lookup at a record outside the clone stays as
+it was: left empty, and said so (above).
+
 ## Person accounts
 
 The platform writes a person account's contact (`Contact.IsPersonAccount`)
@@ -382,11 +436,14 @@ read, as its audit entry does (`2 failed, 1 of them held back for want of …,
 excluded from this run`). Skipped before its read, as a run of whole tables
 skips it, it counts none: the run never learned how many rows it held. An
 object the target takes no insert of, whose records the clone holds, is flagged
-the same way and counts none either, one row having been read to know. The
-run's audit entry names such an object either way, marked skipped — `counted`,
-or `uncounted` when the run never learned its rows — and the Audit Trail page
-says it was skipped, and that its record count is unknown when it is. An object
-read with no row left to write lost nothing, and is only skipped. Shape:
+the same way and counts none either, one row having been read to know; so is an
+object the target does not have, which is not read at all (`Skipped X (not in
+the target org)`), the run ending partial or failed as for any object skipped
+whole. The run's audit entry names such an object either way, marked skipped —
+`counted`, or `uncounted` when the run never learned its rows — and the Audit
+Trail page says it was skipped, and that its record count is unknown when it
+is. An object read with no row left to write lost nothing, and is only skipped.
+Shape:
 
 ```ts
 interface ForgeExecutionError {
@@ -540,7 +597,13 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   turn. A product's clone read a feed item on an opportunity so — a tracked
   change, which the platform writes itself; a post would be left out the same
   way. Read again under every such parent, the reference clones sent up to a
-  sixth more requests and brought no row, so they are not.
+  sixth more requests and brought no row, so they are not. The other way
+  round, a record read after its parent's object can name a record that read
+  did not take: it is read by id when the row cannot be written without it
+  (see "A record whose required parent was not read"), but for a record of
+  the root's object, which stays the root alone — the row is refused for want
+  of it, as before. Through a lookup the row may leave empty, it is not read:
+  the row goes in with the lookup empty, and the object's report says so.
 - **Rows followed down three levels**: the rows a parent read late brings are
   read again under by the nodes read before, and what that adds, three levels
   below the parent at most. Past that, the rows are as the order of the reads

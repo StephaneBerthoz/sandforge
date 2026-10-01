@@ -146,9 +146,10 @@ export class ForgeMetadataDiff {
 /**
  * Whether a describe failed because the org has no such object for the user
  * who asks: jsforce puts the API's `errorCode` on both `errorCode` and `name`
- * (see `extractErrorMessage`).
+ * (see `extractErrorMessage`). A clone tells by it an object the target lacks,
+ * which it cannot write, from a describe that failed for another reason.
  */
-function isNotFound(err: unknown): boolean {
+export function isNotFound(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
   const { errorCode, name } = err as { errorCode?: unknown; name?: unknown };
   return errorCode === 'NOT_FOUND' || name === 'NOT_FOUND';
