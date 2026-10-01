@@ -634,7 +634,73 @@ describe('ForgeHandler', () => {
         failed: 2,
         durationMs: 2500,
         objectsWithFailures: ['Quote'],
+        why: { Quote: ['scope'] },
       });
+    });
+
+    // The line named the objects that lost rows and nothing of why: the
+    // reasons were in the run's history alone.
+    it('says why each object lost rows, by the status codes alone, never a message', async () => {
+      recordTypesOn(1);
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          status: 'partial',
+          createdCount: 1,
+          errors: [
+            {
+              objectApiName: 'Contact',
+              stage: 'insert',
+              failedCount: 2,
+              attemptedCount: 3,
+              samples: [
+                {
+                  recordSummary: 'Contact: Jane Roe',
+                  messages: ['DUPLICATES_DETECTED: Use one of these records? Jane Roe'],
+                },
+                {
+                  recordSummary: 'Contact: John Doe',
+                  messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]'],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      const finished = vi
+        .mocked(logger.info)
+        .mock.calls.find(([message]) => message === 'Forge execute finished')?.[1];
+      expect(finished).toMatchObject({
+        why: { Contact: ['DUPLICATES_DETECTED', 'REQUIRED_FIELD_MISSING'] },
+      });
+      expect(JSON.stringify(finished)).not.toContain('Jane Roe');
+      expect(JSON.stringify(finished)).not.toContain('Region__c');
+    });
+
+    it('names the orgs a run goes between, by their aliases', async () => {
+      recordTypesOn(1);
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        (id: string) =>
+          ({
+            id,
+            alias: id === 'src-org' ? 'UAT' : 'DEV',
+            orgType: 'Sandbox',
+          }) as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>,
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      const started = vi
+        .mocked(logger.info)
+        .mock.calls.find(([message]) => message === 'Forge execute started')?.[1] as
+        { source: string; target: string } | undefined;
+      expect(started).toEqual({ source: 'UAT', target: 'DEV' });
     });
 
     it('gives no count of a run whose executor counted none, the record types alone not being it', async () => {

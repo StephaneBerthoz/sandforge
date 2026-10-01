@@ -3,6 +3,7 @@ import type {
   AuditOutcome,
   BaseMessage,
   ForgeConfig,
+  ForgeExecutionError,
   ForgeExecutionResult,
   ForgeGraph,
   ForgeTemplate,
@@ -361,9 +362,39 @@ function runLogMeta(
     updated: result.updatedCount ?? 0,
     failed: objectErrors.reduce((sum, e) => sum + e.failedCount, 0),
     durationMs: result.duration,
-    ...(withFailures.length > 0 ? { objectsWithFailures: withFailures.slice(0, 20) } : {}),
+    ...(withFailures.length > 0
+      ? { objectsWithFailures: withFailures.slice(0, 20), why: failureCodes(objectErrors) }
+      : {}),
     ...(result.failedReads?.length ? { failedReads: result.failedReads } : {}),
   };
+}
+
+/**
+ * Per object that lost rows, why: the status codes the target answered with —
+ * the `CODE` of each `CODE: message` sample — or, when its reports carry none,
+ * the stage that lost them (`scope`: held back before the write). Run for real,
+ * a run's line named five objects with failures and nothing of why, and the
+ * reasons were in the history alone. Codes only: a message can quote a
+ * record's values, and the log keeps none.
+ */
+function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, string[]> {
+  const byObject = new Map<string, Set<string>>();
+  for (const error of errors) {
+    if (error.failedCount === 0 && !error.skipped) continue;
+    const codes = byObject.get(error.objectApiName) ?? new Set<string>();
+    byObject.set(error.objectApiName, codes);
+    const found = error.samples
+      .flatMap((sample) => sample.messages)
+      .map((message) => /^([A-Z][A-Z0-9_]+):/.exec(message)?.[1])
+      .filter((code): code is string => code !== undefined);
+    if (found.length === 0) codes.add(error.stage);
+    for (const code of found) codes.add(code);
+  }
+  return Object.fromEntries(
+    [...byObject]
+      .slice(0, 20)
+      .map(([objectApiName, codes]) => [objectApiName, [...codes].slice(0, 5)]),
+  );
 }
 
 /**
@@ -1415,7 +1446,12 @@ export class ForgeHandler implements DomainHandler {
     });
 
     try {
-      logger.info('Forge execute started');
+      // Which orgs, by the aliases the user knows them by: the line said only
+      // that a run started, and a log read afterwards could not say where.
+      logger.info('Forge execute started', {
+        source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? 'unknown org',
+        target: this.deps.orgManager.getOrg(config.targetOrgId)?.alias ?? 'unknown org',
+      });
       // RecordType Ids differ between orgs. Without this table every cloned
       // record kept the source org's RecordTypeId, which the target rejects.
       const recordTypeMappings = await this.loadRecordTypeMappings(
