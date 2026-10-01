@@ -62,8 +62,10 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
 
 /**
  * The columns of an object's counts, in the order a line reads them. The
- * records written without a field a validation rule refused follow what was
- * written, among which they are counted. What the run never sent comes last —
+ * records written without a field a validation rule or a restricted picklist
+ * refused follow what was written, among which they are counted; the run's
+ * results say which refused each field, the entry only how many records went
+ * without one. What the run never sent comes last —
  * kept from the target by its cancel, or by the failure it ended on: neither
  * written nor failed.
  */

@@ -571,20 +571,43 @@ export interface ForgeFieldsLeftOut {
   fields: string[];
 }
 
-/** A field a validation rule of the target refused rows on, left out as they were written again. */
+/**
+ * What refused a field rows went in without: a validation rule of the target
+ * (`FIELD_CUSTOM_VALIDATION_EXCEPTION`), or a restricted picklist of the target
+ * that refused its value (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`). The
+ * second gets past the check made before the write when the record type the
+ * row goes in with was never given values of the field: it takes none of
+ * them, while the target's UI API answers the field's every value for it.
+ */
+export type ForgeFieldRefusal = 'validation-rule' | 'restricted-picklist';
+
+/** A field the target refused rows on, left out as they were written again. */
 export interface ForgeRefusedField {
   /** The field, by the API name the run writes it under. */
   field: string;
-  /** What the target refused the rows with, `STATUS_CODE: message`: the rule's own words. */
+  /**
+   * What refused it. Absent from runs recorded before a restricted picklist's
+   * refusal was written again: a validation rule's was the only one then.
+   */
+  refusedBy?: ForgeFieldRefusal;
+  /**
+   * What the target refused the rows with, `STATUS_CODE: message`: the rule's
+   * own words, or the picklist's, which name the value it refused.
+   */
   reason: string;
-  /** Rows written again without it. */
+  /**
+   * Rows written without it: sent again without it once refused, or, its
+   * value refused under the same record type earlier in the run, sent without
+   * it from the start.
+   */
   rows: number;
 }
 
 /**
- * The rows of one object a validation rule of the target refused on fields it
- * named, written again without those fields and taken that time. A row the
- * rule refused without naming a field, or refused again, is a failure instead.
+ * The rows of one object the target refused on fields it named — a validation
+ * rule, or a restricted picklist refusing their value — written again without
+ * those fields and taken that time. A row refused without a field named, or
+ * refused again, is a failure instead.
  */
 export interface ForgeWrittenWithoutFields {
   /** API name of the object. */
@@ -833,9 +856,10 @@ export interface ForgeExecutionResult {
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
   /**
-   * Per object, the rows written again without the fields a validation rule of
-   * the target refused them on. Absent when there were none, and from runs
-   * recorded before a refused row was written again.
+   * Per object, the rows written again without the fields the target refused
+   * them on: a validation rule's, or a restricted picklist's refusing their
+   * value. Absent when there were none, and from runs recorded before a
+   * refused row was written again.
    */
   writtenWithoutFields?: ForgeWrittenWithoutFields[];
   /**

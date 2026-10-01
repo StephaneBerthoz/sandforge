@@ -2236,9 +2236,23 @@ for (const theme of SCANNED_THEMES) {
               fields: [
                 {
                   field: 'Phone',
+                  refusedBy: 'validation-rule',
                   reason:
                     'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
                   rows: 1,
+                },
+              ],
+            },
+            {
+              objectApiName: 'Quote',
+              rows: 2,
+              fields: [
+                {
+                  field: 'Rating__c',
+                  refusedBy: 'restricted-picklist',
+                  reason:
+                    'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+                  rows: 2,
                 },
               ],
             },
@@ -2641,12 +2655,13 @@ for (const theme of SCANNED_THEMES) {
       await page.getByRole('tab', { name: 'Audit Trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
       // The skipped object's row is scanned with the rest of the entry, and
-      // so are the records written without a field a validation rule refused.
+      // so are the records written without a field a validation rule or a
+      // restricted picklist refused.
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
         'Contract skipped, record count unknown',
       );
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
-        '1 written without a field a validation rule refused',
+        '1 written without a field a validation rule or a restricted picklist refused',
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();

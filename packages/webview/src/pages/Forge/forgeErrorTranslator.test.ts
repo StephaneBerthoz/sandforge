@@ -58,6 +58,20 @@ describe('translateForgeError', () => {
     expect(result?.explanationKey).toBe('forge.error.invalidPicklist.explanation');
   });
 
+  it('explains a restricted picklist refusal with what the clone does about it, and why the check let the value through', () => {
+    const result = translateForgeError(
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes [Rating__c]',
+    );
+    expect(result?.explanationKey).toBe('forge.error.invalidPicklist.explanation');
+    // What the Errors panel shows under such a message, in English: the
+    // record went again without the field, and one listed could not.
+    const explanation = en.forge.error.invalidPicklist.explanation;
+    expect(explanation).toContain('one never given values of a field takes none of them');
+    expect(explanation).toContain(
+      'the clone writes the record again without that field; a record listed here could not be written that way',
+    );
+  });
+
   it('explains a validation rule the record was refused by, and what the clone does about it', () => {
     const result = translateForgeError(
       'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format [Phone]',

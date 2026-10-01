@@ -106,8 +106,9 @@ export function forgeRunResult(
     ...(summary.picklistValuesChanged
       ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
-    // The rows a validation rule refused that went in without the fields it
-    // named: in the target, each short of a value the source held.
+    // The rows a validation rule or a restricted picklist refused that went in
+    // without the fields it named: in the target, each short of a value the
+    // source held.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
     // The target's own dates of the run's writes, which removing its records
     // tells a later change by.

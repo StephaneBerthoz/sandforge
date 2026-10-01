@@ -1854,8 +1854,8 @@
       "failed_other": "{{count}} failed",
       "notSent_one": "{{count}} not sent",
       "notSent_other": "{{count}} not sent",
-      "writtenWithoutFields_one": "{{count}} written without a field a validation rule refused",
-      "writtenWithoutFields_other": "{{count}} written without a field a validation rule refused",
+      "writtenWithoutFields_one": "{{count}} written without a field a validation rule or a restricted picklist refused",
+      "writtenWithoutFields_other": "{{count}} written without a field a validation rule or a restricted picklist refused",
       "skipped": "skipped",
       "skippedUncounted": "skipped, record count unknown"
     },
@@ -2645,7 +2645,7 @@
         "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
       },
       "invalidPicklist": {
-        "explanation": "A picklist value from the source is not one the target org allows: the field there does not hold it, or the record's record type does not allow it.",
+        "explanation": "A picklist value from the source is not one the target org takes: the field there does not hold it, or the record type the record goes in with does not take it — one never given values of a field takes none of them. When the refusal names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
         "action": "Add the value to the picklist in the target org's Setup, and to the record's record type there, or change the value on the source record."
       },
       "fieldCustomValidation": {
@@ -2729,8 +2729,10 @@
       "leftOut": "left out"
     },
     "writtenWithoutFields": {
-      "title": "Written without a field a validation rule of the target org refused",
-      "hint": "A validation rule of the target org refused these records on the fields it named. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them."
+      "title": "Written without a field a validation rule or a restricted picklist of the target org refused",
+      "hint": "The target org refused these records on the fields it named: a validation rule of its own, or a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",
+      "byValidationRule": "a validation rule refused it",
+      "byRestrictedPicklist": "a restricted picklist refused its value"
     },
     "existingRecords": {
       "title": "Already in the target org",

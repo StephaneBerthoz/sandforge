@@ -120,9 +120,10 @@ ForgeOrchestrator.execute(graph, config)
        │         - apply RecordType mapping (DeveloperName)
        │    7. batch insert into target (never a person account's contact
        │       the target writes with its account: see "Person accounts");
-       │       a row a validation rule refuses on fields it names is sent
-       │       once more without them — and so is a required parent copied
-       │       from outside the graph, its picklist values checked first
+       │       a row a validation rule or a restricted picklist refuses on
+       │       fields it names is sent once more without them — and so is a
+       │       required parent copied from outside the graph, its picklist
+       │       values checked first
        │
        ├─ with `files`: before the first write, the files of the records read
        │    (the latest version of each document linked to one, and the
@@ -220,6 +221,14 @@ parent copied from outside the graph (`expandOrphanParents`) is checked the
 same way, against the record type the mapping gives it, read once a run with
 the run's own; what it changes is listed under its object in
 `picklistValuesChanged`.
+
+The check can let through a value the target then refuses. A record type that
+was never given values of a field takes none of them, while the UI API answers
+the field's every value for it; the record type's metadata (Tooling API
+`RecordType.Metadata.picklistValues`) is no surer, holding no entry at all for a
+field whose values a record type takes as well as for one it takes none of. No
+read before the write tells the two apart: the answer to the write does, and
+the row is written again without the field (below).
 
 Once the run has written, it reads back from the target the `CreatedDate` and
 `LastModifiedDate` of every record it created — the `SystemModstamp` of an
@@ -400,27 +409,52 @@ refusal names the value and not the field, and reads
 field: Gold [Rating__c]`. What reads the code still reads it first.
 
 A row a validation rule of the target refuses (`FIELD_CUSTOM_VALIDATION_EXCEPTION`)
-on fields it names is sent once more without them, once the object's calls are
-through: rows of several calls go together, as many to a call as the first
-write sent, through the same insert or upsert and after the same cancel
-checkpoint, and each call counts among the run's. Only a refusal whose every
-error is a validation rule's, each naming a field the row gives a value to —
-other than the external id an upsert matches on — is retried; a rule that names
-no field, or only fields the row leaves empty, or an error of another kind
-beside it, leaves the row failed as it was. A row taken that time counts as
-written and its children find it; the object's line says which field it went without and why
-(`Completed Contact: 1 succeeded, 0 failed, 1 written without Phone: a
-validation rule of the target refused it, FIELD_CUSTOM_VALIDATION_EXCEPTION:
-…`), the result lists it per object and field under `writtenWithoutFields`, and
-the audit entry counts the rows so written, never their values. A row refused
+on fields it names, or a restricted picklist refuses for a value the check
+above let through (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`, naming the
+field), is sent once more without them, once the object's calls are through:
+rows of several calls go together, as many to a call as the first write sent,
+through the same insert or upsert and after the same cancel checkpoint, and
+each call counts among the run's. Only a refusal
+whose every error is one of the two, each naming a field the row gives a value
+to — other than the external id an upsert matches on — is retried, and one that
+holds both leaves out every field they name; an error that names no field, or
+only fields the row leaves empty, or an error of another kind beside them,
+leaves the row failed as it was. A row taken that time counts as written and
+its children find it; the object's line says which field it went without, what
+refused it and why (`Completed Contact: 1 succeeded, 0 failed, 1 written
+without Phone: a validation rule of the target refused it,
+FIELD_CUSTOM_VALIDATION_EXCEPTION: …`, or `…, 2 written without Rating__c: a
+restricted picklist of the target refused its value,
+INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist
+field: Yes`), the result lists it per object and field under
+`writtenWithoutFields`, each field with what refused it in `refusedBy`
+(`validation-rule` or `restricted-picklist`; a run recorded before a
+picklist's refusal was written again has none, and was a rule's), and the
+audit entry counts the rows so written, never their values. A row refused
 again is never sent a third time: it fails with the second refusal, its sample
 saying what the first was. A cancel before that call, or a call that throws —
 of the first write or of this one — leaves the rows it would have sent failed
-with their first refusal, saying why they were not written again. A required
-parent copied from outside the graph is written again on the same rule, once,
-and counted under its object in `writtenWithoutFields`; refused, it is reported
-in the `__expandOrphanParents__` report with what the target answered, and with
-its first refusal when it was sent again.
+with their first refusal, saying why they were not written again.
+
+A picklist value the target refused under a record type is kept for the run:
+a later row of the same object holding that value under that record type is
+sent without it from its first call, and counted under `writtenWithoutFields`
+with the refusal, as the rows refused for it were. An API write has its
+restricted picklists checked before any trigger or rule runs, so the value
+would have been refused again: the row ends as it would have, one refusal
+sooner, and keeps its one second call for anything else the target refuses
+it on; a sample of such a row that fails says why it went without the value.
+The value is what is kept, not the field: a record type that takes some of a
+field's values refuses only the others. Nothing is kept of a row that names no
+record type — an upsert that matches a record leaves it the one it has — nor of
+a field the target's describe does not list, or makes depend on another, whose
+value the refusal may hang on too.
+
+A required parent copied from outside the graph is written again on the same
+rule, once, and counted under its object in `writtenWithoutFields`; it goes in
+an insert of its own, and neither reads nor adds to the values kept for the
+run. Refused, it is reported in the `__expandOrphanParents__` report with what
+the target answered, and with its first refusal when it was sent again.
 
 The rows held back before the write are counted with the rows the target
 refused on the object's line, as the run's totals and its audit entry count

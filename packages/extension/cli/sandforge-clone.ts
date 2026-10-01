@@ -738,17 +738,24 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${change.objectApiName}  ${describePicklistChange(change)}`);
     }
   }
-  // Refused by a validation rule on the fields it named, and written again
-  // without them: in the target, each short of a value the source held.
+  // Refused by a validation rule on the fields it named, or by a restricted
+  // picklist on their value, and written again without them: in the target,
+  // each short of a value the source held. Each field says which refused it;
+  // one recorded before a picklist's refusal was written again is a rule's.
   const withoutFields = summary.writtenWithoutFields ?? [];
   if (withoutFields.length > 0) {
     lines.push(
       '',
-      `written again without a field a validation rule refused (${withoutFields.length} object(s)):`,
+      'written again without a field a validation rule or a restricted picklist refused ' +
+        `(${withoutFields.length} object(s)):`,
     );
     for (const { objectApiName, fields } of withoutFields) {
-      for (const { field, reason, rows } of fields) {
-        lines.push(`  ${objectApiName}.${field}  ${rows} record(s) — ${reason}`);
+      for (const { field, refusedBy, reason, rows } of fields) {
+        const by =
+          refusedBy === 'restricted-picklist'
+            ? 'a restricted picklist refused its value'
+            : 'a validation rule refused it';
+        lines.push(`  ${objectApiName}.${field}  ${rows} record(s) — ${by} — ${reason}`);
       }
     }
   }
@@ -842,7 +849,8 @@ export function jsonResult(summary: ExecutionSummary) {
       ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
     // Per object, the rows written again without the fields a validation rule
-    // refused, each field with the rule's refusal; only when there were any.
+    // or a restricted picklist refused, each field with what refused it
+    // (`refusedBy`) and the refusal; only when there were any.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
     // The requests the run sent to both orgs, discovery's before it aside.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),

@@ -13,6 +13,7 @@ import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
 import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
 import type { CleanedRecord } from './RecordCleaner.js';
+import type { PicklistField } from './RecordTypePicklists.js';
 import type {
   FieldInfo,
   ForgeExecutorDeps,
@@ -1102,7 +1103,14 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
     expect(result.writtenWithoutFields).toEqual({
       rows: 1,
-      fields: [{ field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 1 }],
+      fields: [
+        {
+          field: 'Phone',
+          refusedBy: 'validation-rule',
+          reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+          rows: 1,
+        },
+      ],
     });
   });
 
@@ -1139,14 +1147,14 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
       refused(
         { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: ['Phone'] },
         {
-          statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
-          message: 'bad value for restricted picklist field: Gold',
-          fields: ['Rating__c'],
+          statusCode: 'STRING_TOO_LONG',
+          message: 'Title: data value too large',
+          fields: ['Title'],
         },
       ),
     ]);
     const input = contacts([
-      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', Rating__c: 'Gold' },
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', Title: 'Head of a long title' },
     ]);
 
     const result = await new BatchWriter({ insertRecords }).writeNode(input);
@@ -1155,7 +1163,7 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     expect(result.failureCount).toBe(1);
     expect(result.errorSamples[0]?.messages).toEqual([
       `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
-      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold [Rating__c]',
+      'STRING_TOO_LONG: Title: data value too large [Title]',
     ]);
   });
 
@@ -1275,7 +1283,14 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     expect(result.successCount).toBe(3);
     expect(result.writtenWithoutFields).toEqual({
       rows: 2,
-      fields: [{ field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 2 }],
+      fields: [
+        {
+          field: 'Phone',
+          refusedBy: 'validation-rule',
+          reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+          rows: 2,
+        },
+      ],
     });
   });
 
@@ -1485,6 +1500,337 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
   });
 });
 
+describe('BatchWriter — a row a restricted picklist refused for its value', () => {
+  /** The record type the rows go in with, and another of the same object, in the target. */
+  const VISIT = '012TG0000000001AAA';
+  const OTHER = '012TG0000000002AAA';
+  /** The target's words, which name the value and not the field. */
+  const BAD_YES = 'bad value for restricted picklist field: Yes';
+  const REASON = `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: ${BAD_YES}`;
+  const RULE = 'Enter the phone in international format';
+
+  /** A refusal as the writers hand it on: read from the platform's save result. */
+  function refused(
+    ...errors: Array<{ statusCode: string; message: string; fields: string[] }>
+  ): InsertResult {
+    return toSaveOutcome({ success: false, errors }, 'Visit__c');
+  }
+
+  /** The target refusing a value of a restricted picklist, the field named after it. */
+  const byPicklist = (field = 'Rating__c', value = 'Yes'): InsertResult =>
+    refused({
+      statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+      message: `bad value for restricted picklist field: ${value}`,
+      fields: [field],
+    });
+
+  const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+  /** What the target's describe says of the picklists: Grade__c depends on Rating__c. */
+  const PICKLISTS = new Map<string, PicklistField>([
+    ['Rating__c', { multi: false, restricted: true, required: false }],
+    ['Grade__c', { multi: false, restricted: true, required: false, controllerName: 'Rating__c' }],
+  ]);
+
+  /** One row to a call, so that what a call learns reaches the next. */
+  const oneByOne: ForgeBatchStrategy = {
+    resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 1 }),
+  };
+
+  /** Rows of a custom object as the cleaning stage hands them on, with the target's picklists. */
+  function visits(
+    rows: Array<Record<string, unknown>>,
+    overrides?: Partial<WriteNodeInput>,
+  ): WriteNodeInput {
+    const payloadOf = (row: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'Id'));
+    return makeInput(rows, {
+      node: makeNode('Visit__c', rows.length),
+      records: rows.map(payloadOf),
+      cleanedRecords: rows.map((row) => ({
+        source: { ...row },
+        cleaned: payloadOf(row),
+        nullifiedFks: [],
+      })),
+      picklistFields: PICKLISTS,
+      ...overrides,
+    });
+  }
+
+  const progressOf = (input: WriteNodeInput): string[] =>
+    vi.mocked(input.onProgress).mock.calls.map(([event]) => event.message);
+
+  it('writes it once more without the field, and says a restricted picklist refused its value', async () => {
+    // Run for real, the target refused every row of a record type that was
+    // never given values of the field, though the UI API answered them all.
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byPicklist()])
+      .mockResolvedValueOnce([written('a01NEW1')]);
+    const input = visits([{ Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords.mock.calls[1]).toEqual([
+      'tgt',
+      'Visit__c',
+      [{ Name: 'V1', RecordTypeId: VISIT }],
+    ]);
+    expect(input.remapper.get('a01OLD1')).toBe('a01NEW1');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [{ field: 'Rating__c', refusedBy: 'restricted-picklist', reason: REASON, rows: 1 }],
+    });
+    expect(writtenWithoutFieldsNote(result.writtenWithoutFields)).toBe(
+      `, 1 written without Rating__c: a restricted picklist of the target refused its value, ${REASON}`,
+    );
+    expect(progressOf(input)).toContain(
+      'Writing 1 Visit__c record again without the fields a restricted picklist of the target refused...',
+    );
+  });
+
+  it("leaves out every field a refusal names when it holds a validation rule's error and a restricted picklist's", async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([
+        refused(
+          { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: ['Phone__c'] },
+          {
+            statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+            message: BAD_YES,
+            fields: ['Rating__c'],
+          },
+        ),
+      ])
+      .mockResolvedValueOnce([written('a01NEW1')]);
+    const input = visits([
+      { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Phone__c: '555-0100', Rating__c: 'Yes' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ Name: 'V1', RecordTypeId: VISIT }]);
+    expect(result.successCount).toBe(1);
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [
+        {
+          field: 'Phone__c',
+          refusedBy: 'validation-rule',
+          reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+          rows: 1,
+        },
+        { field: 'Rating__c', refusedBy: 'restricted-picklist', reason: REASON, rows: 1 },
+      ],
+    });
+    expect(progressOf(input)).toContain(
+      'Writing 1 Visit__c record again without the fields a validation rule or a restricted ' +
+        'picklist of the target refused...',
+    );
+  });
+
+  it('leaves it failed, sent once, when the picklist the refusal names is one the row gives no value to', async () => {
+    // A required restricted picklist left empty is refused with the same
+    // code; left out, it stays empty, and the row would be refused again.
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byPicklist('Rating__c', '')]);
+    const input = visits([{ Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+  });
+
+  describe('a value it refused under a record type, in a later call', () => {
+    it('sends the row without it from its first call, and counts it as a row the target refused for it', async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byPicklist()])
+        .mockResolvedValueOnce([written('a01NEW2')])
+        .mockResolvedValueOnce([written('a01NEW1')]);
+      const input = visits([
+        { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' },
+        { Id: 'a01OLD2', Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' },
+      ]);
+
+      const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+      expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([
+        [{ Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' }],
+        [{ Name: 'V2', RecordTypeId: VISIT }],
+        [{ Name: 'V1', RecordTypeId: VISIT }],
+      ]);
+      // The payload the cleaning stage built is left as it was.
+      expect(input.records[1]).toEqual({ Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' });
+      expect(input.remapper.get('a01OLD2')).toBe('a01NEW2');
+      expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+      expect(result.writtenWithoutFields).toEqual({
+        rows: 2,
+        fields: [{ field: 'Rating__c', refusedBy: 'restricted-picklist', reason: REASON, rows: 2 }],
+      });
+    });
+
+    it('sends as read the value under another record type, another value, a row naming no record type, and a field that depends on another', async () => {
+      // The refusal is of one value under one record type: a record type
+      // that takes some of a field's values refuses only the others, and a
+      // dependent value is refused for its controlling value too.
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([
+          refused(
+            {
+              statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+              message: BAD_YES,
+              fields: ['Rating__c'],
+            },
+            {
+              statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+              message: 'bad value for restricted picklist field: A',
+              fields: ['Grade__c'],
+            },
+          ),
+        ])
+        .mockImplementation(async (_org, _object, rows) => rows.map(() => written('a01NEW')));
+      const later = [
+        { Id: 'a01OLD2', Name: 'V2', RecordTypeId: OTHER, Rating__c: 'Yes' },
+        { Id: 'a01OLD3', Name: 'V3', RecordTypeId: VISIT, Rating__c: 'No' },
+        { Id: 'a01OLD4', Name: 'V4', Rating__c: 'Yes' },
+        { Id: 'a01OLD5', Name: 'V5', RecordTypeId: VISIT, Grade__c: 'A' },
+      ];
+      const input = visits([
+        { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes', Grade__c: 'A' },
+        ...later,
+      ]);
+
+      await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+      expect(insertRecords.mock.calls.slice(1, 5).map((call) => call[2])).toEqual(
+        later.map(({ Id: _id, ...payload }) => [payload]),
+      );
+    });
+
+    it("remembers nothing when it is not given the target's picklist fields", async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byPicklist()])
+        .mockImplementation(async (_org, _object, rows) => rows.map(() => written('a01NEW')));
+      const input = visits(
+        [
+          { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' },
+          { Id: 'a01OLD2', Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' },
+        ],
+        { picklistFields: undefined },
+      );
+
+      await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+      expect(insertRecords.mock.calls[1]?.[2]).toEqual([
+        { Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' },
+      ]);
+    });
+
+    it('keeps the row its one second call for what else the target refuses it on, counting both fields', async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byPicklist()])
+        .mockResolvedValueOnce([
+          refused({
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: RULE,
+            fields: ['Phone__c'],
+          }),
+        ])
+        .mockResolvedValueOnce([written('a01NEW1')])
+        .mockResolvedValueOnce([written('a01NEW2')]);
+      const input = visits([
+        { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' },
+        { Id: 'a01OLD2', Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes', Phone__c: '555-0100' },
+      ]);
+
+      const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+      // Sent without the value, refused on its phone, the second row goes
+      // again without both, after the first — never a third time.
+      expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([
+        [{ Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' }],
+        [{ Name: 'V2', RecordTypeId: VISIT, Phone__c: '555-0100' }],
+        [{ Name: 'V1', RecordTypeId: VISIT }],
+        [{ Name: 'V2', RecordTypeId: VISIT }],
+      ]);
+      expect(result).toMatchObject({ successCount: 2, failureCount: 0 });
+      expect(result.writtenWithoutFields).toEqual({
+        rows: 2,
+        fields: [
+          { field: 'Rating__c', refusedBy: 'restricted-picklist', reason: REASON, rows: 2 },
+          {
+            field: 'Phone__c',
+            refusedBy: 'validation-rule',
+            reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+            rows: 1,
+          },
+        ],
+      });
+    });
+
+    it('says why the row went without the value when the target refuses it all the same', async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byPicklist()])
+        .mockResolvedValueOnce([
+          refused({
+            statusCode: 'REQUIRED_FIELD_MISSING',
+            message: 'Required fields are missing: [Rating__c]',
+            fields: ['Rating__c'],
+          }),
+        ])
+        .mockResolvedValueOnce([written('a01NEW1')]);
+      const input = visits([
+        { Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' },
+        { Id: 'a01OLD2', Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' },
+      ]);
+
+      const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+      expect(insertRecords).toHaveBeenCalledTimes(3);
+      expect(result).toMatchObject({ successCount: 1, failureCount: 1 });
+      expect(result.errorSamples).toEqual([
+        {
+          recordSummary: `Name=V2 RecordTypeId=${VISIT}`,
+          messages: [
+            'REQUIRED_FIELD_MISSING: Required fields are missing: [Rating__c]',
+            'Sent without Rating__c: the target refused the same value under the same record ' +
+              `type earlier in the run, ${REASON}`,
+          ],
+        },
+      ]);
+    });
+
+    it('keeps it for the run: a later write of the object through the same writer sends it no more', async () => {
+      // A price book entry goes in two rounds, an email that waited for its
+      // task in a write of its own: one writer for the run serves them all.
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([byPicklist()])
+        .mockResolvedValueOnce([written('a01NEW1')])
+        .mockResolvedValueOnce([written('a01NEW2')]);
+      const writer = new BatchWriter({ insertRecords });
+
+      await writer.writeNode(
+        visits([{ Id: 'a01OLD1', Name: 'V1', RecordTypeId: VISIT, Rating__c: 'Yes' }]),
+      );
+      const result = await writer.writeNode(
+        visits([{ Id: 'a01OLD2', Name: 'V2', RecordTypeId: VISIT, Rating__c: 'Yes' }]),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(3);
+      expect(insertRecords.mock.calls[2]?.[2]).toEqual([{ Name: 'V2', RecordTypeId: VISIT }]);
+      expect(result.writtenWithoutFields?.rows).toBe(1);
+    });
+  });
+});
+
 describe('addWrittenWithoutFields', () => {
   it('counts a field left out for the same refusal once, with the rows of both, and another apart', () => {
     const into = addWrittenWithoutFields(undefined, {
@@ -1512,21 +1858,46 @@ describe('addWrittenWithoutFields', () => {
 });
 
 describe('writtenWithoutFieldsNote', () => {
-  it('says each field the rows went without, how many and why, for the object line', () => {
+  it('says each field the rows went without, how many, what refused it and why, for the object line', () => {
     expect(
       writtenWithoutFieldsNote({
-        rows: 2,
+        rows: 3,
         fields: [
-          { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 2 },
-          { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain', rows: 1 },
+          {
+            field: 'Phone',
+            refusedBy: 'validation-rule',
+            reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
+            rows: 2,
+          },
+          {
+            field: 'Rating__c',
+            refusedBy: 'restricted-picklist',
+            reason:
+              'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+            rows: 1,
+          },
         ],
       }),
     ).toBe(
       ', 2 written without Phone: a validation rule of the target refused it, ' +
         'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone' +
-        ', 1 written without Email: a validation rule of the target refused it, ' +
-        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain',
+        ', 1 written without Rating__c: a restricted picklist of the target refused its value, ' +
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
     );
     expect(writtenWithoutFieldsNote(undefined)).toBe('');
+  });
+
+  it("reads a field a run recorded before a picklist's refusal was written again as a validation rule's", () => {
+    expect(
+      writtenWithoutFieldsNote({
+        rows: 1,
+        fields: [
+          { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain', rows: 1 },
+        ],
+      }),
+    ).toBe(
+      ', 1 written without Email: a validation rule of the target refused it, ' +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain',
+    );
   });
 });

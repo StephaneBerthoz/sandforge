@@ -1854,8 +1854,8 @@
       "failed_other": "{{count}} fehlgeschlagen",
       "notSent_one": "{{count}} nicht gesendet",
       "notSent_other": "{{count}} nicht gesendet",
-      "writtenWithoutFields_one": "{{count}} ohne ein von einer Validierungsregel abgelehntes Feld geschrieben",
-      "writtenWithoutFields_other": "{{count}} ohne ein von einer Validierungsregel abgelehntes Feld geschrieben",
+      "writtenWithoutFields_one": "{{count}} ohne ein von einer Validierungsregel oder einer eingeschränkten Auswahlliste abgelehntes Feld geschrieben",
+      "writtenWithoutFields_other": "{{count}} ohne ein von einer Validierungsregel oder einer eingeschränkten Auswahlliste abgelehntes Feld geschrieben",
       "skipped": "übersprungen",
       "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt"
     },
@@ -2645,7 +2645,7 @@
         "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
       },
       "invalidPicklist": {
-        "explanation": "Ein Auswahllistenwert aus der Quelle ist im Ziel-Org nicht zulässig: Das Feld enthält ihn nicht, oder der Datensatztyp des Datensatzes lässt ihn nicht zu.",
+        "explanation": "Ein Auswahllistenwert aus der Quelle wird von der Ziel-Org nicht angenommen: Das Feld enthält ihn nicht, oder der Datensatztyp, mit dem der Datensatz geschrieben wird, nimmt ihn nicht an — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an. Nennt die Ablehnung ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
         "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
       },
       "fieldCustomValidation": {
@@ -2729,8 +2729,10 @@
       "leftOut": "weggelassen"
     },
     "writtenWithoutFields": {
-      "title": "Ohne ein Feld geschrieben, das eine Validierungsregel der Ziel-Org abgelehnt hat",
-      "hint": "Eine Validierungsregel der Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält."
+      "title": "Ohne ein Feld geschrieben, das eine Validierungsregel oder eine eingeschränkte Auswahlliste der Ziel-Org abgelehnt hat",
+      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
+      "byValidationRule": "von einer Validierungsregel abgelehnt",
+      "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt"
     },
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",

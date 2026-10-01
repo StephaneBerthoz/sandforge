@@ -403,8 +403,8 @@ function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, st
  * and the rows a stop kept from the target — a cancel as the object was
  * written, or the failure the run ended on before the emails that waited for
  * their task — as the object's line says them. Of the rows written, those a
- * validation rule refused that went in without the fields it named are
- * counted again apart.
+ * validation rule or a restricted picklist refused that went in without the
+ * fields it named are counted again apart.
  *
  * A row linked to one the target already held was never written and is
  * neither. Of the `scope` reports, the rows the run held back before sending
@@ -458,7 +458,8 @@ function forgeAuditObjects(
     counts.notSent = (counts.notSent ?? 0) + row.notSent;
   }
   // Written, and counted so above, but short of the fields a validation rule
-  // of the target refused: how many, never which values.
+  // or a restricted picklist of the target refused: how many, never which
+  // values.
   for (const row of result.writtenWithoutFields ?? []) {
     const counts = countsOf(row.objectApiName);
     counts.writtenWithoutFields = (counts.writtenWithoutFields ?? 0) + row.rows;

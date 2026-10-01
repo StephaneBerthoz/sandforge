@@ -79,10 +79,11 @@ export interface AuditObjectCounts {
    */
   upserted?: number;
   /**
-   * Of the records written, those a validation rule of the target refused on
-   * fields it named and that went in once those fields were left out: counted
-   * among the created or updated too, and said apart because they lack a value
-   * the source held. Absent when there are none.
+   * Of the records written, those the target refused on fields it named — a
+   * validation rule, or a restricted picklist refusing their value — and that
+   * went in once those fields were left out: counted among the created or
+   * updated too, and said apart because they lack a value the source held.
+   * Absent when there are none.
    */
   writtenWithoutFields?: number;
   /**

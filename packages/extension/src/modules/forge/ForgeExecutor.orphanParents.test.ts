@@ -310,7 +310,14 @@ describe('ForgeExecutor, a parent copied from outside the graph', () => {
       {
         objectApiName: 'Account',
         rows: 1,
-        fields: [{ field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 1 }],
+        fields: [
+          {
+            field: 'Phone',
+            refusedBy: 'validation-rule',
+            reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+            rows: 1,
+          },
+        ],
       },
     ]);
     expect(summary.failedCount).toBe(0);

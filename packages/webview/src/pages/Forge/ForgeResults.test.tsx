@@ -1546,7 +1546,7 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-picklists')).toBeNull();
   });
 
-  it('names each field a validation rule refused that records went in without, how many and why', () => {
+  it('names each field records went in without, how many, what refused it and why', () => {
     mockResult = Object.assign(makeMockResult(), {
       writtenWithoutFields: [
         {
@@ -1555,9 +1555,11 @@ describe('ForgeResults', () => {
           fields: [
             {
               field: 'Phone',
+              refusedBy: 'validation-rule',
               reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
               rows: 2,
             },
+            // Recorded before a picklist's refusal was written again: a rule's.
             {
               field: 'Email',
               reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
@@ -1565,18 +1567,37 @@ describe('ForgeResults', () => {
             },
           ],
         },
+        {
+          objectApiName: 'Visit__c',
+          rows: 3,
+          fields: [
+            {
+              field: 'Rating__c',
+              refusedBy: 'restricted-picklist',
+              reason:
+                'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+              rows: 3,
+            },
+          ],
+        },
       ],
     });
     render(<ForgeResults />);
 
-    expect(screen.getByTestId('forge-results-written-without').textContent).toContain(
-      'Written without a field a validation rule of the target org refused',
+    const panel = screen.getByTestId('forge-results-written-without').textContent;
+    expect(panel).toContain(
+      'Written without a field a validation rule or a restricted picklist of the target org refused',
+    );
+    // Why the check before the write let the value through.
+    expect(panel).toContain(
+      'one never given values of a field takes none, which nothing read before the write tells',
     );
     expect(
       screen.getAllByTestId('forge-results-written-without-row').map((row) => row.textContent),
     ).toEqual([
-      'Contact.Phone — 2 records — FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
-      'Contact.Email — 1 record — FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
+      'Contact.Phone — 2 records — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
+      'Contact.Email — 1 record — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
+      'Visit__c.Rating__c — 3 records — a restricted picklist refused its value — INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
     ]);
   });
 
@@ -1587,7 +1608,7 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-written-without')).toBeNull();
   });
 
-  it('copies into the report the fields a validation rule refused that records went in without', async () => {
+  it('copies into the report the fields records went in without, and what refused each', async () => {
     mockResult = Object.assign(makeMockResult(), {
       writtenWithoutFields: [
         {
@@ -1595,6 +1616,19 @@ describe('ForgeResults', () => {
           rows: 1,
           fields: [
             { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 1 },
+          ],
+        },
+        {
+          objectApiName: 'Visit__c',
+          rows: 2,
+          fields: [
+            {
+              field: 'Rating__c',
+              refusedBy: 'restricted-picklist',
+              reason:
+                'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+              rows: 2,
+            },
           ],
         },
       ],
@@ -1612,9 +1646,16 @@ describe('ForgeResults', () => {
       });
 
       const report = writeText.mock.calls[0]?.[0] ?? '';
-      expect(report).toContain('## Written Without a Field a Validation Rule Refused');
       expect(report).toContain(
-        '| Contact | Phone | 1 | FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone |',
+        '## Written Without a Field a Validation Rule or a Restricted Picklist Refused',
+      );
+      expect(report).toContain('| Object | Field | Records | Refused by | Refusal |');
+      expect(report).toContain(
+        '| Contact | Phone | 1 | validation rule | FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone |',
+      );
+      expect(report).toContain(
+        '| Visit__c | Rating__c | 2 | restricted picklist | ' +
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes |',
       );
     } finally {
       Reflect.deleteProperty(navigator, 'clipboard');

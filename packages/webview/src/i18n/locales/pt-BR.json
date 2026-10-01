@@ -1854,8 +1854,8 @@
       "failed_other": "{{count}} com falha",
       "notSent_one": "{{count}} não enviado",
       "notSent_other": "{{count}} não enviados",
-      "writtenWithoutFields_one": "{{count}} gravado sem um campo recusado por uma regra de validação",
-      "writtenWithoutFields_other": "{{count}} gravados sem um campo recusado por uma regra de validação",
+      "writtenWithoutFields_one": "{{count}} gravado sem um campo recusado por uma regra de validação ou uma lista de opções restrita",
+      "writtenWithoutFields_other": "{{count}} gravados sem um campo recusado por uma regra de validação ou uma lista de opções restrita",
       "skipped": "ignorado",
       "skippedUncounted": "ignorado, quantidade de registros desconhecida"
     },
@@ -2645,7 +2645,7 @@
         "action": "Ative “Buscar pais automaticamente”, ou aumente a profundidade para que o pai obrigatório faça parte da clonagem."
       },
       "invalidPicklist": {
-        "explanation": "Um valor de lista de opções da origem não é permitido na org de destino: o campo não o contém, ou o tipo de registro do registro não o permite.",
+        "explanation": "Um valor de lista de opções da origem não é aceito pela org de destino: o campo não o contém, ou o tipo de registro com que o registro é gravado não o aceita — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum. Quando a recusa indica um campo ao qual o registro dá um valor, o clone grava o registro de novo sem esse campo; um registro listado aqui não pôde ser gravado assim.",
         "action": "Adicione o valor à lista de opções no Setup da org de destino, e ao tipo de registro do registro, ou altere o valor no registro de origem."
       },
       "fieldCustomValidation": {
@@ -2729,8 +2729,10 @@
       "leftOut": "deixado de fora"
     },
     "writtenWithoutFields": {
-      "title": "Gravados sem um campo recusado por uma regra de validação da org de destino",
-      "hint": "Uma regra de validação da org de destino recusou estes registros pelos campos que indicou. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles."
+      "title": "Gravados sem um campo recusado por uma regra de validação ou uma lista de opções restrita da org de destino",
+      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, ou uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",
+      "byValidationRule": "recusado por uma regra de validação",
+      "byRestrictedPicklist": "valor recusado por uma lista de opções restrita"
     },
     "existingRecords": {
       "title": "Já na org de destino",

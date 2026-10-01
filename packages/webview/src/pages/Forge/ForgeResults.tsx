@@ -18,6 +18,7 @@ import {
 import type {
   ForgeExecuteRequest,
   ForgeExecutionError,
+  ForgeFieldRefusal,
   ForgeGraphNode,
   ForgeNodeStatus,
 } from '@sandforge/shared';
@@ -51,6 +52,22 @@ import { estimatedApiCallsOf } from './forgeApiCalls';
  * semantics, and a few hundred rows cost nothing.
  */
 export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
+
+/**
+ * What refused a field records went in without, as the page says it. A field
+ * a run recorded before a picklist's refusal was written again carries
+ * nothing, and was a validation rule's.
+ */
+const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
+};
+
+/** The same, as the copied report says it, in English as the rest of it. */
+const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'validation rule',
+  'restricted-picklist': 'restricted picklist',
+};
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
@@ -160,7 +177,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
 
-  /** Per object, the rows written again without the fields a validation rule refused. */
+  /** Per object, the rows written again without the fields a validation rule or a restricted picklist refused. */
   const writtenWithoutFields = useMemo(
     () => result?.writtenWithoutFields ?? [],
     [result?.writtenWithoutFields],
@@ -382,19 +399,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }
     }
 
-    // As on the page: the records a validation rule refused that went in
-    // without the fields it named.
+    // As on the page: the records a validation rule or a restricted picklist
+    // refused that went in without the fields it named, and which refused it.
     if (writtenWithoutFields.length > 0) {
       lines.push(
         '',
-        '## Written Without a Field a Validation Rule Refused',
+        '## Written Without a Field a Validation Rule or a Restricted Picklist Refused',
         '',
-        '| Object | Field | Records | Refusal |',
-        '|--------|-------|---------|---------|',
+        '| Object | Field | Records | Refused by | Refusal |',
+        '|--------|-------|---------|------------|---------|',
       );
       for (const { objectApiName, fields } of writtenWithoutFields) {
-        for (const { field, reason, rows: count } of fields) {
-          lines.push(`| ${objectApiName} | ${field} | ${String(count)} | ${reason} |`);
+        for (const { field, refusedBy = 'validation-rule', reason, rows: count } of fields) {
+          lines.push(
+            `| ${objectApiName} | ${field} | ${String(count)} | ${REFUSED_BY_REPORT[refusedBy]} | ${reason} |`,
+          );
         }
       }
     }
@@ -910,9 +929,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         <ForgePicklistsResult changes={result.picklistValuesChanged} />
       )}
       {/* Refused by a validation rule of the target on the fields it named,
-          these records went in once written again without them: in the
-          target, each short of a value the source held. Which field, how many
-          records, and the rule's own words. */}
+          or by a restricted picklist on their value, these records went in
+          once written again without them: in the target, each short of a
+          value the source held. Which field, how many records, what refused
+          it, and the refusal's own words. */}
       {writtenWithoutFields.length > 0 && (
         <div
           className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
@@ -923,13 +943,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <p className="mt-0.5">{t('forge.writtenWithoutFields.hint')}</p>
           <ul className="mt-1 space-y-0.5">
             {writtenWithoutFields.flatMap(({ objectApiName, fields }) =>
-              fields.map(({ field, reason, rows }) => (
+              fields.map(({ field, refusedBy = 'validation-rule', reason, rows }) => (
                 <li
                   key={`${objectApiName}.${field}\u0000${reason}`}
                   data-testid="forge-results-written-without-row"
                 >
                   <span className="font-mono text-text-primary">{`${objectApiName}.${field}`}</span>
-                  {` — ${t('common.recordCount', { count: rows })} — `}
+                  {` — ${t('common.recordCount', { count: rows })} — ${t(REFUSED_BY_KEYS[refusedBy])} — `}
                   <span className="font-mono">{reason}</span>
                 </li>
               )),

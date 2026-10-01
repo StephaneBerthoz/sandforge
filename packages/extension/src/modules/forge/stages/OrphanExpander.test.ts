@@ -982,7 +982,67 @@ describe('OrphanExpander', () => {
           {
             rows: 1,
             fields: [
-              { field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 1 },
+              {
+                field: 'Phone',
+                refusedBy: 'validation-rule',
+                reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+                rows: 1,
+              },
+            ],
+          },
+        ],
+      ]);
+      expect(expander.buildErrorReport()).toBeNull();
+    });
+
+    it('writes a parent a restricted picklist refused for its value once more without the field, and counts it', async () => {
+      // Active in the target, "Gold" passes the check; the record type the
+      // parent goes in with takes none of the field's values all the same.
+      const insertRecords = vi
+        .fn<ExpanderDeps['insertRecords']>()
+        .mockResolvedValueOnce([
+          toSaveOutcome(
+            {
+              success: false,
+              errors: [
+                {
+                  statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+                  message: 'bad value for restricted picklist field: Gold',
+                  fields: ['Tier__c'],
+                },
+              ],
+            },
+            'Account',
+          ),
+        ])
+        .mockResolvedValueOnce([{ id: '001NEW', success: true, errors: [] }]);
+      const deps = parentDeps(insertRecords);
+      const written: Array<[string, WrittenWithoutFields]> = [];
+      const { input } = makeInput(deps, {
+        onWrittenWithoutFields: (object, without) => written.push([object, without]),
+      });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(insertRecords.mock.calls.map(([, , rows]) => rows)).toEqual([
+        [{ Name: 'Acme', Phone: '555-0100', RecordTypeId: SOURCE_RETAIL, Tier__c: 'Gold' }],
+        [{ Name: 'Acme', Phone: '555-0100', RecordTypeId: SOURCE_RETAIL }],
+      ]);
+      expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
+      expect(written).toEqual([
+        [
+          'Account',
+          {
+            rows: 1,
+            fields: [
+              {
+                field: 'Tier__c',
+                refusedBy: 'restricted-picklist',
+                reason:
+                  'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold',
+                rows: 1,
+              },
             ],
           },
         ],

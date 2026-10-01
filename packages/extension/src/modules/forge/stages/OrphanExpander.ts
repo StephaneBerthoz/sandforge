@@ -14,10 +14,14 @@
  * The copy goes in on the rules the run's own rows go in on: its picklist
  * values checked against what the target allows for the record type it gets
  * (`checkRowPicklists`), written once more without the fields a validation
- * rule of the target refused it on (`fieldsToLeaveOut`), and, for a person
- * account, the contact the platform writes with it linked to — each counted
- * where the run counts its own. Copied with none of it, a restricted value its
- * record type refused cost the parent, and every row that needed it with it.
+ * rule or a restricted picklist of the target refused it on
+ * (`fieldsToLeaveOut`), and, for a person account, the contact the platform
+ * writes with it linked to — each counted where the run counts its own.
+ * Copied with none of it, a restricted value its record type refused cost the
+ * parent, and every row that needed it with it. A parent goes in an insert of
+ * its own, and a refusal costs it one call more at most: it neither reads nor
+ * adds to the picklist values the writer stops sending once the target
+ * refused them (`BatchWriter.withoutRefusedValues`).
  *
  * Single-hop only — the fetched parent's *own* required FKs are
  * orphan-nullified normally (no recursion). Capped at
@@ -155,7 +159,7 @@ export interface OrphanExpansionInput {
   onRecordTypeNote?: (objectApiName: string, note: RecordTypeReadNote) => void;
   /** Where the picklist values a parent goes in without, as read, are counted: the run's tally. */
   picklistChanges?: PicklistChangeTally;
-  /** Counts a parent written again without the fields a validation rule of the target refused it on. */
+  /** Counts a parent written again without the fields the target refused it on. */
   onWrittenWithoutFields?: (objectApiName: string, written: WrittenWithoutFields) => void;
   /**
    * Maps the contact of each person account among `accounts` — parents now in
@@ -419,9 +423,10 @@ export class OrphanExpander {
    * values checked), and returns the target ID it now has — the new record's,
    * or the existing one's when the target refuses the copy as a duplicate and
    * names the record it holds — with the row read and, for a new one written
-   * as a draft, the status it is owed. A copy a validation rule of the target
-   * refuses on fields it names is written once more without them, as the
-   * run's own rows are. Returns what the target answered when it refuses the
+   * as a draft, the status it is owed. A copy a validation rule or a
+   * restricted picklist of the target refuses on fields it names is written
+   * once more without them, as the run's own rows are. Returns what the
+   * target answered when it refuses the
    * copy any other way, `null` when the parent can't be fetched, and
    * {@link LEFT_TO_THE_PLATFORM} for a parent the platform writes itself,
    * noted in `leftToThePlatform` and never sent: run for real, the platform
@@ -564,8 +569,9 @@ export class OrphanExpander {
     let written = (await this.deps.insertRecords(targetOrgId, objectName, [payload]))[0];
     if (!written) return null;
     // Refused by a validation rule on fields it named — a phone the target
-    // wants in another format — the parent goes once more without them, as a
-    // row of the run does; never a third time.
+    // wants in another format — or on a restricted picklist's value its record
+    // type does not take, the parent goes once more without them, as a row of
+    // the run does; never a third time.
     const leftOut = written.success ? undefined : fieldsToLeaveOut(written, payload, undefined);
     const firstRefusal = written.errors;
     if (leftOut) {

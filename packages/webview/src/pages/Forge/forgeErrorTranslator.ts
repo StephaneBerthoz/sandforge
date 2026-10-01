@@ -102,6 +102,10 @@ const RULES: Rule[] = [
             'error',
             { detail },
           );
+        // A refusal that names a field the row gives a value to has the row
+        // written again without it, as a validation rule's does: a record
+        // type never given values of a field takes none, which the check
+        // before the write cannot read. What is left here could not be.
         case 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST':
           return mapping(
             ['forge.error.invalidPicklist.explanation', 'forge.error.invalidPicklist.action'],

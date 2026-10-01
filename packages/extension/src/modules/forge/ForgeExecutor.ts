@@ -171,9 +171,9 @@ export interface InsertResult {
   errors: string[];
   /**
    * The same errors, each with its code and the fields it named, index-aligned
-   * with `errors`: what says a validation rule refused the row on a field it
-   * named, which the row is written again without. Only the structured error
-   * carries them; see `toSaveOutcome`.
+   * with `errors`: what says a validation rule, or a restricted picklist,
+   * refused the row on a field it named, which the row is written again
+   * without. Only the structured error carries them; see `toSaveOutcome`.
    */
   errorDetails?: SaveErrorDetail[];
   /**
@@ -800,10 +800,12 @@ export interface ExecutionSummary {
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
   /**
-   * Per object, the rows a validation rule of the target refused on fields it
-   * named that went in once written again without them: each field, the
-   * refusal that named it, and how many rows went without it. Counted among
-   * the rows created or updated too. Absent when there were none.
+   * Per object, the rows the target refused on fields it named — a validation
+   * rule, or a restricted picklist refusing their value — that went in once
+   * written again without them, and those sent without a value it had refused
+   * under their record type: each field, what refused it, the refusal that
+   * named it, and how many rows went without it. Counted among the rows
+   * created or updated too. Absent when there were none.
    */
   writtenWithoutFields?: ForgeWrittenWithoutFields[];
   /**
@@ -1078,8 +1080,8 @@ interface ExecutionState {
   /** The picklist values the run did not write as it read them, by object and field. */
   readonly picklistChanges: PicklistChangeTally;
   /**
-   * Per object, the rows written again without the fields a validation rule
-   * of the target refused them on. See `ExecutionSummary.writtenWithoutFields`.
+   * Per object, the rows written without the fields the target refused them
+   * on. See `ExecutionSummary.writtenWithoutFields`.
    */
   readonly writtenWithoutFields: Map<string, WrittenWithoutFields>;
   /**
@@ -6024,9 +6026,9 @@ export class ForgeExecutor {
   }
 
   /**
-   * Count, for the run's result, rows of an object written again without the
-   * fields a validation rule of the target refused them on: the node's own,
-   * and a parent copied from outside the graph (`OrphanExpander`).
+   * Count, for the run's result, rows of an object written without the fields
+   * the target refused them on: the node's own, and a parent copied from
+   * outside the graph (`OrphanExpander`).
    */
   private countWrittenWithoutFields(
     state: ExecutionState,
@@ -6442,8 +6444,9 @@ export class ForgeExecutor {
         // A parent goes in on the rules the node's rows go in on: its
         // picklist values checked for the record type it gets, read once a
         // run with theirs; written once more without the fields a validation
-        // rule refused it on; the contact of a person account linked to the
-        // one the platform wrote with it. Each counted where theirs are.
+        // rule or a restricted picklist refused it on; the contact of a person
+        // account linked to the one the platform wrote with it. Each counted
+        // where theirs are.
         recordTypePicklists: state.recordTypePicklists,
         onRecordTypeNote: (objectApiName, note) =>
           this.sayRecordTypeNote(state, objectApiName, note),
@@ -6602,6 +6605,9 @@ export class ForgeExecutor {
               upsertMode: config.upsertMode,
               targetOrgId,
               targetKeyPrefix: targetObject?.keyPrefix,
+              // What tells the writer which picklists' refused values it may
+              // keep from the rows after: see `WriteNodeInput.picklistFields`.
+              picklistFields: targetPicklistFields,
               remapper,
               waitIfPaused: () => this.waitIfPaused(),
               stopped: () => this.isAborted,
@@ -6717,8 +6723,9 @@ export class ForgeExecutor {
       // the answer that goes with it: the who the event also invites, and
       // how it answered, which the platform's relation leaves out.
       const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
-      // A row written again without the fields a validation rule refused it
-      // on: which field it went without, and the rule's words.
+      // A row written without the fields the target refused it on: which
+      // field it went without, what refused it — a validation rule, or a
+      // restricted picklist refusing its value — and the refusal's words.
       const withoutFields = writtenWithoutFieldsNote(writeResult.writtenWithoutFields);
       // What else became of the object's rows, said once, on the line that
       // ends the node: after the emails that waited for their task, if any,

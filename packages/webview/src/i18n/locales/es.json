@@ -1854,8 +1854,8 @@
       "failed_other": "{{count}} fallidos",
       "notSent_one": "{{count}} no enviado",
       "notSent_other": "{{count}} no enviados",
-      "writtenWithoutFields_one": "{{count}} escrito sin un campo rechazado por una regla de validación",
-      "writtenWithoutFields_other": "{{count}} escritos sin un campo rechazado por una regla de validación",
+      "writtenWithoutFields_one": "{{count}} escrito sin un campo rechazado por una regla de validación o una lista de selección restringida",
+      "writtenWithoutFields_other": "{{count}} escritos sin un campo rechazado por una regla de validación o una lista de selección restringida",
       "skipped": "omitido",
       "skippedUncounted": "omitido, cantidad de registros desconocida"
     },
@@ -2645,7 +2645,7 @@
         "action": "Active «Obtener padres automáticamente», o aumente la profundidad para que el padre requerido forme parte de la clonación."
       },
       "invalidPicklist": {
-        "explanation": "Un valor de lista de selección del origen no está permitido en la org de destino: el campo no lo contiene, o el tipo de registro del registro no lo permite.",
+        "explanation": "Un valor de lista de selección del origen no lo acepta la org de destino: el campo no lo contiene, o el tipo de registro con el que se escribe el registro no lo acepta — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno. Cuando el rechazo indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
         "action": "Añada el valor a la lista de selección en el Setup de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
       },
       "fieldCustomValidation": {
@@ -2729,8 +2729,10 @@
       "leftOut": "dejado fuera"
     },
     "writtenWithoutFields": {
-      "title": "Escritos sin un campo que rechazó una regla de validación de la org de destino",
-      "hint": "Una regla de validación de la org de destino rechazó estos registros por los campos que indicó. El clon volvió a escribir cada registro sin esos campos: el registro está en la org de destino, sin el valor que el origen tiene para ellos."
+      "title": "Escritos sin un campo que rechazó una regla de validación o una lista de selección restringida de la org de destino",
+      "hint": "La org de destino rechazó estos registros por los campos que indicó: una de sus reglas de validación, o una lista de selección restringida que no acepta el valor para el tipo de registro del registro — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno, algo que nada de lo leído antes de la escritura indica. El clon volvió a escribir cada registro sin esos campos: el registro está en la org de destino, sin el valor que el origen tiene para ellos.",
+      "byValidationRule": "rechazado por una regla de validación",
+      "byRestrictedPicklist": "valor rechazado por una lista de selección restringida"
     },
     "existingRecords": {
       "title": "Ya en la org de destino",

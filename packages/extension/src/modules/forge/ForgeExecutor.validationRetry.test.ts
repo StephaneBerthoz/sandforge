@@ -138,7 +138,11 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
     expect(summary).toMatchObject({ successCount: 2, failedCount: 0, errors: [] });
     expect(summary.remapTable).toEqual({ '003OLD1': '003NEW1', '500OLD1': '500NEW1' });
     expect(summary.writtenWithoutFields).toEqual([
-      { objectApiName: 'Contact', rows: 1, fields: [{ field: 'Phone', reason: REASON, rows: 1 }] },
+      {
+        objectApiName: 'Contact',
+        rows: 1,
+        fields: [{ field: 'Phone', refusedBy: 'validation-rule', reason: REASON, rows: 1 }],
+      },
     ]);
     // The object's line says which field the row went without, and why.
     expect(events.find((e) => e.objectName === 'Contact' && e.status === 'done')?.message).toBe(
@@ -299,5 +303,148 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
     expect(summary.remapTable['003OLD1']).toBeUndefined();
     expect(summary.writtenWithoutFields).toBeUndefined();
     expect(events.some((e) => e.message.includes('written without'))).toBe(false);
+  });
+});
+
+/*
+ * Rows of a custom object whose record type in the target was never given
+ * values of a restricted picklist: it takes none of them, while the UI API
+ * answers the field's every value for it, so the check before the write lets
+ * "Yes" through. Run for real between two orgs, the target refused every row
+ * of the object so, and what hung from them failed with them.
+ */
+describe('ForgeExecutor — a row a restricted picklist refused for its value', () => {
+  /** The record type of the rows in the source, and the one the mapping gives them in the target. */
+  const SOURCE_TYPE = '012SR0000000001AAA';
+  const TARGET_TYPE = '012TG0000000001AAA';
+  const BAD_YES = 'bad value for restricted picklist field: Yes';
+  const PICKLIST_REASON = `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: ${BAD_YES}`;
+
+  const VISIT_GRAPH: ForgeGraph = {
+    nodes: [node('Visit__c', 0)],
+    edges: [],
+    totalRecords: 2,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  const VISIT_FIELDS: FieldInfo[] = [
+    { name: 'Id', queryable: true, createable: false, isReference: false },
+    { name: 'Name', queryable: true, createable: true, isReference: false },
+    {
+      name: 'RecordTypeId',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['RecordType'],
+    },
+    {
+      name: 'Rating__c',
+      queryable: true,
+      createable: true,
+      isReference: false,
+      type: 'picklist',
+      restrictedPicklist: true,
+      picklistValues: ['Yes', 'No'],
+    },
+  ];
+
+  /** One row to a call: what the first call learns reaches the second. */
+  const oneByOne: ForgeBatchStrategy = {
+    resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+  };
+
+  /** Deps reading two rows, the UI API answering both values, the target refusing "Yes". */
+  function visitDeps(): ForgeExecutorDeps & {
+    inserts: Record<string, unknown>[][];
+    uiApiReads: Array<[string, string, string]>;
+  } {
+    const inserts: Record<string, unknown>[][] = [];
+    const uiApiReads: Array<[string, string, string]> = [];
+    let next = 0;
+    return {
+      inserts,
+      uiApiReads,
+      batchStrategy: oneByOne,
+      describeFields: async () => VISIT_FIELDS,
+      queryRecords: async (org, soql) =>
+        org === 'src' && soql.includes('FROM Visit__c')
+          ? [1, 2].map((i) => ({
+              Id: `a01OLD${i}`,
+              Name: `V${i}`,
+              RecordTypeId: SOURCE_TYPE,
+              Rating__c: 'Yes',
+            }))
+          : [],
+      recordTypePicklists: async (org, object, recordTypeId) => {
+        uiApiReads.push([org, object, recordTypeId]);
+        return new Map([['Rating__c', { values: ['Yes', 'No'], defaultValue: null }]]);
+      },
+      insertRecords: async (_org, _object, records) => {
+        inserts.push(records.map((r) => ({ ...r })));
+        return records.map((r) =>
+          r['Rating__c'] === 'Yes'
+            ? toSaveOutcome(
+                {
+                  success: false,
+                  errors: [
+                    {
+                      statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+                      message: BAD_YES,
+                      fields: ['Rating__c'],
+                    },
+                  ],
+                },
+                'Visit__c',
+              )
+            : { id: `a01NEW${++next}`, success: true, errors: [] },
+        );
+      },
+    };
+  }
+
+  it('writes the rows without the field, the second without it from its first call, and says what refused it', async () => {
+    const d = visitDeps();
+    const events: ForgeProgressEvent[] = [];
+
+    const summary = await new ForgeExecutor(d).execute(
+      VISIT_GRAPH,
+      'src',
+      'tgt',
+      (e) => events.push(e),
+      {
+        recordTypeMappings: [
+          { sourceId: SOURCE_TYPE, targetId: TARGET_TYPE, developerName: 'Visit' },
+        ],
+      },
+    );
+
+    // The check read the record type's values, and kept "Yes" by them.
+    expect(d.uiApiReads).toEqual([['tgt', 'Visit__c', TARGET_TYPE]]);
+    expect(summary.picklistValuesChanged).toBeUndefined();
+    expect(d.inserts).toEqual([
+      [{ Name: 'V1', RecordTypeId: TARGET_TYPE, Rating__c: 'Yes' }],
+      [{ Name: 'V2', RecordTypeId: TARGET_TYPE }],
+      [{ Name: 'V1', RecordTypeId: TARGET_TYPE }],
+    ]);
+    expect(summary).toMatchObject({ successCount: 2, failedCount: 0, errors: [] });
+    expect(summary.writtenWithoutFields).toEqual([
+      {
+        objectApiName: 'Visit__c',
+        rows: 2,
+        fields: [
+          {
+            field: 'Rating__c',
+            refusedBy: 'restricted-picklist',
+            reason: PICKLIST_REASON,
+            rows: 2,
+          },
+        ],
+      },
+    ]);
+    expect(events.find((e) => e.objectName === 'Visit__c' && e.status === 'done')?.message).toBe(
+      'Completed Visit__c: 2 succeeded, 0 failed, 2 written without Rating__c: a restricted ' +
+        `picklist of the target refused its value, ${PICKLIST_REASON}`,
+    );
   });
 });

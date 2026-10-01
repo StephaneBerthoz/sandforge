@@ -675,13 +675,26 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).picklistValuesChanged).toBeUndefined();
   });
 
-  it('names each field a validation rule refused that rows were written again without, and why', () => {
+  it('names each field rows were written again without, what refused it — a validation rule or a restricted picklist — and why', () => {
     const writtenWithoutFields = [
       {
         objectApiName: 'Contact',
         rows: 2,
         fields: [
-          { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 2 },
+          {
+            field: 'Phone',
+            refusedBy: 'validation-rule' as const,
+            reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
+            rows: 2,
+          },
+          {
+            field: 'Rating__c',
+            refusedBy: 'restricted-picklist' as const,
+            reason:
+              'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+            rows: 1,
+          },
+          // Recorded before a picklist's refusal was written again: a rule's.
           { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail', rows: 1 },
         ],
       },
@@ -691,9 +704,11 @@ describe('sandforge-clone summary', () => {
 
     expect(lines).toEqual(
       expect.arrayContaining([
-        'written again without a field a validation rule refused (1 object(s)):',
-        '  Contact.Phone  2 record(s) — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
-        '  Contact.Email  1 record(s) — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail',
+        'written again without a field a validation rule or a restricted picklist refused (1 object(s)):',
+        '  Contact.Phone  2 record(s) — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
+        '  Contact.Rating__c  1 record(s) — a restricted picklist refused its value — ' +
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+        '  Contact.Email  1 record(s) — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail',
       ]),
     );
     expect(jsonResult(summary({ writtenWithoutFields })).writtenWithoutFields).toEqual(

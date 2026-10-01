@@ -6,8 +6,11 @@
  * Id field when `upsertMode: 'auto'` applies — registers the new
  * source→target ID mappings, links rows the target refused because it
  * already holds them to the record it named, writes once more without them
- * the rows a validation rule refused on fields it named, collects per-record
- * failure samples, and queues nullified cycle FKs for the pass-2 UPDATE.
+ * the rows a validation rule or a restricted picklist refused on fields it
+ * named — and sends without it from the start a row holding a picklist value
+ * the target refused under the same record type earlier in the run —
+ * collects per-record failure samples, and queues nullified cycle FKs for
+ * the pass-2 UPDATE.
  *
  * Pause/abort is honored before each call through the `waitIfPaused`
  * checkpoint injected by the executor.
@@ -21,6 +24,7 @@ import type {
   InsertResult,
 } from '../ForgeExecutor.js';
 import type {
+  ForgeFieldRefusal,
   ForgeGraphNode,
   ForgeRefusedField,
   ForgeWrittenWithoutFields,
@@ -43,6 +47,7 @@ import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
+import type { PicklistField } from './RecordTypePicklists.js';
 import type { IdRemapper } from '../IdRemapper.js';
 
 /**
@@ -151,6 +156,13 @@ export interface WriteNodeInput {
    */
   targetKeyPrefix?: string | null;
   /**
+   * What the target's describe says of the object's picklist fields. A value
+   * of one the target refused under a record type is not sent again in the
+   * run with that record type — unless the field depends on another, whose
+   * value the refusal may hang on. Absent, no refusal is remembered.
+   */
+  picklistFields?: ReadonlyMap<string, PicklistField>;
+  /**
    * Source→target ID mappings accumulated so far — mutated on success, and
    * for a row the target already held.
    */
@@ -217,22 +229,26 @@ export interface BatchWriteResult {
    */
   withTheirRecord?: string[];
   /**
-   * The rows a validation rule of the target refused on fields it named that
-   * went in once written again without them: counted among the created or
-   * updated rows too. Absent when none did.
+   * The rows the target refused on fields it named — a validation rule, or a
+   * restricted picklist refusing their value — that went in once written
+   * again without them, and those sent without a value it had refused under
+   * their record type: counted among the created or updated rows too. Absent
+   * when none did.
    */
   writtenWithoutFields?: WrittenWithoutFields;
 }
 
 /**
- * Rows written again without the fields a validation rule of the target
- * refused them on: how many, and each field left out with the refusal that
- * named it and how many of them went without it.
+ * Rows written without the fields the target refused them on: how many, and
+ * each field left out with what refused it, the refusal that named it and
+ * how many of them went without it.
  */
 export type WrittenWithoutFields = Omit<ForgeWrittenWithoutFields, 'objectApiName'>;
 
-/** A field a row goes again without, and the refusal that named it. */
-export type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows'>;
+/** A field a row goes without, what refused it, and the refusal that named it. */
+export type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows' | 'refusedBy'> & {
+  readonly refusedBy: ForgeFieldRefusal;
+};
 
 /**
  * The code a validation rule of the target refuses a row with. A trigger that
@@ -240,6 +256,19 @@ export type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows'>;
  * the same refusal of that field.
  */
 const VALIDATION_RULE_REFUSAL = 'FIELD_CUSTOM_VALIDATION_EXCEPTION';
+
+/**
+ * The code a restricted picklist of the target refuses a value with: one the
+ * field does not hold, one the record type the row goes in with does not
+ * take, or one its controlling value does not allow.
+ */
+const RESTRICTED_PICKLIST_REFUSAL = 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST';
+
+/** What refused a row on the fields its error named, by the code it refused with. */
+const REFUSED_BY: ReadonlyMap<string, ForgeFieldRefusal> = new Map([
+  [VALIDATION_RULE_REFUSAL, 'validation-rule'],
+  [RESTRICTED_PICKLIST_REFUSAL, 'restricted-picklist'],
+]);
 
 /**
  * A row the target refused as one it already holds without naming the
@@ -256,8 +285,9 @@ interface UnnamedDuplicate {
 }
 
 /**
- * A row a validation rule of the target refused on fields it named: it waits
- * to be written once more without them, once the node's calls are through.
+ * A row the target refused on fields it named — a validation rule, or a
+ * restricted picklist refusing its value: it waits to be written once more
+ * without them, once the node's calls are through.
  */
 interface RefusedOnItsFields {
   /** The payload first sent. */
@@ -268,6 +298,11 @@ interface RefusedOnItsFields {
   errors: string[];
   /** The fields it goes again without, as the payload names them. */
   leftOut: FieldToLeaveOut[];
+  /**
+   * The fields it was first sent without, their value refused under its
+   * record type earlier in the run: see `BatchWriter.withoutRefusedValues`.
+   */
+  before: readonly FieldToLeaveOut[];
 }
 
 /** One node's write as its calls are answered: where each answer is counted. */
@@ -279,10 +314,16 @@ interface NodeWrite {
   readonly tally: BatchWriteResult;
   /** Duplicates the target did not name, for an object with a natural key. */
   readonly byNaturalKey: UnnamedDuplicate[];
-  /** Rows a validation rule refused on fields it named, to write again without them. */
+  /** Rows the target refused on fields it named, to write again without them. */
   readonly refusedOnTheirFields: RefusedOnItsFields[];
   /** The external id the rows are upserted by, which a row never goes without. */
   readonly upsertField: string | undefined;
+  /**
+   * The picklist fields, by their lowercased name, whose values the run
+   * remembers once the target refuses them: those the target's describe
+   * lists, and makes depend on no other field.
+   */
+  readonly remembered: ReadonlySet<string>;
 }
 
 /**
@@ -304,18 +345,34 @@ export function addWrittenWithoutFields(
   return sum;
 }
 
+/** What refused a field rows went without, as the object's line says it. */
+const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'a validation rule of the target refused it',
+  'restricted-picklist': 'a restricted picklist of the target refused its value',
+};
+
 /**
- * What the object's line says of the rows written again without the fields a
- * validation rule of the target refused them on: each field, how many rows
- * went without it and why. Empty when none did.
+ * What the object's line says of the rows written without the fields the
+ * target refused them on: each field, how many rows went without it, what
+ * refused it and in what words. Empty when none did. A field recorded before
+ * a picklist's refusal was written again is a validation rule's.
  */
 export function writtenWithoutFieldsNote(written: WrittenWithoutFields | undefined): string {
   return (written?.fields ?? [])
     .map(
-      ({ field, reason, rows }) =>
-        `, ${rows} written without ${field}: a validation rule of the target refused it, ${reason}`,
+      ({ field, refusedBy = 'validation-rule', reason, rows }) =>
+        `, ${rows} written without ${field}: ${REFUSED_IT[refusedBy]}, ${reason}`,
     )
     .join('');
+}
+
+/** What refused the fields of `leftOut`, as the line of their second write says it. */
+function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
+  const by = new Set(leftOut.map((f) => f.refusedBy));
+  if (by.size > 1) return 'a validation rule or a restricted picklist of the target';
+  return by.has('restricted-picklist')
+    ? 'a restricted picklist of the target'
+    : 'a validation rule of the target';
 }
 
 /** Whether a payload gives a field a value: leaving out one it gives none changes nothing. */
@@ -336,12 +393,22 @@ function heldKeyOf(payload: Record<string, unknown>, named: string): string | un
 }
 
 /**
- * The fields to write a refused row again without, each with the refusal that
- * named it: only when every error of the refusal is a validation rule's, and
- * each names a field the row gives a value to. Nothing otherwise — a rule that
- * names no field, or only fields the row leaves empty, would refuse the row
- * again whatever went, as any other error would. A parent copied from outside
- * the graph is written again on the same rule (`OrphanExpander`).
+ * The fields to write a refused row again without, each with what refused it
+ * and the refusal that named it: only when every error of the refusal is a
+ * validation rule's or a restricted picklist's, and each names a field the
+ * row gives a value to; a refusal that holds both leaves out every field they
+ * name. Nothing otherwise — an error that names no field, or only fields the
+ * row leaves empty, would refuse the row again whatever went, as any other
+ * error would.
+ *
+ * A restricted picklist's refusal gets past the check before the write when
+ * the record type is at fault: the check keeps a value the target's describe
+ * lists, and one the UI API says the record type takes, and a record type
+ * never given values of the field takes none of them while the UI API answers
+ * them all. A real run was refused so on every row of an object, and what
+ * hung from them failed with them. No read tells it; the refusal does. A
+ * parent copied from outside the graph is written again on the same rule
+ * (`OrphanExpander`).
  *
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
  */
@@ -352,18 +419,23 @@ export function fieldsToLeaveOut(
 ): FieldToLeaveOut[] | undefined {
   const details = result.errorDetails ?? [];
   if (details.length === 0 || details.length !== result.errors.length) return undefined;
-  const leftOut = new Map<string, string>();
+  const leftOut = new Map<string, FieldToLeaveOut>();
   for (const detail of details) {
-    if (detail.statusCode !== VALIDATION_RULE_REFUSAL) return undefined;
+    const refusedBy = REFUSED_BY.get(detail.statusCode);
+    if (!refusedBy) return undefined;
     const held = detail.fields
       .map((named) => heldKeyOf(payload, named))
       .filter(
         (key): key is string => key !== undefined && key.toLowerCase() !== keep?.toLowerCase(),
       );
     if (held.length === 0) return undefined;
-    for (const key of held) if (!leftOut.has(key)) leftOut.set(key, codeAndMessage(detail));
+    for (const field of held) {
+      if (!leftOut.has(field)) {
+        leftOut.set(field, { field, refusedBy, reason: codeAndMessage(detail) });
+      }
+    }
   }
-  return [...leftOut].map(([field, reason]) => ({ field, reason }));
+  return [...leftOut.values()];
 }
 
 /** `payload` without the fields of `leftOut`, the payload itself left as it was. */
@@ -393,6 +465,20 @@ export function sentAgainNote(
   return `Sent again without ${fieldList(leftOut)} after the first refusal: ${firstRefusal.join('; ')}`;
 }
 
+/**
+ * What the sample of a row first sent without the values the target had
+ * refused under its record type says: which fields, and the refusal. Nothing
+ * for a row that went with all of its values.
+ */
+function sentWithoutNote(before: readonly FieldToLeaveOut[]): string[] {
+  if (before.length === 0) return [];
+  const refusals = [...new Set(before.map((f) => f.reason))].join('; ');
+  return [
+    `Sent without ${fieldList(before)}: the target refused the same value under the same ` +
+      `record type earlier in the run, ${refusals}`,
+  ];
+}
+
 /** A {@link BatchWriteResult} with nothing counted yet. */
 export function emptyBatchWriteResult(): BatchWriteResult {
   return {
@@ -413,6 +499,16 @@ export function emptyBatchWriteResult(): BatchWriteResult {
  */
 export class BatchWriter {
   private readonly batchStrategy: ForgeBatchStrategyService;
+
+  /**
+   * The values of restricted picklists the target refused in the run, by
+   * object, the record type the row named, field and value, each with the
+   * refusal: a later row of the same object holding the same value under the
+   * same record type goes without it from its first call, rather than be
+   * refused for it and sent again. A writer is made for a run, and keeps them
+   * for it. See `refusedValueKey`.
+   */
+  private readonly refusedValues = new Map<string, FieldToLeaveOut>();
 
   constructor(
     private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'> &
@@ -523,6 +619,11 @@ export class BatchWriter {
       byNaturalKey: [],
       refusedOnTheirFields: [],
       upsertField,
+      remembered: new Set(
+        [...(input.picklistFields ?? [])]
+          .filter(([, field]) => field.controllerName === undefined)
+          .map(([name]) => name.toLowerCase()),
+      ),
     };
     const { byNaturalKey } = write;
     /**
@@ -531,7 +632,7 @@ export class BatchWriter {
      * without naming the record were left waiting for a lookup the run no
      * longer makes: neither linked nor counted, missing from what the run said
      * it did. Not written, they stay failures the run could not identify, as
-     * when the lookup cannot be read. The rows a validation rule refused stay
+     * when the lookup cannot be read. The rows refused on their fields stay
      * the failures the target made them, as when the call that writes them
      * again fails.
      */
@@ -557,7 +658,13 @@ export class BatchWriter {
         throw err;
       }
 
-      const batch = records.slice(b * batchSize, (b + 1) * batchSize);
+      // A value the target refused under a row's record type in a call before
+      // goes no more: the row is sent without it, as it would have been sent
+      // again once refused for it.
+      const prepared = records
+        .slice(b * batchSize, (b + 1) * batchSize)
+        .map((payload) => this.withoutRefusedValues(write, payload));
+      const batch = prepared.map((row) => row.sent);
       let results: InsertResult[];
       try {
         results = await this.send(write, targetOrgId, batch);
@@ -572,7 +679,7 @@ export class BatchWriter {
           recordSummary: `${node.objectApiName} batch ${b + 1}/${batchCount}: ${notWritten} record${notWritten === 1 ? '' : 's'} not written`,
           messages: [extractErrorMessage(err)],
         });
-        // Nor are the rows a validation rule refused in the calls before
+        // Nor are the rows refused on their fields in the calls before
         // written again: they stay the failures the target made them.
         this.leaveRefusedAsFailed(
           write,
@@ -595,7 +702,17 @@ export class BatchWriter {
       const expected = batch.length;
       const actual = results.length;
       for (let i = 0; i < actual; i++) {
-        this.settle(write, results[i], batch[i], cleanedRecords[recordOffset + i]);
+        // An answer past the rows sent — a writer that answered more than it
+        // was given — has no row behind it, and nothing it went without.
+        const before = i < expected ? prepared[i].before : [];
+        this.settle(
+          write,
+          results[i],
+          batch[i],
+          cleanedRecords[recordOffset + i],
+          undefined,
+          before,
+        );
       }
       // Account for missing results — keeps recordOffset aligned with
       // the source batch and prevents IdRemapper cross-contamination.
@@ -603,7 +720,10 @@ export class BatchWriter {
         tally.failureCount++;
         this.sample(tally, {
           recordSummary: summarizeRecordForError(batch[i]),
-          messages: [`No result returned for record (API truncated batch: ${actual}/${expected})`],
+          messages: [
+            `No result returned for record (API truncated batch: ${actual}/${expected})`,
+            ...sentWithoutNote(prepared[i].before),
+          ],
         });
       }
 
@@ -677,8 +797,10 @@ export class BatchWriter {
    *
    * @param payload - What was sent for it.
    * @param built - The record it was cleaned from.
-   * @param retried - Set when the row went again without the fields a
-   *   validation rule refused it on: it is not sent a third time.
+   * @param retried - Set when the row went again without the fields the
+   *   target refused it on: it is not sent a third time.
+   * @param before - The fields it was first sent without, their value refused
+   *   under its record type earlier in the run.
    */
   private settle(
     write: NodeWrite,
@@ -686,6 +808,7 @@ export class BatchWriter {
     payload: Record<string, unknown>,
     built: CleanedRecord | undefined,
     retried?: RefusedOnItsFields,
+    before: readonly FieldToLeaveOut[] = retried?.before ?? [],
   ): void {
     const { tally, remapper, objectApiName } = write;
     if (result.success) {
@@ -716,14 +839,18 @@ export class BatchWriter {
           });
         }
       }
-      if (retried) {
+      // Counted the same whether the target refused the value of this row or
+      // of one before it: either way the row is in, short of the value.
+      const leftOut = [...before, ...(retried?.leftOut ?? [])];
+      if (leftOut.length > 0) {
         tally.writtenWithoutFields = addWrittenWithoutFields(tally.writtenWithoutFields, {
           rows: 1,
-          fields: retried.leftOut.map((f) => ({ ...f, rows: 1 })),
+          fields: leftOut.map((f) => ({ ...f, rows: 1 })),
         });
       }
       return;
     }
+    this.rememberRefusedValues(write, result, payload);
     const existing = existingRecordOf(result, write.targetKeyPrefix);
     if (existing.kind === 'linked') {
       // The target refused the row because it holds it, and said which
@@ -741,12 +868,13 @@ export class BatchWriter {
       return;
     }
     // Refused on fields a validation rule named — a phone the target wants
-    // in another format — the row went down, and every record hanging from
+    // in another format — or on a restricted picklist's value its record
+    // type does not take, the row went down, and every record hanging from
     // it failed or was skipped for want of it. Written again without them
     // once the calls are through, it is in the target, short of a value.
     const leftOut = retried ? undefined : fieldsToLeaveOut(result, payload, write.upsertField);
     if (leftOut) {
-      write.refusedOnTheirFields.push({ payload, built, errors: result.errors, leftOut });
+      write.refusedOnTheirFields.push({ payload, built, errors: result.errors, leftOut, before });
       return;
     }
     tally.failureCount++;
@@ -759,17 +887,94 @@ export class BatchWriter {
       // The row as first sent, which the fields left out cannot hide.
       recordSummary: summarizeRecordForError(retried?.payload ?? payload),
       // Refused again, the row fails with what the target said the second
-      // time, and says what it was first refused with.
-      messages: retried
-        ? [...result.errors, sentAgainNote(retried.leftOut, retried.errors)]
-        : result.errors,
+      // time, and says what it was first refused with — and why it went
+      // without a value from the start, when it did.
+      messages: [
+        ...result.errors,
+        ...(retried ? [sentAgainNote(retried.leftOut, retried.errors)] : []),
+        ...sentWithoutNote(before),
+      ],
     });
   }
 
   /**
-   * Count as failed, with what the target refused them with, rows a
-   * validation rule refused that a cancel or a call that threw kept from
-   * being written again, each sample saying why.
+   * Where the target's refusal of a row's value of `field` is kept: by
+   * object, the record type the row names, field and value. An API write has
+   * its restricted picklists checked before any trigger or rule runs (the
+   * order of execution), so the same value under the same record type is
+   * refused whatever else a row holds. Nothing for a row that names no record
+   * type — an upsert that matches a record keeps the one it has, which the row
+   * does not say — nor for a field whose value it does not hold, the external
+   * id it is upserted by, or a field the run does not remember
+   * (`NodeWrite.remembered`): one that depends on another is refused for that
+   * one's value as much as for its own.
+   */
+  private refusedValueKey(
+    write: NodeWrite,
+    payload: Record<string, unknown>,
+    field: string,
+  ): string | undefined {
+    const recordType = payload['RecordTypeId'];
+    const value = payload[field];
+    if (typeof recordType !== 'string' || recordType === '') return undefined;
+    if (typeof value !== 'string' || value === '') return undefined;
+    const name = field.toLowerCase();
+    if (!write.remembered.has(name) || name === write.upsertField?.toLowerCase()) return undefined;
+    return [write.objectApiName, recordType, name, value].join('\u0000');
+  }
+
+  /**
+   * Keep for the run each value of a restricted picklist the target refused
+   * a row for, whether or not the row goes again: see `refusedValueKey`.
+   */
+  private rememberRefusedValues(
+    write: NodeWrite,
+    result: InsertResult,
+    payload: Record<string, unknown>,
+  ): void {
+    for (const detail of result.errorDetails ?? []) {
+      if (detail.statusCode !== RESTRICTED_PICKLIST_REFUSAL) continue;
+      for (const named of detail.fields) {
+        const field = heldKeyOf(payload, named);
+        const key = field === undefined ? undefined : this.refusedValueKey(write, payload, field);
+        if (field === undefined || key === undefined || this.refusedValues.has(key)) continue;
+        this.refusedValues.set(key, {
+          field,
+          refusedBy: 'restricted-picklist',
+          reason: codeAndMessage(detail),
+        });
+      }
+    }
+  }
+
+  /**
+   * A row's payload as it is first sent: without the values the target
+   * refused under the record type it names earlier in the run, and those it
+   * goes without, with the refusal of each. Sent with them, the row would be
+   * refused for them and sent again without them, as it now is from the
+   * start; its one second call stays for whatever else the target refuses it
+   * on. The payload itself, left as it was, when it holds none.
+   */
+  private withoutRefusedValues(
+    write: NodeWrite,
+    payload: Record<string, unknown>,
+  ): { sent: Record<string, unknown>; before: FieldToLeaveOut[] } {
+    const before: FieldToLeaveOut[] = [];
+    if (this.refusedValues.size === 0) return { sent: payload, before };
+    for (const field of Object.keys(payload)) {
+      const key = this.refusedValueKey(write, payload, field);
+      const refused = key === undefined ? undefined : this.refusedValues.get(key);
+      if (refused) before.push({ ...refused, field });
+    }
+    return before.length === 0
+      ? { sent: payload, before }
+      : { sent: without(payload, before), before };
+  }
+
+  /**
+   * Count as failed, with what the target refused them with, rows it refused
+   * on their fields that a cancel or a call that threw kept from being
+   * written again, each sample saying why.
    */
   private leaveRefusedAsFailed(
     write: NodeWrite,
@@ -780,21 +985,25 @@ export class BatchWriter {
       write.tally.failureCount++;
       this.sample(write.tally, {
         recordSummary: summarizeRecordForError(row.payload),
-        messages: [...row.errors, `Not written again without ${fieldList(row.leftOut)}: ${why}`],
+        messages: [
+          ...row.errors,
+          `Not written again without ${fieldList(row.leftOut)}: ${why}`,
+          ...sentWithoutNote(row.before),
+        ],
       });
     }
   }
 
   /**
-   * Write once more, without the fields a validation rule of the target
-   * refused them on, the rows it refused so — through the call that first
-   * wrote them, after the checkpoint each call has, as many to a call, and
-   * once each. A row taken this time counts as written, and its children find
-   * it in the remap table; the fields it went without are counted for the
-   * object's line. A row refused again stays a failure, with the second
-   * refusal. A call that throws stops the node there, as one of the first
-   * write does, its rows and those after it failures; a cancel at the
-   * checkpoint leaves them so too, and is thrown on.
+   * Write once more, without the fields the target refused them on, the rows
+   * it refused so — through the call that first wrote them, after the
+   * checkpoint each call has, as many to a call, and once each. A row taken
+   * this time counts as written, and its children find it in the remap
+   * table; the fields it went without are counted for the object's line. A
+   * row refused again stays a failure, with the second refusal. A call that
+   * throws stops the node there, as one of the first write does, its rows and
+   * those after it failures; a cancel at the checkpoint leaves them so too,
+   * and is thrown on.
    */
   private async writeAgainWithoutTheirFields(
     write: NodeWrite,
@@ -809,7 +1018,7 @@ export class BatchWriter {
       progress: 100,
       message:
         `Writing ${rows.length} ${write.objectApiName} record${rows.length === 1 ? '' : 's'} ` +
-        'again without the fields a validation rule of the target refused...',
+        `again without the fields ${whatRefused(rows.flatMap((row) => row.leftOut))} refused...`,
     });
     for (let start = 0; start < rows.length; start += batchSize) {
       try {
@@ -839,6 +1048,7 @@ export class BatchWriter {
           messages: [
             `No result returned for record (API truncated batch: ${results.length}/${chunk.length})`,
             sentAgainNote(row.leftOut, row.errors),
+            ...sentWithoutNote(row.before),
           ],
         });
       });

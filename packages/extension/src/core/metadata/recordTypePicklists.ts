@@ -10,6 +10,15 @@
  * type: the values it keeps, its default for the field, and for a dependent
  * picklist the values each value of the controlling field allows.
  *
+ * It misses one case, which no read before a write tells: a record type never
+ * given values of a field takes none of them, and the UI API answers the
+ * field's every value for it all the same. The record type's metadata (Tooling
+ * API `RecordType.Metadata.picklistValues`) holds no entry for such a field —
+ * and at times none either for a field whose values the record type does take,
+ * so it cannot tell the two apart. A real run was refused so on every row of an
+ * object; Forge writes a row refused for its value again without the field
+ * (`BatchWriter.fieldsToLeaveOut`).
+ *
  * One request answers every picklist field of a record type —
  * `ui-api/object-info/{object}/picklist-values/{recordTypeId}` — and one more
  * path segment narrows it to a field. Both answers are external input, read

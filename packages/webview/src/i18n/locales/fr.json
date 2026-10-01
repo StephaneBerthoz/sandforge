@@ -1854,8 +1854,8 @@
       "failed_other": "{{count}} en échec",
       "notSent_one": "{{count}} non envoyé",
       "notSent_other": "{{count}} non envoyés",
-      "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par une règle de validation",
-      "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par une règle de validation",
+      "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par une règle de validation ou une liste de sélection restreinte",
+      "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par une règle de validation ou une liste de sélection restreinte",
       "skipped": "ignoré",
       "skippedUncounted": "ignoré, nombre d'enregistrements inconnu"
     },
@@ -2645,7 +2645,7 @@
         "action": "Activez « Récupérer les parents automatiquement », ou augmentez la profondeur pour que le parent requis fasse partie du clonage."
       },
       "invalidPicklist": {
-        "explanation": "Une valeur de liste de sélection de la source n'est pas autorisée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement de l'enregistrement ne l'autorise pas.",
+        "explanation": "Une valeur de liste de sélection de la source n'est pas acceptée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement avec lequel l'enregistrement est écrit ne l'accepte pas — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune. Quand le refus désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
         "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, et au type d'enregistrement de l'enregistrement, ou modifiez la valeur sur l'enregistrement source."
       },
       "fieldCustomValidation": {
@@ -2729,8 +2729,10 @@
       "leftOut": "laissée de côté"
     },
     "writtenWithoutFields": {
-      "title": "Écrits sans un champ refusé par une règle de validation de l'org cible",
-      "hint": "Une règle de validation de l'org cible a refusé ces enregistrements sur les champs qu'elle désignait. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne."
+      "title": "Écrits sans un champ refusé par une règle de validation ou une liste de sélection restreinte de l'org cible",
+      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, ou une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
+      "byValidationRule": "refusé par une règle de validation",
+      "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte"
     },
     "existingRecords": {
       "title": "Déjà dans l'org cible",
