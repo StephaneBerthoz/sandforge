@@ -111,6 +111,7 @@ describe('sandforge-clone flag validation', () => {
     ['--max-file-size without --files', argv('--max-file-size', '5')],
     ['a --max-file-size one call cannot carry', argv('--files', '--max-file-size', '36')],
     ['a --max-file-size that is not a size', argv('--files', '--max-file-size', 'big')],
+    ['--include-changed, which goes with --remove', argv('--include-changed')],
   ])('exits 2 on %s before any org is loaded', async (_label, args) => {
     expect(await run(args)).toBe(2);
     expect(mockExecFileSync).not.toHaveBeenCalled();
@@ -1059,14 +1060,31 @@ describe('sandforge-clone describes', () => {
       Contact: [{ Id: '003000000000001AAA', LastName: 'Key', AccountId: ACCOUNT }],
     };
 
-    /** An org holding an account and its contact, and the objects it was asked to describe. */
-    function fakeOrg() {
+    /** The id of the org the fake target says it is. */
+    const TARGET_ORG = '00D000000000002AAA';
+
+    /**
+     * An org holding an account and its contact, the objects it was asked to
+     * describe and the records written to it. Its Organization record says it
+     * is a sandbox, unless `sandbox` says otherwise.
+     */
+    function fakeOrg({ id = TARGET_ORG, sandbox = true }: { id?: string; sandbox?: boolean } = {}) {
       const asked: string[] = [];
+      const written: Array<Record<string, unknown>> = [];
       const conn = {
         sobject: (name: string) => ({
           describe: async () => {
             asked.push(name);
             return DESCRIBES[name];
+          },
+          create: async (records: Array<Record<string, unknown>>) => {
+            written.push(...records);
+            const prefix = String(DESCRIBES[name]?.keyPrefix);
+            return records.map((_, i) => ({
+              id: `${prefix}00000000090${i}AAA`,
+              success: true,
+              errors: [],
+            }));
           },
         }),
         // jsforce's cache, which the describe of the object filled.
@@ -1075,6 +1093,9 @@ describe('sandforge-clone describes', () => {
           sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
         }),
         query: async (soql: string) => {
+          if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
+            return { totalSize: 1, records: [{ Id: id, IsSandbox: sandbox }] };
+          }
           const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
           if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, records: [] };
           if (soql.includes(' FROM RecordType ')) return { totalSize: 0, records: [] };
@@ -1085,7 +1106,7 @@ describe('sandforge-clone describes', () => {
         // These methods answer without it.
         request: async () => ({}),
       };
-      return { conn: conn as unknown as Connection, asked };
+      return { conn: conn as unknown as Connection, asked, written };
     }
 
     let realLoadOrg: typeof loadOrg;
@@ -1130,9 +1151,12 @@ describe('sandforge-clone describes', () => {
       expect(orgs.TGT.asked.sort()).toEqual(['Account', 'Contact']);
     });
 
-    /** Both fake orgs answering for the aliases of `argv`. */
-    function withFakeOrgs() {
-      const orgs = { SRC: fakeOrg(), TGT: fakeOrg() };
+    /** Both fake orgs answering for the aliases of `argv`; the target a sandbox unless told. */
+    function withFakeOrgs({ targetSandbox = true }: { targetSandbox?: boolean } = {}) {
+      const orgs = {
+        SRC: fakeOrg({ id: '00D000000000001AAA' }),
+        TGT: fakeOrg({ sandbox: targetSandbox }),
+      };
       vi.mocked(loadOrg).mockImplementation(async (alias) => ({
         alias,
         username: '',
@@ -1322,6 +1346,9 @@ describe('sandforge-clone describes', () => {
           describe$: async () => account,
           describeGlobal: async () => ({ sobjects: [{ name: 'Account', keyPrefix: '001' }] }),
           query: async (soql: string) => {
+            if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
+              return { totalSize: 1, done: true, records: [{ Id: TARGET_ORG, IsSandbox: true }] };
+            }
             if (soql.includes(' FROM RecordType ')) {
               const records = [
                 {
@@ -1391,6 +1418,90 @@ describe('sandforge-clone describes', () => {
         '--exclude-object Account: the record to clone is of this object, and nothing would be',
       );
       expect(printed.some((line) => line.includes('executing'))).toBe(false);
+    });
+
+    /** What the run writes to stdout and to stderr, chunk by chunk, from here on. */
+    function captureStreams() {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stdout.push(String(chunk));
+        return true;
+      });
+      vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk));
+        return true;
+      });
+      vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+        stderr.push(`${String(line)}\n`);
+      });
+      return { stdout, stderr };
+    }
+
+    it('prints the JSON summary alone on stdout under --json, and every other line on stderr', async () => {
+      // A CI job saves stdout to a file and parses it: the banner, the
+      // discovery and preflight lines and "executing…" came in front of the
+      // JSON, and no parser read it.
+      withFakeOrgs();
+      const { stdout, stderr } = captureStreams();
+
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+      // console.log writes to stdout: nothing went through it.
+      expect(printed).toEqual([]);
+      expect(JSON.parse(stdout.join(''))).toMatchObject({ tool: 'sandforge-clone', dryRun: true });
+      const said = stderr.join('');
+      expect(said).toContain('sandforge-clone  SRC -> TGT  record=001000000000001AAA');
+      expect(said).toContain('discovery…');
+      expect(said).toContain('preflight (target row counts)…');
+      expect(said).toContain('executing… (DRY-RUN)');
+      expect(said).toContain('  [dry-run] Contact: 1 record(s) would be inserted');
+    });
+
+    it('refuses to clone into a production org before reading a row, and writes nothing', async () => {
+      const orgs = withFakeOrgs({ targetSandbox: false });
+      const { stderr } = captureStreams();
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(stderr.join('')).toContain(
+        'TGT is a production org (its Organization record says IsSandbox false): ' +
+          'sandforge-clone writes to sandboxes only. Nothing was written',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+      // Refused before discovery described anything.
+      expect(orgs.SRC.asked).toEqual([]);
+      expect(printed.some((line) => line.includes('executing'))).toBe(false);
+    });
+
+    it('runs a dry run against a production org, as it only reads', async () => {
+      const orgs = withFakeOrgs({ targetSandbox: false });
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain('  [dry-run] Contact: 1 record(s) would be inserted');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it("clones into a sandbox, and names the target in its JSON by the org's own id, with when the run ended", async () => {
+      // What a removal reads: the org the run wrote to, whatever alias names
+      // it by then, and when the run ended, which dates a run whose writes
+      // the target did not date.
+      const orgs = withFakeOrgs();
+      const { stdout } = captureStreams();
+      const before = Date.now();
+
+      expect(await run(argv('--skip-preflight', '--json'))).toBeUndefined();
+
+      const summary = JSON.parse(stdout.join('')) as Record<string, unknown>;
+      expect(summary).toMatchObject({ dryRun: false, target: 'TGT', targetOrgId: TARGET_ORG });
+      const finishedAt = Date.parse(String(summary.finishedAt));
+      expect(finishedAt).toBeGreaterThanOrEqual(before);
+      expect(finishedAt).toBeLessThanOrEqual(Date.now());
+      expect(orgs.TGT.written).toEqual([
+        { Name: 'Acme' },
+        { LastName: 'Key', AccountId: '001000000000900AAA' },
+      ]);
     });
   });
 });

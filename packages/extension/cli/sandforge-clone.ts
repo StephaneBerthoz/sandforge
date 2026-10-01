@@ -8,6 +8,10 @@
  * delegates org auth to the `sf` CLI (`sf org display`) and reuses the
  * exact same orchestrator/executor as the wizard.
  *
+ * A run printed with `--json` and saved to a file can be taken back: `--remove`
+ * deletes from the target the records that run created, with the removal the
+ * wizard runs from Recent runs.
+ *
  * Runs from a checkout of the repository, at its root, after `pnpm install`
  * and `pnpm build:shared`.
  *
@@ -16,6 +20,8 @@
  *     --record <recordId> --source <alias> --target <alias>
  *     [--depth direct|full|custom] [--custom-depth <n>]
  *     [--max <n>] [--anonymize] [--dry-run]
+ *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+ *     --remove <summary.json> --target <alias> [--include-changed] [--json]
  *
  * Example:
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
@@ -23,16 +29,29 @@
  *     --source SOURCE-UAT --target TARGET-DEV \
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
+import { readFileSync } from 'node:fs';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
+import { z } from 'zod';
 import { countRequests, loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig, ForgeFilesReport, ForgeGraph, ForgePlan } from '@sandforge/shared';
+import type {
+  ForgeConfig,
+  ForgeFilesReport,
+  ForgeGraph,
+  ForgePlan,
+  ForgeRemovalFilesLeft,
+  ForgeRunObjectRecords,
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+} from '@sandforge/shared';
 import {
   BYTES_PER_MB,
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
   fileCopyRefusal,
   forgeConfigSchemaStrict,
+  forgeRunCreatedRecords,
+  forgeRunLinkedKept,
   duplicateRuleHeaders,
   formatFileSize,
   leftOutAsEmptyTable,
@@ -71,6 +90,8 @@ import {
   readFileBody,
   remainingFileStorageMB,
 } from '../src/modules/forge/fileTransfer.js';
+import { removalOrg, removeRunRecords } from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalStatus } from '../src/modules/forge/removalOutcome.js';
 
 export interface CliArgs {
   record: string;
@@ -113,14 +134,22 @@ export interface CliArgs {
   files: { maxFileSizeMB: number; acceptedAsIs: boolean } | undefined;
 }
 
-const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox.
+const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox,
+or remove what a run of it created.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --record <id> --source <alias> --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --remove <summary.json> --target <alias> [--include-changed] [--json]
 
   Run from the repository root of a checkout, after pnpm install and
   pnpm build:shared.
+
+  The target must be a sandbox. Its Organization record says whether it is
+  one, and a production org (a Developer Edition org is one) is refused
+  before anything is written or deleted. --dry-run and --list-objects only
+  read, and run against any org.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically)
@@ -152,6 +181,9 @@ Options:
                          The preflight queries each object on target so the user
                          can see existing volume before pressing through.
   --json                 emit JSON summary on stdout (CI mode)  (default: off)
+                         stdout then carries the JSON alone, and every other
+                         line goes to stderr. Saved to a file, the summary is
+                         what --remove takes the run back from.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
   --exclude-object <obj> leave an object out of the clone (repeatable)
@@ -190,6 +222,26 @@ Options:
                          content cannot be anonymized. Required with --files
                          when --anonymize is on.
   -h, --help             show this help and exit
+
+Remove what a run created:
+  --remove <file>        the summary a run printed with --json, saved to a file
+                         Deletes from --target the records that run created,
+                         as the wizard removes a run from Recent runs: children
+                         first, never a record the target already held, and a
+                         record kept while records that stay depend on it. The
+                         target must be the org the run wrote to. A dry run's
+                         summary is refused: it created nothing.
+  --include-changed      remove also the records changed since the run, and
+                         what was added to them since           (default: kept)
+  --json                 print what became of the records as JSON on stdout,
+                         every other line on stderr
+
+Exit codes:
+  0  the clone ran; the removal took every record it set out to take
+  1  the clone produced only failures, or its files were refused; the target
+     is a production org; the removal could not run
+  2  a bad command line, or a summary --remove cannot take a run back from
+  3  the removal left records of the run in the org: kept, or refused
 `;
 
 /** A 15- or 18-character Salesforce ID. */
@@ -231,6 +283,12 @@ export function parseArgs(argv: string[]): CliArgs {
   const target = get('--target');
   if (!record || !source || !target) {
     process.stderr.write('Missing required flag. Run with --help for usage.\n');
+    process.exit(2);
+  }
+  // The flag says what a removal takes; on a clone it would do nothing, and is
+  // refused rather than ignored.
+  if (has('--include-changed')) {
+    process.stderr.write('--include-changed goes with --remove.\n');
     process.exit(2);
   }
 
@@ -928,17 +986,484 @@ export function executeOptions(
   };
 }
 
-/** Run one clone from the given command line; exported so its flag checks can be tested. */
+/** An org as the command types it before it writes to it or deletes from it. */
+export interface TypedOrg {
+  /** The org's own id, `Organization.Id`. */
+  id: string;
+  /** Whether the org says it is a sandbox. */
+  sandbox: boolean;
+}
+
+/**
+ * The org a connection reaches, typed from its `Organization` record as the
+ * panel types an org it connects (`OrgHandler`) and the Frozen command types
+ * its own: never from the alias or the instance URL, as a sandbox's My Domain
+ * says "sandbox" only until someone renames it. An answer that does not say
+ * `IsSandbox: true` is a production org's, as an org of unknown type is to
+ * Production Guard. Exported so it can be tested.
+ */
+export async function typeOrg(conn: Connection): Promise<TypedOrg> {
+  const answer = await conn.query<{ Id?: string; IsSandbox?: boolean }>(
+    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
+  );
+  const row = answer.records[0];
+  if (typeof row?.Id !== 'string') {
+    throw new Error('The org gave no Organization record: whether it is a sandbox cannot be told.');
+  }
+  return { id: row.Id, sandbox: row.IsSandbox === true };
+}
+
+/**
+ * Why the command will not write to an org, or delete from it: the org is not
+ * a sandbox. Nothing when it is one.
+ *
+ * The help always called the target a sandbox, and nothing checked it: a
+ * clone, or a removal, went to whatever org the alias named. Production Guard
+ * refuses a delete on a production org and asks before any write there; the
+ * command has no one to ask, and the Frozen command refuses such an org for
+ * both, its load at its entry guards and its removal at Production Guard. So
+ * this one refuses it too. Exported so it can be tested.
+ *
+ * @param action - What was about to happen: a clone writes, a removal deletes.
+ */
+export function productionRefusal(
+  alias: string,
+  org: TypedOrg,
+  action: 'clone' | 'remove',
+): string | undefined {
+  if (org.sandbox) return undefined;
+  const what =
+    action === 'clone'
+      ? 'sandforge-clone writes to sandboxes only. Nothing was written; --dry-run, which only reads, runs against it.'
+      : 'sandforge-clone removes records from sandboxes only. Nothing was deleted.';
+  return `${alias} is a production org (its Organization record says IsSandbox false): ${what}`;
+}
+
+/** What `--remove` was given. */
+export interface RemoveArgs {
+  /** The summary a run printed with `--json`, saved to a file. */
+  summaryPath: string;
+  /** sf CLI alias of the org the run wrote to. */
+  target: string;
+  /** Remove also the records changed since the run, and what was added to them since. */
+  includeChanged: boolean;
+  /** Print the outcome as JSON on stdout, and every other line on stderr. */
+  json: boolean;
+}
+
+/** The flags a removal reads. */
+const REMOVE_FLAGS: ReadonlySet<string> = new Set([
+  '--remove',
+  '--target',
+  '--include-changed',
+  '--json',
+]);
+
+/** The flags of a removal that take a value. */
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
+
+/**
+ * The command line of a removal read and checked; exits on `--help` or a bad
+ * flag. A flag of the clone is refused rather than ignored: `--dry-run` read
+ * as a preview would delete for real. Exported so it can be tested.
+ */
+export function parseRemoveArgs(argv: string[]): RemoveArgs {
+  const args = argv.slice(2);
+  if (args.includes('-h') || args.includes('--help')) {
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+  const get = (flag: string): string | undefined => {
+    const i = args.indexOf(flag);
+    const value = i >= 0 ? args[i + 1] : undefined;
+    return value !== undefined && !value.startsWith('--') ? value : undefined;
+  };
+  const has = (flag: string): boolean => args.includes(flag);
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (REMOVE_VALUE_FLAGS.has(arg)) {
+      // Its value, unless the flag was given none and the next is a flag.
+      if (args[i + 1] !== undefined && !args[i + 1].startsWith('--')) i++;
+      continue;
+    }
+    if (!REMOVE_FLAGS.has(arg)) {
+      process.stderr.write(
+        `--remove takes --target, --include-changed and --json, not "${arg}". ` +
+          'Run with --help for usage.\n',
+      );
+      process.exit(2);
+    }
+  }
+  const summaryPath = get('--remove');
+  const target = get('--target');
+  if (!summaryPath || !target) {
+    process.stderr.write(
+      '--remove takes the file a run printed its --json summary to, and --target the org ' +
+        'the run wrote to. Run with --help for usage.\n',
+    );
+    process.exit(2);
+  }
+  return {
+    summaryPath,
+    target,
+    includeChanged: has('--include-changed'),
+    json: has('--json'),
+  };
+}
+
+/** A Salesforce id, as every id of a summary is. */
+const summaryIdSchema = z.string().regex(SF_ID_RE, 'not a Salesforce id');
+
+/** A date as the command writes one, `toISOString()`. */
+const summaryDateSchema = z.iso.datetime();
+
+/**
+ * What a removal reads of a `--json` summary. The file is external input,
+ * anyone may have edited it, and its ids end up in the removal's queries and
+ * deletes: each is checked for an id, and each object for an API name, before
+ * any org is contacted.
+ */
+const runSummarySchema = z.object({
+  tool: z.literal('sandforge-clone'),
+  version: z.literal(1),
+  source: z.string(),
+  target: z.string().min(1),
+  targetOrgId: summaryIdSchema.optional(),
+  record: z.string(),
+  dryRun: z.literal(false),
+  elapsedMs: z.number().nonnegative(),
+  finishedAt: summaryDateSchema.optional(),
+  result: z.object({
+    remapTable: z.record(summaryIdSchema, summaryIdSchema),
+    existingSourceIds: z.array(summaryIdSchema),
+    updatedSourceIds: z.array(summaryIdSchema),
+    createdByObject: z.array(
+      z.object({
+        objectApiName: z.string().regex(API_NAME_RE, 'not an API name'),
+        sourceIds: z.array(summaryIdSchema),
+      }),
+    ),
+    withTheirRecordSourceIds: z.array(summaryIdSchema).optional(),
+    writtenBetween: z.object({ first: summaryDateSchema, last: summaryDateSchema }).optional(),
+  }),
+});
+
+/** A summary a removal can take its run back from. */
+export type RunSummary = z.infer<typeof runSummarySchema>;
+
+/**
+ * The summary a `--json` run printed, read for a removal, or why it cannot be
+ * one, said after the file's name: not JSON, not this command's, a dry run's,
+ * which wrote nothing to take back, one printed before the summary said which
+ * records the run created, or one whose ids or names are not what they should
+ * be. Exported so it can be tested.
+ */
+export function parseRunSummary(text: string): { summary: RunSummary } | { refusal: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err: unknown) {
+    return { refusal: `is not JSON (${err instanceof Error ? err.message : String(err)}).` };
+  }
+  const header = z.object({ tool: z.literal('sandforge-clone'), dryRun: z.boolean() });
+  const run = header.safeParse(raw);
+  if (!run.success) return { refusal: 'is not a summary sandforge-clone printed with --json.' };
+  if (run.data.dryRun) {
+    return {
+      refusal:
+        'is the summary of a dry run, which wrote nothing to the target: there is nothing of it to remove.',
+    };
+  }
+  const recorded = z.object({ result: z.object({ createdByObject: z.array(z.unknown()) }) });
+  if (!recorded.safeParse(raw).success) {
+    return {
+      refusal:
+        'does not say which records the run created (createdByObject): it was printed before ' +
+        'the summary said so, and the records the run created cannot be told from those the ' +
+        'target already held. sandforge-cleanup remains for such a run.',
+    };
+  }
+  const parsed = runSummarySchema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.map(String).join('.') || 'the summary'}: ${issue.message}`);
+    return { refusal: `is not a summary a removal can read: ${issues.join('; ')}.` };
+  }
+  return { summary: parsed.data };
+}
+
+/**
+ * What removing a run's records takes from its target, read from its summary
+ * as the wizard reads a run's history entry (`forgeRunCreatedRecords`): per
+ * object, the records the run created, children before their parents, the
+ * last written first. A record the target held before the run — linked to,
+ * matched by name, or written over by `--upsert` — is never the run's to
+ * remove, whichever row maps to it. Exported so it can be tested.
+ */
+export function removalPlan(summary: RunSummary): ForgeRunObjectRecords[] {
+  const { result } = summary;
+  return forgeRunCreatedRecords({
+    idRemapTable: result.remapTable,
+    idRemapExisting: [...result.existingSourceIds, ...result.updatedSourceIds],
+    idRemapCreated: result.createdByObject,
+  });
+}
+
+/**
+ * What a removal is about to take, said before it deletes anything: the run
+ * and the org, the records per object, and what stays — the records the target
+ * already held, and, without `--include-changed`, those changed since the run.
+ * Exported so it can be tested.
+ */
+export function removalPlanLines(
+  summary: RunSummary,
+  plan: readonly ForgeRunObjectRecords[],
+  args: Pick<RemoveArgs, 'target' | 'includeChanged'>,
+): string[] {
+  const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
+  const ended = summary.result.writtenBetween?.last ?? summary.finishedAt;
+  // Left where they are: the records the run linked to, but for those the
+  // platform wrote with a record it created, which go with that one, and the
+  // records --upsert wrote over.
+  const stay =
+    forgeRunLinkedKept({
+      idRemapExisting: summary.result.existingSourceIds,
+      idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
+    }).length + summary.result.updatedSourceIds.length;
+  return [
+    `the clone of ${summary.record} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
+      `a removal deletes the ${planned} record(s) it created, children first:`,
+    ...plan.map((object) => `  ${object.objectApiName}: ${object.ids.length}`),
+    `${stay} record(s) the target already held, which the run linked to or wrote over, stay`,
+    args.includeChanged
+      ? 'records changed since the run go too, and what was added to them since'
+      : 'records changed since the run stay, as do those records added since depend on ' +
+        '(--include-changed takes them)',
+  ];
+}
+
+/** What became of one object's records in a removal: the counts that are not zero. */
+function removalCounts(object: ForgeUndoObjectResult): string {
+  return [
+    object.deleted > 0 ? `${object.deleted} deleted` : '',
+    object.alreadyGone > 0 ? `${object.alreadyGone} already gone` : '',
+    object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the run` : '',
+    object.keptDependents > 0
+      ? `${object.keptDependents} kept for records that stay` +
+        (object.heldBy.length > 0 ? ` (${object.heldBy.join(', ')})` : '')
+      : '',
+    object.refused > 0 ? `${object.refused} refused` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/**
+ * The files attached to an object's records the removal deleted, which stay in
+ * the org: the run did not create them, and the removal leaves them there.
+ */
+function filesLeftLine(files: ForgeRemovalFilesLeft): string {
+  const more = files.count > files.names.length ? ', …' : '';
+  return (
+    `${files.count} file(s) attached to them stay in the org, as the run did not create them: ` +
+    `${files.names.join(', ')}${more}`
+  );
+}
+
+/**
+ * What a removal did, as the Frozen command says it: how it ended, then per
+ * object what became of its records — deleted, already gone, kept as changed
+ * since the run, kept for the records that stay and which, refused — with the
+ * org's words and the files left in the org, and the objects that go with
+ * their parent unchecked. Exported so it can be tested.
+ */
+export function removalLines(
+  status: ForgeUndoStatus,
+  objects: readonly ForgeUndoObjectResult[],
+): string[] {
+  const unchecked = [...new Set(objects.flatMap((o) => o.unchecked))];
+  return [
+    `removal: ${status.toUpperCase()}`,
+    ...objects.flatMap((o) => [
+      `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
+      ...o.reasons.map((reason) => `      ${reason}`),
+      ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
+    ]),
+    ...(unchecked.length > 0
+      ? [`not checked, deleted with their parent: ${unchecked.join(', ')}`]
+      : []),
+  ];
+}
+
+/** The exit code of a removal that left records of the run in the org. */
+const RECORDS_LEFT_EXIT = 3;
+
+/**
+ * Remove from its target the records a run created, from the summary the run
+ * printed with `--json`: the removal the wizard runs on a run of Recent runs
+ * (`removeRunRecords`), on the plan it reads from a history entry, dated by
+ * the target's own dates of the run's writes. Exported so it can be tested.
+ *
+ * The summary is read and checked before any org is contacted; then the
+ * target is typed, and refused unless it is a sandbox and the org the run
+ * wrote to. Exits 0 when every record planned went, deleted or found gone,
+ * {@link RECORDS_LEFT_EXIT} when some stayed, 2 on a bad command line or a
+ * summary that cannot be read, 1 when the removal could not run.
+ */
+export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseRemoveArgs(argv);
+  // In --json mode stdout carries the outcome alone, for a parser to read.
+  const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
+
+  let text: string;
+  try {
+    text = readFileSync(args.summaryPath, 'utf8');
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--remove ${args.summaryPath} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  const read = parseRunSummary(text);
+  if ('refusal' in read) {
+    process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
+    process.exit(2);
+  }
+  const { summary } = read;
+  // The run's records go from the org it wrote to, and from no other. A
+  // summary that names that org by its id is checked against the org's own
+  // once it answers, whatever alias names it now; one printed before the
+  // summary carried the id has its alias alone.
+  if (summary.targetOrgId === undefined && summary.target !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${summary.target}, and its records are removed from that org only: ` +
+        `give --target ${summary.target}.\n`,
+    );
+    process.exit(2);
+  }
+
+  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], orgId?: string) => {
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            action: 'remove',
+            summary: args.summaryPath,
+            target: args.target,
+            ...(orgId ? { targetOrgId: orgId } : {}),
+            includeChanged: args.includeChanged,
+            result: {
+              status,
+              planned: objects.reduce((sum, o) => sum + o.planned, 0),
+              objects,
+            },
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    for (const line of removalLines(status, objects)) console.log(line);
+    console.log(`\ndone in ${Date.now() - t0}ms`);
+  };
+
+  const plan = removalPlan(summary);
+  if (plan.length === 0) {
+    say('The run created no record: there is nothing of it to remove.');
+    output('success', []);
+    return;
+  }
+
+  say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
+  const conn = makeConn(await loadOrg(args.target));
+  const org = await typeOrg(conn);
+  const refusal = productionRefusal(args.target, org, 'remove');
+  if (refusal) {
+    process.stderr.write(`${refusal}\n`);
+    process.exit(1);
+  }
+  if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
+    process.stderr.write(
+      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its records ` +
+        'are removed from that org only. Nothing was deleted.\n',
+    );
+    process.exit(1);
+  }
+  for (const line of removalPlanLines(summary, plan, args)) say(line);
+
+  // Ctrl-C stops the removal before its next call to the org, as Cancel does
+  // in the panel: an order it set to Draft for its delete gets its status
+  // back on the way out, where a process killed outright left it a draft.
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort();
+  process.once('SIGINT', interrupt);
+  const span = summary.result.writtenBetween;
+  let outcome: Awaited<ReturnType<typeof removeRunRecords>>;
+  try {
+    // The run's span as the target dated it, as the wizard passes a history
+    // entry's. A run the target did not date is dated by its records and by
+    // when it ended, read on the org's clock as the removal starts.
+    outcome = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
+      ...(span
+        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+        : {
+            runDurationMs: summary.elapsedMs,
+            ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+          }),
+      includeChanged: args.includeChanged,
+      signal: stop.signal,
+    });
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+  const status = removalStatus(outcome.objects, outcome.cancelled);
+  output(status, outcome.objects, org.id);
+  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
+}
+
+/** Whether two ids name the same record, whichever length each is written in. */
+function sameRecord(a: string, b: string): boolean {
+  return a.slice(0, 15) === b.slice(0, 15);
+}
+
+/**
+ * Run one clone from the given command line, or one removal under `--remove`;
+ * exported so its flag checks can be tested.
+ */
 export async function main(argv: string[] = process.argv): Promise<void> {
+  if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const t0 = Date.now();
   const args = parseArgs(argv);
-  console.log(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
+  // In --json mode stdout carries the summary alone, for a parser to read: a
+  // CI job that saved it to a file read the progress lines in front of the
+  // JSON, and failed on them. What the run says on the way goes to stderr.
+  const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
+  say(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
 
   const sourceOrg = await loadOrg(args.source);
   const targetOrg = await loadOrg(args.target);
   const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
+  // Typed before discovery reads a row, so a production target is refused
+  // before the run has cost anything. A dry run and a listing only read.
+  let targetOrgId: string | undefined;
+  if (!args.dryRun && !args.listObjects) {
+    const target = await typeOrg(conns.get(args.target)!);
+    const refusal = productionRefusal(args.target, target, 'clone');
+    if (refusal) {
+      process.stderr.write(`${refusal}\n`);
+      process.exit(1);
+    }
+    targetOrgId = target.id;
+  }
   // Every request either org is sent: the run's calls are the record types'
   // read for it and those sent while the executor has it, as the extension
   // counts them; discovery's and the preflight's are not.
@@ -983,7 +1508,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
   };
 
-  console.log('discovery…');
+  say('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);
   const discovered = await discovery.discover(
     config,
@@ -1001,7 +1526,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // and those discovery never reached, which it would otherwise add.
   const graph = withObjectsLeftOut(discovered, new Set(args.excludedObjects));
   const plan = new ForgePlanGenerator().generate(graph);
-  console.log(graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES));
+  say(graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES));
 
   if (args.listObjects) {
     // The question a user asks when an object they expected is missing from a
@@ -1014,10 +1539,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           `  ${n.objectApiName.padEnd(42)}${String(n.recordCount).padStart(8)}` +
           `  depth ${n.level}${n.included ? '' : '  (excluded)'}`,
       );
-    console.log(`\nobjects in the graph (${graph.nodes.length}):`);
-    console.log(rows.join('\n'));
+    say(`\nobjects in the graph (${graph.nodes.length}):`);
+    say(rows.join('\n'));
     if (graph.truncated) {
-      console.log(
+      say(
         '\nThe graph was truncated: discovery stopped before it had walked ' +
           'everything. Raise --max-nodes if an object you need is missing.',
       );
@@ -1025,14 +1550,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  console.log('record-type mapping…');
+  say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
   const recordTypeMappings = await loadRecordTypes(
     conns.get(args.source)!,
     conns.get(args.target)!,
   );
   const recordTypeCalls = requestsSent() - requestsBeforeRecordTypes;
-  console.log(`record-types: ${recordTypeMappings.length} mappings`);
+  say(`record-types: ${recordTypeMappings.length} mappings`);
 
   const executorDeps: ForgeExecutorDeps = {
     queryRecords: async (orgId, soql, onTruncated) => {
@@ -1150,7 +1675,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // the user sees how much data already exists before pulling the trigger.
   // Skip with --skip-preflight if it's slow on big graphs (10s+ on 100 nodes).
   if (!args.skipPreflight) {
-    console.log('\npreflight (target row counts)…');
+    say('\npreflight (target row counts)…');
     const targetConn = conns.get(args.target)!;
     const sample = graph.nodes.slice(0, 30); // cap to first 30 to keep it snappy
     const preflight: Array<{ name: string; existing: number }> = [];
@@ -1164,25 +1689,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     const nonZero = preflight.filter((p) => p.existing > 0);
     if (nonZero.length === 0) {
-      console.log('  target is empty for all sampled objects.');
+      say('  target is empty for all sampled objects.');
     } else {
       const top = nonZero.sort((a, b) => b.existing - a.existing).slice(0, 10);
-      console.log(
-        `  ${nonZero.length}/${preflight.length} sampled objects have existing rows. Top 10:`,
-      );
+      say(`  ${nonZero.length}/${preflight.length} sampled objects have existing rows. Top 10:`);
       for (const p of top) {
         const flag = p.existing > 1000 ? '  ⚠' : '';
-        console.log(`    ${p.name.padEnd(40)} ${String(p.existing).padStart(8)}${flag}`);
+        say(`    ${p.name.padEnd(40)} ${String(p.existing).padStart(8)}${flag}`);
       }
       if (graph.nodes.length > sample.length) {
-        console.log(
+        say(
           `  (sampled first ${sample.length}/${graph.nodes.length} nodes; --skip-preflight to bypass)`,
         );
       }
     }
   }
 
-  console.log(
+  say(
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.files ? ', FILES' : ''})`,
   );
   let summary: ExecutionSummary;
@@ -1193,8 +1716,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       args.source,
       args.target,
       (event) => {
-        const line = args.json ? undefined : outcomeLine(event);
-        if (line) console.log(line);
+        const line = outcomeLine(event);
+        if (line) say(line);
       },
       executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
     );
@@ -1217,7 +1740,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     throw err;
   }
 
-  const elapsed = Date.now() - t0;
+  // When the run ended, on this machine's clock: a removal dates by it a run
+  // whose writes the target did not date, as the wizard dates a history entry.
+  const finishedAt = new Date();
+  const elapsed = finishedAt.getTime() - t0;
 
   // BA reconciliation export. Written before the JSON/text summary so a
   // post-execute script can pick it up by tailing the file.
@@ -1254,11 +1780,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       lines.push(`"${src.replace(/"/g, '""')}","${tgt.replace(/"/g, '""')}"`);
     }
     await fs.writeFile(resolved, lines.join('\n') + '\n', 'utf8');
-    if (!args.json) {
-      console.log(
-        `remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`,
-      );
-    }
+    say(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`);
   }
 
   if (args.json) {
@@ -1270,6 +1792,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           version: 1,
           source: args.source,
           target: args.target,
+          // The org the run wrote to, by its own id: a removal goes to that
+          // org and to no other, whatever alias names it by then.
+          ...(targetOrgId ? { targetOrgId } : {}),
           record: args.record,
           dryRun: args.dryRun,
           upsert: args.upsert,
@@ -1284,6 +1809,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           },
           result: jsonResult(summary),
           elapsedMs: elapsed,
+          finishedAt: finishedAt.toISOString(),
         },
         null,
         2,

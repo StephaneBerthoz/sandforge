@@ -123,7 +123,7 @@ pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
     done
 ```
 
-CLI returns exit code `1` if all records failed, `0` otherwise — fail the job loudly.
+CLI returns exit code `1` if all records failed, or if the target is a production org, which it refuses before writing anything; `0` otherwise — fail the job loudly.
 
 ## Tips
 
