@@ -743,13 +743,20 @@ describe('FrozenPage', () => {
         },
         personContact: {
           restored: 1,
+          sent: [
+            {
+              accountReferenceId: 'Account-000003',
+              contactReferenceId: 'Contact-000003',
+              detail:
+                "the target holds the account as a business account, which takes the contact as one of its own: its record type there is no person account's",
+            },
+          ],
           unresolved: [
             {
               accountReferenceId: 'Account-000002',
               contactReferenceId: 'Contact-000002',
-              cause: 'not-a-person-account',
-              detail:
-                "the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
+              cause: 'target-not-loaded',
+              detail: 'contact Contact-000002 was not loaded (skipped, failed or excluded)',
             },
           ],
         },
@@ -762,7 +769,8 @@ describe('FrozenPage', () => {
 
     // Counted where the resolved ones are, lookup by lookup as they are.
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
-      'Pass 2: 5 cycle links resolved, 5 unresolved — Person contacts: 1 linked, 1 not linked',
+      'Pass 2: 5 cycle links resolved, 5 unresolved — Person contacts: 1 linked, 1 sent as ' +
+        'contacts of their own, 1 not linked',
     );
     const unresolved = screen.getByTestId('frozen-report-unresolved');
     expect(unresolved.textContent).toContain('Links the load left unresolved');
@@ -774,13 +782,7 @@ describe('FrozenPage', () => {
       ),
     ).toEqual([
       ['Account', 'ParentId', 'FIELD_INTEGRITY_EXCEPTION: The parent account is merged', '1'],
-      // The platform's link, not the load's: said in the load's words.
-      [
-        'Account',
-        'PersonContactId',
-        'The target holds the account as a business account, with no contact of its own',
-        '1',
-      ],
+      ['Account', 'PersonContactId', 'The record it points at was not loaded', '1'],
       [
         'Account',
         'PrimaryContact__c',
@@ -820,7 +822,8 @@ describe('FrozenPage', () => {
     render(<FrozenPage />);
 
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
-      'Pass 2: 2 cycle links resolved, 0 unresolved — Person contacts: 1 linked, 0 not linked',
+      'Pass 2: 2 cycle links resolved, 0 unresolved — Person contacts: 1 linked, 0 sent as ' +
+        'contacts of their own, 0 not linked',
     );
     expect(screen.queryByTestId('frozen-report-unresolved')).toBeNull();
   });

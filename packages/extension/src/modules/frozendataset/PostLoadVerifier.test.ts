@@ -261,7 +261,9 @@ describe('PostLoadVerifier — link integrity', () => {
       { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
       {
         match: 'PersonContactId FROM Account',
-        responses: [[{ Id: '001REAL-ACC', PersonContactId: null }]],
+        // The platform's contact, beside the copy the mapping names: what a
+        // load that sent the contact on its own left.
+        responses: [[{ Id: '001REAL-ACC', PersonContactId: '003REAL-PLATFORM' }]],
       },
     ]);
     const { deps, options } = makeOptions(contractPath, query, { dataset, mapping });
@@ -274,10 +276,10 @@ describe('PostLoadVerifier — link integrity', () => {
     expect(check?.detail).toContain('Account-000001');
   });
 
-  it('fails a person account whose contact the load could not link, the target holding it as a business account', async () => {
-    // Only the accounts the load has in the target are checked. Checked only
-    // when both ends were mapped, such an account went unchecked: the load
-    // maps no contact it could not link.
+  it('judges only the accounts the target holds as person accounts: a business account took the contact as one of its own', async () => {
+    // The load sent the second account's contact as a contact of that
+    // account, which the counts check; the third account was not loaded, and
+    // its link is none of the target's.
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
     const dataset: FrozenDataset = {
@@ -290,11 +292,11 @@ describe('PostLoadVerifier — link integrity', () => {
         { accountReferenceId: 'Account-000003', contactReferenceId: 'Contact-000003' },
       ],
     };
-    // The third account was not loaded: its link is none of the target's.
     const mapping = new Map([
       ['Account-000001', '001REAL-ACC'],
       ['Contact-000001', '003REAL-CON'],
       ['Account-000002', '001REAL-BIZ'],
+      ['Contact-000002', '003REAL-OWN'],
     ]);
     const query = makeQuery([
       { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
@@ -314,9 +316,63 @@ describe('PostLoadVerifier — link integrity', () => {
 
     expect(verdict.checks.find((c) => c.name === 'personcontact')).toEqual({
       name: 'personcontact',
-      passed: false,
-      detail: 'Person accounts without the contact the load linked — accounts: Account-000002',
+      passed: true,
+      detail: 'All 1 person account(s) hold the contact the load linked',
     });
+  });
+
+  it('asks a target whose describe has no person accounts nothing of their contacts', async () => {
+    // The query names a field such a target does not have: asked, it refuses
+    // the whole verification.
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [],
+      recordTypes: {},
+      personContactSidecar: [
+        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+      ],
+    };
+    const mapping = new Map([
+      ['Account-000001', '001REAL-BIZ'],
+      ['Contact-000001', '003REAL-OWN'],
+    ]);
+    const asked: string[] = [];
+    const query = vi.fn(async (_org: string, soql: string) => {
+      asked.push(soql);
+      if (soql.includes('PersonContactId')) {
+        throw new Error("INVALID_FIELD: No such column 'PersonContactId' on entity 'Account'");
+      }
+      return soql.includes('COUNT()') ? [{ cnt: 2 }] : [];
+    });
+    const { deps, options } = makeOptions(contractPath, query, { dataset, mapping });
+    const describe = vi.fn(async () => ({
+      name: 'Account',
+      fields: [
+        {
+          name: 'Name',
+          type: 'string',
+          createable: true,
+          nillable: false,
+          defaultedOnCreate: false,
+        },
+      ],
+    }));
+
+    const verdict = await new PostLoadVerifier({
+      ...deps,
+      orgAccess: { ...deps.orgAccess, describe },
+    }).verify(options);
+
+    expect(asked.filter((soql) => soql.includes('PersonContactId'))).toEqual([]);
+    expect(verdict.checks.find((c) => c.name === 'personcontact')).toEqual({
+      name: 'personcontact',
+      passed: true,
+      detail: 'All 0 person account(s) hold the contact the load linked',
+    });
+    // Asked once for the whole verification, whatever its measurements.
+    expect(describe).toHaveBeenCalledTimes(1);
   });
 });
 

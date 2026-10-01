@@ -3078,7 +3078,7 @@
       "placeholder": "Platzhalter",
       "skippedList": "Übersprungene Datensätze (native Duplikaterkennung)",
       "errors": "Fehler",
-      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst, {{pass2Unresolved}} nicht aufgelöst — Personenkontakte: {{personContact}} verknüpft, {{personContactUnresolved}} nicht verknüpft",
+      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst, {{pass2Unresolved}} nicht aufgelöst — Personenkontakte: {{personContact}} verknüpft, {{personContactSent}} als eigene Kontakte gesendet, {{personContactUnresolved}} nicht verknüpft",
       "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
       "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
       "excludedObjects": "Nicht geladene Objekte",
@@ -3097,7 +3097,6 @@
         "lookup": "Verknüpfung",
         "leftEmpty": "Leer gebliebene Verknüpfungen",
         "targetNotLoaded": "Der Datensatz, auf den sie verweist, wurde nicht geladen",
-        "notAPersonAccount": "Das Ziel führt den Account als Unternehmensaccount, ohne eigenen Kontakt",
         "lostWithTheirRecord": "Verloren mit den Datensätzen, die sie tragen und die der Ladevorgang nicht geschrieben hat: {{links}}"
       }
     },

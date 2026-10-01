@@ -338,14 +338,9 @@ export interface FrozenSkippedRecord {
  * the lookup was not loaded, the record it points at was not, or the target
  * refused the update that set it. Only the first leaves no lookup empty on a
  * record the load wrote: the record went, and the link with it.
- *
- * A person account's link to its contact is the platform's to make, as it
- * takes the account: `not-a-person-account` says the target holds the account
- * as a business account — its record type there is no person account's, or
- * the target has no person accounts — and wrote no contact with it.
  */
 export type FrozenUnresolvedLinkCause =
-  'record-not-loaded' | 'target-not-loaded' | 'update-refused' | 'not-a-person-account';
+  'record-not-loaded' | 'target-not-loaded' | 'update-refused';
 
 /** Per-object load accounting. */
 export interface FrozenPerObjectLoadResult {
@@ -391,11 +386,15 @@ export interface FrozenLoadReportInfo {
   };
   /**
    * Each person account's contact: `restored` counts the ones linked to the
-   * contact the platform wrote with their account; `unresolved` says why each
-   * other one was not. The load sends none of them.
+   * contact the platform wrote with their account; `sent` names the ones sent
+   * as contacts of their own, the target holding their account as a business
+   * account, and why; `unresolved` says why each other one is in the target
+   * neither way.
    */
   personContact: {
     restored: number;
+    /** Absent from a report written before loads sent any so. */
+    sent?: Array<{ accountReferenceId: string; contactReferenceId: string; detail: string }>;
     /** A person account's link to its contact: `Account.PersonContactId`. */
     unresolved: Array<{
       accountReferenceId: string;

@@ -64,7 +64,8 @@ const KEY_PREFIX: Record<string, string> = {
 /**
  * Writer whose inserts answer with record ids — fifteen letters and digits,
  * the only ids a removal takes — numbered in the order written, refusing the
- * insert of each record whose `Name` is in `refused`.
+ * insert of each record whose `Name`, or a contact's `LastName`, is in
+ * `refused`.
  */
 function makeWriter(calls: DmlCall[], refused: readonly string[] = []): FrozenDmlWriter {
   let counter = 0;
@@ -73,10 +74,12 @@ function makeWriter(calls: DmlCall[], refused: readonly string[] = []): FrozenDm
       async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
         calls.push({ op: 'insert', objectApiName, payload: records });
         return records.map((record) =>
-          refused.includes(String(record.Name))
+          refused.includes(String(record.Name ?? record.LastName))
             ? {
                 success: false,
-                errors: [`FIELD_CUSTOM_VALIDATION_EXCEPTION: ${String(record.Name)}`],
+                errors: [
+                  `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${String(record.Name ?? record.LastName)}`,
+                ],
               }
             : {
                 id: `${KEY_PREFIX[objectApiName]}${String(++counter).padStart(12, '0')}`,
@@ -303,7 +306,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
       AccountId: PERSON,
       ContactId: PLATFORM_CONTACT,
     });
-    expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
+    expect(report.personContact).toEqual({ restored: 1, sent: [], unresolved: [] });
     expect(report.perObject.find((o) => o.objectApiName === 'Contact')).toMatchObject({
       fromFiles: 2,
       inserted: 1,
@@ -322,7 +325,8 @@ describe('FrozenDatasetLoader, person accounts', () => {
     expect(endOf(progress, 'personcontact')).toEqual([
       [
         'done',
-        'Person contacts: 1 linked to the contact the platform wrote with their account, 0 not linked',
+        'Person contacts: 1 linked to the contact the platform wrote with their account, ' +
+          '0 sent as contacts of their own, 0 not linked',
       ],
     ]);
   });
@@ -352,7 +356,9 @@ describe('FrozenDatasetLoader, person accounts', () => {
     expect(loadRecordsInfo(load).linked).toBe(0);
   });
 
-  it('says of each contact it could not link why: its account not loaded, or held by the target as a business account, with the record type issue that made it one', async () => {
+  it('sends the contact of an account the target holds as a business account as a contact of that account, created by the load, and says why, and never one whose account it did not write', async () => {
+    // Linked to nothing, such a contact was left out, and every lookup at it
+    // with it; a business account takes a contact as it takes any.
     const person = (n: number, recordType: string) => ({
       referenceId: `Account-00000${n}`,
       fields: {
@@ -392,37 +398,39 @@ describe('FrozenDatasetLoader, person accounts', () => {
       makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
     );
 
-    // Not one contact is sent.
-    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['insert:Account']);
+    // The second and third accounts are business accounts in the target: each
+    // takes its contact, on it.
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual([
+      'insert:Account',
+      'insert:Contact',
+    ]);
+    expect(insertedOf(calls, 'Contact')).toEqual([
+      { LastName: 'P2', AccountId: '001000000000001' },
+      { LastName: 'P3', AccountId: '001000000000002' },
+    ]);
     const businessAccount =
-      'the target holds the account as a business account, with no contact of its own';
+      'the target holds the account as a business account, which takes the contact as one of its own';
     expect(report.personContact).toEqual({
       restored: 0,
+      sent: [
+        { ...link(2), detail: `${businessAccount}: its record type there is no person account's` },
+        {
+          ...link(3),
+          detail: `${businessAccount}: RecordType Gone not found in target org — RecordTypeId dropped`,
+        },
+      ],
       unresolved: [
         {
           ...link(1),
           cause: 'record-not-loaded',
           detail: 'person account was not loaded (see perObject failures/skips)',
         },
-        {
-          ...link(2),
-          cause: 'not-a-person-account',
-          detail: `${businessAccount}: its record type there is no person account's`,
-        },
-        {
-          ...link(3),
-          cause: 'not-a-person-account',
-          detail: `${businessAccount}: RecordType Gone not found in target org — RecordTypeId dropped`,
-        },
       ],
     });
-    const notInTheTarget =
-      "Not written: a person account's contact goes in with its account, and the target holds " +
-      'that account as a business account';
     expect(report.perObject.find((o) => o.objectApiName === 'Contact')).toEqual({
       objectApiName: 'Contact',
       fromFiles: 3,
-      inserted: 0,
+      inserted: 2,
       reused: 0,
       skippedDuplicates: [],
       failed: [
@@ -433,36 +441,44 @@ describe('FrozenDatasetLoader, person accounts', () => {
             "Not written: a person account's contact goes in with its account, which the load did not write",
           ],
         },
-        { objectApiName: 'Contact', referenceId: 'Contact-000002', errors: [notInTheTarget] },
-        { objectApiName: 'Contact', referenceId: 'Contact-000003', errors: [notInTheTarget] },
       ],
     });
     expect(report.status).toBe('completed-with-errors');
-    // Never sent, none of them was refused: an exclusion of their own.
+    // Sent, they are expected; the one never sent was refused nothing: an
+    // exclusion of its own.
     const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
     expect(contract.objects.Contact).toEqual({
       fromFiles: 3,
-      exclusionReasons: { 'person-contact-not-linked': 3 },
-      excluded: 3,
+      exclusionReasons: { 'person-contact-not-sent': 1 },
+      excluded: 1,
       added: 0,
-      expected: 0,
+      expected: 2,
     });
+    // Created by the load as any contact is, so a removal takes them on their own.
+    const [load] = await recordedLoads(deps.sasDir);
+    expect(loadCreatedRecords(load)).toEqual([
+      { objectApiName: 'Contact', ids: ['003000000000004', '003000000000003'] },
+      { objectApiName: 'Account', ids: ['001000000000002', '001000000000001'] },
+    ]);
+    expect(load.personContacts).toBeUndefined();
     expect(endOf(progress, 'insert', 'Contact')).toEqual([
       [
         'error',
-        'Contact: 0 inserted, 0 reused, 0 duplicates skipped, 3 failed, 3 not written: a person ' +
-          "account's contact goes in with its account",
+        'Contact: 2 inserted, 0 reused, 0 duplicates skipped, 1 failed, 2 sent as contacts of ' +
+          'their own: the target holds their account as a business account, 1 not written: a ' +
+          "person account's contact goes in with its account",
       ],
     ]);
     expect(endOf(progress, 'personcontact')).toEqual([
       [
         'error',
-        'Person contacts: 0 linked to the contact the platform wrote with their account, 3 not linked',
+        'Person contacts: 0 linked to the contact the platform wrote with their account, ' +
+          '2 sent as contacts of their own, 1 not linked',
       ],
     ]);
   });
 
-  it('asks a target without person accounts nothing of them, and says so of every link', async () => {
+  it('asks a target without person accounts nothing of them, and sends each contact as one of its account', async () => {
     const dataset = personAccountDataset();
     const describes = describeFromDataset(dataset);
     // Only an org with person accounts describes the account's lookup at its contact.
@@ -482,31 +498,145 @@ describe('FrozenDatasetLoader, person accounts', () => {
     const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
 
     expect(queries.filter((soql) => soql.includes('PersonContactId'))).toEqual([]);
-    expect(report.personContact.unresolved).toEqual([
+    expect(report.personContact).toEqual({
+      restored: 0,
+      sent: [
+        {
+          ...link(1),
+          detail:
+            'the target org has no person accounts: it holds the account as a business account, ' +
+            'which takes the contact as one of its own',
+        },
+      ],
+      unresolved: [],
+    });
+    // The contact goes on its account, and the case points at it.
+    expect(insertedOf(calls, 'Contact')).toEqual([
+      { LastName: 'Doe', AccountId: PERSON },
+      { LastName: 'Roe', AccountId: '001000000000002' },
+    ]);
+    expect(insertedOf(calls, 'Case')[0].ContactId).toBe('003000000000003');
+    expect(report.pass2).toEqual({ resolved: 0, unresolved: [] });
+    expect(report.status).toBe('completed');
+  });
+
+  it('puts a contact it sends as one of its own on its account, though its row kept no lookup at it', async () => {
+    // The configuration left the contact's lookup at its account out of the
+    // extraction: the sidecar alone says whose it is.
+    const dataset = personAccountDataset();
+    dataset.objects[1].records[0].fields = { LastName: 'Doe' };
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, writer: makeWriter(calls), queryImpl: platformContacts({}) });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'Contact')).toEqual([
+      { LastName: 'Doe', AccountId: PERSON },
+      { LastName: 'Roe', AccountId: '001000000000002' },
+    ]);
+    expect(report.personContact.sent.map((s) => s.contactReferenceId)).toEqual(['Contact-000001']);
+  });
+
+  it('says a contact it sent as one of its own and the target refused is in the target neither way', async () => {
+    const dataset = personAccountDataset();
+    const calls: DmlCall[] = [];
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer: makeWriter(calls, ['Doe']),
+      queryImpl: platformContacts({}),
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+    );
+
+    // Its line counts the refusal, and sends nothing of its own.
+    expect(endOf(progress, 'insert', 'Contact')).toEqual([
+      ['error', 'Contact: 1 inserted, 0 reused, 0 duplicates skipped, 1 failed'],
+    ]);
+
+    expect(report.personContact).toEqual({
+      restored: 0,
+      sent: [],
+      unresolved: [
+        {
+          ...link(1),
+          cause: 'target-not-loaded',
+          detail: 'contact Contact-000001 was not loaded (skipped, failed or excluded)',
+        },
+      ],
+    });
+    // Counted once, as the target's refusal.
+    expect(report.perObject.find((o) => o.objectApiName === 'Contact')?.failed).toEqual([
       {
-        ...link(1),
-        cause: 'not-a-person-account',
-        detail:
-          'the target org has no person accounts: it holds the account as a business account, ' +
-          'with no contact of its own',
+        objectApiName: 'Contact',
+        referenceId: 'Contact-000001',
+        errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Doe'],
       },
     ]);
-    // Never sent all the same: the case goes without its contact, and the
-    // cycle pass says so.
-    expect(insertedOf(calls, 'Contact').map((c) => c.LastName)).toEqual(['Roe']);
-    expect(insertedOf(calls, 'Case')[0]).not.toHaveProperty('ContactId');
-    expect(report.pass2.unresolved).toEqual([
-      expect.objectContaining({
-        objectApiName: 'Case',
-        field: 'ContactId',
-        cause: 'target-not-loaded',
-      }),
+    expect(report.status).toBe('completed-with-errors');
+  });
+
+  it('counts as linked the contacts the platform wrote when the target takes no contact from the load, and says the others are in it neither way', async () => {
+    // The contact object is left out, for the running user may not insert
+    // one: the contacts the platform wrote with the person accounts are in
+    // the target all the same.
+    const dataset = personAccountDataset();
+    dataset.objects[0].records.push({
+      referenceId: 'Account-000003',
+      fields: {
+        Name: 'P3',
+        LastName: 'P3',
+        RecordTypeId: 'Person Account',
+        PersonContactId: 'Contact-000003',
+      },
+    });
+    dataset.objects[1].records.push({
+      referenceId: 'Contact-000003',
+      fields: { LastName: 'P3', AccountId: 'Account-000003' },
+    });
+    dataset.personContactSidecar.push(link(3));
+    const describes = describeFromDataset(dataset);
+    describes.Contact.createable = false;
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes,
+      writer: makeWriter(calls),
+      // The first person account got its contact; the third went in as a business account.
+      queryImpl: platformContacts({ [PERSON]: PLATFORM_CONTACT }),
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(calls.some((c) => c.objectApiName === 'Contact')).toBe(false);
+    const contacts = report.perObject.find((o) => o.objectApiName === 'Contact');
+    expect(contacts).toMatchObject({ fromFiles: 3, inserted: 0, reused: 1 });
+    expect(contacts?.failed.map((f) => f.referenceId)).toEqual([
+      'Contact-000002',
+      'Contact-000003',
     ]);
+    expect(report.personContact).toEqual({
+      restored: 1,
+      sent: [],
+      unresolved: [
+        {
+          ...link(3),
+          cause: 'target-not-loaded',
+          detail: 'contact Contact-000003 was not loaded (skipped, failed or excluded)',
+        },
+      ],
+    });
+    // The case still points at the contact the platform wrote.
+    expect(insertedOf(calls, 'Case')[0].ContactId).toBe(PLATFORM_CONTACT);
   });
 
   it('writes the accounts before the contacts, though the other objects make the contacts ready first', async () => {
     // The contact object's turn links the person accounts' contacts: before
-    // the accounts' turn, it would find none of them in the target.
+    // the accounts' turn, it would find none of them in the target. The
+    // contact here keeps no lookup at its account — the configuration left it
+    // out of the extraction — and only the sidecar says whose it is.
     const dataset: FrozenDataset = {
       datasetVersion: '1.0.0',
       objects: [
@@ -529,12 +659,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
         },
         {
           objectApiName: 'Contact',
-          records: [
-            {
-              referenceId: 'Contact-000001',
-              fields: { LastName: 'Doe', AccountId: 'Account-000001' },
-            },
-          ],
+          records: [{ referenceId: 'Contact-000001', fields: { LastName: 'Doe' } }],
         },
       ],
       recordTypes: {},
@@ -562,7 +687,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
       'insert:Branch__c',
       'insert:Account',
     ]);
-    expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
+    expect(report.personContact).toEqual({ restored: 1, sent: [], unresolved: [] });
   });
 
   it('writes the accounts before the contacts inside a cycle, though a lookup the accounts require puts another object first', async () => {
@@ -633,7 +758,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
         .filter((e) => e.phase === 'insert' && e.status !== 'started')
         .map((e) => e.objectName),
     ).toEqual(['Desk__c', 'Account', 'Contact']);
-    expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
+    expect(report.personContact).toEqual({ restored: 1, sent: [], unresolved: [] });
   });
 
   it("orders nothing by an account's lookup at its contact: what the accounts need goes in after them, not around a cycle", async () => {
@@ -722,7 +847,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
       AccountId: found,
       ContactId: contactOfFound,
     });
-    expect(report.personContact).toEqual({ restored: 1, unresolved: [] });
+    expect(report.personContact).toEqual({ restored: 1, sent: [], unresolved: [] });
   });
 
   it("never sends a contact the dataset flags a person account's though the sidecar names none, and says when the dataset does not hold its account", async () => {
@@ -747,6 +872,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
     expect(insertedOf(calls, 'Case')[0].ContactId).toBe(PLATFORM_CONTACT);
     expect(report.personContact).toEqual({
       restored: 1,
+      sent: [],
       unresolved: [
         {
           accountReferenceId: '',
@@ -790,7 +916,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
     expect(endOf(progress, 'insert', 'Contact')).toEqual([
       [
         'error',
-        'Contact: 0 inserted, 0 reused, 0 duplicates skipped, 0 failed, 1 not inserted: the load ' +
+        'Contact: 0 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 not inserted: the load ' +
           'failed — INVALID_SESSION_ID: Session expired or invalid',
       ],
     ]);

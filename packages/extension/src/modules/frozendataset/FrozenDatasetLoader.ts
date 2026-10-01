@@ -24,13 +24,15 @@
  *   5. technical placeholders for required lookups absent from the records
  *      it writes — named, correctly record-typed, never an exclusion;
  *   6. insert pass 1 in topological order — cycle FKs are nullified and
- *      queued, then patched in pass 2 (pattern of forge CycleFkPatcher). A
- *      person account's contact is never sent: at the contact object's turn,
- *      which comes after the accounts', the contact the platform wrote with
- *      each is linked in its place, and what points at it is written against
- *      that one — at insert, or by pass 2 for a lookup inside a cycle;
- *   7. person contacts: what became of each — linked, or why not — said once
- *      the passes are done;
+ *      queued, then patched in pass 2 (pattern of forge CycleFkPatcher). At
+ *      the contact object's turn, which comes after the accounts', a person
+ *      account's contact is linked to the one the platform wrote with its
+ *      account, and what points at it is written against that one — at
+ *      insert, or by pass 2 for a lookup inside a cycle; where the platform
+ *      wrote none — a business account in the target — it goes as a contact
+ *      of that account, as any contact does;
+ *   7. person contacts: what became of each — linked, sent as a contact of
+ *      its own, or why neither — said once the passes are done;
  *   8. the referenceId→real-ID mapping is persisted in
  *      the sas — with what the load created, the target's dates of it, and
  *      the loads before it that it did not purge — and the counting contract
@@ -722,36 +724,35 @@ interface CatalogLookup {
 
 /**
  * What became of the person accounts' contacts a load holds: each linked to
- * the contact the platform wrote with its account, or why it was not.
+ * the contact the platform wrote with its account, sent as a contact of its
+ * own where the target wrote none, or not sent at all, and why.
  */
 interface PersonContactOutcome {
   /** The contacts linked, by their referenceId, each with its account's. */
   linked: Map<string, string>;
-  /** The links not made, each with why. */
+  /** The contacts sent as contacts of their own, by their referenceId, each with why. */
+  own: Map<string, FrozenLoadReport['personContact']['sent'][number]>;
+  /** The contacts never sent — their account is not in the target — each with why. */
   unlinked: FrozenLoadReport['personContact']['unresolved'];
 }
 
-/** Why a person account's contact was not linked, as its link says it. */
-const PERSON_CONTACT_NOT_LINKED = {
+/** What a person account's contact became, as its link says it, when it was not linked. */
+const PERSON_CONTACT_FATE = {
   accountNotInDataset: 'its person account is not in the dataset',
   accountNotLoaded: 'person account was not loaded (see perObject failures/skips)',
   noPersonAccounts:
-    'the target org has no person accounts: it holds the account as a business account, with no contact of its own',
-  businessAccount: 'the target holds the account as a business account, with no contact of its own',
+    'the target org has no person accounts: it holds the account as a business account, ' +
+    'which takes the contact as one of its own',
+  businessAccount:
+    'the target holds the account as a business account, which takes the contact as one of its own',
 } as const;
 
 /**
- * Why a person account's contact the load did not link was not written, as
+ * Why a person account's contact the load did not send was not written, as
  * the contact object's failures say it: the same words for each contact of
  * one cause, which the Load tab counts under one reason.
  */
 function personContactNotWritten(link: PersonContactOutcome['unlinked'][number]): string {
-  if (link.cause === 'not-a-person-account') {
-    return (
-      "Not written: a person account's contact goes in with its account, and the target holds " +
-      'that account as a business account'
-    );
-  }
   return link.accountReferenceId === ''
     ? "Not written: a person account's contact goes in with its account, which the dataset does not hold"
     : "Not written: a person account's contact goes in with its account, which the load did not write";
@@ -761,22 +762,23 @@ function personContactNotWritten(link: PersonContactOutcome['unlinked'][number])
  * The contacts of the person accounts the dataset holds, by referenceId, each
  * with the referenceId of its account — `''` when the dataset does not hold
  * it: the contacts the sidecar names, and any contact the dataset flags a
- * person account's (`isPersonAccountRow`), by its `AccountId`. None of them is
- * sent.
+ * person account's (`isPersonAccountRow`), by its `AccountId`.
  *
  * The platform writes a person account's contact itself as it takes the
  * account, and links the two by the account's `PersonContactId`, which no
  * insert and no update sets (`personAccountWriteEdges`). The load inserted
  * the contact's row as any other, then sent the account an update of that
  * field, which the platform refuses whoever sends it: no link could be made,
- * and the verification found every person account without it. Sent on its
- * own, the row would be refused by the account it names — the platform's
- * contact "is the only contact record that can be associated directly with
- * the person account" (SOAP API Developer Guide, "Person Account Record
- * Types") — or, sent without it, stand as a contact of no account beside the
- * platform's. A link whose contact the dataset does not hold — out of a
- * pilot's root folder — is not this load's: no record it writes names that
- * contact.
+ * and the verification found every person account without it. Sent beside
+ * the platform's, the row would be refused by the account it names: the
+ * platform's contact "is the only contact record that can be associated
+ * directly with the person account" (SOAP API Developer Guide, "Person
+ * Account Record Types"). So each is linked to the platform's contact where
+ * its account got one, and sent as a contact of its own where the target
+ * holds its account as a business account, which takes it as it takes any
+ * contact (`linkPersonContacts`). A link whose contact the dataset does not
+ * hold — out of a pilot's root folder — is not this load's: no record it
+ * writes names that contact.
  */
 function personContactsOf(
   dataset: FrozenDataset,
@@ -918,8 +920,9 @@ export class FrozenDatasetLoader {
       });
     }
     const refIndex = buildReferenceIndex(working);
-    // The person accounts' contacts: never sent, each linked to the one the
-    // platform writes with its account. See `personContactsOf`.
+    // The person accounts' contacts: each linked to the one the platform
+    // writes with its account, or sent as a contact of its own where it
+    // writes none. See `personContactsOf`.
     const personContacts = personContactsOf(working, refIndex);
     const dependencies = buildObjectDependencies(working, refIndex, personContacts);
     const groups = insertionGroups(dependencies);
@@ -937,16 +940,12 @@ export class FrozenDatasetLoader {
     // Nor is a feed item whose type the dataset does not carry: see
     // `UNTYPED_FEED_ITEMS`. What hangs from one goes with it, the same way.
     const untypedFeedItems = new RowsLeftToThePlatform(untypedFeedItem);
-    // Nor is a person account's contact, which is not aligned, matched or
-    // filled in either: the platform writes it, and it is linked once its
-    // account is in (`linkPersonContacts`).
     const loading: FrozenDataset = {
       ...working,
       objects: working.objects.map((objectData) => ({
         ...objectData,
         records: objectData.records.filter(
           (r) =>
-            !(objectData.objectApiName === CONTACT && personContacts.has(r.referenceId)) &&
             !leftToThePlatform.leaveOut(
               objectData.objectApiName,
               r.referenceId,
@@ -957,8 +956,7 @@ export class FrozenDatasetLoader {
                   ? refIndex.get(r.fields.RelationId)
                   : undefined,
               ),
-            ) &&
-            !untypedFeedItems.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
+            ) && !untypedFeedItems.leaveOut(objectData.objectApiName, r.referenceId, r.fields),
         ),
       })),
     };
@@ -1510,38 +1508,55 @@ export class FrozenDatasetLoader {
         ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
         : '';
     /**
+     * The person accounts' contacts the contact object's turn does not send,
+     * by referenceId: their account is not in the target, and no contact the
+     * target held was found for them by their keys. Set as their turn begins.
+     */
+    let personContactsNotSent = new Set<string>();
+    /**
      * Link the person accounts' contacts, once: at the contact object's turn,
      * which comes after the accounts' — before any contact is written, and
      * before the records that point at one, but inside a cycle, whose lookup
-     * pass 2 sets. See `linkPersonContacts`.
+     * pass 2 sets. A contact linked is no row the turn sends: it is counted as
+     * a linked record, as a contact the target held is, which the verification
+     * counts among the contacts in the target. See `linkPersonContacts`.
      */
     const linkThePersonContacts = async (): Promise<PersonContactOutcome> => {
-      personContactOutcome ??= await this.linkPersonContacts(
+      if (personContactOutcome) return personContactOutcome;
+      const outcome = await this.linkPersonContacts(
         orgId,
         personContacts,
         mapping,
+        reused,
         targetHasPersonAccounts,
         recordTypeIssues,
       );
-      return personContactOutcome;
+      for (const contact of outcome.linked.keys()) reused.add(contact);
+      personContactsNotSent = new Set(
+        outcome.unlinked
+          .map((link) => link.contactReferenceId)
+          .filter((contact) => !reused.has(contact)),
+      );
+      personContactOutcome = outcome;
+      return outcome;
     };
     /**
-     * The contact object's result with the person accounts' contacts counted
-     * in it: the ones linked to the contact the platform wrote as linked
-     * records, which the verification counts among the contacts in the
-     * target, and the others as failed, with why. Any other object's result as
-     * it is.
+     * The contact object's result with the person accounts' contacts it did
+     * not send counted as failed, with why. Those it linked are counted among
+     * its linked records already, and those it sent as contacts of their own
+     * as the rows it inserted. Any other object's result as it is.
      */
     const withPersonContacts = (result: PerObjectLoadResult): PerObjectLoadResult => {
       if (result.objectApiName !== CONTACT || !personContactOutcome) return result;
-      const { linked, unlinked } = personContactOutcome;
-      if (linked.size === 0 && unlinked.length === 0) return result;
+      const notSent = personContactOutcome.unlinked.filter((link) =>
+        personContactsNotSent.has(link.contactReferenceId),
+      );
+      if (notSent.length === 0) return result;
       return {
         ...result,
-        reused: result.reused + linked.size,
         failed: [
           ...result.failed,
-          ...unlinked.map((link) => ({
+          ...notSent.map((link) => ({
             objectApiName: CONTACT,
             referenceId: link.contactReferenceId,
             errors: [personContactNotWritten(link)],
@@ -1549,10 +1564,29 @@ export class FrozenDatasetLoader {
         ],
       };
     };
+    /**
+     * Once the contact object's rows are in: a person account's contact sent
+     * as one of its own that did not go in — refused, a duplicate, kept back
+     * by a cancel — has no contact in the target, and its link says so.
+     */
+    const settleTheContactsSent = (): void => {
+      if (!personContactOutcome) return;
+      for (const [contact, sent] of personContactOutcome.own) {
+        if (mapping.has(contact)) continue;
+        personContactOutcome.own.delete(contact);
+        personContactOutcome.unlinked.push({
+          accountReferenceId: sent.accountReferenceId,
+          contactReferenceId: contact,
+          cause: 'target-not-loaded',
+          detail: `contact ${contact} was not loaded (skipped, failed or excluded)`,
+        });
+      }
+    };
     /** What the contact object's line says of the person accounts' contacts. */
     const personContactNotes = (): string[] => {
       const linked = personContactOutcome?.linked.size ?? 0;
-      const unlinked = personContactOutcome?.unlinked.length ?? 0;
+      const own = personContactOutcome?.own.size ?? 0;
+      const notSent = personContactsNotSent.size;
       return [
         ...(linked > 0
           ? [
@@ -1560,8 +1594,14 @@ export class FrozenDatasetLoader {
                 `${linked === 1 ? 'its' : 'their'} person account`,
             ]
           : []),
-        ...(unlinked > 0
-          ? [`${unlinked} not written: a person account's contact goes in with its account`]
+        ...(own > 0
+          ? [
+              `${own} sent as ${own === 1 ? 'a contact of its own' : 'contacts of their own'}: ` +
+                `the target holds ${own === 1 ? 'its' : 'their'} account as a business account`,
+            ]
+          : []),
+        ...(notSent > 0
+          ? [`${notSent} not written: a person account's contact goes in with its account`]
           : []),
       ];
     };
@@ -1785,9 +1825,11 @@ export class FrozenDatasetLoader {
         // Left out at alignment, and listed there: counted where its insert
         // would have been.
         const lost = lostObjects.get(objectApiName);
-        // The person accounts' contacts are in the target all the same, and
-        // linked: none of them is sent, whatever became of the others.
-        if (objectApiName === CONTACT && personContacts.size > 0) {
+        if (lost && objectApiName === CONTACT && personContacts.size > 0) {
+          // The contacts the platform wrote with the person accounts are in
+          // the target all the same: linked, they are counted as linked
+          // records, not with the rows lost with the object. One it did not
+          // write has no contact there, and its link says so.
           try {
             await linkThePersonContacts();
           } catch (err: unknown) {
@@ -1800,33 +1842,15 @@ export class FrozenDatasetLoader {
             });
             throw err;
           }
-        }
-        if (lost) perObject.push(withPersonContacts(lost));
-        else if (objectApiName === CONTACT && personContacts.size > 0) {
-          // Every contact of the dataset a person account's: nothing to
-          // insert, and a line that says what became of them.
-          objectIndex++;
-          const contacts = withPersonContacts({
-            objectApiName,
-            fromFiles:
-              working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
-              personContacts.size,
-            inserted: 0,
-            reused: 0,
-            skippedDuplicates: [],
-            failed: [],
+          settleTheContactsSent();
+          const linked = personContactOutcome?.linked ?? new Map<string, string>();
+          const failed = lost.failed.filter((f) => !linked.has(f.referenceId));
+          perObject.push({
+            ...lost,
+            reused: lost.reused + lost.failed.length - failed.length,
+            failed,
           });
-          perObject.push(contacts);
-          emit({
-            phase: 'insert',
-            objectName: objectApiName,
-            status: contacts.failed.length > 0 ? 'error' : 'done',
-            progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-            message:
-              `${objectApiName}: 0 inserted, ${contacts.reused} reused, 0 duplicates skipped, ` +
-              `${contacts.failed.length} failed${leftOutNoteOf(objectApiName, undefined)}`,
-          });
-        }
+        } else if (lost) perObject.push(lost);
         continue;
       }
       objectIndex++;
@@ -1845,14 +1869,30 @@ export class FrozenDatasetLoader {
       const fromFiles =
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
         aligned.length;
+      /** The rows of the turn: all of them, but the person accounts' contacts it does not send. */
+      let rows = aligned;
       // Open until its writes are done: one of them that throws ends it
       // failed. See `running.endOpenLine`.
       endTheObjectWritten = (cause) =>
-        endOnItsFailure(objectApiName, fromFiles, aligned, flagsNotKept, cause);
-      // The accounts are in: each person account's contact is linked to the
-      // one the platform wrote with it, before any contact goes. A read that
-      // throws ends the object's line, as any read of its own turn does.
-      if (objectApiName === CONTACT) await linkThePersonContacts();
+        endOnItsFailure(objectApiName, fromFiles, rows, flagsNotKept, cause);
+      if (objectApiName === CONTACT && personContacts.size > 0) {
+        // The accounts are in: each person account's contact is linked to
+        // the one the platform wrote with it, before any contact goes. A
+        // read that throws ends the object's line, as any read of its own
+        // turn does.
+        const people = await linkThePersonContacts();
+        // One whose account the target does not have is not sent; one whose
+        // account it holds as a business account goes as a contact of that
+        // account, as any contact does.
+        rows = aligned.filter((r) => !personContactsNotSent.has(r.referenceId));
+        for (const row of rows) {
+          const sent = people.own.get(row.referenceId);
+          const account = row.fields.AccountId;
+          if (sent && (account === undefined || account === null || account === '')) {
+            row.fields.AccountId = sent.accountReferenceId;
+          }
+        }
+      }
       if (objectApiName === ACCOUNT_CONTACT_RELATION) {
         await this.matchDirectRelations(orgId, working, aligned, mapping, reused);
       }
@@ -1871,8 +1911,8 @@ export class FrozenDatasetLoader {
       }
       const lifecycle = STATUS_LIFECYCLES[objectApiName];
       let startingRecords = lifecycle
-        ? await this.startAsDrafts(orgId, objectApiName, lifecycle, aligned, deferredStatuses)
-        : aligned;
+        ? await this.startAsDrafts(orgId, objectApiName, lifecycle, rows, deferredStatuses)
+        : rows;
       if (objectApiName === EMAIL_MESSAGE && !taskTurnOver && tasksToInsert.size > 0) {
         const waits = (fields: Record<string, unknown>): boolean =>
           waitsForItsTask(fields, (id) => refIndex.get(id)) &&
@@ -1966,6 +2006,7 @@ export class FrozenDatasetLoader {
       }
       // Its writes are done: the line that ends it follows.
       endTheObjectWritten = undefined;
+      if (objectApiName === CONTACT) settleTheContactsSent();
       objectResult = withPersonContacts(objectResult);
       /*
        * Stopped at the email object — before its insert, or before a call of
@@ -2096,12 +2137,14 @@ export class FrozenDatasetLoader {
 
     // 9. Person contacts: what became of each person account's contact —
     //    linked at the contact object's turn to the one the platform wrote,
-    //    or why not. Nothing is written for them; their line says it once
-    //    the dataset holds some. See `linkPersonContacts`.
+    //    sent as a contact of its own where the target wrote none, or why
+    //    neither. Their line says it once the dataset holds some. See
+    //    `linkPersonContacts`.
     await checkpoint();
     const people = await linkThePersonContacts();
     const personContact: FrozenLoadReport['personContact'] = {
       restored: people.linked.size,
+      sent: [...people.own.values()],
       unresolved: people.unlinked,
     };
     if (personContacts.size > 0) {
@@ -2111,7 +2154,8 @@ export class FrozenDatasetLoader {
         progress: 94,
         message:
           `Person contacts: ${people.linked.size} linked to the contact the platform wrote with ` +
-          `their account, ${people.unlinked.length} not linked`,
+          `their account, ${people.own.size} sent as contacts of their own, ` +
+          `${people.unlinked.length} not linked`,
       });
     }
     // Nor is the contract written after a cancel that came since: it would
@@ -2150,7 +2194,7 @@ export class FrozenDatasetLoader {
           reason: 'untyped-feed-item',
         })),
       ],
-      people.unlinked.length,
+      personContactsNotSent.size,
     );
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
@@ -3807,33 +3851,40 @@ export class FrozenDatasetLoader {
    * Link each person account's contact the dataset holds to the contact the
    * platform wrote with its account: put in the mapping under the contact's
    * referenceId, so that every record pointing at it — a case's contact, a
-   * contact role, a custom lookup — is written against that one, and none is
-   * sent (`personContactsOf`). Read from the target once the accounts are in,
-   * written by the load or found there by their keys: the account names its
-   * contact (`personContactsOfAccounts`).
+   * contact role, a custom lookup — is written against that one, and the
+   * dataset's is not sent beside it (`personContactsOf`). Read from the
+   * target once the accounts are in, written by the load or found there by
+   * their keys: the account names its contact (`personContactsOfAccounts`).
    *
-   * A contact whose account the load has no id for — not loaded, or not in
-   * the dataset — is not linked, and its link says so; so is one whose account
-   * the target holds with no contact of its own, a business account: its
-   * record type there is no person account's — the record type issue of the
-   * account says why, when the load dropped it — or the target has no person
-   * accounts at all, which its describe of the accounts tells before anything
-   * is asked. What points at such a contact is left empty, and the cycle pass
-   * says so. Nothing is written here.
+   * One whose account the target holds with no contact of its own goes as a
+   * contact of that account, as it did before loads linked any: a business
+   * account takes a contact as any contact. Its record type there is no
+   * person account's — the record type issue of the account says why, when
+   * the load dropped it — or the target has no person accounts at all, which
+   * its describe of the accounts tells before anything is asked. Linked to
+   * nothing, such a contact was left out, and every lookup at it with it. One
+   * a contact the target held was found for by its keys is left to that
+   * match. A contact whose account the load has no id for — not loaded, or not
+   * in the dataset — is not sent, and its link says so. Nothing is written
+   * here.
    *
+   * @param reused - The records matched to the target's before anything was
+   *   written.
    * @param targetHasPersonAccounts - Whether the target describes person
    *   accounts; undefined when it was not asked, and the read says.
-   * @returns The contacts linked, each with its account, and why each other
-   *   one was not, in the order the dataset names them.
+   * @returns The contacts linked, each with its account; those that go as
+   *   contacts of their own, and why; and why each other one is not sent —
+   *   in the order the dataset names them.
    */
   private async linkPersonContacts(
     orgId: string,
     personContacts: ReadonlyMap<string, string>,
     mapping: Map<string, string>,
+    reused: ReadonlySet<string>,
     targetHasPersonAccounts: boolean | undefined,
     recordTypeIssues: readonly RecordTypeIssue[],
   ): Promise<PersonContactOutcome> {
-    const outcome: PersonContactOutcome = { linked: new Map(), unlinked: [] };
+    const outcome: PersonContactOutcome = { linked: new Map(), own: new Map(), unlinked: [] };
     /** The contacts of the accounts the load has an id for, by that id. */
     const ofAccount = new Map<string, PersonContactLink[]>();
     const links = [...personContacts].map(([contactReferenceId, accountReferenceId]) => ({
@@ -3872,21 +3923,22 @@ export class FrozenDatasetLoader {
           cause: 'record-not-loaded',
           detail:
             link.accountReferenceId === ''
-              ? PERSON_CONTACT_NOT_LINKED.accountNotInDataset
-              : PERSON_CONTACT_NOT_LINKED.accountNotLoaded,
+              ? PERSON_CONTACT_FATE.accountNotInDataset
+              : PERSON_CONTACT_FATE.accountNotLoaded,
         });
         continue;
       }
+      if (reused.has(link.contactReferenceId)) continue;
       const issue = recordTypeIssues.find(
         (i) => i.objectApiName === ACCOUNT && i.referenceId === link.accountReferenceId,
       );
-      let detail: string = PERSON_CONTACT_NOT_LINKED.noPersonAccounts;
+      let detail: string = PERSON_CONTACT_FATE.noPersonAccounts;
       if (targetHasPersonAccounts !== false) {
         detail = issue
-          ? `${PERSON_CONTACT_NOT_LINKED.businessAccount}: ${issue.detail}`
-          : `${PERSON_CONTACT_NOT_LINKED.businessAccount}: its record type there is no person account's`;
+          ? `${PERSON_CONTACT_FATE.businessAccount}: ${issue.detail}`
+          : `${PERSON_CONTACT_FATE.businessAccount}: its record type there is no person account's`;
       }
-      outcome.unlinked.push({ ...link, cause: 'not-a-person-account', detail });
+      outcome.own.set(link.contactReferenceId, { ...link, detail });
     }
     return outcome;
   }
@@ -3898,16 +3950,17 @@ export class FrozenDatasetLoader {
    * under their reason, and an object all of whose records were is counted
    * too: none of it is expected. The records of an object the load did not
    * send (`lost`) are one too: no write of theirs failed. So are the person
-   * accounts' contacts it could not link: never sent, none was refused. The
-   * ones it linked are expected, as the contacts the platform wrote with
-   * their accounts, which the verification counts in the target.
+   * accounts' contacts it did not send, their account not in the target:
+   * none was refused. The ones it linked are expected, as the contacts the
+   * platform wrote with their accounts, which the verification counts in the
+   * target; the ones it sent as contacts of their own, as any it inserted.
    *
    * The contract names the load it counts by when it began, as the mapping
    * the load kept names it: a verification reads the records a mapping names
    * against the contract of the load that wrote it, or not at all.
    *
-   * @param personContactsNotLinked - How many of the contact object's failures
-   *   are person accounts' contacts the load could not link.
+   * @param personContactsNotSent - How many of the contact object's failures
+   *   are person accounts' contacts the load did not send.
    */
   private writeContract(
     options: FrozenLoadOptions,
@@ -3917,7 +3970,7 @@ export class FrozenDatasetLoader {
     clock: { now: () => Date; startedAt: Date },
     lost: ReadonlySet<string>,
     leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
-    personContactsNotLinked = 0,
+    personContactsNotSent = 0,
   ): string {
     const leftOf = new Map<string, Record<string, number>>();
     for (const { objectApiName, count, reason } of leftOut) {
@@ -3945,12 +3998,12 @@ export class FrozenDatasetLoader {
       if (result.skippedDuplicates.length > 0) {
         exclusionReasons['duplicate-skipped'] = result.skippedDuplicates.length;
       }
-      const notLinked = result.objectApiName === CONTACT ? personContactsNotLinked : 0;
-      if (result.failed.length > notLinked) {
+      const notSent = result.objectApiName === CONTACT ? personContactsNotSent : 0;
+      if (result.failed.length > notSent) {
         const reason = lost.has(result.objectApiName) ? 'object-not-loaded' : 'dml-failed';
-        exclusionReasons[reason] = result.failed.length - notLinked;
+        exclusionReasons[reason] = result.failed.length - notSent;
       }
-      if (notLinked > 0) exclusionReasons['person-contact-not-linked'] = notLinked;
+      if (notSent > 0) exclusionReasons['person-contact-not-sent'] = notSent;
       let left = 0;
       for (const [reason, count] of Object.entries(leftOf.get(result.objectApiName) ?? {})) {
         exclusionReasons[reason] = count;
@@ -4075,14 +4128,14 @@ function buildReferenceIndex(dataset: FrozenDataset): Map<string, string> {
  * fields), and those the catalog has to be written after though none of its
  * records points at them.
  *
- * A person account's contact is never sent, and its row orders nothing; nor
- * does the account's lookup at it, which no write sets. Taken for a
- * dependency, that lookup put the accounts and the contacts in one cycle with
- * whatever lay between them, written by name. The contacts go after the
- * accounts instead, as Forge writes them (`personAccountWriteEdges`): the
- * contact object's turn links each person account's contact to the one the
- * platform wrote with the account, and a record that points at such a
- * contact goes after that turn, as after any contact's.
+ * A person account's lookup at its contact orders nothing: no write sets it.
+ * Taken for a dependency, it put the accounts and the contacts in one cycle
+ * with whatever lay between them, written by name. The contacts go after the
+ * accounts instead, as Forge writes them (`personAccountWriteEdges`), whatever
+ * lookups their rows kept: the contact object's turn links each person
+ * account's contact to the one the platform wrote with the account, or sends
+ * it as a contact of that account where the platform wrote none, and a record
+ * that points at such a contact goes after that turn, as after any contact's.
  */
 function buildObjectDependencies(
   dataset: FrozenDataset,
@@ -4093,7 +4146,6 @@ function buildObjectDependencies(
   for (const objectData of dataset.objects) {
     const set = deps.get(objectData.objectApiName) ?? new Set<string>();
     for (const record of objectData.records) {
-      if (objectData.objectApiName === CONTACT && personContacts.has(record.referenceId)) continue;
       for (const [field, value] of Object.entries(record.fields)) {
         if (objectData.objectApiName === ACCOUNT && field === PERSON_CONTACT_FIELD) continue;
         if (typeof value === 'string') {

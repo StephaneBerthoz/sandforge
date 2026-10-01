@@ -5,8 +5,8 @@
  *   - **counts**: per-object org counts vs the contract (files minus
  *     exclusions);
  *   - **link integrity**: orphans of the graph's MANDATORY lookups, and each
- *     person account holding the contact the load linked (sidecar +
- *     persisted mapping);
+ *     account the target holds as a person account holding the contact the
+ *     load linked (sidecar + persisted mapping);
  *   - **presence by key** (ExternalId) for the referential shared with
  *     the org;
  *   - **robustness**: after a heavy DML storm the org can read
@@ -53,7 +53,11 @@ export interface PostLoadVerdict {
 
 /** Dependencies of {@link PostLoadVerifier}. */
 export interface PostLoadVerifierDeps {
-  orgAccess: Pick<TargetOrgAccess, 'query' | 'count'>;
+  /**
+   * Read access to the target. Its describe, when given, says whether the
+   * target has person accounts before their contacts are asked about.
+   */
+  orgAccess: Pick<TargetOrgAccess, 'query' | 'count'> & Partial<Pick<TargetOrgAccess, 'describe'>>;
   sasGuard?: SasPathGuard;
 }
 
@@ -101,6 +105,8 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 export class PostLoadVerifier {
   private readonly sasGuard: SasPathGuard;
+  /** Whether each target describes person accounts, asked once: see `describesPersonAccounts`. */
+  private readonly personAccounts = new Map<string, Promise<boolean>>();
 
   constructor(private readonly deps: PostLoadVerifierDeps) {
     this.sasGuard = deps.sasGuard ?? new SasPathGuard();
@@ -235,14 +241,14 @@ export class PostLoadVerifier {
 
   /**
    * Each person account's link to its contact (sidecar + mapping), for the
-   * accounts the load has in the target: the account names, as its
-   * `PersonContactId`, the contact the mapping holds for the dataset's — the
-   * one the platform wrote with it, which the load linked. One whose contact
-   * the load could not link is unrestored too: the target holds it as a
-   * business account, and what pointed at its contact went without. Counted
-   * only when both ends are mapped, such an account would pass unseen, the
-   * check reading every link in place beside a load that said it could not
-   * make them.
+   * accounts the load has in the target that the target holds as person
+   * accounts: the account names, as its `PersonContactId`, the contact the
+   * mapping holds for the dataset's — the one the platform wrote with it,
+   * which the load linked. One the target holds as a business account names
+   * none, and the load sent the dataset's contact as one of its own, which the
+   * counts check: it is no person account to judge here. A target that
+   * describes no account's lookup at its contact holds no person account, and
+   * is not asked: the query names a field it does not have.
    */
   private async measurePersonContacts(
     options: PostLoadVerifyOptions,
@@ -252,7 +258,7 @@ export class PostLoadVerifier {
       return { checked: 0, unrestored: [] };
     }
     const resolvable = sidecar.filter((link) => options.mapping?.has(link.accountReferenceId));
-    if (resolvable.length === 0) {
+    if (resolvable.length === 0 || !(await this.describesPersonAccounts(options.orgId))) {
       return { checked: 0, unrestored: [] };
     }
     const accountIds = resolvable.map(
@@ -272,17 +278,38 @@ export class PostLoadVerifier {
       ]),
     );
     const unrestored: string[] = [];
+    let checked = 0;
     for (const link of resolvable) {
       const accountId = options.mapping.get(link.accountReferenceId) as string;
-      const expectedContactId = options.mapping.get(link.contactReferenceId);
-      if (
-        expectedContactId === undefined ||
-        personContactByAccount.get(accountId) !== expectedContactId
-      ) {
+      const contactOfTheAccount = personContactByAccount.get(accountId);
+      if (contactOfTheAccount === null || contactOfTheAccount === undefined) continue;
+      checked++;
+      if (options.mapping.get(link.contactReferenceId) !== contactOfTheAccount) {
         unrestored.push(link.accountReferenceId);
       }
     }
-    return { checked: resolvable.length, unrestored: unrestored.sort() };
+    return { checked, unrestored: unrestored.sort() };
+  }
+
+  /**
+   * Whether the target describes an account's lookup at its contact, which
+   * only an org with person accounts does — asked once per org. A target
+   * whose describe cannot be read, or a verifier given none, is asked as one
+   * that has them.
+   */
+  private describesPersonAccounts(orgId: string): Promise<boolean> {
+    let known = this.personAccounts.get(orgId);
+    if (!known) {
+      const describe = this.deps.orgAccess.describe;
+      known = describe
+        ? describe
+            .call(this.deps.orgAccess, orgId, 'Account')
+            .then((account) => account.fields.some((f) => f.name === 'PersonContactId'))
+            .catch(() => true)
+        : Promise.resolve(true);
+      this.personAccounts.set(orgId, known);
+    }
+    return known;
   }
 
   /** Presence by key (e.g. ExternalId) for the referential shared with the org. */

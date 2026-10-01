@@ -125,8 +125,9 @@ export interface FrozenRecordTypeRef {
  * referenceId→referenceId pairs emitted by the anonymization phase. The
  * platform writes a person account's contact itself as it takes the account,
  * and `Account.PersonContactId` is set by no insert and no update: the load
- * never sends the contact, and maps it onto the one the platform wrote with
- * its account (see `FrozenDatasetLoader.linkPersonContacts`).
+ * maps the contact onto the one the platform wrote with its account, or, where
+ * the target wrote none, sends it as a contact of that account (see
+ * `FrozenDatasetLoader.linkPersonContacts`).
  */
 export interface PersonContactLink {
   accountReferenceId: string;

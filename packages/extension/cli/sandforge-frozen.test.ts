@@ -468,6 +468,14 @@ describe('messageLines', () => {
     expect(
       personContactLines({
         restored: 2,
+        sent: [
+          {
+            accountReferenceId: 'Account-000004',
+            contactReferenceId: 'Contact-000004',
+            detail:
+              "the target holds the account as a business account, which takes the contact as one of its own: its record type there is no person account's",
+          },
+        ],
         unresolved: [
           {
             accountReferenceId: 'Account-000003',
@@ -475,19 +483,12 @@ describe('messageLines', () => {
             cause: 'record-not-loaded',
             detail: 'person account was not loaded (see perObject failures/skips)',
           },
-          {
-            accountReferenceId: 'Account-000004',
-            contactReferenceId: 'Contact-000004',
-            cause: 'not-a-person-account',
-            detail:
-              "the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
-          },
         ],
       }),
     ).toEqual([
-      'person contacts: 2 linked, 2 not linked',
+      'person contacts: 2 linked, 1 sent as contacts of their own, 1 not linked',
+      "  Contact-000004 sent: the target holds the account as a business account, which takes the contact as one of its own: its record type there is no person account's",
       '  Contact-000003: person account was not loaded (see perObject failures/skips)',
-      "  Contact-000004: the target holds the account as a business account, with no contact of its own: its record type there is no person account's",
     ]);
     // A dataset with no person account has no contact to link.
     expect(personContactLines({ restored: 0, unresolved: [] })).toEqual([]);

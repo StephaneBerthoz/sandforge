@@ -127,8 +127,6 @@ describe('unresolvedLinks', () => {
   });
 
   it("lists a person account's link to its contact as the account's PersonContactId, one row per cause", () => {
-    const businessAccount =
-      'the target holds the account as a business account, with no contact of its own';
     const links = unresolvedLinks(
       reportOf(
         [],
@@ -142,14 +140,14 @@ describe('unresolvedLinks', () => {
           {
             accountReferenceId: 'Account-000002',
             contactReferenceId: 'Contact-000002',
-            cause: 'not-a-person-account',
-            detail: `${businessAccount}: its record type there is no person account's`,
+            cause: 'target-not-loaded',
+            detail: 'contact Contact-000002 was not loaded (skipped, failed or excluded)',
           },
           {
             accountReferenceId: 'Account-000003',
             contactReferenceId: 'Contact-000003',
-            cause: 'not-a-person-account',
-            detail: `${businessAccount}: RecordType Gone not found in target org — RecordTypeId dropped`,
+            cause: 'target-not-loaded',
+            detail: 'contact Contact-000003 was not loaded (skipped, failed or excluded)',
           },
         ],
       ),
@@ -161,7 +159,7 @@ describe('unresolvedLinks', () => {
       {
         objectApiName: 'Account',
         field: 'PersonContactId',
-        cause: 'not-a-person-account',
+        cause: 'target-not-loaded',
         message: '',
         count: 2,
       },

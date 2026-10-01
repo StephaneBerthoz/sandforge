@@ -386,13 +386,15 @@ export interface FrozenLoadReport {
     }>;
   };
   /**
-   * Each person account's contact, never sent: `restored` counts the ones
-   * linked to the contact the platform wrote with their account, `unresolved`
-   * says why each other one was not — its account not loaded, or held by the
-   * target as a business account (`not-a-person-account`).
+   * Each person account's contact: `restored` counts the ones linked to the
+   * contact the platform wrote with their account; `sent` names the ones sent
+   * as contacts of their own, the target holding their account as a business
+   * account, and why; `unresolved` says why each other one is in the target
+   * neither way — its account not loaded, or its own insert refused.
    */
   personContact: {
     restored: number;
+    sent: Array<PersonContactLink & { detail: string }>;
     unresolved: Array<PersonContactLink & { cause: FrozenUnresolvedLinkCause; detail: string }>;
   };
   /**

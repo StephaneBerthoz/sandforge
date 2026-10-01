@@ -404,6 +404,7 @@ export function messageLines(message: Posted): string[] {
         };
         personContact?: {
           restored: number;
+          sent?: Array<{ contactReferenceId: string; detail: string }>;
           unresolved: Array<{ contactReferenceId: string; detail: string }>;
         };
         statuses?: {
@@ -447,16 +448,23 @@ export function messageLines(message: Posted): string[] {
       for (const u of r.pass2.unresolved.slice(0, 5)) {
         lines.push(`  ${u.objectApiName}.${u.field}: ${u.detail}`);
       }
-      // A person account's contact, which the load never sends: linked to
-      // the one the platform wrote with its account, or not, and why. The
-      // Load tab says both, and the command said neither. A dataset with no
-      // person account has none.
+      // A person account's contact: linked to the one the platform wrote
+      // with its account, sent as a contact of its own where it wrote none,
+      // or neither, and why. The Load tab says all three, and the command
+      // said none. A dataset with no person account has none.
       const personContact = r.personContact;
-      if (personContact && personContact.restored + personContact.unresolved.length > 0) {
+      const sent = personContact?.sent ?? [];
+      if (
+        personContact &&
+        personContact.restored + sent.length + personContact.unresolved.length > 0
+      ) {
         lines.push(
-          `person contacts: ${personContact.restored} linked, ` +
-            `${personContact.unresolved.length} not linked`,
+          `person contacts: ${personContact.restored} linked, ${sent.length} sent as contacts ` +
+            `of their own, ${personContact.unresolved.length} not linked`,
         );
+        for (const s of sent.slice(0, 5)) {
+          lines.push(`  ${s.contactReferenceId} sent: ${s.detail}`);
+        }
         for (const u of personContact.unresolved.slice(0, 5)) {
           lines.push(`  ${u.contactReferenceId}: ${u.detail}`);
         }

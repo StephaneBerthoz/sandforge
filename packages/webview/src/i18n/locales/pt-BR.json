@@ -3078,7 +3078,7 @@
       "placeholder": "Placeholder",
       "skippedList": "Registros ignorados (anti-duplicado nativo)",
       "errors": "Erros",
-      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos, {{pass2Unresolved}} não resolvidos — Contatos pessoais: {{personContact}} vinculados, {{personContactUnresolved}} não vinculados",
+      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos, {{pass2Unresolved}} não resolvidos — Contatos pessoais: {{personContact}} vinculados, {{personContactSent}} enviados como contatos próprios, {{personContactUnresolved}} não vinculados",
       "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}",
       "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
       "excludedObjects": "Objetos não carregados",
@@ -3097,7 +3097,6 @@
         "lookup": "Vínculo",
         "leftEmpty": "Vínculos deixados vazios",
         "targetNotLoaded": "O registro para o qual aponta não foi carregado",
-        "notAPersonAccount": "O destino mantém a conta como conta comercial, sem contato próprio",
         "lostWithTheirRecord": "Perdidos com os registros que os contêm, que a carga não gravou: {{links}}"
       }
     },

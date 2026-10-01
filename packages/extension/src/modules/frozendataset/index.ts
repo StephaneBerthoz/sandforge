@@ -5,8 +5,8 @@
  * Core engine: the FrozenDataset data structures, the manifest, and the
  * PersonContact sidecar. Load phase: FrozenDatasetLoader (replayable load
  * with entry guards, schema alignment, placeholders, 2-pass cycles and the
- * person accounts' contacts linked to the platform's) and PostLoadVerifier,
- * plus the implementations
+ * person accounts' contacts linked to the platform's, or sent as their own)
+ * and PostLoadVerifier, plus the implementations
  * of the engine extension points (TargetRecordTypeIdResolver,
  * SasReferenceIdMappingStore).
  */
