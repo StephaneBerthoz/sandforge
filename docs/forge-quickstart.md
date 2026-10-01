@@ -12,7 +12,7 @@ What it handles for you:
 - **RecordType cross-org**: re-mapped automatically by `DeveloperName`
 - **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
 - **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record
-- **Picklist drift**: values not present on the target are silently stripped
+- **Picklist drift**: a value the target would refuse — not one of the field's values there, or not one the record type the row goes in with allows — is replaced by that record type's default or left out, and the results say which, per object and field
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
 - **Required orphan parents**: single-hop fetch when an Asset references an Account outside the scope
 - **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`, and the summary counts the rows patched as `updated`, apart from the ones created. The wizard always inserts.
@@ -159,7 +159,7 @@ With `--json`, the clone prints its summary as JSON. `remapTable` maps each sour
 
 `--exclude-object <object>` leaves an object out of the clone, whether discovery reached it or the run would add it past `--max-nodes` — a line's price, an order's items. The records that cannot be written without one of its records are held back and named in the summary's errors, and an order past Draft left with no item stays a draft, said so.
 
-`--files` copies the files of the cloned records, as the wizard's option does ([above](#copy-the-files-of-the-cloned-records)); `--max-file-size <MB>` sets the largest file copied, from 1 to 35 (default 10). With `--anonymize`, `--files` also needs `--files-as-is`, which accepts that the files are copied as they are. The summary counts the files per object, lists every file left out with why, and a `--dry-run` lists what it would copy and the size; with `--json` it is all under `files`. Whatever the flags, the summary names per object the fields left empty because they hold a file's content, under `fileContentFieldsLeftOut` with `--json`.
+`--files` copies the files of the cloned records, as the wizard's option does ([above](#copy-the-files-of-the-cloned-records)); `--max-file-size <MB>` sets the largest file copied, from 1 to 35 (default 10). With `--anonymize`, `--files` also needs `--files-as-is`, which accepts that the files are copied as they are. The summary counts the files per object, lists every file left out with why, and a `--dry-run` lists what it would copy and the size; with `--json` it is all under `files`. Whatever the flags, the summary names per object the fields left empty because they hold a file's content, under `fileContentFieldsLeftOut` with `--json`, and the picklist values replaced or left out because the target would refuse them, per object and field with why, under `picklistValuesChanged`.
 
 The clone's exit code is `1` when the run produced **only** failures, or when its files do not fit in the target's file storage, that storage could not be read or the files could not all be looked up in the source (nothing is written then), and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, a name that is not an API name, `--files` with `--anonymize` and no `--files-as-is`, or a `--max-file-size` outside 1 to 35. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
 
@@ -170,7 +170,7 @@ The clone's exit code is `1` when the run produced **only** failures, or when it
 | `DUPLICATE_VALUE`                         | A record with this External Id already exists on target. | Re-run from the command line with `--upsert`, or run `sandforge-cleanup` first. |
 | `INVALID_CROSS_REFERENCE_KEY: Owner ID`   | Source User doesn't exist on target.                     | Auto-handled: Salesforce assigns the running user.                              |
 | `REQUIRED_FIELD_MISSING`                  | A required FK pointed outside the scope.                 | Enable "Auto-fetch parents" toggle in the wizard.                               |
-| `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` | Source picklist value missing on target.                 | Auto-handled: value is silently stripped.                                       |
+| `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` | Value not on target, or not allowed by its record type.  | Auto-handled: replaced by its record type's default, or left out, and named.    |
 | `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | Object is read-only (audit/history table).               | Auto-handled: node is now skipped pre-flight.                                   |
 | `FIELD_INTEGRITY_EXCEPTION` (Asset)       | Asset needs at least an Account or Contact.              | Enable "Auto-fetch parents" toggle.                                             |
 

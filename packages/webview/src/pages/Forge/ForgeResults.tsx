@@ -38,6 +38,7 @@ import { collator, formatElapsed, formatStoredDate, uiLocale } from '../../utils
 import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 import { ForgeFilesResult } from './ForgeFilesResult';
+import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 
 /**
@@ -876,6 +877,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* Picklist values the target would have refused, for the field or for
+          the record type the rows went in with: replaced or left out, and said
+          per object and field with why. */}
+      {result?.picklistValuesChanged && result.picklistValuesChanged.length > 0 && (
+        <ForgePicklistsResult changes={result.picklistValuesChanged} />
       )}
 
       {/* A read stopped by a bound is not a failure and would otherwise leave

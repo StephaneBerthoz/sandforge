@@ -2641,8 +2641,8 @@
         "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
       },
       "invalidPicklist": {
-        "explanation": "Ein Auswahllistenwert aus der Quelle existiert in der Auswahlliste des Ziel-Orgs nicht.",
-        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste hinzu, oder ändern Sie den Wert im Quelldatensatz."
+        "explanation": "Ein Auswahllistenwert aus der Quelle ist im Ziel-Org nicht zulässig: Das Feld enthält ihn nicht, oder der Datensatztyp des Datensatzes lässt ihn nicht zu.",
+        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
       },
       "invalidFieldForInsert": {
         "explanation": "Ein Feld kann beim Anlegen nicht gesetzt werden: Es wird berechnet, durch Feldsicherheit verborgen oder fehlt im Ziel-Org.",
@@ -2708,6 +2708,18 @@
     "emptyTablesLeftOut_one": "Nicht aufgeführt: {{count}} Objekt, das die Ermittlung ausgelassen hat, weil seine Tabelle in der Quelle leer ist.",
     "emptyTablesLeftOut_other": "Nicht aufgeführt: {{count}} Objekte, die die Ermittlung ausgelassen hat, weil ihre Tabelle in der Quelle leer ist.",
     "fileContentLeftOut": "Im Klon leer gelassen: Diese Felder enthalten den Inhalt einer Datei, den ein Lesevorgang nur als Adresse der Datei liefert.",
+    "picklists": {
+      "title": "Auswahllistenwerte, die nicht wie gelesen geschrieben wurden",
+      "hint": "Die Ziel-Org hätte diese Werte abgelehnt. Jeder wurde durch den Standardwert des Datensatztyps für das Feld ersetzt — bei einem Pflichtfeld ohne Standardwert durch den ersten Wert, den der Datensatztyp zulässt — oder weggelassen.",
+      "rows_one": "{{count}} Zeile",
+      "rows_other": "{{count}} Zeilen",
+      "notInTarget": "kein Wert des Felds in der Ziel-Org",
+      "recordType": "für den Datensatztyp {{recordType}} nicht zulässig",
+      "controllingValue": "mit dem Wert von {{field}} nicht zulässig",
+      "replacedDefault": "ersetzt durch {{value}}, den Standardwert des Datensatztyps {{recordType}}",
+      "replacedFirst": "ersetzt durch {{value}}, den ersten Wert, den der Datensatztyp {{recordType}} zulässt: Das Feld ist ein Pflichtfeld und hat dort keinen Standardwert",
+      "leftOut": "weggelassen"
+    },
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",
       "hint": "Die Ziel-Org hat diese Datensätze abgelehnt, weil sie sie bereits enthält. Wo Salesforce den Datensatz benannt hat, verknüpft der Klon damit und ändert ihn nie.",

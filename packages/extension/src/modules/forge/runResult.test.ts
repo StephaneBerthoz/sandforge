@@ -190,6 +190,27 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('apiCalls');
   });
 
+  it('keeps the picklist values the run replaced or left out, for the results and the history', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const picklistValuesChanged = [
+      {
+        objectApiName: 'Order__c',
+        field: 'Status__c',
+        reason: 'record-type' as const,
+        values: ['Old'],
+        rows: 2,
+        recordType: 'Retail',
+        replacedBy: 'New',
+        replacement: 'default' as const,
+      },
+    ];
+
+    expect(
+      forgeRunResult(summary({ picklistValuesChanged }), GRAPH, run).picklistValuesChanged,
+    ).toEqual(picklistValuesChanged);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('picklistValuesChanged');
+  });
+
   it('keeps what a run that stopped part way created, under the status it is given', () => {
     const stopped = forgeRunResult(summary({ failedCount: 5 }), GRAPH, {
       startedAt: Date.now(),

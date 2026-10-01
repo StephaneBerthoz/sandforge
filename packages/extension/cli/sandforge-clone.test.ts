@@ -614,6 +614,43 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).fileContentFieldsLeftOut).toBeUndefined();
   });
 
+  it('names, per object and field, the picklist values replaced or left out, and why', () => {
+    const picklistValuesChanged = [
+      {
+        objectApiName: 'Order__c',
+        field: 'Status__c',
+        reason: 'record-type' as const,
+        values: ['Old'],
+        rows: 2,
+        recordType: 'Retail',
+        replacedBy: 'New',
+        replacement: 'default' as const,
+      },
+      {
+        objectApiName: 'Invoice__c',
+        field: 'Kind__c',
+        reason: 'not-in-target' as const,
+        values: ['Gone'],
+        rows: 1,
+      },
+    ];
+
+    const lines = summaryLines(summary({ picklistValuesChanged }));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'picklist values not written as read (2 object(s)):',
+        '  Order__c  Status__c on 2 rows: "Old" not allowed for record type Retail, replaced by "New", the default of record type Retail',
+        '  Invoice__c  Kind__c on 1 row: "Gone" not a value of the field in the target, left out',
+      ]),
+    );
+    expect(jsonResult(summary({ picklistValuesChanged })).picklistValuesChanged).toEqual(
+      picklistValuesChanged,
+    );
+    expect(summaryLines(summary({})).some((line) => line.includes('picklist'))).toBe(false);
+    expect(jsonResult(summary({})).picklistValuesChanged).toBeUndefined();
+  });
+
   it('prints the reason an object was held back, from its error samples', () => {
     const lines = summaryLines(
       summary({
@@ -1171,6 +1208,102 @@ describe('sandforge-clone describes', () => {
       expect(await run(argv('--list-objects', '--exclude-object', 'Contact'))).toBeUndefined();
 
       expect(printed.join('\n')).toMatch(/Contact\s+1\s+depth 1\s+\(excluded\)/);
+    });
+
+    it("writes a record type's default in place of a value it does not keep, read once from the target's UI API", async () => {
+      // "Hot" is active in the target, and not kept by the record type the
+      // account goes in with there: written as read, the account is refused.
+      const SOURCE_RETAIL = '012000000000001AAA';
+      const TARGET_RETAIL = '012000000000101AAA';
+      const account = object('Account', '001', [
+        { name: 'Name' },
+        {
+          name: 'RecordTypeId',
+          type: 'reference',
+          referenceTo: ['RecordType'],
+          relationshipName: 'RecordType',
+        },
+        {
+          name: 'Rating__c',
+          type: 'picklist',
+          restrictedPicklist: true,
+          picklistValues: [
+            { value: 'Hot', active: true },
+            { value: 'Cold', active: true },
+          ],
+        },
+      ]);
+      const rows: Record<string, FakeRow[]> = {
+        Account: [{ Id: ACCOUNT, Name: 'Acme', RecordTypeId: SOURCE_RETAIL, Rating__c: 'Hot' }],
+      };
+      const written: Array<Record<string, unknown>> = [];
+      const asked: string[] = [];
+      const typedOrg = (recordTypeId: string) =>
+        ({
+          version: '66.0',
+          sobject: () => ({
+            describe: async () => account,
+            create: async (records: Array<Record<string, unknown>>) => {
+              written.push(...records);
+              return records.map(() => ({ id: '001000000000901AAA', success: true, errors: [] }));
+            },
+          }),
+          describe$: async () => account,
+          describeGlobal: async () => ({ sobjects: [{ name: 'Account', keyPrefix: '001' }] }),
+          query: async (soql: string) => {
+            if (soql.includes(' FROM RecordType ')) {
+              const records = [
+                {
+                  Id: recordTypeId,
+                  Name: 'Retail',
+                  DeveloperName: 'Retail',
+                  SobjectType: 'Account',
+                },
+              ];
+              return { totalSize: 1, done: true, records };
+            }
+            const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
+            if (counted) return { totalSize: (rows[counted[1]] ?? []).length, records: [] };
+            const records = selectRows(rows, soql);
+            return { totalSize: records.length, done: true, records };
+          },
+          request: async (url: unknown) => {
+            if (typeof url === 'string' && url.includes('/ui-api/')) {
+              asked.push(url);
+              return {
+                picklistFieldValues: {
+                  Rating__c: {
+                    controllerValues: {},
+                    defaultValue: { value: 'Cold', validFor: [] },
+                    values: [{ value: 'Cold', validFor: [] }],
+                  },
+                },
+              };
+            }
+            return {};
+          },
+        }) as unknown as Connection;
+      const orgs = { SRC: typedOrg(SOURCE_RETAIL), TGT: typedOrg(TARGET_RETAIL) };
+      vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+        alias,
+        username: '',
+        instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+        accessToken: 'token',
+      }));
+      vi.mocked(makeConn).mockImplementation((org) => orgs[org.alias as keyof typeof orgs]);
+
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+      expect(asked).toEqual([
+        `/services/data/v66.0/ui-api/object-info/Account/picklist-values/${TARGET_RETAIL}`,
+      ]);
+      expect(written).toEqual([{ Name: 'Acme', RecordTypeId: TARGET_RETAIL, Rating__c: 'Cold' }]);
+      expect(printed).toContain(
+        '  Completed Account: 1 succeeded, 0 failed, picklist values not written as read: ' +
+          'Rating__c on 1 row: "Hot" not allowed for record type Retail, replaced by "Cold", ' +
+          'the default of record type Retail',
+      );
+      expect(printed).toContain('picklist values not written as read (1 object(s)):');
     });
 
     it('refuses to leave out the object of the record to clone, before reading a row', async () => {

@@ -688,6 +688,107 @@ describe('initForgeComposition', () => {
     expect(result.apiCalls).toBe(requests - byDiscovery);
   });
 
+  it("writes a record type's default in place of a value it does not keep, read once from the target's UI API as one of the run's calls", async () => {
+    // Active in the target, "Hot" is not kept by the record type the accounts
+    // go in with there: written as read, every account would be refused.
+    const SOURCE_RETAIL = '012000000000001AAA';
+    const TARGET_RETAIL = '012000000000101AAA';
+    let requests = 0;
+    const asked: string[] = [];
+    const written: Array<Record<string, unknown>> = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        version: '66.0',
+        describeGlobal: connection.describeGlobal,
+        describe: vi.fn(async (objectApiName: string) => {
+          requests++;
+          const described = (await connection.describe(objectApiName)) as { fields: unknown[] };
+          if (objectApiName !== 'Account') return described;
+          return {
+            ...described,
+            fields: [
+              ...described.fields,
+              field('RecordTypeId', 'reference', ['RecordType']),
+              {
+                ...field('Rating__c', 'picklist'),
+                restrictedPicklist: true,
+                picklistValues: [
+                  { value: 'Hot', active: true },
+                  { value: 'Cold', active: true },
+                ],
+              },
+            ],
+          };
+        }),
+        query: vi.fn(async (soql: string) => {
+          requests++;
+          const answered = await connection.query(soql);
+          if (!/\bFROM Account\b/.test(soql) || /COUNT\(\)/.test(soql)) return answered;
+          return {
+            ...answered,
+            records: answered.records.map((row) => ({
+              ...row,
+              RecordTypeId: SOURCE_RETAIL,
+              Rating__c: 'Hot',
+            })),
+          };
+        }),
+        queryMore: connection.queryMore,
+        sobject: (objectApiName: string) => ({
+          create: vi.fn(async (records: Array<Record<string, unknown>>) => {
+            if (records.length > 0) requests++;
+            if (objectApiName === 'Account') written.push(...records);
+            return connection.sobject(objectApiName).create(records);
+          }),
+        }),
+        request: vi.fn(async (url: string) => {
+          requests++;
+          asked.push(`${orgId} ${url}`);
+          return {
+            picklistFieldValues: {
+              Rating__c: {
+                controllerValues: {},
+                defaultValue: { value: 'Cold', validFor: [] },
+                values: [{ value: 'Cold', validFor: [] }],
+              },
+            },
+          };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const byDiscovery = requests;
+    const result = await orchestrator.execute(graph, SOQL_CONFIG, {
+      recordTypeMappings: [
+        { sourceId: SOURCE_RETAIL, targetId: TARGET_RETAIL, developerName: 'Retail' },
+      ],
+    });
+
+    expect(asked).toEqual([
+      `tgt /services/data/v66.0/ui-api/object-info/Account/picklist-values/${TARGET_RETAIL}`,
+    ]);
+    expect(written.map((row) => [row['RecordTypeId'], row['Rating__c']])).toEqual([
+      [TARGET_RETAIL, 'Cold'],
+      [TARGET_RETAIL, 'Cold'],
+    ]);
+    expect(result.picklistValuesChanged).toEqual([
+      {
+        objectApiName: 'Account',
+        field: 'Rating__c',
+        reason: 'record-type',
+        values: ['Hot'],
+        rows: 2,
+        recordType: 'Retail',
+        replacedBy: 'Cold',
+        replacement: 'default',
+      },
+    ]);
+    expect(result.apiCalls).toBe(requests - byDiscovery);
+  });
+
   it('joins a describe already under way instead of sending a second one', async () => {
     const { services } = await compose();
 

@@ -63,6 +63,8 @@ import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/Reco
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
+import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
+import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
 import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
 import {
   insertFile,
@@ -662,6 +664,17 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${objectApiName}  ${fields.join(', ')}`);
     }
   }
+  // A picklist value the target would refuse — for the field, or for the
+  // record type the row goes in with — is replaced or left out rather than
+  // sent to cost the row, and said, per object and field, with why.
+  const picklists = summary.picklistValuesChanged ?? [];
+  if (picklists.length > 0) {
+    const objects = new Set(picklists.map((change) => change.objectApiName)).size;
+    lines.push('', `picklist values not written as read (${objects} object(s)):`);
+    for (const change of picklists) {
+      lines.push(`  ${change.objectApiName}  ${describePicklistChange(change)}`);
+    }
+  }
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -733,6 +746,11 @@ export function jsonResult(summary: ExecutionSummary) {
     // only when there were any.
     ...(summary.fileContentFieldsLeftOut
       ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
+      : {}),
+    // Per object and field, the picklist values replaced or left out, with
+    // why; only when there were any.
+    ...(summary.picklistValuesChanged
+      ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
     // The requests the run sent to both orgs, discovery's before it aside.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
@@ -1041,6 +1059,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         picklistValues: (f.picklistValues ?? [])
           .filter((p) => p?.active !== false && typeof p?.value === 'string')
           .map((p) => p.value as string),
+        restrictedPicklist: f.restrictedPicklist === true,
+        ...(f.controllerName ? { controllerName: f.controllerName } : {}),
+        defaultedOnCreate: f.defaultedOnCreate === true,
         updateable: f.updateable !== false,
       }));
     },
@@ -1051,6 +1072,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
       return describeObjectInfo(c, name);
+    },
+    // What a record type allows of the object's picklists, in one UI API
+    // request the run keeps for every row of that record type.
+    recordTypePicklists: async (orgId, name, recordTypeId) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return readRecordTypePicklists(c, name, recordTypeId);
     },
     // Surface upsert path so re-runs against the same source records
     // don't pile DUPLICATE_VALUE errors on objects with external Id fields.

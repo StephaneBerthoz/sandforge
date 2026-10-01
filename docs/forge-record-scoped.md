@@ -109,7 +109,9 @@ ForgeOrchestrator.execute(graph, config)
        │         - strip non-createable
        │         - strip Person Account __pc on Business Accounts
        │         - strip Name on Person Accounts (auto-computed)
-       │         - strip picklist values not in target whitelist
+       │         - replace or leave out the picklist values the target
+       │           would refuse, for the record type the row goes in with
+       │           when the mapping knows it (see below)
        │         - omit nullified orphan FKs (don't send `null`)
        │         - apply RecordType mapping (DeveloperName)
        │    7. batch insert into target
@@ -122,7 +124,8 @@ ForgeOrchestrator.execute(graph, config)
        │
        └─ summary { successCount, failedCount, skippedCount, errors[],
                     readByObject[], failedReads[], files?,
-                    fileContentFieldsLeftOut?, writtenBetween? }
+                    fileContentFieldsLeftOut?, picklistValuesChanged?,
+                    writtenBetween? }
 ```
 
 `readByObject` is, per object, the rows the run read to clone — on a dry run,
@@ -161,6 +164,35 @@ object, including an optional parent fetched from outside the graph; the ones
 createable on an object with records to write are listed per object in
 `fileContentFieldsLeftOut`. Files and attachments never reach the graph: their
 content is the files stage's.
+
+A picklist value is checked against what the target allows before its row is
+written. The describe lists a field's active values for every record type at
+once; a restricted picklist refuses at insert a value the record's type does not
+keep, and a dependent one a value its controlling value does not allow
+(`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`). For a row whose record type the run's
+record type mapping translates — known, then, in the target — each restricted
+picklist value is checked against the values that record type keeps, and a
+dependent one against those its controlling value allows, as that value is
+written. The target's UI API answers both for every picklist field of a record
+type in one request (`ui-api/object-info/{object}/picklist-values/{recordTypeId}`),
+made once a run per object and record type, and only when a row of it holds a
+value in a restricted picklist it is written with. A value the target would
+refuse is replaced by the record type's default for the field; in a field the
+target requires and the record type sets no default for, by the first value the
+record type allows, since the row cannot go in without one; and otherwise it is
+left out. A multi-select value keeps the values of its selection the record type
+allows, and is replaced or left out only when none is left. Any other value —
+the row's record type not mapped, the field not restricted, or left out of the
+record type's answer — is checked against the field's active values, one value
+of a selection at a time, and left out when it is not one of them. A record type
+whose values could not be read is said once, in a `scope` report of the object
+that counts no row, and its rows are checked against the fields' values; so is a
+field its answer leaves out that its rows hold a value in. What a write did not
+send as read is said on the object's line — `Completed Quote: 2 succeeded, 0
+failed, picklist values not written as read: Status__c on 1 row: "Old" not
+allowed for record type Retail, replaced by "New", the default of record type
+Retail` — and listed per object, field and reason in `picklistValuesChanged`.
+The rows are counted written or failed as the target answered them.
 
 Once the run has written, it reads back from the target the `CreatedDate` and
 `LastModifiedDate` of every record it created — the `SystemModstamp` of an

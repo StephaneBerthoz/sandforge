@@ -550,6 +550,42 @@ export interface ForgeFieldsLeftOut {
 }
 
 /**
+ * Why a run did not write a picklist value as it read it: the target has no
+ * such value for the field, the record type the row goes in with does not keep
+ * it, or the value of the field it depends on does not allow it.
+ */
+export type ForgePicklistRefusal = 'not-in-target' | 'record-type' | 'controlling-value';
+
+/**
+ * Picklist values of one field of one object that a run did not write as it
+ * read them, for one reason, and what the rows were written with instead.
+ */
+export interface ForgePicklistValuesChanged {
+  /** API name of the object. */
+  objectApiName: string;
+  /** API name of the field. */
+  field: string;
+  /** Why the target would have refused them. */
+  reason: ForgePicklistRefusal;
+  /** The values read that it would have refused, each once. */
+  values: string[];
+  /** The rows that carried one of them. */
+  rows: number;
+  /** The record type the rows went in with, by API name, when the run read what it allows. */
+  recordType?: string;
+  /** For `controlling-value`, the field whose value decides. */
+  controllingField?: string;
+  /** What the rows were written with instead; absent when the value was left out. */
+  replacedBy?: string;
+  /**
+   * How `replacedBy` was chosen: `default`, the record type's default for the
+   * field; `first`, the first value the record type allows, for a field the
+   * target requires that the record type sets no default for.
+   */
+  replacement?: 'default' | 'first';
+}
+
+/**
  * When the target org dated a run's writes, by its own clock: what removing
  * the run's records tells a change made since the run by.
  */
@@ -729,6 +765,12 @@ export interface ForgeExecutionResult {
    */
   fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
   /**
+   * Per object and field, the picklist values the run did not write as it read
+   * them, the target being bound to refuse them — replaced or left out — and
+   * why. Absent when there were none, and from runs recorded before it was kept.
+   */
+  picklistValuesChanged?: ForgePicklistValuesChanged[];
+  /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded
    * before it was kept: removing their records dates them from the records
@@ -738,8 +780,9 @@ export interface ForgeExecutionResult {
   /**
    * The calls to Salesforce the run made, as it counted them: the record
    * types it read from both orgs before it started, its reads and each
-   * further page of them, the describes it needed, its writes, the second
-   * pass and the files it copied — up to where it ended or stopped.
+   * further page of them, the describes and the record types' picklist values
+   * it needed, its writes, the second pass and the files it copied — up to
+   * where it ended or stopped.
    *
    * The graph's `estimatedApiCalls` are discovery's guess at the writes of
    * each whole table, 0 on a starter template's graph, and the results added

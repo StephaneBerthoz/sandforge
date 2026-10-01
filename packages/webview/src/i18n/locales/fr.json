@@ -2641,8 +2641,8 @@
         "action": "Activez « Récupérer les parents automatiquement », ou augmentez la profondeur pour que le parent requis fasse partie du clonage."
       },
       "invalidPicklist": {
-        "explanation": "Une valeur de liste de sélection de la source n'existe pas dans la liste de l'org cible.",
-        "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, ou modifiez la valeur sur l'enregistrement source."
+        "explanation": "Une valeur de liste de sélection de la source n'est pas autorisée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement de l'enregistrement ne l'autorise pas.",
+        "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, et au type d'enregistrement de l'enregistrement, ou modifiez la valeur sur l'enregistrement source."
       },
       "invalidFieldForInsert": {
         "explanation": "Un champ ne peut pas être renseigné à la création : il est calculé, masqué par la sécurité au niveau du champ, ou absent de l'org cible.",
@@ -2708,6 +2708,18 @@
     "emptyTablesLeftOut_one": "Non listé : {{count}} objet écarté par la découverte, car sa table est vide dans la source.",
     "emptyTablesLeftOut_other": "Non listés : {{count}} objets écartés par la découverte, car leur table est vide dans la source.",
     "fileContentLeftOut": "Laissés vides dans le clone : ces champs contiennent le contenu d'un fichier, qu'une lecture ne donne que sous la forme de l'adresse du fichier.",
+    "picklists": {
+      "title": "Valeurs de liste de sélection non écrites telles que lues",
+      "hint": "L'org cible aurait refusé ces valeurs. Chacune a été remplacée par la valeur par défaut du type d'enregistrement pour le champ — pour un champ obligatoire sans valeur par défaut, par la première valeur qu'autorise le type d'enregistrement — ou laissée de côté.",
+      "rows_one": "{{count}} ligne",
+      "rows_other": "{{count}} lignes",
+      "notInTarget": "pas une valeur du champ dans l'org cible",
+      "recordType": "non autorisée pour le type d'enregistrement {{recordType}}",
+      "controllingValue": "non autorisée avec la valeur de {{field}}",
+      "replacedDefault": "remplacée par {{value}}, la valeur par défaut du type d'enregistrement {{recordType}}",
+      "replacedFirst": "remplacée par {{value}}, la première valeur qu'autorise le type d'enregistrement {{recordType}} : le champ est obligatoire et ce type d'enregistrement ne lui donne pas de valeur par défaut",
+      "leftOut": "laissée de côté"
+    },
     "existingRecords": {
       "title": "Déjà dans l'org cible",
       "hint": "L'org cible a refusé ces enregistrements parce qu'elle les contient déjà. Quand Salesforce a désigné l'enregistrement, le clone s'y rattache sans jamais le modifier.",

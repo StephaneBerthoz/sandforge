@@ -498,6 +498,117 @@ describe('cleanNodeRecords', () => {
     expect(kept.cleaned.Status).toBe('Open');
     expect('Status' in dropped.cleaned).toBe(false);
   });
+
+  describe('picklist values and the record type a row goes in with', () => {
+    const SOURCE_RETAIL = '012000000000001AAA';
+    const SOURCE_TRADE = '012000000000002AAA';
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Status__c', queryable: true, createable: true, isReference: false },
+      {
+        name: 'RecordTypeId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['RecordType'],
+      },
+    ];
+    const restricted = new Map([
+      ['Status__c', { multi: false, restricted: true, required: false }],
+    ]);
+    const retail = {
+      recordType: 'Retail',
+      picklists: new Map([['Status__c', { values: ['New', 'Open'], defaultValue: 'New' }]]),
+    };
+
+    it('checks a row against the record type it was read with, and says what it changed', () => {
+      const [ofRetail, ofTrade, untyped] = cleanNodeRecords(
+        makeInput({
+          records: [
+            { Id: 'a01A', Status__c: 'Old', RecordTypeId: SOURCE_RETAIL },
+            { Id: 'a01B', Status__c: 'Old', RecordTypeId: SOURCE_TRADE },
+            { Id: 'a01C', Status__c: 'Old' },
+          ],
+          fieldInfos: fields,
+          creatableFields: new Set(['Status__c', 'RecordTypeId']),
+          picklistValuesByField: new Map([['Status__c', new Set(['New', 'Open', 'Old'])]]),
+          picklistFields: restricted,
+          recordTypeValues: new Map([[SOURCE_RETAIL, retail]]),
+        }),
+      );
+
+      // Still the source's record type: the record type mapping translates it after.
+      expect(ofRetail.cleaned).toEqual({ Status__c: 'New', RecordTypeId: SOURCE_RETAIL });
+      expect(ofRetail.picklistChanges).toEqual([
+        {
+          field: 'Status__c',
+          reason: 'record-type',
+          values: ['Old'],
+          recordType: 'Retail',
+          replacedBy: 'New',
+          replacement: 'default',
+        },
+      ]);
+      // A record type that was not read, and none: the values of the field, as before.
+      expect(ofTrade.cleaned).toEqual({ Status__c: 'Old', RecordTypeId: SOURCE_TRADE });
+      expect(untyped.cleaned).toEqual({ Status__c: 'Old' });
+      expect(ofTrade.picklistChanges).toEqual([]);
+      expect(untyped.picklistChanges).toEqual([]);
+    });
+
+    it('says a value it left out for want of a place among the values of the field', () => {
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: 'a01A', Status__c: 'Gone' }],
+          fieldInfos: fields,
+          creatableFields: new Set(['Status__c']),
+          picklistValuesByField: new Map([['Status__c', new Set(['New'])]]),
+        }),
+      );
+
+      expect(out.cleaned).toEqual({});
+      expect(out.picklistChanges).toEqual([
+        { field: 'Status__c', reason: 'not-in-target', values: ['Gone'] },
+      ]);
+    });
+
+    it('keeps a selection of values the target holds, one value at a time', () => {
+      // Looked up whole, `Red;Blue` is no value of the field, and every
+      // selection of more than one value was dropped.
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: 'a01A', Colors__c: 'Red;Blue' }],
+          fieldInfos: [
+            { name: 'Colors__c', queryable: true, createable: true, isReference: false },
+          ],
+          creatableFields: new Set(['Colors__c']),
+          picklistValuesByField: new Map([['Colors__c', new Set(['Red', 'Blue'])]]),
+          picklistFields: new Map([
+            ['Colors__c', { multi: true, restricted: false, required: false }],
+          ]),
+        }),
+      );
+
+      expect(out.cleaned).toEqual({ Colors__c: 'Red;Blue' });
+    });
+
+    it('leaves a value written under a rename to the field map', () => {
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: 'a01A', Legacy__c: 'Gone', RecordTypeId: SOURCE_RETAIL }],
+          fieldInfos: fields,
+          creatableFields: new Set(['Status__c', 'RecordTypeId']),
+          fieldRename: { Legacy__c: 'Status__c' },
+          picklistValuesByField: new Map([['Status__c', new Set(['New'])]]),
+          picklistFields: restricted,
+          recordTypeValues: new Map([[SOURCE_RETAIL, retail]]),
+        }),
+      );
+
+      expect(out.cleaned).toEqual({ Status__c: 'Gone', RecordTypeId: SOURCE_RETAIL });
+      expect(out.picklistChanges).toEqual([]);
+    });
+  });
 });
 
 describe('describeTargetFieldSets', () => {
@@ -516,6 +627,39 @@ describe('describeTargetFieldSets', () => {
     expect(describeFields).toHaveBeenCalledWith('tgt', 'Case');
     expect(sets.creatable).toEqual(new Set(['Status']));
     expect(sets.picklistValuesByField?.get('Status')).toEqual(new Set(['Open']));
+  });
+
+  it('says which picklist fields of the target are restricted, required and dependent', async () => {
+    const describeFields = vi.fn<ForgeExecutorDeps['describeFields']>().mockResolvedValue([
+      { name: 'Name', queryable: true, createable: true, isReference: false, type: 'string' },
+      {
+        name: 'Status__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        type: 'picklist',
+        picklistValues: ['Open', 'Closed'],
+        restrictedPicklist: true,
+        nillable: false,
+      },
+      {
+        name: 'Reason__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        type: 'picklist',
+        picklistValues: ['Late'],
+        restrictedPicklist: true,
+        controllerName: 'Status__c',
+      },
+    ]);
+
+    const sets = await describeTargetFieldSets(describeFields, 'tgt', 'Order__c');
+
+    expect(Object.fromEntries(sets.picklistFields)).toEqual({
+      Status__c: { multi: false, restricted: true, required: true },
+      Reason__c: { multi: false, restricted: true, required: false, controllerName: 'Status__c' },
+    });
   });
 
   it('returns a null picklist map when no restricted picklist exists', async () => {

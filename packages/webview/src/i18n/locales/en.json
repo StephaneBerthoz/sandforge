@@ -2641,8 +2641,8 @@
         "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
       },
       "invalidPicklist": {
-        "explanation": "A picklist value from the source does not exist in the target org's picklist.",
-        "action": "Add the value to the picklist in the target org's Setup, or change the value on the source record."
+        "explanation": "A picklist value from the source is not one the target org allows: the field there does not hold it, or the record's record type does not allow it.",
+        "action": "Add the value to the picklist in the target org's Setup, and to the record's record type there, or change the value on the source record."
       },
       "invalidFieldForInsert": {
         "explanation": "A field cannot be set on create: it is calculated, hidden by field-level security, or missing from the target org.",
@@ -2708,6 +2708,18 @@
     "emptyTablesLeftOut_one": "Not listed: {{count}} object discovery left out because its table is empty in the source.",
     "emptyTablesLeftOut_other": "Not listed: {{count}} objects discovery left out because their table is empty in the source.",
     "fileContentLeftOut": "Left empty in the clone: these fields hold a file's content, which a read gives only as the file's address.",
+    "picklists": {
+      "title": "Picklist values not written as read",
+      "hint": "The target org would have refused these values. Each was replaced by the record type's default for the field — for a required field it sets no default for, by the first value it allows — or left out.",
+      "rows_one": "{{count}} row",
+      "rows_other": "{{count}} rows",
+      "notInTarget": "not a value of the field in the target org",
+      "recordType": "not allowed for record type {{recordType}}",
+      "controllingValue": "not allowed with the value of {{field}}",
+      "replacedDefault": "replaced by {{value}}, the default of record type {{recordType}}",
+      "replacedFirst": "replaced by {{value}}, the first value record type {{recordType}} allows: the field is required and has no default there",
+      "leftOut": "left out"
+    },
     "existingRecords": {
       "title": "Already in the target org",
       "hint": "The target refused these records because it already holds them. Where Salesforce named the record, the clone links to it and never changes it.",

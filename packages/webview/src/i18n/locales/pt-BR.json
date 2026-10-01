@@ -2641,8 +2641,8 @@
         "action": "Ative “Buscar pais automaticamente”, ou aumente a profundidade para que o pai obrigatório faça parte da clonagem."
       },
       "invalidPicklist": {
-        "explanation": "Um valor de lista de opções da origem não existe na lista da org de destino.",
-        "action": "Adicione o valor à lista de opções no Setup da org de destino, ou altere o valor no registro de origem."
+        "explanation": "Um valor de lista de opções da origem não é permitido na org de destino: o campo não o contém, ou o tipo de registro do registro não o permite.",
+        "action": "Adicione o valor à lista de opções no Setup da org de destino, e ao tipo de registro do registro, ou altere o valor no registro de origem."
       },
       "invalidFieldForInsert": {
         "explanation": "Um campo não pode ser definido na criação: é calculado, está oculto pela segurança em nível de campo ou não existe na org de destino.",
@@ -2708,6 +2708,18 @@
     "emptyTablesLeftOut_one": "Não listado: {{count}} objeto que a descoberta deixou de fora porque sua tabela está vazia na origem.",
     "emptyTablesLeftOut_other": "Não listados: {{count}} objetos que a descoberta deixou de fora porque sua tabela está vazia na origem.",
     "fileContentLeftOut": "Deixados vazios no clone: estes campos contêm o conteúdo de um arquivo, que uma leitura só devolve como o endereço do arquivo.",
+    "picklists": {
+      "title": "Valores de lista de opções não gravados como foram lidos",
+      "hint": "A org de destino teria recusado estes valores. Cada um foi substituído pelo valor padrão do tipo de registro para o campo — em um campo obrigatório sem valor padrão, pelo primeiro valor que o tipo de registro permite — ou deixado de fora.",
+      "rows_one": "{{count}} linha",
+      "rows_other": "{{count}} linhas",
+      "notInTarget": "não é um valor do campo na org de destino",
+      "recordType": "não permitido para o tipo de registro {{recordType}}",
+      "controllingValue": "não permitido com o valor de {{field}}",
+      "replacedDefault": "substituído por {{value}}, o valor padrão do tipo de registro {{recordType}}",
+      "replacedFirst": "substituído por {{value}}, o primeiro valor que o tipo de registro {{recordType}} permite: o campo é obrigatório e esse tipo de registro não lhe atribui um valor padrão",
+      "leftOut": "deixado de fora"
+    },
     "existingRecords": {
       "title": "Já na org de destino",
       "hint": "A org de destino recusou estes registros porque já os contém. Quando o Salesforce indicou o registro, o clone se vincula a ele e nunca o altera.",

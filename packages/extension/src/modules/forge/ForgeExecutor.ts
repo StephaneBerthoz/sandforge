@@ -6,6 +6,7 @@ import type {
   ForgeGraphEdge,
   ForgeGraphNode,
   ForgeNodeStatus,
+  ForgePicklistValuesChanged,
   ForgeReadRecords,
   ForgeRemapObjectCounts,
   ForgeWrittenBetween,
@@ -48,6 +49,14 @@ import {
   intersect,
   type TargetFieldSets,
 } from './stages/RecordCleaner.js';
+import {
+  PicklistChangeTally,
+  RecordTypePicklistReads,
+  picklistChangesNote,
+  recordTypeReadSample,
+  type PicklistField,
+} from './stages/RecordTypePicklists.js';
+import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklists.js';
 import {
   BatchWriter,
   WRITE_API_MAX_BATCH,
@@ -212,6 +221,19 @@ export interface FieldInfo {
    * Empty / missing list = no validation.
    */
   picklistValues?: string[];
+  /**
+   * Whether the picklist is restricted: the org refuses at insert a value it
+   * does not hold — or, read of the target, one the record's record type does
+   * not keep. See `stages/RecordTypePicklists.ts`.
+   */
+  restrictedPicklist?: boolean;
+  /** For a dependent picklist, the field whose value decides which values it allows. */
+  controllerName?: string;
+  /**
+   * Whether the org fills the field in at insert when a record leaves it out:
+   * a field it may not leave empty is required only when it does not.
+   */
+  defaultedOnCreate?: boolean;
   /**
    * Whether this field is an `externalId` on the SObject — i.e. uniquely
    * identifies a record across orgs. Used by the upsert path so devs can
@@ -484,6 +506,19 @@ export interface ForgeExecutorDeps {
    * checked for form alone and record types are left to the platform.
    */
   describeObject?: (orgId: string, objectName: string) => Promise<TargetObjectInfo>;
+  /**
+   * What one record type of an object allows of every picklist field, from
+   * the org's UI API in one request: the values it keeps, its default, and for
+   * a dependent picklist the values each controlling value allows. A
+   * restricted picklist refuses at insert a value the row's record type does
+   * not keep, though the describe lists it among the field's active values.
+   * Optional: without it a value is checked against its field's values alone.
+   */
+  recordTypePicklists?: (
+    orgId: string,
+    objectName: string,
+    recordTypeId: string,
+  ) => Promise<RecordTypePicklists>;
   /** Optional batch strategy for splitting inserts into batches. */
   batchStrategy?: ForgeBatchStrategyService;
   /**
@@ -505,11 +540,12 @@ export interface ForgeExecutorDeps {
   remainingFileStorageMB?: FileCopyDeps['remainingFileStorageMB'];
   /**
    * How many requests to Salesforce these deps have sent so far: each query
-   * and each further page of one, each describe not already held, each call
-   * of up to 200 records written, each file read or written, the file
-   * storage asked for. A run's calls are what this says at its end less what
-   * it said at its start. Optional: without it a run counts no call, and
-   * says so by leaving `apiCalls` out.
+   * and each further page of one, each describe not already held, each read
+   * of a record type's picklist values, each call of up to 200 records
+   * written, each file read or written, the file storage asked for. A run's
+   * calls are what this says at its end less what it said at its start.
+   * Optional: without it a run counts no call, and says so by leaving
+   * `apiCalls` out.
    */
   requestsSent?: () => number;
 }
@@ -706,15 +742,23 @@ export interface ExecutionSummary {
    */
   fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
   /**
+   * Per object and field, the picklist values the run did not write as it read
+   * them, the target being bound to refuse them: replaced by the record type's
+   * default — or, for a field the target requires that the record type sets no
+   * default for, by the first value it allows — or left out, and why. Absent
+   * when there were none.
+   */
+  picklistValuesChanged?: ForgePicklistValuesChanged[];
+  /**
    * When the target dated the run's writes, read from the records it created
    * once it had written them. Absent when it created nothing, or on a dry run.
    */
   writtenBetween?: ForgeWrittenBetween;
   /**
    * The requests to Salesforce the run sent, as its deps count them
-   * (`requestsSent`): its reads, the describes it needed, its writes, the
-   * second pass and the files alike, up to where it ended or stopped. Absent
-   * when the deps count none.
+   * (`requestsSent`): its reads, the describes and the record types'
+   * picklist values it needed, its writes, the second pass and the files
+   * alike, up to where it ended or stopped. Absent when the deps count none.
    */
   apiCalls?: number;
 }
@@ -972,6 +1016,10 @@ interface ExecutionState {
   files: ForgeFilesReport | null;
   /** Per object, the fields left out of its records because they hold a file's content. */
   readonly fileContentFieldsLeftOut: Map<string, Set<string>>;
+  /** What the record types of the target allow of the objects' picklists, read once a run each. */
+  readonly recordTypePicklists: RecordTypePicklistReads;
+  /** The picklist values the run did not write as it read them, by object and field. */
+  readonly picklistChanges: PicklistChangeTally;
   /**
    * The rows read and left out because the platform writes them itself, or
    * they cannot go in without one it does, by source id.
@@ -1960,6 +2008,7 @@ export class ForgeExecutor {
       sourceOrgId,
       leftOut,
     );
+    const readRecordType = this.deps.recordTypePicklists;
     const state: ExecutionState = {
       config,
       sourceOrgId,
@@ -2014,6 +2063,12 @@ export class ForgeExecutor {
       fileScope: new Map<string, string[]>(),
       files: null,
       fileContentFieldsLeftOut: new Map<string, Set<string>>(),
+      recordTypePicklists: new RecordTypePicklistReads(
+        readRecordType &&
+          ((objectApiName, recordTypeId) =>
+            readRecordType(targetOrgId, objectApiName, recordTypeId)),
+      ),
+      picklistChanges: new PicklistChangeTally(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
@@ -3470,6 +3525,9 @@ export class ForgeExecutor {
               ([objectApiName, fields]) => ({ objectApiName, fields: [...fields].sort() }),
             ),
           }
+        : {}),
+      ...(state.picklistChanges.size > 0
+        ? { picklistValuesChanged: state.picklistChanges.list() }
         : {}),
       ...(state.writtenBetween ? { writtenBetween: { ...state.writtenBetween } } : {}),
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
@@ -5603,6 +5661,7 @@ export class ForgeExecutor {
       // way to detect missing fields/picklist drift before insert.
       let targetCreatableSet: Set<string> | null = null;
       let targetPicklistValuesByField: Map<string, Set<string>> | null = null;
+      let targetPicklistFields: Map<string, PicklistField> | undefined;
       const targetSets = await (targetSetsPending ??
         describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
           (sets) => ({ ok: true as const, sets }),
@@ -5611,6 +5670,7 @@ export class ForgeExecutor {
       if (targetSets.ok) {
         targetCreatableSet = targetSets.sets.creatable;
         targetPicklistValuesByField = targetSets.sets.picklistValuesByField;
+        targetPicklistFields = targetSets.sets.picklistFields;
       } else {
         // Surface schema-drift defense failure: target describe is the
         // *only* way to detect missing fields/picklist drift before
@@ -5813,6 +5873,35 @@ export class ForgeExecutor {
       // not sent: the rows that cannot go in without it go with it.
       toWrite = this.leaveWhatHangsFromThePlatform(state, node, fieldInfos, toWrite);
 
+      // Per-node field exclusions and renames are record-invariant —
+      // resolved once per node rather than per record.
+      const excludedFields = new Set(config.fieldExclusions[node.objectApiName] ?? []);
+      const fieldRename = config.fieldMappings[node.objectApiName] ?? {};
+      // What the record type each row goes in with allows of the object's
+      // restricted picklists, read once a run per record type. One that could
+      // not be read is said once, and its rows are checked as before, against
+      // the values of each field.
+      const recordTypes = targetPicklistFields
+        ? await state.recordTypePicklists.forRows({
+            objectApiName: node.objectApiName,
+            rows: toWrite,
+            fields: targetPicklistFields,
+            written: (field) =>
+              effectiveCreatableSet.has(field) &&
+              !excludedFields.has(field) &&
+              fieldRename[field] === undefined,
+            recordTypeMappings: config.recordTypeMappings,
+          })
+        : undefined;
+      for (const note of recordTypes?.notes ?? []) {
+        state.errors.push({
+          objectApiName: node.objectApiName,
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [recordTypeReadSample(note)],
+        });
+      }
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
@@ -5822,13 +5911,21 @@ export class ForgeExecutor {
         failedObjects: state.failedObjects,
         writtenObjects: state.writtenObjects,
         ownerMappings: config.ownerMappings,
-        // Per-node field exclusions and renames are record-invariant —
-        // resolved once per node rather than per record.
-        excludedFields: new Set(config.fieldExclusions[node.objectApiName] ?? []),
-        fieldRename: config.fieldMappings[node.objectApiName] ?? {},
+        excludedFields,
+        fieldRename,
         creatableFields: effectiveCreatableSet,
         picklistValuesByField: targetPicklistValuesByField,
+        picklistFields: targetPicklistFields,
+        recordTypeValues: recordTypes?.byRecordType,
       });
+      // The picklist values this write does not send as read: said on the
+      // object's line, and counted for the run's result.
+      const changed = new PicklistChangeTally();
+      for (const { picklistChanges = [] } of cleanedRecords) {
+        changed.add(node.objectApiName, picklistChanges);
+        state.picklistChanges.add(node.objectApiName, picklistChanges);
+      }
+      const picklists = picklistChangesNote(changed.list());
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
         recordsToInsert = state.recordTypeMapper.apply(
@@ -6006,7 +6103,7 @@ export class ForgeExecutor {
       const counts = (reasons: readonly HeldBackReason[]): string =>
         `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
-      const rest = `${waitForTheirTask}${flagsNotKept}${waiting === 0 ? leftToThePlatform : ''}`;
+      const rest = `${waitForTheirTask}${flagsNotKept}${picklists}${waiting === 0 ? leftToThePlatform : ''}`;
 
       if (stoppedBy) {
         /*
@@ -6038,7 +6135,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: failedNode ? 'error' : 'stopped',
           progress: 100,
-          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${flagsNotKept}${leftToThePlatform}`,
+          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${flagsNotKept}${picklists}${leftToThePlatform}`,
         });
         throw stoppedBy;
       }
@@ -6058,9 +6155,9 @@ export class ForgeExecutor {
           message:
             settled === 0
               ? `Failed all ${node.objectApiName} records: ` +
-                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}`
+                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${picklists}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${picklists} — objects that cannot be written without it will be skipped`,
         });
       } else {
         onProgress({

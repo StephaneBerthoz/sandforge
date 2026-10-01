@@ -21,6 +21,7 @@ import {
   parseRecordTypeInfos,
   type RecordTypeAvailability,
 } from '../core/metadata/recordTypeAvailability.js';
+import { readRecordTypePicklists } from '../core/metadata/recordTypePicklists.js';
 
 /**
  * The part of an object describe that Forge reads, kept once per org and
@@ -45,6 +46,12 @@ interface ForgeObjectDescribe {
     cascadeDelete: boolean;
     /** Active picklist values only. */
     picklistValues: string[];
+    /** Whether the org refuses a value the picklist, or the record's type, does not hold. */
+    restrictedPicklist: boolean;
+    /** For a dependent picklist, the field whose value decides; `null` for any other field. */
+    controllerName: string | null;
+    /** Whether the org fills the field in at insert when a record leaves it out. */
+    defaultedOnCreate: boolean;
     externalId: boolean;
     /** True unless the org says an update cannot set the field. */
     updateable: boolean;
@@ -79,6 +86,9 @@ function toForgeObjectDescribe(
       picklistValues: (f.picklistValues ?? [])
         .filter((p) => p?.active !== false && typeof p?.value === 'string')
         .map((p) => p.value as string),
+      restrictedPicklist: f.restrictedPicklist === true,
+      controllerName: f.controllerName ?? null,
+      defaultedOnCreate: f.defaultedOnCreate === true,
       externalId: f.externalId === true,
       updateable: f.updateable !== false,
     })),
@@ -424,6 +434,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               referenceTo: f.referenceTo,
               nillable: f.nillable,
               picklistValues: f.picklistValues,
+              restrictedPicklist: f.restrictedPicklist,
+              ...(f.controllerName ? { controllerName: f.controllerName } : {}),
+              defaultedOnCreate: f.defaultedOnCreate,
               externalId: f.externalId,
               updateable: f.updateable,
             }));
@@ -442,6 +455,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               describeCache.invalidate(`${orgId}::${objectName}`);
             }
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
+          },
+          // What a record type allows of the object's picklists: one UI API
+          // request per object and record type, which the run keeps.
+          recordTypePicklists: async (orgId, objectName, recordTypeId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return readRecordTypePicklists(conn, objectName, recordTypeId);
           },
           batchStrategy: batchStrategyService,
           // What a run asked to copy files reads and writes: one file per

@@ -2210,16 +2210,32 @@ for (const theme of SCANNED_THEMES) {
             remainingStorageBytes: 200 * 1_048_576,
           },
           fileContentFieldsLeftOut: [{ objectApiName: 'QuoteDocument', fields: ['Document'] }],
+          picklistValuesChanged: [
+            {
+              objectApiName: 'Quote',
+              field: 'Status',
+              reason: 'record-type',
+              values: ['Presented'],
+              rows: 1,
+              recordType: 'Retail',
+              replacedBy: 'Draft',
+              replacement: 'default',
+            },
+          ],
         },
       });
       await page.waitForSelector('[data-testid="forge-results-files"]', { timeout: 10_000 });
       await page.waitForSelector('[data-testid="forge-results-file-content"]', {
         timeout: 10_000,
       });
+      await page.waitForSelector('[data-testid="forge-results-picklists"]', { timeout: 10_000 });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-file-content"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-picklists"]'),
       ).toBeGreaterThan(0);
     });
 

@@ -5,8 +5,9 @@
  * IDs through the {@link IdRemapper}, nullifies orphaned FKs (tracked for
  * the pass-2 cycle UPDATE), applies per-object owner remaps, field
  * exclusions and source→target renames, strips non-createable fields,
- * drops cross-org picklist values the target org rejects, and removes
- * Person Account `__pc` fields from business accounts.
+ * replaces or drops the picklist values the target org would refuse — for
+ * the row's record type, when it is known there (`RecordTypePicklists.ts`) —
+ * and removes Person Account `__pc` fields from business accounts.
  *
  * `null` values produced by orphan nullification are omitted from the
  * payload entirely — Salesforce treats explicit `null` on required fields
@@ -19,6 +20,13 @@ import type { IdRemapper } from '../IdRemapper.js';
 import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import { lookupsAtObjectsLeftOut } from '../excludedObjects.js';
 import { lookupsThePlatformFills } from '../../../core/common/platformRecords.js';
+import {
+  checkRowPicklists,
+  picklistFieldsOf,
+  type PicklistChange,
+  type PicklistField,
+  type RecordTypeValues,
+} from './RecordTypePicklists.js';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -38,6 +46,11 @@ export interface CleanedRecord {
   cleaned: Record<string, unknown>;
   /** FKs that were nullified — used by 2-pass cycle UPDATE. */
   nullifiedFks: NullifiedFk[];
+  /**
+   * Picklist values the payload does not carry as read, the target being bound
+   * to refuse them. Always set by {@link cleanNodeRecords}; absent, there were none.
+   */
+  picklistChanges?: PicklistChange[];
 }
 
 /** Field sets derived from the *target* org describe (schema-drift defense). */
@@ -49,6 +62,11 @@ export interface TargetFieldSets {
    * describe surfaced no restricted picklists (no validation applied).
    */
   picklistValuesByField: Map<string, Set<string>> | null;
+  /**
+   * The target's picklist fields, by name: which are restricted, multi-select,
+   * required, and dependent on which field. Empty when the object has none.
+   */
+  picklistFields: Map<string, PicklistField>;
 }
 
 /**
@@ -71,7 +89,11 @@ export async function describeTargetFieldSets(
       pmap.set(f.name, new Set(f.picklistValues));
     }
   }
-  return { creatable, picklistValuesByField: pmap.size > 0 ? pmap : null };
+  return {
+    creatable,
+    picklistValuesByField: pmap.size > 0 ? pmap : null,
+    picklistFields: picklistFieldsOf(targetFields),
+  };
 }
 
 /**
@@ -125,6 +147,14 @@ export interface CleanNodeRecordsInput {
   creatableFields: ReadonlySet<string>;
   /** Target-org picklist whitelists (null = no validation). */
   picklistValuesByField: Map<string, Set<string>> | null;
+  /** The target's picklist fields; absent, none is known restricted, multi-select or dependent. */
+  picklistFields?: ReadonlyMap<string, PicklistField>;
+  /**
+   * What the record type each row goes in with allows of the object's
+   * picklists, by `RecordTypeId` as the row was read: a row whose record type
+   * is not here has its values checked against the values of each field.
+   */
+  recordTypeValues?: ReadonlyMap<string, RecordTypeValues>;
 }
 
 /**
@@ -149,6 +179,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     fieldRename,
     creatableFields,
     picklistValuesByField,
+    picklistFields,
+    recordTypeValues,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   /**
@@ -199,6 +231,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
    * unresolved on every clone.
    */
   const uncopyableLookups = lookupsAtObjectsLeftOut(fieldInfos.filter((f) => f.isReference));
+  const targetPicklists = picklistFields ?? new Map<string, PicklistField>();
 
   return records.map((r) => {
     // Identify orphan FKs from the ORIGINAL record (pre-remap) so we
@@ -260,6 +293,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const ipa = remapped['IsPersonAccount'];
     const isPersonAccount = ipa === true || ipa === 'true' || ipa === 1;
     const cleaned: Record<string, unknown> = {};
+    // Written under a rename: the field map answers for what the target takes.
+    const renamed = new Set<string>();
     for (const key of Object.keys(remapped)) {
       if (excludedFields.has(key)) continue;
       // Field-mapping path: if the source field is renamed on target,
@@ -270,6 +305,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       const renamedTo = fieldRename[key];
       if (renamedTo) {
         cleaned[renamedTo] = remapped[key];
+        renamed.add(renamedTo);
         continue;
       }
       if (!creatableFields.has(key)) continue;
@@ -311,19 +347,21 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       if (key === 'Name' && isPersonAccount) continue;
       const value = remapped[key];
       if (value === null) continue;
-      // Cross-org picklist value validation — drop values the target
-      // org's restricted picklist doesn't accept (avoids
-      // INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST on insert).
-      if (
-        picklistValuesByField &&
-        typeof value === 'string' &&
-        picklistValuesByField.has(key) &&
-        !picklistValuesByField.get(key)!.has(value)
-      ) {
-        continue;
-      }
       cleaned[key] = value;
     }
+    // Picklist values the target would refuse at insert, with
+    // INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: checked once the row is whole,
+    // a dependent value against its controlling value as written.
+    // `RecordTypeId` is still the source's here, which is what
+    // `recordTypeValues` is keyed by.
+    const recordTypeId = cleaned['RecordTypeId'];
+    const picklistChanges = checkRowPicklists(
+      cleaned,
+      picklistValuesByField,
+      targetPicklists,
+      typeof recordTypeId === 'string' ? recordTypeValues?.get(recordTypeId) : undefined,
+      renamed,
+    );
     // Two fields the describe calls createable that the platform accepts
     // one of. Nothing in the metadata says so, so this is the only place
     // that can know it.
@@ -339,6 +377,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       source: r,
       cleaned,
       nullifiedFks: nullifiedFks.filter((nf) => !filled.includes(nf.field)),
+      picklistChanges,
     };
   });
 }

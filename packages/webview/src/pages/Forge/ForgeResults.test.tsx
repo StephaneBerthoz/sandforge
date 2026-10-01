@@ -1515,6 +1515,37 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-file-content')).toBeNull();
   });
 
+  it('names the picklist values the run replaced or left out, per object and field', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      picklistValuesChanged: [
+        {
+          objectApiName: 'Order__c',
+          field: 'Status__c',
+          reason: 'record-type' as const,
+          values: ['Old'],
+          rows: 2,
+          recordType: 'Retail',
+          replacedBy: 'New',
+          replacement: 'default' as const,
+        },
+      ],
+    });
+    render(<ForgeResults />);
+
+    expect(
+      screen.getAllByTestId('forge-results-picklists-row').map((row) => row.textContent),
+    ).toEqual([
+      'Order__c.Status__c — 2 rows: Old — not allowed for record type Retail, replaced by New, the default of record type Retail',
+    ]);
+  });
+
+  it('says nothing of picklist values for a run that wrote every one as read', () => {
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-picklists')).toBeNull();
+  });
+
   it('opens one report at a time when an object has two at the same stage', () => {
     // The orders the target refused and the orders left drafts are two
     // reports on one object at one stage. Keyed by the object and the stage,

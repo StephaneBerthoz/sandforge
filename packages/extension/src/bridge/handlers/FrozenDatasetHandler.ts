@@ -66,6 +66,7 @@ import {
 } from '../../modules/forge/GraphDiscoveryService.js';
 import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
+import { readPicklistFieldValues } from '../../core/metadata/recordTypePicklists.js';
 import type { ScopableField } from '../../modules/forge/ScopedSoqlBuilder.js';
 import {
   CoverageMatrixSelector,
@@ -855,12 +856,10 @@ export class FrozenDatasetHandler implements DomainHandler {
           }),
         };
       },
+      // The read Forge's record type check makes too, narrowed to one field.
       picklistValues: async (orgId, objectApiName, recordTypeId, fieldApiName) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const res = await conn.request<{ values?: Array<{ value: string }> }>(
-          `/services/data/v${conn.version}/ui-api/object-info/${objectApiName}/picklist-values/${recordTypeId}/${fieldApiName}`,
-        );
-        return (res.values ?? []).map((v) => v.value);
+        return readPicklistFieldValues(conn, objectApiName, recordTypeId, fieldApiName);
       },
       // Only the SOAP API tells it, as it tells a removal.
       userId: async (orgId) => {
