@@ -671,6 +671,8 @@ export class FrozenDatasetHandler implements DomainHandler {
                 relationshipName: f.relationshipName ?? null,
                 isMasterDetail: f.cascadeDelete === true,
                 nillable: f.nillable !== false,
+                createable: f.createable !== false,
+                updateable: f.updateable !== false,
               })),
               childRelationships: (meta.childRelationships ?? []).map((cr) => ({
                 childSObject: cr.childSObject,

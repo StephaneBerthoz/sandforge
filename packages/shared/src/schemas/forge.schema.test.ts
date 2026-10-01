@@ -340,6 +340,16 @@ describe('forgeGraphEdgeSchema', () => {
       forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), type: 'hierarchical' }),
     ).toThrow();
   });
+
+  it('keeps the flag of a lookup no write can set, which the graph carries back from the page to a run', () => {
+    // Stripped on the way, a person account's lookup at its contact ordered
+    // the run's writes again: the contact before the account.
+    const result = forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), settable: false });
+    expect(result.settable).toBe(false);
+    expect(() =>
+      forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), settable: 'no' }),
+    ).toThrow();
+  });
 });
 
 // ─── Graph Schema Tests ──────────────────────────────────────────────────────

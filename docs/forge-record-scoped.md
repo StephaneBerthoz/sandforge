@@ -112,9 +112,11 @@ ForgeOrchestrator.execute(graph, config)
        │         - replace or leave out the picklist values the target
        │           would refuse, for the record type the row goes in with
        │           when the mapping knows it (see below)
-       │         - omit nullified orphan FKs (don't send `null`)
+       │         - omit nullified orphan FKs (don't send `null`); a lookup no
+       │           write can set is owed nothing by the second pass
        │         - apply RecordType mapping (DeveloperName)
-       │    7. batch insert into target; a row a validation rule refuses on
+       │    7. batch insert into target (never a person account's contact:
+       │       see "Person accounts"); a row a validation rule refuses on
        │       fields it names is sent once more without them
        │
        ├─ with `files`: before the first write, the files of the records read
@@ -226,6 +228,34 @@ in by the second pass whichever fallback is set: kept, a cycle's lookup at a
 record written after it named the target's own record rather than the copy,
 or nothing, and the platform refused the whole row. The plan's cycles say so
 for either kind of run.
+
+A lookup no write can set — neither createable nor updateable, as a person
+account's `PersonContactId`, a quote's `AccountId` read from its opportunity,
+or a converted lead's account — orders nothing: the platform fills it.
+Discovery keeps its edge, which a scoped read follows to the rows under a
+parent in scope, and marks it `settable: false`; the write order and the
+plan's cycles leave it out, a parent that fails takes nothing down through it,
+and the second pass owes it nothing. Where discovery did not walk the child's
+lookups, the fields the run describes say it.
+
+## Person accounts
+
+The platform writes a person account's contact (`Contact.IsPersonAccount`)
+itself as it takes the account, and links the two by the account's
+`PersonContactId`. In an org whose describes have person accounts, the run
+writes the accounts before the contacts and never sends a person account's
+contact. Once the accounts have had their turn, it reads back the
+`PersonContactId` of every person account it has in the target — written,
+linked to one the target already held, or written by the run it retries — and
+maps the source contact onto the one the platform wrote: what points at it
+(`Case.ContactId`, a contact role, a custom lookup) is written against that
+one. The contact's own row is linked, counted with the linked records, and
+never removed on its own — it goes with its account:
+`Completed Contact: 3 succeeded, 2 written by the platform with their person
+account, 0 failed`. One whose account the run did not write, or whose contact
+was not found in the target, is not sent either, and is counted as failed with
+why. A dry run says them apart from the rows it would insert, and orphan
+expansion never copies such a contact on its own.
 
 ## Error structure
 
@@ -380,3 +410,7 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   read again under by the nodes read before, and what that adds, three levels
   below the parent at most. Past that, the rows are as the order of the reads
   left them.
+- **A person account copied by orphan expansion**: the platform writes its
+  contact with it, but the run maps only the contacts of the accounts the
+  account node wrote or linked; a record pointing at that contact goes in
+  without it, or is refused when it may not leave the lookup empty.

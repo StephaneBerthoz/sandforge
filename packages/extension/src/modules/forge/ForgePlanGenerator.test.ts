@@ -514,5 +514,36 @@ describe('ForgePlanGenerator', () => {
 
       expect(plan.cycleResolutions).toEqual([]);
     });
+
+    it('reports no cycle through a lookup no write can set, and puts the person account in the wave before its contacts', () => {
+      // Discovery meets the contact first. The account's PersonContactId is
+      // filled by the platform alone: nothing to leave empty at insert, and
+      // nothing for the second pass to fill in.
+      const graph = makeGraph(
+        [
+          makeNode({ objectApiName: 'Contact', level: 0 }),
+          makeNode({ objectApiName: 'Account', level: 1 }),
+        ],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'PersonContact',
+            type: 'lookup',
+            settable: false,
+          },
+        ],
+      );
+      const plan = generator.generate(graph);
+
+      expect(plan.cycleResolutions).toEqual([]);
+      expect(plan.waves.map((w) => w.objectApiNames)).toEqual([['Account'], ['Contact']]);
+    });
   });
 });

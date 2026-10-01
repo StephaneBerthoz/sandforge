@@ -198,6 +198,18 @@ export interface ForgeGraphEdge {
    * edge that does not say is treated as the forgiving kind.
    */
   required?: boolean;
+  /**
+   * Whether a row of the child can be written with this lookup set, at insert
+   * or by the second pass's update: false when no field of the child that
+   * names the parent can be set by either — a person account's
+   * `PersonContactId`, a quote's `AccountId`. The platform fills such a field
+   * itself, so the edge orders nothing: neither the write order nor the plan
+   * waits on it, and a parent that fails takes nothing down through it. It
+   * stays in the graph for what it reaches: a scoped read follows it to the
+   * rows under a parent in scope. Optional: an edge that does not say is one
+   * a row can set.
+   */
+  settable?: boolean;
 }
 
 /**

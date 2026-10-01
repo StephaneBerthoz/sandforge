@@ -55,3 +55,27 @@ export function isRequiredLookup(
 ): boolean {
   return nillable === false || isPlatformRequiredField(objectApiName, fieldName);
 }
+
+/**
+ * Whether a copy can write a field at all: an insert can set it, or an update
+ * can.
+ *
+ * Some lookups are neither, and the platform alone fills them: a person
+ * account's `PersonContactId`, which names the contact it creates with the
+ * account; a quote's `AccountId`, read from its opportunity; a converted
+ * lead's account. Such a lookup orders nothing — the row goes in whenever its
+ * turn comes, and the platform fills the field — and the second pass owes it
+ * nothing, as the platform refuses the update. Taken for a dependency, a
+ * person account's lookup at its contact made the contact a parent of the
+ * account, and a real run in an org with person accounts inserted the
+ * contacts first.
+ *
+ * Unknown reads as writable, as an unknown `nillable` reads as nullable: a
+ * caller that cannot say keeps the behaviour it had.
+ */
+export function isSettableField(field: {
+  readonly createable?: boolean;
+  readonly updateable?: boolean;
+}): boolean {
+  return field.createable !== false || field.updateable !== false;
+}

@@ -889,6 +889,26 @@ describe('sandforge-clone describe adapter', () => {
       ['AccountId', false],
     ]);
   });
+
+  it('says of each field whether an insert or an update can set it', () => {
+    // A person account's lookup at its contact: neither can, and discovery
+    // must know it, or the contact orders the account's write.
+    const raw = {
+      name: 'Account',
+      fields: [
+        { ...field('PersonContactId', false), createable: false, updateable: false },
+        { ...field('ParentId', false), createable: true, updateable: true },
+      ],
+      childRelationships: [],
+    } as unknown as DescribeSObjectResult;
+
+    const adapted = adaptDescribe(raw);
+
+    expect(adapted.fields.map((f) => [f.name, f.createable, f.updateable])).toEqual([
+      ['PersonContactId', false, false],
+      ['ParentId', true, true],
+    ]);
+  });
 });
 
 describe('sandforge-clone anonymization', () => {

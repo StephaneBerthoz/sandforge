@@ -15,6 +15,7 @@ import {
   sortNodesForExecution,
   sortNodesForWriting,
   withObjectsLeftOut,
+  withWhatTheFieldsSayOfEdges,
 } from './ScopeResolver.js';
 import { RecordScopeCache } from '../RecordScopeCache.js';
 import { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
@@ -817,6 +818,120 @@ describe('sortNodesForWriting', () => {
     );
 
     expect(order(graph)).toEqual(['Account', 'Opportunity', 'Quote', 'QuoteLineItem']);
+  });
+
+  describe('a lookup no write can set', () => {
+    // As discovery met them from a case on a person account: its contact
+    // first. The account's PersonContactId names the contact the platform
+    // writes with it, and neither an insert nor an update can set it.
+    const personContact: ForgeGraphEdge = { ...link('Contact', 'Account'), settable: false };
+    const personAccountGraph = (...more: ForgeGraphEdge[]): ForgeGraph =>
+      makeGraph(
+        ['Case', 'Contact', 'Account', 'CaseComment'].map((n) => makeNode(n)),
+        [
+          link('Account', 'Case'),
+          link('Contact', 'Case'),
+          link('Account', 'Contact'),
+          personContact,
+          ...more,
+        ],
+      );
+
+    it('takes no order from it: the person account goes before its contact', () => {
+      // Counted, the two made a cycle, which the graph's order broke contact
+      // first: the order a real run inserted them in.
+      expect(order(personAccountGraph(link('Case', 'CaseComment')))).toEqual([
+        'Account',
+        'Contact',
+        'Case',
+        'CaseComment',
+      ]);
+    });
+
+    it('takes no order from it where required edges set the rest of the order', () => {
+      expect(order(personAccountGraph(link('Case', 'CaseComment', true)))).toEqual([
+        'Account',
+        'Contact',
+        'Case',
+        'CaseComment',
+      ]);
+    });
+
+    it('takes no order from it, required as its field reads', () => {
+      // A field no write sets is filled by the platform, nillable or not: the
+      // child never waits for its parent through it.
+      const graph = makeGraph(
+        ['Line__c', 'Header__c'].map((n) => makeNode(n)),
+        [{ ...link('Line__c', 'Header__c', true), settable: false }, link('Header__c', 'Line__c')],
+      );
+
+      expect(order(graph)).toEqual(['Header__c', 'Line__c']);
+    });
+  });
+});
+
+describe('what the fields say of the edges', () => {
+  const field = (
+    name: string,
+    target: string,
+    flags: Pick<FieldInfo, 'createable' | 'updateable'>,
+  ): FieldInfo => ({
+    name,
+    queryable: true,
+    isReference: true,
+    referenceTo: [target],
+    ...flags,
+  });
+  const contactToAccount: ForgeGraphEdge = {
+    sourceObject: 'Contact',
+    targetObject: 'Account',
+    relationshipName: 'PersonContactId',
+    type: 'lookup',
+  };
+  // The contact met first, as discovery meets it from one of its cases.
+  const graph = makeGraph(
+    [makeNode('Contact'), makeNode('Account')],
+    [LOOKUP_EDGE, contactToAccount],
+  );
+
+  it('marks an edge whose every lookup of the child naming the parent no write can set', () => {
+    // An account at the edge of discovery: the contact's list of its children
+    // named the pair, which cannot say whether the account's field is set.
+    const said = withWhatTheFieldsSayOfEdges(
+      graph,
+      new Map([
+        [
+          'Account',
+          [field('PersonContactId', 'Contact', { createable: false, updateable: false })],
+        ],
+      ]),
+    );
+
+    expect(said.edges).toEqual([LOOKUP_EDGE, { ...contactToAccount, settable: false }]);
+    expect(sortNodesForWriting(said).map((n) => n.objectApiName)).toEqual(['Account', 'Contact']);
+  });
+
+  it('leaves an edge one field of the child naming the parent can set, and clears the mark of one discovery made', () => {
+    const marked = makeGraph(graph.nodes, [LOOKUP_EDGE, { ...contactToAccount, settable: false }]);
+
+    const said = withWhatTheFieldsSayOfEdges(
+      marked,
+      new Map([
+        [
+          'Account',
+          [
+            field('PersonContactId', 'Contact', { createable: false, updateable: false }),
+            field('Key_Contact__c', 'Contact', { createable: true, updateable: true }),
+          ],
+        ],
+      ]),
+    );
+
+    expect(said.edges).toEqual([LOOKUP_EDGE, contactToAccount]);
+  });
+
+  it('leaves the edges of a child whose fields it is not given, and hands the graph back as it came', () => {
+    expect(withWhatTheFieldsSayOfEdges(graph, new Map())).toBe(graph);
   });
 });
 

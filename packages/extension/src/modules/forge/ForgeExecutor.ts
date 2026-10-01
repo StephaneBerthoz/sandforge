@@ -31,6 +31,7 @@ import {
   catalogBeyond,
   catalogWriteEdges,
   followsToItsParent,
+  ordersTheWrite,
   PRODUCT_OBJECT,
   queryNodeRecords,
   readsFromAbove,
@@ -40,6 +41,7 @@ import {
   sortNodesForExecution,
   sortNodesForWriting,
   withObjectsLeftOut,
+  withWhatTheFieldsSayOfEdges,
   type CatalogNodeAskedAgain,
   type NodeQueryInput,
   type NodeQueryResult,
@@ -70,16 +72,22 @@ import {
   type WrittenWithoutFields,
 } from './stages/BatchWriter.js';
 import {
+  ACCOUNT,
+  CONTACT,
   EMAIL_MESSAGE,
+  PERSON_CONTACT_FIELD,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   STATUS_NEEDS_CHILDREN,
   TASK,
   draftStartOf,
   emailWriteEdges,
+  isPersonAccountRow,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
+  personAccountWriteEdges,
+  personContactsOfAccounts,
   statusCategories,
   tasksWrittenWithEmails,
   waitsForItsTask,
@@ -100,6 +108,7 @@ import {
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
   isRequiredLookup,
+  isSettableField,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
 } from '@sandforge/shared';
@@ -1279,6 +1288,11 @@ function excludedReason(node: ForgeGraphNode): string {
  * lookup can name, required when the lookup is, and master-detail when the
  * parent's side of it deletes its children with it: a feed item's parent can
  * be any of 216 objects, and is both.
+ *
+ * Nor does a lookup no write can set name one, whatever its edge's kind or its
+ * `nillable`: the record never carries it, and the platform fills it. A person
+ * account's lookup at its contact is one: the platform writes the contact with
+ * the account, and a failure of the contact node takes nothing from it.
  */
 function requiredParentsOf(
   objectApiName: string,
@@ -1291,18 +1305,23 @@ function requiredParentsOf(
     return naming.length > 0 && naming.every((f) => (f.referenceTo ?? []).length > 1);
   };
   const parents = new Set(
-    graph.edges
-      .filter(
+    withWhatTheFieldsSayOfEdges(graph, new Map([[objectApiName, fieldInfos]]))
+      .edges.filter(
         (e) =>
           e.targetObject === objectApiName &&
           (e.required === true || e.type === 'master-detail') &&
+          ordersTheWrite(e) &&
           !onlyAmongOthers(e.sourceObject),
       )
       .map((e) => e.sourceObject),
   );
   for (const field of lookups) {
     const targets = field.referenceTo ?? [];
-    if (targets.length !== 1 || !isRequiredLookup(objectApiName, field.name, field.nillable))
+    if (
+      targets.length !== 1 ||
+      !isSettableField(field) ||
+      !isRequiredLookup(objectApiName, field.name, field.nillable)
+    )
       continue;
     parents.add(targets[0]);
   }
@@ -1411,6 +1430,17 @@ interface HeldBackReason {
 
 /** Why a line says the rows `rowsWithoutTheirParent` holds back were held back. */
 const WITHOUT_THEIR_PARENT = 'held back for want of their parent';
+
+/**
+ * Why a line says the contacts of person accounts `linkPersonContacts` could
+ * not link were not sent, by what became of their account.
+ */
+const PERSON_CONTACT_NOT_SENT = {
+  accountNotWritten:
+    "not sent: a person account's contact goes in with its account, which this run did not write",
+  contactNotFound:
+    "not sent: a person account's contact goes in with its account, and the one the platform wrote was not found",
+} as const;
 
 /**
  * Rows held back for an object the user excluded, one group per reason, each
@@ -2475,6 +2505,9 @@ export class ForgeExecutor {
         // The emails that wait for the task each names go in once the task
         // node has had its turn: see `writeEmailsAfterTheirTask`.
         if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
+        // And the contacts the platform wrote with the person accounts are
+        // known once the accounts have had theirs.
+        if (node.objectApiName === ACCOUNT) await this.mapContactsOfPersonAccounts(state);
       }
     }
 
@@ -2571,6 +2604,7 @@ export class ForgeExecutor {
         if (await this.skipForFailedParent(node, state, read.fieldInfos, read.records)) continue;
         await this.writeNode(node, state);
         if (node.objectApiName === TASK) await this.writeEmailsAfterTheirTask(state);
+        if (node.objectApiName === ACCOUNT) await this.mapContactsOfPersonAccounts(state);
         state.pendingFkUpdates.push(...this.owedNowWritten(state));
 
         // Settle what this node's write has just made resolvable, before the
@@ -3203,6 +3237,11 @@ export class ForgeExecutor {
    * And the emails before the tasks, but for those that wait for the task they
    * name: see `emailWriteEdges`.
    *
+   * A lookup no write can set orders nothing, as the fields say it of the
+   * objects at the edge of discovery too (`withWhatTheFieldsSayOfEdges`); and
+   * in an org with person accounts, the accounts go before the contacts the
+   * platform writes with them: see `personAccountWriteEdges`.
+   *
    * @param fieldsByObject - The source fields of each object the run writes.
    */
   private orderByFields(
@@ -3217,7 +3256,12 @@ export class ForgeExecutor {
     for (const [child, fields] of fieldsByObject) {
       if (pricesFrom(fields)) lines.push(child);
       for (const field of fields) {
-        if (!field.isReference || !isRequiredLookup(child, field.name, field.nillable)) continue;
+        if (
+          !field.isReference ||
+          !isSettableField(field) ||
+          !isRequiredLookup(child, field.name, field.nillable)
+        )
+          continue;
         for (const parent of field.referenceTo ?? []) {
           if (parent === child || !objects.has(parent)) continue;
           required.push({
@@ -3230,10 +3274,11 @@ export class ForgeExecutor {
         }
       }
     }
-    return sortNodesForWriting(state.graph, [
+    return sortNodesForWriting(withWhatTheFieldsSayOfEdges(state.graph, fieldsByObject), [
       ...required,
       ...catalogWriteEdges(objects, lines),
       ...emailWriteEdges(objects),
+      ...personAccountWriteEdges(objects, fieldsByObject),
     ]);
   }
 
@@ -3257,15 +3302,28 @@ export class ForgeExecutor {
    * it there. The plan reads its cycles in this order too.
    *
    * The emails before the tasks, as a record-scoped run writes them: an email
-   * on a case waits for the task it names, as it is read (`writeNode`).
+   * on a case waits for the task it names, as it is read (`writeNode`). And
+   * the accounts before the contacts in an org with person accounts, which
+   * the describes of the two tell — asked only of a run that writes both, and
+   * answered from the describes its reads hold: see `personAccountWriteEdges`.
    */
   private async singlePassOrder(state: ExecutionState): Promise<ForgeGraphNode[]> {
     const included = state.graph.nodes.filter((n) => n.included);
     if (!included.some((n) => isPricebookEntry(n.objectApiName))) {
-      return sortNodesForWriting(
-        state.graph,
-        emailWriteEdges(new Set(included.map((n) => n.objectApiName))),
-      );
+      const objects = new Set(included.map((n) => n.objectApiName));
+      const people = new Map<string, readonly FieldInfo[]>();
+      if (objects.has(ACCOUNT) && objects.has(CONTACT)) {
+        const described = await Promise.allSettled(
+          [ACCOUNT, CONTACT].map((object) => this.deps.describeFields(state.sourceOrgId, object)),
+        );
+        described.forEach((fields, i) => {
+          if (fields.status === 'fulfilled') people.set([ACCOUNT, CONTACT][i], fields.value);
+        });
+      }
+      return sortNodesForWriting(withWhatTheFieldsSayOfEdges(state.graph, people), [
+        ...emailWriteEdges(objects),
+        ...personAccountWriteEdges(objects, people),
+      ]);
     }
     const fieldsByObject = new Map<string, readonly FieldInfo[]>();
     for (let i = 0; i < included.length; i += CONCURRENT_DESCRIBE_LIMIT) {
@@ -4225,14 +4283,24 @@ export class ForgeExecutor {
       }
 
       if (config.dryRun) {
+        // A person account's contact is never inserted: the platform writes
+        // it with the account (`linkPersonContacts`).
+        const withTheirAccount =
+          node.objectApiName === CONTACT ? records.filter(isPersonAccountRow).length : 0;
+        const inserted = records.length - withTheirAccount;
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted${notesOf(state, node.objectApiName)}`,
+          message:
+            `[dry-run] ${node.objectApiName}: ${inserted} record(s) would be inserted` +
+            (withTheirAccount > 0
+              ? `, ${withTheirAccount} would be written by the platform with their person account`
+              : '') +
+            notesOf(state, node.objectApiName),
         });
         // Counted under their own name: a dry run creates nothing.
-        state.wouldInsertCount += records.length;
+        state.wouldInsertCount += inserted;
         return false;
       }
       return true;
@@ -4901,6 +4969,126 @@ export class ForgeExecutor {
       state.existingRecords.push({ objectApiName: TASK, linked, unidentified: 0 });
     }
     return { rows: kept, linked };
+  }
+
+  /**
+   * Map the contact of each person account the run has in the target —
+   * written, linked to one the target held, or written by the run it retries
+   * — onto the contact the platform wrote with it, once the account node has
+   * had its turn: what points at the contact then points at that one, and the
+   * contact's own row is linked to it and never sent (`linkPersonContacts`).
+   *
+   * The source account names its contact (`PersonContactId`); the target's,
+   * read back by the ids the run has for the accounts, names the one the
+   * platform wrote. Registered with no object, as the standard price book is:
+   * a contact the run never read is no row of its own, and one it read is
+   * counted at its node's turn. Not looked up, the contacts stay unmapped,
+   * and the report says why.
+   */
+  private async mapContactsOfPersonAccounts(state: ExecutionState): Promise<void> {
+    if (state.config.dryRun) return;
+    /** The source contact of each person account, by the account's id in the target. */
+    const contactOf = new Map<string, string>();
+    for (const row of state.preread.get(ACCOUNT)?.records ?? []) {
+      const contact = row[PERSON_CONTACT_FIELD];
+      const id = row['Id'];
+      if (typeof contact !== 'string' || contact === '' || typeof id !== 'string') continue;
+      if (state.remapper.get(contact)) continue;
+      const account = state.remapper.get(id);
+      if (account) contactOf.set(account, contact);
+    }
+    if (contactOf.size === 0) return;
+    let written: Map<string, string>;
+    try {
+      written = await personContactsOfAccounts(
+        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        [...contactOf.keys()],
+      );
+    } catch (err) {
+      state.errors.push({
+        objectApiName: ACCOUNT,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(contacts the platform wrote with the person accounts)',
+            messages: [
+              `Not looked up, so what points at them is left empty: ${extractErrorMessage(err)}`,
+            ],
+          },
+        ],
+      });
+      return;
+    }
+    for (const [account, contact] of contactOf) {
+      const target = written.get(account);
+      if (target) state.remapper.addExisting(contact, target);
+    }
+  }
+
+  /**
+   * Link the rows of the contact node that are person accounts' contacts to
+   * the contact the platform wrote with each account
+   * (`mapContactsOfPersonAccounts`), and hold the others back: none is sent.
+   *
+   * The platform writes a person account's contact as it takes the account
+   * (`personAccountWriteEdges`). Sent before its account, with its account's
+   * lookup left empty for the second pass, a copy would go in as a contact of
+   * no account beside the platform's, and what points at it would point at
+   * that copy. Linked, as the tasks the platform writes with the run's emails
+   * are, and counted so; one whose account this run did not write, or whose
+   * contact in the target was not found, is counted as failed, read to be
+   * cloned and not cloned, each reason said once.
+   *
+   * @returns How many were linked, and why the others were not sent.
+   */
+  private linkPersonContacts(
+    state: ExecutionState,
+    contacts: readonly Record<string, unknown>[],
+  ): { linked: number; notSent: HeldBackReason[] } {
+    let linked = 0;
+    let accountNotWritten = 0;
+    let contactNotFound = 0;
+    for (const row of contacts) {
+      const id = String(row['Id']);
+      const target = state.remapper.get(id);
+      if (target) {
+        state.remapper.addExisting(id, target, CONTACT);
+        linked++;
+        continue;
+      }
+      const account = row['AccountId'];
+      if (typeof account === 'string' && state.remapper.get(account)) contactNotFound++;
+      else accountNotWritten++;
+    }
+    if (linked > 0) {
+      state.linkedCount += linked;
+      state.existingRecords.push({ objectApiName: CONTACT, linked, unidentified: 0 });
+    }
+    const notSent: HeldBackReason[] = [
+      ...(accountNotWritten > 0
+        ? [{ count: accountNotWritten, why: PERSON_CONTACT_NOT_SENT.accountNotWritten }]
+        : []),
+      ...(contactNotFound > 0
+        ? [{ count: contactNotFound, why: PERSON_CONTACT_NOT_SENT.contactNotFound }]
+        : []),
+    ];
+    const failed = accountNotWritten + contactNotFound;
+    if (failed > 0) {
+      state.failedCount += failed;
+      state.errors.push({
+        objectApiName: CONTACT,
+        stage: 'scope',
+        failedCount: failed,
+        attemptedCount: 0,
+        samples: notSent.map(({ count, why }) => ({
+          recordSummary: `IsPersonAccount=true (${count} record${count === 1 ? '' : 's'})`,
+          messages: [`Not written: ${why.replace(/^not sent: /, '')}.`],
+        })),
+      });
+    }
+    return { linked, notSent };
   }
 
   /**
@@ -5701,8 +5889,18 @@ export class ForgeExecutor {
     // The rows the run this one retries wrote are in the target: linked to,
     // never written a second time. The others are what this run writes.
     const writtenBefore = rows.filter((row) => wasWrittenBefore(config, row));
+    // But for the contacts of person accounts, which the platform writes with
+    // their account: linked to the one it wrote, never sent. See
+    // `linkPersonContacts`.
+    const personContacts = new Set(
+      node.objectApiName === CONTACT
+        ? rows.filter((row) => isPersonAccountRow(row) && !wasWrittenBefore(config, row))
+        : [],
+    );
     const records =
-      writtenBefore.length > 0 ? rows.filter((row) => !wasWrittenBefore(config, row)) : rows;
+      writtenBefore.length > 0 || personContacts.size > 0
+        ? rows.filter((row) => !wasWrittenBefore(config, row) && !personContacts.has(row))
+        : rows;
     // The rows to write, less those held back for want of their parent.
     let toWrite = records;
     try {
@@ -5743,6 +5941,33 @@ export class ForgeExecutor {
         ? intersect(createableSet, targetCreatableSet)
         : createableSet;
 
+      const withTheirAccount = this.linkPersonContacts(state, [...personContacts]);
+      // Every row a person account's contact, and none in the target: nothing
+      // of the object is there, as when every row is held back for want of
+      // its parent, and what cannot be written without it is skipped.
+      if (
+        personContacts.size > 0 &&
+        withTheirAccount.linked === 0 &&
+        records.length === 0 &&
+        writtenBefore.length === 0
+      ) {
+        state.failedObjects.add(node.objectApiName);
+        onProgress({
+          objectName: node.objectApiName,
+          status: 'error',
+          progress: 100,
+          message:
+            `${heldBackWhole(
+              node.objectApiName,
+              personContacts.size,
+              heldForExclusionsOf(state, node.objectApiName),
+            )}: every record is a person account's contact, which the platform writes with ` +
+            'its account, and the run has none of them in the target. Objects that cannot be ' +
+            'written without it will be skipped.',
+        });
+        return;
+      }
+
       if (writtenBefore.length > 0) {
         // In the target, so neither created nor failed: linked, as a row the
         // target already held is, and the rate counts them as the clone's.
@@ -5754,7 +5979,7 @@ export class ForgeExecutor {
           fieldInfos,
           effectiveCreatableSet,
         );
-        if (records.length === 0) {
+        if (records.length === 0 && personContacts.size === 0) {
           onProgress({
             objectName: node.objectApiName,
             status: 'done',
@@ -6094,8 +6319,9 @@ export class ForgeExecutor {
       // and reported rather than written as if its rows were there.
       // A row linked to the record the target already held is not a failure:
       // its children have a parent to point at. Nor is one the run retried
-      // wrote.
-      const settled = nodeSuccess + nodeUpdated + nodeLinked + writtenBefore.length;
+      // wrote, nor a person account's contact linked to the platform's.
+      const settled =
+        nodeSuccess + nodeUpdated + nodeLinked + writtenBefore.length + withTheirAccount.linked;
       const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
@@ -6131,11 +6357,16 @@ export class ForgeExecutor {
         ...(withoutParent.size > 0
           ? [{ count: withoutParent.size, why: WITHOUT_THEIR_PARENT }]
           : []),
+        ...withTheirAccount.notSent,
         ...(endsTheNode ? heldForExclusionsOf(state, node.objectApiName) : []),
       ];
       const held = heldBeforeTheWrite(waiting === 0);
       const writtenWithTheirEmail =
         withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
+      const writtenWithTheirAccount =
+        withTheirAccount.linked > 0
+          ? `, ${withTheirAccount.linked} written by the platform with their person account`
+          : '';
       const already =
         writtenBefore.length > 0
           ? `, ${writtenBefore.length} already in the target from the run retried`
@@ -6153,7 +6384,8 @@ export class ForgeExecutor {
       // or on the line a cancel ends the node with before them.
       const leftToThePlatform = leftToThePlatformNote(state, node.objectApiName);
       const counts = (reasons: readonly HeldBackReason[]): string =>
-        `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ` +
+        `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}` +
+        `${writtenWithTheirAccount}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
       const rest = `${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}`;
 

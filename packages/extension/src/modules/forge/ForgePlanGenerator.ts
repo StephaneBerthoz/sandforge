@@ -13,7 +13,7 @@ import type {
   ForgeCycleResolution,
 } from '@sandforge/shared';
 import { ForgeBatchStrategy as BatchStrategy } from './ForgeBatchStrategy.js';
-import { sortNodesForWriting } from './stages/ScopeResolver.js';
+import { ordersTheWrite, sortNodesForWriting } from './stages/ScopeResolver.js';
 
 /**
  * Generates execution plans from Forge dependency graphs.
@@ -229,14 +229,21 @@ export class ForgePlanGenerator {
 /**
  * The edges between two objects the run writes, none from an object to
  * itself, and the objects it writes grouped by cycle: an object left out
- * writes nothing, so a lookup at it is not a cycle to break.
+ * writes nothing, so a lookup at it is not a cycle to break. Nor is a lookup
+ * no write can set (`ordersTheWrite`): with a person account's lookup at its
+ * contact, the account and its contacts made a cycle, which the plan would
+ * have said the run breaks by leaving that lookup empty at insert for the
+ * second pass to fill in — a field the platform alone fills.
  */
 function cyclesOf(graph: ForgeGraph): { edges: ForgeGraphEdge[]; components: string[][] } {
   const included = graph.nodes.filter((n) => n.included).map((n) => n.objectApiName);
   const names = new Set(included);
   const edges = graph.edges.filter(
     (e) =>
-      e.sourceObject !== e.targetObject && names.has(e.sourceObject) && names.has(e.targetObject),
+      e.sourceObject !== e.targetObject &&
+      names.has(e.sourceObject) &&
+      names.has(e.targetObject) &&
+      ordersTheWrite(e),
   );
   return { edges, components: stronglyConnected(included, edges) };
 }

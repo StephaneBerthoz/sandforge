@@ -460,6 +460,11 @@ export function adaptDescribe(raw: DescribeSObjectResult): ObjectDescribe {
       // platform refuses to leave null even when the node cap is spent.
       // Dropped here, that rule could never fire for a CLI run.
       nillable: f.nillable !== false,
+      // Nor these: a lookup neither an insert nor an update can set — a
+      // person account's contact — orders nothing, and the clone's write
+      // order would wait on it again.
+      createable: f.createable !== false,
+      updateable: f.updateable !== false,
     })),
     childRelationships: raw.childRelationships.map((c) => ({
       childSObject: c.childSObject,

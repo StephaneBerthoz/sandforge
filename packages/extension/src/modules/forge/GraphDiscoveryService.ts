@@ -3,7 +3,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isExcludedFromCopy } from './excludedObjects.js';
-import { isRequiredLookup } from '@sandforge/shared';
+import { isRequiredLookup, isSettableField } from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 
 /** Describe result for an object returned by the org connection. */
@@ -35,6 +35,13 @@ export interface FieldDescribe {
    * keeps the previous behaviour: unknown is treated as nullable.
    */
   nillable?: boolean;
+  /**
+   * Whether an insert can set the field, and whether an update can. A lookup
+   * neither can set is filled by the platform alone, and orders nothing: see
+   * `isSettableField`. Optional, as `nillable` is: unknown reads as settable.
+   */
+  createable?: boolean;
+  updateable?: boolean;
 }
 
 /** Child relationship descriptor from the parent object describe. */
@@ -279,10 +286,25 @@ export class GraphDiscoveryService {
      * items, the quote's lines and the order's items all read as optional, and
      * the write order put a line before the record it cannot be written without.
      */
-    const addEdge = (e: ForgeGraphEdge): void => {
+    /**
+     * Per pair of objects, the child's fields that name the parent, each with
+     * whether a row can be written with it set: unknown until the child's own
+     * describe says, which the parent's list of its children cannot. A pair
+     * whose every field is known to be one no write sets orders nothing.
+     */
+    const fieldsOfPair = new Map<string, Map<string, boolean | undefined>>();
+    /**
+     * @param field - The child's field the sighting is of.
+     * @param settable - Whether a row can be written with it set; unknown
+     *   from the parent's list of its children.
+     */
+    const addEdge = (e: ForgeGraphEdge, field: string, settable: boolean | undefined): void => {
       if (isExcludedFromCopy(e.sourceObject) || isExcludedFromCopy(e.targetObject)) return;
       if (e.sourceObject === e.targetObject) return;
       const key = `${e.sourceObject}|${e.targetObject}`;
+      const fields = fieldsOfPair.get(key) ?? new Map<string, boolean | undefined>();
+      if (settable !== undefined || !fields.has(field)) fields.set(field, settable);
+      fieldsOfPair.set(key, fields);
       const existing = edgeMap.get(key);
       if (!existing) {
         edgeMap.set(key, e);
@@ -457,20 +479,31 @@ export class GraphDiscoveryService {
         if (depth < maxDepth) {
           for (const field of describe.fields) {
             if (field.referenceTo.length === 0) continue;
+            // A lookup no insert or update can set — a person account's
+            // contact, a quote's account — is the platform's to fill: the
+            // edge stays, for what a scoped read reaches through it, and
+            // orders nothing (`settable`). Nor is it one the record cannot
+            // be written without, whatever `nillable` says: the record never
+            // carries it.
+            const settable = isSettableField(field);
             // A lookup the platform will not let the record omit. The object
             // behind it has to be in the graph or the child cannot be written.
             // Not always what the describe says: a handful of standard
             // objects are enforced in the platform's own code and read as
             // nullable — see `platform-required-fields.ts`.
-            const required = isRequiredLookup(objectName, field.name, field.nillable);
+            const required = settable && isRequiredLookup(objectName, field.name, field.nillable);
             for (const targetObject of field.referenceTo) {
-              addEdge({
-                sourceObject: targetObject,
-                targetObject: objectName,
-                relationshipName: field.relationshipName ?? field.name,
-                type: field.isMasterDetail ? 'master-detail' : 'lookup',
-                required,
-              });
+              addEdge(
+                {
+                  sourceObject: targetObject,
+                  targetObject: objectName,
+                  relationshipName: field.relationshipName ?? field.name,
+                  type: field.isMasterDetail ? 'master-detail' : 'lookup',
+                  required,
+                },
+                field.name,
+                settable,
+              );
               // An object the cap turned away is still marked visited, so
               // without this it can never come back — and the first thing to
               // meet it is usually an optional child relationship, long
@@ -504,12 +537,16 @@ export class GraphDiscoveryService {
             }
           }
           for (const child of describe.childRelationships) {
-            addEdge({
-              sourceObject: objectName,
-              targetObject: child.childSObject,
-              relationshipName: child.relationshipName,
-              type: child.isCascadeDelete ? 'master-detail' : 'lookup',
-            });
+            addEdge(
+              {
+                sourceObject: objectName,
+                targetObject: child.childSObject,
+                relationshipName: child.relationshipName,
+                type: child.isCascadeDelete ? 'master-detail' : 'lookup',
+              },
+              child.field,
+              undefined,
+            );
             if (
               !visitedObjects.has(child.childSObject) &&
               !isExcludedFromCopy(child.childSObject)
@@ -538,7 +575,16 @@ export class GraphDiscoveryService {
     }
 
     const totalRecords = nodes.reduce((sum, n) => sum + n.recordCount, 0);
-    const edges = [...edgeMap.values()];
+    // A lookup no write sets is listed among the child's fields and, in the
+    // parent's describe, among its children: a real sandbox lists a quote's
+    // account and a task's account there. The pair is met from both sides,
+    // and only the child's own field says no write sets it.
+    const edges = [...edgeMap].map(([key, edge]): ForgeGraphEdge => {
+      const settable = [...(fieldsOfPair.get(key)?.values() ?? [])];
+      return settable.length > 0 && settable.every((s) => s === false)
+        ? { ...edge, settable: false }
+        : edge;
+    });
 
     return {
       nodes,

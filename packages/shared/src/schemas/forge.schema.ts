@@ -217,6 +217,7 @@ export const forgeGraphEdgeSchema = z.object({
   relationshipName: z.string().min(1).max(80),
   type: forgeEdgeTypeSchema,
   required: z.boolean().optional(),
+  settable: z.boolean().optional(),
 });
 
 /**

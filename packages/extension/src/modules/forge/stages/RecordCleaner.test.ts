@@ -396,6 +396,47 @@ describe('cleanNodeRecords', () => {
     expect(out.nullifiedFks).toEqual([]);
   });
 
+  it('never owes the second pass a lookup no write can set', () => {
+    // A person account's contact, read with the account: the platform writes
+    // it with the account and fills the lookup, and refuses an update of it.
+    // A lookup an update can set is owed as before.
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'PersonContactId',
+        queryable: true,
+        createable: false,
+        updateable: false,
+        isReference: true,
+        referenceTo: ['Contact'],
+        nillable: true,
+      },
+      {
+        name: 'Key_Contact__c',
+        queryable: true,
+        createable: false,
+        updateable: true,
+        isReference: true,
+        referenceTo: ['Contact'],
+        nillable: true,
+      },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'Account',
+        records: [{ Id: '001A', PersonContactId: '003SOURCE', Key_Contact__c: '003SOURCE' }],
+        fieldInfos: fields,
+        creatableFields: new Set(),
+        writtenObjects: new Set(['Account', 'Contact']),
+      }),
+    );
+
+    expect(out.nullifiedFks).toEqual([
+      { field: 'Key_Contact__c', sourceRefId: '003SOURCE', targetObjects: ['Contact'] },
+    ]);
+    expect(out.cleaned).toEqual({});
+  });
+
   it('strips non-createable fields, exclusions and null values', () => {
     const [out] = cleanNodeRecords(
       makeInput({

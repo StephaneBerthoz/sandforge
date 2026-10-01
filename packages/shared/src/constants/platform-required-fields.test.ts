@@ -3,6 +3,7 @@ import {
   PLATFORM_REQUIRED_FIELDS,
   isPlatformRequiredField,
   isRequiredLookup,
+  isSettableField,
 } from './platform-required-fields.js';
 
 describe('isPlatformRequiredField', () => {
@@ -42,6 +43,24 @@ describe('isRequiredLookup', () => {
 
   it('leaves an ordinary nullable lookup alone', () => {
     expect(isRequiredLookup('Contact', 'AccountId', true)).toBe(false);
+  });
+});
+
+describe('isSettableField', () => {
+  it('says a field neither an insert nor an update can set is not one a copy writes', () => {
+    // A person account's PersonContactId, as the describe gives it.
+    expect(isSettableField({ createable: false, updateable: false })).toBe(false);
+  });
+
+  it('says a field an insert or an update can set is one a copy writes', () => {
+    expect(isSettableField({ createable: true, updateable: false })).toBe(true);
+    // An opportunity's synced quote is set by an update only: the second pass's.
+    expect(isSettableField({ createable: false, updateable: true })).toBe(true);
+  });
+
+  it('reads a flag the describe does not give as settable', () => {
+    expect(isSettableField({ createable: false })).toBe(true);
+    expect(isSettableField({})).toBe(true);
   });
 });
 

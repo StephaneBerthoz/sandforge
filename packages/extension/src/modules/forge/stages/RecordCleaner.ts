@@ -17,7 +17,7 @@
 
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
-import { exclusiveFieldsToDrop } from '@sandforge/shared';
+import { exclusiveFieldsToDrop, isSettableField } from '@sandforge/shared';
 import { lookupsAtObjectsLeftOut } from '../excludedObjects.js';
 import { lookupsThePlatformFills } from '../../../core/common/platformRecords.js';
 import {
@@ -239,6 +239,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedFks: NullifiedFk[] = [];
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
+      // A lookup no write can set is the platform's to fill — a person
+      // account's contact, a quote's account read from its opportunity. It
+      // goes neither at insert nor in the second pass: owed there, it was
+      // sent in an update the platform refuses, or reported as a lookup left
+      // empty when the record the platform filled it with was in place.
+      if (!isSettableField(field)) continue;
       if (
         referenceFallback !== 'nullify' &&
         !lookupsAtFailed.has(field.name) &&

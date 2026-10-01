@@ -16,6 +16,7 @@ import {
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
   isRequiredLookup,
+  isSettableField,
 } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
@@ -264,6 +265,50 @@ export function sortNodesAskedAgain(
 }
 
 /**
+ * Whether an edge orders the write: a row of its child can be written with its
+ * lookup set, at insert or by the second pass. Not so of a lookup the platform
+ * alone fills (`settable: false`): see `isSettableField` in shared.
+ */
+export function ordersTheWrite(edge: Pick<ForgeGraphEdge, 'settable'>): boolean {
+  return edge.settable !== false;
+}
+
+/**
+ * The graph with what the fields of each child say of the edges to it: an
+ * edge whose every lookup of the child that names the parent is one no write
+ * can set is marked so (`settable: false`), and one a field of the child can
+ * set is not. An edge of a child whose fields are not given, or none of whose
+ * fields names the parent, stays as discovery left it.
+ *
+ * Discovery marks what it walked. An object at the edge of the graph had its
+ * lookups listed by the parent alone, which cannot say whether the child's
+ * field can be set: a run that has described the child says it, as it says
+ * which of its lookups a row cannot leave empty.
+ *
+ * @param fieldsByObject - The source fields of the objects the run writes.
+ */
+export function withWhatTheFieldsSayOfEdges(
+  graph: ForgeGraph,
+  fieldsByObject: ReadonlyMap<string, readonly FieldInfo[]>,
+): ForgeGraph {
+  let changed = false;
+  const edges = graph.edges.map((edge): ForgeGraphEdge => {
+    const naming = (fieldsByObject.get(edge.targetObject) ?? []).filter(
+      (f) => f.isReference && (f.referenceTo ?? []).includes(edge.sourceObject),
+    );
+    if (naming.length === 0) return edge;
+    const settable = naming.some((f) => isSettableField(f));
+    if (settable === ordersTheWrite(edge)) return edge;
+    changed = true;
+    if (!settable) return { ...edge, settable: false };
+    const cleared: ForgeGraphEdge = { ...edge };
+    delete cleared.settable;
+    return cleared;
+  });
+  return changed ? { ...graph, edges } : graph;
+}
+
+/**
  * Order nodes for writing: every parent a child cannot do without comes
  * first.
  *
@@ -290,6 +335,12 @@ export function sortNodesAskedAgain(
  * still to write, and on a tie the one first in the order of every edge — so
  * where nothing but a cycle stands in the way, parents come first.
  *
+ * An edge of a lookup no write can set (`settable: false`) orders nothing,
+ * required or not: the platform fills the field, and the child never waits
+ * for it. Run for real in an org with person accounts, the account's lookup at
+ * the contact the platform writes with it made the contact the account's
+ * parent, and the contacts went in first.
+ *
  * @param orderEdges - Orders the graph does not hold as lookups, kept like
  *   required edges: the catalog's, see {@link catalogWriteEdges}.
  */
@@ -297,11 +348,12 @@ export function sortNodesForWriting(
   graph: ForgeGraph,
   orderEdges: readonly ForgeGraphEdge[] = [],
 ): ForgeGraphNode[] {
-  const requiredEdges = [...graph.edges.filter((e) => e.required === true), ...orderEdges];
-  if (requiredEdges.length === 0) return topologicalSort(graph);
+  const ordering = graph.edges.filter(ordersTheWrite);
+  const requiredEdges = [...ordering.filter((e) => e.required === true), ...orderEdges];
+  if (requiredEdges.length === 0) return topologicalSort(graph, ordering);
 
   const names = new Set(graph.nodes.map((n) => n.objectApiName));
-  const full = topologicalSort(graph);
+  const full = topologicalSort(graph, ordering);
   const fullIndex = new Map(full.map((node, index) => [node.objectApiName, index]));
   const requiredParents = new Map<string, Set<string>>();
   const requiredChildren = new Map<string, Set<string>>();
@@ -317,7 +369,7 @@ export function sortNodesForWriting(
     link(requiredParents, child, parent);
     link(requiredChildren, parent, child);
   }
-  for (const edge of graph.edges) {
+  for (const edge of ordering) {
     const { sourceObject: parent, targetObject: child } = edge;
     if (parent === child || !names.has(parent) || !names.has(child)) continue;
     if (requiredParents.get(child)?.has(parent)) continue;

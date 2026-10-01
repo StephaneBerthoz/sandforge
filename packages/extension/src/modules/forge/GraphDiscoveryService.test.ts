@@ -673,6 +673,183 @@ describe('GraphDiscoveryService', () => {
         },
       ]);
     });
+
+    describe('a lookup no write can set', () => {
+      const idField = {
+        name: 'Id',
+        type: 'id',
+        referenceTo: [],
+        relationshipName: null,
+        isMasterDetail: false,
+      };
+      /** A person account's lookup at the contact the platform writes with it. */
+      const personContactId = {
+        name: 'PersonContactId',
+        type: 'reference',
+        referenceTo: ['Contact'],
+        relationshipName: 'PersonContact',
+        isMasterDetail: false,
+        nillable: true,
+        createable: false,
+        updateable: false,
+      };
+      const contactAccountId = {
+        name: 'AccountId',
+        type: 'reference',
+        referenceTo: ['Account'],
+        relationshipName: 'Account',
+        isMasterDetail: false,
+        nillable: true,
+        createable: true,
+        updateable: true,
+      };
+      /** An org with person accounts: each object lists the other's lookup among its children. */
+      const personAccountOrg = (accountFields: ObjectDescribe['fields']) =>
+        vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+          objectName === 'Account'
+            ? {
+                name: 'Account',
+                fields: [idField, ...accountFields],
+                childRelationships: [
+                  {
+                    childSObject: 'Contact',
+                    field: 'AccountId',
+                    relationshipName: 'Contacts',
+                    isCascadeDelete: false,
+                  },
+                ],
+              }
+            : {
+                name: 'Contact',
+                fields: [idField, contactAccountId],
+                childRelationships: [
+                  {
+                    childSObject: 'Account',
+                    field: 'PersonContactId',
+                    relationshipName: 'PersonContactId',
+                    isCascadeDelete: false,
+                  },
+                ],
+              },
+        );
+      const edgeOf = (
+        graph: { edges: Array<{ sourceObject: string; targetObject: string }> },
+        parent: string,
+        child: string,
+      ) => graph.edges.find((e) => e.sourceObject === parent && e.targetObject === child);
+
+      it('marks its edge as one that orders nothing, met from both sides, and keeps it', async () => {
+        // Run for real in an org with person accounts, the account's lookup at
+        // its contact made the contact a parent of the account, and the run
+        // inserted the contacts first. The contact's own lookup at its
+        // account still orders the two.
+        personAccountOrg([personContactId]);
+
+        const graph = await service.discover(createConfig({ depth: 'full' }));
+
+        expect(edgeOf(graph, 'Contact', 'Account')).toEqual({
+          sourceObject: 'Contact',
+          targetObject: 'Account',
+          relationshipName: 'PersonContact',
+          type: 'lookup',
+          required: false,
+          settable: false,
+        });
+        expect(edgeOf(graph, 'Account', 'Contact')).toEqual({
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        });
+
+        // Rooted at the contact, its list of children comes first and cannot
+        // say; the account's own field, met after, does.
+        const fromTheContact = await service.discover(
+          createConfig({ recordId: '003XXXXXXXXXXXX', depth: 'full' }),
+        );
+        expect(edgeOf(fromTheContact, 'Contact', 'Account')).toMatchObject({ settable: false });
+      });
+
+      it('lets the pair order the write when another field of the child naming the parent can be set', async () => {
+        personAccountOrg([
+          personContactId,
+          {
+            name: 'Key_Contact__c',
+            type: 'reference',
+            referenceTo: ['Contact'],
+            relationshipName: 'Key_Contact__r',
+            isMasterDetail: false,
+            nillable: true,
+            createable: true,
+            updateable: true,
+          },
+        ]);
+
+        const graph = await service.discover(createConfig({ depth: 'full' }));
+
+        expect(edgeOf(graph, 'Contact', 'Account')).not.toHaveProperty('settable');
+      });
+
+      it('lets the pair order the write when only the parent’s list of its children names it', async () => {
+        // Rooted at the contact one level deep: the account is described, and
+        // its own lookups are never walked, so nothing says whether its field
+        // can be set.
+        personAccountOrg([personContactId]);
+
+        const graph = await service.discover(
+          createConfig({ recordId: '003XXXXXXXXXXXX', depth: 'direct' }),
+        );
+
+        expect(edgeOf(graph, 'Contact', 'Account')).toBeDefined();
+        expect(edgeOf(graph, 'Contact', 'Account')).not.toHaveProperty('settable');
+      });
+
+      it('never takes it for a lookup the record cannot be written without', async () => {
+        // Not nillable, and filled by the platform alone, as a record's
+        // creator is: the record never carries it, so its parent is nothing
+        // the record waits for.
+        vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => ({
+          name: objectName,
+          fields:
+            objectName === 'Line__c'
+              ? [
+                  idField,
+                  {
+                    name: 'Stamped_By__c',
+                    type: 'reference',
+                    referenceTo: ['Header__c'],
+                    relationshipName: 'Stamped_By__r',
+                    isMasterDetail: false,
+                    nillable: false,
+                    createable: false,
+                    updateable: false,
+                  },
+                ]
+              : [idField],
+          childRelationships: [],
+        }));
+
+        const graph = await service.discover(
+          createConfig({
+            inputMode: 'soql',
+            recordId: undefined,
+            soqlQuery: 'SELECT Id FROM Line__c',
+            depth: 'full',
+          }),
+        );
+
+        expect(graph.edges).toEqual([
+          {
+            sourceObject: 'Header__c',
+            targetObject: 'Line__c',
+            relationshipName: 'Stamped_By__r',
+            type: 'lookup',
+            required: false,
+            settable: false,
+          },
+        ]);
+      });
+    });
   });
 
   describe('estimates', () => {

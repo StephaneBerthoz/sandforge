@@ -104,6 +104,7 @@ export {
   PLATFORM_REQUIRED_FIELDS,
   isPlatformRequiredField,
   isRequiredLookup,
+  isSettableField,
 } from './constants/platform-required-fields.js';
 export { STATUS_NEEDS_CHILDREN, type ChildrenAStatusNeeds } from './constants/status-children.js';
 export {

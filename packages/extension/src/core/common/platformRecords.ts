@@ -536,6 +536,103 @@ export async function tasksWrittenWithEmails(
   return found;
 }
 
+/** An account: a person account is one of a person account record type. */
+export const ACCOUNT = 'Account';
+
+/** A contact: the platform writes one with each person account. */
+export const CONTACT = 'Contact';
+
+/** A person account's lookup at the contact the platform writes with it. */
+export const PERSON_CONTACT_FIELD = 'PersonContactId';
+
+/** The flag of an account, and of a contact, that tells a person account's. */
+const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
+
+/**
+ * Whether a row read of an account or a contact is a person account's: its
+ * `IsPersonAccount`, as the API answers it — a boolean, the text of one, or a
+ * number. An org without person accounts has no such field, and none of its
+ * rows is one.
+ */
+export function isPersonAccountRow(row: Record<string, unknown>): boolean {
+  const flag = row[PERSON_ACCOUNT_FLAG];
+  return flag === true || flag === 'true' || flag === 1;
+}
+
+/**
+ * The order accounts and contacts are written in, as an edge between the
+ * objects a run writes, when the source describes person accounts: the
+ * accounts first.
+ *
+ * The platform writes a person account's contact itself as it takes the
+ * account, and links the two by the account's `PersonContactId`, a field
+ * neither an insert nor an update sets (Salesforce Help, "Obtain the Contact
+ * ID for a Person Account": a person account has an account id and a contact
+ * id, the second read as `PersonContactId`). The contact is the account's to
+ * write — an update of one through the Contact object is refused,
+ * `INVALID_PERSON_ACCOUNT_OPERATION: cannot reference person contact` — and a
+ * copy sent on its own, without its account, would stand as a contact of its
+ * own beside the platform's. So the contacts of person accounts are never
+ * sent: written after the accounts, they are found as the platform wrote them
+ * (`personContactsOfAccounts`) and linked to them, which written before the
+ * accounts they could not be. The order is set here, not left to how the rest
+ * of the graph happens to break the tie: an account pointing at its key
+ * contact puts the two in a cycle.
+ *
+ * @param objects - The objects the run writes; the edge joins two of them only.
+ * @param fieldsOf - The source fields of the objects the run has described:
+ *   only an org with person accounts describes the account's lookup at its
+ *   contact, or the contact's flag.
+ */
+export function personAccountWriteEdges(
+  objects: ReadonlySet<string>,
+  fieldsOf: ReadonlyMap<string, ReadonlyArray<{ readonly name: string }>>,
+): ForgeGraphEdge[] {
+  if (!objects.has(ACCOUNT) || !objects.has(CONTACT)) return [];
+  const described =
+    fieldsOf.get(ACCOUNT)?.some((f) => f.name === PERSON_CONTACT_FIELD) === true ||
+    fieldsOf.get(CONTACT)?.some((f) => f.name === PERSON_ACCOUNT_FLAG) === true;
+  if (!described) return [];
+  return [
+    {
+      sourceObject: ACCOUNT,
+      targetObject: CONTACT,
+      relationshipName: `${ACCOUNT}Before${CONTACT}`,
+      type: 'lookup',
+      required: true,
+    },
+  ];
+}
+
+/**
+ * The contact the platform wrote with each of the accounts `ids`, by the
+ * account's id, read from the target once they are in: written by the run, or
+ * found there and linked. An account that is no person account has none, and
+ * is not listed.
+ */
+export async function personContactsOfAccounts(
+  query: SoqlQuery,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += WRITTEN_CHUNK) {
+    const inList = ids
+      .slice(i, i + WRITTEN_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    const rows = await query(
+      `SELECT Id, ${PERSON_CONTACT_FIELD} FROM ${ACCOUNT} WHERE Id IN (${inList})`,
+    );
+    for (const row of rows) {
+      const contact = row[PERSON_CONTACT_FIELD];
+      if (typeof row['Id'] === 'string' && typeof contact === 'string' && contact !== '') {
+        found.set(row['Id'], contact);
+      }
+    }
+  }
+  return found;
+}
+
 /**
  * Per relation object, the lookup that names its activity: a task relation's
  * task, an event relation's event.

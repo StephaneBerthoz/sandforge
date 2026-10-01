@@ -11,10 +11,13 @@ import {
   existingActivityRelations,
   existingSellingModelOptions,
   giveLinkedRelationsTheirFlags,
+  isPersonAccountRow,
   leftToThePlatformNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
   lookupsThePlatformFills,
+  personAccountWriteEdges,
+  personContactsOfAccounts,
   recordsByNaturalKey,
   rowsACopySends,
   standardPriceIds,
@@ -267,6 +270,85 @@ describe('tasksWrittenWithEmails', () => {
       Array.from({ length: 201 }, (_, i) => `02s${String(i).padStart(3, '0')}`),
     );
     expect(query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('person accounts', () => {
+  describe('isPersonAccountRow', () => {
+    it('tells a person account’s row however the API spells the flag', () => {
+      expect(isPersonAccountRow({ IsPersonAccount: true })).toBe(true);
+      expect(isPersonAccountRow({ IsPersonAccount: 'true' })).toBe(true);
+      expect(isPersonAccountRow({ IsPersonAccount: 1 })).toBe(true);
+    });
+
+    it('tells a business account’s row, and a row of an org without person accounts, apart', () => {
+      expect(isPersonAccountRow({ IsPersonAccount: false })).toBe(false);
+      expect(isPersonAccountRow({ IsPersonAccount: null })).toBe(false);
+      expect(isPersonAccountRow({ Name: 'Acme' })).toBe(false);
+    });
+  });
+
+  describe('personAccountWriteEdges', () => {
+    const both = new Set(['Account', 'Contact', 'Case']);
+
+    it('writes the accounts before the contacts in an org that describes person accounts', () => {
+      const edges = personAccountWriteEdges(
+        both,
+        new Map([['Account', [{ name: 'Id' }, { name: 'PersonContactId' }]]]),
+      );
+
+      expect(edges).toEqual([
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'AccountBeforeContact',
+          type: 'lookup',
+          required: true,
+        },
+      ]);
+      // The contact's flag says it as well, when the account was not described.
+      expect(
+        personAccountWriteEdges(both, new Map([['Contact', [{ name: 'IsPersonAccount' }]]])),
+      ).toHaveLength(1);
+    });
+
+    it('orders nothing in an org without person accounts, nor in a run that does not write both', () => {
+      expect(personAccountWriteEdges(both, new Map([['Account', [{ name: 'Id' }]]]))).toEqual([]);
+      expect(
+        personAccountWriteEdges(
+          new Set(['Account', 'Case']),
+          new Map([['Account', [{ name: 'PersonContactId' }]]]),
+        ),
+      ).toEqual([]);
+    });
+  });
+
+  describe('personContactsOfAccounts', () => {
+    it('names the contact the platform wrote with each person account, and none for a business account', async () => {
+      const query = vi.fn<SoqlQuery>(async () => [
+        { Id: '001PERSON', PersonContactId: '003PLATFORM' },
+        { Id: '001BUSINESS', PersonContactId: null },
+      ]);
+
+      const found = await personContactsOfAccounts(query, ['001PERSON', '001BUSINESS']);
+
+      expect(query).toHaveBeenCalledWith(
+        "SELECT Id, PersonContactId FROM Account WHERE Id IN ('001PERSON', '001BUSINESS')",
+      );
+      expect([...found]).toEqual([['001PERSON', '003PLATFORM']]);
+    });
+
+    it('asks nothing for no account, and two hundred at a time', async () => {
+      const query = vi.fn<SoqlQuery>(async () => []);
+
+      await personContactsOfAccounts(query, []);
+      expect(query).not.toHaveBeenCalled();
+      await personContactsOfAccounts(
+        query,
+        Array.from({ length: 201 }, (_, i) => `001${String(i).padStart(3, '0')}`),
+      );
+      expect(query).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

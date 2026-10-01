@@ -28,7 +28,11 @@ import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
 import { isExcludedFromCopy } from '../excludedObjects.js';
-import type { RowsLeftToThePlatform } from '../../../core/common/platformRecords.js';
+import {
+  CONTACT,
+  isPersonAccountRow,
+  type RowsLeftToThePlatform,
+} from '../../../core/common/platformRecords.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
 import {
@@ -345,6 +349,16 @@ export class OrphanExpander {
     if (leftToThePlatform && leftToThePlatform.keep(objectName, records).length === 0) {
       return LEFT_TO_THE_PLATFORM;
     }
+    // A person account's contact goes in with its account, written by the
+    // platform: sent on its own, with its lookups left out as a parent's are,
+    // it would stand as a contact of no account beside the platform's. See
+    // `personAccountWriteEdges`.
+    if (objectName === CONTACT && isPersonAccountRow(records[0])) {
+      throw new Error(
+        "Not copied: a person account's contact is written by the platform with its account, " +
+          'never on its own',
+      );
+    }
 
     let targetCreatable: Set<string> | null = null;
     try {
@@ -364,8 +378,7 @@ export class OrphanExpander {
 
     const r = records[0];
     const cleaned: Record<string, unknown> = {};
-    const ipaOrphan = r['IsPersonAccount'];
-    const isPerson = ipaOrphan === true || ipaOrphan === 'true' || ipaOrphan === 1;
+    const isPerson = isPersonAccountRow(r);
     for (const field of fields) {
       const key = field.name;
       if (!effectiveCreatable.has(key)) continue;

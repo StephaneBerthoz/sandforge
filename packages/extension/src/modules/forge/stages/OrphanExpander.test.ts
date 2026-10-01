@@ -558,6 +558,53 @@ describe('OrphanExpander', () => {
     expect(payload[0]).toEqual({ LastName: 'Doe', Loyalty__pc: 'Gold' });
   });
 
+  it("never sends a person account's contact on its own, and says why", async () => {
+    // A contact role's contact, out of the clone's reach, is a person
+    // account's. The platform writes it with its account; sent alone, with
+    // its account's lookup left out as every parent's are, it would stand as
+    // a contact of no account beside the platform's.
+    const CONTACT_ID = '003AP00PERSON12';
+    const deps = makeDeps({
+      describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'LastName', queryable: true, createable: true, isReference: false },
+        { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+      ]),
+      queryRecords: vi
+        .fn<ExpanderDeps['queryRecords']>()
+        .mockResolvedValue([{ Id: CONTACT_ID, LastName: 'Doe', IsPersonAccount: true }]),
+    });
+    const { input } = makeInput(deps, {
+      node: makeNode('CaseContactRole'),
+      fieldInfos: [
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        {
+          name: 'ContactId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Contact'],
+          nillable: false,
+        },
+      ],
+      records: [{ Id: '03jOLD1', ContactId: CONTACT_ID }],
+    });
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+    expect(input.remapper.get(CONTACT_ID)).toBeUndefined();
+    expect(expander.buildErrorReport()?.samples).toEqual([
+      {
+        recordSummary: `Contact/${CONTACT_ID}`,
+        messages: [
+          "Not copied: a person account's contact is written by the platform with its account, never on its own",
+        ],
+      },
+    ]);
+  });
+
   it('drops __pc fields from a Business Account parent', async () => {
     const deps = makeDeps({
       describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
