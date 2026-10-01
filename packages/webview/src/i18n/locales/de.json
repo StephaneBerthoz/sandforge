@@ -1854,6 +1854,8 @@
       "failed_other": "{{count}} fehlgeschlagen",
       "notSent_one": "{{count}} nicht gesendet",
       "notSent_other": "{{count}} nicht gesendet",
+      "writtenWithoutFields_one": "{{count}} ohne ein von einer Validierungsregel abgelehntes Feld geschrieben",
+      "writtenWithoutFields_other": "{{count}} ohne ein von einer Validierungsregel abgelehntes Feld geschrieben",
       "skipped": "übersprungen",
       "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt"
     },
@@ -2644,6 +2646,10 @@
         "explanation": "Ein Auswahllistenwert aus der Quelle ist im Ziel-Org nicht zulässig: Das Feld enthält ihn nicht, oder der Datensatztyp des Datensatzes lässt ihn nicht zu.",
         "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
       },
+      "fieldCustomValidation": {
+        "explanation": "Eine Validierungsregel der Ziel-Org hat den Datensatz abgelehnt. Nennt die Regel ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
+        "action": "Ändern Sie den Wert im Quelldatensatz oder passen Sie die Regel in der Ziel-Org an, und wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
       "invalidFieldForInsert": {
         "explanation": "Ein Feld kann beim Anlegen nicht gesetzt werden: Es wird berechnet, durch Feldsicherheit verborgen oder fehlt im Ziel-Org.",
         "action": "Prüfen Sie die Feldsicherheit Ihres Benutzers im Ziel-Org und vergleichen Sie das Feld zwischen beiden Orgs."
@@ -2719,6 +2725,10 @@
       "replacedDefault": "ersetzt durch {{value}}, den Standardwert des Datensatztyps {{recordType}}",
       "replacedFirst": "ersetzt durch {{value}}, den ersten Wert, den der Datensatztyp {{recordType}} zulässt: Das Feld ist ein Pflichtfeld und hat dort keinen Standardwert",
       "leftOut": "weggelassen"
+    },
+    "writtenWithoutFields": {
+      "title": "Ohne ein Feld geschrieben, das eine Validierungsregel der Ziel-Org abgelehnt hat",
+      "hint": "Eine Validierungsregel der Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält."
     },
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",

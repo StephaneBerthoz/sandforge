@@ -482,8 +482,9 @@ describe('autopilotComposition — the rules a copy needs', () => {
         message: 'Le numéro fiscal est invalide',
       },
     ]);
+    // The object's error names the field too, as the refusal did.
     expect(result.nodeErrors?.['Account']).toBe(
-      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Le numéro fiscal est invalide',
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Le numéro fiscal est invalide [TaxNumber__c]',
     );
   });
 

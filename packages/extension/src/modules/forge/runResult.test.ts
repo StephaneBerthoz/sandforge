@@ -211,6 +211,24 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('picklistValuesChanged');
   });
 
+  it('says which fields the rows a validation rule refused went in without, only for a run that wrote some so', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const writtenWithoutFields = [
+      {
+        objectApiName: 'Contact',
+        rows: 1,
+        fields: [
+          { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 1 },
+        ],
+      },
+    ];
+
+    expect(
+      forgeRunResult(summary({ writtenWithoutFields }), GRAPH, run).writtenWithoutFields,
+    ).toEqual(writtenWithoutFields);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('writtenWithoutFields');
+  });
+
   it('keeps what a run that stopped part way created, under the status it is given', () => {
     const stopped = forgeRunResult(summary({ failedCount: 5 }), GRAPH, {
       startedAt: Date.now(),

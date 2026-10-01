@@ -1854,6 +1854,8 @@
       "failed_other": "{{count}} failed",
       "notSent_one": "{{count}} not sent",
       "notSent_other": "{{count}} not sent",
+      "writtenWithoutFields_one": "{{count}} written without a field a validation rule refused",
+      "writtenWithoutFields_other": "{{count}} written without a field a validation rule refused",
       "skipped": "skipped",
       "skippedUncounted": "skipped, record count unknown"
     },
@@ -2644,6 +2646,10 @@
         "explanation": "A picklist value from the source is not one the target org allows: the field there does not hold it, or the record's record type does not allow it.",
         "action": "Add the value to the picklist in the target org's Setup, and to the record's record type there, or change the value on the source record."
       },
+      "fieldCustomValidation": {
+        "explanation": "A validation rule of the target org refused the record. When the rule names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
+        "action": "Change the value on the source record, or adjust the rule in the target org, then retry the failed objects."
+      },
       "invalidFieldForInsert": {
         "explanation": "A field cannot be set on create: it is calculated, hidden by field-level security, or missing from the target org.",
         "action": "Check field-level security for your user in the target org, and compare the field between the two orgs."
@@ -2719,6 +2725,10 @@
       "replacedDefault": "replaced by {{value}}, the default of record type {{recordType}}",
       "replacedFirst": "replaced by {{value}}, the first value record type {{recordType}} allows: the field is required and has no default there",
       "leftOut": "left out"
+    },
+    "writtenWithoutFields": {
+      "title": "Written without a field a validation rule of the target org refused",
+      "hint": "A validation rule of the target org refused these records on the fields it named. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them."
     },
     "existingRecords": {
       "title": "Already in the target org",

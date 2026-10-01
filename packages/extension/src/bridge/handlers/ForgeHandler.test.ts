@@ -2879,6 +2879,42 @@ describe('ForgeHandler', () => {
       ]);
     });
 
+    it('counts apart the records written without a field a validation rule refused, never the field values', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          idRemapByObject: [
+            { objectApiName: 'Account', created: 1, linked: 0 },
+            { objectApiName: 'Contact', created: 3, linked: 0 },
+          ],
+          writtenWithoutFields: [
+            {
+              objectApiName: 'Contact',
+              rows: 2,
+              fields: [
+                { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 2 },
+                { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail', rows: 1 },
+              ],
+            },
+          ],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+        { objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 },
+        {
+          objectApiName: 'Contact',
+          created: 3,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          writtenWithoutFields: 2,
+        },
+      ]);
+    });
+
     it('counts the records an upsert wrote over as updated, never as created', async () => {
       const store = recordingStore();
       vi.mocked(orchestrator.execute).mockResolvedValue(
@@ -3155,6 +3191,40 @@ describe('ForgeHandler', () => {
           objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 2 }],
           details: {},
         }),
+      ]);
+    });
+
+    it('counts, of a run a cancel stopped, the records it had written without a field a validation rule refused', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        cancelledWith({
+          successCount: 2,
+          remapCount: 2,
+          remapByObject: [{ objectApiName: 'Contact', created: 2, linked: 0 }],
+          readByObject: [{ objectApiName: 'Contact', read: 2 }],
+          writtenWithoutFields: [
+            {
+              objectApiName: 'Contact',
+              rows: 1,
+              fields: [
+                { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 1 },
+              ],
+            },
+          ],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+        {
+          objectApiName: 'Contact',
+          created: 2,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          writtenWithoutFields: 1,
+        },
       ]);
     });
 

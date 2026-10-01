@@ -1546,6 +1546,81 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-picklists')).toBeNull();
   });
 
+  it('names each field a validation rule refused that records went in without, how many and why', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Contact',
+          rows: 2,
+          fields: [
+            {
+              field: 'Phone',
+              reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
+              rows: 2,
+            },
+            {
+              field: 'Email',
+              reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
+              rows: 1,
+            },
+          ],
+        },
+      ],
+    });
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-written-without').textContent).toContain(
+      'Written without a field a validation rule of the target org refused',
+    );
+    expect(
+      screen.getAllByTestId('forge-results-written-without-row').map((row) => row.textContent),
+    ).toEqual([
+      'Contact.Phone — 2 records — FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
+      'Contact.Email — 1 record — FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
+    ]);
+  });
+
+  it('says nothing of fields left out for a run whose rows no validation rule refused', () => {
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-written-without')).toBeNull();
+  });
+
+  it('copies into the report the fields a validation rule refused that records went in without', async () => {
+    mockResult = Object.assign(makeMockResult(), {
+      writtenWithoutFields: [
+        {
+          objectApiName: 'Contact',
+          rows: 1,
+          fields: [
+            { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 1 },
+          ],
+        },
+      ],
+    });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+
+      const report = writeText.mock.calls[0]?.[0] ?? '';
+      expect(report).toContain('## Written Without a Field a Validation Rule Refused');
+      expect(report).toContain(
+        '| Contact | Phone | 1 | FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone |',
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   it('opens one report at a time when an object has two at the same stage', () => {
     // The orders the target refused and the orders left drafts are two
     // reports on one object at one stage. Keyed by the object and the stage,

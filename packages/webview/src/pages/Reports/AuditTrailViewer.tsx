@@ -61,11 +61,21 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
 };
 
 /**
- * The columns of an object's counts, in the order a line reads them. What
- * the run never sent comes last — kept from the target by its cancel, or by
- * the failure it ended on: neither written nor failed.
+ * The columns of an object's counts, in the order a line reads them. The
+ * records written without a field a validation rule refused follow what was
+ * written, among which they are counted. What the run never sent comes last —
+ * kept from the target by its cancel, or by the failure it ended on: neither
+ * written nor failed.
  */
-const COUNT_COLUMNS = ['created', 'updated', 'upserted', 'deleted', 'failed', 'notSent'] as const;
+const COUNT_COLUMNS = [
+  'created',
+  'updated',
+  'upserted',
+  'writtenWithoutFields',
+  'deleted',
+  'failed',
+  'notSent',
+] as const;
 
 /** Modules and orgs read off the entries themselves, for a caller that gives none. */
 function facetsOf(entries: readonly AuditLogEntry[]): AuditFacets {

@@ -322,7 +322,10 @@ describe('SeedCloneHandler — the second pass', () => {
         samples: [
           {
             record: `Id=${inTarget(ACME)} Key_Contact__c=${inTarget(DOE)}`,
-            messages: ['FIELD_FILTER_VALIDATION_EXCEPTION: Value does not match filter criteria.'],
+            // The field the refusal named, after its code and message.
+            messages: [
+              'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not match filter criteria. [Key_Contact__c]',
+            ],
           },
           {
             record: `Account source=${GLOBEX} target=${inTarget(GLOBEX)} Key_Contact__c=<source ${ELSEWHERE_CONTACT}>`,

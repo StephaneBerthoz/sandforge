@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canonicalRecordId,
+  codeAndMessage,
   duplicateRuleMatchIds,
   existingRecordOf,
   formatSaveError,
@@ -217,6 +218,63 @@ describe('formatSaveError', () => {
     expect(formatSaveError({ message: 'Something failed' })).toBe('Something failed');
     expect(formatSaveError('INVALID_FIELD: No such column')).toBe('INVALID_FIELD: No such column');
   });
+
+  it('names the field a restricted picklist refused a value of, after its code and message', () => {
+    // The message names the value and never the field: a real clone reported
+    // the refusal of rows whose field it did not say.
+    expect(
+      formatSaveError({
+        statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+        message: 'bad value for restricted picklist field: Gold',
+        fields: ['Rating__c'],
+      }),
+    ).toBe(
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold [Rating__c]',
+    );
+  });
+
+  it('names every field a validation rule refused', () => {
+    expect(
+      formatSaveError({
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: 'Enter both phones in international format',
+        fields: ['Phone', 'MobilePhone'],
+      }),
+    ).toBe(
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter both phones in international format [Phone, MobilePhone]',
+    );
+  });
+
+  it('names the fields of an error that gave no code after its message, or alone', () => {
+    expect(formatSaveError({ message: 'Invalid value', fields: ['Phone'] })).toBe(
+      'Invalid value [Phone]',
+    );
+    expect(formatSaveError({ fields: ['Phone'] })).toBe('[Phone]');
+  });
+
+  it('keeps the code first, for what reads it, and the id a duplicate names, for the link', () => {
+    const line = formatSaveError({
+      statusCode: 'DUPLICATE_VALUE',
+      message: `duplicate value found: ExternalKey__c duplicates value on record with id: ${ACCOUNT_18}`,
+      fields: ['ExternalKey__c'],
+    });
+
+    expect(/^([A-Z][A-Z0-9_]+):/.exec(line)?.[1]).toBe('DUPLICATE_VALUE');
+    expect(recordIdInDuplicateValue(line)).toBe(ACCOUNT_18);
+    expect(existingRecordOf({ success: false, errors: [line] }, '001')).toEqual({
+      kind: 'linked',
+      id: ACCOUNT_18,
+    });
+  });
+});
+
+describe('codeAndMessage', () => {
+  it('puts the code before the message, and leaves a message without one alone', () => {
+    expect(
+      codeAndMessage({ statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Bad phone' }),
+    ).toBe('FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone');
+    expect(codeAndMessage(saveErrorDetail('Insert failed'))).toBe('Insert failed');
+  });
 });
 
 describe('duplicateRuleMatchIds', () => {
@@ -318,6 +376,33 @@ describe('toSaveOutcome', () => {
         statusCode: 'REQUIRED_FIELD_MISSING',
         message: 'Required fields are missing: [OrderId]',
         fields: ['OrderId'],
+      },
+    ]);
+  });
+
+  it('hands the writers a refusal that names its field, beside the same error in parts', () => {
+    const outcome = toSaveOutcome(
+      {
+        success: false,
+        errors: [
+          {
+            statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+            message: 'bad value for restricted picklist field: Gold',
+            fields: ['Rating__c'],
+          },
+        ],
+      },
+      'Account',
+    );
+
+    expect(outcome.errors).toEqual([
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold [Rating__c]',
+    ]);
+    expect(outcome.errorDetails).toEqual([
+      {
+        statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+        message: 'bad value for restricted picklist field: Gold',
+        fields: ['Rating__c'],
       },
     ]);
   });

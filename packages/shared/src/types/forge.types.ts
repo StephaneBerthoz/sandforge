@@ -549,6 +549,30 @@ export interface ForgeFieldsLeftOut {
   fields: string[];
 }
 
+/** A field a validation rule of the target refused rows on, left out as they were written again. */
+export interface ForgeRefusedField {
+  /** The field, by the API name the run writes it under. */
+  field: string;
+  /** What the target refused the rows with, `STATUS_CODE: message`: the rule's own words. */
+  reason: string;
+  /** Rows written again without it. */
+  rows: number;
+}
+
+/**
+ * The rows of one object a validation rule of the target refused on fields it
+ * named, written again without those fields and taken that time. A row the
+ * rule refused without naming a field, or refused again, is a failure instead.
+ */
+export interface ForgeWrittenWithoutFields {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows written so: among the records the run created, or wrote over by an upsert. */
+  rows: number;
+  /** Each field left out of them, with the refusal that named it. */
+  fields: ForgeRefusedField[];
+}
+
 /**
  * Why a run did not write a picklist value as it read it: the target has no
  * such value for the field, the record type the row goes in with does not keep
@@ -770,6 +794,12 @@ export interface ForgeExecutionResult {
    * why. Absent when there were none, and from runs recorded before it was kept.
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
+  /**
+   * Per object, the rows written again without the fields a validation rule of
+   * the target refused them on. Absent when there were none, and from runs
+   * recorded before a refused row was written again.
+   */
+  writtenWithoutFields?: ForgeWrittenWithoutFields[];
   /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded

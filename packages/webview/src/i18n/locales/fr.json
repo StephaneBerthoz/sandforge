@@ -1854,6 +1854,8 @@
       "failed_other": "{{count}} en échec",
       "notSent_one": "{{count}} non envoyé",
       "notSent_other": "{{count}} non envoyés",
+      "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par une règle de validation",
+      "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par une règle de validation",
       "skipped": "ignoré",
       "skippedUncounted": "ignoré, nombre d'enregistrements inconnu"
     },
@@ -2644,6 +2646,10 @@
         "explanation": "Une valeur de liste de sélection de la source n'est pas autorisée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement de l'enregistrement ne l'autorise pas.",
         "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, et au type d'enregistrement de l'enregistrement, ou modifiez la valeur sur l'enregistrement source."
       },
+      "fieldCustomValidation": {
+        "explanation": "Une règle de validation de l'org cible a refusé l'enregistrement. Quand la règle désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
+        "action": "Modifiez la valeur sur l'enregistrement source, ou ajustez la règle dans l'org cible, puis relancez les objets en échec."
+      },
       "invalidFieldForInsert": {
         "explanation": "Un champ ne peut pas être renseigné à la création : il est calculé, masqué par la sécurité au niveau du champ, ou absent de l'org cible.",
         "action": "Vérifiez la sécurité au niveau du champ pour votre utilisateur dans l'org cible, et comparez le champ entre les deux orgs."
@@ -2719,6 +2725,10 @@
       "replacedDefault": "remplacée par {{value}}, la valeur par défaut du type d'enregistrement {{recordType}}",
       "replacedFirst": "remplacée par {{value}}, la première valeur qu'autorise le type d'enregistrement {{recordType}} : le champ est obligatoire et ce type d'enregistrement ne lui donne pas de valeur par défaut",
       "leftOut": "laissée de côté"
+    },
+    "writtenWithoutFields": {
+      "title": "Écrits sans un champ refusé par une règle de validation de l'org cible",
+      "hint": "Une règle de validation de l'org cible a refusé ces enregistrements sur les champs qu'elle désignait. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne."
     },
     "existingRecords": {
       "title": "Déjà dans l'org cible",

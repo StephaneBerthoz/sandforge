@@ -402,7 +402,9 @@ function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, st
  * counted from its remap table, the rows the run lost at read or at write,
  * and the rows a stop kept from the target — a cancel as the object was
  * written, or the failure the run ended on before the emails that waited for
- * their task — as the object's line says them.
+ * their task — as the object's line says them. Of the rows written, those a
+ * validation rule refused that went in without the fields it named are
+ * counted again apart.
  *
  * A row linked to one the target already held was never written and is
  * neither. Of the `scope` reports, the rows the run held back before sending
@@ -419,7 +421,7 @@ function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, st
  * say so rather than show nothing.
  */
 function forgeAuditObjects(
-  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'> &
+  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors' | 'writtenWithoutFields'> &
     Pick<ExecutionSummary, 'notSentByObject'>,
 ): AuditObjectCounts[] {
   const byObject = new Map<string, AuditObjectCounts>();
@@ -454,6 +456,12 @@ function forgeAuditObjects(
   for (const row of result.notSentByObject ?? []) {
     const counts = countsOf(row.objectApiName);
     counts.notSent = (counts.notSent ?? 0) + row.notSent;
+  }
+  // Written, and counted so above, but short of the fields a validation rule
+  // of the target refused: how many, never which values.
+  for (const row of result.writtenWithoutFields ?? []) {
+    const counts = countsOf(row.objectApiName);
+    counts.writtenWithoutFields = (counts.writtenWithoutFields ?? 0) + row.rows;
   }
   return [...byObject.values()];
 }
@@ -1543,6 +1551,7 @@ export class ForgeHandler implements DomainHandler {
             idRemapByObject: partial.remapByObject,
             errors: partial.errors,
             notSentByObject: partial.notSentByObject,
+            writtenWithoutFields: partial.writtenWithoutFields,
           }
         : undefined;
       const objects = tallies ? forgeAuditObjects(tallies) : [];

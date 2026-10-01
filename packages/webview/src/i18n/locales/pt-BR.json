@@ -1854,6 +1854,8 @@
       "failed_other": "{{count}} com falha",
       "notSent_one": "{{count}} não enviado",
       "notSent_other": "{{count}} não enviados",
+      "writtenWithoutFields_one": "{{count}} gravado sem um campo recusado por uma regra de validação",
+      "writtenWithoutFields_other": "{{count}} gravados sem um campo recusado por uma regra de validação",
       "skipped": "ignorado",
       "skippedUncounted": "ignorado, quantidade de registros desconhecida"
     },
@@ -2644,6 +2646,10 @@
         "explanation": "Um valor de lista de opções da origem não é permitido na org de destino: o campo não o contém, ou o tipo de registro do registro não o permite.",
         "action": "Adicione o valor à lista de opções no Setup da org de destino, e ao tipo de registro do registro, ou altere o valor no registro de origem."
       },
+      "fieldCustomValidation": {
+        "explanation": "Uma regra de validação da org de destino recusou o registro. Quando a regra indica um campo ao qual o registro dá um valor, o clone grava o registro de novo sem esse campo; um registro listado aqui não pôde ser gravado assim.",
+        "action": "Altere o valor no registro de origem, ou ajuste a regra na org de destino, e então tente de novo os objetos com falha."
+      },
       "invalidFieldForInsert": {
         "explanation": "Um campo não pode ser definido na criação: é calculado, está oculto pela segurança em nível de campo ou não existe na org de destino.",
         "action": "Verifique a segurança em nível de campo do seu usuário na org de destino e compare o campo entre as duas orgs."
@@ -2719,6 +2725,10 @@
       "replacedDefault": "substituído por {{value}}, o valor padrão do tipo de registro {{recordType}}",
       "replacedFirst": "substituído por {{value}}, o primeiro valor que o tipo de registro {{recordType}} permite: o campo é obrigatório e esse tipo de registro não lhe atribui um valor padrão",
       "leftOut": "deixado de fora"
+    },
+    "writtenWithoutFields": {
+      "title": "Gravados sem um campo recusado por uma regra de validação da org de destino",
+      "hint": "Uma regra de validação da org de destino recusou estes registros pelos campos que indicou. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles."
     },
     "existingRecords": {
       "title": "Já na org de destino",

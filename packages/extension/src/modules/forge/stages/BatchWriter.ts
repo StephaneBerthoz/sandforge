@@ -5,10 +5,11 @@
  * dispatches them to the target org via insert — or upsert on an external
  * Id field when `upsertMode: 'auto'` applies — registers the new
  * source→target ID mappings, links rows the target refused because it
- * already holds them to the record it named, collects per-record failure
- * samples, and queues nullified cycle FKs for the pass-2 UPDATE.
+ * already holds them to the record it named, writes once more without them
+ * the rows a validation rule refused on fields it named, collects per-record
+ * failure samples, and queues nullified cycle FKs for the pass-2 UPDATE.
  *
- * Pause/abort is honored between batches through the `waitIfPaused`
+ * Pause/abort is honored before each call through the `waitIfPaused`
  * checkpoint injected by the executor.
  */
 
@@ -19,9 +20,13 @@ import type {
   ForgeProgressEvent,
   InsertResult,
 } from '../ForgeExecutor.js';
-import type { ForgeGraphNode } from '@sandforge/shared';
+import type {
+  ForgeGraphNode,
+  ForgeRefusedField,
+  ForgeWrittenWithoutFields,
+} from '@sandforge/shared';
 import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
-import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
+import { codeAndMessage, existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import {
   ACCOUNT_CONTACT_RELATION,
@@ -198,7 +203,30 @@ export interface BatchWriteResult {
    * there was none to give.
    */
   flagsNotKept?: string;
+  /**
+   * The rows a validation rule of the target refused on fields it named that
+   * went in once written again without them: counted among the created or
+   * updated rows too. Absent when none did.
+   */
+  writtenWithoutFields?: WrittenWithoutFields;
 }
+
+/**
+ * Rows written again without the fields a validation rule of the target
+ * refused them on: how many, and each field left out with the refusal that
+ * named it and how many of them went without it.
+ */
+export type WrittenWithoutFields = Omit<ForgeWrittenWithoutFields, 'objectApiName'>;
+
+/** A field a row goes again without, and the refusal that named it. */
+type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows'>;
+
+/**
+ * The code a validation rule of the target refuses a row with. A trigger that
+ * puts an error on one of the row's fields is reported with it too, and is
+ * the same refusal of that field.
+ */
+const VALIDATION_RULE_REFUSAL = 'FIELD_CUSTOM_VALIDATION_EXCEPTION';
 
 /**
  * A row the target refused as one it already holds without naming the
@@ -212,6 +240,135 @@ interface UnnamedDuplicate {
   sourceId: unknown;
   /** What the target refused it with. */
   errors: string[];
+}
+
+/**
+ * A row a validation rule of the target refused on fields it named: it waits
+ * to be written once more without them, once the node's calls are through.
+ */
+interface RefusedOnItsFields {
+  /** The payload first sent. */
+  payload: Record<string, unknown>;
+  /** The record it was cleaned from: its source id, and the lookups it owes the second pass. */
+  built: CleanedRecord | undefined;
+  /** What the target refused it with. */
+  errors: string[];
+  /** The fields it goes again without, as the payload names them. */
+  leftOut: FieldToLeaveOut[];
+}
+
+/** One node's write as its calls are answered: where each answer is counted. */
+interface NodeWrite {
+  readonly objectApiName: string;
+  /** Key prefix of the object in the target, which an id a refusal names must carry. */
+  readonly targetKeyPrefix: string | null | undefined;
+  readonly remapper: IdRemapper;
+  readonly tally: BatchWriteResult;
+  /** Duplicates the target did not name, for an object with a natural key. */
+  readonly byNaturalKey: UnnamedDuplicate[];
+  /** Rows a validation rule refused on fields it named, to write again without them. */
+  readonly refusedOnTheirFields: RefusedOnItsFields[];
+  /** The external id the rows are upserted by, which a row never goes without. */
+  readonly upsertField: string | undefined;
+}
+
+/**
+ * `from` added to `into`, which is changed in place — or made, when there is
+ * none: a field left out for the same refusal is counted once, with the rows
+ * of both.
+ */
+export function addWrittenWithoutFields(
+  into: WrittenWithoutFields | undefined,
+  from: WrittenWithoutFields,
+): WrittenWithoutFields {
+  const sum = into ?? { rows: 0, fields: [] };
+  sum.rows += from.rows;
+  for (const field of from.fields) {
+    const known = sum.fields.find((f) => f.field === field.field && f.reason === field.reason);
+    if (known) known.rows += field.rows;
+    else sum.fields.push({ ...field });
+  }
+  return sum;
+}
+
+/**
+ * What the object's line says of the rows written again without the fields a
+ * validation rule of the target refused them on: each field, how many rows
+ * went without it and why. Empty when none did.
+ */
+export function writtenWithoutFieldsNote(written: WrittenWithoutFields | undefined): string {
+  return (written?.fields ?? [])
+    .map(
+      ({ field, reason, rows }) =>
+        `, ${rows} written without ${field}: a validation rule of the target refused it, ${reason}`,
+    )
+    .join('');
+}
+
+/** Whether a payload gives a field a value: leaving out one it gives none changes nothing. */
+function holdsValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== '';
+}
+
+/**
+ * The key of `payload` the platform named, when the payload gives it a value.
+ * An API name ignores case, and a payload built from the source's describe
+ * need not spell a field as the target's names it.
+ */
+function heldKeyOf(payload: Record<string, unknown>, named: string): string | undefined {
+  const wanted = named.toLowerCase();
+  return Object.keys(payload).find(
+    (key) => key.toLowerCase() === wanted && holdsValue(payload[key]),
+  );
+}
+
+/**
+ * The fields to write a refused row again without, each with the refusal that
+ * named it: only when every error of the refusal is a validation rule's, and
+ * each names a field the row gives a value to. Nothing otherwise — a rule that
+ * names no field, or only fields the row leaves empty, would refuse the row
+ * again whatever went, as any other error would.
+ *
+ * @param keep - A field the row cannot go without: the external id an upsert matches it by.
+ */
+function fieldsToLeaveOut(
+  result: InsertResult,
+  payload: Record<string, unknown>,
+  keep: string | undefined,
+): FieldToLeaveOut[] | undefined {
+  const details = result.errorDetails ?? [];
+  if (details.length === 0 || details.length !== result.errors.length) return undefined;
+  const leftOut = new Map<string, string>();
+  for (const detail of details) {
+    if (detail.statusCode !== VALIDATION_RULE_REFUSAL) return undefined;
+    const held = detail.fields
+      .map((named) => heldKeyOf(payload, named))
+      .filter(
+        (key): key is string => key !== undefined && key.toLowerCase() !== keep?.toLowerCase(),
+      );
+    if (held.length === 0) return undefined;
+    for (const key of held) if (!leftOut.has(key)) leftOut.set(key, codeAndMessage(detail));
+  }
+  return [...leftOut].map(([field, reason]) => ({ field, reason }));
+}
+
+/** `payload` without the fields of `leftOut`, the payload itself left as it was. */
+function without(
+  payload: Record<string, unknown>,
+  leftOut: readonly FieldToLeaveOut[],
+): Record<string, unknown> {
+  const fields = new Set(leftOut.map((f) => f.field));
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => !fields.has(key)));
+}
+
+/** The fields a row went again without, as a sample says them. */
+function fieldList(leftOut: readonly FieldToLeaveOut[]): string {
+  return leftOut.map((f) => f.field).join(', ');
+}
+
+/** What the sample of a row sent again says after the second answer: what the first was. */
+function sentAgainNote(row: RefusedOnItsFields): string {
+  return `Sent again without ${fieldList(row.leftOut)} after the first refusal: ${row.errors.join('; ')}`;
 }
 
 /** A {@link BatchWriteResult} with nothing counted yet. */
@@ -309,8 +466,6 @@ export class BatchWriter {
     });
 
     let recordOffset = 0;
-    /** Duplicates the target did not name, for an object with a natural key. */
-    const byNaturalKey: UnnamedDuplicate[] = [];
 
     // Upsert via external Id when available — re-runs patch existing
     // target rows instead of failing on DUPLICATE_VALUE. When multiple
@@ -324,35 +479,52 @@ export class BatchWriter {
       records,
       input.upsertMode === 'auto' && this.deps.upsertRecords ? 'auto' : 'off',
     );
+    const write: NodeWrite = {
+      objectApiName: node.objectApiName,
+      targetKeyPrefix: input.targetKeyPrefix,
+      remapper,
+      tally,
+      byNaturalKey: [],
+      refusedOnTheirFields: [],
+      upsertField,
+    };
+    const { byNaturalKey } = write;
+    /**
+     * What waits for the node's calls to be through, settled when a cancel
+     * stops the node before one of them. The duplicates the target refused
+     * without naming the record were left waiting for a lookup the run no
+     * longer makes: neither linked nor counted, missing from what the run said
+     * it did. Not written, they stay failures the run could not identify, as
+     * when the lookup cannot be read. The rows a validation rule refused stay
+     * the failures the target made them, as when the call that writes them
+     * again fails.
+     */
+    const settleOnStop = (err: unknown): void => {
+      const why = extractErrorMessage(err);
+      this.leaveRefusedAsFailed(write, write.refusedOnTheirFields.splice(0), why);
+      this.settleByNaturalKey(
+        node.objectApiName,
+        byNaturalKey,
+        [],
+        remapper,
+        tally,
+        `The record the target holds under the same key was not looked up: ${why}`,
+      );
+    };
 
     for (let b = 0; b < batchCount; b++) {
       try {
         await input.waitIfPaused();
       } catch (err) {
-        // A cancel stops the node before its next call. The duplicates the
-        // target refused in the calls before, without naming the record, were
-        // left waiting for a lookup the run no longer makes: neither linked
-        // nor counted, missing from what the run said it did. Not written,
-        // they stay failures the run could not identify, as when the lookup
-        // cannot be read.
-        this.settleByNaturalKey(
-          node.objectApiName,
-          byNaturalKey,
-          [],
-          remapper,
-          tally,
-          `The record the target holds under the same key was not looked up: ${extractErrorMessage(err)}`,
-        );
+        // A cancel stops the node before its next call.
+        settleOnStop(err);
         throw err;
       }
 
       const batch = records.slice(b * batchSize, (b + 1) * batchSize);
       let results: InsertResult[];
       try {
-        results =
-          upsertField && this.deps.upsertRecords
-            ? await this.deps.upsertRecords(targetOrgId, node.objectApiName, upsertField, batch)
-            : await this.deps.insertRecords(targetOrgId, node.objectApiName, batch);
+        results = await this.send(write, targetOrgId, batch);
       } catch (err) {
         // A call that throws stops the node there, and what failed is its rows
         // and those of the calls it leaves unsent. Thrown on, it took down what
@@ -360,12 +532,17 @@ export class BatchWriter {
         // and the lookups those rows owe lost before pass 2 could fill them in.
         const notWritten = records.length - recordOffset;
         tally.failureCount += notWritten;
-        if (tally.errorSamples.length < 3) {
-          tally.errorSamples.push({
-            recordSummary: `${node.objectApiName} batch ${b + 1}/${batchCount}: ${notWritten} record${notWritten === 1 ? '' : 's'} not written`,
-            messages: [extractErrorMessage(err)],
-          });
-        }
+        this.sample(tally, {
+          recordSummary: `${node.objectApiName} batch ${b + 1}/${batchCount}: ${notWritten} record${notWritten === 1 ? '' : 's'} not written`,
+          messages: [extractErrorMessage(err)],
+        });
+        // Nor are the rows a validation rule refused in the calls before
+        // written again: they stay the failures the target made them.
+        this.leaveRefusedAsFailed(
+          write,
+          write.refusedOnTheirFields.splice(0),
+          extractErrorMessage(err),
+        );
         break;
       }
 
@@ -382,88 +559,16 @@ export class BatchWriter {
       const expected = batch.length;
       const actual = results.length;
       for (let i = 0; i < actual; i++) {
-        const result = results[i];
-        if (result.success) {
-          const built = cleanedRecords[recordOffset + i];
-          const oldId = built?.source['Id'];
-          // An upsert that matched a record by its external id wrote over one
-          // the target already held. Its children point at it all the same,
-          // but it is not the run's: counted as updated, and a removal of the
-          // run's records must never reach it.
-          const updated = result.created === false;
-          if (updated) tally.updatedCount++;
-          else tally.successCount++;
-          if (typeof oldId === 'string') {
-            if (updated) remapper.addUpdated(oldId, result.id, node.objectApiName);
-            else remapper.add(oldId, result.id, node.objectApiName);
-          }
-          // Record nullified FKs so pass 2 can patch them
-          // once the parent target is in the IdRemapper.
-          if (built && built.nullifiedFks.length > 0) {
-            const sourceId =
-              typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
-            for (const nf of built.nullifiedFks) {
-              tally.pendingFkUpdates.push({
-                objectApiName: node.objectApiName,
-                newId: result.id,
-                sourceId,
-                fieldName: nf.field,
-                sourceRefId: nf.sourceRefId,
-              });
-            }
-          }
-        } else {
-          const existing = existingRecordOf(result, input.targetKeyPrefix);
-          if (existing.kind === 'linked') {
-            // The target refused the row because it holds it, and said which
-            // record that is. The children link to it; nothing is written to
-            // it — no update, and no pass-2 patch of its lookups, which would
-            // overwrite a record this run did not create.
-            tally.linkedExistingCount++;
-            const oldId = cleanedRecords[recordOffset + i]?.source['Id'];
-            if (typeof oldId === 'string') {
-              remapper.addExisting(oldId, existing.id, node.objectApiName);
-            }
-            continue;
-          }
-          const naturalKey = NATURAL_KEYS[node.objectApiName];
-          if (existing.kind === 'unidentified' && naturalKey) {
-            // Settled after the batches: the record may be found by its key.
-            byNaturalKey.push({
-              payload: batch[i],
-              sourceId: cleanedRecords[recordOffset + i]?.source['Id'],
-              errors: result.errors,
-            });
-            continue;
-          }
-          tally.failureCount++;
-          if (existing.kind === 'unidentified') tally.unidentifiedExistingCount++;
-          // Counted apart because it says something different from a failure:
-          // the target already holds the row, so nothing downstream of it is
-          // orphaned. See `isAlreadyExistsError`.
-          if (result.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
-          if (tally.errorSamples.length < 3) {
-            tally.errorSamples.push({
-              recordSummary: summarizeRecordForError(batch[i]),
-              messages: result.errors,
-            });
-          }
-        }
+        this.settle(write, results[i], batch[i], cleanedRecords[recordOffset + i]);
       }
       // Account for missing results — keeps recordOffset aligned with
       // the source batch and prevents IdRemapper cross-contamination.
-      if (actual < expected) {
-        for (let i = actual; i < expected; i++) {
-          tally.failureCount++;
-          if (tally.errorSamples.length < 3) {
-            tally.errorSamples.push({
-              recordSummary: summarizeRecordForError(batch[i]),
-              messages: [
-                `No result returned for record (API truncated batch: ${actual}/${expected})`,
-              ],
-            });
-          }
-        }
+      for (let i = actual; i < expected; i++) {
+        tally.failureCount++;
+        this.sample(tally, {
+          recordSummary: summarizeRecordForError(batch[i]),
+          messages: [`No result returned for record (API truncated batch: ${actual}/${expected})`],
+        });
       }
 
       recordOffset += expected;
@@ -474,6 +579,14 @@ export class BatchWriter {
         progress: Math.round(((b + 1) / batchCount) * 100),
         message: `batch ${b + 1}/${batchCount} — ${Math.min((b + 1) * batchSize, records.length)}/${records.length} records`,
       });
+    }
+
+    try {
+      await this.writeAgainWithoutTheirFields(write, input, batchSize);
+    } catch (err) {
+      // A cancel before a call that writes them again: see `settleOnStop`.
+      settleOnStop(err);
+      throw err;
     }
 
     const keyFields = NATURAL_KEYS[node.objectApiName];
@@ -505,6 +618,192 @@ export class BatchWriter {
     }
 
     return tally;
+  }
+
+  /** One call of the node's write: the upsert by its external id, or the insert. */
+  private send(
+    write: NodeWrite,
+    targetOrgId: string,
+    records: Record<string, unknown>[],
+  ): Promise<InsertResult[]> {
+    return write.upsertField && this.deps.upsertRecords
+      ? this.deps.upsertRecords(targetOrgId, write.objectApiName, write.upsertField, records)
+      : this.deps.insertRecords(targetOrgId, write.objectApiName, records);
+  }
+
+  /** Keep `sample` among the node's samples, while it holds fewer than three. */
+  private sample(tally: BatchWriteResult, sample: ExecutionErrorSample): void {
+    if (tally.errorSamples.length < 3) tally.errorSamples.push(sample);
+  }
+
+  /**
+   * Count what the target answered for one row.
+   *
+   * @param payload - What was sent for it.
+   * @param built - The record it was cleaned from.
+   * @param retried - Set when the row went again without the fields a
+   *   validation rule refused it on: it is not sent a third time.
+   */
+  private settle(
+    write: NodeWrite,
+    result: InsertResult,
+    payload: Record<string, unknown>,
+    built: CleanedRecord | undefined,
+    retried?: RefusedOnItsFields,
+  ): void {
+    const { tally, remapper, objectApiName } = write;
+    if (result.success) {
+      const oldId = built?.source['Id'];
+      // An upsert that matched a record by its external id wrote over one
+      // the target already held. Its children point at it all the same,
+      // but it is not the run's: counted as updated, and a removal of the
+      // run's records must never reach it.
+      const updated = result.created === false;
+      if (updated) tally.updatedCount++;
+      else tally.successCount++;
+      if (typeof oldId === 'string') {
+        if (updated) remapper.addUpdated(oldId, result.id, objectApiName);
+        else remapper.add(oldId, result.id, objectApiName);
+      }
+      // Record nullified FKs so pass 2 can patch them
+      // once the parent target is in the IdRemapper.
+      if (built && built.nullifiedFks.length > 0) {
+        const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+        for (const nf of built.nullifiedFks) {
+          tally.pendingFkUpdates.push({
+            objectApiName,
+            newId: result.id,
+            sourceId,
+            fieldName: nf.field,
+            sourceRefId: nf.sourceRefId,
+          });
+        }
+      }
+      if (retried) {
+        tally.writtenWithoutFields = addWrittenWithoutFields(tally.writtenWithoutFields, {
+          rows: 1,
+          fields: retried.leftOut.map((f) => ({ ...f, rows: 1 })),
+        });
+      }
+      return;
+    }
+    const existing = existingRecordOf(result, write.targetKeyPrefix);
+    if (existing.kind === 'linked') {
+      // The target refused the row because it holds it, and said which
+      // record that is. The children link to it; nothing is written to
+      // it — no update, and no pass-2 patch of its lookups, which would
+      // overwrite a record this run did not create.
+      tally.linkedExistingCount++;
+      const oldId = built?.source['Id'];
+      if (typeof oldId === 'string') remapper.addExisting(oldId, existing.id, objectApiName);
+      return;
+    }
+    if (existing.kind === 'unidentified' && NATURAL_KEYS[objectApiName]) {
+      // Settled after the calls: the record may be found by its key.
+      write.byNaturalKey.push({ payload, sourceId: built?.source['Id'], errors: result.errors });
+      return;
+    }
+    // Refused on fields a validation rule named — a phone the target wants
+    // in another format — the row went down, and every record hanging from
+    // it failed or was skipped for want of it. Written again without them
+    // once the calls are through, it is in the target, short of a value.
+    const leftOut = retried ? undefined : fieldsToLeaveOut(result, payload, write.upsertField);
+    if (leftOut) {
+      write.refusedOnTheirFields.push({ payload, built, errors: result.errors, leftOut });
+      return;
+    }
+    tally.failureCount++;
+    if (existing.kind === 'unidentified') tally.unidentifiedExistingCount++;
+    // Counted apart because it says something different from a failure:
+    // the target already holds the row, so nothing downstream of it is
+    // orphaned. See `isAlreadyExistsError`.
+    if (result.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
+    this.sample(tally, {
+      // The row as first sent, which the fields left out cannot hide.
+      recordSummary: summarizeRecordForError(retried?.payload ?? payload),
+      // Refused again, the row fails with what the target said the second
+      // time, and says what it was first refused with.
+      messages: retried ? [...result.errors, sentAgainNote(retried)] : result.errors,
+    });
+  }
+
+  /**
+   * Count as failed, with what the target refused them with, rows a
+   * validation rule refused that a cancel or a call that threw kept from
+   * being written again, each sample saying why.
+   */
+  private leaveRefusedAsFailed(
+    write: NodeWrite,
+    rows: readonly RefusedOnItsFields[],
+    why: string,
+  ): void {
+    for (const row of rows) {
+      write.tally.failureCount++;
+      this.sample(write.tally, {
+        recordSummary: summarizeRecordForError(row.payload),
+        messages: [...row.errors, `Not written again without ${fieldList(row.leftOut)}: ${why}`],
+      });
+    }
+  }
+
+  /**
+   * Write once more, without the fields a validation rule of the target
+   * refused them on, the rows it refused so — through the call that first
+   * wrote them, after the checkpoint each call has, as many to a call, and
+   * once each. A row taken this time counts as written, and its children find
+   * it in the remap table; the fields it went without are counted for the
+   * object's line. A row refused again stays a failure, with the second
+   * refusal. A call that throws stops the node there, as one of the first
+   * write does, its rows and those after it failures; a cancel at the
+   * checkpoint leaves them so too, and is thrown on.
+   */
+  private async writeAgainWithoutTheirFields(
+    write: NodeWrite,
+    input: WriteNodeInput,
+    batchSize: number,
+  ): Promise<void> {
+    const rows = write.refusedOnTheirFields.splice(0);
+    if (rows.length === 0) return;
+    input.onProgress({
+      objectName: write.objectApiName,
+      status: 'running',
+      progress: 100,
+      message:
+        `Writing ${rows.length} ${write.objectApiName} record${rows.length === 1 ? '' : 's'} ` +
+        'again without the fields a validation rule of the target refused...',
+    });
+    for (let start = 0; start < rows.length; start += batchSize) {
+      try {
+        await input.waitIfPaused();
+      } catch (err) {
+        this.leaveRefusedAsFailed(write, rows.slice(start), extractErrorMessage(err));
+        throw err;
+      }
+      const chunk = rows.slice(start, start + batchSize);
+      const payloads = chunk.map((row) => without(row.payload, row.leftOut));
+      let results: InsertResult[];
+      try {
+        results = await this.send(write, input.targetOrgId, payloads);
+      } catch (err) {
+        this.leaveRefusedAsFailed(write, rows.slice(start), extractErrorMessage(err));
+        return;
+      }
+      chunk.forEach((row, i) => {
+        const result = results[i];
+        if (result) {
+          this.settle(write, result, payloads[i], row.built, row);
+          return;
+        }
+        write.tally.failureCount++;
+        this.sample(write.tally, {
+          recordSummary: summarizeRecordForError(row.payload),
+          messages: [
+            `No result returned for record (API truncated batch: ${results.length}/${chunk.length})`,
+            sentAgainNote(row),
+          ],
+        });
+      });
+    }
   }
 
   /**

@@ -651,6 +651,34 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).picklistValuesChanged).toBeUndefined();
   });
 
+  it('names each field a validation rule refused that rows were written again without, and why', () => {
+    const writtenWithoutFields = [
+      {
+        objectApiName: 'Contact',
+        rows: 2,
+        fields: [
+          { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 2 },
+          { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail', rows: 1 },
+        ],
+      },
+    ];
+
+    const lines = summaryLines(summary({ writtenWithoutFields }));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'written again without a field a validation rule refused (1 object(s)):',
+        '  Contact.Phone  2 record(s) — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
+        '  Contact.Email  1 record(s) — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail',
+      ]),
+    );
+    expect(jsonResult(summary({ writtenWithoutFields })).writtenWithoutFields).toEqual(
+      writtenWithoutFields,
+    );
+    expect(summaryLines(summary({})).some((line) => line.includes('validation rule'))).toBe(false);
+    expect(jsonResult(summary({}))).not.toHaveProperty('writtenWithoutFields');
+  });
+
   it('prints the reason an object was held back, from its error samples', () => {
     const lines = summaryLines(
       summary({

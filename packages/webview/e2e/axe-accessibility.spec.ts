@@ -497,7 +497,14 @@ const REPORTS_AUDIT = {
       outcome: 'partial',
       guard: 'confirmed',
       objects: [
-        { objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 1 },
+        {
+          objectApiName: 'Account',
+          created: 3,
+          updated: 0,
+          deleted: 0,
+          failed: 1,
+          writtenWithoutFields: 1,
+        },
         { objectApiName: 'Contact', created: 0, updated: 0, deleted: 0, failed: 0, upserted: 12 },
         {
           objectApiName: 'Contract',
@@ -2222,6 +2229,20 @@ for (const theme of SCANNED_THEMES) {
               replacement: 'default',
             },
           ],
+          writtenWithoutFields: [
+            {
+              objectApiName: 'Contact',
+              rows: 1,
+              fields: [
+                {
+                  field: 'Phone',
+                  reason:
+                    'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
+                  rows: 1,
+                },
+              ],
+            },
+          ],
         },
       });
       await page.waitForSelector('[data-testid="forge-results-files"]', { timeout: 10_000 });
@@ -2229,6 +2250,9 @@ for (const theme of SCANNED_THEMES) {
         timeout: 10_000,
       });
       await page.waitForSelector('[data-testid="forge-results-picklists"]', { timeout: 10_000 });
+      await page.waitForSelector('[data-testid="forge-results-written-without"]', {
+        timeout: 10_000,
+      });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
@@ -2236,6 +2260,9 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-picklists"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-written-without"]'),
       ).toBeGreaterThan(0);
     });
 
@@ -2613,9 +2640,13 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByRole('tab', { name: 'Audit Trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
-      // The skipped object's row is scanned with the rest of the entry.
+      // The skipped object's row is scanned with the rest of the entry, and
+      // so are the records written without a field a validation rule refused.
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
         'Contract skipped, record count unknown',
+      );
+      await expect(page.getByTestId('audit-audit-forge')).toContainText(
+        '1 written without a field a validation rule refused',
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();

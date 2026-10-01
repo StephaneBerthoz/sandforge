@@ -108,6 +108,17 @@ const RULES: Rule[] = [
             code,
             'warning',
           );
+        // A rule that names a field the row gives a value to has the row
+        // written again without it; what is left here could not be.
+        case 'FIELD_CUSTOM_VALIDATION_EXCEPTION':
+          return mapping(
+            [
+              'forge.error.fieldCustomValidation.explanation',
+              'forge.error.fieldCustomValidation.action',
+            ],
+            code,
+            'warning',
+          );
         case 'INVALID_FIELD_FOR_INSERT_UPDATE':
           return mapping(
             [

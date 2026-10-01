@@ -49,7 +49,10 @@ export interface SaveOutcome {
    * whose answer does not say, since an insert only ever creates.
    */
   created?: boolean;
-  /** One entry per error, `STATUS_CODE: message` whenever Salesforce gave a code. */
+  /**
+   * One entry per error, `STATUS_CODE: message` whenever Salesforce gave a
+   * code, followed by the fields it named: see {@link formatSaveError}.
+   */
   errors: string[];
   /**
    * The same errors, each with its code and the fields it named, for a caller
@@ -219,10 +222,26 @@ const saveResultSchema = z
   })
   .passthrough();
 
+/** `STATUS_CODE: message`, or the message alone when Salesforce gave no code. */
+export function codeAndMessage(detail: Pick<SaveErrorDetail, 'statusCode' | 'message'>): string {
+  return detail.statusCode === NO_STATUS_CODE
+    ? detail.message
+    : `${detail.statusCode}: ${detail.message}`;
+}
+
 /**
- * `STATUS_CODE: message`, the form the error translators and the command line
- * read. The code is what says a row already exists; a writer that kept only
- * the message handed on "duplicate value found: …" with nothing that named it.
+ * `STATUS_CODE: message [Field, Other]`: the form the error translators and
+ * the command line read, the fields the error named listed after it as
+ * Salesforce lists the fields a record is missing.
+ *
+ * The code is what says a row already exists; a writer that kept only the
+ * message handed on "duplicate value found: …" with nothing that named it.
+ * The fields are what say where to look: a restricted picklist's refusal names
+ * the value it refused and not the field, and a clone between two real orgs
+ * reported "bad value for restricted picklist field: <value>" of rows whose
+ * field it never said. A message that already lists them so — a required
+ * field's — is not given them twice. Whatever reads the code still reads it
+ * first, and the message after it.
  */
 export function formatSaveError(error: unknown): string {
   if (typeof error === 'string') return error;
@@ -230,7 +249,12 @@ export function formatSaveError(error: unknown): string {
   if (!parsed.success) return 'Unknown error';
   const code = parsed.data.statusCode ?? parsed.data.errorCode;
   const message = parsed.data.message ?? '';
-  return code ? `${code}: ${message}` : message;
+  const line = code ? `${code}: ${message}` : message;
+  const fields = (parsed.data.fields ?? []).filter((f): f is string => typeof f === 'string');
+  if (fields.length === 0) return line;
+  const named = `[${fields.join(', ')}]`;
+  if (line.includes(named)) return line;
+  return line ? `${line} ${named}` : named;
 }
 
 /**

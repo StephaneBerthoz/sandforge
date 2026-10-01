@@ -1,16 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   BatchWriter,
+  addWrittenWithoutFields,
   emptyBatchWriteResult,
   resolveWriteBatching,
   summarizeRecordForError,
+  writtenWithoutFieldsNote,
   type WriteNodeInput,
 } from './BatchWriter.js';
 import type { ForgeBatchStrategy, ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
+import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
 import type { CleanedRecord } from './RecordCleaner.js';
-import type { FieldInfo, ForgeExecutorDeps, ForgeProgressEvent } from '../ForgeExecutor.js';
+import type {
+  FieldInfo,
+  ForgeExecutorDeps,
+  ForgeProgressEvent,
+  InsertResult,
+} from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 
 type WriterDeps = Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'>;
@@ -997,5 +1005,494 @@ describe('BatchWriter — duplicates found by their natural key', () => {
       unidentifiedExistingCount: 1,
     });
     expect(result.errorSamples).toHaveLength(1);
+  });
+});
+
+describe('BatchWriter — a row a validation rule refused on fields it named', () => {
+  /** The words of the rule that refuses a phone, as the target would give them. */
+  const RULE = 'Enter the phone in international format';
+
+  /** A refusal as the writers hand it on: read from the platform's save result. */
+  function refused(
+    ...errors: Array<{ statusCode: string; message: string; fields: string[] }>
+  ): InsertResult {
+    return toSaveOutcome({ success: false, errors }, 'Contact');
+  }
+
+  const byRule = (fields: string[], message = RULE): InsertResult =>
+    refused({ statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message, fields });
+
+  const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+  /** Contacts as the cleaning stage hands them on: the payload, and the row it came from. */
+  function contacts(
+    rows: Array<Record<string, unknown>>,
+    overrides?: Partial<WriteNodeInput>,
+  ): WriteNodeInput {
+    const payloadOf = (row: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'Id'));
+    return makeInput(rows, {
+      node: makeNode('Contact', rows.length),
+      records: rows.map(payloadOf),
+      cleanedRecords: rows.map((row) => ({
+        source: { ...row },
+        cleaned: payloadOf(row),
+        nullifiedFks: [],
+      })),
+      ...overrides,
+    });
+  }
+
+  it('writes it once more without the field, and counts it written, its children finding it', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone']), written('003NEW2')])
+      .mockResolvedValueOnce([written('003NEW1')]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+      { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(insertRecords.mock.calls[1]).toEqual(['tgt', 'Contact', [{ LastName: 'Doe' }]]);
+    // The payload the first call sent is left as it was.
+    expect(input.records[0]).toEqual({ LastName: 'Doe', Phone: '555-0100' });
+    // A call like any other: the checkpoint before it, as before each batch.
+    expect(input.waitIfPaused).toHaveBeenCalledTimes(2);
+    expect(input.remapper.get('003OLD1')).toBe('003NEW1');
+    expect(input.remapper.createdByObject()).toEqual([
+      { objectApiName: 'Contact', sourceIds: ['003OLD2', '003OLD1'] },
+    ]);
+    expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [{ field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 1 }],
+    });
+  });
+
+  it('leaves it failed, sent no second time, when the rule names no field', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byRule([])]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(input.remapper.get('003OLD1')).toBeUndefined();
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+    expect(result.errorSamples[0]?.messages).toEqual([
+      `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+    ]);
+  });
+
+  it('leaves it failed when the rule names only a field the row gives no value to', async () => {
+    // Left out, a field the row leaves empty changes nothing the rule reads.
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byRule(['MobilePhone'])]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', MobilePhone: null },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result.failureCount).toBe(1);
+  });
+
+  it('leaves it failed when another error refuses it beside the rule, each naming its field', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
+      refused(
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: ['Phone'] },
+        {
+          statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+          message: 'bad value for restricted picklist field: Gold',
+          fields: ['Rating__c'],
+        },
+      ),
+    ]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', Rating__c: 'Gold' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result.failureCount).toBe(1);
+    expect(result.errorSamples[0]?.messages).toEqual([
+      `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold [Rating__c]',
+    ]);
+  });
+
+  it('keeps a row refused again a failure, with the second refusal and what the first said', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['LastName'], 'Write the last name in capitals')])
+      .mockResolvedValueOnce([
+        refused({
+          statusCode: 'REQUIRED_FIELD_MISSING',
+          message: 'Required fields are missing: [LastName]',
+          fields: ['LastName'],
+        }),
+      ]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(input.remapper.get('003OLD1')).toBeUndefined();
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+    expect(result.errorSamples).toEqual([
+      {
+        recordSummary: 'LastName=Doe',
+        messages: [
+          'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+          'Sent again without LastName after the first refusal: ' +
+            'FIELD_CUSTOM_VALIDATION_EXCEPTION: Write the last name in capitals [LastName]',
+        ],
+      },
+    ]);
+  });
+
+  it('counts a row the call that writes it again gives no answer for as failed', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages).toEqual([
+      'No result returned for record (API truncated batch: 0/1)',
+      `Sent again without Phone after the first refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+    ]);
+  });
+
+  it('sends a row no third time when a rule refuses it again on another field', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([byRule(['Email'], 'Use the company domain')])
+      .mockResolvedValue([written('003NEW1')]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', Email: 'm@example.com' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+  });
+
+  it('leaves out the field the platform named whatever its case, as the payload spells it', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['phone'])])
+      .mockResolvedValueOnce([written('003NEW1')]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ LastName: 'Doe' }]);
+    expect(result.writtenWithoutFields?.fields.map((f) => f.field)).toEqual(['Phone']);
+  });
+
+  it('writes the rows of every batch again together, through the upsert that first wrote them', async () => {
+    const twoByTwo: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 2, batchCount: 2 }),
+    };
+    const upsertRecords = vi
+      .fn<UpsertFn>()
+      .mockResolvedValueOnce([written('003NEW1'), byRule(['Phone'])])
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([written('003NEW2'), written('003NEW3')]);
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Key__c', queryable: true, createable: true, isReference: false, externalId: true },
+    ];
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const input = contacts(
+      [
+        { Id: '003OLD1', Key__c: 'K1', Phone: '+1 555-0101' },
+        { Id: '003OLD2', Key__c: 'K2', Phone: '555-0102' },
+        { Id: '003OLD3', Key__c: 'K3', Phone: '555-0103' },
+      ],
+      { fieldInfos: fields, creatableFields: new Set(['Key__c', 'Phone']), upsertMode: 'auto' },
+    );
+
+    const result = await new BatchWriter({ ...makeDeps(), upsertRecords }, twoByTwo).writeNode(
+      input,
+    );
+    infoSpy.mockRestore();
+
+    // Two batches, then one call for the row each of them had refused.
+    expect(upsertRecords).toHaveBeenCalledTimes(3);
+    expect(upsertRecords.mock.calls[2]).toEqual([
+      'tgt',
+      'Contact',
+      'Key__c',
+      [{ Key__c: 'K2' }, { Key__c: 'K3' }],
+    ]);
+    expect(input.remapper.get('003OLD3')).toBe('003NEW3');
+    expect(result.successCount).toBe(3);
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 2,
+      fields: [{ field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 2 }],
+    });
+  });
+
+  it('writes them again as many to a call as the first write sent', async () => {
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+    };
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([written('003NEW1')])
+      .mockResolvedValueOnce([written('003NEW2')]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+      { Id: '003OLD2', LastName: 'Roe', Phone: '555-0102' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+    expect(insertRecords.mock.calls.map((call) => call[2].length)).toEqual([1, 1, 1, 1]);
+    expect(input.waitIfPaused).toHaveBeenCalledTimes(4);
+    expect(result.successCount).toBe(2);
+  });
+
+  it('never leaves out the external id an upsert matches the row by', async () => {
+    const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([byRule(['Key__c'])]);
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Key__c', queryable: true, createable: true, isReference: false, externalId: true },
+    ];
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const input = contacts([{ Id: '003OLD1', Key__c: 'K1' }], {
+      fieldInfos: fields,
+      creatableFields: new Set(['Key__c']),
+      upsertMode: 'auto',
+    });
+
+    const result = await new BatchWriter({ ...makeDeps(), upsertRecords }).writeNode(input);
+    infoSpy.mockRestore();
+
+    expect(upsertRecords).toHaveBeenCalledTimes(1);
+    expect(result.failureCount).toBe(1);
+  });
+
+  it('owes the second pass the lookups of a row written again', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([written('003NEW1')]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }], {
+      cleanedRecords: [
+        {
+          source: { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+          cleaned: { LastName: 'Doe', Phone: '555-0100' },
+          nullifiedFks: [
+            { field: 'ReportsToId', sourceRefId: '003OLD9', targetObjects: ['Contact'] },
+          ],
+        },
+      ],
+    });
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(result.pendingFkUpdates).toEqual([
+      {
+        objectApiName: 'Contact',
+        newId: '003NEW1',
+        sourceId: '003OLD1',
+        fieldName: 'ReportsToId',
+        sourceRefId: '003OLD9',
+      },
+    ]);
+  });
+
+  it('links a row written again to the record the target then names as holding it', async () => {
+    const existing = '003Fk00000AbCdEIAV';
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockResolvedValueOnce([
+        refused({
+          statusCode: 'DUPLICATE_VALUE',
+          message: `duplicate value found: Key__c duplicates value on record with id: ${existing}`,
+          fields: [],
+        }),
+      ]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }], {
+      targetKeyPrefix: '003',
+    });
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(input.remapper.get('003OLD1')).toBe(existing);
+    expect(result).toMatchObject({ linkedExistingCount: 1, failureCount: 0 });
+  });
+
+  it('leaves the row a failure, saying why, when a cancel comes before the call that writes it again', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone']), written('003NEW2')]);
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = contacts(
+      [
+        { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+        { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+      ],
+      { waitIfPaused },
+    );
+    const tally = emptyBatchWriteResult();
+
+    await expect(new BatchWriter({ insertRecords }).writeNode(input, tally)).rejects.toThrow(
+      'cancelled',
+    );
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(tally).toMatchObject({ successCount: 1, failureCount: 1 });
+    expect(tally.errorSamples).toEqual([
+      {
+        recordSummary: 'LastName=Doe Phone=555-0100',
+        messages: [
+          `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+          'Not written again without Phone: cancelled',
+        ],
+      },
+    ]);
+  });
+
+  it('leaves the rows a failure when a cancel stops the node before its next batch', async () => {
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+    };
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byRule(['Phone'])]);
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = contacts(
+      [
+        { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+        { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+      ],
+      { waitIfPaused },
+    );
+    const tally = emptyBatchWriteResult();
+
+    await expect(
+      new BatchWriter({ insertRecords }, oneByOne).writeNode(input, tally),
+    ).rejects.toThrow('cancelled');
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(tally).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(tally.errorSamples[0]?.messages).toEqual([
+      `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+      'Not written again without Phone: cancelled',
+    ]);
+  });
+
+  it('sends no row again once a call of the first write throws, which stops the node there', async () => {
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+    };
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'])])
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValue([written('003NEW1')]);
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+      { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 2 });
+    expect(result.errorSamples.map((s) => s.messages)).toEqual([
+      ['ECONNRESET'],
+      [
+        `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+        'Not written again without Phone: ECONNRESET',
+      ],
+    ]);
+  });
+
+  it('leaves the rows a failure when the call that writes them again throws, keeping what the first wrote', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone']), written('003NEW2')])
+      .mockRejectedValueOnce(new Error('ECONNRESET'));
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+      { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(input.remapper.get('003OLD2')).toBe('003NEW2');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 1 });
+    expect(result.errorSamples[0]?.messages).toEqual([
+      `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+      'Not written again without Phone: ECONNRESET',
+    ]);
+  });
+});
+
+describe('addWrittenWithoutFields', () => {
+  it('counts a field left out for the same refusal once, with the rows of both, and another apart', () => {
+    const into = addWrittenWithoutFields(undefined, {
+      rows: 1,
+      fields: [{ field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A', rows: 1 }],
+    });
+
+    const sum = addWrittenWithoutFields(into, {
+      rows: 2,
+      fields: [
+        { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A', rows: 1 },
+        { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: B', rows: 1 },
+      ],
+    });
+
+    expect(sum).toBe(into);
+    expect(sum).toEqual({
+      rows: 3,
+      fields: [
+        { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A', rows: 2 },
+        { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: B', rows: 1 },
+      ],
+    });
+  });
+});
+
+describe('writtenWithoutFieldsNote', () => {
+  it('says each field the rows went without, how many and why, for the object line', () => {
+    expect(
+      writtenWithoutFieldsNote({
+        rows: 2,
+        fields: [
+          { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 2 },
+          { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain', rows: 1 },
+        ],
+      }),
+    ).toBe(
+      ', 2 written without Phone: a validation rule of the target refused it, ' +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone' +
+        ', 1 written without Email: a validation rule of the target refused it, ' +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad domain',
+    );
+    expect(writtenWithoutFieldsNote(undefined)).toBe('');
   });
 });

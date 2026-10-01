@@ -144,6 +144,28 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('counts apart, after what was written, the records written without a field a validation rule refused', () => {
+    const clone: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-forge-without',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          created: 3,
+          updated: 0,
+          deleted: 0,
+          failed: 1,
+          writtenWithoutFields: 2,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[clone]} />);
+
+    expect(screen.getByTestId('audit-aud-forge-without').querySelector('li')?.textContent).toBe(
+      'Contact 3 created · 2 written without a field a validation rule refused · 1 failed',
+    );
+  });
+
   it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
     // Nothing created, nothing failed: what the cancel kept from the target
     // is all there is to say of the object, and the entry says why it stopped.

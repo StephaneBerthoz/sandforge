@@ -1854,6 +1854,8 @@
       "failed_other": "{{count}} fallidos",
       "notSent_one": "{{count}} no enviado",
       "notSent_other": "{{count}} no enviados",
+      "writtenWithoutFields_one": "{{count}} escrito sin un campo rechazado por una regla de validación",
+      "writtenWithoutFields_other": "{{count}} escritos sin un campo rechazado por una regla de validación",
       "skipped": "omitido",
       "skippedUncounted": "omitido, cantidad de registros desconocida"
     },
@@ -2644,6 +2646,10 @@
         "explanation": "Un valor de lista de selección del origen no está permitido en la org de destino: el campo no lo contiene, o el tipo de registro del registro no lo permite.",
         "action": "Añada el valor a la lista de selección en el Setup de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
       },
+      "fieldCustomValidation": {
+        "explanation": "Una regla de validación de la org de destino rechazó el registro. Cuando la regla indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
+        "action": "Cambie el valor en el registro de origen, o ajuste la regla en la org de destino, y luego reintente los objetos fallidos."
+      },
       "invalidFieldForInsert": {
         "explanation": "Un campo no se puede establecer al crear: es calculado, está oculto por la seguridad a nivel de campo o no existe en la org de destino.",
         "action": "Revise la seguridad a nivel de campo de su usuario en la org de destino y compare el campo entre ambas orgs."
@@ -2719,6 +2725,10 @@
       "replacedDefault": "sustituido por {{value}}, el valor predeterminado del tipo de registro {{recordType}}",
       "replacedFirst": "sustituido por {{value}}, el primer valor que permite el tipo de registro {{recordType}}: el campo es obligatorio y ese tipo de registro no le asigna un valor predeterminado",
       "leftOut": "dejado fuera"
+    },
+    "writtenWithoutFields": {
+      "title": "Escritos sin un campo que rechazó una regla de validación de la org de destino",
+      "hint": "Una regla de validación de la org de destino rechazó estos registros por los campos que indicó. El clon volvió a escribir cada registro sin esos campos: el registro está en la org de destino, sin el valor que el origen tiene para ellos."
     },
     "existingRecords": {
       "title": "Ya en la org de destino",

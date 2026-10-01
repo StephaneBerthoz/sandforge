@@ -10,11 +10,13 @@ import type {
   ForgeReadRecords,
   ForgeRemapObjectCounts,
   ForgeWrittenBetween,
+  ForgeWrittenWithoutFields,
 } from '@sandforge/shared';
 import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 import { ReferenceDataMapper } from './ReferenceDataMapper.js';
@@ -60,9 +62,12 @@ import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklist
 import {
   BatchWriter,
   WRITE_API_MAX_BATCH,
+  addWrittenWithoutFields,
   emptyBatchWriteResult,
+  writtenWithoutFieldsNote,
   type BatchWriteResult,
   type PendingFkUpdate,
+  type WrittenWithoutFields,
 } from './stages/BatchWriter.js';
 import {
   EMAIL_MESSAGE,
@@ -148,8 +153,18 @@ export interface InsertResult {
   id: string;
   /** Whether the insert succeeded. */
   success: boolean;
-  /** Error messages if the insert failed, `STATUS_CODE: message` when Salesforce gave a code. */
+  /**
+   * Error messages if the insert failed, `STATUS_CODE: message` when Salesforce
+   * gave a code, followed by the fields it named.
+   */
   errors: string[];
+  /**
+   * The same errors, each with its code and the fields it named, index-aligned
+   * with `errors`: what says a validation rule refused the row on a field it
+   * named, which the row is written again without. Only the structured error
+   * carries them; see `toSaveOutcome`.
+   */
+  errorDetails?: SaveErrorDetail[];
   /**
    * What an upsert did with the row: `false` when it matched a record the
    * target already held by its external id and wrote over it. Absent on an
@@ -750,6 +765,13 @@ export interface ExecutionSummary {
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
   /**
+   * Per object, the rows a validation rule of the target refused on fields it
+   * named that went in once written again without them: each field, the
+   * refusal that named it, and how many rows went without it. Counted among
+   * the rows created or updated too. Absent when there were none.
+   */
+  writtenWithoutFields?: ForgeWrittenWithoutFields[];
+  /**
    * When the target dated the run's writes, read from the records it created
    * once it had written them. Absent when it created nothing, or on a dry run.
    */
@@ -1020,6 +1042,11 @@ interface ExecutionState {
   readonly recordTypePicklists: RecordTypePicklistReads;
   /** The picklist values the run did not write as it read them, by object and field. */
   readonly picklistChanges: PicklistChangeTally;
+  /**
+   * Per object, the rows written again without the fields a validation rule
+   * of the target refused them on. See `ExecutionSummary.writtenWithoutFields`.
+   */
+  readonly writtenWithoutFields: Map<string, WrittenWithoutFields>;
   /**
    * The rows read and left out because the platform writes them itself, or
    * they cannot go in without one it does, by source id.
@@ -2069,6 +2096,7 @@ export class ForgeExecutor {
             readRecordType(targetOrgId, objectApiName, recordTypeId)),
       ),
       picklistChanges: new PicklistChangeTally(),
+      writtenWithoutFields: new Map<string, WrittenWithoutFields>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
@@ -3528,6 +3556,17 @@ export class ForgeExecutor {
         : {}),
       ...(state.picklistChanges.size > 0
         ? { picklistValuesChanged: state.picklistChanges.list() }
+        : {}),
+      ...(state.writtenWithoutFields.size > 0
+        ? {
+            writtenWithoutFields: [...state.writtenWithoutFields].map(
+              ([objectApiName, { rows, fields }]) => ({
+                objectApiName,
+                rows,
+                fields: fields.map((field) => ({ ...field })),
+              }),
+            ),
+          }
         : {}),
       ...(state.writtenBetween ? { writtenBetween: { ...state.writtenBetween } } : {}),
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
@@ -5499,7 +5538,8 @@ export class ForgeExecutor {
   /**
    * Add to the run what the calls of one node did: the rows created, updated,
    * linked and refused, the lookups owed to the second pass, the rows the
-   * target already held, and the refusals with their samples.
+   * target already held, the fields left out of the rows written again, and
+   * the refusals with their samples.
    */
   private countWrites(
     state: ExecutionState,
@@ -5511,6 +5551,15 @@ export class ForgeExecutor {
     state.linkedCount += written.linkedExistingCount;
     state.failedCount += written.failureCount;
     state.pendingFkUpdates.push(...written.pendingFkUpdates);
+    if (written.writtenWithoutFields) {
+      state.writtenWithoutFields.set(
+        objectApiName,
+        addWrittenWithoutFields(
+          state.writtenWithoutFields.get(objectApiName),
+          written.writtenWithoutFields,
+        ),
+      );
+    }
     if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
       state.existingRecords.push({
         objectApiName,
@@ -6096,6 +6145,9 @@ export class ForgeExecutor {
       // the answer that goes with it: the who the event also invites, and
       // how it answered, which the platform's relation leaves out.
       const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
+      // A row written again without the fields a validation rule refused it
+      // on: which field it went without, and the rule's words.
+      const withoutFields = writtenWithoutFieldsNote(writeResult.writtenWithoutFields);
       // What else became of the object's rows, said once, on the line that
       // ends the node: after the emails that waited for their task, if any,
       // or on the line a cancel ends the node with before them.
@@ -6103,7 +6155,7 @@ export class ForgeExecutor {
       const counts = (reasons: readonly HeldBackReason[]): string =>
         `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
-      const rest = `${waitForTheirTask}${flagsNotKept}${picklists}${waiting === 0 ? leftToThePlatform : ''}`;
+      const rest = `${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}`;
 
       if (stoppedBy) {
         /*
@@ -6135,7 +6187,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: failedNode ? 'error' : 'stopped',
           progress: 100,
-          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${flagsNotKept}${picklists}${leftToThePlatform}`,
+          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${flagsNotKept}${picklists}${withoutFields}${leftToThePlatform}`,
         });
         throw stoppedBy;
       }
@@ -6157,7 +6209,7 @@ export class ForgeExecutor {
               ? `Failed all ${node.objectApiName} records: ` +
                 `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${picklists}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)}${picklists} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${picklists}${withoutFields} — objects that cannot be written without it will be skipped`,
         });
       } else {
         onProgress({

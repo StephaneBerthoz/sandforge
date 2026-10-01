@@ -48,6 +48,26 @@ describe('translateForgeError', () => {
     expect(result?.explanationKey).toBe('forge.error.invalidPicklist.explanation');
   });
 
+  it('still reads the code of a refusal followed by the fields it named', () => {
+    // The extension names the fields after the message, where the platform's
+    // words for a restricted picklist name the value alone.
+    const result = translateForgeError(
+      'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold [Rating__c]',
+    );
+    expect(result?.code).toBe('INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST');
+    expect(result?.explanationKey).toBe('forge.error.invalidPicklist.explanation');
+  });
+
+  it('explains a validation rule the record was refused by, and what the clone does about it', () => {
+    const result = translateForgeError(
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format [Phone]',
+    );
+    expect(result?.code).toBe('FIELD_CUSTOM_VALIDATION_EXCEPTION');
+    expect(result?.severity).toBe('warning');
+    expect(result?.explanationKey).toBe('forge.error.fieldCustomValidation.explanation');
+    expect(result?.actionKey).toBe('forge.error.fieldCustomValidation.action');
+  });
+
   it('captures FIELD_INTEGRITY_EXCEPTION detail', () => {
     const result = translateForgeError(
       'FIELD_INTEGRITY_EXCEPTION: Every asset needs an account, a contact, or both.: Account ID, Contact ID',
@@ -122,6 +142,7 @@ describe('forge.error hint keys', () => {
     'INVALID_CROSS_REFERENCE_KEY: Owner ID: cannot be blank',
     'REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]',
     'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: X',
+    'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format [Phone]',
     'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name',
     'FIELD_INTEGRITY_EXCEPTION: Every asset needs an account, a contact, or both.',
     'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',

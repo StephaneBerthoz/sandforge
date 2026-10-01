@@ -13,6 +13,7 @@ What it handles for you:
 - **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
 - **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record
 - **Picklist drift**: a value the target would refuse — not one of the field's values there, or not one the record type the row goes in with allows — is replaced by that record type's default or left out, and the results say which, per object and field
+- **Validation rules of the target**: a record a rule refuses on a field it names is written again without that field, and the results say which field and why
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
 - **Required orphan parents**: single-hop fetch when an Asset references an Account outside the scope
 - **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`, and the summary counts the rows patched as `updated`, apart from the ones created. The wizard always inserts.
@@ -171,10 +172,13 @@ The clone's exit code is `1` when the run produced **only** failures, or when it
 | `INVALID_CROSS_REFERENCE_KEY: Owner ID`   | Source User doesn't exist on target.                     | Auto-handled: Salesforce assigns the running user.                              |
 | `REQUIRED_FIELD_MISSING`                  | A required FK pointed outside the scope.                 | Enable "Auto-fetch parents" toggle in the wizard.                               |
 | `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` | Value not on target, or not allowed by its record type.  | Auto-handled: replaced by its record type's default, or left out, and named.    |
+| `FIELD_CUSTOM_VALIDATION_EXCEPTION`       | A validation rule of the target refused the record.      | Auto-handled when the rule names a field: the record goes again without it.     |
 | `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | Object is read-only (audit/history table).               | Auto-handled: node is now skipped pre-flight.                                   |
 | `FIELD_INTEGRITY_EXCEPTION` (Asset)       | Asset needs at least an Account or Contact.              | Enable "Auto-fetch parents" toggle.                                             |
 
-The wizard's Errors panel shows an explanation and an action hint under each message it recognizes, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese.
+The wizard's Errors panel shows an explanation and an action hint under each message it recognizes, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese. Each message the target gave ends with the fields its error named, in brackets, where the message does not already list them: a restricted picklist's refusal names the value it refused and not the field.
+
+A record a validation rule of the target refuses on fields it names is written once more without them, once only. Taken that time, it counts as created and the records under it link to it; the object's line and the results page say which field it went without and why, as does the command line's summary (under `writtenWithoutFields` with `--json`), and the audit trail counts such records per object. A rule that names no field leaves the record failed, as does a second refusal, which the Errors panel shows with what the first one said.
 
 ## What's next?
 

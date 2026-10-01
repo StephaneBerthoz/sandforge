@@ -675,6 +675,20 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${change.objectApiName}  ${describePicklistChange(change)}`);
     }
   }
+  // Refused by a validation rule on the fields it named, and written again
+  // without them: in the target, each short of a value the source held.
+  const withoutFields = summary.writtenWithoutFields ?? [];
+  if (withoutFields.length > 0) {
+    lines.push(
+      '',
+      `written again without a field a validation rule refused (${withoutFields.length} object(s)):`,
+    );
+    for (const { objectApiName, fields } of withoutFields) {
+      for (const { field, reason, rows } of fields) {
+        lines.push(`  ${objectApiName}.${field}  ${rows} record(s) — ${reason}`);
+      }
+    }
+  }
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -752,6 +766,9 @@ export function jsonResult(summary: ExecutionSummary) {
     ...(summary.picklistValuesChanged
       ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
+    // Per object, the rows written again without the fields a validation rule
+    // refused, each field with the rule's refusal; only when there were any.
+    ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
     // The requests the run sent to both orgs, discovery's before it aside.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
   };

@@ -114,7 +114,8 @@ ForgeOrchestrator.execute(graph, config)
        │           when the mapping knows it (see below)
        │         - omit nullified orphan FKs (don't send `null`)
        │         - apply RecordType mapping (DeveloperName)
-       │    7. batch insert into target
+       │    7. batch insert into target; a row a validation rule refuses on
+       │       fields it names is sent once more without them
        │
        ├─ with `files`: before the first write, the files of the records read
        │    (the latest version of each document linked to one, and the
@@ -125,6 +126,7 @@ ForgeOrchestrator.execute(graph, config)
        └─ summary { successCount, failedCount, skippedCount, errors[],
                     readByObject[], failedReads[], files?,
                     fileContentFieldsLeftOut?, picklistValuesChanged?,
+                    writtenWithoutFields?,
                     writtenBetween? }
 ```
 
@@ -258,11 +260,36 @@ interface ForgeExecutionError {
   attemptedCount: number;
   samples: Array<{
     recordSummary: string; // first ~4 fields key=value
-    messages: string[]; // STATUS_CODE: message
+    messages: string[]; // STATUS_CODE: message [Field, …]
   }>;
   skipped?: boolean; // the object was skipped whole
 }
 ```
+
+A message the target gave names the fields its error named, after the code and
+the message, unless the message already lists them so: a restricted picklist's
+refusal names the value and not the field, and reads
+`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist
+field: Gold [Rating__c]`. What reads the code still reads it first.
+
+A row a validation rule of the target refuses (`FIELD_CUSTOM_VALIDATION_EXCEPTION`)
+on fields it names is sent once more without them, once the object's calls are
+through: rows of several calls go together, as many to a call as the first
+write sent, through the same insert or upsert and after the same cancel
+checkpoint, and each call counts among the run's. Only a refusal whose every
+error is a validation rule's, each naming a field the row gives a value to —
+other than the external id an upsert matches on — is retried; a rule that names
+no field, or only fields the row leaves empty, or an error of another kind
+beside it, leaves the row failed as it was. A row taken that time counts as
+written and its children find it; the object's line says which field it went without and why
+(`Completed Contact: 1 succeeded, 0 failed, 1 written without Phone: a
+validation rule of the target refused it, FIELD_CUSTOM_VALIDATION_EXCEPTION:
+…`), the result lists it per object and field under `writtenWithoutFields`, and
+the audit entry counts the rows so written, never their values. A row refused
+again is never sent a third time: it fails with the second refusal, its sample
+saying what the first was. A cancel before that call, or a call that throws —
+of the first write or of this one — leaves the rows it would have sent failed
+with their first refusal, saying why they were not written again.
 
 The rows held back before the write are counted with the rows the target
 refused on the object's line, as the run's totals and its audit entry count

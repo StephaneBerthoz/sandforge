@@ -160,6 +160,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
 
+  /** Per object, the rows written again without the fields a validation rule refused. */
+  const writtenWithoutFields = useMemo(
+    () => result?.writtenWithoutFields ?? [],
+    [result?.writtenWithoutFields],
+  );
+
   /**
    * Per object, the rows the run read to clone it; null for a result recorded
    * before the run said what it read.
@@ -376,6 +382,23 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }
     }
 
+    // As on the page: the records a validation rule refused that went in
+    // without the fields it named.
+    if (writtenWithoutFields.length > 0) {
+      lines.push(
+        '',
+        '## Written Without a Field a Validation Rule Refused',
+        '',
+        '| Object | Field | Records | Refusal |',
+        '|--------|-------|---------|---------|',
+      );
+      for (const { objectApiName, fields } of writtenWithoutFields) {
+        for (const { field, reason, rows: count } of fields) {
+          lines.push(`| ${objectApiName} | ${field} | ${String(count)} | ${reason} |`);
+        }
+      }
+    }
+
     return lines.join('\n');
   }, [
     inserted,
@@ -387,6 +410,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     rows,
     emptyTables,
     existingRecords,
+    writtenWithoutFields,
   ]);
 
   /** Copy a markdown report summary to the clipboard. */
@@ -884,6 +908,34 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           per object and field with why. */}
       {result?.picklistValuesChanged && result.picklistValuesChanged.length > 0 && (
         <ForgePicklistsResult changes={result.picklistValuesChanged} />
+      )}
+      {/* Refused by a validation rule of the target on the fields it named,
+          these records went in once written again without them: in the
+          target, each short of a value the source held. Which field, how many
+          records, and the rule's own words. */}
+      {writtenWithoutFields.length > 0 && (
+        <div
+          className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
+          role="status"
+          data-testid="forge-results-written-without"
+        >
+          <p className="font-medium text-text-primary">{t('forge.writtenWithoutFields.title')}</p>
+          <p className="mt-0.5">{t('forge.writtenWithoutFields.hint')}</p>
+          <ul className="mt-1 space-y-0.5">
+            {writtenWithoutFields.flatMap(({ objectApiName, fields }) =>
+              fields.map(({ field, reason, rows }) => (
+                <li
+                  key={`${objectApiName}.${field}\u0000${reason}`}
+                  data-testid="forge-results-written-without-row"
+                >
+                  <span className="font-mono text-text-primary">{`${objectApiName}.${field}`}</span>
+                  {` — ${t('common.recordCount', { count: rows })} — `}
+                  <span className="font-mono">{reason}</span>
+                </li>
+              )),
+            )}
+          </ul>
+        </div>
       )}
 
       {/* A read stopped by a bound is not a failure and would otherwise leave
