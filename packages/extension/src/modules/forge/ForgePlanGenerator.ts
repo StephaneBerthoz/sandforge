@@ -162,7 +162,8 @@ export class ForgePlanGenerator {
    * executor's: a lookup whose record comes later in it is left empty at
    * insert and filled in by the second pass (`CycleFkPatcher`) — in a run of
    * whole tables as well, which keeps the source's ids of what it does not
-   * write only. That holds for a lookup the record may omit. The order is
+   * write only — unless only an insert sets it: the second pass cannot, and
+   * it stays empty. That holds for a lookup the record may omit. The order is
    * settled on the ones it may not, and one of those still pointing at a later
    * record takes its record down: the insert is refused, and nothing is left
    * for the second pass to fill in. The plan used to suggest "inserting with
@@ -215,12 +216,30 @@ export class ForgePlanGenerator {
             `${one ? 'it' : 'them'} is skipped.`,
         };
       }
+      // A lookup only an insert sets is written with its row or never: the
+      // second pass, which fills the others in by an update, cannot. The
+      // order puts its record first wherever it can; in a cycle of them, one
+      // is written before its record whatever the order.
+      const patched = early.filter((e) => e.insertOnly !== true);
+      const lost = early.filter((e) => e.insertOnly === true);
+      const parts = [
+        ...(patched.length > 0
+          ? [
+              `${listed(patched.map(lookupOf))} left empty at insert and filled in by the second pass`,
+            ]
+          : []),
+        ...(lost.length > 0
+          ? [
+              `${listed(lost.map(lookupOf))} left empty for good: only an insert sets ` +
+                `${lost.length === 1 ? 'it' : 'them'}, and no order writes ` +
+                `${listed([...new Set(lost.map((e) => e.sourceObject))])} first`,
+            ]
+          : []),
+      ];
       return {
         objects,
         strategy: 'nullable_lookup',
-        description:
-          `Written in this order, with ${listed(early.map(lookupOf))} left empty at insert ` +
-          `and filled in by the second pass.`,
+        description: `Written in this order, with ${parts.join(', and ')}.`,
       };
     });
   }

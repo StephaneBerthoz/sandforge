@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ForgeExecutionResult } from '../types/forge.types.js';
 import {
   forgeRunCreatedRecords,
+  forgeRunLinkedKept,
   forgeRunRecordsLeft,
   removalTookAll,
 } from './forge-run-records.js';
@@ -116,6 +117,24 @@ const mark = (kept: number, refused = 0) => ({
   alreadyGone: 0,
   kept,
   refused,
+});
+
+describe('forgeRunLinkedKept', () => {
+  it('leaves out of what a removal keeps the contacts the platform wrote with a person account the run created', () => {
+    // Deleted by the platform with their account: counted as kept, the
+    // confirmation said they stayed in the org.
+    expect(
+      forgeRunLinkedKept({
+        idRemapExisting: [src('001', 2), src('003', 1), src('003', 2)],
+        idRemapWithTheirAccount: [src('003', 1)],
+      }),
+    ).toEqual([src('001', 2), src('003', 2)]);
+  });
+
+  it('keeps every linked record of an entry recorded before it said which go with their account', () => {
+    expect(forgeRunLinkedKept({ idRemapExisting: [src('001', 2)] })).toEqual([src('001', 2)]);
+    expect(forgeRunLinkedKept({})).toEqual([]);
+  });
 });
 
 describe('removalTookAll', () => {

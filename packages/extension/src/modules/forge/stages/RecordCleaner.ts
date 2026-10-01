@@ -17,9 +17,12 @@
 
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
-import { exclusiveFieldsToDrop, isSettableField } from '@sandforge/shared';
+import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import { lookupsAtObjectsLeftOut } from '../excludedObjects.js';
-import { lookupsThePlatformFills } from '../../../core/common/platformRecords.js';
+import {
+  isPersonAccountRow,
+  lookupsThePlatformFills,
+} from '../../../core/common/platformRecords.js';
 import {
   checkRowPicklists,
   picklistFieldsOf,
@@ -36,6 +39,12 @@ export interface NullifiedFk {
   sourceRefId: string;
   /** Target objects this FK can reference (for polymorphic awareness). */
   targetObjects: string[];
+  /**
+   * Set when only an insert sets the field in the target: the second pass
+   * cannot fill it in, and says it is left empty instead of sending an update
+   * the platform refuses. See `isInsertOnlyField` in shared.
+   */
+  insertOnly?: true;
 }
 
 /** A source record paired with its cleaned, insert-ready payload. */
@@ -58,6 +67,12 @@ export interface TargetFieldSets {
   /** Fields createable on the target org. */
   creatable: Set<string>;
   /**
+   * Fields an update can set on the target org, as the user the run writes as
+   * sees them: what the second pass may fill in. A field the describe does
+   * not say of reads as one it can, as `FieldInfo.updateable` does.
+   */
+  updateable: Set<string>;
+  /**
    * Active picklist value whitelists per field, or `null` when the target
    * describe surfaced no restricted picklists (no validation applied).
    */
@@ -67,6 +82,35 @@ export interface TargetFieldSets {
    * required, and dependent on which field. Empty when the object has none.
    */
   picklistFields: Map<string, PicklistField>;
+}
+
+/**
+ * The createable and updateable field sets of a target describe, and the
+ * picklist value whitelists used for cross-org strip: what the run's rows and
+ * a parent copied from outside the graph are both checked against.
+ *
+ * @param objectApiName - The object described, which says of some picklists
+ *   how their values are checked (`picklistFieldsOf`).
+ */
+export function targetFieldSetsOf(
+  targetFields: readonly FieldInfo[],
+  objectApiName?: string,
+): TargetFieldSets {
+  const creatable = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+  const updateable = new Set(targetFields.filter((f) => f.updateable !== false).map((f) => f.name));
+  // Collect picklist value whitelists for cross-org strip.
+  const pmap = new Map<string, Set<string>>();
+  for (const f of targetFields) {
+    if (f.picklistValues && f.picklistValues.length > 0) {
+      pmap.set(f.name, new Set(f.picklistValues));
+    }
+  }
+  return {
+    creatable,
+    updateable,
+    picklistValuesByField: pmap.size > 0 ? pmap : null,
+    picklistFields: picklistFieldsOf(targetFields, objectApiName),
+  };
 }
 
 /**
@@ -80,20 +124,31 @@ export async function describeTargetFieldSets(
   targetOrgId: string,
   objectApiName: string,
 ): Promise<TargetFieldSets> {
-  const targetFields = await describeFields(targetOrgId, objectApiName);
-  const creatable = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
-  // Collect picklist value whitelists for cross-org strip.
-  const pmap = new Map<string, Set<string>>();
-  for (const f of targetFields) {
-    if (f.picklistValues && f.picklistValues.length > 0) {
-      pmap.set(f.name, new Set(f.picklistValues));
-    }
-  }
-  return {
-    creatable,
-    picklistValuesByField: pmap.size > 0 ? pmap : null,
-    picklistFields: picklistFieldsOf(targetFields),
-  };
+  return targetFieldSetsOf(await describeFields(targetOrgId, objectApiName), objectApiName);
+}
+
+/**
+ * Whether an update in the target can set a field: what the second pass may
+ * fill in. Read from the target's describe where the run has it — the update
+ * goes as the user the run writes as — and from the source's otherwise, a
+ * flag the describe does not give reading as one it can.
+ *
+ * Read from the source alone, a lookup the user the run reads as may not
+ * edit and the one it writes as may was never filled in; one the target's
+ * user may not edit was sent in an update the target refused, which took the
+ * row's other lookups of that update down with it.
+ *
+ * @param targetUpdatable - `TargetFieldSets.updateable`, when the target was described.
+ * @param writtenAs - The name a field map writes the field under, when it renames it.
+ */
+export function updatableInTarget(
+  field: Pick<FieldInfo, 'name' | 'updateable'>,
+  targetUpdatable: ReadonlySet<string> | undefined,
+  writtenAs?: string,
+): boolean {
+  return targetUpdatable
+    ? targetUpdatable.has(writtenAs ?? field.name)
+    : field.updateable !== false;
 }
 
 /**
@@ -145,6 +200,12 @@ export interface CleanNodeRecordsInput {
    * describe when available (schema-drift defense).
    */
   creatableFields: ReadonlySet<string>;
+  /**
+   * Fields an update can set in the target, from its describe: what the
+   * second pass may fill in (`TargetFieldSets.updateable`). Absent — the
+   * target's describe failed — the source's describe says it of each field.
+   */
+  updatableFields?: ReadonlySet<string>;
   /** Target-org picklist whitelists (null = no validation). */
   picklistValuesByField: Map<string, Set<string>> | null;
   /** The target's picklist fields; absent, none is known restricted, multi-select or dependent. */
@@ -155,6 +216,13 @@ export interface CleanNodeRecordsInput {
    * is not here has its values checked against the values of each field.
    */
   recordTypeValues?: ReadonlyMap<string, RecordTypeValues>;
+  /**
+   * Whether the target has person accounts. `false` takes a person account's
+   * row as the business account the target makes of it, its name kept: the
+   * platform computes no name there, and refused the row without one. Absent
+   * or `true`, a person account goes in as one, its computed name left out.
+   */
+  personAccountsInTarget?: boolean;
 }
 
 /**
@@ -178,11 +246,16 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     excludedFields,
     fieldRename,
     creatableFields,
+    updatableFields,
     picklistValuesByField,
     picklistFields,
     recordTypeValues,
+    personAccountsInTarget,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
+  /** Whether the insert carries a lookup: createable in both orgs, or written under a rename. */
+  const carriedAtInsert = (field: FieldInfo): boolean =>
+    creatableFields.has(field.name) || fieldRename[field.name] !== undefined;
   /**
    * Lookups that can point at an object that failed in this run: emptied, when
    * they name no record the run wrote, whatever `referenceFallback` says.
@@ -239,12 +312,15 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedFks: NullifiedFk[] = [];
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
-      // A lookup no write can set is the platform's to fill — a person
-      // account's contact, a quote's account read from its opportunity. It
-      // goes neither at insert nor in the second pass: owed there, it was
-      // sent in an update the platform refuses, or reported as a lookup left
-      // empty when the record the platform filled it with was in place.
-      if (!isSettableField(field)) continue;
+      // A lookup no write of the run can set is the platform's to fill — a
+      // person account's contact, a quote's account read from its
+      // opportunity — or one the user the run writes as may not set. It goes
+      // neither at insert nor in the second pass: owed there, it was sent in
+      // an update the platform refuses, or reported as a lookup left empty
+      // when the record the platform filled it with was in place.
+      const carried = carriedAtInsert(field);
+      const updatable = updatableInTarget(field, updatableFields, fieldRename[field.name]);
+      if (!carried && !updatable) continue;
       if (
         referenceFallback !== 'nullify' &&
         !lookupsAtFailed.has(field.name) &&
@@ -263,11 +339,17 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       if (uncopyableLookups.has(field.name)) continue;
       const value = r[field.name];
       if (typeof value !== 'string' || !value) continue;
-      if (remapper.get(value)) continue;
+      // Named by a record the run has written, the lookup goes with the row —
+      // unless the insert cannot carry it, the user the run reads as not
+      // allowed to set it: the update the target allows is then owed it.
+      if (carried && remapper.get(value)) continue;
       nullifiedFks.push({
         field: field.name,
         sourceRefId: value,
         targetObjects: field.referenceTo ?? [],
+        // Written with the row or never: the second pass, which cannot fill
+        // it in, says it is left empty rather than send what is refused.
+        ...(updatable ? {} : { insertOnly: true as const }),
       });
     }
     // RecordTypeId is owned by RecordTypeMapper (target-org name lookup).
@@ -292,12 +374,10 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       remapped['OwnerId'] = ownerMappings[sourceOwner];
       ownerResolved = true;
     }
-    // Coerce IsPersonAccount: jsforce sometimes returns boolean,
-    // sometimes the SOAP-normalized string 'true'. Strict === true
-    // missed the string case → __pc fields stripped from real
-    // person accounts, breaking the insert.
-    const ipa = remapped['IsPersonAccount'];
-    const isPersonAccount = ipa === true || ipa === 'true' || ipa === 1;
+    // Read as every stage reads it: jsforce sometimes returns the flag as a
+    // boolean, sometimes as the SOAP-normalized string 'true', and a strict
+    // `=== true` stripped the `__pc` fields of real person accounts.
+    const isPersonAccount = isPersonAccountRow(remapped);
     const cleaned: Record<string, unknown> = {};
     // Written under a rename: the field map answers for what the target takes.
     const renamed = new Set<string>();
@@ -350,7 +430,9 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       // Person Account `Name` is auto-computed from FirstName/LastName.
       // Salesforce rejects an explicit `Name` value with
       // INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name.
-      if (key === 'Name' && isPersonAccount) continue;
+      // A target without person accounts computes none, and takes the row as
+      // a business account, which it refuses without its name.
+      if (key === 'Name' && isPersonAccount && personAccountsInTarget !== false) continue;
       const value = remapped[key];
       if (value === null) continue;
       cleaned[key] = value;

@@ -79,3 +79,25 @@ export function isSettableField(field: {
 }): boolean {
   return field.createable !== false || field.updateable !== false;
 }
+
+/**
+ * Whether only an insert can set a field: createable, and not updateable — a
+ * master-detail the parent cannot be changed on, an email's case.
+ *
+ * Such a lookup is written with the row or never: the second pass fills in a
+ * lookup by an update, which the platform refuses for it. Its record has to
+ * be in the target before the row is, wherever the lookups the row may not
+ * leave empty leave the order free, and one written after it leaves the
+ * lookup empty for good. Not a field the row cannot be written without: one
+ * the row may leave empty still lets it go in.
+ *
+ * Known only when the describe says the field is not updateable; otherwise
+ * read as one an update can set, as an unknown flag reads in
+ * {@link isSettableField}.
+ */
+export function isInsertOnlyField(field: {
+  readonly createable?: boolean;
+  readonly updateable?: boolean;
+}): boolean {
+  return field.createable !== false && field.updateable === false;
+}

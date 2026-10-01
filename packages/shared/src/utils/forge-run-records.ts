@@ -72,6 +72,26 @@ export function forgeRunCreatedRecords(
 }
 
 /**
+ * The records a run linked to that removing its records leaves where they are,
+ * by source id: those `idRemapExisting` names, less the contacts the platform
+ * wrote with a person account the run created (`idRemapWithTheirAccount`),
+ * which the platform deletes with that account. Counted as kept, a removal's
+ * confirmation said they stayed in the org, though they went with their
+ * accounts.
+ *
+ * @param entry - A run's history entry.
+ */
+export function forgeRunLinkedKept(
+  entry: Pick<ForgeExecutionResult, 'idRemapExisting' | 'idRemapWithTheirAccount'>,
+): string[] {
+  const existing = Array.isArray(entry.idRemapExisting) ? entry.idRemapExisting : [];
+  const withTheirAccount = new Set(
+    Array.isArray(entry.idRemapWithTheirAccount) ? entry.idRemapWithTheirAccount : [],
+  );
+  return existing.filter((sourceId) => !withTheirAccount.has(sourceId));
+}
+
+/**
  * Whether the removals of a run's records — a Forge run's, a Frozen load's —
  * are through: the last one that marked it left none of them in the org.
  * One that kept some, changed since or held by records that stay, had some

@@ -218,6 +218,7 @@ export const forgeGraphEdgeSchema = z.object({
   type: forgeEdgeTypeSchema,
   required: z.boolean().optional(),
   settable: z.boolean().optional(),
+  insertOnly: z.boolean().optional(),
 });
 
 /**

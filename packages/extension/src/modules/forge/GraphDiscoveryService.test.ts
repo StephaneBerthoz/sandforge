@@ -850,6 +850,67 @@ describe('GraphDiscoveryService', () => {
         ]);
       });
     });
+
+    it('marks the edge of a lookup only an insert sets, met from both sides, and no other', async () => {
+      // An email's case: the second pass cannot fill it in, so the write order
+      // puts the case first wherever it can. The case's own lookup at the
+      // email it came from is one an update sets.
+      const idField = {
+        name: 'Id',
+        type: 'id',
+        referenceTo: [],
+        relationshipName: null,
+        isMasterDetail: false,
+      };
+      const reference = (name: string, target: string, updateable: boolean) => ({
+        name,
+        type: 'reference',
+        referenceTo: [target],
+        relationshipName: name.replace(/Id$/, ''),
+        isMasterDetail: false,
+        nillable: true,
+        createable: true,
+        updateable,
+      });
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Case'
+          ? {
+              name: 'Case',
+              fields: [idField, reference('SourceId', 'EmailMessage', true)],
+              childRelationships: [
+                {
+                  childSObject: 'EmailMessage',
+                  field: 'ParentId',
+                  relationshipName: 'EmailMessages',
+                  isCascadeDelete: false,
+                },
+              ],
+            }
+          : {
+              name: 'EmailMessage',
+              fields: [idField, reference('ParentId', 'Case', false)],
+              childRelationships: [
+                {
+                  childSObject: 'Case',
+                  field: 'SourceId',
+                  relationshipName: 'Cases',
+                  isCascadeDelete: false,
+                },
+              ],
+            },
+      );
+
+      const graph = await service.discover(
+        createConfig({ recordId: '500XXXXXXXXXXXX', depth: 'full' }),
+      );
+
+      expect(
+        graph.edges.find((e) => e.sourceObject === 'Case' && e.targetObject === 'EmailMessage'),
+      ).toMatchObject({ insertOnly: true });
+      expect(
+        graph.edges.find((e) => e.sourceObject === 'EmailMessage' && e.targetObject === 'Case'),
+      ).not.toHaveProperty('insertOnly');
+    });
   });
 
   describe('estimates', () => {

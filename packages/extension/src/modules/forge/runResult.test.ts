@@ -229,6 +229,20 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('writtenWithoutFields');
   });
 
+  it('says which linked contacts go with a person account the run created, only for a run that linked some', () => {
+    // Read as kept, a removal's confirmation said they stayed in the org.
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const withTheirAccount = summary({
+      existingSourceIds: ['001000000000002SRC', '003000000000002SRC'],
+      withTheirAccountSourceIds: ['003000000000002SRC'],
+    });
+
+    expect(forgeRunResult(withTheirAccount, GRAPH, run).idRemapWithTheirAccount).toEqual([
+      '003000000000002SRC',
+    ]);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('idRemapWithTheirAccount');
+  });
+
   it('keeps what a run that stopped part way created, under the status it is given', () => {
     const stopped = forgeRunResult(summary({ failedCount: 5 }), GRAPH, {
       startedAt: Date.now(),

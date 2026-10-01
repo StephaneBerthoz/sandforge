@@ -3,6 +3,7 @@ import {
   cleanNodeRecords,
   describeTargetFieldSets,
   intersect,
+  targetFieldSetsOf,
   type CleanNodeRecordsInput,
 } from './RecordCleaner.js';
 import { IdRemapper } from '../IdRemapper.js';
@@ -437,6 +438,110 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned).toEqual({});
   });
 
+  describe("what the second pass is owed, read from the target's describe", () => {
+    /** A lookup the user the run reads as may not set: read-only to it in the source. */
+    const readOnlyInTheSource: FieldInfo = {
+      name: 'Reviewer__c',
+      queryable: true,
+      createable: false,
+      updateable: false,
+      isReference: true,
+      referenceTo: ['Contact'],
+      nillable: true,
+    };
+
+    it('owes it a lookup the source user may not set and the target user may', () => {
+      // Read from the source's describe alone, no write could set it, and the
+      // second pass never filled it in, though the target let it.
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: '003A', Reviewer__c: '003SOURCE' }],
+          fieldInfos: [readOnlyInTheSource],
+          creatableFields: new Set(),
+          updatableFields: new Set(['Reviewer__c']),
+          writtenObjects: new Set(['Contact']),
+        }),
+      );
+
+      expect(out.nullifiedFks).toEqual([
+        { field: 'Reviewer__c', sourceRefId: '003SOURCE', targetObjects: ['Contact'] },
+      ]);
+      expect(out.cleaned).toEqual({});
+    });
+
+    it('owes it such a lookup at a record the run has written already, which the insert could not carry', () => {
+      const remapper = new IdRemapper();
+      remapper.add('003SOURCE', '003TARGET');
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: '003A', Reviewer__c: '003SOURCE' }],
+          fieldInfos: [readOnlyInTheSource],
+          creatableFields: new Set(),
+          updatableFields: new Set(['Reviewer__c']),
+          remapper,
+        }),
+      );
+
+      expect(out.nullifiedFks).toEqual([
+        { field: 'Reviewer__c', sourceRefId: '003SOURCE', targetObjects: ['Contact'] },
+      ]);
+    });
+
+    it('owes it nothing of a lookup the target user may not set either', () => {
+      // Owed, it went in an update the target refused, which took the row's
+      // other lookups of that update down with it.
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: '003A', AccountId: '001ORPHAN' }],
+          creatableFields: new Set(['Name']),
+          updatableFields: new Set(['Name']),
+        }),
+      );
+
+      expect(out.nullifiedFks).toEqual([]);
+      expect(out.cleaned).toEqual({});
+    });
+
+    it('marks a lookup only an insert sets, whose record is not written yet, for the second pass to say it is left empty', () => {
+      // An email's case: createable, not updateable. The second pass cannot
+      // fill it in, and sent, its update was refused.
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: '003A', AccountId: '001LATER' }],
+          creatableFields: new Set(['AccountId']),
+          updatableFields: new Set(),
+        }),
+      );
+
+      expect(out.nullifiedFks).toEqual([
+        {
+          field: 'AccountId',
+          sourceRefId: '001LATER',
+          targetObjects: ['Account'],
+          insertOnly: true,
+        },
+      ]);
+    });
+
+    it("reads it from the source's describe when the target's could not be read", () => {
+      const fields: FieldInfo[] = [
+        { ...readOnlyInTheSource, name: 'Case__c', createable: true, referenceTo: ['Case'] },
+        { ...readOnlyInTheSource, name: 'Owner__c', referenceTo: ['Contact'] },
+      ];
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [{ Id: '003A', Case__c: '500LATER', Owner__c: '003LATER' }],
+          fieldInfos: fields,
+          creatableFields: new Set(['Case__c']),
+        }),
+      );
+
+      expect(out.nullifiedFks).toEqual([
+        { field: 'Case__c', sourceRefId: '500LATER', targetObjects: ['Case'], insertOnly: true },
+      ]);
+    });
+  });
+
   it('strips non-createable fields, exclusions and null values', () => {
     const [out] = cleanNodeRecords(
       makeInput({
@@ -517,6 +622,26 @@ describe('cleanNodeRecords', () => {
     );
     // Name is auto-computed on person accounts → dropped; __pc kept.
     expect(person.cleaned).toEqual({ Custom__pc: 'x' });
+  });
+
+  it('keeps the name of a person account a target without person accounts takes as a business one', () => {
+    // The target computes no name there, and refused the account without one.
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Name', queryable: true, createable: true, isReference: false },
+      { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+    ];
+    const [person] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'Account',
+        records: [{ Id: '001B', Name: 'John Doe', IsPersonAccount: true }],
+        fieldInfos: fields,
+        creatableFields: new Set(['Name']),
+        personAccountsInTarget: false,
+      }),
+    );
+
+    expect(person.cleaned).toEqual({ Name: 'John Doe' });
   });
 
   it('drops picklist values the target org does not accept', () => {
@@ -668,6 +793,17 @@ describe('describeTargetFieldSets', () => {
     expect(describeFields).toHaveBeenCalledWith('tgt', 'Case');
     expect(sets.creatable).toEqual(new Set(['Status']));
     expect(sets.picklistValuesByField?.get('Status')).toEqual(new Set(['Open']));
+  });
+
+  it('says which fields an update can set in the target, an unsaid flag reading as one it can', () => {
+    const sets = targetFieldSetsOf([
+      { name: 'ParentId', queryable: true, createable: true, isReference: true, updateable: false },
+      { name: 'ContactId', queryable: true, createable: true, isReference: true, updateable: true },
+      { name: 'Subject', queryable: true, createable: true, isReference: false },
+    ]);
+
+    expect(sets.updateable).toEqual(new Set(['ContactId', 'Subject']));
+    expect(sets.creatable).toEqual(new Set(['ParentId', 'ContactId', 'Subject']));
   });
 
   it('says which picklist fields of the target are restricted, required and dependent', async () => {

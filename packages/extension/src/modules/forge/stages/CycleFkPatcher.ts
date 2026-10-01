@@ -96,6 +96,8 @@ export async function patchCycleFkUpdates(
   // Counted apart from the samples, which are a few: counted by them, a run
   // that left twelve lookups empty reported three.
   let unresolvedCount = 0;
+  /** Lookups only an insert sets whose record is written now, after their row: left empty for good. */
+  let insertOnlyLost = 0;
   const unresolved: ExecutionErrorSample[] = [];
   for (const upd of pendingFkUpdates) {
     const newRefId = remapper.get(upd.sourceRefId);
@@ -110,6 +112,22 @@ export async function patchCycleFkUpdates(
           recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
           messages: [
             `Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`,
+          ],
+        });
+      }
+      continue;
+    }
+    // Only an insert sets it, and its record went in after the row: sent, the
+    // update is refused — and takes the row's other lookups of that update
+    // down with it. Said to be left empty instead, once, as it now is.
+    if (upd.insertOnly) {
+      insertOnlyLost++;
+      if (unresolved.length < 3) {
+        unresolved.push({
+          recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
+          messages: [
+            `Lookup '${upd.fieldName}' left empty: only an insert sets it, and the record it names ` +
+              `(source ${upd.sourceRefId}) was written after this one`,
           ],
         });
       }
@@ -199,12 +217,12 @@ export async function patchCycleFkUpdates(
       }
     }
   }
-  const totalAttempted = resolvedCount + unresolvedCount;
-  if (input.deferUnresolved && resolvedCount === 0 && pass2Failed === 0) {
+  const totalAttempted = resolvedCount + unresolvedCount + insertOnlyLost;
+  if (input.deferUnresolved && resolvedCount === 0 && pass2Failed === 0 && insertOnlyLost === 0) {
     // Nothing was owed yet; saying so on every node would be noise.
     return null;
   }
-  const leftEmpty = pass2Failed + unresolvedCount + notSent;
+  const leftEmpty = pass2Failed + unresolvedCount + insertOnlyLost + notSent;
   onProgress({
     objectName: '__pass2__',
     status: leftEmpty > 0 ? 'error' : 'done',

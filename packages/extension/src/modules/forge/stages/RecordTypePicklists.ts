@@ -38,19 +38,81 @@ export interface PicklistField {
   readonly required: boolean;
   /** For a dependent picklist, the field whose value decides what it allows. */
   readonly controllerName?: string;
+  /**
+   * Set when the target takes any value of the field: an unrestricted
+   * picklist or multi-select picklist, as its describe says, or a combobox.
+   * "The API doesn't enforce the list of values for advisory (unrestricted)
+   * picklist fields on create() or update()", and one it does not hold goes
+   * in as an inactive value of the field (Object Reference for the
+   * Salesforce Platform, Picklist Field Type). Absent when the describe does
+   * not say, and the value is checked as a restricted one's is; absent too of
+   * a picklist whose values are records of their own (`VALUES_OF_THEIR_OWN`).
+   */
+  readonly anyValue?: boolean;
 }
 
-/** The picklist fields of a target describe, by name. */
-export function picklistFieldsOf(fields: readonly FieldInfo[]): Map<string, PicklistField> {
+/**
+ * The standard picklists whose values are records of an object of their own —
+ * a case's status a CaseStatus, an opportunity's stage an OpportunityStage —
+ * each carrying more than its name: whether it closes the case, the
+ * probability it gives (Object Reference for the Salesforce Platform,
+ * Picklist Field Type, which names CaseStatus, ContractStatus, LeadStatus,
+ * OpportunityStage, PartnerRole, SolutionStatus, TaskPriority and
+ * TaskStatus). The describe calls them unrestricted, and whether the API
+ * takes a value they do not hold is said nowhere: kept as read and refused,
+ * a case would be lost where its status, left out, takes the target's
+ * default. Their values are checked as a restricted picklist's are, as they
+ * always were. So are the statuses whose values each carry a category the
+ * platform acts on — an order's draft or activated, a work order's, a work
+ * order line item's or a service appointment's status category — and a
+ * campaign member's, whose values are the statuses its campaign holds: the
+ * reference does not list them, nor says more of a value they do not hold.
+ */
+const VALUES_OF_THEIR_OWN: Readonly<Record<string, readonly string[]>> = {
+  AccountPartner: ['Role'],
+  CampaignMember: ['Status'],
+  Case: ['Status'],
+  Contract: ['Status'],
+  Lead: ['Status'],
+  Opportunity: ['StageName'],
+  OpportunityPartner: ['Role'],
+  Order: ['Status'],
+  Partner: ['Role'],
+  ServiceAppointment: ['Status'],
+  Solution: ['Status'],
+  Task: ['Priority', 'Status'],
+  WorkOrder: ['Status'],
+  WorkOrderLineItem: ['Status'],
+};
+
+/**
+ * The picklist fields of a target describe, by name.
+ *
+ * @param objectApiName - The object described: what says a picklist's values
+ *   are records of their own (`VALUES_OF_THEIR_OWN`). Absent, none is.
+ */
+export function picklistFieldsOf(
+  fields: readonly FieldInfo[],
+  objectApiName?: string,
+): Map<string, PicklistField> {
   const picklists = new Map<string, PicklistField>();
+  const ofTheirOwn =
+    objectApiName !== undefined &&
+    Object.prototype.hasOwnProperty.call(VALUES_OF_THEIR_OWN, objectApiName)
+      ? VALUES_OF_THEIR_OWN[objectApiName]
+      : [];
   for (const field of fields) {
     const multi = field.type === 'multipicklist';
     if (field.type !== 'picklist' && !multi && !field.picklistValues?.length) continue;
+    const anyValue =
+      (field.type === 'combobox' || field.restrictedPicklist === false) &&
+      !ofTheirOwn.includes(field.name);
     picklists.set(field.name, {
       multi,
       restricted: field.restrictedPicklist === true,
       required: field.nillable === false && field.defaultedOnCreate !== true,
       ...(field.controllerName ? { controllerName: field.controllerName } : {}),
+      ...(anyValue ? { anyValue } : {}),
     });
   }
   return picklists;
@@ -201,11 +263,14 @@ function checkAgainstRecordType(
  *
  * A restricted picklist of a row whose record type was read is checked
  * against what that record type allows: see the module's comment. Any other
- * picklist with values in the target describe — the row's record type unknown
- * there or unread, the field missing from the record type's answer, or not
- * restricted — is checked against the field's active values, and a value it
- * does not hold is left out, as it always was. A multi-select value is checked
- * one selection at a time.
+ * restricted picklist with values in the target describe — the row's record
+ * type unknown there or unread, or the field missing from the record type's
+ * answer — is checked against the field's active values, and a value it does
+ * not hold is left out, as it always was; so is a picklist whose describe
+ * does not say whether it is restricted. A picklist the target takes any
+ * value of (`PicklistField.anyValue`) keeps the value read: checked against
+ * the field's active values, a value the target would have taken was lost. A
+ * multi-select value is checked one selection at a time.
  *
  * @param fieldValues - The active values of each picklist field in the target.
  * @param fields - The target's picklist fields.
@@ -240,7 +305,7 @@ export function checkRowPicklists(
       );
       continue;
     }
-    if (!known) continue;
+    if (!known || info?.anyValue) continue;
     const refused = parts.filter((part) => !known.has(part));
     if (refused.length === 0) continue;
     const rest = parts.filter((part) => known.has(part));

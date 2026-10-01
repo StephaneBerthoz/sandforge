@@ -868,6 +868,49 @@ describe('sortNodesForWriting', () => {
       expect(order(graph)).toEqual(['Header__c', 'Line__c']);
     });
   });
+
+  describe('a lookup only an insert sets', () => {
+    // An email's case: createable, not updateable. Written before the case,
+    // the email kept it empty for good: the second pass, which fills the
+    // others in by an update, cannot.
+    const insertOnly = (parent: string, child: string): ForgeGraphEdge => ({
+      ...link(parent, child),
+      insertOnly: true,
+    });
+
+    it('writes its record first in a cycle of optional lookups the graph met the other way round', () => {
+      // The case points back at the email it came from, a lookup an update
+      // can set: left empty at insert, the second pass fills it in.
+      const graph = makeGraph(
+        ['EmailMessage', 'Case'].map((n) => makeNode(n)),
+        [insertOnly('Case', 'EmailMessage'), link('EmailMessage', 'Case')],
+      );
+
+      expect(order(graph)).toEqual(['Case', 'EmailMessage']);
+    });
+
+    it('writes its record first where the optional lookups tie', () => {
+      // P waits for Z, which a cycle of required lookups holds up; C waits for
+      // P through the lookup only an insert sets. Counted alike, C came first.
+      const graph = makeGraph(
+        ['C', 'P', 'Z', 'Y'].map((n) => makeNode(n)),
+        [insertOnly('P', 'C'), link('Z', 'P'), link('Y', 'Z', true), link('Z', 'Y', true)],
+      );
+
+      expect(order(graph)).toEqual(['P', 'C', 'Z', 'Y']);
+    });
+
+    it('gives way to a required lookup against it', () => {
+      // A cannot be written without B; B's lookup at A is the one only an
+      // insert sets. A goes second whatever, and that lookup stays empty.
+      const graph = makeGraph(
+        ['A', 'B'].map((n) => makeNode(n)),
+        [link('B', 'A', true), insertOnly('A', 'B')],
+      );
+
+      expect(order(graph)).toEqual(['B', 'A']);
+    });
+  });
 });
 
 describe('what the fields say of the edges', () => {
@@ -932,6 +975,32 @@ describe('what the fields say of the edges', () => {
 
   it('leaves the edges of a child whose fields it is not given, and hands the graph back as it came', () => {
     expect(withWhatTheFieldsSayOfEdges(graph, new Map())).toBe(graph);
+  });
+
+  it('marks an edge with a lookup of the child only an insert sets, and clears the mark when none is', () => {
+    const caseToEmail: ForgeGraphEdge = {
+      sourceObject: 'Case',
+      targetObject: 'EmailMessage',
+      relationshipName: 'EmailMessages',
+      type: 'lookup',
+    };
+    const emails = makeGraph([makeNode('EmailMessage'), makeNode('Case')], [caseToEmail]);
+
+    const said = withWhatTheFieldsSayOfEdges(
+      emails,
+      new Map([
+        ['EmailMessage', [field('ParentId', 'Case', { createable: true, updateable: false })]],
+      ]),
+    );
+    const cleared = withWhatTheFieldsSayOfEdges(
+      said,
+      new Map([
+        ['EmailMessage', [field('ParentId', 'Case', { createable: true, updateable: true })]],
+      ]),
+    );
+
+    expect(said.edges).toEqual([{ ...caseToEmail, insertOnly: true }]);
+    expect(cleared.edges).toEqual([caseToEmail]);
   });
 });
 

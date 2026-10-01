@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PLATFORM_REQUIRED_FIELDS,
+  isInsertOnlyField,
   isPlatformRequiredField,
   isRequiredLookup,
   isSettableField,
@@ -61,6 +62,25 @@ describe('isSettableField', () => {
   it('reads a flag the describe does not give as settable', () => {
     expect(isSettableField({ createable: false })).toBe(true);
     expect(isSettableField({})).toBe(true);
+  });
+});
+
+describe('isInsertOnlyField', () => {
+  it('says a field an insert sets and an update cannot is one only an insert sets', () => {
+    // An email's case, or a master-detail whose parent cannot be changed.
+    expect(isInsertOnlyField({ createable: true, updateable: false })).toBe(true);
+  });
+
+  it('says a field an update can set, or that no write sets, is not', () => {
+    expect(isInsertOnlyField({ createable: true, updateable: true })).toBe(false);
+    expect(isInsertOnlyField({ createable: false, updateable: true })).toBe(false);
+    // A person account's PersonContactId: the platform's to fill.
+    expect(isInsertOnlyField({ createable: false, updateable: false })).toBe(false);
+  });
+
+  it('reads an updateable flag the describe does not give as one an update can set', () => {
+    expect(isInsertOnlyField({ createable: true })).toBe(false);
+    expect(isInsertOnlyField({})).toBe(false);
   });
 });
 

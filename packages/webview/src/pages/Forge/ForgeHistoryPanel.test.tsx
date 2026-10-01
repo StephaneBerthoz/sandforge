@@ -427,6 +427,21 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     expect(sent('forge:undo')).toBeUndefined();
   });
 
+  it('does not count as kept the contact the platform wrote with a person account the run created', () => {
+    // The platform deletes it with its account: said to be kept, it was not.
+    const withAPerson: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      idRemapTable: { ...REMOVABLE_RUN.idRemapTable, [sid('003', 3)]: rid('003', 3) },
+      idRemapExisting: [sid('001', 2), sid('003', 3)],
+      idRemapWithTheirAccount: [sid('003', 3)],
+    };
+    render(<ForgeHistoryPanel entries={[withAPerson]} error={null} onReuseConfig={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+
+    expect(screen.getByTestId('forge-removal-linked').textContent).toBe('1 linked record is kept.');
+  });
+
   it('sends the run, never its records, once the org name is typed', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
 

@@ -350,6 +350,16 @@ describe('forgeGraphEdgeSchema', () => {
       forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), settable: 'no' }),
     ).toThrow();
   });
+
+  it('keeps the flag of a lookup only an insert sets, which the graph carries back from the page to a run', () => {
+    // Stripped on the way, the run wrote such a lookup's child before its
+    // parent where nothing forced it to, and the lookup stayed empty.
+    const result = forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), insertOnly: true });
+    expect(result.insertOnly).toBe(true);
+    expect(() =>
+      forgeGraphEdgeSchema.parse({ ...createValidForgeGraphEdge(), insertOnly: 'yes' }),
+    ).toThrow();
+  });
 });
 
 // ─── Graph Schema Tests ──────────────────────────────────────────────────────

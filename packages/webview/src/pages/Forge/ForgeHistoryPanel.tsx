@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
 import type { ForgeUndoResult } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatStoredDate } from '../../utils/formatters';
@@ -312,7 +312,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       >
         <ForgeRunRemovalPlan
           plan={confirmingPlan}
-          linked={confirming?.idRemapExisting?.length ?? 0}
+          linked={confirming ? forgeRunLinkedKept(confirming).length : 0}
           {...(confirming?.undo
             ? { leftBy: shown(confirming.undo.removedAt) ?? t('common.dateUnknown') }
             : {})}

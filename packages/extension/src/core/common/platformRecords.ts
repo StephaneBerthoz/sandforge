@@ -569,15 +569,19 @@ export function isPersonAccountRow(row: Record<string, unknown>): boolean {
  * neither an insert nor an update sets (Salesforce Help, "Obtain the Contact
  * ID for a Person Account": a person account has an account id and a contact
  * id, the second read as `PersonContactId`). The contact is the account's to
- * write — an update of one through the Contact object is refused,
- * `INVALID_PERSON_ACCOUNT_OPERATION: cannot reference person contact` — and a
- * copy sent on its own, without its account, would stand as a contact of its
- * own beside the platform's. So the contacts of person accounts are never
- * sent: written after the accounts, they are found as the platform wrote them
- * (`personContactsOfAccounts`) and linked to them, which written before the
- * accounts they could not be. The order is set here, not left to how the rest
- * of the graph happens to break the tie: an account pointing at its key
- * contact puts the two in a cycle.
+ * create and to delete, though an update may change it: "You can modify a
+ * person contact but you can't create or delete a person contact … Instead,
+ * delete or modify the account" (SOAP API Developer Guide, "Person Account
+ * Record Types"). A copy sent on its own, without its account, would stand as
+ * a contact of its own beside the platform's. So the contact of a person
+ * account is not sent where the target writes one with the account: written
+ * after the accounts, it is found as the platform wrote it
+ * (`personContactsOfAccounts`) and linked to it, which written before the
+ * accounts it could not be. One the target wrote none for — it has no person
+ * accounts, or holds the account as a business one — goes in as a contact of
+ * its own. The order is set here, not left to how the rest of the graph
+ * happens to break the tie: an account pointing at its key contact puts the
+ * two in a cycle.
  *
  * @param objects - The objects the run writes; the edge joins two of them only.
  * @param fieldsOf - The source fields of the objects the run has described:

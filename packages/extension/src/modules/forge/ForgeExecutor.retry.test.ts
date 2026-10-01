@@ -302,6 +302,38 @@ describe('ForgeExecutor, retrying a run', () => {
       expect(summary.errors).toEqual([]);
     });
 
+    it('is owed nothing when only an insert sets it, the row being in the target', async () => {
+      // An update is all that reaches a row written before, and the platform
+      // refuses one of such a field — with the row's other lookups in it.
+      const { deps, inserted, updated } = orgs(
+        {
+          ...projectFields,
+          Project__c: [
+            idField,
+            text('Name'),
+            { ...lookup('Lead_Sponsor__c', 'Sponsor__c', true), updateable: false },
+          ],
+        },
+        {
+          Sponsor__c: [{ Id: SPONSOR, Name: 'Sponsor' }],
+          Project__c: [{ Id: PROJECT, Name: 'Project', Lead_Sponsor__c: SPONSOR }],
+        },
+        { Sponsor__c: ['a02000000000001TGT'] },
+      );
+
+      const summary = await new ForgeExecutor(deps).execute(
+        projectGraph,
+        'src',
+        'tgt',
+        () => undefined,
+        { writtenBefore: projectWrittenBefore },
+      );
+
+      expect(inserted.map((i) => i.object)).toEqual(['Sponsor__c']);
+      expect(updated).toEqual([]);
+      expect(summary.errors).toEqual([]);
+    });
+
     it('is left unsaid when this run does not write the record named either', async () => {
       // The run retried reported it; the sponsor is gone from the source.
       const { deps, updated } = orgs(

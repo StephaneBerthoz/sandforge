@@ -69,6 +69,11 @@ export function forgeRunResult(
     // Which of those entries point at a record the target already held:
     // the table alone reads them as records this run created.
     idRemapExisting: summary.existingSourceIds,
+    // And which of those go with an account the run created: a removal keeps
+    // none of them, the platform deleting them with their account.
+    ...(summary.withTheirAccountSourceIds
+      ? { idRemapWithTheirAccount: summary.withTheirAccountSourceIds }
+      : {}),
     createdCount: summary.successCount,
     // Only a run that upserted says how many records it wrote over.
     ...(summary.updatedCount > 0 ? { updatedCount: summary.updatedCount } : {}),

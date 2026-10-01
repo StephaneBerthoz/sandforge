@@ -51,6 +51,7 @@ import {
   cleanNodeRecords,
   describeTargetFieldSets,
   intersect,
+  updatableInTarget,
   type TargetFieldSets,
 } from './stages/RecordCleaner.js';
 import {
@@ -59,6 +60,7 @@ import {
   picklistChangesNote,
   recordTypeReadSample,
   type PicklistField,
+  type RecordTypeReadNote,
 } from './stages/RecordTypePicklists.js';
 import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklists.js';
 import {
@@ -239,16 +241,18 @@ export interface FieldInfo {
   /**
    * For picklist / multipicklist fields, the list of *active* values the
    * field accepts. When this dep is populated for the *target* org, the
-   * executor strips values that don't appear in the list before insert,
-   * avoiding `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` rejections caused
-   * by source-org picklist entries that don't exist on the target.
-   * Empty / missing list = no validation.
+   * executor strips from a restricted picklist the values that don't appear
+   * in the list before insert, avoiding `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`
+   * rejections caused by source-org picklist entries that don't exist on the
+   * target. Empty / missing list = no validation.
    */
   picklistValues?: string[];
   /**
    * Whether the picklist is restricted: the org refuses at insert a value it
    * does not hold — or, read of the target, one the record's record type does
-   * not keep. See `stages/RecordTypePicklists.ts`.
+   * not keep. `false` says it takes any value, which the target keeps as an
+   * inactive value of the field; unknown is checked as restricted. See
+   * `stages/RecordTypePicklists.ts`.
    */
   restrictedPicklist?: boolean;
   /** For a dependent picklist, the field whose value decides which values it allows. */
@@ -721,6 +725,16 @@ export interface ExecutionSummary {
    */
   updatedSourceIds: string[];
   /**
+   * Of `existingSourceIds`, the contacts the platform wrote with a person
+   * account this run created: linked to, the run never having written them,
+   * and gone with their account when a removal deletes it — so neither kept
+   * by the removal nor deleted on their own, which the platform refuses ("You
+   * can modify a person contact but you can't create or delete a person
+   * contact": SOAP API Developer Guide, "Person Account Record Types"). Absent
+   * when there were none.
+   */
+  withTheirAccountSourceIds?: string[];
+  /**
    * Per object, the rows of `remapTable` this run created and the ones it
    * linked to a record the target already held — the table counted by object.
    */
@@ -1056,6 +1070,22 @@ interface ExecutionState {
    * of the target refused them on. See `ExecutionSummary.writtenWithoutFields`.
    */
   readonly writtenWithoutFields: Map<string, WrittenWithoutFields>;
+  /**
+   * Whether the target has person accounts, read once a run from its describe
+   * of the account: see `personAccountsInTarget`. Unset until asked.
+   */
+  personAccountsInTarget?: Promise<boolean | undefined>;
+  /**
+   * The source contacts of person accounts the target holds with no contact
+   * the platform wrote — no person account there — which go in as contacts
+   * of their own. See `personContactsOnTheirOwn`.
+   */
+  readonly contactsOnTheirOwn: Set<string>;
+  /**
+   * The source contacts linked to the contact the platform wrote with a
+   * person account this run created. See `ExecutionSummary.withTheirAccountSourceIds`.
+   */
+  readonly withTheirAccount: Set<string>;
   /**
    * The rows read and left out because the platform writes them itself, or
    * they cannot go in without one it does, by source id.
@@ -2127,6 +2157,8 @@ export class ForgeExecutor {
       ),
       picklistChanges: new PicklistChangeTally(),
       writtenWithoutFields: new Map<string, WrittenWithoutFields>(),
+      contactsOnTheirOwn: new Set<string>(),
+      withTheirAccount: new Set<string>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
@@ -3589,6 +3621,9 @@ export class ForgeExecutor {
       existingRecords: [...state.existingRecords],
       existingSourceIds: state.remapper.existingSourceIds(),
       updatedSourceIds: state.remapper.updatedSourceIds(),
+      ...(state.withTheirAccount.size > 0
+        ? { withTheirAccountSourceIds: [...state.withTheirAccount] }
+        : {}),
       remapByObject: state.remapper.countsByObject(),
       ...(state.notSent.size > 0
         ? {
@@ -4284,9 +4319,12 @@ export class ForgeExecutor {
 
       if (config.dryRun) {
         // A person account's contact is never inserted: the platform writes
-        // it with the account (`linkPersonContacts`).
-        const withTheirAccount =
+        // it with the account (`linkPersonContacts`) — but in a target without
+        // person accounts, which writes none, and takes it as any contact.
+        const ofPersons =
           node.objectApiName === CONTACT ? records.filter(isPersonAccountRow).length : 0;
+        const withTheirAccount =
+          ofPersons > 0 && (await this.personAccountsInTarget(state)) !== false ? ofPersons : 0;
         const inserted = records.length - withTheirAccount;
         onProgress({
           objectName: node.objectApiName,
@@ -4984,20 +5022,35 @@ export class ForgeExecutor {
    * a contact the run never read is no row of its own, and one it read is
    * counted at its node's turn. Not looked up, the contacts stay unmapped,
    * and the report says why.
+   *
+   * A target that wrote no contact with an account sends none back: one with
+   * person accounts holds the account as a business one — linked to, or
+   * written in its place — and the source's contact goes in as a contact of
+   * its own (`contactsOnTheirOwn`). One without person accounts is not asked:
+   * its account has no `PersonContactId`, and asked for it, it refused the
+   * whole statement.
+   *
+   * @param accounts - The accounts read, as the source holds them: the
+   *   account node's, or a parent copied from outside the graph, which the
+   *   platform writes a contact with as well (`OrphanExpander`).
    */
-  private async mapContactsOfPersonAccounts(state: ExecutionState): Promise<void> {
+  private async mapContactsOfPersonAccounts(
+    state: ExecutionState,
+    accounts: readonly Record<string, unknown>[] = state.preread.get(ACCOUNT)?.records ?? [],
+  ): Promise<void> {
     if (state.config.dryRun) return;
-    /** The source contact of each person account, by the account's id in the target. */
-    const contactOf = new Map<string, string>();
-    for (const row of state.preread.get(ACCOUNT)?.records ?? []) {
+    /** The source contact of each person account, and its source id, by the account's id in the target. */
+    const contactOf = new Map<string, { contact: string; account: string }>();
+    for (const row of accounts) {
       const contact = row[PERSON_CONTACT_FIELD];
       const id = row['Id'];
       if (typeof contact !== 'string' || contact === '' || typeof id !== 'string') continue;
       if (state.remapper.get(contact)) continue;
       const account = state.remapper.get(id);
-      if (account) contactOf.set(account, contact);
+      if (account) contactOf.set(account, { contact, account: id });
     }
     if (contactOf.size === 0) return;
+    if ((await this.personAccountsInTarget(state)) === false) return;
     let written: Map<string, string>;
     try {
       written = await personContactsOfAccounts(
@@ -5021,16 +5074,86 @@ export class ForgeExecutor {
       });
       return;
     }
-    for (const [account, contact] of contactOf) {
-      const target = written.get(account);
-      if (target) state.remapper.addExisting(contact, target);
+    for (const [accountId, { contact, account }] of contactOf) {
+      const target = written.get(accountId);
+      if (!target) {
+        state.contactsOnTheirOwn.add(contact);
+        continue;
+      }
+      state.remapper.addExisting(contact, target);
+      // Written by the platform with an account this run created, it goes
+      // when that account goes: no removal keeps it, or deletes it on its own.
+      if (state.remapper.isCreated(account)) state.withTheirAccount.add(contact);
     }
+  }
+
+  /**
+   * Whether the target has person accounts: its describe of the account names
+   * `PersonContactId`, the lookup at the contact the platform writes with one.
+   * Read once a run, from the describe the run holds of the account; nothing
+   * when that describe cannot be read, and the run goes on as it does in a
+   * target with them.
+   */
+  private personAccountsInTarget(state: ExecutionState): Promise<boolean | undefined> {
+    state.personAccountsInTarget ??= this.deps.describeFields(state.targetOrgId, ACCOUNT).then(
+      (fields) => fields.some((field) => field.name === PERSON_CONTACT_FIELD),
+      () => undefined,
+    );
+    return state.personAccountsInTarget;
+  }
+
+  /**
+   * Of the contacts of person accounts the contact node read, those that go in
+   * as contacts of their own, each said once: the target wrote none with their
+   * account. It has no person accounts, and each goes as any contact does, its
+   * account's lookup set or emptied as any is; or the account is in the target
+   * with no contact of the platform's — no person account there, a business
+   * one linked to or written in its place, which takes a contact as any
+   * business account does (`contactsOnTheirOwn`). Never sent, such a contact
+   * was lost, and every lookup pointing at it with it. The others are linked
+   * to the contact the platform wrote, or held back (`linkPersonContacts`).
+   */
+  private async personContactsOnTheirOwn(
+    state: ExecutionState,
+    contacts: readonly Record<string, unknown>[],
+  ): Promise<Set<Record<string, unknown>>> {
+    if (contacts.length === 0) return new Set();
+    const personAccounts = await this.personAccountsInTarget(state);
+    const own = new Set(
+      contacts.filter(
+        (row) => personAccounts === false || state.contactsOnTheirOwn.has(String(row['Id'])),
+      ),
+    );
+    if (own.size > 0) {
+      const count = own.size;
+      state.errors.push({
+        objectApiName: CONTACT,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: `IsPersonAccount=true (${count} record${count === 1 ? '' : 's'})`,
+            messages: [
+              `Sent as contacts of their own: ${
+                personAccounts === false
+                  ? 'the target has no person accounts'
+                  : 'their account is no person account in the target'
+              }, and wrote no contact with it.`,
+            ],
+          },
+        ],
+      });
+    }
+    return own;
   }
 
   /**
    * Link the rows of the contact node that are person accounts' contacts to
    * the contact the platform wrote with each account
    * (`mapContactsOfPersonAccounts`), and hold the others back: none is sent.
+   * Those the target wrote none for go in as contacts of their own, and are
+   * not among them (`personContactsOnTheirOwn`).
    *
    * The platform writes a person account's contact as it takes the account
    * (`personAccountWriteEdges`). Sent before its account, with its account's
@@ -5740,13 +5863,7 @@ export class ForgeExecutor {
     state.failedCount += written.failureCount;
     state.pendingFkUpdates.push(...written.pendingFkUpdates);
     if (written.writtenWithoutFields) {
-      state.writtenWithoutFields.set(
-        objectApiName,
-        addWrittenWithoutFields(
-          state.writtenWithoutFields.get(objectApiName),
-          written.writtenWithoutFields,
-        ),
-      );
+      this.countWrittenWithoutFields(state, objectApiName, written.writtenWithoutFields);
     }
     if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
       state.existingRecords.push({
@@ -5771,6 +5888,42 @@ export class ForgeExecutor {
   }
 
   /**
+   * Count, for the run's result, rows of an object written again without the
+   * fields a validation rule of the target refused them on: the node's own,
+   * and a parent copied from outside the graph (`OrphanExpander`).
+   */
+  private countWrittenWithoutFields(
+    state: ExecutionState,
+    objectApiName: string,
+    written: WrittenWithoutFields,
+  ): void {
+    state.writtenWithoutFields.set(
+      objectApiName,
+      addWrittenWithoutFields(state.writtenWithoutFields.get(objectApiName), written),
+    );
+  }
+
+  /**
+   * Say once, as a note of the object that counts no row, a record type whose
+   * picklist values the check could not use: see `RecordTypePicklistReads`.
+   * Said so of the node's own rows and of a parent copied from outside the
+   * graph alike.
+   */
+  private sayRecordTypeNote(
+    state: ExecutionState,
+    objectApiName: string,
+    note: RecordTypeReadNote,
+  ): void {
+    state.errors.push({
+      objectApiName,
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [recordTypeReadSample(note)],
+    });
+  }
+
+  /**
    * Owe again the lookups the run this one retries left empty on the rows it
    * wrote: those naming a record it never wrote, at an object this run
    * writes. Its first write emptied each — the record named had failed, or
@@ -5778,17 +5931,21 @@ export class ForgeExecutor {
    * now, that record would otherwise stay unlinked from the row that names
    * it: the price book an opportunity went in without, the quote it syncs.
    *
-   * Only a lookup the run could write is owed, under the name it writes it
-   * by; one at an object the run does not write can never be filled in.
+   * Only a lookup an update in the target can set is owed, under the name the
+   * run writes it by: the row is there, and an update is all that reaches it
+   * — one only an insert sets never can be, and sent, its update was refused
+   * with the row's other lookups in it. One at an object the run does not
+   * write can never be filled in.
    *
-   * @param writable - The fields both orgs let the run write on the object.
+   * @param updatable - The fields an update can set in the target, when it
+   *   was described (`TargetFieldSets.updateable`).
    */
   private oweLookupsOfRowsWrittenBefore(
     state: ExecutionState,
     node: ForgeGraphNode,
     rows: readonly Record<string, unknown>[],
     fieldInfos: readonly FieldInfo[],
-    writable: ReadonlySet<string>,
+    updatable: ReadonlySet<string> | undefined,
   ): void {
     const { config } = state;
     const written = new Set(
@@ -5801,7 +5958,7 @@ export class ForgeExecutor {
         f.isReference &&
         f.name !== 'RecordTypeId' &&
         !excluded.has(f.name) &&
-        (rename[f.name] !== undefined || writable.has(f.name)) &&
+        updatableInTarget(f, updatable, rename[f.name]) &&
         (f.referenceTo ?? []).some((object) => written.has(object)),
     );
     if (lookups.length === 0) return;
@@ -5890,13 +6047,15 @@ export class ForgeExecutor {
     // never written a second time. The others are what this run writes.
     const writtenBefore = rows.filter((row) => wasWrittenBefore(config, row));
     // But for the contacts of person accounts, which the platform writes with
-    // their account: linked to the one it wrote, never sent. See
-    // `linkPersonContacts`.
-    const personContacts = new Set(
+    // their account: linked to the one it wrote, never sent — save those the
+    // target wrote none for, sent as contacts of their own. See
+    // `linkPersonContacts` and `personContactsOnTheirOwn`.
+    const ofPersons =
       node.objectApiName === CONTACT
         ? rows.filter((row) => isPersonAccountRow(row) && !wasWrittenBefore(config, row))
-        : [],
-    );
+        : [];
+    const onTheirOwn = await this.personContactsOnTheirOwn(state, ofPersons);
+    const personContacts = new Set(ofPersons.filter((row) => !onTheirOwn.has(row)));
     const records =
       writtenBefore.length > 0 || personContacts.size > 0
         ? rows.filter((row) => !wasWrittenBefore(config, row) && !personContacts.has(row))
@@ -5907,6 +6066,7 @@ export class ForgeExecutor {
       // Step 2: describe the *target* org (schema-drift defense) — the only
       // way to detect missing fields/picklist drift before insert.
       let targetCreatableSet: Set<string> | null = null;
+      let targetUpdatableSet: Set<string> | undefined;
       let targetPicklistValuesByField: Map<string, Set<string>> | null = null;
       let targetPicklistFields: Map<string, PicklistField> | undefined;
       const targetSets = await (targetSetsPending ??
@@ -5916,6 +6076,7 @@ export class ForgeExecutor {
         ));
       if (targetSets.ok) {
         targetCreatableSet = targetSets.sets.creatable;
+        targetUpdatableSet = targetSets.sets.updateable;
         targetPicklistValuesByField = targetSets.sets.picklistValuesByField;
         targetPicklistFields = targetSets.sets.picklistFields;
       } else {
@@ -5977,7 +6138,7 @@ export class ForgeExecutor {
           node,
           writtenBefore,
           fieldInfos,
-          effectiveCreatableSet,
+          targetUpdatableSet,
         );
         if (records.length === 0 && personContacts.size === 0) {
           onProgress({
@@ -6142,6 +6303,19 @@ export class ForgeExecutor {
           state.deferredStatuses.push({ objectApiName, id, status }),
         objectOf: (id, candidates) => this.objectOfSourceId(state, id, candidates),
         leftToThePlatform: state.leftToThePlatform,
+        // A parent goes in on the rules the node's rows go in on: its
+        // picklist values checked for the record type it gets, read once a
+        // run with theirs; written once more without the fields a validation
+        // rule refused it on; the contact of a person account linked to the
+        // one the platform wrote with it. Each counted where theirs are.
+        recordTypePicklists: state.recordTypePicklists,
+        onRecordTypeNote: (objectApiName, note) =>
+          this.sayRecordTypeNote(state, objectApiName, note),
+        picklistChanges: state.picklistChanges,
+        onWrittenWithoutFields: (objectApiName, written) =>
+          this.countWrittenWithoutFields(state, objectApiName, written),
+        linkPersonContacts: (accounts) => this.mapContactsOfPersonAccounts(state, accounts),
+        personAccountsInTarget: () => this.personAccountsInTarget(state),
       });
       // A parent the expansion found to be one the platform writes itself was
       // not sent: the rows that cannot go in without it go with it.
@@ -6168,14 +6342,14 @@ export class ForgeExecutor {
           })
         : undefined;
       for (const note of recordTypes?.notes ?? []) {
-        state.errors.push({
-          objectApiName: node.objectApiName,
-          stage: 'scope',
-          failedCount: 0,
-          attemptedCount: 0,
-          samples: [recordTypeReadSample(note)],
-        });
+        this.sayRecordTypeNote(state, node.objectApiName, note);
       }
+      // A person account goes in as one only where the target has them: one
+      // without takes it as a business account, which needs its name.
+      const personAccountsInTarget =
+        node.objectApiName === ACCOUNT && toWrite.some(isPersonAccountRow)
+          ? await this.personAccountsInTarget(state)
+          : undefined;
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
@@ -6188,9 +6362,11 @@ export class ForgeExecutor {
         excludedFields,
         fieldRename,
         creatableFields: effectiveCreatableSet,
+        updatableFields: targetUpdatableSet,
         picklistValuesByField: targetPicklistValuesByField,
         picklistFields: targetPicklistFields,
         recordTypeValues: recordTypes?.byRecordType,
+        personAccountsInTarget,
       });
       // The picklist values this write does not send as read: said on the
       // object's line, and counted for the run's result.
@@ -6367,6 +6543,13 @@ export class ForgeExecutor {
         withTheirAccount.linked > 0
           ? `, ${withTheirAccount.linked} written by the platform with their person account`
           : '';
+      // Counted with the rows written or refused, as any contact is: which of
+      // them were person accounts' contacts the target wrote none for.
+      const sentOnTheirOwn =
+        onTheirOwn.size > 0
+          ? `, ${onTheirOwn.size} ${onTheirOwn.size === 1 ? "person account's contact" : "person accounts' contacts"} ` +
+            'sent on their own: the target wrote none with their account'
+          : '';
       const already =
         writtenBefore.length > 0
           ? `, ${writtenBefore.length} already in the target from the run retried`
@@ -6387,7 +6570,7 @@ export class ForgeExecutor {
         `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}` +
         `${writtenWithTheirAccount}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
-      const rest = `${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}`;
+      const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}`;
 
       if (stoppedBy) {
         /*
@@ -6419,7 +6602,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: failedNode ? 'error' : 'stopped',
           progress: 100,
-          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${flagsNotKept}${picklists}${withoutFields}${leftToThePlatform}`,
+          message: `${stopped}: ${counts(heldBeforeTheWrite(true))}, ${notSent} not sent${ofThemWaiting}${sentOnTheirOwn}${flagsNotKept}${picklists}${withoutFields}${leftToThePlatform}`,
         });
         throw stoppedBy;
       }
@@ -6439,9 +6622,9 @@ export class ForgeExecutor {
           message:
             settled === 0
               ? `Failed all ${node.objectApiName} records: ` +
-                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${picklists}`
+                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)}${picklists}${withoutFields} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields} — objects that cannot be written without it will be skipped`,
         });
       } else {
         onProgress({

@@ -545,5 +545,68 @@ describe('ForgePlanGenerator', () => {
       expect(plan.cycleResolutions).toEqual([]);
       expect(plan.waves.map((w) => w.objectApiNames)).toEqual([['Account'], ['Contact']]);
     });
+
+    it('writes first the record of a lookup only an insert sets, leaving the other lookup for the second pass', () => {
+      // Met email first. The email's case is set by an insert alone; the
+      // case's lookup at its email, by an update as well.
+      const graph = makeGraph(
+        ['EmailMessage', 'Case'].map((objectApiName) => makeNode({ objectApiName, level: 0 })),
+        [
+          {
+            sourceObject: 'Case',
+            targetObject: 'EmailMessage',
+            relationshipName: 'Parent',
+            type: 'lookup',
+            insertOnly: true,
+          },
+          {
+            sourceObject: 'EmailMessage',
+            targetObject: 'Case',
+            relationshipName: 'Source',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      const [cycle] = generator.generate(graph).cycleResolutions;
+
+      expect(cycle.objects).toEqual(['Case', 'EmailMessage']);
+      expect(cycle.description).toBe(
+        "Written in this order, with Case's lookup to EmailMessage left empty at insert and " +
+          'filled in by the second pass.',
+      );
+    });
+
+    it('says which lookup of a cycle only an insert sets is left empty for good', () => {
+      // Both set by an insert alone: whichever goes first keeps its lookup
+      // at the other empty, and no update can fill it in.
+      const graph = makeGraph(
+        ['A', 'B'].map((objectApiName) => makeNode({ objectApiName, level: 0 })),
+        [
+          {
+            sourceObject: 'A',
+            targetObject: 'B',
+            relationshipName: 'A',
+            type: 'lookup',
+            insertOnly: true,
+          },
+          {
+            sourceObject: 'B',
+            targetObject: 'A',
+            relationshipName: 'B',
+            type: 'lookup',
+            insertOnly: true,
+          },
+        ],
+      );
+
+      const [cycle] = generator.generate(graph).cycleResolutions;
+
+      expect(cycle.strategy).toBe('nullable_lookup');
+      expect(cycle.description).toBe(
+        "Written in this order, with A's lookup to B left empty for good: only an insert sets it, " +
+          'and no order writes B first.',
+      );
+    });
   });
 });

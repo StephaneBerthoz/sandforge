@@ -11,6 +11,14 @@
  *      record the target already holds when it refuses the copy as a
  *      duplicate and names that record.
  *
+ * The copy goes in on the rules the run's own rows go in on: its picklist
+ * values checked against what the target allows for the record type it gets
+ * (`checkRowPicklists`), written once more without the fields a validation
+ * rule of the target refused it on (`fieldsToLeaveOut`), and, for a person
+ * account, the contact the platform writes with it linked to — each counted
+ * where the run counts its own. Copied with none of it, a restricted value its
+ * record type refused cost the parent, and every row that needed it with it.
+ *
  * Single-hop only — the fetched parent's *own* required FKs are
  * orphan-nullified normally (no recursion). Capped at
  * `maxOrphanParentExpansions` to bound API usage.
@@ -29,6 +37,7 @@ import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/so
 import { logger } from '../../../logger.js';
 import { isExcludedFromCopy } from '../excludedObjects.js';
 import {
+  ACCOUNT,
   CONTACT,
   isPersonAccountRow,
   type RowsLeftToThePlatform,
@@ -40,7 +49,19 @@ import {
   type RecordTypeMapper,
   type RecordTypeMapping,
 } from '../../sync/RecordTypeMapper.js';
-import { intersect } from './RecordCleaner.js';
+import { intersect, targetFieldSetsOf, type TargetFieldSets } from './RecordCleaner.js';
+import {
+  checkRowPicklists,
+  type PicklistChangeTally,
+  type RecordTypePicklistReads,
+  type RecordTypeReadNote,
+} from './RecordTypePicklists.js';
+import {
+  fieldsToLeaveOut,
+  sentAgainNote,
+  without,
+  type WrittenWithoutFields,
+} from './BatchWriter.js';
 
 /**
  * Strict Salesforce record ID format (15 or 18 alphanumeric characters).
@@ -118,7 +139,44 @@ export interface OrphanExpansionInput {
    * is read.
    */
   leftToThePlatform?: RowsLeftToThePlatform;
+  /**
+   * What the record types of the target allow of the objects' picklists: the
+   * run's own reads, made once a run per object and record type, so a parent
+   * of an object the run writes asks nothing more. Absent, a parent's values
+   * are checked against the values of each field alone.
+   */
+  recordTypePicklists?: RecordTypePicklistReads;
+  /** Says, as the run says it of its own rows, a record type whose values the check could not use. */
+  onRecordTypeNote?: (objectApiName: string, note: RecordTypeReadNote) => void;
+  /** Where the picklist values a parent goes in without, as read, are counted: the run's tally. */
+  picklistChanges?: PicklistChangeTally;
+  /** Counts a parent written again without the fields a validation rule of the target refused it on. */
+  onWrittenWithoutFields?: (objectApiName: string, written: WrittenWithoutFields) => void;
+  /**
+   * Maps the contact of each person account among `accounts` — parents now in
+   * the target, written or linked to one it held — onto the one the platform
+   * wrote with it, as the run does for the accounts it writes. Absent, what
+   * points at such a contact is not remapped.
+   */
+  linkPersonContacts?: (accounts: readonly Record<string, unknown>[]) => Promise<void>;
+  /**
+   * Whether the target has person accounts, as the run reads it; nothing when
+   * it cannot say. Without them, a person account goes in as the business one
+   * the target makes of it, its name kept, and a person account's contact is
+   * copied as any contact is: the target writes none with an account. Absent,
+   * the target is taken to have them.
+   */
+  personAccountsInTarget?: () => Promise<boolean | undefined>;
 }
+
+/**
+ * What copying a parent came to: in the target, written or linked to the
+ * record it held, with the row read of it; or refused, with what the target
+ * answered, for the expansion's report.
+ */
+type ParentCopy =
+  | { id: string; existing: boolean; owedStatus?: string; source: Record<string, unknown> }
+  | { refused: string[] };
 
 /** What the expansion of a parent the platform writes itself comes to: nothing sent, nothing failed. */
 const LEFT_TO_THE_PLATFORM = Symbol('left to the platform');
@@ -189,66 +247,89 @@ export class OrphanExpander {
       if (remapper.get(entry.sourceId)) continue;
       eligible.push({ ...entry, cacheKey });
     }
-    for (let i = 0; i < eligible.length; i += ORPHAN_CONCURRENCY) {
-      const slice = eligible.slice(i, i + ORPHAN_CONCURRENCY);
-      await Promise.all(
-        slice.map(async (entry) => {
-          try {
-            const parent = await this.expandSingleOrphanParent(
-              input.sourceOrgId,
-              input.targetOrgId,
-              entry.object,
-              entry.sourceId,
-              input.recordTypeMappings,
-              input.recordTypeMapper,
-              input.anonymize,
-              input.withoutFileContent,
-              input.startAsDraft,
-              input.leftToThePlatform,
-            );
-            // Noted among the rows left to the platform, whose children the
-            // run leaves out with it: nothing to map, and nothing failed.
-            if (parent === LEFT_TO_THE_PLATFORM) return;
-            if (parent) {
-              // Count only successful expansions toward the cap
-              // so a string of misses doesn't silently exhaust the budget
-              // before the eligible list has had a chance to succeed.
-              this.expansionsUsed++;
-              if (parent.existing) {
-                remapper.addExisting(entry.sourceId, parent.id, entry.object);
+    // The contacts after the rest: the contact of a person account copied in
+    // the first round is the one the platform wrote with it, linked before
+    // the second — never copied on its own.
+    const rounds = [
+      eligible.filter((entry) => entry.object !== CONTACT),
+      eligible.filter((entry) => entry.object === CONTACT),
+    ];
+    for (const round of rounds) {
+      /** The person accounts this round put in the target, whose contacts the platform wrote. */
+      const personAccounts: Record<string, unknown>[] = [];
+      for (let i = 0; i < round.length; i += ORPHAN_CONCURRENCY) {
+        // One mapped since it was found an orphan — a person account's
+        // contact — is copied no more.
+        const slice = round
+          .slice(i, i + ORPHAN_CONCURRENCY)
+          .filter((entry) => !remapper.get(entry.sourceId));
+        await Promise.all(
+          slice.map(async (entry) => {
+            try {
+              const parent = await this.expandSingleOrphanParent(
+                input,
+                entry.object,
+                entry.sourceId,
+              );
+              // Noted among the rows left to the platform, whose children the
+              // run leaves out with it: nothing to map, and nothing failed.
+              if (parent === LEFT_TO_THE_PLATFORM) return;
+              if (parent && 'id' in parent) {
+                // Count only successful expansions toward the cap
+                // so a string of misses doesn't silently exhaust the budget
+                // before the eligible list has had a chance to succeed.
+                this.expansionsUsed++;
+                if (parent.existing) {
+                  remapper.addExisting(entry.sourceId, parent.id, entry.object);
+                } else {
+                  remapper.add(entry.sourceId, parent.id, entry.object);
+                  if (parent.owedStatus)
+                    input.oweStatus?.(entry.object, parent.id, parent.owedStatus);
+                }
+                // Register the parent in scopeCache so multi-hop
+                // children that pivot through this object include the
+                // newly cloned row in their scope query (otherwise the
+                // scope cache reports the orphan as out-of-scope and the
+                // child never gets cloned).
+                if (scopeCache) {
+                  scopeCache.add(entry.object, [entry.sourceId]);
+                }
+                if (entry.object === ACCOUNT && isPersonAccountRow(parent.source)) {
+                  personAccounts.push(parent.source);
+                }
               } else {
-                remapper.add(entry.sourceId, parent.id, entry.object);
-                if (parent.owedStatus)
-                  input.oweStatus?.(entry.object, parent.id, parent.owedStatus);
+                this.failedOrphans.add(entry.cacheKey);
+                if (this.expansionErrors.length < 3) {
+                  this.expansionErrors.push({
+                    recordSummary: `${entry.object}/${entry.sourceId}`,
+                    // What the target refused the copy with, as a row of the
+                    // run says it: reported without it, a parent refused on a
+                    // rule's fields, sent again and refused again, said
+                    // nothing of either refusal.
+                    messages:
+                      parent && parent.refused.length > 0
+                        ? parent.refused
+                        : [`Orphan parent expansion produced no new id`],
+                  });
+                }
               }
-              // Register the parent in scopeCache so multi-hop
-              // children that pivot through this object include the
-              // newly cloned row in their scope query (otherwise the
-              // scope cache reports the orphan as out-of-scope and the
-              // child never gets cloned).
-              if (scopeCache) {
-                scopeCache.add(entry.object, [entry.sourceId]);
-              }
-            } else {
+            } catch (err) {
               this.failedOrphans.add(entry.cacheKey);
               if (this.expansionErrors.length < 3) {
                 this.expansionErrors.push({
                   recordSummary: `${entry.object}/${entry.sourceId}`,
-                  messages: [`Orphan parent expansion produced no new id`],
+                  messages: [extractErrorMessage(err)],
                 });
               }
             }
-          } catch (err) {
-            this.failedOrphans.add(entry.cacheKey);
-            if (this.expansionErrors.length < 3) {
-              this.expansionErrors.push({
-                recordSummary: `${entry.object}/${entry.sourceId}`,
-                messages: [extractErrorMessage(err)],
-              });
-            }
-          }
-        }),
-      );
+          }),
+        );
+      }
+      // The platform wrote a contact with each person account: what points at
+      // the source's — this node's rows, the second round's, the nodes after —
+      // points at that one. Left unmapped, a lookup at it went in empty, or
+      // took its row down when the row may not leave it empty.
+      if (personAccounts.length > 0) await input.linkPersonContacts?.(personAccounts);
     }
   }
 
@@ -299,33 +380,29 @@ export class OrphanExpander {
   /**
    * Fetches a missing parent record from the source org by Id, copies it
    * to the target org with a minimal payload (createable target fields
-   * only, RecordType remapped if applicable, orphan FKs nullified), and
-   * returns the target ID it now has — the new record's, or the existing
-   * one's when the target refuses the copy as a duplicate and names the
-   * record it holds — and, for a new one written as a draft, the status it
-   * is owed. Returns `null` when the parent can't be fetched or the insert
-   * fails any other way, and {@link LEFT_TO_THE_PLATFORM} for a parent the
-   * platform writes itself, noted in `leftToThePlatform` and never sent: run
-   * for real, the platform refuses a tracked change from a copy.
+   * only, RecordType remapped if applicable, orphan FKs nullified, picklist
+   * values checked), and returns the target ID it now has — the new record's,
+   * or the existing one's when the target refuses the copy as a duplicate and
+   * names the record it holds — with the row read and, for a new one written
+   * as a draft, the status it is owed. A copy a validation rule of the target
+   * refuses on fields it names is written once more without them, as the
+   * run's own rows are. Returns what the target answered when it refuses the
+   * copy any other way, `null` when the parent can't be fetched, and
+   * {@link LEFT_TO_THE_PLATFORM} for a parent the platform writes itself,
+   * noted in `leftToThePlatform` and never sent: run for real, the platform
+   * refuses a tracked change from a copy.
    *
    * Intentionally non-recursive — the fetched parent's *own* required FKs
    * are nullified rather than expanded further. Callers must respect the
    * `maxOrphanParentExpansions` cap to bound API usage.
    */
   private async expandSingleOrphanParent(
-    sourceOrgId: string,
-    targetOrgId: string,
+    input: OrphanExpansionInput,
     parentObject: string,
     sourceRecordId: string,
-    recordTypeMappings: RecordTypeMapping[] | undefined,
-    recordTypeMapper: RecordTypeMapper | null,
-    anonymize: OrphanExpansionInput['anonymize'],
-    withoutFileContent: OrphanExpansionInput['withoutFileContent'],
-    startAsDraft: OrphanExpansionInput['startAsDraft'],
-    leftToThePlatform: OrphanExpansionInput['leftToThePlatform'],
-  ): Promise<
-    { id: string; existing: boolean; owedStatus?: string } | null | typeof LEFT_TO_THE_PLATFORM
-  > {
+  ): Promise<ParentCopy | null | typeof LEFT_TO_THE_PLATFORM> {
+    const { sourceOrgId, targetOrgId, recordTypeMappings, recordTypeMapper } = input;
+    const { anonymize, withoutFileContent, startAsDraft, leftToThePlatform } = input;
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
     // via crafted source-org data (e.g. a managed package supplying a
@@ -352,18 +429,24 @@ export class OrphanExpander {
     // A person account's contact goes in with its account, written by the
     // platform: sent on its own, with its lookups left out as a parent's are,
     // it would stand as a contact of no account beside the platform's. See
-    // `personAccountWriteEdges`.
-    if (objectName === CONTACT && isPersonAccountRow(records[0])) {
+    // `personAccountWriteEdges`. A target without person accounts writes none
+    // with an account, and takes it as any contact.
+    const r = records[0];
+    const isPerson = isPersonAccountRow(r);
+    const personAccounts = isPerson ? await input.personAccountsInTarget?.() : undefined;
+    if (objectName === CONTACT && isPerson && personAccounts !== false) {
       throw new Error(
         "Not copied: a person account's contact is written by the platform with its account, " +
           'never on its own',
       );
     }
 
-    let targetCreatable: Set<string> | null = null;
+    let targetSets: TargetFieldSets | null = null;
     try {
-      const targetFields = await this.deps.describeFields(targetOrgId, objectName);
-      targetCreatable = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+      targetSets = targetFieldSetsOf(
+        await this.deps.describeFields(targetOrgId, objectName),
+        objectName,
+      );
     } catch (err: unknown) {
       // Don't bury the error — the orphan path is high-blast-radius
       // (creates new rows on target). Log so the user sees it in output.
@@ -372,18 +455,18 @@ export class OrphanExpander {
       );
     }
     const sourceCreatable = new Set(fields.filter((f) => f.createable).map((f) => f.name));
-    const effectiveCreatable = targetCreatable
-      ? intersect(sourceCreatable, targetCreatable)
+    const effectiveCreatable = targetSets
+      ? intersect(sourceCreatable, targetSets.creatable)
       : sourceCreatable;
 
-    const r = records[0];
     const cleaned: Record<string, unknown> = {};
-    const isPerson = isPersonAccountRow(r);
     for (const field of fields) {
       const key = field.name;
       if (!effectiveCreatable.has(key)) continue;
       if (key.endsWith('__pc') && !isPerson) continue;
-      if (key === 'Name' && isPerson) continue;
+      // Computed by the platform for a person account — and for none in a
+      // target without them, which takes the account as a business one.
+      if (key === 'Name' && isPerson && personAccounts !== false) continue;
       const value = r[key];
       if (value === null || value === undefined) continue;
       if (field.isReference && typeof value === 'string' && key !== 'RecordTypeId') {
@@ -391,6 +474,11 @@ export class OrphanExpander {
         continue;
       }
       cleaned[key] = value;
+    }
+    // Checked while `RecordTypeId` is still the source's, as the run's rows
+    // are: what the record types allow is read by it.
+    if (targetSets) {
+      await this.checkPicklists(input, objectName, r, cleaned, targetSets, effectiveCreatable);
     }
     const mapped =
       recordTypeMapper && recordTypeMappings
@@ -403,10 +491,31 @@ export class OrphanExpander {
     // Draft" — and the child that needed it with it. It goes in as a draft,
     // as the run's own do, and gets its status back with theirs.
     const owedStatus = startAsDraft ? await startAsDraft(objectName, payload) : undefined;
-    const result = await this.deps.insertRecords(targetOrgId, objectName, [payload]);
-    const written = result[0];
+    let written = (await this.deps.insertRecords(targetOrgId, objectName, [payload]))[0];
     if (!written) return null;
-    if (written.success) return { id: written.id, existing: false, owedStatus };
+    // Refused by a validation rule on fields it named — a phone the target
+    // wants in another format — the parent goes once more without them, as a
+    // row of the run does; never a third time.
+    const leftOut = written.success ? undefined : fieldsToLeaveOut(written, payload, undefined);
+    const firstRefusal = written.errors;
+    if (leftOut) {
+      const again = (
+        await this.deps.insertRecords(targetOrgId, objectName, [without(payload, leftOut)])
+      )[0];
+      if (!again) {
+        return { refused: ['No result returned for record', sentAgainNote(leftOut, firstRefusal)] };
+      }
+      written = again;
+    }
+    if (written.success) {
+      if (leftOut) {
+        input.onWrittenWithoutFields?.(objectName, {
+          rows: 1,
+          fields: leftOut.map((field) => ({ ...field, rows: 1 })),
+        });
+      }
+      return { id: written.id, existing: false, owedStatus, source: r };
+    }
     // The parent is often in the target already — which is why it was not in
     // the graph's reach to begin with. When the refusal names it, the child
     // links to it; it is never written to.
@@ -417,6 +526,47 @@ export class OrphanExpander {
         )
       : null;
     const existing = existingRecordOf(written, keyPrefix);
-    return existing.kind === 'linked' ? { id: existing.id, existing: true } : null;
+    if (existing.kind === 'linked') return { id: existing.id, existing: true, source: r };
+    return {
+      refused: leftOut ? [...written.errors, sentAgainNote(leftOut, firstRefusal)] : written.errors,
+    };
+  }
+
+  /**
+   * Check a parent's picklist values as the run's rows are checked
+   * (`checkRowPicklists`): a restricted one against what the record type it
+   * goes in with allows, when the run's mapping knows that record type there,
+   * and any other against the values of its field — the target taking any
+   * value of an unrestricted one. Changes `cleaned` in place, and counts what
+   * it changed in the run's tally.
+   *
+   * @param written - The fields the parent is written with: createable in both orgs.
+   */
+  private async checkPicklists(
+    input: OrphanExpansionInput,
+    objectName: string,
+    source: Record<string, unknown>,
+    cleaned: Record<string, unknown>,
+    sets: TargetFieldSets,
+    written: ReadonlySet<string>,
+  ): Promise<void> {
+    const reads = input.recordTypePicklists
+      ? await input.recordTypePicklists.forRows({
+          objectApiName: objectName,
+          rows: [source],
+          fields: sets.picklistFields,
+          written: (field) => written.has(field),
+          recordTypeMappings: input.recordTypeMappings,
+        })
+      : undefined;
+    for (const note of reads?.notes ?? []) input.onRecordTypeNote?.(objectName, note);
+    const recordTypeId = cleaned['RecordTypeId'];
+    const changes = checkRowPicklists(
+      cleaned,
+      sets.picklistValuesByField,
+      sets.picklistFields,
+      typeof recordTypeId === 'string' ? reads?.byRecordType.get(recordTypeId) : undefined,
+    );
+    input.picklistChanges?.add(objectName, changes);
   }
 }

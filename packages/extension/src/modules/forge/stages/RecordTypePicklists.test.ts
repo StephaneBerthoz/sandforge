@@ -90,6 +90,67 @@ describe('picklistFieldsOf', () => {
       Rating: { multi: false, restricted: false, required: false },
     });
   });
+
+  it('says of a picklist the describe calls unrestricted, and of a combobox, that the target takes any value', () => {
+    const fields = picklistFieldsOf([
+      field('Source__c', { type: 'picklist', restrictedPicklist: false, picklistValues: ['Web'] }),
+      field('Colors__c', { type: 'multipicklist', restrictedPicklist: false }),
+      field('Subject', { type: 'combobox', picklistValues: ['Call'] }),
+      field('Tier__c', { type: 'picklist', restrictedPicklist: true }),
+    ]);
+
+    expect(Object.fromEntries(fields)).toEqual({
+      Source__c: { multi: false, restricted: false, required: false, anyValue: true },
+      Colors__c: { multi: true, restricted: false, required: false, anyValue: true },
+      Subject: { multi: false, restricted: false, required: false, anyValue: true },
+      Tier__c: { multi: false, restricted: true, required: false },
+    });
+  });
+
+  it('says it of no standard picklist whose values are records of their own, which the describe calls unrestricted', () => {
+    // A case's status is a CaseStatus, an opportunity's stage an
+    // OpportunityStage: kept as read and refused, the row was lost where the
+    // value, left out, took the target's default.
+    const status = field('Status', {
+      type: 'picklist',
+      restrictedPicklist: false,
+      defaultedOnCreate: true,
+      picklistValues: ['New'],
+    });
+    const origin = field('Origin', { type: 'picklist', restrictedPicklist: false });
+
+    expect(Object.fromEntries(picklistFieldsOf([status, origin], 'Case'))).toEqual({
+      Status: { multi: false, restricted: false, required: false },
+      Origin: { multi: false, restricted: false, required: false, anyValue: true },
+    });
+    expect(picklistFieldsOf([status], 'Ticket__c').get('Status')).toMatchObject({
+      anyValue: true,
+    });
+    expect(
+      picklistFieldsOf(
+        [field('StageName', { type: 'picklist', restrictedPicklist: false })],
+        'Opportunity',
+      ).get('StageName'),
+    ).not.toHaveProperty('anyValue');
+  });
+
+  it('says it of no status whose values carry a category the platform acts on, nor of a campaign member status', () => {
+    // An order's status is draft or activated by its category, and a campaign
+    // member's is one of its campaign's statuses: a value they do not hold
+    // left out takes the target's default, where kept it could be refused.
+    const status = field('Status', { type: 'picklist', restrictedPicklist: false });
+    for (const object of [
+      'Order',
+      'WorkOrder',
+      'WorkOrderLineItem',
+      'ServiceAppointment',
+      'CampaignMember',
+    ]) {
+      expect(picklistFieldsOf([status], object).get('Status'), object).not.toHaveProperty(
+        'anyValue',
+      );
+    }
+  });
 });
 
 describe('checkRowPicklists', () => {
@@ -382,7 +443,7 @@ describe('checkRowPicklists', () => {
     ]);
   });
 
-  it('checks a picklist that is not restricted against the values of the field alone, record type read or not', () => {
+  it('checks a picklist whose describe does not say it is restricted against the values of the field alone, record type read or not', () => {
     const row: Record<string, unknown> = { Rating: 'Warm' };
 
     const changes = checkRowPicklists(
@@ -394,6 +455,51 @@ describe('checkRowPicklists', () => {
 
     expect(row).toEqual({ Rating: 'Warm' });
     expect(changes).toEqual([]);
+  });
+
+  it('keeps the value of a picklist the target takes any value of, though the target does not hold it', () => {
+    // The API does not enforce the values of an unrestricted picklist, and
+    // keeps one it does not hold as an inactive value of the field. Checked
+    // against the active values, the value was left out of the row.
+    const row: Record<string, unknown> = { Rating: 'Lukewarm', Source__c: 'Fair' };
+
+    const changes = checkRowPicklists(
+      row,
+      active({ Rating: ['Hot', 'Warm'], Source__c: ['Web'] }),
+      new Map([
+        ['Rating', { ...optional, restricted: false, anyValue: true }],
+        ['Source__c', { ...optional, restricted: false, anyValue: true }],
+      ]),
+      typed({ Rating: keeps(['Hot'], 'Hot') }),
+    );
+
+    expect(row).toEqual({ Rating: 'Lukewarm', Source__c: 'Fair' });
+    expect(changes).toEqual([]);
+  });
+
+  it('keeps every value of a selection the target takes any value of, and checks one it restricts', () => {
+    const open: Record<string, unknown> = { Colors__c: 'Red;Pink' };
+    const restricted: Record<string, unknown> = { Colors__c: 'Red;Pink' };
+    const values = active({ Colors__c: ['Red', 'Blue'] });
+
+    expect(
+      checkRowPicklists(
+        open,
+        values,
+        new Map([['Colors__c', { ...optional, restricted: false, multi: true, anyValue: true }]]),
+        undefined,
+      ),
+    ).toEqual([]);
+    expect(open).toEqual({ Colors__c: 'Red;Pink' });
+    expect(
+      checkRowPicklists(
+        restricted,
+        values,
+        new Map([['Colors__c', { ...optional, multi: true }]]),
+        undefined,
+      ),
+    ).toEqual([{ field: 'Colors__c', reason: 'not-in-target', values: ['Pink'] }]);
+    expect(restricted).toEqual({ Colors__c: 'Red' });
   });
 
   it("checks a field the record type's answer leaves out against the values of the field", () => {
@@ -445,7 +551,7 @@ describe('checkRowPicklists', () => {
     // target holds, `Red;Blue`, is no value of the field, and was dropped.
     const kept: Record<string, unknown> = { Colors__c: 'Red;Blue' };
     const trimmed: Record<string, unknown> = { Colors__c: 'Red;Pink' };
-    const fields = new Map([['Colors__c', { ...optional, restricted: false, multi: true }]]);
+    const fields = new Map([['Colors__c', { ...optional, multi: true }]]);
     const values = active({ Colors__c: ['Red', 'Blue'] });
 
     expect(checkRowPicklists(kept, values, fields, undefined)).toEqual([]);

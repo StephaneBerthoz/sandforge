@@ -3,7 +3,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isExcludedFromCopy } from './excludedObjects.js';
-import { isRequiredLookup, isSettableField } from '@sandforge/shared';
+import { isInsertOnlyField, isRequiredLookup, isSettableField } from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 
 /** Describe result for an object returned by the org connection. */
@@ -288,22 +288,36 @@ export class GraphDiscoveryService {
      */
     /**
      * Per pair of objects, the child's fields that name the parent, each with
-     * whether a row can be written with it set: unknown until the child's own
-     * describe says, which the parent's list of its children cannot. A pair
-     * whose every field is known to be one no write sets orders nothing.
+     * whether a row can be written with it set, and whether only an insert
+     * can: unknown until the child's own describe says, which the parent's
+     * list of its children cannot. A pair whose every field is known to be one
+     * no write sets orders nothing; one with a field only an insert sets wants
+     * its parent first (`insertOnly`).
      */
-    const fieldsOfPair = new Map<string, Map<string, boolean | undefined>>();
+    const fieldsOfPair = new Map<
+      string,
+      Map<string, { settable: boolean | undefined; insertOnly: boolean | undefined }>
+    >();
     /**
      * @param field - The child's field the sighting is of.
      * @param settable - Whether a row can be written with it set; unknown
      *   from the parent's list of its children.
+     * @param insertOnly - Whether only an insert can set it; unknown from the
+     *   parent's list of its children.
      */
-    const addEdge = (e: ForgeGraphEdge, field: string, settable: boolean | undefined): void => {
+    const addEdge = (
+      e: ForgeGraphEdge,
+      field: string,
+      settable: boolean | undefined,
+      insertOnly: boolean | undefined,
+    ): void => {
       if (isExcludedFromCopy(e.sourceObject) || isExcludedFromCopy(e.targetObject)) return;
       if (e.sourceObject === e.targetObject) return;
       const key = `${e.sourceObject}|${e.targetObject}`;
-      const fields = fieldsOfPair.get(key) ?? new Map<string, boolean | undefined>();
-      if (settable !== undefined || !fields.has(field)) fields.set(field, settable);
+      const fields =
+        fieldsOfPair.get(key) ??
+        new Map<string, { settable: boolean | undefined; insertOnly: boolean | undefined }>();
+      if (settable !== undefined || !fields.has(field)) fields.set(field, { settable, insertOnly });
       fieldsOfPair.set(key, fields);
       const existing = edgeMap.get(key);
       if (!existing) {
@@ -492,6 +506,9 @@ export class GraphDiscoveryService {
             // objects are enforced in the platform's own code and read as
             // nullable — see `platform-required-fields.ts`.
             const required = settable && isRequiredLookup(objectName, field.name, field.nillable);
+            // Written with the row or never: the second pass cannot fill it
+            // in, so its parent goes first where nothing forces otherwise.
+            const insertOnly = isInsertOnlyField(field);
             for (const targetObject of field.referenceTo) {
               addEdge(
                 {
@@ -503,6 +520,7 @@ export class GraphDiscoveryService {
                 },
                 field.name,
                 settable,
+                insertOnly,
               );
               // An object the cap turned away is still marked visited, so
               // without this it can never come back — and the first thing to
@@ -546,6 +564,7 @@ export class GraphDiscoveryService {
               },
               child.field,
               undefined,
+              undefined,
             );
             if (
               !visitedObjects.has(child.childSObject) &&
@@ -578,12 +597,16 @@ export class GraphDiscoveryService {
     // A lookup no write sets is listed among the child's fields and, in the
     // parent's describe, among its children: a real sandbox lists a quote's
     // account and a task's account there. The pair is met from both sides,
-    // and only the child's own field says no write sets it.
+    // and only the child's own field says no write sets it — or that only an
+    // insert does.
     const edges = [...edgeMap].map(([key, edge]): ForgeGraphEdge => {
-      const settable = [...(fieldsOfPair.get(key)?.values() ?? [])];
-      return settable.length > 0 && settable.every((s) => s === false)
-        ? { ...edge, settable: false }
-        : edge;
+      const sightings = [...(fieldsOfPair.get(key)?.values() ?? [])];
+      let marked = edge;
+      if (sightings.length > 0 && sightings.every((s) => s.settable === false)) {
+        marked = { ...marked, settable: false };
+      }
+      if (sightings.some((s) => s.insertOnly === true)) marked = { ...marked, insertOnly: true };
+      return marked;
     });
 
     return {

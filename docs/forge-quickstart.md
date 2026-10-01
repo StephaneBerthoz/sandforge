@@ -11,11 +11,11 @@ What it handles for you:
 - **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, instead of every row of every related table)
 - **RecordType cross-org**: re-mapped automatically by `DeveloperName`
 - **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
-- **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record
-- **Picklist drift**: a value the target would refuse — not one of the field's values there, or not one the record type the row goes in with allows — is replaced by that record type's default or left out, and the results say which, per object and field
+- **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record; in a target without person accounts, the account goes in as a business one by its name, and its contact as a contact of that account
+- **Picklist drift**: a value the target would refuse — in a restricted picklist, not one of the field's values there, or not one the record type the row goes in with allows — is replaced by that record type's default or left out, and the results say which, per object and field; an unrestricted picklist or a combobox takes any value, and keeps the one read, save a standard status, stage, priority or role, checked as a restricted one
 - **Validation rules of the target**: a record a rule refuses on a field it names is written again without that field, and the results say which field and why
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
-- **Required orphan parents**: single-hop fetch when an Asset references an Account outside the scope
+- **Required orphan parents**: single-hop fetch when an Asset references an Account outside the scope, its picklist values, validation rules and person contact handled as the run's own rows are
 - **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`, and the summary counts the rows patched as `updated`, apart from the ones created. The wizard always inserts.
 - **GDPR / PHI presets**: one-click anonymization for Email, Phone, Address, Birthdate (4 starter presets)
 

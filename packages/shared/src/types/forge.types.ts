@@ -210,6 +210,16 @@ export interface ForgeGraphEdge {
    * a row can set.
    */
   settable?: boolean;
+  /**
+   * Whether a field of the child that names the parent is one only an insert
+   * sets: createable, not updateable — an email's case. The second pass
+   * fills in a lookup by an update, which the platform refuses for it, so a
+   * row written before its parent keeps it empty for good: the parent goes
+   * first wherever the required edges leave the order free. Not a parent the
+   * child cannot be written without, unless `required` says so too. Optional:
+   * an edge that does not say is one an update can set.
+   */
+  insertOnly?: boolean;
 }
 
 /**
@@ -690,6 +700,16 @@ export interface ForgeExecutionResult {
    * linked to rather than created. Optional for runs recorded before it.
    */
   idRemapExisting?: string[];
+  /**
+   * Of `idRemapExisting`, the contacts the platform wrote with a person
+   * account this run created: the run never wrote them, and removing the
+   * account removes them, so a removal neither keeps them nor deletes them on
+   * their own — the platform refuses that ("You can modify a person contact
+   * but you can't create or delete a person contact": SOAP API Developer
+   * Guide, "Person Account Record Types"). Absent when there were none, and
+   * from runs recorded before it was kept.
+   */
+  idRemapWithTheirAccount?: string[];
   /**
    * Records this run created. The graph's per-node counts are never filled
    * in by a run, so without this the results read zero whatever was written.

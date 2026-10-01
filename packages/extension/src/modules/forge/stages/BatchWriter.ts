@@ -113,6 +113,12 @@ export interface PendingFkUpdate {
   sourceId: string | undefined;
   fieldName: string;
   sourceRefId: string;
+  /**
+   * Set when only an insert sets the field in the target: never sent, the
+   * platform refusing the update, and said to be left empty once its record
+   * is written. See `NullifiedFk.insertOnly`.
+   */
+  insertOnly?: true;
 }
 
 /** Inputs for {@link BatchWriter.writeNode}. */
@@ -219,7 +225,7 @@ export interface BatchWriteResult {
 export type WrittenWithoutFields = Omit<ForgeWrittenWithoutFields, 'objectApiName'>;
 
 /** A field a row goes again without, and the refusal that named it. */
-type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows'>;
+export type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows'>;
 
 /**
  * The code a validation rule of the target refuses a row with. A trigger that
@@ -327,11 +333,12 @@ function heldKeyOf(payload: Record<string, unknown>, named: string): string | un
  * named it: only when every error of the refusal is a validation rule's, and
  * each names a field the row gives a value to. Nothing otherwise — a rule that
  * names no field, or only fields the row leaves empty, would refuse the row
- * again whatever went, as any other error would.
+ * again whatever went, as any other error would. A parent copied from outside
+ * the graph is written again on the same rule (`OrphanExpander`).
  *
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
  */
-function fieldsToLeaveOut(
+export function fieldsToLeaveOut(
   result: InsertResult,
   payload: Record<string, unknown>,
   keep: string | undefined,
@@ -353,7 +360,7 @@ function fieldsToLeaveOut(
 }
 
 /** `payload` without the fields of `leftOut`, the payload itself left as it was. */
-function without(
+export function without(
   payload: Record<string, unknown>,
   leftOut: readonly FieldToLeaveOut[],
 ): Record<string, unknown> {
@@ -366,9 +373,17 @@ function fieldList(leftOut: readonly FieldToLeaveOut[]): string {
   return leftOut.map((f) => f.field).join(', ');
 }
 
-/** What the sample of a row sent again says after the second answer: what the first was. */
-function sentAgainNote(row: RefusedOnItsFields): string {
-  return `Sent again without ${fieldList(row.leftOut)} after the first refusal: ${row.errors.join('; ')}`;
+/**
+ * What the sample of a row sent again says after the second answer: what the
+ * first was.
+ *
+ * @param firstRefusal - What the target refused the row with the first time.
+ */
+export function sentAgainNote(
+  leftOut: readonly FieldToLeaveOut[],
+  firstRefusal: readonly string[],
+): string {
+  return `Sent again without ${fieldList(leftOut)} after the first refusal: ${firstRefusal.join('; ')}`;
 }
 
 /** A {@link BatchWriteResult} with nothing counted yet. */
@@ -676,6 +691,7 @@ export class BatchWriter {
             sourceId,
             fieldName: nf.field,
             sourceRefId: nf.sourceRefId,
+            ...(nf.insertOnly ? { insertOnly: true as const } : {}),
           });
         }
       }
@@ -723,7 +739,9 @@ export class BatchWriter {
       recordSummary: summarizeRecordForError(retried?.payload ?? payload),
       // Refused again, the row fails with what the target said the second
       // time, and says what it was first refused with.
-      messages: retried ? [...result.errors, sentAgainNote(retried)] : result.errors,
+      messages: retried
+        ? [...result.errors, sentAgainNote(retried.leftOut, retried.errors)]
+        : result.errors,
     });
   }
 
@@ -799,7 +817,7 @@ export class BatchWriter {
           recordSummary: summarizeRecordForError(row.payload),
           messages: [
             `No result returned for record (API truncated batch: ${results.length}/${chunk.length})`,
-            sentAgainNote(row),
+            sentAgainNote(row.leftOut, row.errors),
           ],
         });
       });

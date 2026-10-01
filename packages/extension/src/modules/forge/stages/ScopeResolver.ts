@@ -15,6 +15,7 @@ import {
   PRICEBOOK_OBJECT,
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
+  isInsertOnlyField,
   isRequiredLookup,
   isSettableField,
 } from '@sandforge/shared';
@@ -277,13 +278,18 @@ export function ordersTheWrite(edge: Pick<ForgeGraphEdge, 'settable'>): boolean 
  * The graph with what the fields of each child say of the edges to it: an
  * edge whose every lookup of the child that names the parent is one no write
  * can set is marked so (`settable: false`), and one a field of the child can
- * set is not. An edge of a child whose fields are not given, or none of whose
- * fields names the parent, stays as discovery left it.
+ * set is not; one with a lookup only an insert sets is marked so
+ * (`insertOnly`), and one without is not. An edge of a child whose fields are
+ * not given, or none of whose fields names the parent, stays as discovery
+ * left it.
  *
  * Discovery marks what it walked. An object at the edge of the graph had its
  * lookups listed by the parent alone, which cannot say whether the child's
  * field can be set: a run that has described the child says it, as it says
- * which of its lookups a row cannot leave empty.
+ * which of its lookups a row cannot leave empty. Whether only an insert sets
+ * a field is the field's own — a master-detail whose parent cannot change,
+ * an email's case: field-level security lets a user set a field both ways or
+ * neither — so the source's describe says it of the target too.
  *
  * @param fieldsByObject - The source fields of the objects the run writes.
  */
@@ -298,12 +304,17 @@ export function withWhatTheFieldsSayOfEdges(
     );
     if (naming.length === 0) return edge;
     const settable = naming.some((f) => isSettableField(f));
-    if (settable === ordersTheWrite(edge)) return edge;
+    const insertOnly = naming.some((f) => isInsertOnlyField(f));
+    if (settable === ordersTheWrite(edge) && insertOnly === (edge.insertOnly === true)) {
+      return edge;
+    }
     changed = true;
-    if (!settable) return { ...edge, settable: false };
-    const cleared: ForgeGraphEdge = { ...edge };
-    delete cleared.settable;
-    return cleared;
+    const said: ForgeGraphEdge = { ...edge };
+    if (settable) delete said.settable;
+    else said.settable = false;
+    if (insertOnly) said.insertOnly = true;
+    else delete said.insertOnly;
+    return said;
   });
   return changed ? { ...graph, edges } : graph;
 }
@@ -341,6 +352,15 @@ export function withWhatTheFieldsSayOfEdges(
  * the contact the platform writes with it made the contact the account's
  * parent, and the contacts went in first.
  *
+ * An edge of a lookup only an insert sets (`insertOnly`) breaks ties before
+ * the optional ones do: the next object written is the one with the fewest
+ * such parents still to write. The second pass fills in a lookup by an
+ * update, which the platform refuses for such a field, so one written before
+ * its record stays empty for good. It is no required edge all the same: the
+ * row goes in without the lookup, a required edge against it wins, and in a
+ * cycle of such lookups one of them is written before its record whatever
+ * the order — the second pass says it is left empty.
+ *
  * @param orderEdges - Orders the graph does not hold as lookups, kept like
  *   required edges: the catalog's, see {@link catalogWriteEdges}.
  */
@@ -350,7 +370,10 @@ export function sortNodesForWriting(
 ): ForgeGraphNode[] {
   const ordering = graph.edges.filter(ordersTheWrite);
   const requiredEdges = [...ordering.filter((e) => e.required === true), ...orderEdges];
-  if (requiredEdges.length === 0) return topologicalSort(graph, ordering);
+  const insertOnlyEdges = ordering.filter((e) => e.insertOnly === true && e.required !== true);
+  if (requiredEdges.length === 0 && insertOnlyEdges.length === 0) {
+    return topologicalSort(graph, ordering);
+  }
 
   const names = new Set(graph.nodes.map((n) => n.objectApiName));
   const full = topologicalSort(graph, ordering);
@@ -379,13 +402,32 @@ export function sortNodesForWriting(
   for (const [child, parents] of optionalParents) {
     for (const parent of parents) link(optionalChildren, parent, child);
   }
+  const insertOnlyParents = new Map<string, Set<string>>();
+  const insertOnlyChildren = new Map<string, Set<string>>();
+  for (const { sourceObject: parent, targetObject: child } of insertOnlyEdges) {
+    if (parent === child || !names.has(parent) || !names.has(child)) continue;
+    if (requiredParents.get(child)?.has(parent)) continue;
+    link(insertOnlyParents, child, parent);
+    link(insertOnlyChildren, parent, child);
+  }
 
   const requiredLeft = new Map<string, number>();
+  const insertOnlyLeft = new Map<string, number>();
   const optionalLeft = new Map<string, number>();
   for (const name of names) {
     requiredLeft.set(name, requiredParents.get(name)?.size ?? 0);
+    insertOnlyLeft.set(name, insertOnlyParents.get(name)?.size ?? 0);
     optionalLeft.set(name, optionalParents.get(name)?.size ?? 0);
   }
+  /** Whether `name` goes before `other`: fewer parents of a lookup only an insert sets to wait for, then fewer optional ones, then the order of every edge. */
+  const goesBefore = (name: string, other: string): boolean => {
+    for (const left of [insertOnlyLeft, optionalLeft, fullIndex]) {
+      const mine = left.get(name) ?? 0;
+      const theirs = left.get(other) ?? 0;
+      if (mine !== theirs) return mine < theirs;
+    }
+    return false;
+  };
   const ready = new Set([...names].filter((name) => requiredLeft.get(name) === 0));
   const byName = new Map(graph.nodes.map((n) => [n.objectApiName, n]));
   const sorted: ForgeGraphNode[] = [];
@@ -393,14 +435,7 @@ export function sortNodesForWriting(
   while (ready.size > 0) {
     let next: string | undefined;
     for (const name of ready) {
-      if (
-        next === undefined ||
-        (optionalLeft.get(name) ?? 0) < (optionalLeft.get(next) ?? 0) ||
-        ((optionalLeft.get(name) ?? 0) === (optionalLeft.get(next) ?? 0) &&
-          (fullIndex.get(name) ?? 0) < (fullIndex.get(next) ?? 0))
-      ) {
-        next = name;
-      }
+      if (next === undefined || goesBefore(name, next)) next = name;
     }
     if (next === undefined) break;
     ready.delete(next);
@@ -411,6 +446,9 @@ export function sortNodesForWriting(
       const left = (requiredLeft.get(child) ?? 1) - 1;
       requiredLeft.set(child, left);
       if (left === 0 && !written.has(child)) ready.add(child);
+    }
+    for (const child of insertOnlyChildren.get(next) ?? []) {
+      insertOnlyLeft.set(child, (insertOnlyLeft.get(child) ?? 1) - 1);
     }
     for (const child of optionalChildren.get(next) ?? []) {
       optionalLeft.set(child, (optionalLeft.get(child) ?? 1) - 1);

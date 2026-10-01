@@ -113,11 +113,14 @@ ForgeOrchestrator.execute(graph, config)
        │           would refuse, for the record type the row goes in with
        │           when the mapping knows it (see below)
        │         - omit nullified orphan FKs (don't send `null`); a lookup no
-       │           write can set is owed nothing by the second pass
+       │           write can set is owed nothing by the second pass, and one
+       │           only an insert sets is said to be left empty, never sent
        │         - apply RecordType mapping (DeveloperName)
-       │    7. batch insert into target (never a person account's contact:
-       │       see "Person accounts"); a row a validation rule refuses on
-       │       fields it names is sent once more without them
+       │    7. batch insert into target (never a person account's contact
+       │       the target writes with its account: see "Person accounts");
+       │       a row a validation rule refuses on fields it names is sent
+       │       once more without them — and so is a required parent copied
+       │       from outside the graph, its picklist values checked first
        │
        ├─ with `files`: before the first write, the files of the records read
        │    (the latest version of each document linked to one, and the
@@ -185,10 +188,24 @@ refuse is replaced by the record type's default for the field; in a field the
 target requires and the record type sets no default for, by the first value the
 record type allows, since the row cannot go in without one; and otherwise it is
 left out. A multi-select value keeps the values of its selection the record type
-allows, and is replaced or left out only when none is left. Any other value —
-the row's record type not mapped, the field not restricted, or left out of the
-record type's answer — is checked against the field's active values, one value
-of a selection at a time, and left out when it is not one of them. A record type
+allows, and is replaced or left out only when none is left. Any other value of a
+restricted picklist — the row's record type not mapped, or the field left out of
+the record type's answer — is checked against the field's active values, one
+value of a selection at a time, and left out when it is not one of them; so is a
+value of a field whose describe does not say whether it is restricted. An
+unrestricted picklist, single or multi-select, and a combobox keep the value
+read: "The API doesn't enforce the list of values for advisory (unrestricted)
+picklist fields on create() or update()", and the target adds a value it does
+not hold to the field as an inactive one (Object Reference for the Salesforce
+Platform, Picklist Field Type). The standard picklists whose values are records
+of an object of their own — a case's, a lead's, a contract's or a solution's
+status, an opportunity's stage, a task's status and priority, a partner's role —
+the statuses whose values carry a category the platform acts on — an order's,
+a work order's, a work order line item's, a service appointment's — and a
+campaign member's, one of its campaign's statuses, are checked as a
+restricted picklist is all the same: the describe calls them
+unrestricted, and whether the API takes a value they do not hold is documented
+nowhere, where left out the value takes the target's default. A record type
 whose values could not be read is said once, in a `scope` report of the object
 that counts no row, and its rows are checked against the fields' values; so is a
 field its answer leaves out that its rows hold a value in. What a write did not
@@ -196,7 +213,11 @@ send as read is said on the object's line — `Completed Quote: 2 succeeded, 0
 failed, picklist values not written as read: Status__c on 1 row: "Old" not
 allowed for record type Retail, replaced by "New", the default of record type
 Retail` — and listed per object, field and reason in `picklistValuesChanged`.
-The rows are counted written or failed as the target answered them.
+The rows are counted written or failed as the target answered them. A required
+parent copied from outside the graph (`expandOrphanParents`) is checked the
+same way, against the record type the mapping gives it, read once a run with
+the run's own; what it changes is listed under its object in
+`picklistValuesChanged`.
 
 Once the run has written, it reads back from the target the `CreatedDate` and
 `LastModifiedDate` of every record it created — the `SystemModstamp` of an
@@ -238,24 +259,64 @@ plan's cycles leave it out, a parent that fails takes nothing down through it,
 and the second pass owes it nothing. Where discovery did not walk the child's
 lookups, the fields the run describes say it.
 
+The second pass fills a lookup in by an update, as the user the run writes as:
+what it is owed is read from the target's describe of each object written —
+the one the run reads for its field sets, so no request more. A lookup the
+user the run reads as may not set and the target's may is owed to it, even at
+a record already written, which the insert could not carry; one the target's
+user may not update is not, where its update was refused with the row's other
+lookups in it. A lookup only an insert sets — createable, not updateable, as an
+email's case or a master-detail whose parent cannot change — is written with
+its row or never. Discovery marks its edge `insertOnly`, and the write order
+puts its record first wherever the required lookups leave the order free,
+breaking ties before the optional lookups do; it is no required edge, and a
+row still goes in without it. In a cycle of such lookups, or against a required
+one, one is written before its record whatever the order: the second pass
+sends no update for it, says it is left empty (`Lookup 'X' left empty: only an
+insert sets it, …` in `__pass2__`), and so does the plan's cycle. A row the run
+retried wrote is owed only what an update can set.
+
 ## Person accounts
 
 The platform writes a person account's contact (`Contact.IsPersonAccount`)
 itself as it takes the account, and links the two by the account's
-`PersonContactId`. In an org whose describes have person accounts, the run
-writes the accounts before the contacts and never sends a person account's
-contact. Once the accounts have had their turn, it reads back the
-`PersonContactId` of every person account it has in the target — written,
-linked to one the target already held, or written by the run it retries — and
-maps the source contact onto the one the platform wrote: what points at it
-(`Case.ContactId`, a contact role, a custom lookup) is written against that
-one. The contact's own row is linked, counted with the linked records, and
-never removed on its own — it goes with its account:
+`PersonContactId`. The API takes an update of such a contact, never its insert
+or its delete: "You can modify a person contact but you can't create or delete
+a person contact … Instead, delete or modify the account" (SOAP API Developer
+Guide, "Person Account Record Types"). In an org whose describes have person
+accounts, the run writes the accounts before the contacts and never sends a
+person account's contact the target writes one for. Once the accounts have had
+their turn, it reads back the `PersonContactId` of every person account it has
+in the target — written, linked to one the target already held, or written by
+the run it retries — and maps the source contact onto the one the platform
+wrote: what points at it (`Case.ContactId`, a contact role, a custom lookup) is
+written against that one. The contact's own row is linked, counted with the
+linked records, and never removed on its own — it goes with its account:
 `Completed Contact: 3 succeeded, 2 written by the platform with their person
-account, 0 failed`. One whose account the run did not write, or whose contact
-was not found in the target, is not sent either, and is counted as failed with
-why. A dry run says them apart from the rows it would insert, and orphan
-expansion never copies such a contact on its own.
+account, 0 failed`. Of an account the run created, the result lists the contact
+under `idRemapWithTheirAccount`, and a removal's confirmation counts it among
+neither the records it deletes nor those it keeps. One whose account the run
+did not write, or whose contact was not found in the target, is not sent
+either, and is counted as failed with why. A dry run says them apart from the
+rows it would insert.
+
+A target that wrote no contact with the account sends the source's as a contact
+of its own, its account's lookup set as any contact's is (the platform takes a
+contact on a business account): one with person accounts that holds the
+account as a business one — linked to, or written in its place — and one
+without person accounts, which is never asked for a `PersonContactId` it does
+not have. There, a person account goes in as a business account, by the name
+the source computed for it (its record type maps by API name as any does, or is
+excluded on the object to take the target's default), and a dry run counts its
+contact among the rows it would insert. The object's line says it — `Completed
+Contact: 2 succeeded, 0 failed, 1 person account's contact sent on their own:
+the target wrote none with their account` — and a `scope` report of the object
+that counts no row says why.
+
+A required parent copied from outside the graph goes in on the same rules: a
+person account's contact is linked to the one the platform wrote with it, and
+what points at it is written against that one; such a contact is copied on its
+own only into a target without person accounts.
 
 ## Error structure
 
@@ -319,7 +380,11 @@ the audit entry counts the rows so written, never their values. A row refused
 again is never sent a third time: it fails with the second refusal, its sample
 saying what the first was. A cancel before that call, or a call that throws —
 of the first write or of this one — leaves the rows it would have sent failed
-with their first refusal, saying why they were not written again.
+with their first refusal, saying why they were not written again. A required
+parent copied from outside the graph is written again on the same rule, once,
+and counted under its object in `writtenWithoutFields`; refused, it is reported
+in the `__expandOrphanParents__` report with what the target answered, and with
+its first refusal when it was sent again.
 
 The rows held back before the write are counted with the rows the target
 refused on the object's line, as the run's totals and its audit entry count
@@ -410,7 +475,7 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   read again under by the nodes read before, and what that adds, three levels
   below the parent at most. Past that, the rows are as the order of the reads
   left them.
-- **A person account copied by orphan expansion**: the platform writes its
-  contact with it, but the run maps only the contacts of the accounts the
-  account node wrote or linked; a record pointing at that contact goes in
-  without it, or is refused when it may not leave the lookup empty.
+- **A person account written with a business record type**: in a target with
+  person accounts, a person account whose record type maps to a business one —
+  or whose `RecordTypeId` is excluded and the default is a business one — is
+  sent without its computed name, as a person account is, and refused.

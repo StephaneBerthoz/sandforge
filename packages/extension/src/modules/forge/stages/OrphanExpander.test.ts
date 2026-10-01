@@ -2,9 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { OrphanExpander, type OrphanExpansionInput } from './OrphanExpander.js';
 import { IdRemapper } from '../IdRemapper.js';
 import { RecordScopeCache } from '../RecordScopeCache.js';
-import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
+import type { FieldInfo, ForgeExecutorDeps, InsertResult } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { RowsLeftToThePlatform } from '../../../core/common/platformRecords.js';
+import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
+import type { RecordTypePicklists } from '../../../core/metadata/recordTypePicklists.js';
+import { RecordTypeMapper } from '../../sync/RecordTypeMapper.js';
+import { PicklistChangeTally, RecordTypePicklistReads } from './RecordTypePicklists.js';
+import type { WrittenWithoutFields } from './BatchWriter.js';
 
 const ORPHAN_ID = '001AP00ORPHAN12'; // 15 alnum — passes SF_RECORD_ID_RE
 
@@ -246,8 +251,9 @@ describe('OrphanExpander', () => {
     await expander.expandForNode(input);
 
     expect(input.remapper.get(ORPHAN_ID)).toBeUndefined();
+    // The refusal is what the report says, as a row of the run's says it.
     expect(expander.buildErrorReport()?.samples[0].messages).toEqual([
-      'Orphan parent expansion produced no new id',
+      'DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: 003Fk00000MnOpQ',
     ]);
   });
 
@@ -460,7 +466,21 @@ describe('OrphanExpander', () => {
     expect(report?.objectApiName).toBe('__expandOrphanParents__');
     expect(report?.failedCount).toBe(1);
     expect(report?.attemptedCount).toBe(0); // only successful expansions count
-    expect(report?.samples[0].messages[0]).toContain('no new id');
+    expect(report?.samples[0].messages).toEqual(['REQUIRED_FIELD_MISSING']);
+  });
+
+  it('says the parent produced no new id when the target answers its insert with nothing', async () => {
+    const deps = makeDeps({
+      insertRecords: vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([]),
+    });
+    const { input } = makeInput(deps);
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(expander.buildErrorReport()?.samples[0].messages).toEqual([
+      'Orphan parent expansion produced no new id',
+    ]);
   });
 
   it('captures invalid record IDs as error samples instead of throwing', async () => {
@@ -733,5 +753,437 @@ describe('OrphanExpander', () => {
     });
     await new OrphanExpander(deps).expandForNode(input);
     expect(deps.insertRecords).toHaveBeenCalledTimes(6);
+  });
+
+  describe("a parent goes in on the rules the run's own rows go in on", () => {
+    /** The parent's record type in the source, and the one the mapping gives it in the target. */
+    const SOURCE_RETAIL = '012AP0000000001AAA';
+    const TARGET_RETAIL = '012AP0000000101AAA';
+    const MAPPINGS = [
+      { sourceId: SOURCE_RETAIL, targetId: TARGET_RETAIL, developerName: 'Retail' },
+    ];
+    const RULE = 'Enter the phone in international format';
+
+    /** An account with a phone and a restricted picklist, described alike in both orgs. */
+    const PARENT_FIELDS: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Name', queryable: true, createable: true, isReference: false },
+      { name: 'Phone', queryable: true, createable: true, isReference: false, type: 'phone' },
+      {
+        name: 'RecordTypeId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['RecordType'],
+      },
+      {
+        name: 'Tier__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        type: 'picklist',
+        restrictedPicklist: true,
+        picklistValues: ['Gold', 'Silver', 'Bronze'],
+      },
+    ];
+    const PARENT_ROW = {
+      Id: ORPHAN_ID,
+      Name: 'Acme',
+      Phone: '555-0100',
+      RecordTypeId: SOURCE_RETAIL,
+      Tier__c: 'Gold',
+    };
+    /** What the target's record type Retail keeps of Tier__c: "Gold" is active, and not kept. */
+    const RETAIL: RecordTypePicklists = new Map([
+      ['Tier__c', { values: ['Silver', 'Bronze'], defaultValue: 'Silver' }],
+    ]);
+
+    const parentDeps = (
+      insertRecords = vi
+        .fn<ExpanderDeps['insertRecords']>()
+        .mockResolvedValue([{ id: '001NEW', success: true, errors: [] }]),
+      row: Record<string, unknown> = PARENT_ROW,
+    ) =>
+      makeDeps({
+        describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue(PARENT_FIELDS),
+        queryRecords: vi.fn<ExpanderDeps['queryRecords']>().mockResolvedValue([{ ...row }]),
+        insertRecords,
+      });
+
+    /** The rule's refusal of the phone, as the writers read it from the platform. */
+    const refusedOnThePhone = (): InsertResult =>
+      toSaveOutcome(
+        {
+          success: false,
+          errors: [
+            { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: ['Phone'] },
+          ],
+        },
+        'Account',
+      );
+
+    it("replaces a restricted value the parent's record type does not keep, and counts it in the run's tally", async () => {
+      // Copied as read, the parent was refused — "bad value for restricted
+      // picklist field" — and the row that needed it with it.
+      const deps = parentDeps();
+      const read = vi.fn(async (_object: string, _recordTypeId: string) => RETAIL);
+      const picklistChanges = new PicklistChangeTally();
+      const { input } = makeInput(deps, {
+        recordTypeMappings: MAPPINGS,
+        recordTypeMapper: new RecordTypeMapper(),
+        recordTypePicklists: new RecordTypePicklistReads(read),
+        picklistChanges,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([
+        { Name: 'Acme', Phone: '555-0100', RecordTypeId: TARGET_RETAIL, Tier__c: 'Silver' },
+      ]);
+      expect(read.mock.calls).toEqual([['Account', TARGET_RETAIL]]);
+      expect(picklistChanges.list()).toEqual([
+        {
+          objectApiName: 'Account',
+          field: 'Tier__c',
+          reason: 'record-type',
+          values: ['Gold'],
+          rows: 1,
+          recordType: 'Retail',
+          replacedBy: 'Silver',
+          replacement: 'default',
+        },
+      ]);
+      expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
+    });
+
+    it('asks nothing more of a record type the run has read for its own rows', async () => {
+      const deps = parentDeps();
+      const read = vi.fn(async (_object: string, _recordTypeId: string) => RETAIL);
+      const reads = new RecordTypePicklistReads(read);
+      // The account node's rows, read before the parent was met.
+      await reads.forRows({
+        objectApiName: 'Account',
+        rows: [{ ...PARENT_ROW, Id: '001AP00000OTHER' }],
+        fields: new Map([['Tier__c', { multi: false, restricted: true, required: false }]]),
+        written: () => true,
+        recordTypeMappings: MAPPINGS,
+      });
+      const { input } = makeInput(deps, {
+        recordTypeMappings: MAPPINGS,
+        recordTypeMapper: new RecordTypeMapper(),
+        recordTypePicklists: reads,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2][0]).toMatchObject({
+        Tier__c: 'Silver',
+      });
+    });
+
+    it('leaves out of a parent a restricted value the target does not hold', async () => {
+      const deps = parentDeps(undefined, { ...PARENT_ROW, Tier__c: 'Platinum' });
+      const picklistChanges = new PicklistChangeTally();
+      const { input } = makeInput(deps, { picklistChanges });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([
+        { Name: 'Acme', Phone: '555-0100', RecordTypeId: SOURCE_RETAIL },
+      ]);
+      expect(picklistChanges.list()).toEqual([
+        {
+          objectApiName: 'Account',
+          field: 'Tier__c',
+          reason: 'not-in-target',
+          values: ['Platinum'],
+          rows: 1,
+        },
+      ]);
+    });
+
+    it("says once a record type whose values could not be read, and checks the parent's values against each field's", async () => {
+      const deps = parentDeps();
+      const notes: Array<[string, unknown]> = [];
+      const { input } = makeInput(deps, {
+        recordTypeMappings: MAPPINGS,
+        recordTypeMapper: new RecordTypeMapper(),
+        recordTypePicklists: new RecordTypePicklistReads(async () => {
+          throw new Error('INVALID_TYPE: not supported by the UI API');
+        }),
+        onRecordTypeNote: (object, note) => notes.push([object, note]),
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(notes).toEqual([
+        ['Account', { recordType: 'Retail', error: 'INVALID_TYPE: not supported by the UI API' }],
+      ]);
+      // Active in the target, "Gold" goes as read.
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2][0]).toMatchObject({ Tier__c: 'Gold' });
+    });
+
+    it('writes a parent a validation rule refused on a field it named once more without it, and counts it', async () => {
+      // Refused on its phone, the parent went down, and the row that needed
+      // it with it.
+      const insertRecords = vi
+        .fn<ExpanderDeps['insertRecords']>()
+        .mockResolvedValueOnce([refusedOnThePhone()])
+        .mockResolvedValueOnce([{ id: '001NEW', success: true, errors: [] }]);
+      const deps = parentDeps(insertRecords);
+      const written: Array<[string, WrittenWithoutFields]> = [];
+      const { input } = makeInput(deps, {
+        onWrittenWithoutFields: (object, without) => written.push([object, without]),
+      });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(insertRecords.mock.calls.map(([, , rows]) => rows)).toEqual([
+        [{ Name: 'Acme', Phone: '555-0100', RecordTypeId: SOURCE_RETAIL, Tier__c: 'Gold' }],
+        [{ Name: 'Acme', RecordTypeId: SOURCE_RETAIL, Tier__c: 'Gold' }],
+      ]);
+      expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
+      expect(written).toEqual([
+        [
+          'Account',
+          {
+            rows: 1,
+            fields: [
+              { field: 'Phone', reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`, rows: 1 },
+            ],
+          },
+        ],
+      ]);
+      expect(expander.buildErrorReport()).toBeNull();
+    });
+
+    it('fails a parent refused again, never sent a third time, with both refusals', async () => {
+      const insertRecords = vi
+        .fn<ExpanderDeps['insertRecords']>()
+        .mockResolvedValueOnce([refusedOnThePhone()])
+        .mockResolvedValueOnce([
+          { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Give a phone'] },
+        ]);
+      const deps = parentDeps(insertRecords);
+      const onWrittenWithoutFields = vi.fn();
+      const { input } = makeInput(deps, { onWrittenWithoutFields });
+      const expander = new OrphanExpander(deps);
+
+      await expander.expandForNode(input);
+
+      expect(insertRecords).toHaveBeenCalledTimes(2);
+      expect(input.remapper.get(ORPHAN_ID)).toBeUndefined();
+      expect(onWrittenWithoutFields).not.toHaveBeenCalled();
+      expect(expander.buildErrorReport()?.samples).toEqual([
+        {
+          recordSummary: `Account/${ORPHAN_ID}`,
+          messages: [
+            'FIELD_CUSTOM_VALIDATION_EXCEPTION: Give a phone',
+            `Sent again without Phone after the first refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
+          ],
+        },
+      ]);
+    });
+
+    it('sends once a parent a validation rule refused without naming a field', async () => {
+      const unnamed = toSaveOutcome(
+        {
+          success: false,
+          errors: [{ statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: [] }],
+        },
+        'Account',
+      );
+      const insertRecords = vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([unnamed]);
+      const deps = parentDeps(insertRecords);
+      const expander = new OrphanExpander(deps);
+      const { input } = makeInput(deps);
+
+      await expander.expandForNode(input);
+
+      expect(insertRecords).toHaveBeenCalledTimes(1);
+      expect(expander.buildErrorReport()?.samples[0].messages).toEqual([
+        `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+      ]);
+    });
+
+    describe('a person account', () => {
+      const PERSON = '001AP00PERSON12';
+      const PERSON_CONTACT = '003AP00PERSON12';
+      const PLATFORM_CONTACT = '003TG00PLATFORM';
+      /** A case whose account and contact may not be left empty, both a person account's. */
+      const CASE_FIELDS: FieldInfo[] = [
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        ...(['Account', 'Contact'] as const).map((object): FieldInfo => ({
+          name: `${object}Id`,
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: [object],
+          nillable: false,
+        })),
+      ];
+      const personDeps = (insertRecords?: ExpanderDeps['insertRecords']) => ({
+        ...makeDeps({
+          describeFields: vi.fn<ExpanderDeps['describeFields']>(async (_org, object) => [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'LastName', queryable: true, createable: true, isReference: false },
+            { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+            ...(object === 'Account'
+              ? [
+                  {
+                    name: 'PersonContactId',
+                    queryable: true,
+                    createable: false,
+                    updateable: false,
+                    isReference: true,
+                    referenceTo: ['Contact'],
+                  },
+                ]
+              : []),
+          ]),
+          queryRecords: vi.fn<ExpanderDeps['queryRecords']>(async (_org, soql) =>
+            soql.includes('FROM Account')
+              ? [
+                  {
+                    Id: PERSON,
+                    LastName: 'Doe',
+                    IsPersonAccount: true,
+                    PersonContactId: PERSON_CONTACT,
+                  },
+                ]
+              : [{ Id: PERSON_CONTACT, LastName: 'Doe', IsPersonAccount: true }],
+          ),
+          ...(insertRecords ? { insertRecords } : {}),
+        }),
+        describeObject: vi.fn(async () => ({ keyPrefix: '001', recordTypes: [] })),
+      });
+      /** The run's link: the contact the platform wrote with each account, mapped from the source's. */
+      const linkingThrough = (remapper: IdRemapper) =>
+        vi.fn(async (accounts: readonly Record<string, unknown>[]) => {
+          for (const account of accounts) {
+            remapper.addExisting(String(account['PersonContactId']), PLATFORM_CONTACT);
+          }
+        });
+
+      it('links the contact the platform wrote with a person account it copied, before any contact is copied', async () => {
+        // The case needs both. Copied side by side, the contact was refused as
+        // a person account's — never copied on its own — and the case with it.
+        const deps = personDeps();
+        const remapper = new IdRemapper();
+        const linkPersonContacts = linkingThrough(remapper);
+        const { input } = makeInput(deps, {
+          node: makeNode('Case'),
+          fieldInfos: CASE_FIELDS,
+          records: [{ Id: '500OLD1', AccountId: PERSON, ContactId: PERSON_CONTACT }],
+          remapper,
+          linkPersonContacts,
+        });
+        const expander = new OrphanExpander(deps);
+
+        await expander.expandForNode(input);
+
+        expect(vi.mocked(deps.insertRecords).mock.calls.map(([, object]) => object)).toEqual([
+          'Account',
+        ]);
+        expect(linkPersonContacts).toHaveBeenCalledWith([
+          { Id: PERSON, LastName: 'Doe', IsPersonAccount: true, PersonContactId: PERSON_CONTACT },
+        ]);
+        expect(remapper.get(PERSON)).toBe('001NEW');
+        expect(remapper.get(PERSON_CONTACT)).toBe(PLATFORM_CONTACT);
+        // The contact was never read: nothing was left to copy.
+        expect(
+          vi.mocked(deps.queryRecords).mock.calls.some(([, soql]) => soql.includes('FROM Contact')),
+        ).toBe(false);
+        expect(expander.buildErrorReport()).toBeNull();
+      });
+
+      it('links the contact of a person account the target already held, found by the refusal of its copy', async () => {
+        const deps = personDeps(
+          vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([
+            {
+              id: '',
+              success: false,
+              errors: [
+                'DUPLICATE_VALUE: duplicate value found: Ext__c duplicates value on record with id: 001Fk00000AbCdE',
+              ],
+            },
+          ]),
+        );
+        const remapper = new IdRemapper();
+        const linkPersonContacts = linkingThrough(remapper);
+        const { input } = makeInput(deps, {
+          records: [{ Id: '02iOLD1', AccountId: PERSON }],
+          remapper,
+          linkPersonContacts,
+        });
+
+        await new OrphanExpander(deps).expandForNode(input);
+
+        expect(remapper.isExisting(PERSON)).toBe(true);
+        expect(linkPersonContacts).toHaveBeenCalledTimes(1);
+        expect(remapper.get(PERSON_CONTACT)).toBe(PLATFORM_CONTACT);
+      });
+
+      it('copies a person account as the business one a target without person accounts makes of it, by its name', async () => {
+        // Its name left out as a person account's is, the target — which
+        // computes none — refused it: REQUIRED_FIELD_MISSING, Name.
+        const deps = makeDeps({
+          describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Name', queryable: true, createable: true, isReference: false },
+            { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+          ]),
+          queryRecords: vi
+            .fn<ExpanderDeps['queryRecords']>()
+            .mockResolvedValue([{ Id: PERSON, Name: 'Jane Doe', IsPersonAccount: true }]),
+        });
+        const { input } = makeInput(deps, {
+          records: [{ Id: '02iOLD1', AccountId: PERSON }],
+          personAccountsInTarget: async () => false,
+        });
+
+        await new OrphanExpander(deps).expandForNode(input);
+
+        expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([{ Name: 'Jane Doe' }]);
+      });
+
+      it("copies a person account's contact as any contact in a target without person accounts", async () => {
+        // The target writes no contact with an account there: refused as one
+        // the platform writes, the contact never went in, nor the row needing it.
+        const deps = personDeps(
+          vi
+            .fn<ExpanderDeps['insertRecords']>()
+            .mockResolvedValue([{ id: '003NEW', success: true, errors: [] }]),
+        );
+        const { input } = makeInput(deps, {
+          node: makeNode('CaseContactRole'),
+          fieldInfos: [CASE_FIELDS[0], CASE_FIELDS[2]],
+          records: [{ Id: '03jOLD1', ContactId: PERSON_CONTACT }],
+          personAccountsInTarget: async () => false,
+        });
+        const expander = new OrphanExpander(deps);
+
+        await expander.expandForNode(input);
+
+        expect(vi.mocked(deps.insertRecords).mock.calls).toEqual([
+          ['tgt', 'Contact', [{ LastName: 'Doe' }]],
+        ]);
+        expect(input.remapper.get(PERSON_CONTACT)).toBe('003NEW');
+        expect(expander.buildErrorReport()).toBeNull();
+      });
+
+      it('asks no contact of a business account it copied', async () => {
+        const deps = makeDeps();
+        const linkPersonContacts = vi.fn(async () => undefined);
+        const { input } = makeInput(deps, { linkPersonContacts });
+
+        await new OrphanExpander(deps).expandForNode(input);
+
+        expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
+        expect(linkPersonContacts).not.toHaveBeenCalled();
+      });
+    });
   });
 });

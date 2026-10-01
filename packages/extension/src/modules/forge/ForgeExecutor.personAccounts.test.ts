@@ -602,6 +602,237 @@ describe('ForgeExecutor, person accounts', () => {
     expect(inserted).toEqual([{ object: 'Line__c', rows: [{ Name: 'L' }] }]);
   });
 
+  it('counts the contact the platform wrote with an account the run created as going with it, never as kept', async () => {
+    // Linked, it read as a record a removal of the run's records keeps; the
+    // platform deletes it with its account, and refuses its delete on its own.
+    const { executor } = orgsWithPersonAccounts();
+
+    const summary = await executor.execute(
+      CASE_GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      ROOTED_AT_THE_CASE,
+    );
+
+    expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
+    expect(summary.withTheirAccountSourceIds).toEqual([PERSON_CONTACT]);
+  });
+
+  it('counts the contact of a person account the target already held as kept', async () => {
+    const { executor } = orgsWithPersonAccounts((object, row) =>
+      object === 'Account' && row['LastName'] === 'Doe'
+        ? {
+            id: '',
+            success: false,
+            errors: [
+              `DUPLICATE_VALUE: duplicate value found: Ext__c duplicates value on record with id: ${HELD_ACCOUNT}`,
+            ],
+          }
+        : undefined,
+    );
+
+    const summary = await executor.execute(
+      CASE_GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      ROOTED_AT_THE_CASE,
+    );
+
+    expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
+    expect(summary.withTheirAccountSourceIds).toBeUndefined();
+  });
+
+  describe('a target that writes no contact with the account', () => {
+    /** A business account the target already held, with no contact of the platform's. */
+    const HELD_BUSINESS = '001Fk00000BuSyA';
+
+    it('sends the contact of a person account it holds as a business one as a contact of that account', async () => {
+      // The copy refused as a duplicate of a business account: the platform
+      // wrote no contact with it. Held back, the contact was lost, and the
+      // case's lookup at it with it.
+      const { executor, inserted, deps } = orgsWithPersonAccounts((object, row) =>
+        object === 'Account' && row['LastName'] === 'Doe'
+          ? {
+              id: '',
+              success: false,
+              errors: [
+                `DUPLICATE_VALUE: duplicate value found: Ext__c duplicates value on record with id: ${HELD_BUSINESS}`,
+              ],
+            }
+          : undefined,
+      );
+      const events: ForgeProgressEvent[] = [];
+
+      const summary = await executor.execute(
+        CASE_GRAPH,
+        'src',
+        'tgt',
+        (e) => events.push(e),
+        ROOTED_AT_THE_CASE,
+      );
+
+      const business = summary.remapTable[PERSON];
+      expect(business.slice(0, 15)).toBe(HELD_BUSINESS);
+      expect(inserted.find(({ object }) => object === 'Contact')?.rows).toEqual([
+        { LastName: 'Doe', AccountId: business },
+        { LastName: 'Roe', AccountId: summary.remapTable[BUSINESS] },
+      ]);
+      expect(inserted.find(({ object }) => object === 'Case')?.rows).toEqual([
+        { Subject: 'Help', AccountId: business, ContactId: summary.remapTable[PERSON_CONTACT] },
+      ]);
+      // Created by the run, as any contact it writes.
+      expect(summary.existingSourceIds).not.toContain(PERSON_CONTACT);
+      // Asked once which contact the platform wrote with the account: none.
+      expect(
+        deps.queryRecords.mock.calls.filter(
+          ([org, soql]) => org === 'tgt' && soql.includes('PersonContactId'),
+        ),
+      ).toHaveLength(1);
+      expect(lastLines(events).get('Contact')).toBe(
+        "Completed Contact: 2 succeeded, 0 failed, 1 person account's contact sent on their own: " +
+          'the target wrote none with their account',
+      );
+      expect(summary.errors).toContainEqual({
+        objectApiName: 'Contact',
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'IsPersonAccount=true (1 record)',
+            messages: [
+              'Sent as contacts of their own: their account is no person account in the target, ' +
+                'and wrote no contact with it.',
+            ],
+          },
+        ],
+      });
+    });
+
+    /**
+     * The source's person accounts, and a target that has none: its account has
+     * no PersonContactId, nor a computed name, and it refuses a statement that
+     * asks for the field and an account sent without a name, as the platform
+     * does.
+     */
+    function orgsWithoutPersonAccountsInTheTarget() {
+      const targetFields: Record<string, FieldInfo[]> = {
+        Account: [idField, text('Name'), lookup('Key_Contact__c', 'Contact')],
+        Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+        Case: FIELDS.Case,
+      };
+      let created = 0;
+      const inserted: Array<{ object: string; rows: Record<string, unknown>[] }> = [];
+      const targetQueries: string[] = [];
+      const executor = new ForgeExecutor({
+        describeFields: vi.fn(
+          async (org: string, object: string) =>
+            (org === 'src' ? FIELDS : targetFields)[object] ?? [idField],
+        ),
+        queryRecords: vi.fn(async (org: string, soql: string) => {
+          if (org === 'src') {
+            const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+            return (SOURCE[object] ?? []).map((row) => ({ ...row }));
+          }
+          targetQueries.push(soql);
+          if (soql.includes('PersonContactId')) {
+            throw new Error("INVALID_FIELD: No such column 'PersonContactId' on entity 'Account'");
+          }
+          return [];
+        }),
+        insertRecords: vi.fn(
+          async (_org: string, object: string, rows: Record<string, unknown>[]) => {
+            inserted.push({ object, rows });
+            return rows.map((row): InsertResult =>
+              object === 'Account' && typeof row['Name'] !== 'string'
+                ? {
+                    id: '',
+                    success: false,
+                    errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [Name]'],
+                  }
+                : {
+                    id: `${object.slice(0, 3).toUpperCase()}Tg${String(created++).padStart(13, '0')}`,
+                    success: true,
+                    errors: [],
+                  },
+            );
+          },
+        ),
+        updateRecords: vi.fn(
+          async (_org: string, _object: string, rows: Record<string, unknown>[]) =>
+            rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] })),
+        ),
+      } satisfies ForgeExecutorDeps);
+      return { executor, inserted, targetQueries };
+    }
+
+    it('writes a person account as a business one by its name in a target without person accounts, and its contact as one of its own, asking no contact of it', async () => {
+      // The target's account has no PersonContactId, and asked for one it
+      // refused the statement. Left out as a person account's is, the name
+      // the target needs cost the account, and the contact with it.
+      const { executor, inserted, targetQueries } = orgsWithoutPersonAccountsInTheTarget();
+      const events: ForgeProgressEvent[] = [];
+
+      const summary = await executor.execute(
+        CASE_GRAPH,
+        'src',
+        'tgt',
+        (e) => events.push(e),
+        ROOTED_AT_THE_CASE,
+      );
+
+      expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+        { Name: 'Jane Doe' },
+        { Name: 'Acme' },
+      ]);
+      expect(inserted.find(({ object }) => object === 'Contact')?.rows).toEqual([
+        { LastName: 'Doe', AccountId: summary.remapTable[PERSON] },
+        { LastName: 'Roe', AccountId: summary.remapTable[BUSINESS] },
+      ]);
+      expect(inserted.find(({ object }) => object === 'Case')?.rows[0]?.['ContactId']).toBe(
+        summary.remapTable[PERSON_CONTACT],
+      );
+      expect(targetQueries.some((soql) => soql.includes('PersonContactId'))).toBe(false);
+      expect(summary.failedCount).toBe(0);
+      expect(lastLines(events).get('Contact')).toBe(
+        "Completed Contact: 2 succeeded, 0 failed, 1 person account's contact sent on their own: " +
+          'the target wrote none with their account',
+      );
+      expect(summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Contact',
+          samples: [
+            {
+              recordSummary: 'IsPersonAccount=true (1 record)',
+              messages: [
+                'Sent as contacts of their own: the target has no person accounts, and wrote no ' +
+                  'contact with it.',
+              ],
+            },
+          ],
+        }),
+      );
+    });
+
+    it('says on a dry run that the contact of a person account would be inserted in a target without person accounts', async () => {
+      const { executor, inserted } = orgsWithoutPersonAccountsInTheTarget();
+      const events: ForgeProgressEvent[] = [];
+
+      const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', (e) => events.push(e), {
+        ...ROOTED_AT_THE_CASE,
+        dryRun: true,
+      });
+
+      expect(inserted).toEqual([]);
+      expect(summary.wouldInsertCount).toBe(5);
+      expect(lastLines(events).get('Contact')).toBe(
+        '[dry-run] Contact: 2 record(s) would be inserted',
+      );
+    });
+  });
+
   it('says on a dry run that the contact of a person account would be written by the platform, not inserted', async () => {
     const { executor, inserted } = orgsWithPersonAccounts();
     const events: ForgeProgressEvent[] = [];

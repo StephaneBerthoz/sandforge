@@ -435,4 +435,85 @@ describe('patchCycleFkUpdates', () => {
     expect(error?.failedCount).toBe(2);
     expect(error?.samples[0].messages[0]).toBe('ECONNRESET');
   });
+
+  describe('a lookup only an insert sets', () => {
+    it('sends no update for it, says it is left empty, and still fills in the record’s other lookups', async () => {
+      // Sent with the record's other lookup, the update was refused — "Unable
+      // to create/update fields" — and took that one down with it.
+      const remapper = new IdRemapper();
+      remapper.add('003OLD1', '003NEW1');
+      remapper.add('500OLD1', '500NEW1');
+      const updateRecords = vi
+        .fn<UpdateRecordsFn>()
+        .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
+      const input = makeInput({
+        remapper,
+        updateRecords,
+        pendingFkUpdates: [
+          makePending(),
+          makePending({ fieldName: 'Case__c', sourceRefId: '500OLD1', insertOnly: true }),
+        ],
+      });
+
+      const error = await patchCycleFkUpdates(input);
+
+      expect(updateRecords.mock.calls.map(([, , rows]) => rows)).toEqual([
+        [{ Id: '001NEW1', PrimaryContactId: '003NEW1' }],
+      ]);
+      expect(error).toEqual({
+        objectApiName: '__pass2__',
+        stage: 'insert',
+        failedCount: 1,
+        attemptedCount: 2,
+        samples: [
+          {
+            recordSummary: 'Account source=001OLD1 target=001NEW1 Case__c',
+            messages: [
+              "Lookup 'Case__c' left empty: only an insert sets it, and the record it names " +
+                '(source 500OLD1) was written after this one',
+            ],
+          },
+        ],
+      });
+      const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+      expect(progress[0].message).toBe('Pass 2 (cycle FK update): 1/2 resolved');
+    });
+
+    it('settling after a node, says it once its record is written and hands it back no more', async () => {
+      const remapper = new IdRemapper();
+      remapper.add('500OLD1', '500NEW1');
+      const updateRecords = vi.fn<UpdateRecordsFn>();
+      const stillPending: PendingFkUpdate[] = [];
+      const later = makePending({ fieldName: 'Parent__c', sourceRefId: '001LATER' });
+      const input = makeInput({
+        remapper,
+        updateRecords,
+        deferUnresolved: true,
+        stillPending,
+        pendingFkUpdates: [
+          later,
+          makePending({ fieldName: 'Case__c', sourceRefId: '500OLD1', insertOnly: true }),
+        ],
+      });
+
+      const error = await patchCycleFkUpdates(input);
+
+      expect(updateRecords).not.toHaveBeenCalled();
+      expect(stillPending).toEqual([later]);
+      expect(error?.failedCount).toBe(1);
+      expect(error?.samples[0].messages[0]).toContain("Lookup 'Case__c' left empty");
+    });
+
+    it('reports one whose record was never written as any lookup left unresolved', async () => {
+      const input = makeInput({
+        pendingFkUpdates: [makePending({ fieldName: 'Case__c', insertOnly: true })],
+      });
+
+      const error = await patchCycleFkUpdates(input);
+
+      expect(error?.samples[0].messages[0]).toBe(
+        "Cycle FK 'Case__c' could not be resolved — referenced parent (source 003OLD1) was not cloned",
+      );
+    });
+  });
 });

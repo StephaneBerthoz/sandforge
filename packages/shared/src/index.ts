@@ -103,6 +103,7 @@ export {
 export {
   PLATFORM_REQUIRED_FIELDS,
   isPlatformRequiredField,
+  isInsertOnlyField,
   isRequiredLookup,
   isSettableField,
 } from './constants/platform-required-fields.js';
@@ -143,6 +144,7 @@ export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export {
   forgeRunCreatedRecords,
+  forgeRunLinkedKept,
   forgeRunRecordsLeft,
   removalTookAll,
   type ForgeRunObjectRecords,
