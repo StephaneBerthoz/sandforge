@@ -54,6 +54,11 @@ const defaultGraph: ForgeGraph = {
 };
 
 let mockGraph: ForgeGraph | null = defaultGraph;
+/** The discovery the screen waits on, while it has yet to answer. */
+let mockDiscoveryId: string | null = null;
+/** The error the discovery the screen waited on ended on. */
+let mockDiscoveryError: string | null = null;
+const mockAwaitDiscovery = vi.fn();
 let mockConfig: {
   inputMode: string;
   depth: string;
@@ -85,6 +90,14 @@ vi.mock('../../stores/useForgeStore', () => {
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     toggleAnonymizeField: (...args: unknown[]) => mockToggleAnonymizeField(...args),
     setNodesIncluded: (...args: unknown[]) => mockSetNodesIncluded(...args),
+    get discoveryId() {
+      return mockDiscoveryId;
+    },
+    get discoveryError() {
+      return mockDiscoveryError;
+    },
+    awaitDiscovery: (...args: unknown[]) => mockAwaitDiscovery(...args),
+    settleDiscovery: vi.fn(),
     // No Clone directly waits on these discoveries.
     directDiscoveryId: null,
     directDiscoveryError: null,
@@ -142,7 +155,10 @@ describe('ForgeDiscovery', () => {
     mockToggleAnonymizeField.mockClear();
     mockSetNodesIncluded.mockClear();
     mockSendMessage.mockClear();
+    mockAwaitDiscovery.mockClear();
     mockGraph = defaultGraph;
+    mockDiscoveryId = null;
+    mockDiscoveryError = null;
     mockConfig = null;
     useForgeViewStore.setState({ setting: 'auto', choice: null });
   });
@@ -191,14 +207,26 @@ describe('ForgeDiscovery', () => {
     expect(screen.getByTestId('stat-records').textContent).toBe('300');
   });
 
-  it('should show loading state when graph is null (waiting for discovery)', () => {
+  it('should show loading state while its discovery has yet to answer', () => {
     mockGraph = null;
+    mockDiscoveryId = 'wv-discover-1';
     render(<ForgeDiscovery />);
     expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
   });
 
+  it('shows the discovery under way, not the graph an earlier discovery left', () => {
+    // Back, then Discover again: the last graph is still in the store.
+    mockDiscoveryId = 'wv-discover-2';
+    render(<ForgeDiscovery />);
+
+    expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
+    expect(screen.queryByTestId('live-graph')).toBeNull();
+    expect(screen.queryByTestId('forge-execute-btn')).toBeNull();
+  });
+
   it('should show live progress counters on forge:discover:progress while loading', async () => {
     mockGraph = null;
+    mockDiscoveryId = 'wv-discover-1';
     render(<ForgeDiscovery />);
     // No progress before any event arrives
     expect(screen.queryByTestId('forge-discovery-progress')).toBeNull();
@@ -221,25 +249,13 @@ describe('ForgeDiscovery', () => {
     });
   });
 
-  it('should show empty state when discovery response returns error', async () => {
+  it('should show empty state with the error its discovery ended on', () => {
     mockGraph = null;
+    mockDiscoveryError = 'Discovery failed';
     render(<ForgeDiscovery />);
-    // Simulate error response from extension
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            id: 'test-1',
-            type: 'forge:discover:error',
-            timestamp: Date.now(),
-            payload: { message: 'Discovery failed' },
-          },
-        }),
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('forge-discovery-empty')).toBeDefined();
-    });
+
+    expect(screen.getByTestId('forge-discovery-empty').textContent).toContain('Discovery failed');
+    expect(screen.queryByTestId('forge-discovery-loading')).toBeNull();
   });
 
   it('should not render MetadataDiffBanner placeholder', () => {
@@ -267,8 +283,9 @@ describe('ForgeDiscovery', () => {
   });
 
   // Retry discovery
-  it('should show retry button on error state when config is set', async () => {
+  it('should show retry button on error state when config is set, and wait on the retry', () => {
     mockGraph = null;
+    mockDiscoveryError = 'Discovery failed';
     mockConfig = {
       inputMode: 'record',
       depth: 'direct',
@@ -279,29 +296,18 @@ describe('ForgeDiscovery', () => {
       batchSize: 'auto',
     };
     render(<ForgeDiscovery />);
-    // Simulate error
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            id: 'test-retry',
-            type: 'forge:discover:error',
-            timestamp: Date.now(),
-            payload: { message: 'Discovery failed' },
-          },
-        }),
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('forge-retry-discovery')).toBeDefined();
-    });
-    // Click retry
+
     fireEvent.click(screen.getByTestId('forge-retry-discovery'));
-    expect(mockSendMessage).toHaveBeenCalled();
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    const [retry] = mockSendMessage.mock.calls[0] as [{ id: string; type: string }];
+    expect(retry.type).toBe('forge:discover');
+    // Only the retry's answer is taken from then on.
+    expect(mockAwaitDiscovery).toHaveBeenCalledWith(retry.id);
   });
 
   // A failed re-discovery must not hide behind the graph it failed to replace
-  it('should surface a discovery error while an earlier graph is still on screen', async () => {
+  it('should surface a discovery error while an earlier graph is still on screen', () => {
     mockConfig = {
       inputMode: 'record',
       depth: 'direct',
@@ -312,23 +318,10 @@ describe('ForgeDiscovery', () => {
       batchSize: 'auto',
     };
     // mockGraph stays set: this is the second discovery of the session.
+    mockDiscoveryError = 'INVALID_SESSION_ID: session expired';
     render(<ForgeDiscovery />);
-    expect(screen.queryByTestId('forge-discovery-error')).toBeNull();
 
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            id: 'test-stale',
-            type: 'forge:discover:error',
-            timestamp: Date.now(),
-            payload: { message: 'INVALID_SESSION_ID: session expired' },
-          },
-        }),
-      );
-    });
-
-    const banner = await screen.findByTestId('forge-discovery-error');
+    const banner = screen.getByTestId('forge-discovery-error');
     expect(banner.textContent).toContain('INVALID_SESSION_ID');
     // The previous graph stays readable rather than being blanked out.
     expect(screen.getByTestId('live-graph')).toBeDefined();
@@ -336,6 +329,7 @@ describe('ForgeDiscovery', () => {
     fireEvent.click(screen.getByTestId('forge-discovery-error-retry'));
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockSendMessage.mock.calls[0][0].type).toBe('forge:discover');
+    expect(mockAwaitDiscovery).toHaveBeenCalledWith(mockSendMessage.mock.calls[0][0].id);
   });
 
   // View mode toggle

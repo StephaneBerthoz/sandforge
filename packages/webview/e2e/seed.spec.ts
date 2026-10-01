@@ -929,8 +929,6 @@ test.describe('Forge — a run saved as a template', () => {
     await page.getByTestId('forge-depth-full').click();
     await page.getByTestId('forge-discover-btn').click();
     await bridge.waitForMessage('forge:discover', { timeout: 10_000 });
-    // Each phase mounts once the last one has animated out, and only then
-    // listens: an answer sent sooner reaches no one.
     await expect(page.getByTestId('forge-discovery-loading')).toBeVisible({ timeout: 10_000 });
     await respondToAll(page, 'forge:discover', 'forge:discover:response', {
       graph: DISCOVERED_GRAPH,
@@ -997,5 +995,56 @@ test.describe('Forge — a run saved as a template', () => {
     await expect(page.getByTestId('forge-template-applied')).toBeVisible();
     await expect(page.getByTestId('forge-depth-full')).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId('forge-discover-btn')).toBeEnabled();
+  });
+});
+
+/*
+ * The discovery screen used to take the answer itself: an answer that came
+ * while it was not there went to no one, and the page showed a spinner with
+ * nothing behind it.
+ */
+test.describe('Forge — a discovery that answers while its screen is not there', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openForge(page);
+    await page.waitForSelector('[data-testid="forge-page"]', { timeout: 10_000 });
+    await pickOrg(page, 'forge-target-org', 'org-tgt-1');
+    await enterRecordIdAndSettlePreview(page, bridge, RECORD_ID, ACCOUNT_PREVIEW);
+  });
+
+  test('shows the graph it answered with while a shortcut had taken the panel elsewhere', async ({
+    page,
+  }) => {
+    await page.getByTestId('forge-discover-btn').click();
+    await expect(page.getByTestId('forge-discovery-loading')).toBeVisible({ timeout: 10_000 });
+
+    // G then O: the panel goes to the org manager, and the Forge page with it.
+    await page.keyboard.press('g');
+    await page.keyboard.press('o');
+    await expect(page.getByTestId('org-manager-page')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('forge-page')).toHaveCount(0);
+    await respondToAll(page, 'forge:discover', 'forge:discover:response', {
+      graph: DISCOVERED_GRAPH,
+    });
+
+    await page.keyboard.press('g');
+    await page.keyboard.press('f');
+    await expect(page.getByTestId('forge-discovery')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('stat-objects')).toHaveText('2');
+    await expect(page.getByTestId('forge-discovery-loading')).toHaveCount(0);
+  });
+
+  test('shows the graph it answered with before its screen had come in', async ({ page }) => {
+    await page.getByTestId('forge-discover-btn').click();
+    // Answered at once, as the extension answers a discovery it holds in its
+    // cache: the input screen is still on its way out.
+    await bridge.waitForMessage('forge:discover', { timeout: 10_000 });
+    await respondToAll(page, 'forge:discover', 'forge:discover:response', {
+      graph: DISCOVERED_GRAPH,
+    });
+
+    await expect(page.getByTestId('forge-discovery')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('stat-objects')).toHaveText('2');
   });
 });

@@ -19,6 +19,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage } from '../../hooks/useMessageBus';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
+import { sendDiscovery } from './directRun';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
 import { useForgeAIPlan } from './useForgeAIPlan';
@@ -189,7 +190,6 @@ export interface ForgeFormState {
  */
 export function useForgeForm(): ForgeFormState {
   const setConfig = useForgeStore((s) => s.setConfig);
-  const awaitDirectRun = useForgeStore((s) => s.awaitDirectRun);
   const setPhase = useForgeStore((s) => s.setPhase);
   const setGraph = useForgeStore((s) => s.setGraph);
   const history = useForgeStore((s) => s.history);
@@ -532,10 +532,9 @@ export function useForgeForm(): ForgeFormState {
       };
 
       setConfig(config);
-      const request = buildMessage<{ config: ForgeConfig }>('forge:discover', { config });
-      // By its request: only the answer to this discovery starts the run.
-      if (direct) awaitDirectRun(request.id);
-      sendMessage(request);
+      // By its request: only the answer to this discovery is taken, page or
+      // no page, and only a Clone directly's starts the run.
+      sendDiscovery(sendMessage, config, direct);
       setPhase('discovery');
     },
     [
@@ -551,7 +550,6 @@ export function useForgeForm(): ForgeFormState {
       sourceOrgId,
       targetOrgId,
       setConfig,
-      awaitDirectRun,
       setPhase,
       sendMessage,
     ],

@@ -1414,6 +1414,106 @@ describe('useForgeStore', () => {
     });
   });
 
+  describe('the discovery the screen waits on', () => {
+    it('takes the answer to its own request, once, while the flow is on the discovery', () => {
+      getState().setPhase('discovery');
+      getState().awaitDiscovery('wv-discover-1');
+
+      expect(getState().takeDiscovery('wv-discover-other')).toBe(false);
+      expect(getState().takeDiscovery(undefined)).toBe(false);
+      expect(getState().discoveryId).toBe('wv-discover-1');
+
+      expect(getState().takeDiscovery('wv-discover-1')).toBe(true);
+      expect(getState().takeDiscovery('wv-discover-1')).toBe(false);
+      expect(getState().discoveryId).toBeNull();
+    });
+
+    it('takes only the answer of the latest of two discoveries', () => {
+      getState().setPhase('discovery');
+      getState().awaitDiscovery('wv-discover-1');
+      getState().awaitDiscovery('wv-discover-2');
+
+      expect(getState().takeDiscovery('wv-discover-1')).toBe(false);
+      getState().failDiscovery('wv-discover-1', 'Replaced');
+      expect(getState().discoveryError).toBeNull();
+
+      expect(getState().takeDiscovery('wv-discover-2')).toBe(true);
+    });
+
+    it('takes no answer once the flow has left the discovery', () => {
+      getState().awaitDiscovery('wv-discover-1');
+      getState().setPhase('review');
+
+      expect(getState().takeDiscovery('wv-discover-1')).toBe(false);
+      expect(getState().discoveryId).toBeNull();
+    });
+
+    it('keeps the error of its discovery for the screen, and no other', () => {
+      getState().awaitDiscovery('wv-discover-1');
+
+      getState().failDiscovery('wv-discover-other', 'Not this one');
+      expect(getState().discoveryError).toBeNull();
+      expect(getState().discoveryId).toBe('wv-discover-1');
+
+      getState().failDiscovery('wv-discover-1', 'INVALID_SESSION_ID');
+      expect(getState().discoveryError).toBe('INVALID_SESSION_ID');
+      expect(getState().discoveryId).toBeNull();
+    });
+
+    it('is dropped, with the error it ended on, by the way back, and the error by the next discovery', () => {
+      getState().awaitDiscovery('wv-discover-1');
+      getState().settleDiscovery();
+      expect(getState().discoveryId).toBeNull();
+
+      getState().awaitDiscovery('wv-discover-2');
+      getState().failDiscovery('wv-discover-2', 'INVALID_SESSION_ID');
+      getState().awaitDiscovery('wv-discover-3');
+      expect(getState().discoveryError).toBeNull();
+
+      getState().failDiscovery('wv-discover-3', 'INVALID_SESSION_ID');
+      getState().settleDiscovery();
+      expect(getState().discoveryError).toBeNull();
+    });
+
+    it('keeps the graph an earlier discovery left, for the error to be shown beside it', () => {
+      const earlier = createMockGraph();
+      getState().setGraph(earlier);
+
+      getState().awaitDiscovery('wv-discover-2');
+
+      expect(getState().graph).toBe(earlier);
+    });
+
+    it('is not waited on once a new run is configured, nor once Forge starts again', () => {
+      getState().awaitDiscovery('wv-discover-1');
+      getState().setConfig(createMockConfig());
+      expect(getState().discoveryId).toBeNull();
+
+      getState().awaitDiscovery('wv-discover-2');
+      getState().failDiscovery('wv-discover-2', 'INVALID_SESSION_ID');
+      getState().forgeAgain();
+      expect(getState().discoveryId).toBeNull();
+      expect(getState().discoveryError).toBeNull();
+    });
+
+    it('replaces a Clone directly waited on, and is replaced by one: only the last asked is waited on', () => {
+      getState().awaitDirectRun('wv-discover-1');
+      getState().awaitDiscovery('wv-discover-2');
+      expect(getState().directDiscoveryId).toBeNull();
+      expect(getState().discoveryId).toBe('wv-discover-2');
+
+      getState().failDiscovery('wv-discover-2', 'INVALID_SESSION_ID');
+      getState().awaitDirectRun('wv-discover-3');
+      expect(getState().discoveryId).toBeNull();
+      expect(getState().discoveryError).toBeNull();
+      expect(getState().directDiscoveryId).toBe('wv-discover-3');
+
+      getState().failDirectDiscovery('wv-discover-3', 'INVALID_SESSION_ID');
+      getState().awaitDiscovery('wv-discover-4');
+      expect(getState().directDiscoveryError).toBeNull();
+    });
+  });
+
   describe('a Clone directly', () => {
     it('waits on the discovery about to start, with the graph an earlier one left gone', () => {
       getState().setGraph(createMockGraph());

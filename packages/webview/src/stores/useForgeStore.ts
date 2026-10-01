@@ -258,6 +258,8 @@ const INITIAL_STATE = {
   stopRequestedAt: null as number | null,
   apiCallsSoFar: null as number | null,
   runsEnded: 0,
+  discoveryId: null as string | null,
+  discoveryError: null as string | null,
   directDiscoveryId: null as string | null,
   directDiscoveryError: null as string | null,
   reviewSkipped: false,
@@ -417,6 +419,43 @@ export interface ForgeState {
   /** Record where a run stopped, or clear it (null). */
   setStoppedAt: (percent: number | null) => void;
   /**
+   * The `forge:discover` request whose graph the discovery screen waits on, by
+   * its id, or null once it has answered or failed, or was left. Its answer
+   * and its error are taken by `pages/Forge/directRun.ts`, page or no page, as
+   * a Clone directly's are, and kept here for the screen. A Clone directly's
+   * discovery is `directDiscoveryId`'s.
+   */
+  discoveryId: string | null;
+  /**
+   * Why the discovery the screen waited on failed, kept for the screen until
+   * the user leaves it or discovers again: it may come while the page is away.
+   */
+  discoveryError: string | null;
+  /**
+   * Make the discovery about to be sent, request `discoveryId`, the one whose
+   * graph the screen shows and Review then sends. Only its answer counts from
+   * now on: an earlier discovery's, answering late, would put another graph in
+   * place of the one asked for, and a Clone directly waiting on one starts no
+   * run. The error the last one ended on goes.
+   */
+  awaitDiscovery: (discoveryId: string) => void;
+  /**
+   * Take the answer to request `requestId` for the discovery the screen waits
+   * on, clearing the wait: said once. Nothing for another request — another
+   * panel's, or a discovery since replaced — nor once the flow has left the
+   * discovery.
+   *
+   * @returns whether the answer is the awaited discovery's.
+   */
+  takeDiscovery: (requestId: unknown) => boolean;
+  /** The discovery the screen waits on, request `requestId`, failed with `message`. */
+  failDiscovery: (requestId: unknown, message: string) => void;
+  /**
+   * Stop waiting on the discovery, and drop the error it ended on: the user
+   * left it. Its answer, should it come, is no longer taken.
+   */
+  settleDiscovery: () => void;
+  /**
    * The `forge:discover` request a Clone directly waits on, by its id, or
    * null. Once that discovery answers, the run starts on its graph, with no
    * stop on the discovery and Review screens, whether the Forge page is on
@@ -435,7 +474,8 @@ export interface ForgeState {
    * Make the discovery about to be sent, request `discoveryId`, a Clone
    * directly's. The graph an earlier discovery left goes: the discovery screen
    * waits on the new one instead of drawing the old one meanwhile, and the run
-   * is only ever of the graph this discovery answers with.
+   * is only ever of the graph this discovery answers with. A discovery waited
+   * on before it is not any more, nor is the error it ended on kept.
    */
   awaitDirectRun: (discoveryId: string) => void;
   /**
@@ -450,7 +490,7 @@ export interface ForgeState {
   failDirectDiscovery: (requestId: unknown, message: string) => void;
   /**
    * Drop the Clone directly the discovery was started for, and the error its
-   * discovery ended on: the user left the discovery, or runs it again alone.
+   * discovery ended on: the user left the discovery.
    *
    * @returns whether one was waiting.
    */
@@ -574,15 +614,45 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       metadataDiffs: [],
       result: null,
       fileCopy: { ...NO_FILE_COPY },
+      discoveryId: null,
+      discoveryError: null,
       directDiscoveryId: null,
       directDiscoveryError: null,
     });
+  },
+
+  awaitDiscovery(discoveryId: string): void {
+    set({
+      discoveryId,
+      discoveryError: null,
+      directDiscoveryId: null,
+      directDiscoveryError: null,
+    });
+  },
+
+  takeDiscovery(requestId: unknown): boolean {
+    const state = get();
+    if (state.discoveryId === null || requestId !== state.discoveryId) return false;
+    set({ discoveryId: null });
+    return state.phase === 'discovery';
+  },
+
+  failDiscovery(requestId: unknown, message: string): void {
+    const state = get();
+    if (state.discoveryId === null || requestId !== state.discoveryId) return;
+    set({ discoveryId: null, discoveryError: message });
+  },
+
+  settleDiscovery(): void {
+    set({ discoveryId: null, discoveryError: null });
   },
 
   awaitDirectRun(discoveryId: string): void {
     set({
       directDiscoveryId: discoveryId,
       directDiscoveryError: null,
+      discoveryId: null,
+      discoveryError: null,
       graph: null,
       statusesBeyondGraph: {},
     });
@@ -1045,6 +1115,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       runClock: null,
       stopRequestedAt: null,
       fileCopy: { ...NO_FILE_COPY },
+      discoveryId: null,
+      discoveryError: null,
       directDiscoveryId: null,
       directDiscoveryError: null,
       reviewSkipped: false,

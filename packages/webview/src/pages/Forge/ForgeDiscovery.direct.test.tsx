@@ -196,7 +196,7 @@ describe('ForgeDiscovery — Clone directly', () => {
   });
 
   it('leaves a plain discovery on its graph, for Review', () => {
-    useForgeStore.getState().settleDirectRun();
+    useForgeStore.getState().awaitDiscovery(DISCOVERY);
     render(<ForgeDiscovery />);
 
     extensionSays('forge:discover:response', { graph: DISCOVERED });

@@ -24,6 +24,8 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     config: null,
     templates: [],
     graph: null,
+    // A discovery under way, for the discovery screen.
+    discoveryId: 'wv-discover-1',
     result: null,
     history: [],
     plan: null,
@@ -170,7 +172,7 @@ describe('ForgePage', () => {
   it('should show discovery view when phase is discovery', () => {
     mockPhase = 'discovery';
     render(<ForgePage />);
-    // graph is null in the mock, so ForgeDiscovery renders the loading state
+    // The mock's discovery has yet to answer, so ForgeDiscovery renders the loading state
     expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
   });
 

@@ -1,7 +1,26 @@
 import { findForgeAnonymizationPreset } from '@sandforge/shared';
-import type { ForgeGraph } from '@sandforge/shared';
+import type { BaseMessage, ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { startForgeRun } from './startForgeRun';
+
+/**
+ * Send the discovery of `config` through `send`, as the one the flow waits on
+ * from now on: only its answer and its error are taken, here, page or no
+ * page. With `direct`, it is a Clone directly's, and its answer starts the
+ * run.
+ */
+export function sendDiscovery(
+  send: (message: BaseMessage) => void,
+  config: ForgeConfig,
+  direct = false,
+): void {
+  const request = buildMessage<{ config: ForgeConfig }>('forge:discover', { config });
+  const store = useForgeStore.getState();
+  if (direct) store.awaitDirectRun(request.id);
+  else store.awaitDiscovery(request.id);
+  send(request);
+}
 
 /**
  * Put the graph a discovery answered with in the store, as the discovery
@@ -19,7 +38,7 @@ export function adoptDiscoveredGraph(graph: ForgeGraph): void {
   if (preset && config?.anonymizePII) applyAnonymizationPreset(preset.rules);
 }
 
-/** Whether `value` has the one part of a graph the run cannot start without: its nodes. */
+/** Whether `value` has the one part of a graph nothing can be done without: its nodes. */
 function isGraph(value: unknown): value is ForgeGraph {
   return (
     typeof value === 'object' &&
@@ -29,60 +48,71 @@ function isGraph(value: unknown): value is ForgeGraph {
 }
 
 /**
- * The answer to the discovery a Clone directly waits on, taken here rather
- * than by the discovery screen.
+ * The answer to the discovery the flow waits on, and its error, taken here
+ * rather than by the discovery screen.
  *
  * The Forge page can be left while its discovery runs — the command palette
  * or a shortcut takes the panel to another page — and a screen's listener
- * goes with the page: taken there, the answer would come to no screen, the
- * run would never start, and the page would come back to a spinner with
- * nothing behind it. Taken here, the run starts as the discovery answers,
- * page or no page, as a run started from Review goes on while the page is
- * away: its progress, its answer and its error are the store's, and
- * Production Guard asks its confirmation in a VS Code dialog, whatever the
- * panel shows. Its error is kept for the discovery screen, which shows it
- * when it comes back.
+ * goes with the page. Nor does the discovery screen listen before it has come
+ * in, once the input screen has gone out, and a discovery the extension
+ * answers from its cache answers sooner. Taken there, the answer came to no
+ * screen: the page came back to a spinner with nothing behind it, or to the
+ * graph of the discovery before, which Review would then have sent. Taken
+ * here, the graph lands in the store page or no page, and the screen draws it
+ * when it comes back; its error is kept for the screen the same way.
  *
- * Only the answer correlated to that discovery's request counts: every panel
- * receives every panel's messages.
+ * A Clone directly's run starts as its discovery answers, page or no page, as
+ * a run started from Review goes on while the page is away: its progress, its
+ * answer and its error are the store's, and Production Guard asks its
+ * confirmation in a VS Code dialog, whatever the panel shows.
+ *
+ * Only the answer correlated to the discovery the flow waits on counts: every
+ * panel receives every panel's messages, and a discovery replaced by a newer
+ * one — Back, then Discover again — may still answer.
  */
-function takeDirectDiscoveryMessage(event: MessageEvent): void {
+function takeDiscoveryMessage(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview host.
   if (event.origin && !event.origin.startsWith('vscode-webview://')) return;
   const data = event.data as
     { type?: unknown; correlationId?: unknown; payload?: unknown } | null | undefined;
   if (!data || typeof data !== 'object') return;
+  if (data.type !== 'forge:discover:response' && data.type !== 'forge:discover:error') return;
   const store = useForgeStore.getState();
-  // No Clone directly waits: no discovery answer is this listener's.
-  if (typeof store.directDiscoveryId !== 'string') return;
+  // No discovery waits: no answer is this listener's.
+  if (typeof store.discoveryId !== 'string' && typeof store.directDiscoveryId !== 'string') return;
   if (data.type === 'forge:discover:error') {
     const payload = (data.payload ?? {}) as { message?: unknown };
-    store.failDirectDiscovery(
-      data.correlationId,
-      typeof payload.message === 'string' ? payload.message : '',
-    );
+    const message = typeof payload.message === 'string' ? payload.message : '';
+    // One discovery is waited on at a time, a Clone directly's or the
+    // screen's: each takes only the error of its own request.
+    store.failDirectDiscovery(data.correlationId, message);
+    store.failDiscovery(data.correlationId, message);
     return;
   }
-  if (data.type !== 'forge:discover:response') return;
-  // An answer with no graph is not taken: the run has nothing to start on.
+  // An answer with no graph is not taken: there is nothing to draw, nor any
+  // run to start on.
   const graph = (data.payload as { graph?: unknown } | undefined)?.graph;
-  if (!isGraph(graph) || !store.takeDirectDiscovery(data.correlationId)) return;
-  adoptDiscoveredGraph(graph);
-  startForgeRun({ reviewSkipped: true });
+  if (!isGraph(graph)) return;
+  if (store.takeDirectDiscovery(data.correlationId)) {
+    adoptDiscoveredGraph(graph);
+    startForgeRun({ reviewSkipped: true });
+  } else if (store.takeDiscovery(data.correlationId)) {
+    adoptDiscoveredGraph(graph);
+  }
 }
 
 // HMR-safe listener registration, as the store registers the run's: re-imported
 // by a hot replace, the module would otherwise stack a listener per reload.
-let directRunListenerRegistered = false;
-function registerDirectRunListener(): void {
-  if (directRunListenerRegistered || typeof window === 'undefined') return;
-  directRunListenerRegistered = true;
-  window.addEventListener('message', takeDirectDiscoveryMessage);
+let discoveryListenerRegistered = false;
+function registerDiscoveryListener(): void {
+  if (discoveryListenerRegistered || typeof window === 'undefined') return;
+  discoveryListenerRegistered = true;
+  window.addEventListener('message', takeDiscoveryMessage);
   if (typeof import.meta !== 'undefined' && import.meta.hot) {
     import.meta.hot.dispose(() => {
-      window.removeEventListener('message', takeDirectDiscoveryMessage);
-      directRunListenerRegistered = false;
+      window.removeEventListener('message', takeDiscoveryMessage);
+      discoveryListenerRegistered = false;
     });
   }
 }
-registerDirectRunListener();
+registerDiscoveryListener();

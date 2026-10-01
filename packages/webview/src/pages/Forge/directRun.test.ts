@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { adoptDiscoveredGraph } from './directRun';
+import { adoptDiscoveredGraph, sendDiscovery } from './directRun';
 
 const mockSendBridgeMessage = vi.fn((type: string, payload?: unknown) => {
   void payload;
@@ -103,7 +103,7 @@ describe('directRun — the answer to a Clone directly, page or no page', () => 
     expect(useForgeStore.getState().phase).toBe('discovery');
   });
 
-  it('takes nothing while no Clone directly waits: a plain discovery is its screen’s', () => {
+  it('takes nothing once no Clone directly waits, nor any discovery', () => {
     useForgeStore.getState().settleDirectRun();
 
     extensionSays('forge:discover:response', { graph: DISCOVERED });
@@ -147,6 +147,118 @@ describe('directRun — the answer to a Clone directly, page or no page', () => 
     );
 
     expect(executed()).toBeUndefined();
+  });
+});
+
+describe('directRun — the answer to the discovery the screen waits on, page or no page', () => {
+  beforeEach(() => {
+    mockSendBridgeMessage.mockClear();
+    const store = useForgeStore.getState();
+    store.reset();
+    store.setConfig(CONFIG);
+    store.awaitDiscovery(DISCOVERY);
+    store.setPhase('discovery');
+  });
+
+  it('puts its graph in the store as Review will send it, with no screen open, and starts no run', () => {
+    useForgeStore.getState().setAnonymizationPresetId('preset:gdpr-default');
+
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+
+    const state = useForgeStore.getState();
+    expect(state.graph?.nodes[0].anonymizeFields).toEqual(['Email']);
+    expect(state.discoveryId).toBeNull();
+    expect(state.phase).toBe('discovery');
+    expect(executed()).toBeUndefined();
+  });
+
+  it('keeps the error its discovery ended on for the screen, with no screen open', () => {
+    extensionSays('forge:discover:error', { message: 'INVALID_SESSION_ID: session expired' });
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+
+    const state = useForgeStore.getState();
+    expect(state.discoveryError).toBe('INVALID_SESSION_ID: session expired');
+    expect(state.discoveryId).toBeNull();
+    expect(state.graph).toBeNull();
+  });
+
+  it('takes no answer or error of another discovery, nor an answer with no graph', () => {
+    extensionSays('forge:discover:response', { graph: DISCOVERED }, 'wv-discover-other');
+    extensionSays('forge:discover:response', { graph: DISCOVERED }, null);
+    extensionSays('forge:discover:error', { message: 'Not this one' }, 'wv-discover-other');
+    extensionSays('forge:discover:response', { graph: null });
+
+    const state = useForgeStore.getState();
+    expect(state.graph).toBeNull();
+    expect(state.discoveryError).toBeNull();
+    expect(state.discoveryId).toBe(DISCOVERY);
+  });
+
+  it('never puts the graph of a discovery replaced by a newer one in place of the newer one’s', () => {
+    const newer = 'wv-discover-2';
+    const newerGraph: ForgeGraph = { ...DISCOVERED, totalRecords: 7 };
+    useForgeStore.getState().awaitDiscovery(newer);
+
+    // The replaced one answers before the newer one, then after it.
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+    expect(useForgeStore.getState().graph).toBeNull();
+    extensionSays('forge:discover:response', { graph: newerGraph }, newer);
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+    extensionSays('forge:discover:error', { message: 'Aborted' });
+
+    expect(useForgeStore.getState().graph).toBe(newerGraph);
+    expect(useForgeStore.getState().discoveryError).toBeNull();
+  });
+
+  it('takes nothing of a discovery left for the input screen', () => {
+    useForgeStore.getState().settleDiscovery();
+    useForgeStore.getState().setPhase('input');
+
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+    extensionSays('forge:discover:error', { message: 'Aborted' });
+
+    expect(useForgeStore.getState().graph).toBeNull();
+    expect(useForgeStore.getState().discoveryError).toBeNull();
+  });
+
+  it('ignores a message from another origin', () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://example.invalid',
+        data: {
+          id: 'ext-forged',
+          type: 'forge:discover:response',
+          correlationId: DISCOVERY,
+          payload: { graph: DISCOVERED },
+        },
+      }),
+    );
+
+    expect(useForgeStore.getState().graph).toBeNull();
+    expect(useForgeStore.getState().discoveryId).toBe(DISCOVERY);
+  });
+});
+
+describe('sendDiscovery', () => {
+  beforeEach(() => {
+    useForgeStore.getState().reset();
+    useForgeStore.getState().setPhase('discovery');
+  });
+
+  it('waits on the discovery it sends, a Clone directly’s only when it is asked to be', () => {
+    const send = vi.fn();
+
+    sendDiscovery(send, CONFIG);
+    const [plain] = send.mock.calls[0] as [{ id: string; type: string; payload: unknown }];
+    expect(plain.type).toBe('forge:discover');
+    expect(plain.payload).toEqual({ config: CONFIG });
+    expect(useForgeStore.getState().discoveryId).toBe(plain.id);
+    expect(useForgeStore.getState().directDiscoveryId).toBeNull();
+
+    sendDiscovery(send, CONFIG, true);
+    const [direct] = send.mock.calls[1] as [{ id: string }];
+    expect(useForgeStore.getState().directDiscoveryId).toBe(direct.id);
+    expect(useForgeStore.getState().discoveryId).toBeNull();
   });
 });
 

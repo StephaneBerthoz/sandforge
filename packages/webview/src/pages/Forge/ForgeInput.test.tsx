@@ -59,6 +59,7 @@ const mockRemoveTemplate = vi.fn();
 const mockSetAnonymizationRules = vi.fn();
 const mockSetAnonymizationPresetId = vi.fn();
 const mockAwaitDirectRun = vi.fn();
+const mockAwaitDiscovery = vi.fn();
 
 /* Mutable user-template list — tests push into it before rendering. */
 const mockTemplates = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }));
@@ -73,6 +74,7 @@ vi.mock('../../stores/useForgeStore', () => {
     history: [],
     setConfig: (...args: unknown[]) => mockSetConfig(...args),
     awaitDirectRun: (...args: unknown[]) => mockAwaitDirectRun(...args),
+    awaitDiscovery: (...args: unknown[]) => mockAwaitDiscovery(...args),
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     setTemplates: (...args: unknown[]) => mockSetTemplates(...args),
     upsertTemplate: (...args: unknown[]) => mockUpsertTemplate(...args),
@@ -166,6 +168,7 @@ describe('ForgeInput', () => {
     mockSetAnonymizationRules.mockClear();
     mockSetAnonymizationPresetId.mockClear();
     mockAwaitDirectRun.mockClear();
+    mockAwaitDiscovery.mockClear();
     mockPostMessage.mockClear();
     mockTemplates.list.length = 0;
   });
@@ -756,6 +759,7 @@ describe('ForgeInput', () => {
       fireEvent.click(screen.getByTestId('forge-clone-directly-btn'));
 
       expect(mockAwaitDirectRun).toHaveBeenCalledTimes(1);
+      expect(mockAwaitDiscovery).not.toHaveBeenCalled();
       expect(mockSetPhase).toHaveBeenCalledWith('discovery');
       const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
       expect(discover.config).toEqual(mockSetConfig.mock.calls[0][0]);
@@ -767,7 +771,7 @@ describe('ForgeInput', () => {
       });
     });
 
-    it('is not a Clone directly when Discover is clicked', () => {
+    it('is not a Clone directly when Discover is clicked, and waits on the discovery it sent', () => {
       render(<ForgeInput />);
       fireEvent.change(screen.getByTestId('forge-input-record'), {
         target: { value: '001XXXXXXXXXXXXXXX' },
@@ -777,6 +781,11 @@ describe('ForgeInput', () => {
       fireEvent.click(screen.getByTestId('forge-discover-btn'));
 
       expect(mockAwaitDirectRun).not.toHaveBeenCalled();
+      const discover = mockPostMessage.mock.calls
+        .map((call) => (call[0] as { payload: BaseMessage }).payload)
+        .find((message) => message.type === 'forge:discover');
+      expect(discover).toBeDefined();
+      expect(mockAwaitDiscovery).toHaveBeenCalledWith(discover?.id);
     });
   });
 

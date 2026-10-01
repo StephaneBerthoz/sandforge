@@ -2,53 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { ForgeDiscovery } from './ForgeDiscovery';
+import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeGraph } from '../../stores/useForgeStore';
 
 /* ---- Mocks ---- */
 
-const mockSetPhase = vi.fn();
-const mockSetGraph = vi.fn();
 const mockSendMessage = vi.fn();
-
-/** Graph the mocked store holds: null while the BFS is still running. */
-let mockGraph: ForgeGraph | null = null;
-
-/** Phase the mocked forge store reports; the late-response guard reads it. */
-let mockPhase: 'input' | 'discovery' = 'discovery';
-
-vi.mock('../../stores/useForgeStore', () => {
-  const defaultState = {
-    get graph() {
-      return mockGraph;
-    },
-    config: null,
-    get phase() {
-      return mockPhase;
-    },
-    templates: [],
-    result: null,
-    history: [],
-    setConfig: vi.fn(),
-    setPhase: (...args: unknown[]) => mockSetPhase(...args),
-    setGraph: (...args: unknown[]) => mockSetGraph(...args),
-    updateNodeStatus: vi.fn(),
-    toggleNodeIncluded: vi.fn(),
-    toggleAnonymizeField: vi.fn(),
-    setNodesIncluded: vi.fn(),
-    // No Clone directly waits on these discoveries.
-    directDiscoveryId: null,
-    directDiscoveryError: null,
-    settleDirectRun: () => false,
-    reset: vi.fn(),
-  };
-
-  const store = Object.assign(
-    (selector: (state: typeof defaultState) => unknown) => selector(defaultState),
-    { getState: () => defaultState },
-  );
-
-  return { useForgeStore: store };
-});
 
 vi.mock('../../hooks/useMessageBus', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('../../hooks/useMessageBus');
@@ -76,6 +35,9 @@ const graph: ForgeGraph = {
   estimatedDurationSeconds: 0,
 };
 
+/** The request of the discovery under way. */
+const DISCOVERY = 'wv-discover-1';
+
 /** Deliver the discovery response the extension emits when the BFS finishes. */
 function emitDiscoveryResponse(): void {
   act(() => {
@@ -85,6 +47,7 @@ function emitDiscoveryResponse(): void {
           id: 'discover-1',
           type: 'forge:discover:response',
           timestamp: Date.now(),
+          correlationId: DISCOVERY,
           payload: { graph },
         },
       }),
@@ -94,11 +57,11 @@ function emitDiscoveryResponse(): void {
 
 describe('ForgeDiscovery — escaping a running discovery', () => {
   beforeEach(() => {
-    mockSetPhase.mockClear();
-    mockSetGraph.mockClear();
     mockSendMessage.mockClear();
-    mockPhase = 'discovery';
-    mockGraph = null;
+    const store = useForgeStore.getState();
+    store.reset();
+    store.awaitDiscovery(DISCOVERY);
+    store.setPhase('discovery');
   });
 
   it('offers a way back while the BFS is still running', () => {
@@ -106,7 +69,7 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
     expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
 
     fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
-    expect(mockSetPhase).toHaveBeenCalledWith('input');
+    expect(useForgeStore.getState().phase).toBe('input');
   });
 
   it('stops the running BFS when the user walks back', () => {
@@ -118,28 +81,41 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
     expect(mockSendMessage.mock.calls[0][0]).toMatchObject({ type: 'forge:abort' });
   });
 
+  it('stops the BFS of a second discovery too, the first one’s graph still in the store', () => {
+    // Back, then Discover again: the last discovery's graph is still there.
+    useForgeStore.getState().setGraph(graph);
+    useForgeStore.getState().awaitDiscovery('wv-discover-2');
+    render(<ForgeDiscovery />);
+
+    fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({ type: 'forge:abort' });
+    expect(useForgeStore.getState().discoveryId).toBeNull();
+  });
+
   it('sends no abort when leaving a discovery that already finished', () => {
-    mockGraph = graph;
+    emitDiscoveryResponse();
     render(<ForgeDiscovery />);
 
     fireEvent.click(screen.getByTestId('forge-back-btn'));
 
-    expect(mockSetPhase).toHaveBeenCalledWith('input');
+    expect(useForgeStore.getState().phase).toBe('input');
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('adopts the graph when the response lands during the discovery phase', () => {
     render(<ForgeDiscovery />);
     emitDiscoveryResponse();
-    expect(mockSetGraph).toHaveBeenCalledWith(graph);
+    expect(useForgeStore.getState().graph).toBe(graph);
+    expect(screen.getByTestId('forge-discovery')).toBeDefined();
   });
 
   it('ignores a graph that lands after the user walked back to input', () => {
     render(<ForgeDiscovery />);
     fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
-    mockPhase = 'input';
 
     emitDiscoveryResponse();
-    expect(mockSetGraph).not.toHaveBeenCalled();
+    expect(useForgeStore.getState().graph).toBeNull();
   });
 });

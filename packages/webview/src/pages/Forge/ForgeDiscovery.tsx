@@ -20,12 +20,12 @@ import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
-import { adoptDiscoveredGraph } from './directRun';
+import { sendDiscovery } from './directRun';
 
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
-import type { ForgeGraphNode, ForgeGraph, ForgeConfig } from '../../stores/useForgeStore';
+import type { ForgeGraphNode } from '../../stores/useForgeStore';
 import type { BaseMessage } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
@@ -42,6 +42,7 @@ import { cn } from '../../theme';
 export const ForgeDiscovery: React.FC = () => {
   const { t } = useTranslation();
   const graph = useForgeStore((s) => s.graph);
+  const phase = useForgeStore((s) => s.phase);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   const toggleAnonymizeField = useForgeStore((s) => s.toggleAnonymizeField);
@@ -49,24 +50,51 @@ export const ForgeDiscovery: React.FC = () => {
   const config = useForgeStore((s) => s.config);
   const setNodesIncluded = useForgeStore((s) => s.setNodesIncluded);
   /**
+   * Whether the discovery the flow waits on, the screen's or a Clone
+   * directly's, has yet to answer. Its answer and its error are taken by
+   * `directRun.ts`, which outlives this screen, and kept in the store: the
+   * screen shows where the discovery stands however long the page was away,
+   * and whichever came first, the answer or the screen. The graph an earlier
+   * discovery left is not drawn meanwhile: it is not the answer, and Review
+   * would have sent it.
+   */
+  const discovering = useForgeStore(
+    (s) => typeof s.discoveryId === 'string' || typeof s.directDiscoveryId === 'string',
+  );
+  /**
    * Whether a Clone directly waits on this discovery to start its run. Its
-   * answer and its error are taken by `directRun.ts`, which outlives this
-   * screen; the error is kept for it in the store.
+   * graph is never drawn here: the run starts on it, sent as Review's Execute
+   * sends it, and a graph of hundreds of objects would be drawn only to be
+   * left.
    */
   const directRunPending = useForgeStore((s) => typeof s.directDiscoveryId === 'string');
+  const discoveryError = useForgeStore((s) => s.discoveryError ?? null);
   const directDiscoveryError = useForgeStore((s) => s.directDiscoveryError ?? null);
+  const settleDiscovery = useForgeStore((s) => s.settleDiscovery);
   const settleDirectRun = useForgeStore((s) => s.settleDirectRun);
   const sendMessage = useSendMessage();
 
-  const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!graph);
-  const [error, setError] = useState<string | null>(null);
   /**
-   * The error the discovery ended on: this screen's, or a Clone directly's,
-   * which may have come while the page was away. Either ends the spinner.
+   * What the screen shows: the discovery under way, nothing to draw, or the
+   * graph. It follows the store while the flow is on the discovery, and stays
+   * as it was once the flow has left, while the screen goes out: the graph a
+   * Clone directly's answer starts the run on is not drawn on the way, nor
+   * does the way back flash an empty screen. Kept during render, not in an
+   * effect, so no frame is painted with what the screen is leaving.
    */
-  const shownError = error ?? directDiscoveryError;
-  const discovering = loading && directDiscoveryError === null;
+  const view: 'discovering' | 'empty' | 'graph' = discovering
+    ? 'discovering'
+    : graph
+      ? 'graph'
+      : 'empty';
+  const [keptView, setKeptView] = useState(view);
+  const onDiscovery = phase === 'discovery';
+  if (onDiscovery && view !== keptView) setKeptView(view);
+  const shownView = onDiscovery ? view : keptView;
+
+  const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
+  /** The error the discovery ended on: the screen's, or a Clone directly's. */
+  const shownError = discoveryError ?? directDiscoveryError;
   const viewMode = useForgeObjectsView(graph?.nodes.length ?? 0);
   const [searchQuery, setSearchQuery] = useState('');
   /** Live counters streamed by the extension during graph discovery. */
@@ -74,43 +102,6 @@ export const ForgeDiscovery: React.FC = () => {
     discoveredCount: number;
     queueRemaining: number;
   } | null>(null);
-
-  /** Listen for graph discovery response from the extension. */
-  useMessageListener<BaseMessage & { payload: { graph: ForgeGraph } }>(
-    'forge:discover:response',
-    useCallback((msg) => {
-      // Discovery is fire-and-forget: leaving the phase does not stop the
-      // BFS, and the response still lands during the exit animation. Adopting
-      // that graph would drop the user back into a phase they walked out of.
-      if (useForgeStore.getState().phase !== 'discovery') return;
-      // A Clone directly's answer is `directRun.ts`'s: it starts the run on
-      // the graph, sent as Review's Execute sends it, page or no page, and
-      // this screen draws nothing of it — a graph of hundreds of objects
-      // would be drawn only to be left.
-      if (typeof useForgeStore.getState().directDiscoveryId === 'string') return;
-      adoptDiscoveredGraph(msg.payload.graph);
-      setLoading(false);
-      setError(null);
-      setDiscoveryProgress(null);
-    }, []),
-  );
-
-  /**
-   * Listen for graph discovery error from the extension. A Clone directly's
-   * is `directRun.ts`'s, which keeps it for this screen: it stops here, with
-   * the error. Retry then runs the discovery alone, and its graph waits for
-   * Review: still waiting, the Clone directly would have written to the
-   * target on a click labelled "Retry Discovery".
-   */
-  useMessageListener<BaseMessage & { payload: { message: string } }>(
-    'forge:discover:error',
-    useCallback((msg) => {
-      if (typeof useForgeStore.getState().directDiscoveryId === 'string') return;
-      setLoading(false);
-      setError(msg.payload.message);
-      setDiscoveryProgress(null);
-    }, []),
-  );
 
   /**
    * Listen for throttled discovery progress from the extension
@@ -151,16 +142,18 @@ export const ForgeDiscovery: React.FC = () => {
   /**
    * Navigate back to input phase. Leaving while the BFS still runs also
    * stops it: otherwise it kept querying the org behind the input screen, and
-   * a second Discover started another one beside it. A Clone directly left
-   * with its discovery starts no run.
+   * a second Discover started another one beside it. The answer of a
+   * discovery left, should it still come, is not taken, and a Clone directly
+   * left with its discovery starts no run.
    */
   const handleBack = useCallback(() => {
     if (discovering) {
       sendMessage(buildMessage('forge:abort'));
     }
+    settleDiscovery();
     settleDirectRun();
     setPhase('input');
-  }, [discovering, sendMessage, setPhase, settleDirectRun]);
+  }, [discovering, sendMessage, setPhase, settleDiscovery, settleDirectRun]);
 
   /** Advance to review phase. */
   const handleExecute = useCallback(() => {
@@ -169,16 +162,15 @@ export const ForgeDiscovery: React.FC = () => {
 
   /**
    * Re-run the same discovery from the stored config, alone: the error a
-   * Clone directly's discovery ended on goes with the Clone directly.
+   * Clone directly's discovery ended on goes with the Clone directly, and the
+   * graph waits for Review. Still waiting, the Clone directly would have
+   * written to the target on a click labelled "Retry Discovery".
    */
   const handleRetry = useCallback(() => {
     if (!config) return;
-    settleDirectRun();
-    setLoading(true);
-    setError(null);
     setDiscoveryProgress(null);
-    sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
-  }, [config, sendMessage, settleDirectRun]);
+    sendDiscovery(sendMessage, config);
+  }, [config, sendMessage]);
 
   /** Handle include toggle for the selected node. */
   const handleToggleIncluded = useCallback(() => {
@@ -237,7 +229,7 @@ export const ForgeDiscovery: React.FC = () => {
   }, [graph, searchQuery, viewMode]);
 
   // Loading state while waiting for extension response
-  if (discovering) {
+  if (shownView === 'discovering') {
     return (
       <div
         data-testid="forge-discovery-loading"
@@ -276,7 +268,7 @@ export const ForgeDiscovery: React.FC = () => {
   }
 
   // Error or no graph (retry discovery)
-  if (!graph) {
+  if (shownView === 'empty' || !graph) {
     return (
       <div
         data-testid="forge-discovery-empty"

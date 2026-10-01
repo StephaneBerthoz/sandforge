@@ -55,6 +55,9 @@ const DISCOVERED: ForgeGraph = {
   estimatedDurationSeconds: 1,
 };
 
+/** The request of the discovery the screen waits on. */
+const DISCOVERY = 'wv-discover-1';
+
 function discoveryAnswers(): void {
   act(() => {
     window.dispatchEvent(
@@ -63,11 +66,18 @@ function discoveryAnswers(): void {
           id: 'discover-1',
           type: 'forge:discover:response',
           timestamp: Date.now(),
+          correlationId: DISCOVERY,
           payload: { graph: DISCOVERED },
         },
       }),
     );
   });
+}
+
+/** The run configured as Discover configures it, and its discovery sent. */
+function discovers(config: ForgeConfig): void {
+  useForgeStore.getState().setConfig(config);
+  useForgeStore.getState().awaitDiscovery(DISCOVERY);
 }
 
 describe('ForgeDiscovery — the preset kept for the run', () => {
@@ -77,7 +87,7 @@ describe('ForgeDiscovery — the preset kept for the run', () => {
   });
 
   it('narrows the discovered graph to the fields the kept preset names', () => {
-    useForgeStore.getState().setConfig(CONFIG);
+    discovers(CONFIG);
     useForgeStore.getState().setAnonymizationPresetId('preset:gdpr-default');
     render(<ForgeDiscovery />);
 
@@ -87,7 +97,7 @@ describe('ForgeDiscovery — the preset kept for the run', () => {
   });
 
   it('leaves the graph as discovered when the run does not anonymize', () => {
-    useForgeStore.getState().setConfig({ ...CONFIG, anonymizePII: false });
+    discovers({ ...CONFIG, anonymizePII: false });
     useForgeStore.getState().setAnonymizationPresetId('preset:gdpr-default');
     render(<ForgeDiscovery />);
 
@@ -101,7 +111,7 @@ describe('ForgeDiscovery — the preset kept for the run', () => {
   });
 
   it('leaves the graph as discovered when no preset was kept', () => {
-    useForgeStore.getState().setConfig(CONFIG);
+    discovers(CONFIG);
     render(<ForgeDiscovery />);
 
     discoveryAnswers();
