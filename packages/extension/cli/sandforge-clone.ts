@@ -752,6 +752,18 @@ export function jsonResult(summary: ExecutionSummary) {
     remapTable: summary.remapTable,
     existingSourceIds: summary.existingSourceIds,
     updatedSourceIds: summary.updatedSourceIds,
+    // What removing the run's records takes, as the wizard's removal reads it
+    // from the run's history: per object, in the order the run wrote them,
+    // the source ids of the records it created; of the records it linked,
+    // those the platform wrote with one it created, which go with that one;
+    // and the target's dates of the run's writes, which tell a later change.
+    // The remap table alone cannot say what the run created: it maps the
+    // standard price book and the reference data matched by name too.
+    createdByObject: summary.createdByObject,
+    ...(summary.withTheirRecordSourceIds
+      ? { withTheirRecordSourceIds: summary.withTheirRecordSourceIds }
+      : {}),
+    ...(summary.writtenBetween ? { writtenBetween: summary.writtenBetween } : {}),
     // Per object, the rows the run read to clone: the size of the clone,
     // where discovery counted each whole table.
     readByObject: summary.readByObject,

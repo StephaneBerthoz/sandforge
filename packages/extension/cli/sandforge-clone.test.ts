@@ -403,6 +403,29 @@ describe('sandforge-clone summary', () => {
     ]);
   });
 
+  it("gives what removing the run's records takes: what it created per object, what goes with it, and when it wrote", () => {
+    const createdByObject = [
+      { objectApiName: 'Account', sourceIds: ['001000000000001SRC'] },
+      { objectApiName: 'Contact', sourceIds: ['003000000000001SRC'] },
+    ];
+    const writtenBetween = { first: '2026-10-01T10:00:00.000Z', last: '2026-10-01T10:00:05.000Z' };
+
+    const result = jsonResult(
+      summary({
+        createdByObject,
+        withTheirRecordSourceIds: ['003000000000002SRC'],
+        writtenBetween,
+      }),
+    );
+
+    expect(result.createdByObject).toEqual(createdByObject);
+    expect(result.withTheirRecordSourceIds).toEqual(['003000000000002SRC']);
+    expect(result.writtenBetween).toEqual(writtenBetween);
+    // A dry run dates nothing and links nothing with a record it created.
+    expect(jsonResult(summary({}))).not.toHaveProperty('writtenBetween');
+    expect(jsonResult(summary({}))).not.toHaveProperty('withTheirRecordSourceIds');
+  });
+
   it('does not call a run that updated or linked records a failure, however many others failed', () => {
     expect(failedOutright(summary({ successCount: 0, updatedCount: 2, failedCount: 5 }))).toBe(
       false,
