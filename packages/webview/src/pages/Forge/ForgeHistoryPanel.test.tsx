@@ -433,7 +433,7 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
       ...REMOVABLE_RUN,
       idRemapTable: { ...REMOVABLE_RUN.idRemapTable, [sid('003', 3)]: rid('003', 3) },
       idRemapExisting: [sid('001', 2), sid('003', 3)],
-      idRemapWithTheirAccount: [sid('003', 3)],
+      idRemapWithTheirRecord: [sid('003', 3)],
     };
     render(<ForgeHistoryPanel entries={[withAPerson]} error={null} onReuseConfig={vi.fn()} />);
 

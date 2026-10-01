@@ -210,6 +210,13 @@ export interface BatchWriteResult {
    */
   flagsNotKept?: string;
   /**
+   * The rows linked to a record the platform wrote with one the run created,
+   * which it deletes with that record, by source id: the direct relation of a
+   * contact the run created to its account. See
+   * `ExecutionSummary.withTheirRecordSourceIds`. Absent when there were none.
+   */
+  withTheirRecord?: string[];
+  /**
    * The rows a validation rule of the target refused on fields it named that
    * went in once written again without them: counted among the created or
    * updated rows too. Absent when none did.
@@ -442,8 +449,22 @@ export class BatchWriter {
     // selling model option of a product the target already held.
     const direct = await this.heldBeforeInsert(node.objectApiName, targetOrgId, input.records);
     for (const [index, id] of direct) {
-      const oldId = input.cleanedRecords[index]?.source['Id'];
-      if (typeof oldId === 'string') remapper.addExisting(oldId, id, node.objectApiName);
+      const source = input.cleanedRecords[index]?.source;
+      const oldId = source?.['Id'];
+      if (typeof oldId !== 'string') continue;
+      remapper.addExisting(oldId, id, node.objectApiName);
+      // The direct relation the platform wrote with a contact the run created
+      // goes when the contact goes: "to remove a direct relationship between a
+      // contact and an account, change the contact's primary account or
+      // delete the contact".
+      const contact = source?.['ContactId'];
+      if (
+        node.objectApiName === ACCOUNT_CONTACT_RELATION &&
+        typeof contact === 'string' &&
+        remapper.isCreated(contact)
+      ) {
+        tally.withTheirRecord = [...(tally.withTheirRecord ?? []), oldId];
+      }
     }
     tally.linkedExistingCount += direct.size;
     const flagsNotKept = await this.giveFlagsBack(node.objectApiName, targetOrgId, input, direct);

@@ -49,7 +49,12 @@ import {
   type RecordTypeMapper,
   type RecordTypeMapping,
 } from '../../sync/RecordTypeMapper.js';
-import { intersect, targetFieldSetsOf, type TargetFieldSets } from './RecordCleaner.js';
+import {
+  intersect,
+  isPersonAccountField,
+  targetFieldSetsOf,
+  type TargetFieldSets,
+} from './RecordCleaner.js';
 import {
   checkRowPicklists,
   type PicklistChangeTally,
@@ -167,6 +172,36 @@ export interface OrphanExpansionInput {
    * the target is taken to have them.
    */
   personAccountsInTarget?: () => Promise<boolean | undefined>;
+  /**
+   * The fields the user excluded, by object (`ExecuteOptions.fieldExclusions`):
+   * never written on a parent either. Absent, none is.
+   */
+  fieldExclusions?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The fields the user renamed, by object (`ExecuteOptions.fieldMappings`): a
+   * parent's goes under the name the target has, as a row's does. Absent,
+   * none is.
+   */
+  fieldMappings?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * Of person accounts' rows, those the target takes as business accounts — it
+   * has no person accounts, or the record type a row gets there is a business
+   * one — as the run tells them for its own rows. Such a parent goes in as a
+   * business account: its name kept, the fields only a person account holds
+   * left out. Absent, a parent is one only in a target without person accounts.
+   *
+   * @param recordTypeWritten - Whether the rows are written with their record type.
+   */
+  businessAccountsAmong?: (
+    rows: readonly Record<string, unknown>[],
+    recordTypeWritten: boolean,
+  ) => Promise<ReadonlySet<Record<string, unknown>>>;
+  /**
+   * Whether a person account's contact goes in as a contact of its own: its
+   * account is in the target with no contact the platform wrote with it. Such
+   * a contact is copied as any parent is. Absent, none does.
+   */
+  contactOnItsOwn?: (sourceId: string) => boolean;
 }
 
 /**
@@ -429,12 +464,18 @@ export class OrphanExpander {
     // A person account's contact goes in with its account, written by the
     // platform: sent on its own, with its lookups left out as a parent's are,
     // it would stand as a contact of no account beside the platform's. See
-    // `personAccountWriteEdges`. A target without person accounts writes none
-    // with an account, and takes it as any contact.
+    // `personAccountWriteEdges`. A target that wrote none with the account —
+    // it has no person accounts, or holds the account as a business one —
+    // takes it as any contact.
     const r = records[0];
     const isPerson = isPersonAccountRow(r);
     const personAccounts = isPerson ? await input.personAccountsInTarget?.() : undefined;
-    if (objectName === CONTACT && isPerson && personAccounts !== false) {
+    if (
+      objectName === CONTACT &&
+      isPerson &&
+      personAccounts !== false &&
+      input.contactOnItsOwn?.(sourceRecordId) !== true
+    ) {
       throw new Error(
         "Not copied: a person account's contact is written by the platform with its account, " +
           'never on its own',
@@ -459,26 +500,55 @@ export class OrphanExpander {
       ? intersect(sourceCreatable, targetSets.creatable)
       : sourceCreatable;
 
+    // The user's choices for the object hold for a parent as for a row: an
+    // excluded field is never written, a renamed one goes under the name the
+    // target has, which the field map answers for.
+    const excluded = new Set(input.fieldExclusions?.[objectName] ?? []);
+    const rename = input.fieldMappings?.[objectName] ?? {};
+    const renamed = new Set<string>();
+    // Taken as a business account by the target, a person account goes in as
+    // one: see `businessAccountsAmong`.
+    const recordTypeWritten =
+      effectiveCreatable.has('RecordTypeId') &&
+      !excluded.has('RecordTypeId') &&
+      rename['RecordTypeId'] === undefined;
+    const asBusiness =
+      objectName === ACCOUNT &&
+      isPerson &&
+      (input.businessAccountsAmong
+        ? (await input.businessAccountsAmong([r], recordTypeWritten)).has(r)
+        : personAccounts === false);
     const cleaned: Record<string, unknown> = {};
     for (const field of fields) {
       const key = field.name;
-      if (!effectiveCreatable.has(key)) continue;
-      if (key.endsWith('__pc') && !isPerson) continue;
-      // Computed by the platform for a person account — and for none in a
-      // target without them, which takes the account as a business one.
-      if (key === 'Name' && isPerson && personAccounts !== false) continue;
+      if (excluded.has(key)) continue;
       const value = r[key];
       if (value === null || value === undefined) continue;
       if (field.isReference && typeof value === 'string' && key !== 'RecordTypeId') {
         // FKs on the parent itself: orphan-nullify (no recursion).
         continue;
       }
+      const renamedTo = rename[key];
+      if (renamedTo) {
+        cleaned[renamedTo] = value;
+        renamed.add(renamedTo);
+        continue;
+      }
+      if (!effectiveCreatable.has(key)) continue;
+      if (key.endsWith('__pc') && !isPerson) continue;
+      if (asBusiness && isPersonAccountField(key)) continue;
+      // Computed by the platform for a person account — and for none it takes
+      // as a business account, which it refuses without its name.
+      if (key === 'Name' && isPerson && !asBusiness) continue;
       cleaned[key] = value;
     }
     // Checked while `RecordTypeId` is still the source's, as the run's rows
     // are: what the record types allow is read by it.
     if (targetSets) {
-      await this.checkPicklists(input, objectName, r, cleaned, targetSets, effectiveCreatable);
+      const asRead = new Set(
+        [...effectiveCreatable].filter((name) => !excluded.has(name) && !rename[name]),
+      );
+      await this.checkPicklists(input, objectName, r, cleaned, targetSets, asRead, renamed);
     }
     const mapped =
       recordTypeMapper && recordTypeMappings
@@ -540,7 +610,10 @@ export class OrphanExpander {
    * value of an unrestricted one. Changes `cleaned` in place, and counts what
    * it changed in the run's tally.
    *
-   * @param written - The fields the parent is written with: createable in both orgs.
+   * @param written - The fields the parent is written with under the name it was
+   *   read with: createable in both orgs, neither excluded nor renamed.
+   * @param renamed - The fields written under a rename, which the field map
+   *   answers for: not checked, as a row's are not.
    */
   private async checkPicklists(
     input: OrphanExpansionInput,
@@ -549,6 +622,7 @@ export class OrphanExpander {
     cleaned: Record<string, unknown>,
     sets: TargetFieldSets,
     written: ReadonlySet<string>,
+    renamed: ReadonlySet<string>,
   ): Promise<void> {
     const reads = input.recordTypePicklists
       ? await input.recordTypePicklists.forRows({
@@ -566,6 +640,7 @@ export class OrphanExpander {
       sets.picklistValuesByField,
       sets.picklistFields,
       typeof recordTypeId === 'string' ? reads?.byRecordType.get(recordTypeId) : undefined,
+      renamed,
     );
     input.picklistChanges?.add(objectName, changes);
   }

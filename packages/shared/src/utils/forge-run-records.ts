@@ -73,22 +73,22 @@ export function forgeRunCreatedRecords(
 
 /**
  * The records a run linked to that removing its records leaves where they are,
- * by source id: those `idRemapExisting` names, less the contacts the platform
- * wrote with a person account the run created (`idRemapWithTheirAccount`),
- * which the platform deletes with that account. Counted as kept, a removal's
- * confirmation said they stayed in the org, though they went with their
- * accounts.
+ * by source id: those `idRemapExisting` names, less those the platform wrote
+ * with a record the run created (`idRemapWithTheirRecord`) — a person
+ * account's contact, a contact's direct relation to its account, an email's
+ * task — which it deletes with that record. Counted as kept, a removal's
+ * confirmation said they stayed in the org, though they went with it.
  *
  * @param entry - A run's history entry.
  */
 export function forgeRunLinkedKept(
-  entry: Pick<ForgeExecutionResult, 'idRemapExisting' | 'idRemapWithTheirAccount'>,
+  entry: Pick<ForgeExecutionResult, 'idRemapExisting' | 'idRemapWithTheirRecord'>,
 ): string[] {
   const existing = Array.isArray(entry.idRemapExisting) ? entry.idRemapExisting : [];
-  const withTheirAccount = new Set(
-    Array.isArray(entry.idRemapWithTheirAccount) ? entry.idRemapWithTheirAccount : [],
+  const withTheirRecord = new Set(
+    Array.isArray(entry.idRemapWithTheirRecord) ? entry.idRemapWithTheirRecord : [],
   );
-  return existing.filter((sourceId) => !withTheirAccount.has(sourceId));
+  return existing.filter((sourceId) => !withTheirRecord.has(sourceId));
 }
 
 /**

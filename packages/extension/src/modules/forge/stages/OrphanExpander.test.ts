@@ -903,6 +903,37 @@ describe('OrphanExpander', () => {
       ]);
     });
 
+    it('copies it without the fields the user excluded, and a renamed one under the name the target has, as a row is', async () => {
+      // Copied as read, a parent carried a field the user excluded from every
+      // write, and a renamed one under a name the target may not have. The
+      // field map answers for what the renamed one takes: not checked.
+      const deps = makeDeps({
+        describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+          ...PARENT_FIELDS,
+          {
+            name: 'Level__c',
+            queryable: true,
+            createable: true,
+            isReference: false,
+            type: 'picklist',
+            restrictedPicklist: true,
+            picklistValues: ['Bronze'],
+          },
+        ]),
+        queryRecords: vi.fn<ExpanderDeps['queryRecords']>().mockResolvedValue([{ ...PARENT_ROW }]),
+      });
+      const { input } = makeInput(deps, {
+        fieldExclusions: { Account: ['Phone'] },
+        fieldMappings: { Account: { Tier__c: 'Level__c' } },
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([
+        { Name: 'Acme', RecordTypeId: SOURCE_RETAIL, Level__c: 'Gold' },
+      ]);
+    });
+
     it("says once a record type whose values could not be read, and checks the parent's values against each field's", async () => {
       const deps = parentDeps();
       const notes: Array<[string, unknown]> = [];
@@ -1162,6 +1193,84 @@ describe('OrphanExpander', () => {
           fieldInfos: [CASE_FIELDS[0], CASE_FIELDS[2]],
           records: [{ Id: '03jOLD1', ContactId: PERSON_CONTACT }],
           personAccountsInTarget: async () => false,
+        });
+        const expander = new OrphanExpander(deps);
+
+        await expander.expandForNode(input);
+
+        expect(vi.mocked(deps.insertRecords).mock.calls).toEqual([
+          ['tgt', 'Contact', [{ LastName: 'Doe' }]],
+        ]);
+        expect(input.remapper.get(PERSON_CONTACT)).toBe('003NEW');
+        expect(expander.buildErrorReport()).toBeNull();
+      });
+
+      it('copies a person account the target takes as a business one as such: its name kept, no field only a person account holds', async () => {
+        // Its record type in the target a business account's, the target
+        // refused it without its name, and with its person fields.
+        const PERSON_TYPE = '012AP0000000001AAA';
+        const read = {
+          Id: PERSON,
+          Name: 'Jane Doe',
+          LastName: 'Doe',
+          PersonEmail: 'person@example.com',
+          Tier__pc: 'Gold',
+          RecordTypeId: PERSON_TYPE,
+          IsPersonAccount: true,
+        };
+        const deps = makeDeps({
+          describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            ...['Name', 'LastName', 'PersonEmail', 'Tier__pc'].map((name): FieldInfo => ({
+              name,
+              queryable: true,
+              createable: true,
+              isReference: false,
+            })),
+            {
+              name: 'RecordTypeId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['RecordType'],
+            },
+            { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+          ]),
+          queryRecords: vi.fn<ExpanderDeps['queryRecords']>().mockResolvedValue([{ ...read }]),
+        });
+        const businessAccountsAmong = vi.fn(
+          async (rows: readonly Record<string, unknown>[], _recordTypeWritten: boolean) =>
+            new Set(rows),
+        );
+        const { input } = makeInput(deps, {
+          records: [{ Id: '02iOLD1', AccountId: PERSON }],
+          personAccountsInTarget: async () => true,
+          businessAccountsAmong,
+        });
+
+        await new OrphanExpander(deps).expandForNode(input);
+
+        expect(vi.mocked(deps.insertRecords).mock.calls[0][2]).toEqual([
+          { Name: 'Jane Doe', RecordTypeId: PERSON_TYPE },
+        ]);
+        // Asked as the run asks of its own rows, written with their record type.
+        expect(businessAccountsAmong).toHaveBeenCalledWith([read], true);
+      });
+
+      it("copies a person account's contact as a contact of its own when the target wrote none with its account", async () => {
+        // Its account is in the target as a business one: refused as a contact
+        // the platform writes, it never went in, nor the row needing it.
+        const deps = personDeps(
+          vi
+            .fn<ExpanderDeps['insertRecords']>()
+            .mockResolvedValue([{ id: '003NEW', success: true, errors: [] }]),
+        );
+        const { input } = makeInput(deps, {
+          node: makeNode('CaseContactRole'),
+          fieldInfos: [CASE_FIELDS[0], CASE_FIELDS[2]],
+          records: [{ Id: '03jOLD1', ContactId: PERSON_CONTACT }],
+          personAccountsInTarget: async () => true,
+          contactOnItsOwn: (sourceId) => sourceId === PERSON_CONTACT,
         });
         const expander = new OrphanExpander(deps);
 

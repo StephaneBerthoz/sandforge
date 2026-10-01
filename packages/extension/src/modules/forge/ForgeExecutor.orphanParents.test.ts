@@ -70,6 +70,9 @@ const FIELDS: Record<string, FieldInfo[]> = {
   ],
 };
 
+/** The key prefix of the records the target writes, by object. */
+const PREFIX: Record<string, string> = { Account: '001', Contact: '003' };
+
 /** What the target's record type Retail keeps of Tier__c: "Gold" is active, and not kept. */
 const RETAIL: RecordTypePicklists = new Map([
   ['Tier__c', { values: ['Silver', 'Bronze'], defaultValue: 'Silver' }],
@@ -127,14 +130,34 @@ const refusedOnThePhone = (): InsertResult =>
  * A source holding the asset and `account`, and a target that refuses an
  * account whose restricted value its record type does not keep, as the
  * platform does, and — with `rule` — one that carries a phone; that writes a
- * contact with a person account, and names it when asked.
+ * contact with an account sent as a person, its last name and no name, and
+ * names it when asked.
+ *
+ * @param more - The target's record types of the account, each with its
+ *   `IsPersonType` — it refuses an account of a business one sent without its
+ *   name, as the platform does; the fields of both orgs, when they are not
+ *   {@link FIELDS}; and the contact the source holds.
  */
-function orgs(account: Record<string, unknown>, rule = false) {
+function orgs(
+  account: Record<string, unknown>,
+  rule = false,
+  {
+    recordTypes = [],
+    fields = FIELDS,
+    contact,
+  }: {
+    recordTypes?: Record<string, unknown>[];
+    fields?: Record<string, FieldInfo[]>;
+    contact?: Record<string, unknown>;
+  } = {},
+) {
   const inserted: Array<{ object: string; rows: Record<string, unknown>[] }> = [];
   const PLATFORM_CONTACT = id('003', 901);
+  /** The accounts the target wrote a contact with. */
+  const writtenAsPersons = new Set<string>();
   let next = 0;
   const deps = {
-    describeFields: vi.fn(async (_org: string, object: string) => FIELDS[object] ?? []),
+    describeFields: vi.fn(async (_org: string, object: string) => fields[object] ?? []),
     queryRecords: vi.fn(async (org: string, soql: string) => {
       if (org === 'src') {
         if (/FROM Asset\b/.test(soql)) {
@@ -143,14 +166,18 @@ function orgs(account: Record<string, unknown>, rule = false) {
           return [{ Id: ASSET, Name: 'Van', AccountId: ACCOUNT, ContactId: contact }];
         }
         if (/FROM Account\b/.test(soql)) return [{ ...account }];
+        if (/FROM Contact\b/.test(soql) && contact) return [{ ...contact }];
         return [];
+      }
+      if (soql.startsWith('SELECT Id, IsPersonType FROM RecordType')) {
+        return recordTypes.map((row) => ({ ...row }));
       }
       // The target names the contact it wrote with each person account it holds.
       const asked = /^SELECT Id, PersonContactId FROM Account WHERE Id IN \((.*)\)$/.exec(soql);
       return asked
         ? [...asked[1].matchAll(/'([^']+)'/g)].map(([, accountId]) => ({
             Id: accountId,
-            PersonContactId: account['IsPersonAccount'] === true ? PLATFORM_CONTACT : null,
+            PersonContactId: writtenAsPersons.has(accountId) ? PLATFORM_CONTACT : null,
           }))
         : [];
     }),
@@ -174,12 +201,22 @@ function orgs(account: Record<string, unknown>, rule = false) {
               };
             }
             if (rule && row['Phone'] !== undefined) return refusedOnThePhone();
+            const business = recordTypes.some(
+              (type) => type['Id'] === row['RecordTypeId'] && type['IsPersonType'] === false,
+            );
+            if (business && !row['Name']) {
+              return {
+                id: '',
+                success: false,
+                errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [Name]'],
+              };
+            }
           }
-          return {
-            id: id(object === 'Account' ? '001' : '02i', 900 + ++next),
-            success: true,
-            errors: [],
-          };
+          const written = id(PREFIX[object] ?? '02i', 900 + ++next);
+          if (object === 'Account' && typeof row['LastName'] === 'string') {
+            writtenAsPersons.add(written);
+          }
+          return { id: written, success: true, errors: [] };
         });
       },
     ),
@@ -198,6 +235,23 @@ const BUSINESS_ACCOUNT = {
   IsPersonAccount: false,
   PersonContactId: null,
 };
+
+/** A person account, as the source holds it. */
+const PERSON_ACCOUNT = {
+  ...BUSINESS_ACCOUNT,
+  Name: 'Jane Doe',
+  LastName: 'Doe',
+  Phone: null,
+  Tier__c: 'Silver',
+  IsPersonAccount: true,
+  PersonContactId: PERSON_CONTACT,
+};
+
+/** The target's record types of the account: Retail, the one the mapping gives, is a business account's. */
+const RETAIL_FOR_BUSINESS = [
+  { Id: id('012', 102), IsPersonType: true },
+  { Id: TARGET_RETAIL, IsPersonType: false },
+];
 
 describe('ForgeExecutor, a parent copied from outside the graph', () => {
   it("replaces a restricted value its record type does not keep, writes it, and says so with the run's", async () => {
@@ -291,5 +345,81 @@ describe('ForgeExecutor, a parent copied from outside the graph', () => {
     expect(summary.remapTable[PERSON_CONTACT]).toBe(PLATFORM_CONTACT);
     // Linked to, never created by the run: no removal deletes it on its own.
     expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
+  });
+
+  it("writes a person account whose record type in the target is a business account's as a business one, by its name", async () => {
+    // Sent as a person account, without its name, the target refused it, and
+    // the asset that needed it with it.
+    const { deps, inserted } = orgs(PERSON_ACCOUNT, false, { recordTypes: RETAIL_FOR_BUSINESS });
+
+    const summary = await new ForgeExecutor(deps).execute(
+      GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      OPTIONS,
+    );
+
+    expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+      { Name: 'Jane Doe', RecordTypeId: TARGET_RETAIL, Tier__c: 'Silver' },
+    ]);
+    expect(inserted.find(({ object }) => object === 'Asset')?.rows[0]['AccountId']).toBe(
+      summary.remapTable[ACCOUNT],
+    );
+    // The target wrote no contact with it: nothing points at one.
+    expect(summary.remapTable[PERSON_CONTACT]).toBeUndefined();
+  });
+
+  it('copies the contact of such an account as a contact of its own, for a row that needs it', async () => {
+    // Refused as a contact the platform writes with its account, it was never
+    // copied, and the asset that may not go without it was lost with it.
+    const { deps, inserted } = orgs(PERSON_ACCOUNT, false, {
+      recordTypes: RETAIL_FOR_BUSINESS,
+      fields: {
+        ...FIELDS,
+        Asset: FIELDS.Asset.map((f) => (f.name === 'ContactId' ? { ...f, nillable: false } : f)),
+        Contact: [
+          field('Id'),
+          field('LastName'),
+          field('AccountId', { isReference: true, referenceTo: ['Account'] }),
+          field('IsPersonAccount', { createable: false, updateable: false }),
+        ],
+      },
+      contact: { Id: PERSON_CONTACT, LastName: 'Doe', AccountId: ACCOUNT, IsPersonAccount: true },
+    });
+
+    const summary = await new ForgeExecutor(deps).execute(
+      GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      OPTIONS,
+    );
+
+    expect(inserted.map(({ object }) => object)).toEqual(['Account', 'Contact', 'Asset']);
+    expect(inserted.find(({ object }) => object === 'Contact')?.rows).toEqual([
+      { LastName: 'Doe' },
+    ]);
+    expect(inserted.find(({ object }) => object === 'Asset')?.rows).toEqual([
+      {
+        Name: 'Van',
+        AccountId: summary.remapTable[ACCOUNT],
+        ContactId: summary.remapTable[PERSON_CONTACT],
+      },
+    ]);
+  });
+
+  it('copies it without the fields the user excluded, and a renamed one under the name the target has', async () => {
+    const { deps, inserted } = orgs({ ...BUSINESS_ACCOUNT, Tier__c: 'Silver' });
+
+    await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...OPTIONS,
+      fieldExclusions: { Account: ['Phone'] },
+      fieldMappings: { Account: { Tier__c: 'Level__c' } },
+    });
+
+    expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+      { Name: 'Acme', RecordTypeId: TARGET_RETAIL, Level__c: 'Silver' },
+    ]);
   });
 });

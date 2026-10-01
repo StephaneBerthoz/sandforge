@@ -33,7 +33,10 @@ import {
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
-  /** Field API name on the cloned record (e.g. `AccountId`). */
+  /**
+   * Field API name on the cloned record (e.g. `AccountId`), as the target has
+   * it: the name a field map writes it under, where the user renamed it.
+   */
   field: string;
   /** Source-org ID that the FK pointed to before nullification. */
   sourceRefId: string;
@@ -217,12 +220,40 @@ export interface CleanNodeRecordsInput {
    */
   recordTypeValues?: ReadonlyMap<string, RecordTypeValues>;
   /**
-   * Whether the target has person accounts. `false` takes a person account's
-   * row as the business account the target makes of it, its name kept: the
-   * platform computes no name there, and refused the row without one. Absent
-   * or `true`, a person account goes in as one, its computed name left out.
+   * The rows of person accounts the target takes as business accounts: it has
+   * no person accounts, or the record type a row gets there is a business
+   * account's (`takenAsBusinessAccounts` in the executor). Taken so, a row
+   * keeps its name — the platform computes none for it, and refused it
+   * without one — and goes without the fields only a person account holds
+   * (`isPersonAccountField`). Absent, every person account goes in as one,
+   * its computed name left out.
    */
-  personAccountsInTarget?: boolean;
+  businessAccounts?: ReadonlySet<Record<string, unknown>>;
+}
+
+/** The name parts only a person account holds; `Salutation` "is available on person accounts". */
+const PERSON_NAME_FIELDS: ReadonlySet<string> = new Set([
+  'FirstName',
+  'LastName',
+  'MiddleName',
+  'Suffix',
+  'Salutation',
+]);
+
+/**
+ * Whether only a person account holds a field of an account: its name parts,
+ * the standard fields named `Person…`, and the custom fields of its contact
+ * (`__pc`). "If the IsPersonAccount field has the value false, the following
+ * fields have a null value and can't be modified" (Object Reference for the
+ * Salesforce Platform, Account, IsPersonAccount Fields): sent with a business
+ * account, they were refused with it.
+ */
+export function isPersonAccountField(name: string): boolean {
+  return (
+    PERSON_NAME_FIELDS.has(name) ||
+    name.endsWith('__pc') ||
+    (name.startsWith('Person') && !name.includes('__'))
+  );
 }
 
 /**
@@ -250,7 +281,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     picklistValuesByField,
     picklistFields,
     recordTypeValues,
-    personAccountsInTarget,
+    businessAccounts,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   /** Whether the insert carries a lookup: createable in both orgs, or written under a rename. */
@@ -310,8 +341,13 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // Identify orphan FKs from the ORIGINAL record (pre-remap) so we
     // don't confuse already-remapped target IDs with unmapped sources.
     const nullifiedFks: NullifiedFk[] = [];
+    /** The fields of `nullifiedFks` by the name the row was read with. */
+    const nullifiedAsRead: string[] = [];
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
+      // Excluded by the user, a field is never written: neither at insert nor
+      // by the second pass, which filled it in once its record came after.
+      if (excludedFields.has(field.name)) continue;
       // A lookup no write of the run can set is the platform's to fill — a
       // person account's contact, a quote's account read from its
       // opportunity — or one the user the run writes as may not set. It goes
@@ -343,8 +379,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       // unless the insert cannot carry it, the user the run reads as not
       // allowed to set it: the update the target allows is then owed it.
       if (carried && remapper.get(value)) continue;
+      nullifiedAsRead.push(field.name);
       nullifiedFks.push({
-        field: field.name,
+        // Owed under the name the target has: a field map writes the lookup
+        // under its own, and the second pass sent the source's name, which
+        // the target may not have, or may give to another field.
+        field: fieldRename[field.name] ?? field.name,
         sourceRefId: value,
         targetObjects: field.referenceTo ?? [],
         // Written with the row or never: the second pass, which cannot fill
@@ -358,8 +398,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // remapper from prior inserts.
     const remapLookupFields = lookupFields.filter((n) => n !== 'RecordTypeId');
     const remapped = remapper.remapRecord(r, remapLookupFields);
-    for (const nf of nullifiedFks) {
-      remapped[nf.field] = null;
+    for (const field of nullifiedAsRead) {
+      remapped[field] = null;
     }
     // Apply per-object owner remap (BA need: clone records authored by
     // ex-employees onto a sandbox where their User no longer exists).
@@ -378,6 +418,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // boolean, sometimes as the SOAP-normalized string 'true', and a strict
     // `=== true` stripped the `__pc` fields of real person accounts.
     const isPersonAccount = isPersonAccountRow(remapped);
+    // A person account the target takes as a business account goes in as one.
+    const asBusiness = isPersonAccount && businessAccounts?.has(r) === true;
     const cleaned: Record<string, unknown> = {};
     // Written under a rename: the field map answers for what the target takes.
     const renamed = new Set<string>();
@@ -387,10 +429,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       // bypass the createable check on the source name and write under
       // the mapped name (which also has to be a real createable target
       // field — the executor doesn't validate the target side; that's
-      // the user's responsibility per the field-map contract).
+      // the user's responsibility per the field-map contract). No value is
+      // no value under either name: a lookup emptied for the second pass
+      // went as an explicit `null`.
       const renamedTo = fieldRename[key];
       if (renamedTo) {
-        cleaned[renamedTo] = remapped[key];
+        if (remapped[key] !== null) cleaned[renamedTo] = remapped[key];
         renamed.add(renamedTo);
         continue;
       }
@@ -427,12 +471,15 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       }
       // Person Account `__pc` fields are not valid on Business Accounts.
       if (key.endsWith('__pc') && !isPersonAccount) continue;
+      // Nor is any field only a person account holds, on one the target
+      // takes as a business account.
+      if (asBusiness && isPersonAccountField(key)) continue;
       // Person Account `Name` is auto-computed from FirstName/LastName.
       // Salesforce rejects an explicit `Name` value with
       // INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name.
-      // A target without person accounts computes none, and takes the row as
-      // a business account, which it refuses without its name.
-      if (key === 'Name' && isPersonAccount && personAccountsInTarget !== false) continue;
+      // Taken as a business account, the row gets no computed name, and the
+      // target refuses it without one.
+      if (key === 'Name' && isPersonAccount && !asBusiness) continue;
       const value = remapped[key];
       if (value === null) continue;
       cleaned[key] = value;

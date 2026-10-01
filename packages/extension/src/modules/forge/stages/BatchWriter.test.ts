@@ -604,6 +604,40 @@ describe('BatchWriter — relations the platform creates', () => {
     ]);
   });
 
+  it('says which direct relations go with a contact the run created, and not those of a contact the target held', async () => {
+    // Counted as kept, a removal's confirmation said they stayed in the org:
+    // the platform deletes a direct relation with its contact.
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '07kDIRECT1', AccountId: '001T', ContactId: '003T1' },
+      { Id: '07kDIRECT2', AccountId: '001T', ContactId: '003T2' },
+    ]);
+    const payloads = [
+      { AccountId: '001T', ContactId: '003T1' },
+      { AccountId: '001T', ContactId: '003T2' },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('003SRC1', '003T1', 'Contact');
+    remapper.addExisting('003SRC2', '003T2', 'Contact');
+    const input = makeInput([], {
+      node: makeNode('AccountContactRelation', 2),
+      records: payloads,
+      cleanedRecords: payloads.map((cleaned, i) => ({
+        source: { Id: `07kSRC${i + 1}`, ContactId: `003SRC${i + 1}` },
+        cleaned,
+        nullifiedFks: [],
+      })),
+      remapper,
+    });
+
+    const result = await new BatchWriter({
+      insertRecords: vi.fn<InsertImpl>(),
+      queryRecords,
+    }).writeNode(input);
+
+    expect(result.linkedExistingCount).toBe(2);
+    expect(result.withTheirRecord).toEqual(['07kSRC1']);
+  });
+
   it('makes no insert call when every relation is one the platform made', async () => {
     const insertRecords = vi.fn<InsertImpl>();
     const queryRecords = vi.fn(async (_org: string, _soql: string) => [

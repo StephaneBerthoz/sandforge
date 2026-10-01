@@ -108,7 +108,9 @@ ForgeOrchestrator.execute(graph, config)
        │    6. clean records:
        │         - strip non-createable
        │         - strip Person Account __pc on Business Accounts
-       │         - strip Name on Person Accounts (auto-computed)
+       │         - strip Name on Person Accounts (auto-computed); one the
+       │           target takes as a business account keeps it, and goes
+       │           without its person fields (see "Person accounts")
        │         - replace or leave out the picklist values the target
        │           would refuse, for the record type the row goes in with
        │           when the mapping knows it (see below)
@@ -276,6 +278,12 @@ sends no update for it, says it is left empty (`Lookup 'X' left empty: only an
 insert sets it, …` in `__pass2__`), and so does the plan's cycle. A row the run
 retried wrote is owed only what an update can set.
 
+A field the user excluded is owed nothing: never written, neither at insert
+nor by the second pass, which filled it in once its record came after. A
+renamed lookup is owed under the name the target has, the one the field map
+writes it under, on every path: the insert, the second pass, and a row the run
+retried wrote.
+
 ## Person accounts
 
 The platform writes a person account's contact (`Contact.IsPersonAccount`)
@@ -294,7 +302,7 @@ written against that one. The contact's own row is linked, counted with the
 linked records, and never removed on its own — it goes with its account:
 `Completed Contact: 3 succeeded, 2 written by the platform with their person
 account, 0 failed`. Of an account the run created, the result lists the contact
-under `idRemapWithTheirAccount`, and a removal's confirmation counts it among
+under `idRemapWithTheirRecord`, and a removal's confirmation counts it among
 neither the records it deletes nor those it keeps. One whose account the run
 did not write, or whose contact was not found in the target, is not sent
 either, and is counted as failed with why. A dry run says them apart from the
@@ -308,15 +316,43 @@ without person accounts, which is never asked for a `PersonContactId` it does
 not have. There, a person account goes in as a business account, by the name
 the source computed for it (its record type maps by API name as any does, or is
 excluded on the object to take the target's default), and a dry run counts its
-contact among the rows it would insert. The object's line says it — `Completed
-Contact: 2 succeeded, 0 failed, 1 person account's contact sent on their own:
-the target wrote none with their account` — and a `scope` report of the object
-that counts no row says why.
+contact among the rows it would insert. So does a person account whose record
+type in the target is a business account's, in a target with person accounts:
+the one the mapping gives it, or the running user's default there when its
+`RecordTypeId` is not written, read once a run from `RecordType.IsPersonType`.
+Sent as a person account, without its name, the target refused it. It goes by
+its name, without the fields only a person account holds ("If the
+IsPersonAccount field has the value false, the following fields have a null
+value and can't be modified": Object Reference, Account, IsPersonAccount
+Fields) — its name parts, the `Person…` fields, the `__pc` ones — and its
+contact as one of its own. A record type the mapping does not know, or record
+types the run could not read, leave it a person account. A dry run counts its
+contact among the rows it would insert when it reads the account first — a run
+of whole tables, or one started from the account; one that reads the contact
+first, its case before its account, says the platform would write it. The
+object's line says it — `Completed Contact: 2 succeeded, 0 failed, 1 person
+account's contact sent on their own: the target wrote none with their
+account` — and a `scope` report of the object that counts no row says why:
+only for the contacts its write sent, never for a node then held back whole.
 
 A required parent copied from outside the graph goes in on the same rules: a
 person account's contact is linked to the one the platform wrote with it, and
 what points at it is written against that one; such a contact is copied on its
-own only into a target without person accounts.
+own only where the target wrote none with its account, and a person account
+the target takes as a business one goes in as one. The user's choices for its
+object hold too: a field excluded is left out, a renamed one goes under the
+name the target has.
+
+The platform deletes two more records with one the run created, which the run
+links to and never writes: a contact's direct relation to its account — "To
+remove a direct relationship between a contact and an account, change the
+contact's primary account or delete the contact" (Salesforce Help,
+"Considerations for Relating a Contact to Multiple Accounts") — and the task it
+wrote with an email on no case: "Deleting an EmailMessage record automatically
+deletes the associated Task" (Salesforce Help, knowledge article 000384885).
+Of a contact or an email the run created, the result lists them under
+`idRemapWithTheirRecord` too, and a removal's confirmation does not count them
+among the records it keeps.
 
 ## Error structure
 
@@ -475,7 +511,7 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   read again under by the nodes read before, and what that adds, three levels
   below the parent at most. Past that, the rows are as the order of the reads
   left them.
-- **A person account written with a business record type**: in a target with
-  person accounts, a person account whose record type maps to a business one —
-  or whose `RecordTypeId` is excluded and the default is a business one — is
-  sent without its computed name, as a person account is, and refused.
+- **A person account whose record type the target does not tell**: one whose
+  record type the mapping does not know, or in a target whose record types the
+  run could not read, goes in as a person account, without its computed name:
+  a business record type there refuses it.

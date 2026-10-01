@@ -701,15 +701,21 @@ export interface ForgeExecutionResult {
    */
   idRemapExisting?: string[];
   /**
-   * Of `idRemapExisting`, the contacts the platform wrote with a person
-   * account this run created: the run never wrote them, and removing the
-   * account removes them, so a removal neither keeps them nor deletes them on
-   * their own — the platform refuses that ("You can modify a person contact
-   * but you can't create or delete a person contact": SOAP API Developer
-   * Guide, "Person Account Record Types"). Absent when there were none, and
-   * from runs recorded before it was kept.
+   * Of `idRemapExisting`, the records the platform wrote with one this run
+   * created, and deletes with it: the run never wrote them, so a removal
+   * neither keeps them nor deletes them on their own. The contact of a person
+   * account ("You can modify a person contact but you can't create or delete
+   * a person contact … Instead, delete or modify the account": SOAP API
+   * Developer Guide, "Person Account Record Types"); a contact's direct
+   * relation to its account ("To remove a direct relationship between a
+   * contact and an account, change the contact's primary account or delete
+   * the contact": Salesforce Help, "Considerations for Relating a Contact to
+   * Multiple Accounts"); the task of an email on no case ("Deleting an
+   * EmailMessage record automatically deletes the associated Task":
+   * Salesforce Help, knowledge article 000384885). Absent when there were
+   * none, and from runs recorded before it was kept.
    */
-  idRemapWithTheirAccount?: string[];
+  idRemapWithTheirRecord?: string[];
   /**
    * Records this run created. The graph's per-node counts are never filled
    * in by a run, so without this the results read zero whatever was written.

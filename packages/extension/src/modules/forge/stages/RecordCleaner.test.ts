@@ -438,6 +438,40 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned).toEqual({});
   });
 
+  it('never owes the second pass a lookup the user excluded', () => {
+    // Left out of the insert, it was filled in by the second pass once its
+    // record came after: written all the same.
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', Name: 'X', AccountId: '001LATER' }],
+        excludedFields: new Set(['AccountId']),
+        creatableFields: new Set(['Name', 'AccountId']),
+      }),
+    );
+
+    expect(out.nullifiedFks).toEqual([]);
+    expect(out.cleaned).toEqual({ Name: 'X' });
+  });
+
+  it('owes the second pass a renamed lookup under the name the target has', () => {
+    // Owed under the source's name, the update named a field the target has
+    // not, or gives to another one.
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', AccountId: '001LATER' }],
+        fieldRename: { AccountId: 'Parent_Account__c' },
+        creatableFields: new Set(['Name']),
+        updatableFields: new Set(['Parent_Account__c']),
+      }),
+    );
+
+    expect(out.nullifiedFks).toEqual([
+      { field: 'Parent_Account__c', sourceRefId: '001LATER', targetObjects: ['Account'] },
+    ]);
+    // Emptied for the second pass, it goes under neither name at insert.
+    expect(out.cleaned).toEqual({});
+  });
+
   describe("what the second pass is owed, read from the target's describe", () => {
     /** A lookup the user the run reads as may not set: read-only to it in the source. */
     const readOnlyInTheSource: FieldInfo = {
@@ -624,24 +658,53 @@ describe('cleanNodeRecords', () => {
     expect(person.cleaned).toEqual({ Custom__pc: 'x' });
   });
 
-  it('keeps the name of a person account a target without person accounts takes as a business one', () => {
-    // The target computes no name there, and refused the account without one.
+  it('sends a person account the target takes as a business one as such: its name kept, no field only a person account holds', () => {
+    // The target computes no name for it, and refused it without one — or
+    // with a field a business account cannot hold. Another person account
+    // goes as before.
+    const text = (name: string): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      isReference: false,
+    });
     const fields: FieldInfo[] = [
       { name: 'Id', queryable: true, createable: false, isReference: false },
-      { name: 'Name', queryable: true, createable: true, isReference: false },
       { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+      ...['Name', 'FirstName', 'LastName', 'Salutation', 'PersonEmail', 'Tier__pc', 'Phone'].map(
+        text,
+      ),
     ];
-    const [person] = cleanNodeRecords(
+    const read = {
+      Name: 'John Doe',
+      IsPersonAccount: true,
+      FirstName: 'John',
+      LastName: 'Doe',
+      Salutation: 'Mr.',
+      PersonEmail: 'person@example.com',
+      Tier__pc: 'Gold',
+      Phone: '555-0100',
+    };
+    const takenAsBusiness = { Id: '001B', ...read };
+    const [business, person] = cleanNodeRecords(
       makeInput({
         objectApiName: 'Account',
-        records: [{ Id: '001B', Name: 'John Doe', IsPersonAccount: true }],
+        records: [takenAsBusiness, { Id: '001C', ...read }],
         fieldInfos: fields,
-        creatableFields: new Set(['Name']),
-        personAccountsInTarget: false,
+        creatableFields: new Set(fields.filter((f) => f.createable).map((f) => f.name)),
+        businessAccounts: new Set([takenAsBusiness]),
       }),
     );
 
-    expect(person.cleaned).toEqual({ Name: 'John Doe' });
+    expect(business.cleaned).toEqual({ Name: 'John Doe', Phone: '555-0100' });
+    expect(person.cleaned).toEqual({
+      FirstName: 'John',
+      LastName: 'Doe',
+      Salutation: 'Mr.',
+      PersonEmail: 'person@example.com',
+      Tier__pc: 'Gold',
+      Phone: '555-0100',
+    });
   });
 
   it('drops picklist values the target org does not accept', () => {

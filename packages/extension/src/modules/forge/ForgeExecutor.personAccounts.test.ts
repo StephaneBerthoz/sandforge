@@ -154,6 +154,16 @@ const ROOTED_AT_THE_CASE = { rootRecordId: CASE, rootObjectApiName: 'Case' };
 /** A record the target already held, named by a refusal: fifteen characters, as a message gives it. */
 const HELD_ACCOUNT = '001Fk00000HeLdA';
 
+/** What else the orgs of {@link orgsWithPersonAccounts} hold. */
+interface PersonAccountOrgs {
+  /** The objects' fields in both orgs; {@link FIELDS} when left out. */
+  fields?: Record<string, FieldInfo[]>;
+  /** The target's record types of the account, each with its `IsPersonType`. */
+  recordTypes?: Record<string, unknown>[];
+  /** What the target says of an object's record types, for the user the run writes as. */
+  describeObject?: ForgeExecutorDeps['describeObject'];
+}
+
 /**
  * A source org holding {@link SOURCE}, and a target that creates what it is
  * sent and, for an account sent as a person — its last name and no company
@@ -161,10 +171,12 @@ const HELD_ACCOUNT = '001Fk00000HeLdA';
  *
  * @param refuse - The answer the target gives a row instead of creating it.
  * @param source - The source's rows, by object.
+ * @param orgs - What else the orgs hold.
  */
 function orgsWithPersonAccounts(
   refuse?: (object: string, row: Record<string, unknown>) => InsertResult | undefined,
   source: Record<string, Record<string, unknown>[]> = SOURCE,
+  { fields = FIELDS, recordTypes = [], describeObject }: PersonAccountOrgs = {},
 ) {
   let created = 0;
   const newId = (prefix: string): string => `${prefix}Tg${String(created++).padStart(13, '0')}`;
@@ -175,11 +187,14 @@ function orgsWithPersonAccounts(
     [HELD_ACCOUNT, `003Tg${'HELD'.padStart(13, '0')}`],
   ]);
   const deps = {
-    describeFields: vi.fn(async (_org: string, object: string) => FIELDS[object] ?? [idField]),
+    describeFields: vi.fn(async (_org: string, object: string) => fields[object] ?? [idField]),
     queryRecords: vi.fn(async (org: string, soql: string) => {
       if (org === 'src') {
         const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
         return (source[object] ?? []).map((row) => ({ ...row }));
+      }
+      if (soql.startsWith('SELECT Id, IsPersonType FROM RecordType')) {
+        return recordTypes.map((row) => ({ ...row }));
       }
       const asked = /^SELECT Id, PersonContactId FROM Account WHERE Id IN \((.*)\)$/.exec(soql);
       if (!asked) return [];
@@ -204,6 +219,7 @@ function orgsWithPersonAccounts(
       updated.push({ object, rows });
       return rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] }));
     }),
+    ...(describeObject ? { describeObject } : {}),
   } satisfies ForgeExecutorDeps;
   return { executor: new ForgeExecutor(deps), deps, inserted, updated, personContactOf };
 }
@@ -616,7 +632,7 @@ describe('ForgeExecutor, person accounts', () => {
     );
 
     expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
-    expect(summary.withTheirAccountSourceIds).toEqual([PERSON_CONTACT]);
+    expect(summary.withTheirRecordSourceIds).toEqual([PERSON_CONTACT]);
   });
 
   it('counts the contact of a person account the target already held as kept', async () => {
@@ -641,7 +657,7 @@ describe('ForgeExecutor, person accounts', () => {
     );
 
     expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
-    expect(summary.withTheirAccountSourceIds).toBeUndefined();
+    expect(summary.withTheirRecordSourceIds).toBeUndefined();
   });
 
   describe('a target that writes no contact with the account', () => {
@@ -814,6 +830,218 @@ describe('ForgeExecutor, person accounts', () => {
           ],
         }),
       );
+    });
+
+    describe("a person account whose record type in the target is a business account's", () => {
+      const SOURCE_TYPE = fakeId('012', 1);
+      const PERSON_TYPE = '012Tg0000000PeRAAA';
+      const BUSINESS_TYPE = '012Tg0000000BuSAAA';
+      /** The target's record types of the account. */
+      const RECORD_TYPES = [
+        { Id: PERSON_TYPE, IsPersonType: true },
+        { Id: BUSINESS_TYPE, IsPersonType: false },
+      ];
+      const TYPED_FIELDS: Record<string, FieldInfo[]> = {
+        ...FIELDS,
+        Account: [...FIELDS.Account, text('PersonEmail'), lookup('RecordTypeId', 'RecordType')],
+      };
+      /** The source, its person account of a record type the mapping knows. */
+      const TYPED_SOURCE = {
+        ...SOURCE,
+        Account: SOURCE.Account.map((row) =>
+          row['Id'] === PERSON
+            ? { ...row, PersonEmail: 'person@example.com', RecordTypeId: SOURCE_TYPE }
+            : { ...row, PersonEmail: null, RecordTypeId: null },
+        ),
+      };
+      /** The platform's refusal of an account of no person record type sent without its name. */
+      const refusedWithoutName = (
+        object: string,
+        row: Record<string, unknown>,
+      ): InsertResult | undefined =>
+        object === 'Account' && row['RecordTypeId'] !== PERSON_TYPE && !row['Name']
+          ? {
+              id: '',
+              success: false,
+              errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [Name]'],
+            }
+          : undefined;
+      const mappedTo = (targetId: string) => ({
+        ...ROOTED_AT_THE_CASE,
+        recordTypeMappings: [{ sourceId: SOURCE_TYPE, targetId, developerName: 'Retail' }],
+      });
+      /** A record type of the account as the user the run writes as sees it. */
+      const recordType = (recordTypeId: string, defaultRecordTypeMapping: boolean) => ({
+        recordTypeId,
+        developerName: recordTypeId === PERSON_TYPE ? 'Person' : 'Retail',
+        name: recordTypeId === PERSON_TYPE ? 'Person' : 'Retail',
+        available: true,
+        active: true,
+        master: false,
+        defaultRecordTypeMapping,
+      });
+
+      it('writes it as a business account by its name, and its contact as one of its own', async () => {
+        // Sent as a person account — without its name, with its person
+        // fields — the target refused it, and its contact went with it.
+        const { executor, inserted, deps } = orgsWithPersonAccounts(
+          refusedWithoutName,
+          TYPED_SOURCE,
+          { fields: TYPED_FIELDS, recordTypes: RECORD_TYPES },
+        );
+        const events: ForgeProgressEvent[] = [];
+
+        const summary = await executor.execute(
+          CASE_GRAPH,
+          'src',
+          'tgt',
+          (e) => events.push(e),
+          mappedTo(BUSINESS_TYPE),
+        );
+
+        expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+          { Name: 'Jane Doe', RecordTypeId: BUSINESS_TYPE },
+          { Name: 'Acme' },
+        ]);
+        expect(inserted.find(({ object }) => object === 'Contact')?.rows).toEqual([
+          { LastName: 'Doe', AccountId: summary.remapTable[PERSON] },
+          { LastName: 'Roe', AccountId: summary.remapTable[BUSINESS] },
+        ]);
+        expect(inserted.find(({ object }) => object === 'Case')?.rows[0]?.['ContactId']).toBe(
+          summary.remapTable[PERSON_CONTACT],
+        );
+        expect(summary.failedCount).toBe(0);
+        // The target's record types are read once a run.
+        expect(
+          deps.queryRecords.mock.calls.filter(([, soql]) => soql.includes('FROM RecordType')),
+        ).toHaveLength(1);
+        expect(lastLines(events).get('Contact')).toBe(
+          "Completed Contact: 2 succeeded, 0 failed, 1 person account's contact sent on their own: " +
+            'the target wrote none with their account',
+        );
+      });
+
+      it("writes one whose record type there is a person account's as a person account, as before", async () => {
+        const { executor, inserted, personContactOf } = orgsWithPersonAccounts(
+          refusedWithoutName,
+          TYPED_SOURCE,
+          { fields: TYPED_FIELDS, recordTypes: RECORD_TYPES },
+        );
+
+        const summary = await executor.execute(
+          CASE_GRAPH,
+          'src',
+          'tgt',
+          () => undefined,
+          mappedTo(PERSON_TYPE),
+        );
+
+        expect(inserted.find(({ object }) => object === 'Account')?.rows[0]).toEqual({
+          LastName: 'Doe',
+          PersonEmail: 'person@example.com',
+          RecordTypeId: PERSON_TYPE,
+        });
+        expect(summary.remapTable[PERSON_CONTACT]).toBe(
+          personContactOf.get(summary.remapTable[PERSON].slice(0, 15)),
+        );
+        expect(summary.failedCount).toBe(0);
+      });
+
+      it("takes the running user's default record type for one written without its record type", async () => {
+        const { executor, inserted } = orgsWithPersonAccounts(refusedWithoutName, TYPED_SOURCE, {
+          fields: TYPED_FIELDS,
+          recordTypes: RECORD_TYPES,
+          describeObject: async (_org, object) => ({
+            keyPrefix: null,
+            recordTypes:
+              object === 'Account'
+                ? [recordType(BUSINESS_TYPE, true), recordType(PERSON_TYPE, false)]
+                : [],
+          }),
+        });
+
+        const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', () => undefined, {
+          ...mappedTo(PERSON_TYPE),
+          fieldExclusions: { Account: ['RecordTypeId'] },
+        });
+
+        expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+          { Name: 'Jane Doe' },
+          { Name: 'Acme' },
+        ]);
+        expect(summary.failedCount).toBe(0);
+      });
+
+      it('says on a dry run that reads the account first that its contact would be inserted', async () => {
+        // A run of whole tables writes, and reads, the accounts before the
+        // contacts. One that reads the contact first — its case before its
+        // account — has no account to tell by, and says the platform would
+        // write it.
+        const { executor, inserted } = orgsWithPersonAccounts(refusedWithoutName, TYPED_SOURCE, {
+          fields: TYPED_FIELDS,
+          recordTypes: RECORD_TYPES,
+        });
+        const events: ForgeProgressEvent[] = [];
+
+        const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', (e) => events.push(e), {
+          recordTypeMappings: mappedTo(BUSINESS_TYPE).recordTypeMappings,
+          dryRun: true,
+        });
+
+        expect(inserted).toEqual([]);
+        // Two accounts, two contacts and the case.
+        expect(summary.wouldInsertCount).toBe(5);
+        expect(lastLines(events).get('Contact')).toBe(
+          '[dry-run] Contact: 2 record(s) would be inserted',
+        );
+      });
+
+      it('says no contact was sent on its own when the contact node is held back whole', async () => {
+        // Said before the write, the note told of contacts sent from a node
+        // whose every row was then held back, none of them sent.
+        const SOURCE_CONTACT_TYPE = fakeId('012', 2);
+        const CLOSED_CONTACT_TYPE = '012Tg0000000CoNAAA';
+        const { executor, inserted } = orgsWithPersonAccounts(
+          refusedWithoutName,
+          {
+            ...TYPED_SOURCE,
+            Contact: SOURCE.Contact.map((row) => ({ ...row, RecordTypeId: SOURCE_CONTACT_TYPE })),
+          },
+          {
+            fields: {
+              ...TYPED_FIELDS,
+              Contact: [...FIELDS.Contact, lookup('RecordTypeId', 'RecordType')],
+            },
+            recordTypes: RECORD_TYPES,
+            describeObject: async (_org, object) => ({
+              keyPrefix: null,
+              recordTypes:
+                object === 'Account'
+                  ? [recordType(BUSINESS_TYPE, true), recordType(PERSON_TYPE, false)]
+                  : [{ ...recordType(CLOSED_CONTACT_TYPE, true), available: false }],
+            }),
+          },
+        );
+        const events: ForgeProgressEvent[] = [];
+
+        const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', (e) => events.push(e), {
+          ...ROOTED_AT_THE_CASE,
+          recordTypeMappings: [
+            { sourceId: SOURCE_TYPE, targetId: BUSINESS_TYPE, developerName: 'Retail' },
+            {
+              sourceId: SOURCE_CONTACT_TYPE,
+              targetId: CLOSED_CONTACT_TYPE,
+              developerName: 'Retail',
+            },
+          ],
+        });
+
+        expect(inserted.some(({ object }) => object === 'Contact')).toBe(false);
+        expect(lastLines(events).get('Contact')).toMatch(/^Held back Contact, nothing written/);
+        expect(
+          summary.errors.flatMap(({ samples }) => samples.flatMap(({ messages }) => messages)),
+        ).not.toContainEqual(expect.stringContaining('Sent as contacts of their own'));
+      });
     });
 
     it('says on a dry run that the contact of a person account would be inserted in a target without person accounts', async () => {

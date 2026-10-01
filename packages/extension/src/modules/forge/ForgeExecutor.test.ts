@@ -1821,6 +1821,87 @@ describe('ForgeExecutor', () => {
       }),
     };
 
+    it('counts the direct relation the platform wrote with a contact the run created as going with it, never as kept', async () => {
+      // Linked, it read as a record a removal of the run's records keeps: the
+      // platform deletes it with its contact.
+      const RELATION = '07k000000000001AAA';
+      const { orgDeps, inserted } = fakeOrgs(
+        {
+          Account: [{ Id: ACCOUNT, Name: 'Root' }],
+          Contact: [{ Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT }],
+          AccountContactRelation: [{ Id: RELATION, AccountId: ACCOUNT, ContactId: KEY_CONTACT }],
+        },
+        {
+          Account: [idField, text('Name')],
+          Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+          AccountContactRelation: [
+            idField,
+            lookup('AccountId', 'Account', true),
+            lookup('ContactId', 'Contact', true),
+          ],
+        },
+      );
+      const read = orgDeps.queryRecords;
+      orgDeps.queryRecords = async (org, soql, onTruncated) =>
+        org === 'tgt' && soql.includes('IsDirect = true')
+          ? [{ Id: '07kTARGET00000001A', AccountId: 'Account:Root', ContactId: 'Contact:Key' }]
+          : read(org, soql, onTruncated);
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact'), makeNode('AccountContactRelation')],
+        [
+          edge('Account', 'Contact'),
+          edge('Account', 'AccountContactRelation'),
+          edge('Contact', 'AccountContactRelation'),
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT,
+        rootObjectApiName: 'Account',
+      });
+
+      expect(inserted['AccountContactRelation'] ?? []).toEqual([]);
+      expect(summary.existingSourceIds).toContain(RELATION);
+      expect(summary.withTheirRecordSourceIds).toEqual([RELATION]);
+    });
+
+    it('fills in a renamed lookup in the second pass under the name the target has', async () => {
+      // Owed under the source's name, the update named a field the target has
+      // not, or gives to another one: the lookup stayed empty.
+      const { orgDeps, inserted, updated } = fakeOrgs(
+        {
+          Account: [{ Id: ACCOUNT, Name: 'Root', Key_Contact__c: KEY_CONTACT }],
+          Contact: [{ Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT }],
+        },
+        {
+          Account: [
+            idField,
+            text('Name'),
+            lookup('Key_Contact__c', 'Contact'),
+            lookup('Main_Contact__c', 'Contact'),
+          ],
+          Contact: [idField, text('LastName'), lookup('AccountId', 'Account', true)],
+        },
+      );
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact')],
+        [edge('Contact', 'Account'), edge('Account', 'Contact')],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT,
+        rootObjectApiName: 'Account',
+        fieldMappings: { Account: { Key_Contact__c: 'Main_Contact__c' } },
+      });
+
+      // Emptied for the second pass, it goes under neither name at insert.
+      expect(inserted['Account']).toEqual([{ Name: 'Root' }]);
+      expect(updated).toEqual([
+        { object: 'Account', rows: [{ Id: 'Account:Root', Main_Contact__c: 'Contact:Key' }] },
+      ]);
+      expect(summary.errors).toEqual([]);
+    });
+
     describe('an object several edges of the graph reach', () => {
       it('clones every contact of the root account, the key contact once, when the account names one', async () => {
         // Account carries a lookup to Contact, so Contact is a child of the root
@@ -9219,6 +9300,9 @@ describe('ForgeExecutor', () => {
         expect(order).toEqual(['Opportunity', 'Quote', 'EmailMessage']);
         expect(summary.remapTable[EMAIL_TASK]).toBe('00TPLATFORM0001AAA');
         expect(summary.existingSourceIds).toContain(EMAIL_TASK);
+        // Deleted by the platform with the email the run created: a removal
+        // neither keeps it nor deletes it on its own.
+        expect(summary.withTheirRecordSourceIds).toEqual([EMAIL_TASK]);
         expect(summary.createdByObject.map((o) => o.objectApiName)).not.toContain('Task');
         expect(summary.failedCount).toBe(0);
         expect(progressEvents.filter((e) => e.objectName === 'Task').pop()).toMatchObject({
@@ -9249,6 +9333,7 @@ describe('ForgeExecutor', () => {
         ]);
         expect(order).toEqual(['Opportunity', 'Quote', 'EmailMessage', 'Task']);
         expect(summary.existingSourceIds).not.toContain(EMAIL_TASK);
+        expect(summary.withTheirRecordSourceIds).toBeUndefined();
         expect(summary.failedCount).toBe(0);
       });
 
