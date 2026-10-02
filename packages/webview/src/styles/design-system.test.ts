@@ -459,6 +459,8 @@ const HEX_ALLOWLIST: Readonly<Record<string, string>> = {
     'the colours a user picks for an org: data the org keeps, shown as it was chosen',
   'components/EasterEgg/MojitoOverlay.tsx':
     'a decorative illustration on its own dark backdrop, painted the same on every theme',
+  'components/ui/BrandMark.tsx':
+    "the product's mark, in the colours of its Marketplace icon: a logo is painted the same on every theme",
 };
 
 /** The product's own TypeScript: no tests, no test infrastructure under `testing/`. */

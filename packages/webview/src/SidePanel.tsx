@@ -27,6 +27,7 @@ import {
   Rocket,
   FileUp,
 } from 'lucide-react';
+import { BrandMark } from './components/ui/BrandMark';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
 import { orgTypeLabel } from './utils/orgFormatters';
@@ -352,12 +353,9 @@ export const SidePanel: React.FC = () => {
       )}
       data-testid="sidepanel-root"
     >
-      {/* Branding */}
+      {/* Branding: the product's own mark, not the Forge module's flame. */}
       <div className="flex items-center gap-2.5 px-3 py-3 border-b border-subtle">
-        <div className="relative">
-          <Flame className="w-5 h-5 text-hue-orange" />
-          <div className="absolute -inset-1 bg-hue-orange/10 rounded-full blur-xs -z-10" />
-        </div>
+        <BrandMark className="w-5 h-5" />
         <span className="text-sm font-bold tracking-tight">SandForge</span>
       </div>
 

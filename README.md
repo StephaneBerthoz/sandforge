@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/sandforge-logo-horizontal-dark.png">
+    <img src="assets/brand/sandforge-logo-horizontal-light.png" alt="SandForge" width="380">
+  </picture>
+</p>
+
 # SandForge: Salesforce DevOps Toolkit
 
 <!-- badges:start -->
