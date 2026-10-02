@@ -91,6 +91,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 - Cycle detection with clear error messages
 - Lookup fields point at records their target object inserted earlier in the same run, picked at random; a relation places each child under a parent instead -- one this run creates or one already in the org -- with the number of children per parent it sets
 - Configurable depth: Direct (1 level), Full (all levels), or Custom (N levels)
+- An insert of more than 200 records goes in one Bulk API 2.0 job, its rows with every field any of them carries, and each record's id comes back whatever fields it carries and whatever form the platform writes its values back in: the lookups of the objects inserted after it, and a clone's ID mapping table, can name every record it created
 
 ### Templates and Export
 

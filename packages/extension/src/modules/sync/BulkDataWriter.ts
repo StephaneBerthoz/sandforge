@@ -94,7 +94,7 @@ export interface BulkDataWriterDeps {
  * Writes records to a target Salesforce org via insert/upsert/update/delete.
  *
  * Mutualizes the three execution paths shared by all four DML operations:
- * - streaming chunked upload for very large record sets (> STREAMING_THRESHOLD),
+ * - one Bulk API 2.0 job read in chunks for very large record sets (> STREAMING_THRESHOLD),
  * - Bulk API 2.0 above the configured bulk threshold,
  * - REST batches with retry for small record sets.
  *
@@ -260,7 +260,7 @@ export class BulkDataWriter {
   }
 
   /**
-   * Run the streaming chunked-upload path when the record set exceeds
+   * Run the streaming path, one job read in chunks, when the record set exceeds
    * STREAMING_THRESHOLD. Returns `undefined` when streaming does not apply.
    */
   private async tryStreaming(
@@ -288,15 +288,12 @@ export class BulkDataWriter {
       chunkedExecutor.createChunkGenerator(records),
       records.length,
       externalIdField,
-      // Full array is already in memory here — enables honest per-record
-      // result attribution instead of the old "first successCount succeeded"
-      // assumption, which misattributed failures after partial job errors.
-      records,
     );
     // The cancel aborted the job before it was closed: none of its records
     // was written. Answered as an empty list, it read as an object with
     // nothing to write, and a run cancelled on its last object succeeded.
     if (streamResult.aborted) throw new WriteCancelledError(objectName);
+    this.logUnmatched(`Streaming ${operation} ${objectName}`, streamResult.unmatchedIds);
     return (streamResult.outcomes ?? []).map((outcome) =>
       this.withExistingRecord(objectName, {
         id: outcome.id,
@@ -343,6 +340,7 @@ export class BulkDataWriter {
     // The cancel aborted the job before it was closed: none of its records
     // was written, as on the streaming path.
     if (bulkResult.aborted) throw new WriteCancelledError(objectName);
+    this.logUnmatched(`Bulk ${operation} ${objectName}`, bulkResult.unmatchedIds);
     // Real per-record outcomes: input-aligned, real Salesforce IDs (the old
     // code fabricated `bulk-${i}` IDs and assumed the first successCount
     // records had succeeded).
@@ -355,6 +353,19 @@ export class BulkDataWriter {
         ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
+  }
+
+  /**
+   * Log every id of a record the job wrote that no row could be matched to.
+   * The rows left without a result name ten of them; the log keeps them all,
+   * as they are the only trace of records no row maps.
+   */
+  private logUnmatched(job: string, ids: readonly string[] | undefined): void {
+    if (ids && ids.length > 0) {
+      this.deps.log(
+        `[WARN] ${job}: the job wrote ${ids.length} record(s) no row was matched to: ${ids.join(', ')}`,
+      );
+    }
   }
 
   /**

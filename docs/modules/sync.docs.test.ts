@@ -37,6 +37,9 @@ const TRANSFORM_PIPELINE = source('packages/extension/src/modules/sync/Transform
 const TRANSFORM_BUILDER = source('packages/webview/src/pages/Sync/TransformBuilder.tsx');
 const SYNC_ORCHESTRATOR = source('packages/extension/src/modules/sync/SyncOrchestrator.ts');
 const PUBLISHING_OBJECTS = source('packages/extension/src/modules/realtime/publishingObjects.ts');
+const BULK_EXECUTOR = source('packages/extension/src/core/engine/BulkApiExecutor.ts');
+const BULK_CSV = source('packages/extension/src/core/engine/bulkCsv.ts');
+const ROBUSTNESS_SCHEMA = source('packages/shared/src/schemas/robustness-config.schema.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -113,6 +116,34 @@ describe('docs/modules/sync.md', () => {
     expect(configFields?.[1]).not.toContain('map_value');
 
     expect(DOC).toContain('Value mapping takes a table of replacements');
+  });
+
+  it('says a write past 200 records goes in one Bulk API job with every field its rows carry, each row answered', () => {
+    // Positive control: the threshold, the job's CSV built from every row,
+    // and its results matched on what each row was sent with. jsforce, handed
+    // the records, wrote the header from the first one, and the rows that
+    // differed from it came back without a result.
+    expect(ROBUSTNESS_SCHEMA).toContain(
+      'threshold: z.number().int().min(1).max(10_000).default(200)',
+    );
+    expect(BULK_EXECUTOR).toContain(
+      'const upload = buildBulkCsv(operation, records, externalIdField);',
+    );
+    expect(BULK_EXECUTOR).toContain('await job.uploadData(upload.text);');
+    expect(BULK_EXECUTOR).toContain('normalizeBulkJobResults(results, upload, jobErrorOf(status))');
+    expect(BULK_CSV).toContain(
+      "const rows = sent.map((cells) => columns.map((_, column) => cells.get(column) ?? ''));",
+    );
+
+    expect(DOC).toContain(
+      'A write of more than 200 records goes in one Bulk API 2.0 job, its rows\n  with every field any of them carries.',
+    );
+    expect(DOC).toContain(
+      'an update leaves the\n  field as it was, an insert gives it its default.',
+    );
+    expect(DOC).toContain(
+      'Each row gets its own result\n  back, with its record id, whatever fields it carries',
+    );
   });
 
   it('says the Grappe count costs one API request per object', () => {

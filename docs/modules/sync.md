@@ -188,6 +188,14 @@ Before execution, the Review step shows:
   those queries counts against the org's daily API request limit, production
   included. With the setting off, no count is sent.
 - Per-object result breakdown: processed, succeeded, and failed counts
+- A write of more than 200 records goes in one Bulk API 2.0 job, its rows
+  with every field any of them carries. A field a row does not carry goes
+  as an empty cell, which the platform reads as no value: an update leaves the
+  field as it was, an insert gives it its default. Each row gets its own result
+  back, with its record id, whatever fields it carries and whatever form the
+  platform writes its values back in; a row the job answered nothing for says
+  so, and names the records the job wrote that no row was matched to, which
+  the SandForge output channel lists in full
 - Detailed error messages per object for troubleshooting
 
 ## Tips

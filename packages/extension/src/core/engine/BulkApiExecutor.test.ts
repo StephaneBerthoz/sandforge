@@ -3,9 +3,11 @@ import { BulkApiExecutor } from './BulkApiExecutor';
 import type {
   BulkApiConnection,
   BulkApiExecutorDeps,
+  BulkExecutionResult,
   BulkJobHandle,
   BulkJobCheckResult,
   BulkJobRecordResult,
+  JsforceIngestJobResults,
 } from './BulkApiExecutor';
 import { BulkApiManager } from './BulkApiManager';
 
@@ -130,7 +132,7 @@ describe('BulkApiExecutor', () => {
       await promise;
 
       expect(job.open).toHaveBeenCalledTimes(1);
-      expect(job.uploadData).toHaveBeenCalledWith(records);
+      expect(job.uploadData).toHaveBeenCalledWith('Name\nTest\n');
       expect(job.close).toHaveBeenCalledTimes(1);
     });
 
@@ -471,6 +473,251 @@ describe('BulkApiExecutor', () => {
       const result = await promise;
 
       expect(result.outcomes.map((o) => o.created)).toEqual([true, false]);
+    });
+  });
+
+  describe('a write whose rows carry different fields', () => {
+    /** Run one job whose check and results are given, and answer its result. */
+    async function run(
+      operation: 'insert' | 'update' | 'upsert',
+      records: Record<string, unknown>[],
+      results: JsforceIngestJobResults,
+      options: { check?: BulkJobCheckResult; externalIdField?: string } = {},
+    ): Promise<{ job: BulkJobHandle; result: BulkExecutionResult }> {
+      const job = createMockJob({
+        checkResults: [options.check ?? { state: 'JobComplete', numberRecordsProcessed: 0 }],
+      });
+      (job.getAllResults as ReturnType<typeof vi.fn>).mockResolvedValue(results);
+      const promise = new BulkApiExecutor().executeBulk(
+        createDeps(createMockConnection(job)),
+        'Product2',
+        operation,
+        records,
+        options.externalIdField,
+      );
+      await vi.runAllTimersAsync();
+      return { job, result: await promise };
+    }
+
+    /** The rows a Frozen load writes: every empty value left out. */
+    const rows = [
+      { Name: 'Row 0', Unit__c: 'EACH' },
+      { Name: 'Row 1' },
+      { Name: 'Row 2', Unit__c: 'BOX', Description: 'kept' },
+    ];
+
+    it('uploads one CSV whose header names every field any row carries', async () => {
+      // Handed the records, jsforce wrote the header from the first one: the
+      // third row's description was dropped, and the target created the row
+      // without it.
+      const { job } = await run('insert', rows, { successfulResults: [] });
+
+      expect(job.uploadData).toHaveBeenCalledTimes(1);
+      expect(job.uploadData).toHaveBeenCalledWith(
+        'Name,Unit__c,Description\nRow 0,EACH,\nRow 1,,\nRow 2,BOX,kept\n',
+      );
+    });
+
+    it("finds each row's result whatever fields it carries, the results echoing every column", async () => {
+      // Matched on the fields each record carried, a row with fewer or more
+      // than the header matched none of the rows the results echo: 249 of 250
+      // came back "No result returned", though the target held every one.
+      const { result } = await run('insert', rows, {
+        successfulResults: [
+          {
+            sf__Id: '01t000000000003AAA',
+            sf__Created: 'true',
+            Name: 'Row 2',
+            Unit__c: 'BOX',
+            Description: 'kept',
+          },
+          {
+            sf__Id: '01t000000000001AAA',
+            sf__Created: 'true',
+            Name: 'Row 0',
+            Unit__c: 'EACH',
+            Description: '',
+          },
+          {
+            sf__Id: '01t000000000002AAA',
+            sf__Created: 'true',
+            Name: 'Row 1',
+            Unit__c: '',
+            Description: '',
+          },
+        ],
+        failedResults: [],
+        unprocessedRecords: [],
+      });
+
+      expect(result.outcomes.map((o) => [o.success, o.id])).toEqual([
+        [true, '01t000000000001AAA'],
+        [true, '01t000000000002AAA'],
+        [true, '01t000000000003AAA'],
+      ]);
+      expect(result.failureCount).toBe(0);
+    });
+
+    it('finds a row whose number, checkbox or date the results write back in another form', async () => {
+      const { result } = await run(
+        'insert',
+        [
+          { Name: 'A', Quantity__c: 3, Active__c: true, Since__c: '2026-10-02T10:00:00Z' },
+          { Name: 'B', Quantity__c: 1.5 },
+        ],
+        {
+          successfulResults: [
+            {
+              sf__Id: '01t000000000002AAA',
+              sf__Created: 'true',
+              Name: 'B',
+              Quantity__c: '1.5',
+              Active__c: '',
+              Since__c: '',
+            },
+          ],
+          failedResults: [
+            {
+              sf__Id: '',
+              sf__Error: 'FIELD_CUSTOM_VALIDATION_EXCEPTION:Not today:Since__c --',
+              Name: 'A',
+              Quantity__c: '3.0',
+              Active__c: 'true',
+              Since__c: '2026-10-02T10:00:00.000Z',
+            },
+          ],
+        },
+      );
+
+      expect(result.outcomes).toEqual([
+        {
+          recordIndex: 0,
+          success: false,
+          error: 'FIELD_CUSTOM_VALIDATION_EXCEPTION:Not today:Since__c --',
+        },
+        { recordIndex: 1, id: '01t000000000002AAA', success: true, created: true },
+      ]);
+    });
+
+    it('finds an updated row by its Id, whatever the results write back of its other cells', async () => {
+      const { result } = await run(
+        'update',
+        [
+          { Id: '01t000000000001AAA', Description: null, Opens__c: '10:00' },
+          { Id: '01t000000000002AAA', Phone: '0102' },
+        ],
+        {
+          successfulResults: [
+            {
+              sf__Id: '01t000000000002AAA',
+              sf__Created: 'false',
+              Id: '01t000000000002AAA',
+              Description: '',
+              Opens__c: '',
+              Phone: '0102',
+            },
+            {
+              sf__Id: '01t000000000001AAA',
+              sf__Created: 'false',
+              Id: '01t000000000001AAA',
+              Description: '',
+              Opens__c: '10:00:00.000Z',
+              Phone: '',
+            },
+          ],
+        },
+      );
+
+      expect(result.outcomes.map((o) => [o.success, o.id])).toEqual([
+        [true, '01t000000000001AAA'],
+        [true, '01t000000000002AAA'],
+      ]);
+    });
+
+    it('finds an upserted row by its external id, whatever the results write back of its other cells', async () => {
+      const { result } = await run(
+        'upsert',
+        [
+          { Code__c: 7, Opens__c: '10:00' },
+          { Code__c: 8, Phone: '0102' },
+        ],
+        {
+          successfulResults: [
+            {
+              sf__Id: '01t000000000008AAA',
+              sf__Created: 'true',
+              Code__c: '8.0',
+              Opens__c: '',
+              Phone: '0102',
+            },
+            {
+              sf__Id: '01t000000000007AAA',
+              sf__Created: 'false',
+              Code__c: '7.0',
+              Opens__c: '10:00:00.000Z',
+              Phone: '',
+            },
+          ],
+        },
+        { externalIdField: 'Code__c' },
+      );
+
+      expect(result.outcomes.map((o) => [o.id, o.created])).toEqual([
+        ['01t000000000007AAA', false],
+        ['01t000000000008AAA', true],
+      ]);
+    });
+
+    it('says a row got no result, and names the records the job wrote that no row was matched to', async () => {
+      // Dropped, their ids were never mapped and never removable: the target
+      // held the records, and nothing said where.
+      const { result } = await run('insert', [{ Name: 'A' }, { Name: 'B' }], {
+        successfulResults: [
+          { sf__Id: '01t000000000001AAA', sf__Created: 'true', Name: 'A' },
+          { sf__Id: '01t000000000009AAA', sf__Created: 'true', Name: 'B as echoed otherwise' },
+        ],
+      });
+
+      expect(result.outcomes[0]).toEqual({
+        recordIndex: 0,
+        id: '01t000000000001AAA',
+        success: true,
+        created: true,
+      });
+      expect(result.outcomes[1]).toEqual({
+        recordIndex: 1,
+        success: false,
+        error:
+          'No result returned by Bulk API job; the job wrote 1 record(s) no row was matched to: 01t000000000009AAA',
+      });
+      expect(result.unmatchedIds).toEqual(['01t000000000009AAA']);
+      expect(result.successIds).toContain('01t000000000009AAA');
+    });
+
+    it('says why on every row a failed job left without a result', async () => {
+      // One row naming a field the target lacks puts it in the header, and
+      // the target refuses the whole job.
+      const { result } = await run(
+        'insert',
+        [{ Name: 'A' }, { Name: 'B', Nope__c: 'x' }],
+        {
+          successfulResults: [],
+          failedResults: [],
+          unprocessedRecords: [{ Name: 'A', Nope__c: '' }],
+        },
+        {
+          check: {
+            state: 'Failed',
+            numberRecordsProcessed: 0,
+            errorMessage: 'InvalidBatch : Field name not found : Nope__c',
+          },
+        },
+      );
+
+      expect(result.outcomes.map((o) => o.error)).toEqual([
+        'Record not processed by Bulk API job (InvalidBatch : Field name not found : Nope__c)',
+        'No result returned by Bulk API job (InvalidBatch : Field name not found : Nope__c)',
+      ]);
     });
   });
 

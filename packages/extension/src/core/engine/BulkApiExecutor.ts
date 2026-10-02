@@ -1,5 +1,6 @@
 import { BulkApiManager, type BulkJobInfo, type BulkJobStatus } from './BulkApiManager.js';
 import { SF_LIMITS } from '@sandforge/shared';
+import { buildBulkCsv, resultCells, rowKey, type BulkCsv, type CellMatch } from './bulkCsv.js';
 
 /** Result of a bulk API execution */
 export interface BulkExecutionResult {
@@ -23,6 +24,11 @@ export interface BulkExecutionResult {
    * never fabricated.
    */
   outcomes: BulkRecordOutcome[];
+  /**
+   * Ids of records the job wrote that no row could be matched to: in
+   * `successIds`, on no outcome. Each row left without a result names them.
+   */
+  unmatchedIds?: string[];
   /**
    * Set when the run's cancel aborted the job before it was closed:
    * Salesforce processed none of its records, and `outcomes` is empty.
@@ -57,9 +63,9 @@ export interface BulkRecordOutcome {
 
 /**
  * Real jsforce Bulk API 2.0 ingest result shape, as returned by
- * `JobV2.getAllResults()`. Every row echoes the uploaded record columns
- * plus `sf__Id` / `sf__Error` — that echo is what allows honest
- * result-to-record attribution.
+ * `JobV2.getAllResults()`. Every row echoes the uploaded columns plus
+ * `sf__Id` / `sf__Error` — that echo is what allows honest result-to-record
+ * attribution, the order of the rows being none of the upload's.
  */
 export interface JsforceIngestJobResults {
   successfulResults?: Array<Record<string, unknown>>;
@@ -69,7 +75,7 @@ export interface JsforceIngestJobResults {
 
 /** Normalized view of a bulk job's results (see normalizeBulkJobResults). */
 export interface NormalizedBulkResults {
-  /** Exactly `records.length` entries, in input order. */
+  /** Exactly one entry per uploaded row, in input order. */
   outcomes: BulkRecordOutcome[];
   /** Real IDs of success rows that could not be attributed to an input record. */
   unattributedSuccessIds: string[];
@@ -77,40 +83,12 @@ export interface NormalizedBulkResults {
   unattributedFailures: string[];
 }
 
-/**
- * Build a content-correlation key for a record. Bulk API 2.0 result rows
- * round-trip through CSV, so every value is normalized with String() on both
- * sides (null/undefined collapse to the empty string, matching CSV output).
- */
-function correlationKey(record: Record<string, unknown>): string {
-  const keys = Object.keys(record).sort();
-  const parts: string[] = [];
-  for (const key of keys) {
-    const value = record[key];
-    if (value === null || value === undefined) {
-      parts.push(`${key}=`);
-    } else if (typeof value === 'object') {
-      parts.push(`${key}=${JSON.stringify(value)}`);
-    } else {
-      parts.push(`${key}=${String(value)}`);
-    }
-  }
-  return parts.join('');
-}
-
-/**
- * Remove Bulk API 2.0 metadata keys (`sf__Id`, `sf__Created`, `sf__Error`)
- * from a result row so only the original uploaded columns remain for
- * content correlation.
- */
-function stripBulkMetadataKeys(row: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (key.startsWith('sf__')) continue;
-    out[key] = value;
-  }
-  return out;
-}
+/** The outcome of a row no result row was matched to. */
+const NO_RESULT = 'No result returned by Bulk API job';
+/** The outcome of a row the job never processed. */
+const NOT_PROCESSED = 'Record not processed by Bulk API job';
+/** How many ids of records no row was matched to an outcome names. */
+const UNMATCHED_IDS_NAMED = 10;
 
 /**
  * The `sf__Created` column of a successful row: what an upsert did with the
@@ -122,6 +100,15 @@ function createdFlag(value: unknown): boolean | undefined {
   return undefined;
 }
 
+/** A result row waiting for the uploaded row it answers. */
+interface PendingResult {
+  readonly row: Readonly<Record<string, unknown>>;
+  /** Give this result to the row at `recordIndex`. */
+  readonly settle: (recordIndex: number) => void;
+  /** Keep this result, though no row was matched to it. */
+  readonly orphan: () => void;
+}
+
 /**
  * Normalize bulk job results into per-input-record outcomes.
  *
@@ -129,28 +116,45 @@ function createdFlag(value: unknown): boolean | undefined {
  *  - the legacy flat `BulkJobRecordResult[]` (test doubles), treated as
  *    already input-ordered;
  *  - the real jsforce `{ successfulResults, failedResults, unprocessedRecords }`
- *    shape, whose rows are correlated back to input records by content
- *    (Salesforce does NOT guarantee result ordering relative to the upload).
+ *    shape, whose rows are correlated back to the uploaded rows by the cells
+ *    they echo (Salesforce does NOT guarantee result ordering relative to the
+ *    upload).
+ *
+ * A result row is matched on the cells its row was uploaded with
+ * ({@link buildBulkCsv}): its `Id` on an update or a delete, its external id
+ * on an upsert, every column on an insert, where a row carrying fewer fields
+ * than another is matched on the empty cells it was sent with. Keyed on the
+ * fields each record object carried, as they were, a row whose fields
+ * differed from the first row's — whose fields alone made jsforce's header —
+ * matched nothing. The cells are compared as sent first, then in the form the
+ * platform echoes them in, which writes back a number, a checkbox or a date
+ * otherwise: run on a real target, 250 rows carrying the same fields, a whole
+ * number and a date among them, all came back "No result returned".
  *
  * Records that no result row claims are failed-closed with an explicit
  * "No result returned" error instead of being silently assumed successful —
  * the previous "first successCount records succeeded" assumption mixed up
- * successes and failures whenever a job had partial errors.
+ * successes and failures whenever a job had partial errors. Their error says
+ * why when the job failed, and names what the job returned that no row was
+ * matched to, so a record it wrote is never lost without a word.
  *
  * @param rawResults - Raw value returned by `job.getAllResults()`.
- * @param records - The input records submitted to the job.
+ * @param upload - What the job was sent, row by row.
+ * @param jobError - Why the job did not complete, when it did not.
  */
 export function normalizeBulkJobResults(
   rawResults: BulkJobRecordResult[] | JsforceIngestJobResults,
-  records: Record<string, unknown>[],
+  upload: BulkCsv,
+  jobError?: string,
 ): NormalizedBulkResults {
+  const count = upload.rows.length;
   const outcomes: BulkRecordOutcome[] = [];
   const unattributedSuccessIds: string[] = [];
   const unattributedFailures: string[] = [];
-  const claimed = new Array<boolean>(records.length).fill(false);
+  const claimed = new Array<boolean>(count).fill(false);
 
   const claim = (id: string | undefined, recordIndex: number, created?: boolean): void => {
-    if (recordIndex >= 0 && recordIndex < records.length && !claimed[recordIndex]) {
+    if (recordIndex >= 0 && recordIndex < count && !claimed[recordIndex]) {
       claimed[recordIndex] = true;
       outcomes.push({
         recordIndex,
@@ -163,13 +167,14 @@ export function normalizeBulkJobResults(
     }
   };
   const claimFailure = (error: string, recordIndex: number): void => {
-    if (recordIndex >= 0 && recordIndex < records.length && !claimed[recordIndex]) {
+    if (recordIndex >= 0 && recordIndex < count && !claimed[recordIndex]) {
       claimed[recordIndex] = true;
       outcomes.push({ recordIndex, success: false, error });
     } else {
       unattributedFailures.push(error);
     }
   };
+  const why = jobError ? ` (${jobError})` : '';
 
   if (Array.isArray(rawResults)) {
     // Legacy flat shape: rows are already input-ordered.
@@ -181,54 +186,99 @@ export function normalizeBulkJobResults(
       }
     });
   } else {
-    // Real jsforce shape: correlate result rows to input records by content.
-    const indexByKey = new Map<string, number[]>();
-    records.forEach((record, i) => {
-      const key = correlationKey(record);
-      const queue = indexByKey.get(key);
-      if (queue) {
-        queue.push(i);
-      } else {
-        indexByKey.set(key, [i]);
-      }
-    });
-    const takeIndex = (row: Record<string, unknown>): number => {
-      const queue = indexByKey.get(correlationKey(stripBulkMetadataKeys(row)));
-      return queue && queue.length > 0 ? queue.shift()! : -1;
-    };
-
+    // Real jsforce shape: correlate result rows to the uploaded rows.
+    const pending: PendingResult[] = [];
     for (const row of rawResults.successfulResults ?? []) {
-      claim(
-        typeof row['sf__Id'] === 'string' ? (row['sf__Id'] as string) : undefined,
-        takeIndex(row),
-        createdFlag(row['sf__Created']),
-      );
+      const id = typeof row['sf__Id'] === 'string' ? row['sf__Id'] : undefined;
+      const created = createdFlag(row['sf__Created']);
+      pending.push({ row, settle: (i) => claim(id, i, created), orphan: () => claim(id, -1) });
     }
     for (const row of rawResults.failedResults ?? []) {
       const error =
         typeof row['sf__Error'] === 'string' && row['sf__Error'].length > 0
-          ? (row['sf__Error'] as string)
+          ? row['sf__Error']
           : 'Unknown error';
-      claimFailure(error, takeIndex(row));
+      pending.push({
+        row,
+        settle: (i) => claimFailure(error, i),
+        orphan: () => claimFailure(error, -1),
+      });
     }
     const unprocessed = rawResults.unprocessedRecords;
-    if (Array.isArray(unprocessed)) {
-      for (const row of unprocessed) {
-        claimFailure('Record not processed by Bulk API job', takeIndex(row));
-      }
+    for (const row of Array.isArray(unprocessed) ? unprocessed : []) {
+      const error = `${NOT_PROCESSED}${why}`;
+      pending.push({
+        row,
+        settle: (i) => claimFailure(error, i),
+        orphan: () => claimFailure(error, -1),
+      });
     }
+    let left = pending;
+    for (const match of ['exact', 'canonical'] as const) {
+      if (left.length > 0) left = settleBy(match, left, upload, claimed);
+    }
+    for (const result of left) result.orphan();
   }
 
   // Any input record that no result row claimed got no outcome at all —
   // fail closed instead of assuming success.
-  records.forEach((_record, i) => {
-    if (!claimed[i]) {
-      claimFailure('No result returned by Bulk API job', i);
-    }
-  });
+  const noResult = `${NO_RESULT}${why}${unmatchedResults(unattributedSuccessIds, unattributedFailures)}`;
+  for (let i = 0; i < count; i++) {
+    if (!claimed[i]) claimFailure(noResult, i);
+  }
 
   outcomes.sort((a, b) => a.recordIndex - b.recordIndex);
   return { outcomes, unattributedSuccessIds, unattributedFailures };
+}
+
+/**
+ * Give each result the row it echoes, its cells compared as `match` says, and
+ * hand back the results no row is left for. A row is given one result; rows
+ * sent with the same cells take the results that echo them in turn.
+ */
+function settleBy(
+  match: CellMatch,
+  results: readonly PendingResult[],
+  upload: BulkCsv,
+  claimed: readonly boolean[],
+): PendingResult[] {
+  const waiting = new Map<string, number[]>();
+  upload.rows.forEach((cells, i) => {
+    if (claimed[i]) return;
+    const key = rowKey(cells, upload.identity, match);
+    const queue = waiting.get(key);
+    if (queue) queue.push(i);
+    else waiting.set(key, [i]);
+  });
+  const unmatched: PendingResult[] = [];
+  for (const result of results) {
+    const key = rowKey(resultCells(upload.columns, result.row), upload.identity, match);
+    const recordIndex = waiting.get(key)?.shift();
+    if (recordIndex === undefined) unmatched.push(result);
+    else result.settle(recordIndex);
+  }
+  return unmatched;
+}
+
+/**
+ * What the job returned that no row was matched to, for the rows left without
+ * a result: the ids of the records it wrote — the only place they can be read
+ * from, since no row maps them — and how many rows it did not write.
+ */
+function unmatchedResults(ids: readonly string[], errors: readonly string[]): string {
+  const said: string[] = [];
+  if (ids.length > 0) {
+    const named = ids.slice(0, UNMATCHED_IDS_NAMED).join(', ');
+    const more =
+      ids.length > UNMATCHED_IDS_NAMED ? ` and ${ids.length - UNMATCHED_IDS_NAMED} more` : '';
+    said.push(`wrote ${ids.length} record(s) no row was matched to: ${named}${more}`);
+  }
+  if (errors.length > 0) {
+    said.push(
+      `did not write ${errors.length} row(s) no row was matched to, the first for: ${errors[0]}`,
+    );
+  }
+  return said.length > 0 ? `; the job ${said.join('; it ')}` : '';
 }
 
 /** Supported bulk operations */
@@ -246,7 +296,12 @@ export type BulkOperation = 'insert' | 'update' | 'upsert' | 'delete' | 'hardDel
 export interface BulkJobHandle {
   id?: string;
   open: () => Promise<void>;
-  uploadData: (records: Record<string, unknown>[]) => Promise<void>;
+  /**
+   * Upload the job's data, once: jsforce refuses a second upload to the same
+   * job ("Data can only be uploaded to a job once"). Sent the CSV text, it
+   * sends it as it is; sent records, it writes the header from the first one.
+   */
+  uploadData: (csv: string) => Promise<void>;
   /** Mark the upload complete (`UploadComplete`): Salesforce then processes the job's data. */
   close: () => Promise<void>;
   /** Mark the job `Aborted`: Salesforce processes none of its data. */
@@ -259,6 +314,8 @@ export interface BulkJobHandle {
 export interface BulkJobCheckResult {
   state: BulkJobStatus;
   numberRecordsProcessed?: number;
+  /** Why the job failed, as Salesforce says it: a header it refused fails every row. */
+  errorMessage?: string;
 }
 
 /** Individual record result from bulk job */
@@ -295,6 +352,16 @@ export interface BulkApiExecutorDeps {
    * job is closed, Salesforce writes all of it, and it is awaited and counted.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * Why a job ended without completing, for the rows it left without a result:
+ * Salesforce's message — a header it refused fails the whole job — or the
+ * state it ended in when it gave none.
+ */
+export function jobErrorOf(status: BulkJobCheckResult): string | undefined {
+  if (status.state === 'JobComplete') return undefined;
+  return status.errorMessage || `job ${status.state}`;
 }
 
 /**
@@ -353,6 +420,9 @@ export class BulkApiExecutor {
       throw new Error('Maximum concurrent bulk jobs reached');
     }
 
+    // Every field any record carries, rather than the first record's alone:
+    // see `buildBulkCsv`.
+    const upload = buildBulkCsv(operation, records, externalIdField);
     const job = deps.connection.bulk2.createJob({
       operation,
       object: objectName,
@@ -388,7 +458,7 @@ export class BulkApiExecutor {
        */
       let uploaded = 0;
       if (!deps.signal?.aborted) {
-        await job.uploadData(records);
+        await job.uploadData(upload.text);
         uploaded = records.length;
       }
       if (deps.signal?.aborted) {
@@ -417,7 +487,7 @@ export class BulkApiExecutor {
       }
 
       const results = await job.getAllResults();
-      const normalized = normalizeBulkJobResults(results, records);
+      const normalized = normalizeBulkJobResults(results, upload, jobErrorOf(status));
 
       const failures: BulkRecordFailure[] = normalized.outcomes
         .filter((o) => !o.success)
@@ -453,6 +523,9 @@ export class BulkApiExecutor {
         usedBulkApi: true,
         successIds,
         outcomes: normalized.outcomes,
+        ...(normalized.unattributedSuccessIds.length > 0
+          ? { unmatchedIds: normalized.unattributedSuccessIds }
+          : {}),
       };
     } catch (err: unknown) {
       // The limiter counts this job until it reaches a terminal state, and it

@@ -76,7 +76,7 @@ describe('ChunkedBulkExecutor', () => {
     });
   });
 
-  it('should open one job, upload 3 chunks, close, poll, and return results', async () => {
+  it('should open one job, read 3 chunks, upload them once, close, poll, and return results', async () => {
     const totalRecords = 6000;
     const results: BulkJobRecordResult[] = Array.from({ length: totalRecords }, (_, i) => ({
       success: true,
@@ -102,9 +102,78 @@ describe('ChunkedBulkExecutor', () => {
     expect(result.successIds).toHaveLength(6000);
 
     expect(job.open).toHaveBeenCalledTimes(1);
-    expect(job.uploadData).toHaveBeenCalledTimes(3);
+    expect(job.uploadData).toHaveBeenCalledTimes(1);
+    // The header, then one line per record of every chunk.
+    expect(vi.mocked(job.uploadData).mock.calls[0][0].split('\n')).toHaveLength(6002);
     expect(job.close).toHaveBeenCalledTimes(1);
     expect(job.getAllResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploads the chunks in one CSV whose header names every field of every chunk', async () => {
+    // jsforce refuses a second upload to a job: the chunks went one call
+    // each, and a write of more than one chunk threw at its second.
+    const job = createMockJob({ pollCount: 0 });
+    let uploads = 0;
+    vi.mocked(job.uploadData).mockImplementation(async () => {
+      uploads++;
+      if (uploads > 1) throw new Error('Data can only be uploaded to a job once.');
+    });
+    const deps = createMockDeps(job);
+
+    const result = await executor.executeChunked(
+      deps,
+      'Product2',
+      'insert',
+      toAsyncIterable([[{ Name: 'A', Unit__c: 'EACH' }], [{ Name: 'B', Description: 'kept' }]]),
+      2,
+    );
+
+    expect(result.aborted).toBe(false);
+    expect(job.uploadData).toHaveBeenCalledWith('Name,Unit__c,Description\nA,EACH,\nB,,kept\n');
+  });
+
+  it('gives each record its outcome whatever fields it carries', async () => {
+    const job = createMockJob({ pollCount: 0 });
+    vi.mocked(job.getAllResults).mockResolvedValue({
+      successfulResults: [
+        {
+          sf__Id: '01t000000000002AAA',
+          sf__Created: 'true',
+          Name: 'B',
+          Unit__c: '',
+          Description: 'kept',
+        },
+      ],
+      failedResults: [
+        {
+          sf__Id: '',
+          sf__Error: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST:Unit: bad value:Unit__c --',
+          Name: 'A',
+          Unit__c: 'NOPE',
+          Description: '',
+        },
+      ],
+      unprocessedRecords: [],
+    });
+    const deps = createMockDeps(job);
+
+    const result = await executor.executeChunked(
+      deps,
+      'Product2',
+      'insert',
+      toAsyncIterable([[{ Name: 'A', Unit__c: 'NOPE' }], [{ Name: 'B', Description: 'kept' }]]),
+      2,
+    );
+
+    expect(result.outcomes).toEqual([
+      {
+        recordIndex: 0,
+        success: false,
+        error: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST:Unit: bad value:Unit__c --',
+      },
+      { recordIndex: 1, id: '01t000000000002AAA', success: true, created: true },
+    ]);
+    expect(result.successIds).toEqual(['01t000000000002AAA']);
   });
 
   it('should respect canStartNewJob() gate', async () => {

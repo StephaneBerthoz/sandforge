@@ -668,6 +668,26 @@ describe('BulkDataWriter', () => {
       await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact', written: [] });
     });
 
+    it('logs every id of a record the job wrote that no row could be matched to', async () => {
+      // The rows left without a result name ten of them; the log is where the
+      // rest of them can be read, as no row maps them.
+      const h = createHarness({ useBulkApi: true });
+      const unmatchedIds = Array.from(
+        { length: 12 },
+        (_, i) => `001${String(i).padStart(15, '0')}`,
+      );
+      h.executeBulk.mockResolvedValue({
+        outcomes: [{ recordIndex: 0, success: false, error: 'No result returned by Bulk API job' }],
+        unmatchedIds,
+      });
+
+      await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(h.deps.log).toHaveBeenCalledWith(
+        `[WARN] Bulk insert Account: the job wrote 12 record(s) no row was matched to: ${unmatchedIds.join(', ')}`,
+      );
+    });
+
     it('opens no job for a write the cancel came before', async () => {
       // The job was opened, then aborted before its upload: nothing written,
       // and a job created and aborted in the target for a write that never
@@ -685,7 +705,7 @@ describe('BulkDataWriter', () => {
   });
 
   describe('streaming path', () => {
-    it('streams above the threshold, hands over the abort signal and the full input array', async () => {
+    it('streams above the threshold and hands over the abort signal', async () => {
       const h = createHarness({ useBulkApi: true });
       const records = makeRecords(STREAMING_THRESHOLD + 1);
       const generator = Symbol('chunks');
@@ -702,8 +722,6 @@ describe('BulkDataWriter', () => {
       expect(call[2]).toBe('insert');
       expect(call[3]).toBe(generator);
       expect(call[4]).toBe(records.length);
-      // The full array is passed so results are attributed per input record.
-      expect(call[6]).toBe(records);
       // Streaming wins: the bulk executor is never consulted.
       expect(h.executeBulk).not.toHaveBeenCalled();
       expect(outcomes).toEqual([{ id: '001STREAM', success: true, errors: [] }]);
@@ -770,6 +788,20 @@ describe('BulkDataWriter', () => {
 
       await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact', written: [] });
       expect(streaming.executeChunked).not.toHaveBeenCalled();
+    });
+
+    it('logs every id of a record the streamed job wrote that no row could be matched to', async () => {
+      const h = createHarness();
+      streaming.executeChunked.mockResolvedValue({
+        outcomes: [{ recordIndex: 0, success: false, error: 'No result returned by Bulk API job' }],
+        unmatchedIds: ['001000000000000009'],
+      });
+
+      await h.writer.update('Contact', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      expect(h.deps.log).toHaveBeenCalledWith(
+        '[WARN] Streaming update Contact: the job wrote 1 record(s) no row was matched to: 001000000000000009',
+      );
     });
 
     it('maps a streaming failure without a message to "Streaming error"', async () => {

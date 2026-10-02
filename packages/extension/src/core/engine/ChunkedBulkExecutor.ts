@@ -1,19 +1,24 @@
 import type { StreamingExecutionResult } from '@sandforge/shared';
-import { abortOpenJob, normalizeBulkJobResults } from './BulkApiExecutor.js';
+import { abortOpenJob, jobErrorOf, normalizeBulkJobResults } from './BulkApiExecutor.js';
 import type { BulkApiExecutorDeps, BulkOperation, BulkRecordOutcome } from './BulkApiExecutor.js';
 import type { BulkJobInfo, BulkJobStatus } from './BulkApiManager.js';
+import { buildBulkCsv, type BulkCsv } from './bulkCsv.js';
 
 /**
  * Result of a chunked bulk execution. Extends the shared streaming result
- * with per-input-record outcomes when correlation records were supplied
- * (see `executeChunked` — always provided by in-memory callers).
+ * with per-input-record outcomes.
  */
 export interface ChunkedExecutionResult extends StreamingExecutionResult {
   /**
    * Per-input-record outcomes in input order (real Salesforce IDs, honest
-   * failure attribution). Present only when `correlationRecords` was passed.
+   * failure attribution). Absent from a job the cancel aborted.
    */
   outcomes?: BulkRecordOutcome[];
+  /**
+   * Ids of records the job wrote that no row could be matched to: in
+   * `successIds`, on no outcome. Each row left without a result names them.
+   */
+  unmatchedIds?: string[];
 }
 
 /** Default number of records per upload chunk. */
@@ -36,12 +41,16 @@ export interface ChunkedBulkConfig {
 }
 
 /**
- * Executes a Bulk API 2.0 job with chunked uploads.
+ * Executes a Bulk API 2.0 job for a large record set read in chunks.
  *
- * Opens a single Bulk API 2.0 job, uploads records in multiple batches
- * (default 2000 records each) via successive `uploadData()` calls, then
- * closes the job and polls until completion. This avoids loading all records
- * into memory at once.
+ * Opens a single Bulk API 2.0 job, reads the records chunk by chunk (default
+ * 2000 each), looking at the run's cancel between two of them, uploads them
+ * as one CSV, then closes the job and polls until completion. One upload:
+ * jsforce refuses a second one to the same job ("Data can only be uploaded to
+ * a job once"), and the chunks were uploaded one call each, so a write of
+ * more than one chunk threw at its second, with nothing written. One CSV, too,
+ * whose header names every field any of the records carries: see
+ * `buildBulkCsv`.
  */
 export class ChunkedBulkExecutor {
   private readonly chunkSize: number;
@@ -63,12 +72,7 @@ export class ChunkedBulkExecutor {
    * @param recordChunks - Async iterable yielding arrays of records.
    * @param totalRecords - Total number of records (for progress calculation).
    * @param externalIdField - External ID field for upsert operations.
-   * @param correlationRecords - Optional full input record array used to
-   *   attribute job results back to input records (real IDs, real failure
-   *   indexes). Both in-repo callers already hold the full array in memory,
-   *   so correlation costs nothing extra; when omitted, only aggregate
-   *   counts + real IDs/errors are returned (no per-record outcomes).
-   * @returns Aggregate execution result.
+   * @returns Aggregate execution result, with each record's outcome.
    */
   async executeChunked(
     deps: BulkApiExecutorDeps,
@@ -77,7 +81,6 @@ export class ChunkedBulkExecutor {
     recordChunks: AsyncIterable<Record<string, unknown>[]>,
     totalRecords: number,
     externalIdField?: string,
-    correlationRecords?: Record<string, unknown>[],
   ): Promise<ChunkedExecutionResult> {
     if (!deps.bulkManager.canStartNewJob()) {
       throw new Error('Maximum concurrent bulk jobs reached');
@@ -109,13 +112,19 @@ export class ChunkedBulkExecutor {
     try {
       await job.open();
 
-      // Upload phase: stream chunks into the open job
-      let uploadedRecords = 0;
+      // Read phase: gather the chunks, then upload them in one CSV.
+      const records: Record<string, unknown>[] = [];
       for await (const chunk of recordChunks) {
         if (this.signal?.aborted) break;
-        await job.uploadData(chunk);
-        uploadedRecords += chunk.length;
-        deps.onProgress?.(uploadedRecords, totalRecords);
+        for (const record of chunk) records.push(record);
+        deps.onProgress?.(records.length, totalRecords);
+      }
+      let upload: BulkCsv | undefined;
+      let uploadedRecords = 0;
+      if (!this.signal?.aborted) {
+        upload = buildBulkCsv(operation, records, externalIdField);
+        await job.uploadData(upload.text);
+        uploadedRecords = records.length;
       }
 
       /*
@@ -123,10 +132,10 @@ export class ChunkedBulkExecutor {
        * job's data only once the job is closed, and never an aborted one's.
        * The job used to be closed here instead, which hands its data over for
        * processing: every chunk uploaded before the cancel was written, and
-       * reported as nothing. The last chunk's upload is covered as well — a
-       * cancel that came during it closed the job too.
+       * reported as nothing. The upload is covered as well — a cancel that
+       * came during it closed the job too.
        */
-      if (this.signal?.aborted) {
+      if (this.signal?.aborted || upload === undefined) {
         await abortOpenJob(job);
         deps.bulkManager.updateJobState(jobId, 'Aborted');
         return this.buildAbortedResult(uploadedRecords);
@@ -146,52 +155,26 @@ export class ChunkedBulkExecutor {
         status = await job.check();
       }
 
-      // Results phase: parse job results. Both the legacy flat shape (test
-      // doubles) and the real jsforce grouped shape are normalized; IDs are
-      // the real Salesforce IDs (the old `bulk-${jobId}-${i}` fallback
-      // fabricated them).
+      // Results phase: each result given the row it echoes. Both the legacy
+      // flat shape (test doubles) and the real jsforce grouped shape are
+      // normalized; IDs are the real Salesforce IDs (the old
+      // `bulk-${jobId}-${i}` fallback fabricated them).
       const results = await job.getAllResults();
+      const normalized = normalizeBulkJobResults(results, upload, jobErrorOf(status));
+      const outcomes = normalized.outcomes;
       const successIds: string[] = [];
       const failureErrors: string[] = [];
-      let successCount = 0;
-      let outcomes: BulkRecordOutcome[] | undefined;
-
-      if (correlationRecords) {
-        const normalized = normalizeBulkJobResults(results, correlationRecords);
-        outcomes = normalized.outcomes;
-        successCount = normalized.unattributedSuccessIds.length;
-        for (const outcome of outcomes) {
-          if (outcome.success) {
-            successCount++;
-            if (outcome.id !== undefined) successIds.push(outcome.id);
-          } else {
-            failureErrors.push(outcome.error ?? 'Unknown error');
-          }
-        }
-        successIds.push(...normalized.unattributedSuccessIds);
-        failureErrors.push(...normalized.unattributedFailures);
-      } else if (Array.isArray(results)) {
-        for (const row of results) {
-          if (row.success) {
-            successCount++;
-            if (row.id !== undefined) successIds.push(row.id);
-          } else {
-            failureErrors.push(row.errors?.join(', ') ?? 'Unknown error');
-          }
-        }
-      } else {
-        for (const row of results.successfulResults ?? []) {
+      let successCount = normalized.unattributedSuccessIds.length;
+      for (const outcome of outcomes) {
+        if (outcome.success) {
           successCount++;
-          const id = row['sf__Id'];
-          if (typeof id === 'string') successIds.push(id);
-        }
-        for (const row of results.failedResults ?? []) {
-          const error = row['sf__Error'];
-          failureErrors.push(
-            typeof error === 'string' && error.length > 0 ? error : 'Unknown error',
-          );
+          if (outcome.id !== undefined) successIds.push(outcome.id);
+        } else {
+          failureErrors.push(outcome.error ?? 'Unknown error');
         }
       }
+      successIds.push(...normalized.unattributedSuccessIds);
+      failureErrors.push(...normalized.unattributedFailures);
 
       const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
       deps.bulkManager.updateJobState(jobId, finalState);
@@ -208,7 +191,10 @@ export class ChunkedBulkExecutor {
         successIds,
         errors: failureErrors,
         aborted: false,
-        ...(outcomes ? { outcomes } : {}),
+        outcomes,
+        ...(normalized.unattributedSuccessIds.length > 0
+          ? { unmatchedIds: normalized.unattributedSuccessIds }
+          : {}),
       };
     } catch (err: unknown) {
       // The limiter counts this job until it reaches a terminal state, and it
