@@ -1960,6 +1960,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "newMark1411": "Un nuevo logotipo",
+      "newMark1411Desc": "SandForge tiene un nuevo logotipo: el fuego de la forja que surge de un sandbox. Aparece en el icono del Marketplace, la barra de actividad y el panel lateral.",
       "forgeAutomation1410": "Lo que ejecuta el destino, antes de clonar",
       "forgeAutomation1410Desc": "Review tiene una pestaña Automatización: por objeto, los flujos desencadenados por registro y los desencadenadores Apex del destino que se ejecutan con las escrituras, y los permisos personalizados que impiden que un flujo se inicie para el usuario que los tiene. El comando de clonación lo muestra antes de escribir.",
       "fixRound1410": "Las escrituras Bulk conservan cada campo",

@@ -1960,6 +1960,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "newMark1411": "Um novo logotipo",
+      "newMark1411Desc": "O SandForge tem um novo logotipo: o fogo da forja saindo de uma sandbox. Ele aparece no ícone do Marketplace, na barra de atividades e no painel lateral.",
       "forgeAutomation1410": "O que o destino executa, antes de clonar",
       "forgeAutomation1410Desc": "A revisão tem uma aba Automação: por objeto, os fluxos acionados por registro e os gatilhos Apex do destino que disparam nas gravações, e as permissões personalizadas que impedem um fluxo de iniciar para o usuário que as possui. O comando de clonagem mostra isso antes de gravar.",
       "fixRound1410": "As gravações Bulk mantêm cada campo",

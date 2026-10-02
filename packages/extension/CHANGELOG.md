@@ -5,6 +5,17 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.1] - 2026-10-02
+
+SandForge has a new mark: the forge's fire rising out of a sandbox.
+
+### Changed
+
+- **A new mark**, the forge's fire rising out of a sandbox, on the Marketplace
+  icon, the activity bar and the side panel's header, where the Forge
+  module's flame stood for the whole product; the README opens with the new
+  logo, and the brand set for LinkedIn and GitHub sits in `assets/brand`.
+
 ## [1.41.0] - 2026-10-02
 
 Review says what the target runs before a clone writes, and Bulk writes keep
