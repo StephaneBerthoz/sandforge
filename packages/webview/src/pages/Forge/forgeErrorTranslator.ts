@@ -267,6 +267,19 @@ const RULES: Rule[] = [
         'error',
       ),
   },
+  // And an object the target describes but takes no insert of — a history or
+  // system object, or one the user the run writes as may not create — skipped
+  // whole by the check before the node loop: it had no explanation, where the
+  // objects the target lacks have one.
+  {
+    match: /^Object is not createable on target org/,
+    build: () =>
+      mapping(
+        ['forge.error.notCreateable.explanation', 'forge.error.notCreateable.action'],
+        'NOT_CREATEABLE_ON_TARGET',
+        'warning',
+      ),
+  },
 ];
 
 function mapping(

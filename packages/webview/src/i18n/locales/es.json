@@ -2706,6 +2706,10 @@
         "explanation": "Al preguntarle por este objeto, la org de destino respondió que no lo tiene: el objeto no existe allí — un objeto personalizado o una función que esa org no tiene — o el usuario con el que escribe el clon no puede verlo. Ninguno de sus registros se leyó ni se escribió.",
         "action": "Despliegue el objeto en la org de destino, o dé acceso a él allí al usuario con el que escribe el clon; mientras tanto, exclúyalo de la clonación, como hizo esta ejecución."
       },
+      "notCreateable": {
+        "explanation": "La org de destino describe este objeto pero no acepta ninguna inserción suya para el usuario con el que escribe el clon: un objeto de historial o de sistema que la plataforma escribe ella misma, o uno que el perfil de ese usuario no puede crear. Sus registros se dejaron fuera.",
+        "action": "Dé al usuario con el que escribe el clon el permiso de crear el objeto en la org de destino si allí se necesitan sus registros; si no, deje el objeto fuera del clon."
+      },
       "standardPriceMissing": {
         "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",
         "action": "Añade un precio estándar para estos productos en la org de destino y vuelve a lanzar el clon."

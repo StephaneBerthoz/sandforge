@@ -2706,6 +2706,10 @@
         "explanation": "Nach diesem Objekt gefragt, hat die Ziel-Org geantwortet, dass sie keines hat: Das Objekt existiert dort nicht — ein benutzerdefiniertes Objekt oder eine Funktion, die diese Org nicht hat — oder der Benutzer, unter dem der Klon schreibt, kann es nicht sehen. Keiner seiner Datensätze wurde gelesen oder geschrieben.",
         "action": "Stellen Sie das Objekt in der Ziel-Org bereit, oder geben Sie dem Benutzer, unter dem der Klon schreibt, dort Zugriff darauf; bis dahin nehmen Sie es vom Klonen aus, wie dieser Lauf es getan hat."
       },
+      "notCreateable": {
+        "explanation": "Die Ziel-Org beschreibt dieses Objekt, nimmt aber für den Benutzer, unter dem der Klon schreibt, keine Einfügung davon an: ein Verlaufs- oder Systemobjekt, das die Plattform selbst schreibt, oder eines, das das Profil dieses Benutzers nicht erstellen darf. Seine Datensätze wurden ausgelassen.",
+        "action": "Geben Sie dem Benutzer, unter dem der Klon schreibt, das Recht, das Objekt in der Ziel-Org zu erstellen, wenn seine Datensätze dort benötigt werden; andernfalls lassen Sie das Objekt aus dem Klon heraus."
+      },
       "standardPriceMissing": {
         "explanation": "Salesforce vergibt keinen Preis für ein Produkt in einem benutzerdefinierten Preisbuch, solange das Produkt keinen Preis im Standardpreisbuch hat, und dieser Standardeintrag fehlt in der Ziel-Org.",
         "action": "Legen Sie in der Ziel-Org einen Standardpreis für diese Produkte an und starten Sie den Klon erneut."

@@ -2706,6 +2706,10 @@
         "explanation": "Interrogée sur cet objet, l'org cible a répondu qu'elle n'en a pas : l'objet n'y existe pas — un objet personnalisé ou une fonctionnalité que cette org n'a pas — ou l'utilisateur sous lequel le clone écrit ne peut pas le voir. Aucun de ses enregistrements n'a été lu ni écrit.",
         "action": "Déployez l'objet dans l'org cible, ou donnez-y accès à l'utilisateur sous lequel le clone écrit ; d'ici là, excluez-le du clonage, comme cette exécution l'a fait."
       },
+      "notCreateable": {
+        "explanation": "L'org cible décrit cet objet mais n'en accepte aucune insertion pour l'utilisateur sous lequel le clone écrit : un objet d'historique ou système que la plateforme écrit elle-même, ou un objet que le profil de cet utilisateur ne peut pas créer. Ses enregistrements ont été laissés de côté.",
+        "action": "Donnez à l'utilisateur sous lequel le clone écrit le droit de créer l'objet dans l'org cible si ses enregistrements y sont nécessaires ; sinon, laissez l'objet hors du clone."
+      },
       "standardPriceMissing": {
         "explanation": "Salesforce refuse de tarifer un produit dans un catalogue personnalisé tant que ce produit n'a pas de prix dans le catalogue standard, et cette entrée standard est absente de l'org cible.",
         "action": "Ajoutez un prix standard pour ces produits dans l'org cible, puis relancez le clone."

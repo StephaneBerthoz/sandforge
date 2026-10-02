@@ -79,9 +79,13 @@ const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
  * read its reports the same way (`forgeAuditObjects`). A read that failed
  * counts no row either in a record-scoped run, which never learned how many
  * its scope held, and is a failure; so is an object skipped whole, whose
- * report may count none.
+ * report may count none. Reference data the target holds no match for is a
+ * note whatever it counts: never meant to be written, its rows are neither
+ * written nor failed, as the run's totals and the audit trail count them, and
+ * listed with the failures they swelled the panel's count of failed records.
  */
 function isRunNote(error: ForgeExecutionError): boolean {
+  if (error.referenceData === true) return true;
   return error.stage === 'scope' && error.failedCount === 0 && error.skipped !== true;
 }
 
@@ -1265,6 +1269,10 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
     for (const e of errors) totalFailed += e.failedCount;
     return totalFailed;
   }, [errors]);
+  // An object can have two reports — its rows refused at insert, and the
+  // statuses it was not given back — and counted per report, it was counted
+  // twice in the header.
+  const objectCount = useMemo(() => new Set(errors.map((e) => e.objectApiName)).size, [errors]);
 
   return (
     <m.div
@@ -1281,7 +1289,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
         <span className="text-xs text-text-secondary ml-auto tabular-nums">
-          {t('common.objectCount', { count: errors.length })} ·{' '}
+          {t('common.objectCount', { count: objectCount })} ·{' '}
           {t('common.recordCount', { count: totals })}
         </span>
       </div>

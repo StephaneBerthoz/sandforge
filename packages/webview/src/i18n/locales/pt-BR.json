@@ -2706,6 +2706,10 @@
         "explanation": "Perguntada sobre este objeto, a org de destino respondeu que não o tem: o objeto não existe lá — um objeto personalizado ou um recurso que essa org não tem — ou o usuário com que o clone grava não consegue vê-lo. Nenhum de seus registros foi lido nem gravado.",
         "action": "Implante o objeto na org de destino, ou dê acesso a ele lá ao usuário com que o clone grava; até lá, exclua-o da clonagem, como esta execução fez."
       },
+      "notCreateable": {
+        "explanation": "A org de destino descreve este objeto, mas não aceita nenhuma inserção dele para o usuário com que o clone grava: um objeto de histórico ou de sistema que a própria plataforma grava, ou um que o perfil desse usuário não pode criar. Seus registros foram deixados de fora.",
+        "action": "Dê ao usuário com que o clone grava a permissão de criar o objeto na org de destino se os registros forem necessários lá; caso contrário, deixe o objeto fora do clone."
+      },
       "standardPriceMissing": {
         "explanation": "O Salesforce não dá preço a um produto em um catálogo personalizado enquanto esse produto não tiver preço no padrão, e essa entrada padrão não está na org de destino.",
         "action": "Crie um preço padrão para esses produtos na org de destino e rode o clone de novo."

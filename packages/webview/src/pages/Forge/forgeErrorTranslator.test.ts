@@ -134,6 +134,15 @@ describe('translateForgeError', () => {
     expect(en.forge.error.lookupOutsideClone.explanation).toContain('nothing failed');
   });
 
+  it('explains an object the target describes but takes no insert of, skipped whole', () => {
+    const result = translateForgeError('Object is not createable on target org');
+
+    expect(result?.code).toBe('NOT_CREATEABLE_ON_TARGET');
+    expect(result?.severity).toBe('warning');
+    expect(result?.explanationKey).toBe('forge.error.notCreateable.explanation');
+    expect(result?.actionKey).toBe('forge.error.notCreateable.action');
+  });
+
   it('explains an object the target org does not have, or does not show the user the run writes as', () => {
     const result = translateForgeError(
       'Object is not in the target org, or the user the run writes as cannot see it: ' +
@@ -238,6 +247,7 @@ describe('forge.error hint keys', () => {
     'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: System.NullPointerException',
     'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
     'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
+    'Object is not createable on target org',
   ];
 
   /** Walk a dotted key through a locale object. */

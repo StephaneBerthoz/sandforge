@@ -1823,6 +1823,44 @@ describe('ForgeResults', () => {
       expect(hints[0].textContent).toContain(i18n.t('forge.error.lookupOutsideClone.action'));
     });
 
+    it("counts an object with two reports once in the red panel's header", () => {
+      // Its rows refused at insert, and the statuses it was not given back.
+      const statusesNotGivenBack = { ...refused, failedCount: 1 };
+      mockResult = Object.assign(makeMockResult(), { errors: [refused, statusesNotGivenBack] });
+      render(<ForgeResults />);
+
+      const errors = screen.getByTestId('forge-errors-panel');
+      expect(within(errors).getAllByTestId('forge-errors-row')).toHaveLength(2);
+      expect(errors.textContent).toContain('1 object · 3 records');
+    });
+
+    it('lists reference data the target holds no match for among the notes, never with the failed records', () => {
+      // Never meant to be written: the run counts its rows neither written
+      // nor failed, and the panel added them to its failed records.
+      const unmatched = {
+        objectApiName: 'BusinessHours',
+        stage: 'scope' as const,
+        failedCount: 2,
+        attemptedCount: 3,
+        referenceData: true,
+        samples: [
+          {
+            recordSummary: 'Id=01m000000000001AAA matchValue=Weekdays',
+            messages: ['Reference-data row not found on target org'],
+          },
+        ],
+      };
+      mockResult = Object.assign(makeMockResult(), { errors: [refused, unmatched] });
+      render(<ForgeResults />);
+
+      const errors = screen.getByTestId('forge-errors-panel');
+      expect(objectsIn(errors, 'forge-errors-row')).toEqual(['Contact']);
+      expect(errors.textContent).toContain('1 object · 2 records');
+      expect(objectsIn(screen.getByTestId('forge-notes-panel'), 'forge-notes-row')).toEqual([
+        'BusinessHours',
+      ]);
+    });
+
     it('shows no red panel for a run whose reports are all notes', () => {
       // A clone that lost no record read as one with execution errors.
       mockResult = Object.assign(makeMockResult(), { errors: [lookupsLeftEmpty] });
