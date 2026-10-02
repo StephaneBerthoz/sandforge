@@ -256,6 +256,27 @@ dates with those, and with the org's time as the removal starts, never with
 this machine's clock; a run without `writtenBetween` is dated by when it was
 recorded, read on the org's clock.
 
+The removal deletes children before their parents, and the org refuses some
+records while one the removal reaches later stands. Run for real on a sandbox,
+a catalog clone's selling model options were refused (`UNKNOWN_EXCEPTION`,
+"associated with an active price book entry") while the active prices they
+are sold under stood; the prices went next, and the options, the products and
+the products' classification stayed until a second removal took them. Once the
+rest of its plan has gone, a removal sends every record the org refused once
+more, whatever it refused it with, with the records held back for one of them,
+and what the org still refuses for records hanging from it again while a round
+of tries takes something more. The second answer counts: deleted, already gone
+(`ENTITY_IS_DELETED`), or refused again, in the org's words of that answer.
+The object's reasons say what the second try changed — `Refused at first, sent
+again once the rest had gone: 35 deleted.` — and the run's line, its audit
+entry, what is left of it and the clone command's `--remove` count the records
+as that try left them. What is still refused is then read back: a record the
+removal read before its first delete and no longer finds went with a parent,
+and is already gone; when the read fails, it stays refused, said not checked.
+A record of an object the removal could not read is counted refused, with
+why, and never sent nor taken for gone: one out of the session's sight comes
+back from a query no more than a deleted one.
+
 ## ExecuteOptions
 
 | Option                 | Default                                  | Effect                                                                         |
@@ -680,6 +701,12 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   deep. A record past the fifth goes to the target without its parent, which
   refuses it. Such a record brings nothing under it: its other children — the
   junction rows of another case, an invoice's lines — stay out of the clone.
+- **A record no query finds when a removal begins** counts as already gone,
+  and is never sent. No read tells it from one out of the session's sight:
+  the org keeps no deleted price book entry or task relation in its recycle
+  bin, and answers the delete of a price book entry already gone
+  `UNKNOWN_EXCEPTION`. A removal run by a user who cannot see some of the
+  run's records counts those gone.
 - **A person account whose record type the target does not tell**: one whose
   record type the mapping does not know, or in a target whose record types the
   run could not read, goes in as a person account, without its computed name:

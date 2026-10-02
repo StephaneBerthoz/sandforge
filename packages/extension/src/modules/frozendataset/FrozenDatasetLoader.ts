@@ -544,6 +544,34 @@ interface DraftedResidual {
   unchanged: boolean;
 }
 
+/** Whether a delete's answer purged the record: deleted, or already gone. */
+function purgedBy(outcome: OperationOutcome): boolean {
+  return outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'));
+}
+
+/** What a reload's purge did when it sent again what the target had refused. */
+interface PurgeSecondTry {
+  /** Records sent again. */
+  tried: number;
+  /** Of those, the ones deleted, or found gone, by that try. */
+  went: number;
+}
+
+/**
+ * What the purge's line says of its second try: how many records the target
+ * refused at first were sent again, and how many of them went. Nothing when
+ * none was.
+ */
+function secondTryNote(secondTry: PurgeSecondTry): string {
+  if (secondTry.tried === 0) return '';
+  const refusedAgain = secondTry.tried - secondTry.went;
+  const parts = [
+    secondTry.went > 0 ? `${secondTry.went} went` : '',
+    refusedAgain > 0 ? `${refusedAgain} refused again` : '',
+  ].filter(Boolean);
+  return ` — ${secondTry.tried} refused at first, sent again once the rest had gone: ${parts.join(', ')}`;
+}
+
 /**
  * List among the purge's failures a record it set to Draft and leaves there:
  * with the delete the target refused it, when it did, or on its own.
@@ -1031,6 +1059,13 @@ export class FrozenDatasetLoader {
      * object's turn on: see `linkPersonContacts`. Unset until then.
      */
     let personContactOutcome: PersonContactOutcome | undefined;
+    /**
+     * The other records the load links to one the platform wrote with
+     * another, by their key, each with the key of that record: a contact's
+     * direct relation, with the contact (`matchDirectRelations`); an email's
+     * task, with the email (`matchTasksWrittenWithEmails`).
+     */
+    const withTheirRecord = new Map<string, string>();
 
     /**
      * Whether the mapping was kept. Kept a second time, the load would also
@@ -1041,8 +1076,10 @@ export class FrozenDatasetLoader {
     /*
      * Keep the mapping of what this load wrote — with what it created, the
      * target's dates of it, the person accounts' contacts it linked, which go
-     * with their accounts, and the loads before it with what they still have
-     * in the org — at its end, at a cancel, and at a failure once it wrote.
+     * with their accounts, the relations and tasks it linked, which go with
+     * their contact or email, and the loads before it with what they still
+     * have in the org — at its end, at a cancel, and at a failure once it
+     * wrote.
      */
     const persistMapping = async (): Promise<void> => {
       const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
@@ -1053,6 +1090,9 @@ export class FrozenDatasetLoader {
         ...(writtenBetween ? { writtenBetween } : {}),
         earlier: { settled: [...settled] },
         ...(linkedContacts.size > 0 ? { personContacts: Object.fromEntries(linkedContacts) } : {}),
+        ...(withTheirRecord.size > 0
+          ? { withTheirRecord: Object.fromEntries(withTheirRecord) }
+          : {}),
       });
       mappingKept = true;
     };
@@ -1356,6 +1396,8 @@ export class FrozenDatasetLoader {
       let leftInPlace = '';
       /** The residuals no write of the purge answered for: see `purgeResiduals`. */
       const notReached = { residuals: 0 };
+      /** What the purge's second try did: see `purgeAgain`. */
+      const secondTry: PurgeSecondTry = { tried: 0, went: 0 };
       /*
        * The line of a purge that did not do all it had to: what it purged,
        * what the target refused, and how many residuals it did not reach —
@@ -1380,7 +1422,7 @@ export class FrozenDatasetLoader {
             refused: purge.failures.length,
             notDone: notReached.residuals,
             done: 'purged',
-            notes: leftInPlace,
+            notes: `${secondTryNote(secondTry)}${leftInPlace}`,
           },
           failedOn,
         );
@@ -1416,6 +1458,7 @@ export class FrozenDatasetLoader {
             checkpoint,
             settled,
             notReached,
+            secondTry,
           );
         } catch (err: unknown) {
           emit(purgeLine(err instanceof FrozenLoadCancelledError ? undefined : { cause: err }));
@@ -1436,7 +1479,7 @@ export class FrozenDatasetLoader {
                 phase: 'reload',
                 status: 'done',
                 progress: 24,
-                message: `Reload pass done${leftInPlace}`,
+                message: `Reload pass done${secondTryNote(secondTry)}${leftInPlace}`,
               },
         );
       }
@@ -1973,10 +2016,17 @@ export class FrozenDatasetLoader {
         }
       }
       if (objectApiName === ACCOUNT_CONTACT_RELATION) {
-        await this.matchDirectRelations(orgId, working, aligned, mapping, reused);
+        await this.matchDirectRelations(orgId, working, aligned, mapping, reused, withTheirRecord);
       }
       if (objectApiName === TASK) {
-        await this.matchTasksWrittenWithEmails(orgId, working, aligned, mapping, reused);
+        await this.matchTasksWrittenWithEmails(
+          orgId,
+          working,
+          aligned,
+          mapping,
+          reused,
+          withTheirRecord,
+        );
       }
       if (ACTIVITY_OF_RELATION[objectApiName] !== undefined) {
         flagsNotKept = await this.matchActivityRelations(
@@ -2845,11 +2895,15 @@ export class FrozenDatasetLoader {
    * out, as Forge's removal gives it back: see {@link giveStatusesBack}. A
    * contract past Draft is deleted as it stands (`DELETED_PAST_DRAFT`).
    *
+   * Once the rest has gone, what the target refused to delete is sent once
+   * more ({@link purgeAgain}), then read back ({@link settleTakenAlong}).
+   *
    * @param notReached - Set on the way out to how many residuals no write of
    *   the purge answered for: at its end, the ones the load's cancel kept
    *   from the target — those of the writes it stopped the purge before, and
    *   past the answer of a write it cut short — the load's writer answering
    *   every other; when a write of its own threw, the ones the failure did.
+   * @param secondTry - Set as the purge goes to what its second try did.
    */
   private async purgeResiduals(
     options: FrozenLoadOptions,
@@ -2859,6 +2913,7 @@ export class FrozenDatasetLoader {
     checkpoint: () => Promise<void>,
     settled: Set<string>,
     notReached: { residuals: number },
+    secondTry: PurgeSecondTry,
   ): Promise<void> {
     const residualsByObject = plan.residuals;
     /** Records set to Draft for their delete, until they get their status back. */
@@ -2887,14 +2942,18 @@ export class FrozenDatasetLoader {
       if (options.signal?.aborted) await giveBack();
       await checkpoint();
     };
+    const known = reverseOrder.filter((o) => residualsByObject.has(o));
+    const unknown = [...residualsByObject.keys()].filter((o) => !reverseOrder.includes(o)).sort();
+    const order = [...known, ...unknown];
+    /** Keys of the residuals the session could read before the purge deleted anything. */
+    let inSight = new Set<string>();
     try {
+      inSight = await this.residualsInSight(options.orgId, residualsByObject);
       // An activated order keeps its products and itself from being deleted —
       // "unable to modify activated order" — and the last load activated them.
       // Back to a draft first, and the deletes below can do their work.
       await this.draftResiduals(options, plan, drafted, stop);
-      const known = reverseOrder.filter((o) => residualsByObject.has(o));
-      const unknown = [...residualsByObject.keys()].filter((o) => !reverseOrder.includes(o)).sort();
-      for (const objectApiName of [...known, ...unknown]) {
+      for (const objectApiName of order) {
         const ids = residualsByObject.get(objectApiName) ?? [];
         const deactivationField = this.config.undeletableObjects?.[objectApiName];
         if (deactivationField !== undefined) {
@@ -2934,7 +2993,7 @@ export class FrozenDatasetLoader {
             // reload counted ten of those as failures and called a clean load
             // one with errors.
             outcomes.forEach((outcome, i) => {
-              if (outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'))) {
+              if (purgedBy(outcome)) {
                 purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
                 settled.add(recordKey(round[i]));
               } else {
@@ -2945,6 +3004,7 @@ export class FrozenDatasetLoader {
           }
         }
       }
+      await this.purgeAgain(options, order, purge, settled, stop, secondTry);
     } catch (err: unknown) {
       await giveBack();
       countNotReached();
@@ -2952,9 +3012,89 @@ export class FrozenDatasetLoader {
     }
     // Read once every delete went out, as the removal reads it, and not after
     // a cancel: stopped, the purge sends nothing more but its statuses back.
-    if (!options.signal?.aborted) await this.settleTakenAlong(options.orgId, purge, settled);
+    if (!options.signal?.aborted) {
+      await this.settleTakenAlong(options.orgId, purge, settled, inSight);
+    }
     await giveBack();
     countNotReached();
+  }
+
+  /**
+   * The keys of the residuals the session can read, read before the purge
+   * deletes anything: what tells, once it is through, a record a parent took
+   * along from one the session cannot see, which a query no more finds than a
+   * deleted one. An object that cannot be read has none of its records read.
+   */
+  private async residualsInSight(
+    orgId: string,
+    residuals: ReadonlyMap<string, readonly string[]>,
+  ): Promise<Set<string>> {
+    const inSight = new Set<string>();
+    for (const [objectApiName, ids] of residuals) {
+      try {
+        for (const row of await this.readRecords(orgId, objectApiName, [], ids)) {
+          if (typeof row.Id === 'string') inSight.add(recordKey(row.Id));
+        }
+      } catch {
+        // Unread: no record of it is taken for gone by a read that misses it.
+      }
+    }
+    return inSight;
+  }
+
+  /**
+   * Send once more, children first, the deletes the target refused, once the
+   * rest of the purge has gone, and only once: what was refused for a record
+   * the purge deleted after it then goes. The second answer counts — deleted,
+   * or already gone, is purged; refused again stays a failure, in the
+   * target's words of that answer. A deactivation the target refused is not
+   * sent again.
+   *
+   * Forge's removal learnt it on a sandbox: a catalog's selling model options
+   * refused while the active prices they are sold under stood, the prices
+   * deleted next, and the options left behind with their products. Purged
+   * children first, a reload runs the same order.
+   */
+  private async purgeAgain(
+    options: FrozenLoadOptions,
+    order: readonly string[],
+    purge: PurgeReport,
+    settled: Set<string>,
+    stop: () => Promise<void>,
+    secondTry: PurgeSecondTry,
+  ): Promise<void> {
+    for (const objectApiName of order) {
+      if (this.config.undeletableObjects?.[objectApiName] !== undefined) continue;
+      const refused = purge.failures
+        .filter((failure) => failure.objectApiName === objectApiName)
+        .map((failure) => failure.recordId);
+      if (refused.length === 0) continue;
+      // Custom prices before standard ones, as on the first try.
+      const rounds = isPricebookEntry(objectApiName)
+        ? await this.customPricesFirst(options.orgId, refused).catch(() => [refused])
+        : [refused];
+      for (const round of rounds) {
+        if (round.length === 0) continue;
+        await stop();
+        await this.checkGuard(options, 'delete', objectApiName, round.length);
+        const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
+        outcomes.forEach((outcome, i) => {
+          const at = purge.failures.findIndex(
+            (failure) => failure.objectApiName === objectApiName && failure.recordId === round[i],
+          );
+          if (at < 0) return;
+          secondTry.tried++;
+          if (purgedBy(outcome)) {
+            purge.failures.splice(at, 1);
+            purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
+            settled.add(recordKey(round[i]));
+            secondTry.went++;
+          } else {
+            purge.failures[at] = { objectApiName, recordId: round[i], errors: outcome.errors };
+          }
+        });
+      }
+    }
   }
 
   /**
@@ -2968,27 +3108,52 @@ export class FrozenDatasetLoader {
    * Counted among the failures, such a price ended the purge's line failed
    * and the load with errors, for a record no longer in the org, and the
    * mapping kept it with the earlier load, for the next reload or removal to
-   * find gone.
+   * find gone. Sent again once the rest has gone, such a record now answers
+   * that it is gone; read back, what went after its second try.
+   *
+   * Only a record the session read before the purge is taken for gone when
+   * the read misses it (`inSight`): one it cannot see comes back no more than
+   * a deleted one, and taken for gone, it was counted purged, and dropped
+   * from the earlier load's records, while it stayed in the org. Such a
+   * record, and every one of them when the read fails, stays a failure, which
+   * says it was not checked.
    */
   private async settleTakenAlong(
     orgId: string,
     purge: PurgeReport,
     settled: Set<string>,
+    inSight: ReadonlySet<string>,
   ): Promise<void> {
     for (const objectApiName of new Set(purge.failures.map((failure) => failure.objectApiName))) {
       const refused = purge.failures
         .filter((failure) => failure.objectApiName === objectApiName)
         .map((failure) => failure.recordId);
       const read = (ids: readonly string[]) => this.readRecords(orgId, objectApiName, [], ids);
-      const gone = new Set((await takenAlong(refused, read)).map(recordKey));
-      if (gone.size === 0) continue;
+      const { gone, unchecked, failure } = await takenAlong(refused, read, (id) =>
+        inSight.has(recordKey(id)),
+      );
+      const notChecked = failure
+        ? `Not checked: not read back once the purge was through, to tell whether a parent deleted after it took it along — ${failure}`
+        : `Not checked: the purge could not read it before its delete, nor after — gone, or out of the session's sight`;
+      const uncheckedKeys = new Set(unchecked.map(recordKey));
+      for (const entry of purge.failures) {
+        if (
+          entry.objectApiName !== objectApiName ||
+          !uncheckedKeys.has(recordKey(entry.recordId))
+        ) {
+          continue;
+        }
+        if (!entry.errors.includes(notChecked)) entry.errors = [...entry.errors, notChecked];
+      }
+      const goneKeys = new Set(gone.map(recordKey));
+      if (goneKeys.size === 0) continue;
       const left = purge.failures.filter(
-        (failure) =>
-          failure.objectApiName !== objectApiName || !gone.has(recordKey(failure.recordId)),
+        (entry) =>
+          entry.objectApiName !== objectApiName || !goneKeys.has(recordKey(entry.recordId)),
       );
       purge.failures.splice(0, purge.failures.length, ...left);
-      purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + gone.size;
-      for (const key of gone) settled.add(key);
+      purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + goneKeys.size;
+      for (const key of goneKeys) settled.add(key);
     }
   }
 
@@ -3668,7 +3833,11 @@ export class FrozenDatasetLoader {
    * AccountContactRelation between them. The dataset carries that relation
    * too — it was read from the source — and inserting it again is refused:
    * "the contact already has a relationship with this account". So the one
-   * the platform made is looked up, mapped and counted as reused.
+   * the platform made is looked up, mapped and counted as reused, and kept
+   * in `withTheirRecord` with its contact, which it goes with: "To remove a
+   * direct relationship between a contact and an account, change the
+   * contact's primary account or delete the contact" (Salesforce Help,
+   * "Considerations for Relating a Contact to Multiple Accounts").
    */
   private async matchDirectRelations(
     orgId: string,
@@ -3676,6 +3845,7 @@ export class FrozenDatasetLoader {
     aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
     mapping: Map<string, string>,
     reused: Set<string>,
+    withTheirRecord: Map<string, string>,
   ): Promise<void> {
     const accountOfContact = new Map<string, unknown>();
     for (const contact of working.objects.find((o) => o.objectApiName === 'Contact')?.records ??
@@ -3711,6 +3881,7 @@ export class FrozenDatasetLoader {
       if (typeof id === 'string') {
         mapping.set(relation.referenceId, id);
         reused.add(relation.referenceId);
+        withTheirRecord.set(relation.referenceId, relation.fields.ContactId as string);
       }
     }
   }
@@ -3722,9 +3893,12 @@ export class FrozenDatasetLoader {
    * The emails go first, without the id of their task (`emailWriteEdges`),
    * and the platform writes the task of each that is related to a record as
    * it takes it. The task read from the source is that one: mapped to it and
-   * counted as reused, never inserted a second time beside it. A task the
-   * platform did not write — its email related to no record, or not loaded —
-   * is inserted as any other.
+   * counted as reused, never inserted a second time beside it, and kept in
+   * `withTheirRecord` with its email, which it goes with: "Deleting an
+   * EmailMessage record automatically deletes the associated Task"
+   * (Salesforce Help, knowledge article 000384885). A task the platform did
+   * not write — its email related to no record, or not loaded — is inserted
+   * as any other.
    */
   private async matchTasksWrittenWithEmails(
     orgId: string,
@@ -3732,27 +3906,29 @@ export class FrozenDatasetLoader {
     aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
     mapping: Map<string, string>,
     reused: Set<string>,
+    withTheirRecord: Map<string, string>,
   ): Promise<void> {
     const tasks = new Set(aligned.map((r) => r.referenceId));
-    /** The target id of the email each task went with, by the task's referenceId. */
-    const emailOfTask = new Map<string, string>();
+    /** The email each task went with, by the task's referenceId: its target id and its key. */
+    const emailOfTask = new Map<string, { id: string; key: string }>();
     for (const email of working.objects.find((o) => o.objectApiName === EMAIL_MESSAGE)?.records ??
       []) {
       const task = email.fields.ActivityId;
       if (typeof task !== 'string' || !tasks.has(task) || reused.has(email.referenceId)) continue;
       const id = mapping.get(email.referenceId);
-      if (id) emailOfTask.set(task, id);
+      if (id) emailOfTask.set(task, { id, key: email.referenceId });
     }
     if (emailOfTask.size === 0) return;
     const written = await tasksWrittenWithEmails(
       (soql) => this.deps.orgAccess.query(orgId, soql),
-      [...new Set(emailOfTask.values())],
+      [...new Set([...emailOfTask.values()].map((email) => email.id))],
     );
     for (const [task, email] of emailOfTask) {
-      const id = written.get(email);
+      const id = written.get(email.id);
       if (id === undefined) continue;
       mapping.set(task, id);
       reused.add(task);
+      withTheirRecord.set(task, email.key);
     }
   }
 

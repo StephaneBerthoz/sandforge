@@ -68,7 +68,8 @@ export const CLOCK_LEEWAY_MS = 10_000;
  * The code the org refuses a delete with while other records still hang from
  * the one deleted — "associated with the following opportunities", "some
  * opportunities of this account were closed won". A record refused with it is
- * tried again once the rest of the pass is gone.
+ * tried again for as long as a round of tries takes something more; one the
+ * org refuses with any other code, once.
  */
 const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
 
@@ -344,8 +345,14 @@ interface ObjectSnapshot {
 interface Refusal {
   /** In the org's words. */
   reason: string;
-  /** Refused for records still hanging from it: tried again once the rest of the pass is gone. */
+  /** Refused for records still hanging from it: tried again while a round of tries takes something more. */
   dependency: boolean;
+  /**
+   * Whether the org answered a delete of it. A record of an object the
+   * removal could not read is counted refused unsent, with why: never read,
+   * it is never sent, nor taken for gone by a read that no longer finds it.
+   */
+  sent: boolean;
 }
 
 /** Where a removal stands with one object's records. */
@@ -359,6 +366,13 @@ class ObjectRemoval {
   held: string[] = [];
   /** Keys of the records deleted, or found gone, once the removal reached them. */
   readonly gone = new Set<string>();
+  /** Keys of the records among them that this removal deleted. */
+  readonly deleted = new Set<string>();
+  /**
+   * The records the org had refused that the second try took up, by id: sent
+   * again, or kept for a record that stays.
+   */
+  readonly secondTry = new Set<string>();
   /**
    * The files attached to the records deleted that the run did not create, by
    * their document's key: each named by its title, or its id.
@@ -386,10 +400,10 @@ class ObjectRemoval {
   }
 
   /**
-   * The records worth another try once the rest of the pass is gone: the ones
-   * refused for a dependency and the ones held by one. They keep their count
-   * until they are settled again, so a removal stopped meanwhile still
-   * accounts for them.
+   * The records worth another try while a round of tries takes something
+   * more: the ones refused for a dependency and the ones held by one. They
+   * keep their count until they are settled again, so a removal stopped
+   * meanwhile still accounts for them.
    */
   waiting(): string[] {
     return [
@@ -398,12 +412,48 @@ class ObjectRemoval {
     ];
   }
 
+  /** The records whose delete the org refused, whatever it refused it with, by id. */
+  refusedSent(): string[] {
+    return [...this.refused].filter(([, refusal]) => refusal.sent).map(([id]) => id);
+  }
+
+  /**
+   * What became of the records the second try took up, said once: deleted,
+   * already gone, kept for records that stay, or refused again — the org's
+   * words for those follow, as for any refusal.
+   */
+  private secondTryNote(): string[] {
+    if (this.secondTry.size === 0) return [];
+    let deleted = 0;
+    let gone = 0;
+    let held = 0;
+    let refused = 0;
+    for (const id of this.secondTry) {
+      const key = recordKey(id);
+      if (this.deleted.has(key)) deleted++;
+      else if (this.gone.has(key)) gone++;
+      else if (this.refused.has(id)) refused++;
+      else held++;
+    }
+    const parts = [
+      deleted > 0 ? `${deleted} deleted` : '',
+      gone > 0 ? `${gone} already gone` : '',
+      held > 0 ? `${held} kept for records that stay` : '',
+      refused > 0 ? `${refused} refused again` : '',
+    ].filter(Boolean);
+    return [`Refused at first, sent again once the rest had gone: ${parts.join(', ')}.`];
+  }
+
   /** The object's result, its counts and reasons as they stand. */
   settle(): ForgeUndoObjectResult {
     this.result.keptDependents = this.held.length;
     this.result.refused = this.refused.size;
     if (this.held.length === 0) this.result.heldBy = [];
-    const reasons = [...this.notes, ...[...this.refused.values()].map((r) => r.reason)];
+    const reasons = [
+      ...this.notes,
+      ...this.secondTryNote(),
+      ...[...this.refused.values()].map((r) => r.reason),
+    ];
     this.result.reasons = [...new Set(reasons)].slice(0, REASON_LIMIT);
     if (this.filesLeft.size > 0) {
       this.result.filesLeft = {
@@ -441,9 +491,11 @@ class ObjectRemoval {
  * parents after, so reversed, the root opportunity came last: its account
  * was refused ("some opportunities of this account were closed won"), its
  * price book too ("associated with the following opportunities"), and the
- * removal ended partial with both left behind. What the org still refuses
- * for records hanging from it — a cycle no order breaks — is tried again once
- * the rest of the pass is gone, with the records held back for such a record.
+ * removal ended partial with both left behind. Once the rest of the plan has
+ * gone, every record the org refused is sent once more, whatever it refused
+ * it with, with the records held back for one of them; and what it still
+ * refuses for records hanging from it — a cycle no order breaks — is tried
+ * again while a round of tries takes something more.
  *
  * A record is also kept while records that stay in the org would be deleted
  * along with it — the org deletes what cascades from a record, and those are
@@ -635,7 +687,7 @@ export async function removeRunRecords(
 
     if (!snapshot || snapshot.error !== undefined) {
       const reason = snapshot?.error ?? 'The org gave no reason.';
-      for (const id of ids) removal.refused.set(id, { reason, dependency: false });
+      for (const id of ids) removal.refused.set(id, { reason, dependency: false, sent: false });
       ids.forEach((id) => reached.add(recordKey(id)));
       settled += ids.length;
       options.onProgress?.(settled, total, objectApiName);
@@ -668,19 +720,41 @@ export async function removeRunRecords(
     if (cancelledPart) return outcome(true);
   }
 
-  // Once the rest of the pass is gone, what waited for it — refused while
-  // records still hung from it, or held by one of those — goes again, until
-  // a round takes nothing more. Settled already, it is not counted twice.
-  for (let progress = removals.some((r) => r.result.deleted > 0); progress;) {
+  // The second try. Once the rest of the plan has gone, every record the org
+  // refused is sent once more, children first, whatever it refused it with,
+  // with the records held for one of them; then, while a round deletes
+  // something more, what is still refused for records hanging from it, or
+  // held by one of those. A record refused at its turn stayed refused when
+  // what held it went later in the same removal. Run for real on a sandbox,
+  // a catalog clone's selling model options were refused while the active
+  // prices they are sold under stood ("associated with an active price book
+  // entry", as UNKNOWN_EXCEPTION), the prices went next, and the options, the
+  // products and the products' classification behind them stayed until a
+  // second removal took them all. What the org refuses for any other reason
+  // than records hanging from it goes once more, and no more. Settled
+  // already, a record is not counted twice.
+  const deletedAny = removals.some((removal) => removal.result.deleted > 0);
+  for (let round = 0, progress = true; progress; round++) {
     progress = false;
     for (const removal of removals) {
-      const waiting = removal.waiting();
+      const again = round === 0 ? removal.refusedSent() : [];
+      const waiting =
+        round > 0
+          ? removal.waiting()
+          : again.length > 0 || deletedAny
+            ? [...again, ...removal.held]
+            : [];
       if (waiting.length === 0) continue;
       if (stopped()) return outcome(true);
       const deletedBefore = removal.result.deleted;
+      const takenUp = new Set(again);
       const cancelledPart = await removeCandidates(session, dependents, removal, waiting, {
         stopped,
+        onSent: (batch) => {
+          for (const id of batch) if (takenUp.has(id)) removal.secondTry.add(id);
+        },
       });
+      for (const id of removal.held) if (takenUp.has(id)) removal.secondTry.add(id);
       if (cancelledPart) return outcome(true);
       if (removal.result.deleted > deletedBefore) progress = true;
     }
@@ -688,52 +762,97 @@ export async function removeRunRecords(
 
   for (const removal of removals) {
     if (stopped()) return outcome(true);
-    await settleTakenAlong(session, removal);
+    await settleTakenAlong(session, removal, snapshots.get(removal.result.objectApiName));
   }
   return outcome(false);
 }
 
+/** What reading back the records the org refused to delete found. */
+export interface ReadBack {
+  /**
+   * The ones the org no longer holds that the session had read before their
+   * delete: a parent deleted after them took them along.
+   */
+  gone: string[];
+  /**
+   * The ones the read could not settle: all of them when it failed, and one
+   * it no longer finds that the session had never read — gone, or out of the
+   * session's sight. Not checked: never taken for gone.
+   */
+  unchecked: string[];
+  /** Why the read failed, when it did. */
+  failure?: string;
+}
+
 /**
  * Of the records the org refused to delete, the ones it no longer holds: a
- * parent deleted after them took them along. Read back by their ids; unread,
- * none is taken for gone. Shared by the removal of a run's records and a
- * reload's purge, which both delete children before their parents.
+ * parent deleted after them took them along. Read back by their ids. Shared by
+ * the removal of a run's records and a reload's purge, which both delete
+ * children before their parents.
+ *
+ * A record the read does not find is gone only if the session read it before
+ * its delete: one the session cannot see — kept from it by sharing, or owned
+ * by a user whose records it does not reach — comes back from a query no more
+ * than a deleted one, and taken for gone, it was counted so while it stayed in
+ * the org. One the session never read is not checked, and so is every one of
+ * them when the read fails.
  *
  * @param stillThere - Reads the records of `refused` the org holds now.
+ * @param seen - Whether the session read a record before its delete.
  */
 export async function takenAlong(
   refused: readonly string[],
   stillThere: (ids: readonly string[]) => Promise<ReadonlyArray<Record<string, unknown>>>,
-): Promise<string[]> {
-  if (refused.length === 0) return [];
+  seen: (id: string) => boolean,
+): Promise<ReadBack> {
+  if (refused.length === 0) return { gone: [], unchecked: [] };
   let rows: ReadonlyArray<Record<string, unknown>>;
   try {
     rows = await stillThere(refused);
-  } catch {
-    return [];
+  } catch (err: unknown) {
+    return { gone: [], unchecked: [...refused], failure: extractErrorMessage(err) };
   }
   const still = new Set(rows.map((row) => recordKey(String(row.Id))));
-  return refused.filter((id) => !still.has(recordKey(id)));
+  const missing = refused.filter((id) => !still.has(recordKey(id)));
+  return { gone: missing.filter(seen), unchecked: missing.filter((id) => !seen(id)) };
 }
 
 /**
  * Count as gone the refused records the org no longer holds: a parent the
- * removal deleted took them along.
+ * removal deleted after their last try took them along. Every one the org
+ * refused was in the snapshot, read before the first delete; one of an object
+ * the removal could not read was never sent, and is not read back either.
  *
  * The org deletes an email message's relations only with their message —
  * "can be updated only in a draft state", on each of them — and the removal
  * reaches the relations first, children before their parents. Their message
  * took them a call later, and the removal still said the org had refused
- * them, and that it ended partial.
+ * them, and that it ended partial. Sent again once the rest has gone, they
+ * now answer that they are gone; read back, what went after its second try.
+ *
+ * A read back that fails leaves them refused, and says they were not checked.
  */
-async function settleTakenAlong(org: RemovalOrg, removal: ObjectRemoval): Promise<void> {
-  const gone = await takenAlong([...removal.refused.keys()], (ids) =>
-    readRecordsById(org, removal.result.objectApiName, [], ids),
+async function settleTakenAlong(
+  org: RemovalOrg,
+  removal: ObjectRemoval,
+  snapshot: ObjectSnapshot | undefined,
+): Promise<void> {
+  const { gone, unchecked, failure } = await takenAlong(
+    removal.refusedSent(),
+    (ids) => readRecordsById(org, removal.result.objectApiName, [], ids),
+    (id) => snapshot?.lastModified.has(recordKey(id)) === true,
   );
   for (const id of gone) {
     removal.refused.delete(id);
     removal.gone.add(recordKey(id));
     removal.result.alreadyGone++;
+  }
+  if (unchecked.length > 0) {
+    removal.note(
+      `Not checked: ${unchecked.length} refused record(s) could not be read back once the ` +
+        `rest had gone, to tell whether a parent deleted after them took them along` +
+        (failure ? ` — ${failure}` : '.'),
+    );
   }
 }
 
@@ -1050,6 +1169,8 @@ interface CandidateHooks {
   onDeleted?: (count: number) => void;
   /** Records kept for their dependents or left for the org's refusal to be read. */
   onHeld?: (count: number) => void;
+  /** The records of one delete, once the org answered it. */
+  onSent?: (batch: readonly string[]) => void;
 }
 
 /**
@@ -1090,18 +1211,24 @@ async function removeCandidates(
     batch.forEach((id, index) => {
       const result = outcomes[index];
       if (result.kind === 'refused') {
-        removal.refused.set(id, { reason: result.reason, dependency: result.dependency });
+        removal.refused.set(id, {
+          reason: result.reason,
+          dependency: result.dependency,
+          sent: true,
+        });
         return;
       }
       removal.refused.delete(id);
       removal.gone.add(recordKey(id));
       if (result.kind === 'deleted') {
         removal.result.deleted++;
+        removal.deleted.add(recordKey(id));
         for (const file of files.get(recordKey(id)) ?? []) {
           removal.filesLeft.set(file.key, file.name);
         }
       } else removal.result.alreadyGone++;
     });
+    hooks.onSent?.(batch);
     hooks.onDeleted?.(batch.length);
   }
   return false;

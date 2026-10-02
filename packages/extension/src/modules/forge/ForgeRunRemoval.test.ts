@@ -7,6 +7,7 @@ import {
   type RemovalOrg,
   type RunRemovalOptions,
 } from './ForgeRunRemoval.js';
+import { removalAuditObjects, removalMark, removalStatus } from './removalOutcome.js';
 
 /** A fake record id: the object's prefix, then a counter. */
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -560,7 +561,10 @@ describe('removeRunRecords', () => {
     expect(outcome.objects[0]).toMatchObject({
       deleted: 1,
       refused: 1,
-      reasons: [`DELETE_FAILED: ${reason}`],
+      reasons: [
+        'Refused at first, sent again once the rest had gone: 1 refused again.',
+        `DELETE_FAILED: ${reason}`,
+      ],
     });
     expect(outcome.objects[1]).toMatchObject({ deleted: 1 });
   });
@@ -704,7 +708,14 @@ describe('removeRunRecords', () => {
         ['Account', 1, 0],
         ['Opportunity', 1, 0],
       ]);
-      expect(outcome.objects.flatMap((o) => o.reasons)).toEqual([]);
+      expect(outcome.objects.flatMap((o) => [o.objectApiName, ...o.reasons])).toEqual([
+        'Contact',
+        'Pricebook2',
+        'Refused at first, sent again once the rest had gone: 1 deleted.',
+        'Account',
+        'Refused at first, sent again once the rest had gone: 1 deleted.',
+        'Opportunity',
+      ]);
       expect([...org.rows.values()].flat()).toEqual([]);
     });
 
@@ -742,9 +753,327 @@ describe('removeRunRecords', () => {
       expect(outcome.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
         deleted: 0,
         refused: 1,
-        reasons: ['DELETE_FAILED: some opportunities of this account were closed won'],
+        reasons: [
+          'Refused at first, sent again once the rest had gone: 1 refused again.',
+          'DELETE_FAILED: some opportunities of this account were closed won',
+        ],
       });
       expect(org.deletes.filter((d) => d.object === 'Account')).toHaveLength(2);
+    });
+  });
+
+  describe('a second try, once the rest of the plan has gone', () => {
+    const CLASSIFICATION = id('11B', 1);
+    const BOOK = id('01s', 1);
+    const STANDARD_BOOK = id('01s', 9);
+    const MODEL = id('0jP', 1);
+    const PRODUCTS = [id('01t', 1), id('01t', 2)];
+    const OPTIONS = [id('0iO', 1), id('0iO', 2)];
+    const CUSTOM = [id('01u', 1), id('01u', 2)];
+    const STANDARD = [id('01u', 3), id('01u', 4)];
+    /**
+     * The reverse of a run that wrote the options after the prices: the
+     * options' turn comes first, as no lookup ties them to the prices.
+     */
+    const PLAN = [
+      { objectApiName: 'ProductSellingModelOption', ids: OPTIONS },
+      { objectApiName: 'PricebookEntry', ids: [...CUSTOM, ...STANDARD] },
+      { objectApiName: 'Pricebook2', ids: [BOOK] },
+      { objectApiName: 'Product2', ids: PRODUCTS },
+      { objectApiName: 'ProductClassification', ids: [CLASSIFICATION] },
+    ];
+
+    /**
+     * A catalog a clone wrote, as a sandbox held it: two products based on a
+     * classification, each with a selling model option and an active price in
+     * the standard book and in a book of the run's. The org refuses what the
+     * sandbox refused: an option an active price is sold under, in its words
+     * ("Impossible de retirer l'option de modèle de vente de produit …
+     * associée à une entrée au catalogue de prix active"); a standard price
+     * while a custom price of its product is left; a classification a product
+     * is based on.
+     */
+    function catalogClone(): FakeOrg {
+      const org = new FakeOrg();
+      org.add('ProductClassification', runRow(CLASSIFICATION));
+      org.add('Pricebook2', runRow(BOOK));
+      org.add('Product2', ...PRODUCTS.map((p) => runRow(p, { BasedOnId: CLASSIFICATION })));
+      org.add(
+        'ProductSellingModelOption',
+        ...OPTIONS.map((o, i) =>
+          runRow(o, { Product2Id: PRODUCTS[i], ProductSellingModelId: MODEL }),
+        ),
+      );
+      const price = (priceId: string, product: string, standard: boolean): Row =>
+        runRow(priceId, {
+          Product2Id: product,
+          Pricebook2Id: standard ? STANDARD_BOOK : BOOK,
+          ProductSellingModelId: MODEL,
+          IsActive: true,
+          IsStandardPrice: standard,
+        });
+      org.add(
+        'PricebookEntry',
+        ...CUSTOM.map((p, i) => price(p, PRODUCTS[i], false)),
+        ...STANDARD.map((p, i) => price(p, PRODUCTS[i], true)),
+      );
+      org.relationships.set('ProductClassification', [
+        {
+          childSObject: 'Product2',
+          field: 'BasedOnId',
+          cascadeDelete: false,
+          restrictedDelete: true,
+        },
+      ]);
+      org.relationships.set('Product2', [
+        {
+          childSObject: 'PricebookEntry',
+          field: 'Product2Id',
+          cascadeDelete: true,
+          restrictedDelete: true,
+        },
+        { childSObject: 'ProductSellingModelOption', field: 'Product2Id', cascadeDelete: true },
+      ]);
+      org.relationships.set('Pricebook2', [
+        { childSObject: 'PricebookEntry', field: 'Pricebook2Id', cascadeDelete: true },
+      ]);
+      org.refuse = (object, row) => {
+        const prices = org.rows.get('PricebookEntry') ?? [];
+        const sameProduct = (p: Row): boolean =>
+          p.Product2Id === row.Product2Id && p.ProductSellingModelId === row.ProductSellingModelId;
+        if (
+          object === 'ProductSellingModelOption' &&
+          prices.some((p) => p.IsActive && sameProduct(p))
+        ) {
+          return {
+            statusCode: 'UNKNOWN_EXCEPTION',
+            message:
+              "Impossible de retirer l'option de modèle de vente de produit. Cette combinaison " +
+              'de produit et de modèle de vente de produit est associée à une entrée au ' +
+              'catalogue de prix active.',
+          };
+        }
+        if (
+          object === 'PricebookEntry' &&
+          row.IsStandardPrice === true &&
+          prices.some((p) => p.IsStandardPrice === false && sameProduct(p))
+        ) {
+          return { statusCode: 'UNKNOWN_EXCEPTION', message: 'An unexpected error occurred.' };
+        }
+        if (
+          object === 'ProductClassification' &&
+          (org.rows.get('Product2') ?? []).some((p) => p.BasedOnId === row.Id)
+        ) {
+          return { statusCode: 'DELETE_FAILED', message: 'products are based on it' };
+        }
+        return undefined;
+      };
+      return org;
+    }
+
+    it('sends again what the org refused while a record removed after it stood, and takes the catalog in one removal', async () => {
+      // Run for real on a sandbox, the options were refused while their
+      // prices stood, the prices went next, and the options stayed, with the
+      // products kept for them and the classification kept for the products,
+      // until a second removal took them.
+      const org = catalogClone();
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(
+        outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents, o.refused]),
+      ).toEqual([
+        ['ProductSellingModelOption', 2, 0, 0],
+        ['PricebookEntry', 4, 0, 0],
+        ['Pricebook2', 1, 0, 0],
+        ['Product2', 2, 0, 0],
+        ['ProductClassification', 1, 0, 0],
+      ]);
+      expect(outcome.objects[0].reasons).toEqual([
+        'Refused at first, sent again once the rest had gone: 2 deleted.',
+      ]);
+      expect([...org.rows.values()].flat()).toEqual([]);
+      // Every option asked for twice, and nothing else more than its own call.
+      expect(org.deletes.map((d) => [d.object, d.ids.length])).toEqual([
+        ['ProductSellingModelOption', 2],
+        ['PricebookEntry', 2],
+        ['PricebookEntry', 2],
+        ['Pricebook2', 1],
+        ['ProductSellingModelOption', 2],
+        ['Product2', 2],
+        ['ProductClassification', 1],
+      ]);
+      // The run's line, its audit entry and what is left of it say the same.
+      expect(outcome.gone).toEqual(PLAN.flatMap((object) => object.ids));
+      const finishedAt = '2026-09-20T12:00:00.000Z';
+      const status = removalStatus(outcome.objects, outcome.cancelled);
+      expect(status).toBe('success');
+      expect(removalMark({ status, objects: outcome.objects, finishedAt }, 10)).toEqual({
+        removedAt: finishedAt,
+        deleted: 10,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+      expect(removalAuditObjects(outcome.objects).map((o) => [o.objectApiName, o.failed])).toEqual([
+        ['ProductSellingModelOption', 0],
+        ['PricebookEntry', 0],
+        ['Pricebook2', 0],
+        ['Product2', 0],
+        ['ProductClassification', 0],
+      ]);
+    });
+
+    it('sends a record the org refuses for another reason than records hanging from it once more, never a third time', async () => {
+      // A round that deleted something is followed by another, for what is
+      // refused for records hanging from it: a case a flow refuses is not in it.
+      const org = new FakeOrg();
+      const CASE = id('500', 1);
+      const ACCOUNT = id('001', 1);
+      const OPPORTUNITY = id('006', 1);
+      org.add('Case', runRow(CASE));
+      org.add('Account', runRow(ACCOUNT));
+      org.add('Opportunity', runRow(OPPORTUNITY, { AccountId: ACCOUNT }));
+      let caseTries = 0;
+      org.refuse = (object, row) => {
+        if (object === 'Case') {
+          caseTries++;
+          return {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: caseTries === 1 ? 'A flow refused it.' : 'A flow refused it again.',
+          };
+        }
+        if (
+          object === 'Account' &&
+          (org.rows.get('Opportunity') ?? []).some((o) => o.AccountId === row.Id)
+        ) {
+          return { statusCode: 'DELETE_FAILED', message: 'some opportunities were closed won' };
+        }
+        return undefined;
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'Case', ids: [CASE] },
+          { objectApiName: 'Account', ids: [ACCOUNT] },
+          { objectApiName: 'Opportunity', ids: [OPPORTUNITY] },
+        ],
+        options(),
+      );
+
+      expect(org.deletes.filter((d) => d.object === 'Case')).toHaveLength(2);
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Case',
+          deleted: 0,
+          refused: 1,
+          reasons: [
+            'Refused at first, sent again once the rest had gone: 1 refused again.',
+            'FIELD_CUSTOM_VALIDATION_EXCEPTION: A flow refused it again.',
+          ],
+        }),
+        expect.objectContaining({ objectApiName: 'Account', deleted: 1, refused: 0 }),
+        expect.objectContaining({ objectApiName: 'Opportunity', deleted: 1 }),
+      ]);
+    });
+
+    it('counts a record its second try finds deleted as already gone, not refused', async () => {
+      // The org answers ENTITY_IS_DELETED for a record deleted since: here a
+      // contact the org deleted with its account through a relationship the
+      // removal does not read.
+      const org = new FakeOrg();
+      const CONTACT = id('003', 1);
+      const ACCOUNT = id('001', 1);
+      org.add('Contact', runRow(CONTACT, { AccountId: ACCOUNT }));
+      org.add('Account', runRow(ACCOUNT));
+      org.refusals.set(CONTACT, {
+        statusCode: 'UNKNOWN_EXCEPTION',
+        message: 'An unexpected error occurred.',
+      });
+      org.onDelete = (object, row) => {
+        if (object !== 'Account') return;
+        org.refusals.delete(CONTACT);
+        org.rows.set(
+          'Contact',
+          (org.rows.get('Contact') ?? []).filter((c) => c.AccountId !== row.Id),
+        );
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'Contact', ids: [CONTACT] },
+          { objectApiName: 'Account', ids: [ACCOUNT] },
+        ],
+        options(),
+      );
+
+      expect(org.deletes.filter((d) => d.object === 'Contact')).toHaveLength(2);
+      expect(outcome.objects[0]).toMatchObject({
+        deleted: 0,
+        alreadyGone: 1,
+        refused: 0,
+        reasons: ['Refused at first, sent again once the rest had gone: 1 already gone.'],
+      });
+      expect(outcome.gone).toEqual([CONTACT, ACCOUNT]);
+    });
+
+    it('never sends, nor takes for gone, a record of an object it could not read', async () => {
+      // Unread when the removal began, the contacts are counted refused with
+      // why. Read back by their ids alone once the rest had gone, a query that
+      // missed them — out of the session's sight — counted them already gone.
+      const org = new FakeOrg();
+      const contacts = [id('003', 1), id('003', 2)];
+      org.failingQueries.push(
+        /^SELECT Id, (CreatedDate, )?(LastModifiedDate|SystemModstamp) FROM Contact /,
+      );
+      org.add('Account', runRow(id('001', 1)));
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'Contact', ids: contacts },
+          { objectApiName: 'Account', ids: [id('001', 1)] },
+        ],
+        options(),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({
+        objectApiName: 'Contact',
+        alreadyGone: 0,
+        refused: 2,
+        reasons: ['INVALID_FIELD: No such column on entity'],
+      });
+      expect(org.deletes.filter((d) => d.object === 'Contact')).toEqual([]);
+      expect(outcome.gone).toEqual([id('001', 1)]);
+    });
+
+    it('says a refused record it could not read back was not checked, and leaves it refused', async () => {
+      const org = new FakeOrg();
+      const CASE = id('500', 1);
+      org.add('Case', runRow(CASE));
+      org.refusals.set(CASE, { statusCode: 'DELETE_FAILED', message: 'A flow refused it.' });
+      org.failingQueries.push(/^SELECT Id FROM Case WHERE/);
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'Case', ids: [CASE] }],
+        options(),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({
+        refused: 1,
+        alreadyGone: 0,
+        reasons: [
+          'Not checked: 1 refused record(s) could not be read back once the rest had gone, to ' +
+            'tell whether a parent deleted after them took them along — INVALID_FIELD: No such ' +
+            'column on entity',
+          'Refused at first, sent again once the rest had gone: 1 refused again.',
+          'DELETE_FAILED: A flow refused it.',
+        ],
+      });
+      expect(outcome.gone).toEqual([]);
     });
   });
 
@@ -922,13 +1251,14 @@ describe('removeRunRecords', () => {
         options(),
       );
 
+      // Sent again once their message has gone, the org answers they are gone.
       expect(outcome.objects).toEqual([
         expect.objectContaining({
           objectApiName: 'EmailMessageRelation',
           deleted: 0,
           alreadyGone: 3,
           refused: 0,
-          reasons: [],
+          reasons: ['Refused at first, sent again once the rest had gone: 3 already gone.'],
         }),
         expect.objectContaining({ objectApiName: 'EmailMessage', deleted: 1 }),
       ]);
@@ -1026,6 +1356,7 @@ describe('removeRunRecords', () => {
           refused: 1,
           reasons: [
             'Status set to Open for the delete, then back to Live.',
+            'Refused at first, sent again once the rest had gone: 1 refused again.',
             'FIELD_CUSTOM_VALIDATION_EXCEPTION: A validation rule refused it.',
           ],
         }),
@@ -1647,7 +1978,10 @@ describe('removeRunRecords', () => {
           objectApiName: 'Contract',
           deleted: 0,
           refused: 1,
-          reasons: ['DELETE_FAILED: A flow refused it.'],
+          reasons: [
+            'Refused at first, sent again once the rest had gone: 1 refused again.',
+            'DELETE_FAILED: A flow refused it.',
+          ],
         }),
       ]);
       expect(org.updates).toEqual([]);
@@ -1725,7 +2059,10 @@ describe('removeRunRecords', () => {
       expect(outcome.objects[0]).toMatchObject({
         refused: 1,
         unchecked: [],
-        reasons: ['DELETE_FAILED: this price is used by opportunity products'],
+        reasons: [
+          'Refused at first, sent again once the rest had gone: 1 refused again.',
+          'DELETE_FAILED: this price is used by opportunity products',
+        ],
       });
     });
   });
@@ -2411,22 +2748,47 @@ describe('removeRunRecords', () => {
 });
 
 describe('takenAlong', () => {
+  const seenAll = (): boolean => true;
+
   it('names the refused records the org no longer holds, whichever length their id comes back in', async () => {
     const refused = [id('0ER', 1), id('0ER', 2), id('0ER', 3)];
 
-    const gone = await takenAlong(refused, async () => [{ Id: refused[1].slice(0, 15) }]);
+    const readBack = await takenAlong(
+      refused,
+      async () => [{ Id: refused[1].slice(0, 15) }],
+      seenAll,
+    );
 
-    expect(gone).toEqual([refused[0], refused[2]]);
+    expect(readBack).toEqual({ gone: [refused[0], refused[2]], unchecked: [] });
   });
 
-  it('takes none for gone when they cannot be read, and reads nothing for none', async () => {
+  it('takes none for gone when they cannot be read, says so, and reads nothing for none', async () => {
     const failing = vi.fn(async (): Promise<Array<Record<string, unknown>>> => {
       throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
     });
     const idle = vi.fn(async (): Promise<Array<Record<string, unknown>>> => []);
 
-    await expect(takenAlong([id('0ER', 1)], failing)).resolves.toEqual([]);
-    await expect(takenAlong([], idle)).resolves.toEqual([]);
+    await expect(takenAlong([id('0ER', 1)], failing, seenAll)).resolves.toEqual({
+      gone: [],
+      unchecked: [id('0ER', 1)],
+      failure: 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+    });
+    await expect(takenAlong([], idle, seenAll)).resolves.toEqual({ gone: [], unchecked: [] });
     expect(idle).not.toHaveBeenCalled();
+  });
+
+  it('never takes for gone a record the session did not read before: it may be out of its sight', async () => {
+    // A query does not answer a record a sharing rule hides any more than a
+    // deleted one: only a record the session read before its delete, and
+    // misses now, went with a parent.
+    const refused = [id('0ER', 1), id('0ER', 2)];
+
+    const readBack = await takenAlong(
+      refused,
+      async () => [],
+      (recordId) => recordId === refused[0],
+    );
+
+    expect(readBack).toEqual({ gone: [refused[0]], unchecked: [refused[1]] });
   });
 });

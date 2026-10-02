@@ -20,7 +20,7 @@ import {
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
 import { LoadGuardError } from './LoadGuards.js';
-import { loadCreatedRecords, loadToRemove } from './loadRecords.js';
+import { loadCreatedRecords, loadRecordsInfo, loadToRemove } from './loadRecords.js';
 import { standardPriceIds } from '../../core/common/platformRecords.js';
 import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
@@ -29,6 +29,7 @@ import type {
   FrozenDmlWriter,
   FrozenLoadConfig,
   FrozenLoadProgressEvent,
+  FrozenLoadReport,
   TargetFieldDescribe,
   TargetObjectDescribe,
 } from './loadTypes.js';
@@ -1273,6 +1274,45 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
       guard: new SasPathGuard(repoRoot),
     }).load();
     expect(mapping.get('AccountContactRelation-000001')).toBe('07kDIRECT');
+  });
+
+  it('keeps the direct relation with the contact it inserted, which a removal neither takes nor keeps', async () => {
+    // "To remove a direct relationship between a contact and an account,
+    // change the contact's primary account or delete the contact": counted
+    // among the linked records, the removal's confirmation said it stayed in
+    // the org, though it goes with the contact.
+    const dataset = makeAccountContactDataset();
+    dataset.objects.push({
+      objectApiName: 'AccountContactRelation',
+      records: [
+        {
+          referenceId: 'AccountContactRelation-000001',
+          fields: { AccountId: 'Account-000001', ContactId: 'Contact-000001' },
+        },
+      ],
+    });
+    const RELATION = '07k000000000001AAA';
+    const deps = makeDeps({
+      dataset,
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM AccountContactRelation WHERE IsDirect = true')
+          ? [{ Id: RELATION, AccountId: 'REAL-Account-1', ContactId: 'REAL-Contact-2' }]
+          : [],
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    const recorded = await new SasReferenceIdMappingStore(deps.sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recorded();
+    expect(recorded?.withTheirRecord).toEqual({
+      'AccountContactRelation-000001': 'Contact-000001',
+    });
+    expect(recorded?.mapping.get('AccountContactRelation-000001')).toBe(RELATION);
+    expect(recorded && loadRecordsInfo(recorded).linked).toBe(0);
+    expect(recorded && loadCreatedRecords(recorded).flatMap(({ ids }) => ids)).not.toContain(
+      RELATION,
+    );
   });
 });
 
@@ -2567,7 +2607,11 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
         .map((e) => [e.status, e.message]),
     ).toEqual([
       ['done', 'Reference data: 0 reused'],
-      ['error', 'Purge: 1 deleted, 0 deactivated, 1 failed'],
+      [
+        'error',
+        'Purge: 1 deleted, 0 deactivated, 1 failed — 1 refused at first, sent again once the ' +
+          'rest had gone: 1 refused again',
+      ],
     ]);
   });
 
@@ -6432,12 +6476,16 @@ describe("FrozenDatasetLoader — what a reload's purge is refused, and a parent
     expect(report.purge.deleted).toEqual({ ContractItemPrice: 1, Contract: 1 });
     expect(report.purge.failures).toEqual([]);
     expect(report.status).toBe('completed');
+    // Sent again once the contract had gone, the price answers it is gone.
     expect(
       progress
         .filter((e) => e.phase === 'reload' && e.status !== 'started')
         .map((e) => [e.status, e.message])
         .at(-1),
-    ).toEqual(['done', 'Reload pass done']);
+    ).toEqual([
+      'done',
+      'Reload pass done — 1 refused at first, sent again once the rest had gone: 1 went',
+    ]);
     // No longer the earlier load's: neither the next reload nor a removal
     // sets out to take it again.
     expect(await namesThePrice(sasDir)).toBe(false);
@@ -6450,14 +6498,20 @@ describe("FrozenDatasetLoader — what a reload's purge is refused, and a parent
     await contractLoaded(sasDir);
     const dataset = contractDataset();
     // Cancelled as the contract's delete goes out: the purge sends nothing
-    // more, not even the read that would find its item price gone.
+    // more, neither the item price again nor the read that would find it gone.
     const stop = new AbortController();
     const writes = target.writer();
+    let queriesAtTheCancel = 0;
+    const deletes: string[] = [];
     const writer: FrozenDmlWriter = {
       ...writes,
       delete: async (...args) => {
+        deletes.push(args[1]);
         const outcomes = await writes.delete(...args);
-        if (args[1] === 'Contract') stop.abort();
+        if (args[1] === 'Contract') {
+          stop.abort();
+          queriesAtTheCancel = target.queries.length;
+        }
         return outcomes;
       },
     };
@@ -6473,9 +6527,12 @@ describe("FrozenDatasetLoader — what a reload's purge is refused, and a parent
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(FrozenLoadCancelledError);
-    expect(target.queries.filter((q) => q.startsWith('SELECT Id FROM ContractItemPrice'))).toEqual(
-      [],
-    );
+    expect(deletes).toEqual(['ContractItemPrice', 'Contract']);
+    expect(
+      target.queries
+        .slice(queriesAtTheCancel)
+        .filter((q) => q.startsWith('SELECT Id FROM ContractItemPrice')),
+    ).toEqual([]);
     // Kept with the earlier load: what a removal of it would take, and find gone.
     expect(await namesThePrice(sasDir)).toBe(true);
 
@@ -6492,6 +6549,222 @@ describe("FrozenDatasetLoader — what a reload's purge is refused, and a parent
     expect(report.purge.deleted).toEqual({ ContractItemPrice: 1 });
     expect(report.purge.failures).toEqual([]);
     expect(await namesThePrice(sasDir)).toBe(false);
+  });
+});
+
+describe("FrozenDatasetLoader — a reload's purge, once the rest has gone", () => {
+  const ACCOUNT = '001000000000001AAA';
+  const CONTACT = '003000000000001AAA';
+  const OPPORTUNITY = '006000000000001AAA';
+  const INSUFFICIENT_ACCESS =
+    'INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id';
+
+  type Row = Record<string, unknown> & { Id: string };
+
+  /**
+   * The target in memory, holding what an earlier load created: an account,
+   * a contact, and an opportunity of the account's — an object the dataset
+   * loaded again no longer has, so the purge reaches it last.
+   */
+  class Target {
+    readonly rows = new Map<string, Row[]>([
+      ['Account', [{ Id: ACCOUNT }]],
+      ['Contact', [{ Id: CONTACT }]],
+      ['Opportunity', [{ Id: OPPORTUNITY, AccountId: ACCOUNT }]],
+    ]);
+    readonly deletes: Array<{ object: string; ids: string[] }> = [];
+    /** Records the session cannot see: no query answers them, and their delete is refused. */
+    readonly outOfSight = new Set<string>();
+    /** Refuses a delete, in the target's words. */
+    refuse?: (object: string, row: Row) => string | undefined;
+    /** Fails a read, by its text. */
+    failRead?: (soql: string) => boolean;
+    private inserted = 0;
+
+    select(soql: string): Row[] {
+      if (this.failRead?.(soql))
+        throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+      const match = /^SELECT (.+?) FROM (\w+) WHERE Id IN \((.*?)\)$/.exec(soql);
+      if (!match) return [];
+      const [, , object, list] = match;
+      const wanted = list.split(', ').map((quoted) => quoted.slice(1, -1));
+      return (this.rows.get(object) ?? [])
+        .filter((row) => wanted.includes(row.Id) && !this.outOfSight.has(row.Id))
+        .map((row) => ({ Id: row.Id }));
+    }
+
+    delete(object: string, ids: string[]): OperationOutcome[] {
+      this.deletes.push({ object, ids: [...ids] });
+      return ids.map((id) => {
+        if (this.outOfSight.has(id)) return { id, success: false, errors: [INSUFFICIENT_ACCESS] };
+        const row = (this.rows.get(object) ?? []).find((r) => r.Id === id);
+        if (!row) return { id, success: false, errors: ['ENTITY_IS_DELETED: entity is deleted'] };
+        const refused = this.refuse?.(object, row);
+        if (refused) return { id, success: false, errors: [refused] };
+        this.rows.set(
+          object,
+          (this.rows.get(object) ?? []).filter((r) => r.Id !== id),
+        );
+        return { id, success: true, errors: [] };
+      });
+    }
+
+    writer(): FrozenDmlWriter {
+      return {
+        insert: vi.fn(async (_org: string, object: string, records: Record<string, unknown>[]) =>
+          records.map((record) => {
+            const id = `${object.slice(0, 3)}${String(++this.inserted).padStart(12, '0')}NEW`;
+            this.rows.set(object, [...(this.rows.get(object) ?? []), { ...record, Id: id }]);
+            return { id, success: true, errors: [] };
+          }),
+        ),
+        update: vi.fn(async (_org: string, _object: string, records: Record<string, unknown>[]) =>
+          records.map((record) => ({ id: String(record.Id), success: true, errors: [] })),
+        ),
+        delete: vi.fn(async (_org: string, object: string, ids: string[]) =>
+          this.delete(object, ids),
+        ),
+      };
+    }
+  }
+
+  /** The mapping of the earlier load, which created the three records. */
+  async function earlierLoad(sasDir: string): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000001', ACCOUNT],
+        ['Contact-000001', CONTACT],
+        ['Opportunity-000001', OPPORTUNITY],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+          { objectApiName: 'Opportunity', referenceIds: ['Opportunity-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+  }
+
+  /** The records the loads the sas records say they created, by id. */
+  const namedByLoads = async (sasDir: string): Promise<string[]> =>
+    (
+      await new SasReferenceIdMappingStore(sasDir, {
+        guard: new SasPathGuard(repoRoot),
+      }).recordedLoads()
+    ).flatMap((load) => loadCreatedRecords(load).flatMap(({ ids }) => ids));
+
+  /** Reload the account and its contact over what the earlier load created. */
+  async function reload(target: Target): Promise<{
+    report: FrozenLoadReport;
+    lines: Array<[string, string]>;
+    sasDir: string;
+  }> {
+    const sasDir = makeTmpDir();
+    await earlierLoad(sasDir);
+    const dataset = makeAccountContactDataset();
+    const progress: FrozenLoadProgressEvent[] = [];
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, onProgress: (e) => progress.push(e) }),
+    );
+    const lines = progress
+      .filter((e) => e.phase === 'reload' && e.status !== 'started')
+      .map((e): [string, string] => [e.status, e.message]);
+    return { report, lines, sasDir };
+  }
+
+  it('sends again what the target refused while a record purged after it stood, and purges it then', async () => {
+    // Children go first, objects the dataset no longer has last: the account
+    // was refused for its opportunity, which went after it, and stayed named
+    // with the earlier load for the next reload or a removal.
+    const target = new Target();
+    target.refuse = (object, row) =>
+      object === 'Account' &&
+      (target.rows.get('Opportunity') ?? []).some((o) => o.AccountId === row.Id)
+        ? 'DELETE_FAILED: some opportunities of this account were closed won'
+        : undefined;
+
+    const { report, lines, sasDir } = await reload(target);
+
+    expect(target.deletes.map((d) => d.object)).toEqual([
+      'Contact',
+      'Account',
+      'Opportunity',
+      'Account',
+    ]);
+    expect(report.purge.deleted).toEqual({ Contact: 1, Account: 1, Opportunity: 1 });
+    expect(report.purge.failures).toEqual([]);
+    expect(report.status).toBe('completed');
+    expect(lines.at(-1)).toEqual([
+      'done',
+      'Reload pass done — 1 refused at first, sent again once the rest had gone: 1 went',
+    ]);
+    expect(await namedByLoads(sasDir)).not.toContain(ACCOUNT);
+  });
+
+  it('never counts as purged a refused record it could not read before the purge: it may be out of sight', async () => {
+    // A record the session cannot see comes back from no query: read back
+    // once the purge was through, it was counted purged, and dropped from
+    // the earlier load's records, while it stayed in the org.
+    const target = new Target();
+    target.outOfSight.add(CONTACT);
+
+    const { report, lines, sasDir } = await reload(target);
+
+    expect(report.purge.deleted).toEqual({ Account: 1, Opportunity: 1 });
+    expect(report.purge.failures).toEqual([
+      {
+        objectApiName: 'Contact',
+        recordId: CONTACT,
+        errors: [
+          INSUFFICIENT_ACCESS,
+          "Not checked: the purge could not read it before its delete, nor after — gone, or out of the session's sight",
+        ],
+      },
+    ]);
+    expect(report.status).toBe('completed-with-errors');
+    expect(lines.at(-1)).toEqual([
+      'error',
+      'Purge: 2 deleted, 0 deactivated, 1 failed — 1 refused at first, sent again once the ' +
+        'rest had gone: 1 refused again',
+    ]);
+    // Still the earlier load's: the next reload or a removal sets out to take it.
+    expect(await namedByLoads(sasDir)).toContain(CONTACT);
+  });
+
+  it('says a refused record it could not read back was not checked, and keeps it a failure', async () => {
+    const target = new Target();
+    let tries = 0;
+    target.refuse = (object) => {
+      if (object !== 'Account') return undefined;
+      tries++;
+      return 'DELETE_FAILED: it has cases';
+    };
+    // Read before the purge, the account is no longer read once it was
+    // refused twice.
+    target.failRead = (soql) => tries >= 2 && soql.startsWith('SELECT Id FROM Account');
+
+    const { report, sasDir } = await reload(target);
+
+    expect(report.purge.failures).toEqual([
+      {
+        objectApiName: 'Account',
+        recordId: ACCOUNT,
+        errors: [
+          'DELETE_FAILED: it has cases',
+          'Not checked: not read back once the purge was through, to tell whether a parent ' +
+            'deleted after it took it along — REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+        ],
+      },
+    ]);
+    expect(await namedByLoads(sasDir)).toContain(ACCOUNT);
   });
 });
 
@@ -6893,6 +7166,35 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
       guard: new SasPathGuard(repoRoot),
     }).load();
     expect(mapping.get(ref('Task'))).toBe('00TPLATFORM');
+  });
+
+  it('keeps the task the platform wrote with an email it inserted with that email, which a removal neither takes nor keeps', async () => {
+    // "Deleting an EmailMessage record automatically deletes the associated
+    // Task": counted among the linked records, the removal's confirmation
+    // said it stayed in the org, though it goes with the email.
+    const dataset = emailDataset();
+    const emails: Array<Record<string, unknown>> = [];
+    const TASK = '00T000000000001AAA';
+    const reads = platformReads(emails);
+    const deps = makeDeps({
+      dataset,
+      writer: platformWriter([], emails),
+      // The task the platform wrote, under an id a removal reads as a record's.
+      queryImpl: async (org, soql) =>
+        (await reads(org, soql)).map((row) =>
+          row.ActivityId === '00TPLATFORM' ? { ...row, ActivityId: TASK } : row,
+        ),
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    const recorded = await new SasReferenceIdMappingStore(deps.sasDir, {
+      guard: new SasPathGuard(repoRoot),
+    }).recorded();
+    expect(recorded?.withTheirRecord).toEqual({ [ref('Task')]: ref('EmailMessage') });
+    expect(recorded?.mapping.get(ref('Task'))).toBe(TASK);
+    expect(recorded && loadRecordsInfo(recorded).linked).toBe(0);
+    expect(recorded && loadCreatedRecords(recorded).flatMap(({ ids }) => ids)).not.toContain(TASK);
   });
 
   it('inserts the task after the email when the platform wrote none with it', async () => {

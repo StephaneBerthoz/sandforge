@@ -112,6 +112,51 @@ describe('loadRecordsInfo', () => {
     expect(loadCreatedRecords(withContacts)).toEqual(loadCreatedRecords(load));
   });
 
+  it('counts as kept neither the direct relation of a contact the load created nor the task the platform wrote with its email, and one of a contact it linked as linked', () => {
+    /** A record's key, as an extraction writes it: its object, then its number on six digits. */
+    const ref = (objectApiName: string, n = 1): string =>
+      `${objectApiName}-${String(n).padStart(6, '0')}`;
+    const TASK_KEY = ref('Task');
+    const load = recordedLoad();
+    const mapping = new Map(load.mapping);
+    // The direct relation the platform wrote with an inserted contact, and
+    // the task it wrote with an inserted email.
+    mapping.set('EmailMessage-000001', id('02s', 1));
+    mapping.set('AccountContactRelation-000001', id('07k', 1));
+    mapping.set(TASK_KEY, id('00T', 1));
+    // A contact a reload found by its keys, and its direct relation.
+    mapping.set('Contact-000009', id('003', 9));
+    mapping.set('AccountContactRelation-000009', id('07k', 9));
+    // A person account's contact, linked, and its direct relation: both go
+    // with the account the load created.
+    mapping.set('Contact-000003', id('003', 3));
+    mapping.set('AccountContactRelation-000003', id('07k', 3));
+    const withTheirRecords: RecordedLoad = {
+      ...load,
+      mapping,
+      created: [
+        ...(load.created ?? []),
+        { objectApiName: 'EmailMessage', referenceIds: ['EmailMessage-000001'] },
+      ],
+      personContacts: { 'Contact-000003': 'Account-000001' },
+      withTheirRecord: {
+        'AccountContactRelation-000001': 'Contact-000001',
+        [TASK_KEY]: 'EmailMessage-000001',
+        'AccountContactRelation-000009': 'Contact-000009',
+        'AccountContactRelation-000003': 'Contact-000003',
+      },
+    };
+
+    // The book, the contact found and its relation stay; the rest goes with
+    // what the load created.
+    expect(loadRecordsInfo(withTheirRecords).linked).toBe(3);
+    // And no removal names any of them.
+    expect(loadCreatedRecords(withTheirRecords).flatMap(({ ids }) => ids)).toEqual([
+      id('02s', 1),
+      ...loadCreatedRecords(load).flatMap(({ ids }) => ids),
+    ]);
+  });
+
   it('counts per object what a removal takes, and the linked records it leaves', () => {
     expect(loadRecordsInfo(recordedLoad())).toEqual({
       orgId: 'org-dev',

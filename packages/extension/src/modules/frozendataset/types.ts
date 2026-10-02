@@ -230,6 +230,19 @@ export interface PersistedLoad {
    * each with its account. Absent when the load linked none.
    */
   personContacts?: Readonly<Record<string, string>>;
+  /**
+   * The other records the load linked to one the platform wrote with a record
+   * of its own, by their key, each with the key of that record — and deleted
+   * with it: a contact's direct relation to its account, with the contact ("To
+   * remove a direct relationship between a contact and an account, change the
+   * contact's primary account or delete the contact": Salesforce Help,
+   * "Considerations for Relating a Contact to Multiple Accounts"); the task
+   * the platform wrote with an email, with the email ("Deleting an
+   * EmailMessage record automatically deletes the associated Task":
+   * Salesforce Help, knowledge article 000384885). Linked, not created, and
+   * never deleted on their own. Absent when the load linked none.
+   */
+  withTheirRecord?: Readonly<Record<string, string>>;
 }
 
 /**

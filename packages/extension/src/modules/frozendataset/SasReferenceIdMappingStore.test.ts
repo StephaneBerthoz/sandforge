@@ -476,6 +476,104 @@ describe('SasReferenceIdMappingStore', () => {
     });
   });
 
+  describe('what the platform wrote with a record a load created', () => {
+    const ACCOUNT = '001XX00000AcCnTAAA';
+    const CONTACT = '003XX00000CoNtCAAA';
+    const RELATION = '07kXX00000ReLaTAAA';
+    const EMAIL = '02sXX00000EmAiLAAA';
+    const TASK = '00TXX00000TaSkKAAA';
+    const ENDED = '2026-09-24T10:02:00.000Z';
+    /** A record's key, as an extraction writes it: its object, then its number on six digits. */
+    const ref = (objectApiName: string, n = 1): string =>
+      `${objectApiName}-${String(n).padStart(6, '0')}`;
+
+    function storeAt(dir: string, now = ENDED) {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date(now),
+      });
+    }
+
+    /**
+     * A load that created an account, a contact and an email, and linked the
+     * contact's direct relation and the email's task, which the platform
+     * wrote with them.
+     */
+    async function loaded(dir: string): Promise<void> {
+      await storeAt(dir).persist(
+        new Map([
+          ['Account-000001', ACCOUNT],
+          ['Contact-000001', CONTACT],
+          ['AccountContactRelation-000001', RELATION],
+          ['EmailMessage-000001', EMAIL],
+          [ref('Task'), TASK],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+            { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+            { objectApiName: 'EmailMessage', referenceIds: ['EmailMessage-000001'] },
+          ],
+          startedAt: new Date('2026-09-24T10:00:00.000Z'),
+          withTheirRecord: {
+            'AccountContactRelation-000001': 'Contact-000001',
+            [ref('Task')]: 'EmailMessage-000001',
+            [ref('Task', 404)]: 'EmailMessage-000001',
+          },
+        },
+      );
+    }
+
+    it('keeps each with the key of the record it goes with, of those the mapping names', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+
+      expect((await storeAt(dir).recorded())?.withTheirRecord).toEqual({
+        'AccountContactRelation-000001': 'Contact-000001',
+        [ref('Task')]: 'EmailMessage-000001',
+      });
+    });
+
+    it('forgets each with its record once a removal took that record: the platform deleted it with it', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+
+      await storeAt(dir, '2026-09-24T11:00:00.000Z').recordRemoval(ENDED, {
+        gone: [CONTACT, EMAIL],
+        stamps: {},
+      });
+
+      const recorded = await storeAt(dir).recorded();
+      expect(recorded?.mapping).toEqual(new Map([['Account-000001', ACCOUNT]]));
+      expect(recorded?.withTheirRecord).toBeUndefined();
+    });
+
+    it('forgets each with its record once a reload purged that record, of the load it keeps', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir);
+
+      // A reload purged the email, and nothing else of that load.
+      await storeAt(dir, '2026-09-24T11:05:00.000Z').persist(new Map(), {
+        created: [],
+        startedAt: new Date('2026-09-24T11:00:00.000Z'),
+        earlier: { settled: [EMAIL] },
+      });
+
+      const [, earlier] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(earlier.mapping).toEqual(
+        new Map([
+          ['Account-000001', ACCOUNT],
+          ['Contact-000001', CONTACT],
+          ['AccountContactRelation-000001', RELATION],
+        ]),
+      );
+      expect(earlier.withTheirRecord).toEqual({
+        'AccountContactRelation-000001': 'Contact-000001',
+      });
+    });
+  });
+
   describe('the loads before the last one', () => {
     const FIRST_ACCOUNT = '001XX00000FirStAAA';
     const FIRST_CONTACT = '003XX00000FirStAAA';
