@@ -26,6 +26,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createFetchVerdict } from './public-link-verdict.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LOCAL_ONLY = process.argv.includes('--local');
@@ -86,9 +87,6 @@ function manifestUrls() {
   return found;
 }
 
-/** Statuses that say "ask again later", not "this URL is wrong". */
-const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
-
 /**
  * Ceiling on the whole network pass.
  *
@@ -108,33 +106,11 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const verdicts = new Map();
 
 /**
- * Is this URL reachable without credentials?
- *
- * Backs off on rate limiting and transient server errors rather than failing
- * the release on them — a gate that turns a 429 into "this image is broken"
- * fails for a reason unrelated to what it checks, and the next person learns
- * to ignore it. Bounded twice: two retries, and the shared budget above.
+ * Is this URL reachable without credentials? See `public-link-verdict.mjs`:
+ * it backs off on rate limiting and transient errors, and asks a URL still
+ * answered "ask again later" once more with HEAD.
  */
-async function fetchVerdict(url, attempt = 0) {
-  try {
-    const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-    if (RETRYABLE.has(response.status) && attempt < 2) {
-      const backoff = 1000 * 2 ** attempt;
-      if (backoff < budgetLeft()) {
-        await wait(backoff);
-        return fetchVerdict(url, attempt + 1);
-      }
-    }
-    return { ok: response.ok, status: response.status };
-  } catch (error) {
-    const backoff = 1000 * 2 ** attempt;
-    if (attempt < 2 && backoff < budgetLeft()) {
-      await wait(backoff);
-      return fetchVerdict(url, attempt + 1);
-    }
-    return { ok: false, status: error instanceof Error ? error.message : 'fetch failed' };
-  }
-}
+const fetchVerdict = createFetchVerdict({ fetchImpl: fetch, wait, budgetLeft });
 
 /** Cached, so a URL written in two places costs one request. */
 async function isReachable(url) {
