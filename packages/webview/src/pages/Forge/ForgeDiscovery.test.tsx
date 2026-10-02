@@ -237,6 +237,7 @@ describe('ForgeDiscovery', () => {
             id: 'test-progress',
             type: 'forge:discover:progress',
             timestamp: Date.now(),
+            correlationId: 'wv-discover-1',
             payload: { objectApiName: 'Account', discoveredCount: 134, queueRemaining: 12 },
           },
         }),
@@ -247,6 +248,32 @@ describe('ForgeDiscovery', () => {
       expect(line.textContent).toContain('134');
       expect(line.textContent).toContain('12');
     });
+  });
+
+  it("shows no counters of a discovery the flow no longer waits on, nor of another panel's", async () => {
+    // Back, then Discover again: the discovery replaced may still be walking.
+    mockGraph = null;
+    mockDiscoveryId = 'wv-discover-2';
+    render(<ForgeDiscovery />);
+    act(() => {
+      for (const correlationId of ['wv-discover-1', undefined]) {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: `progress-${String(correlationId)}`,
+              type: 'forge:discover:progress',
+              timestamp: Date.now(),
+              correlationId,
+              payload: { objectApiName: 'Account', discoveredCount: 134, queueRemaining: 12 },
+            },
+          }),
+        );
+      }
+    });
+    // Give a counter that was taken the chance to show.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.queryByTestId('forge-discovery-progress')).toBeNull();
   });
 
   it('should show empty state with the error its discovery ended on', () => {

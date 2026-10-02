@@ -121,6 +121,12 @@ export const ForgeDiscovery: React.FC = () => {
   >(
     'forge:discover:progress',
     useCallback((msg) => {
+      // Only the discovery the flow waits on moves the counters, as only its
+      // answer is taken: every panel receives every panel's messages, and a
+      // discovery replaced by a newer one — Back, then Discover again — may
+      // still be walking, its counters shown over the new one's.
+      const { discoveryId, directDiscoveryId } = useForgeStore.getState();
+      if (msg.correlationId !== discoveryId && msg.correlationId !== directDiscoveryId) return;
       setDiscoveryProgress({
         discoveredCount: msg.payload.discoveredCount,
         queueRemaining: msg.payload.queueRemaining,
