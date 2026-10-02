@@ -167,12 +167,15 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it('should have 4 tabs (plan, anonymization, compliance, metadata)', () => {
+  it('should have 5 tabs (plan, anonymization, compliance, metadata, automation)', () => {
     render(<ForgeReview />);
-    expect(screen.getByTestId('tab-plan')).toBeDefined();
-    expect(screen.getByTestId('tab-anonymization')).toBeDefined();
-    expect(screen.getByTestId('tab-compliance')).toBeDefined();
-    expect(screen.getByTestId('tab-metadata')).toBeDefined();
+    expect(screen.getAllByRole('tab').map((tab) => tab.id)).toEqual([
+      'tab-plan',
+      'tab-anonymization',
+      'tab-compliance',
+      'tab-metadata',
+      'tab-automation',
+    ]);
   });
 
   it('should have Plan tab active by default', () => {
@@ -482,6 +485,121 @@ describe('ForgeReview', () => {
         'Metadata diff service not configured',
       );
       expect(screen.queryByTestId('metadata-loading')).toBeNull();
+    });
+  });
+
+  describe('automation channel', () => {
+    /** The automation requests recorded on the mocked transport. */
+    function automationRequests(): unknown[][] {
+      return mockSendBridgeMessage.mock.calls.filter(
+        (call) => call[0] === 'forge:automation:request',
+      );
+    }
+
+    /** A flow of the target that starts after a record of `objectApiName` is created. */
+    const createdFlow = (objectApiName: string) => ({
+      objectApiName,
+      flows: [
+        {
+          apiName: `${objectApiName}_Welcome`,
+          label: `${objectApiName} welcome`,
+          timing: 'afterSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+        },
+      ],
+      triggers: [{ name: `${objectApiName}Trigger`, events: ['afterUpdate'] }],
+    });
+
+    const automation = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [createdFlow('Account'), createdFlow('Contact')],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 4,
+    };
+
+    it('asks, as Review opens, what the target runs on the objects the run writes, with the graph', () => {
+      render(<ForgeReview />);
+      expect(automationRequests()).toEqual([
+        ['forge:automation:request', { targetOrgId: 'tgt-org', graph: defaultGraph }],
+      ]);
+    });
+
+    it('asks it once, however often the graph changes', () => {
+      const { rerender } = render(<ForgeReview />);
+      mockGraph = { ...defaultGraph, nodes: [...defaultGraph.nodes] };
+      rerender(<ForgeReview />);
+      expect(automationRequests()).toHaveLength(1);
+    });
+
+    it('asks it for an object the user left out too, so taking it back in needs no second read', () => {
+      mockGraph = {
+        ...defaultGraph,
+        nodes: [
+          defaultGraph.nodes[0],
+          makeNode({ objectApiName: 'Contact', included: false, leftOutByUser: true }),
+          makeNode({ objectApiName: 'Note', included: false, recordCount: 0 }),
+        ],
+      };
+      render(<ForgeReview />);
+
+      const { graph } = automationRequests()[0][1] as { graph: ForgeGraph };
+      expect(graph.nodes.map((n) => [n.objectApiName, n.included])).toEqual([
+        ['Account', true],
+        ['Contact', true],
+        // An empty table discovery left out stays out.
+        ['Note', false],
+      ]);
+    });
+
+    it('shows what fires once the answer lands, and counts on the tab what fires as the run inserts', () => {
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      expect(screen.getByTestId('automation-loading')).toBeDefined();
+
+      sendFromExtension('forge:automation:response', { automation });
+
+      expect(screen.getByTestId('automation-object-Account')).toBeDefined();
+      expect(screen.getByTestId('automation-object-Contact')).toBeDefined();
+      // One flow on each object fires at insert; the triggers run on update.
+      expect(screen.getByTestId('tab-automation').textContent).toBe('Automation2');
+    });
+
+    it('stops counting and showing what fires on an object the user leaves out after the read', () => {
+      const { rerender } = render(<ForgeReview />);
+      sendFromExtension('forge:automation:response', { automation });
+      fireEvent.click(screen.getByTestId('tab-automation'));
+
+      mockGraph = {
+        ...defaultGraph,
+        nodes: [
+          defaultGraph.nodes[0],
+          makeNode({ objectApiName: 'Contact', included: false, leftOutByUser: true }),
+        ],
+      };
+      rerender(<ForgeReview />);
+
+      expect(screen.queryByTestId('automation-object-Contact')).toBeNull();
+      expect(screen.getByTestId('tab-automation').textContent).toBe('Automation1');
+    });
+
+    it('shows forge:automation:error instead of reading forever', () => {
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      sendFromExtension('forge:automation:error', {
+        message: 'Target automation reader not configured',
+      });
+      expect(screen.getByTestId('automation-error').textContent).toBe(
+        'Target automation reader not configured',
+      );
+    });
+
+    it('never holds back the run while the read is on its way', () => {
+      render(<ForgeReview />);
+      expect((screen.getByTestId('execute-button') as HTMLButtonElement).disabled).toBe(false);
     });
   });
 

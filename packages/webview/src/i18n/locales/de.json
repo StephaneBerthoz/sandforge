@@ -2441,9 +2441,9 @@
     "graphView": "Graph-Ansicht",
     "direct": {
       "action": "Direkt klonen",
-      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.",
+      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Ebenso wenig werden die Flows und Apex-Trigger gelesen, die die Ziel-Org für die geschriebenen Datensätze ausführt.",
       "discovering": "Das Klonen beginnt, sobald die Ermittlung antwortet.",
-      "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt."
+      "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt. Ebenso wenig wurden die Flows und Apex-Trigger gelesen, die die Ziel-Org für die geschriebenen Datensätze ausführt."
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -2563,6 +2563,7 @@
       "anonymizationTab": "Anonymisierung",
       "complianceTab": "Compliance",
       "metadataTab": "Metadaten",
+      "automationTab": "Automatisierung",
       "tabs": "Prüfungs-Registerkarten",
       "back": "← Zurück zur Erkundung",
       "preset": "Voreinstellung",
@@ -2586,7 +2587,40 @@
       "fieldsAnonymized_one": "{{count}} Feld anonymisiert",
       "fieldsAnonymized_other": "{{count}} Felder anonymisiert",
       "fieldsScanned_one": "{{count}} Feld insgesamt geprüft",
-      "fieldsScanned_other": "{{count}} Felder insgesamt geprüft"
+      "fieldsScanned_other": "{{count}} Felder insgesamt geprüft",
+      "automation": {
+        "loading": "Es wird gelesen, was die Ziel-Org für die Datensätze ausführt, die dieser Durchlauf schreibt…",
+        "intro": "Während der Durchlauf seine Datensätze schreibt, führt die Ziel-Org aus:",
+        "none_one": "Kein aktiver Flow und kein Apex-Trigger der Ziel-Org startet für das Objekt, das dieser Durchlauf schreibt.",
+        "none_other": "Kein aktiver Flow und kein Apex-Trigger der Ziel-Org startet für die {{count}} Objekte, die dieser Durchlauf schreibt.",
+        "nothingSeen": "In dem, was gelesen werden konnte, wurde nichts gefunden.",
+        "onInsert": "Beim Einfügen",
+        "onUpdate": "Beim Aktualisieren, wenn der Durchlauf einen Datensatz ein zweites Mal schreibt",
+        "onDelete": "Beim Löschen, wenn die Datensätze des Durchlaufs entfernt werden",
+        "flow": "Flow: {{name}}",
+        "trigger": "Apex-Trigger: {{name}}",
+        "beforeSave": "vor dem Speichern",
+        "afterSave": "nach dem Speichern",
+        "beforeAndAfterSave": "vor und nach dem Speichern",
+        "beforeDelete": "vor dem Löschen",
+        "afterDelete": "nach dem Löschen",
+        "beforeAndAfterDelete": "vor und nach dem Löschen",
+        "notFor_one": "Startet nicht für einen Benutzer mit der benutzerdefinierten Berechtigung {{names}}",
+        "notFor_other": "Startet nicht für einen Benutzer mit einer der benutzerdefinierten Berechtigungen {{names}}",
+        "named_one": "Seine Startbedingung nennt die benutzerdefinierte Berechtigung {{names}}",
+        "named_other": "Seine Startbedingung nennt die benutzerdefinierten Berechtigungen {{names}}",
+        "conditionNotRead": "Startbedingung nicht gelesen",
+        "conditionUnreadable": "Die Startbedingung konnte nicht gelesen werden",
+        "bypassHint_one": "Weisen Sie die benutzerdefinierte Berechtigung {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still.",
+        "bypassHint_other": "Weisen Sie die benutzerdefinierten Berechtigungen {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still.",
+        "notRead_one": "Die Startbedingung von {{count}} Flow wurde nicht gelesen: Das Lesen nimmt höchstens {{bound}}, je eine Anfrage.",
+        "notRead_other": "Die Startbedingungen von {{count}} Flows wurden nicht gelesen: Das Lesen nimmt höchstens {{bound}}, je eine Anfrage.",
+        "unreadFlows": "Die Flows der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+        "unreadTriggers": "Die Apex-Trigger der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+        "unreadConditions": "Die Startbedingungen einiger Flows konnten nicht gelesen werden: {{reason}}",
+        "cost_one": "Mit {{count}} Anfrage an die Ziel-Org gelesen.",
+        "cost_other": "Mit {{count}} Anfragen an die Ziel-Org gelesen."
+      }
     },
     "history": {
       "title": "Letzte Durchläufe",

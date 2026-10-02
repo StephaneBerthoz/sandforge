@@ -550,7 +550,8 @@ export const ForgeInput: React.FC = () => {
           {/* Clone directly — the discovery, then the run of what it found,
               sent as Review sends it by default, with no stop on the graph or
               Review. Gated as Discover is. What it skips is said here, where
-              the path is chosen: the metadata diff runs on Review only. */}
+              the path is chosen: the metadata diff and the read of the
+              target's automation run on Review only. */}
           <button
             type="button"
             data-testid="forge-clone-directly-btn"

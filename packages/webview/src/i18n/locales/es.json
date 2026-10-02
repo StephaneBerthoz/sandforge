@@ -2441,9 +2441,9 @@
     "graphView": "Vista de grafo",
     "direct": {
       "action": "Clonar directamente",
-      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs.",
+      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Tampoco se leen los flujos y desencadenadores de Apex que la org de destino ejecuta en los registros escritos.",
       "discovering": "La clonación empieza en cuanto responde el descubrimiento.",
-      "reviewSkipped": "Revisión omitida: esta ejecución empezó en cuanto respondió el descubrimiento, con los objetos que incluyó, y no se ejecutó la comparación de metadatos entre las dos orgs."
+      "reviewSkipped": "Revisión omitida: esta ejecución empezó en cuanto respondió el descubrimiento, con los objetos que incluyó, y no se ejecutó la comparación de metadatos entre las dos orgs. Tampoco se leyeron los flujos y desencadenadores de Apex que la org de destino ejecuta en los registros escritos."
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -2563,6 +2563,7 @@
       "anonymizationTab": "Anonimización",
       "complianceTab": "Cumplimiento",
       "metadataTab": "Metadatos",
+      "automationTab": "Automatización",
       "tabs": "Pestañas de revisión",
       "back": "← Volver al descubrimiento",
       "preset": "Preajuste",
@@ -2586,7 +2587,40 @@
       "fieldsAnonymized_one": "{{count}} campo anonimizado",
       "fieldsAnonymized_other": "{{count}} campos anonimizados",
       "fieldsScanned_one": "{{count}} campo analizado en total",
-      "fieldsScanned_other": "{{count}} campos analizados en total"
+      "fieldsScanned_other": "{{count}} campos analizados en total",
+      "automation": {
+        "loading": "Leyendo lo que la org de destino ejecuta en los registros que escribe esta ejecución…",
+        "intro": "A medida que la ejecución escribe sus registros, la org de destino ejecuta:",
+        "none_one": "Ningún flujo activo ni desencadenador de Apex de la org de destino se inicia en el objeto que escribe esta ejecución.",
+        "none_other": "Ningún flujo activo ni desencadenador de Apex de la org de destino se inicia en los {{count}} objetos que escribe esta ejecución.",
+        "nothingSeen": "No se encontró nada en lo que se pudo leer.",
+        "onInsert": "Al insertar",
+        "onUpdate": "Al actualizar, cuando la ejecución escribe un registro por segunda vez",
+        "onDelete": "Al eliminar, cuando se eliminan los registros de la ejecución",
+        "flow": "Flujo: {{name}}",
+        "trigger": "Desencadenador de Apex: {{name}}",
+        "beforeSave": "antes de guardar",
+        "afterSave": "después de guardar",
+        "beforeAndAfterSave": "antes y después de guardar",
+        "beforeDelete": "antes de eliminar",
+        "afterDelete": "después de eliminar",
+        "beforeAndAfterDelete": "antes y después de eliminar",
+        "notFor_one": "No se inicia para un usuario con el permiso personalizado {{names}}",
+        "notFor_other": "No se inicia para un usuario con alguno de los permisos personalizados {{names}}",
+        "named_one": "Su condición de inicio nombra el permiso personalizado {{names}}",
+        "named_other": "Su condición de inicio nombra los permisos personalizados {{names}}",
+        "conditionNotRead": "Condición de inicio no leída",
+        "conditionUnreadable": "No se pudo leer la condición de inicio",
+        "bypassHint_one": "Asigna el permiso personalizado {{names}} al usuario con el que la ejecución escribe en la org de destino, y los flujos cuya condición de inicio lo excluye quedan en silencio.",
+        "bypassHint_other": "Asigna los permisos personalizados {{names}} al usuario con el que la ejecución escribe en la org de destino, y los flujos cuya condición de inicio los excluye quedan en silencio.",
+        "notRead_one": "No se leyó la condición de inicio de {{count}} flujo: la lectura toma {{bound}} como máximo, una solicitud cada una.",
+        "notRead_other": "No se leyeron las condiciones de inicio de {{count}} flujos: la lectura toma {{bound}} como máximo, una solicitud cada una.",
+        "unreadFlows": "No se pudieron leer los flujos de la org de destino: {{reason}}",
+        "unreadTriggers": "No se pudieron leer los desencadenadores de Apex de la org de destino: {{reason}}",
+        "unreadConditions": "No se pudieron leer las condiciones de inicio de algunos flujos: {{reason}}",
+        "cost_one": "Leído con {{count}} solicitud a la org de destino.",
+        "cost_other": "Leído con {{count}} solicitudes a la org de destino."
+      }
     },
     "history": {
       "title": "Ejecuciones recientes",

@@ -1208,8 +1208,13 @@ describe('sandforge-clone describes', () => {
       expect(await run(argv('--dry-run'))).toBeUndefined();
 
       const recordTypes = sent.filter((soql) => soql.includes(' FROM RecordType '));
+      // The read of the target's automation says its own requests, as
+      // discovery's counts are not the run's either.
       const reads = sent.filter(
-        (soql) => !soql.startsWith('SELECT COUNT()') && !soql.includes(' FROM RecordType '),
+        (soql) =>
+          !soql.startsWith('SELECT COUNT()') &&
+          !soql.includes(' FROM RecordType ') &&
+          !soql.includes(' FROM FlowDefinitionView '),
       );
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
@@ -1268,6 +1273,7 @@ describe('sandforge-clone describes', () => {
         (asked) =>
           !asked.startsWith('SELECT COUNT()') &&
           !asked.includes(' FROM RecordType ') &&
+          !asked.includes(' FROM FlowDefinitionView ') &&
           asked !== NEXT,
       );
       expect(recordTypes).toHaveLength(4);

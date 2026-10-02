@@ -1012,6 +1012,105 @@ export interface ForgePlan {
   cycleResolutions: ForgeCycleResolution[];
 }
 
+/**
+ * When a record-triggered flow of the target runs in the save of a record, as
+ * `FlowDefinitionView.TriggerType` says it: `RecordBeforeSave`,
+ * `RecordAfterSave`, `RecordBeforeDelete`.
+ */
+export type ForgeFlowTiming = 'beforeSave' | 'afterSave' | 'beforeDelete';
+
+/**
+ * The writes of a record that start a flow of the target, as
+ * `FlowDefinitionView.RecordTriggerType` says them.
+ */
+export type ForgeFlowStart = 'create' | 'update' | 'createAndUpdate' | 'delete';
+
+/** An event an Apex trigger of the target runs on, as its `Usage…` flags say. */
+export type ForgeTriggerEvent =
+  | 'beforeInsert'
+  | 'afterInsert'
+  | 'beforeUpdate'
+  | 'afterUpdate'
+  | 'beforeDelete'
+  | 'afterDelete'
+  | 'afterUndelete';
+
+/** A custom permission a flow's start condition names. */
+export interface ForgeFlowPermission {
+  /** API name of the custom permission, as `$Permission.<name>` names it. */
+  name: string;
+  /**
+   * Whether the condition keeps the flow from starting for a user who holds
+   * the permission: `NOT({!$Permission.X})`, or the permission compared with
+   * false. A permission named any other way may as well be what starts the
+   * flow, and assigning it would not keep the flow quiet.
+   */
+  bypass: boolean;
+}
+
+/** An active record-triggered flow of the target, on an object a run writes. */
+export interface ForgeTargetFlow {
+  /** Its API name. */
+  apiName: string;
+  /** Its label, as Setup shows it. */
+  label: string;
+  /** When it runs in the save. */
+  timing: ForgeFlowTiming;
+  /** The writes that start it. */
+  startsOn: ForgeFlowStart;
+  /**
+   * Whether its start condition was read: `notRead` past the bound the read
+   * keeps to, one request a flow; `unreadable` when the org refused it.
+   */
+  condition: 'read' | 'notRead' | 'unreadable';
+  /** The custom permissions its start condition names; empty when none, or not read. */
+  permissions: ForgeFlowPermission[];
+}
+
+/** An active Apex trigger of the target, on an object a run writes. */
+export interface ForgeTargetTrigger {
+  /** Its name, after its namespace when a package installed it. */
+  name: string;
+  /** The events it runs on. */
+  events: ForgeTriggerEvent[];
+}
+
+/** What the target runs on one object a run writes. */
+export interface ForgeTargetObjectAutomation {
+  objectApiName: string;
+  flows: ForgeTargetFlow[];
+  triggers: ForgeTargetTrigger[];
+}
+
+/** A part of the target's automation the read could not read, and why. */
+export interface ForgeTargetAutomationUnread {
+  /** `flows`, `triggers`, or `conditions`: the start conditions of flows. */
+  part: 'flows' | 'triggers' | 'conditions';
+  /** The org's answer, or what kept the read from it. */
+  reason: string;
+}
+
+/**
+ * What the target org runs on the objects a Forge run writes, read before the
+ * run: its active record-triggered flows, its active Apex triggers, and the
+ * custom permissions a flow's start condition names. A read that fails on
+ * one part says so in `unread`, and never stops the run.
+ */
+export interface ForgeTargetAutomation {
+  /** The objects the read looked at: those the run writes. */
+  objectsRead: string[];
+  /** The objects that run something, in the order the run's objects were given. */
+  objects: ForgeTargetObjectAutomation[];
+  /** What could not be read, and why; empty when everything was. */
+  unread: ForgeTargetAutomationUnread[];
+  /** Start conditions left unread past the bound. */
+  conditionsNotRead: number;
+  /** The most start conditions the read reads, one request each. */
+  conditionsBound: number;
+  /** The requests the read sent to the target. */
+  requests: number;
+}
+
 /** A detected dependency cycle with resolution strategy. */
 export interface ForgeCycleResolution {
   /** Objects involved in the cycle. */

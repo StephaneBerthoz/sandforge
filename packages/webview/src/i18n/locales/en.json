@@ -2441,9 +2441,9 @@
     "graphView": "Graph View",
     "direct": {
       "action": "Clone directly",
-      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run.",
+      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. Nor is the read of the flows and Apex triggers the target org runs on the records it writes.",
       "discovering": "The clone starts as soon as discovery answers.",
-      "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run."
+      "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. Nor was the read of the flows and Apex triggers the target org runs on the records it writes."
     },
     "executionTable": {
       "leftOut": "left out",
@@ -2563,6 +2563,7 @@
       "anonymizationTab": "Anonymization",
       "complianceTab": "Compliance",
       "metadataTab": "Metadata",
+      "automationTab": "Automation",
       "tabs": "Review tabs",
       "back": "← Back to Discovery",
       "preset": "Preset",
@@ -2586,7 +2587,40 @@
       "fieldsAnonymized_one": "{{count}} field anonymized",
       "fieldsAnonymized_other": "{{count}} fields anonymized",
       "fieldsScanned_one": "{{count}} field scanned in all",
-      "fieldsScanned_other": "{{count}} fields scanned in all"
+      "fieldsScanned_other": "{{count}} fields scanned in all",
+      "automation": {
+        "loading": "Reading what the target org runs on the records this run writes…",
+        "intro": "As the run writes its records, the target org runs:",
+        "none_one": "No active flow or Apex trigger of the target org fires on the object this run writes.",
+        "none_other": "No active flow or Apex trigger of the target org fires on the {{count}} objects this run writes.",
+        "nothingSeen": "Nothing was found in what could be read.",
+        "onInsert": "On insert",
+        "onUpdate": "On update, when the run writes a record a second time",
+        "onDelete": "On delete, when the records of the run are removed",
+        "flow": "Flow: {{name}}",
+        "trigger": "Apex trigger: {{name}}",
+        "beforeSave": "before save",
+        "afterSave": "after save",
+        "beforeAndAfterSave": "before and after save",
+        "beforeDelete": "before delete",
+        "afterDelete": "after delete",
+        "beforeAndAfterDelete": "before and after delete",
+        "notFor_one": "Does not start for a user with the custom permission {{names}}",
+        "notFor_other": "Does not start for a user with any of the custom permissions {{names}}",
+        "named_one": "Its start condition names the custom permission {{names}}",
+        "named_other": "Its start condition names the custom permissions {{names}}",
+        "conditionNotRead": "Start condition not read",
+        "conditionUnreadable": "Start condition could not be read",
+        "bypassHint_one": "Assign the custom permission {{names}} to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.",
+        "bypassHint_other": "Assign the custom permissions {{names}} to the user the run writes as in the target org, and the flows whose start condition excludes them stay quiet.",
+        "notRead_one": "The start condition of {{count}} flow was not read: the read takes {{bound}} at most, one request each.",
+        "notRead_other": "The start conditions of {{count}} flows were not read: the read takes {{bound}} at most, one request each.",
+        "unreadFlows": "The flows of the target org could not be read: {{reason}}",
+        "unreadTriggers": "The Apex triggers of the target org could not be read: {{reason}}",
+        "unreadConditions": "The start conditions of some flows could not be read: {{reason}}",
+        "cost_one": "Read in {{count}} request to the target org.",
+        "cost_other": "Read in {{count}} requests to the target org."
+      }
     },
     "history": {
       "title": "Recent runs",

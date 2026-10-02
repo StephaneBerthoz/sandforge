@@ -8,6 +8,7 @@
     "automation.timeout",
     "common.itemCount_one",
     "dataops.frameworks.pci_dss",
+    "forge.review.automation.flow",
     "forge.soqlPlaceholder",
     "grappe.partitionCount_one",
     "grappe.partitionCount_other",

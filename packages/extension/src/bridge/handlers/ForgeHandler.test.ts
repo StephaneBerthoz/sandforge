@@ -8,6 +8,7 @@ import type {
   ForgeExecutionResult,
   ForgeTemplate,
   ForgePlan,
+  ForgeTargetAutomation,
 } from '@sandforge/shared';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
@@ -21,6 +22,7 @@ import type {
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -4950,6 +4952,98 @@ describe('ForgeHandler', () => {
       ).payload;
       expect(errPayload.code).toBe('METADATA_DIFF_ERROR');
       expect(errPayload.retryable).toBe(false);
+      expect(endOfTheOperation()).toEqual([{ status: 'failure' }]);
+    });
+  });
+
+  describe('forge:automation:request', () => {
+    /** What the target runs on the run's objects, as the reader answers it. */
+    const AUTOMATION: ForgeTargetAutomation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Welcome',
+              label: 'Account welcome',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [{ name: 'Load_Data', bypass: true }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 3,
+    };
+
+    /** The messages of `type` the page was sent. */
+    function posted(type: string): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === type);
+    }
+
+    it('reads what the target runs on the objects of the graph, and answers the request with it', async () => {
+      const targetAutomation = {
+        readForGraph: vi.fn().mockResolvedValue(AUTOMATION),
+      } as unknown as TargetAutomationReader;
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation });
+      const graph = createMockGraph();
+
+      const msg = buildMsg('forge:automation:request', { targetOrgId: 'tgt', graph });
+      expect(await handler.handle(msg)).toBe(true);
+
+      expect(targetAutomation.readForGraph).toHaveBeenCalledWith('tgt', graph);
+      const [response] = posted('forge:automation:response');
+      expect(response.correlationId).toBe(msg.id);
+      expect(response.payload).toEqual({ automation: AUTOMATION });
+      expect(endOfTheOperation()).toEqual([{ objectCount: 1 }]);
+    });
+
+    it('says the reader is missing instead of leaving the tab waiting', async () => {
+      await handler.handle(
+        buildMsg('forge:automation:request', { targetOrgId: 'tgt', graph: createMockGraph() }),
+      );
+      expect(posted('forge:automation:error')).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({ code: 'NOT_INITIALIZED' }),
+        }),
+      ]);
+    });
+
+    it('refuses a request without a graph, before anything is read', async () => {
+      const targetAutomation = {
+        readForGraph: vi.fn().mockResolvedValue(AUTOMATION),
+      } as unknown as TargetAutomationReader;
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation });
+
+      await handler.handle(buildMsg('forge:automation:request', { targetOrgId: 'tgt' }));
+
+      expect(targetAutomation.readForGraph).not.toHaveBeenCalled();
+      expect(posted('forge:automation:error')).toHaveLength(1);
+    });
+
+    it('ends with one error, and the operation it started ended, when the read throws', async () => {
+      const targetAutomation = {
+        readForGraph: vi.fn().mockRejectedValue(new Error('session expired')),
+      } as unknown as TargetAutomationReader;
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation });
+
+      await handler.handle(
+        buildMsg('forge:automation:request', { targetOrgId: 'tgt', graph: createMockGraph() }),
+      );
+
+      expect(posted('operation:failed')).toHaveLength(0);
+      expect(posted('forge:automation:error').map((m) => m.payload.code)).toEqual([
+        'AUTOMATION_ERROR',
+      ]);
       expect(endOfTheOperation()).toEqual([{ status: 'failure' }]);
     });
   });

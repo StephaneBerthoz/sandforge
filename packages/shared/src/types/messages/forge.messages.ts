@@ -6,6 +6,7 @@ import type {
   ForgeFileCopyOption,
   ForgeGraph,
   ForgePlan,
+  ForgeTargetAutomation,
   ForgeTemplate,
   ForgeUndoResult,
 } from '../forge.types.js';
@@ -124,6 +125,17 @@ export interface ForgeComplianceRequest extends BaseMessage {
 export interface ForgeMetadataDiffRequest extends BaseMessage {
   type: 'forge:metadata-diff:request';
   payload: { sourceOrgId: string; targetOrgId: string; objectApiNames: string[] };
+}
+
+/**
+ * `forge:automation:request`. WebView -> Extension. Read what the target org
+ * runs on the objects a run of the graph writes: its active record-triggered
+ * flows and Apex triggers, and the custom permissions a flow's start
+ * condition names. The extension tells the objects from the graph.
+ */
+export interface ForgeAutomationRequest extends BaseMessage {
+  type: 'forge:automation:request';
+  payload: { targetOrgId: string; graph: ForgeGraph };
 }
 
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
@@ -328,5 +340,21 @@ export interface ForgeMetadataDiffResponse extends BaseMessage {
 /** `forge:metadata-diff:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeMetadataDiffErrorMessage extends BaseMessage {
   type: 'forge:metadata-diff:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:automation:response`. Extension -> WebView. What the target runs on
+ * the objects the run writes; a part the read could not read is named in
+ * `automation.unread`.
+ */
+export interface ForgeAutomationResponse extends BaseMessage {
+  type: 'forge:automation:response';
+  payload: { automation: ForgeTargetAutomation };
+}
+
+/** `forge:automation:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeAutomationErrorMessage extends BaseMessage {
+  type: 'forge:automation:error';
   payload: { message: string; code: string; retryable: boolean };
 }

@@ -944,6 +944,67 @@ const FORGE_TWO_NODE_GRAPH = {
 };
 
 /**
+ * What a target runs on that account and its contacts, as the extension reads
+ * it at Review: a flow after a contact is created that a custom permission
+ * keeps quiet, one whose start condition names a permission otherwise, one
+ * whose condition the read left past its bound, a trigger, a flow before a
+ * delete, and start conditions the org refused.
+ */
+const FORGE_TARGET_AUTOMATION = {
+  objectsRead: ['Account', 'Contact'],
+  objects: [
+    {
+      objectApiName: 'Account',
+      flows: [
+        {
+          apiName: 'Account_Guard',
+          label: 'Account guard',
+          timing: 'beforeDelete',
+          startsOn: 'delete',
+          condition: 'notRead',
+          permissions: [],
+        },
+      ],
+      triggers: [{ name: 'AccountTrigger', events: ['beforeInsert', 'afterUpdate'] }],
+    },
+    {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Contact_Welcome_Email',
+          label: 'Contact welcome email',
+          timing: 'afterSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+        },
+        {
+          apiName: 'Contact_Sync',
+          label: 'Contact sync',
+          timing: 'afterSave',
+          startsOn: 'createAndUpdate',
+          condition: 'unreadable',
+          permissions: [],
+        },
+        {
+          apiName: 'Contact_Priority',
+          label: 'Contact priority',
+          timing: 'beforeSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [{ name: 'Run_Priority', bypass: false }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  unread: [{ part: 'conditions', reason: 'INSUFFICIENT_ACCESS: insufficient access rights' }],
+  conditionsNotRead: 1,
+  conditionsBound: 25,
+  requests: 6,
+};
+
+/**
  * More objects than `auto` draws as a graph, so both screens list them: an
  * account and thirty objects under it — one left out, one whose size was
  * never measured, one discovery could not read, and personal fields on some.
@@ -2026,6 +2087,7 @@ for (const theme of SCANNED_THEMES) {
       await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
       await expect(page.getByTestId('forge-review')).toHaveCount(0);
       expect(await bridge.getMessages('forge:metadata-diff:request')).toEqual([]);
+      expect(await bridge.getMessages('forge:automation:request')).toEqual([]);
       const run = await checkAccessibility(page);
       expectNoViolations(run);
       expect(
@@ -2222,6 +2284,49 @@ for (const theme of SCANNED_THEMES) {
         included: false,
         leftOutByUser: true,
       });
+    });
+
+    test('Forge Review saying what the target runs as the run writes, and the permission that keeps a flow quiet', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // Read as Review opens, with the metadata diff, for the graph's objects.
+      const request = await bridge.waitForMessage('forge:automation:request', { timeout: 10_000 });
+      expect((request.payload as { targetOrgId: string }).targetOrgId).toBe(QA_SANDBOX.id);
+
+      await page.getByTestId('tab-automation').click();
+      await page.getByTestId('automation-loading').waitFor({ timeout: 10_000 });
+      const reading = await checkAccessibility(page);
+      expectNoViolations(reading);
+      expect(
+        await contrastMeasuredIn(page, reading, '[data-testid="review-automation-tab"]'),
+      ).toBeGreaterThan(0);
+
+      await answerAll(page, 'forge:automation:request', 'forge:automation:response', {
+        automation: FORGE_TARGET_AUTOMATION,
+      });
+      await page.getByTestId('automation-object-Contact').waitFor({ timeout: 10_000 });
+      // Counted on the tab: the trigger before an account is inserted, and
+      // the three flows of a contact's insert.
+      await expect(page.getByTestId('tab-automation')).toHaveText('Automation4');
+      await expect(page.getByTestId('automation-bypass')).toHaveText(
+        'Assign the custom permission Load_Data to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.',
+      );
+      const read = await checkAccessibility(page);
+      expectNoViolations(read);
+      expect(
+        await contrastMeasuredIn(page, read, '[data-testid="review-automation-tab"]'),
+      ).toBeGreaterThan(5);
+      // The notes at the foot of the tab, scrolled to: what the read could not
+      // read is said in the warning colour.
+      await page.getByTestId('automation-cost').scrollIntoViewIfNeeded();
+      const foot = await checkAccessibility(page);
+      expectNoViolations(foot);
+      expect(
+        await contrastMeasuredIn(page, foot, '[data-testid="automation-unread-conditions"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Forge Review of a starter template, saying its record counts come with discovery', async ({

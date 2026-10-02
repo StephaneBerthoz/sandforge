@@ -724,7 +724,7 @@ describe('ForgeInput', () => {
 
   /* ---- Clone directly ---- */
   describe('Clone directly', () => {
-    it('says, where it is chosen, that it stops on neither screen and runs no metadata diff', () => {
+    it('says, where it is chosen, that it stops on neither screen and runs no metadata diff nor read of the target automation', () => {
       render(<ForgeInput />);
 
       const button = screen.getByTestId('forge-clone-directly-btn');
@@ -732,6 +732,9 @@ describe('ForgeInput', () => {
       expect(button.getAttribute('aria-describedby')).toBe(hint.id);
       expect(hint.textContent).toContain('without stopping on the graph or on Review');
       expect(hint.textContent).toContain('The metadata diff between the two orgs is not run.');
+      expect(hint.textContent).toContain(
+        'Nor is the read of the flows and Apex triggers the target org runs on the records it writes.',
+      );
     });
 
     it('stays off where Discover does: no input, and two orgs that are one', () => {

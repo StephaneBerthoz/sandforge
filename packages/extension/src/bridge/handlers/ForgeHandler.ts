@@ -51,6 +51,7 @@ import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
@@ -148,6 +149,12 @@ const metadataDiffRequestPayloadSchema = z.object({
         .max(80),
     )
     .max(100),
+});
+// The graph, not a list of objects: the objects a run writes are told from it
+// as the run tells them, the catalog it adds past the graph included.
+const automationRequestPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  graph: forgeGraphSchema,
 });
 
 /**
@@ -253,6 +260,8 @@ export interface ForgeServices {
   complianceService?: ForgeComplianceService;
   /** Optional metadata diff service for schema comparison. */
   metadataDiff?: ForgeMetadataDiff;
+  /** What reads the automation the target runs on the objects a run writes. */
+  targetAutomation?: TargetAutomationReader;
   /**
    * Workspace-file template store. Present only when a folder is open — a
    * folderless window has no `.sandforge/` to write into and falls back to
@@ -286,6 +295,7 @@ const FORGE_TYPES = new Set([
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
+  'forge:automation:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -296,6 +306,9 @@ const COMPLIANCE_TIMEOUT_MS = 30_000;
 
 /** Timeout for metadata diff comparison in milliseconds. */
 const METADATA_DIFF_TIMEOUT_MS = 60_000;
+
+/** Timeout for reading the target's automation, in milliseconds. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Timeout for reading both orgs' record types before a run, in milliseconds. */
 const RECORD_TYPES_TIMEOUT_MS = 30_000;
@@ -598,6 +611,7 @@ export class ForgeHandler implements DomainHandler {
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
   private metadataDiff?: ForgeMetadataDiff;
+  private targetAutomation?: TargetAutomationReader;
   /** The requests the executor's deps have sent so far, when they count them. */
   private requestsSent?: () => number;
   /**
@@ -694,6 +708,7 @@ export class ForgeHandler implements DomainHandler {
       this.planGenerator = services.planGenerator;
       this.complianceService = services.complianceService;
       this.metadataDiff = services.metadataDiff;
+      this.targetAutomation = services.targetAutomation;
       // Composition has always built and passed this store; the assignment was
       // simply missing, so every saved recipe went to globalState instead of
       // `.sandforge/forge-templates.json` and could not be committed or shared.
@@ -812,6 +827,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:metadata-diff:request':
         await this.handleMetadataDiffRequest(msg);
+        return true;
+      case 'forge:automation:request':
+        await this.handleAutomationRequest(msg);
         return true;
       default:
         return false;
@@ -2410,6 +2428,67 @@ export class ForgeHandler implements DomainHandler {
       // no end at all, the recent operations listed it running for good.
       sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', msg, error, {
         code: isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
+        retryable: isTimeout,
+      });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+    }
+  }
+
+  /**
+   * Read what the target runs on the objects a run of the graph writes — its
+   * record-triggered flows and Apex triggers, and the custom permissions their
+   * start conditions name — for Review to say before the run writes. Read
+   * only; a part the org refuses comes back named in the answer, and nothing
+   * here stops a run.
+   */
+  private async handleAutomationRequest(msg: InboundRequest): Promise<void> {
+    if (!this.targetAutomation) {
+      sendHandlerError(
+        this.deps,
+        'forge:automation',
+        'forge:automation:error',
+        msg,
+        new Error('Target automation reader not configured'),
+        { code: 'NOT_INITIALIZED' },
+      );
+      return;
+    }
+    const parsed = parsePayload(
+      automationRequestPayloadSchema,
+      msg,
+      'forge:automation:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { targetOrgId, graph } = parsed;
+    const operationId = `forge-automation-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', "Reading the target org's automation");
+    try {
+      const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
+        'forge:automation',
+        () => this.targetAutomation!.readForGraph(targetOrgId, graph),
+      );
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:automation:response', { automation }),
+      );
+      logger.info('Forge target automation read', {
+        objects: automation.objectsRead.length,
+        objectsWithAutomation: automation.objects.length,
+        flows: automation.objects.reduce((sum, o) => sum + o.flows.length, 0),
+        triggers: automation.objects.reduce((sum, o) => sum + o.triggers.length, 0),
+        conditionsNotRead: automation.conditionsNotRead,
+        unread: automation.unread.map((u) => u.part),
+        requests: automation.requests,
+      });
+      sendOperationCompleted(this.deps, operationId, {
+        objectCount: automation.objectsRead.length,
+      });
+    } catch (error: unknown) {
+      const isTimeout = error instanceof TimeoutError;
+      // One error shown, as the metadata diff shows its own: the operation
+      // ends as a completion that says it failed.
+      sendHandlerError(this.deps, 'forge:automation', 'forge:automation:error', msg, error, {
+        code: isTimeout ? 'TIMEOUT' : 'AUTOMATION_ERROR',
         retryable: isTimeout,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

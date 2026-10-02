@@ -915,6 +915,69 @@ describe('initForgeComposition', () => {
     expect(connection.describe).not.toHaveBeenCalled();
   });
 
+  it("reads the target's flows over its regular API and its triggers and start conditions over its Tooling API", async () => {
+    const VERSION = '301000000000001AAA';
+    const asked: Array<{ org: string; api: 'regular' | 'tooling'; soql: string }> = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+      return {
+        ...fakeConnection(orgId),
+        query: vi.fn(async (soql: string) => {
+          asked.push({ org: orgId, api: 'regular', soql });
+          return page([
+            {
+              ApiName: 'Contact_Welcome',
+              Label: 'Contact welcome',
+              TriggerType: 'RecordAfterSave',
+              RecordTriggerType: 'Create',
+              TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+              ActiveVersionId: VERSION,
+            },
+          ]);
+        }),
+        tooling: {
+          query: vi.fn(async (soql: string) => {
+            asked.push({ org: orgId, api: 'tooling', soql });
+            if (/FROM ApexTrigger/.test(soql)) return page([]);
+            return page([
+              { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
+            ]);
+          }),
+          queryMore: vi.fn(async () => page([])),
+        },
+      } as unknown as Connection;
+    });
+    const { services } = await compose();
+
+    const automation = await services.targetAutomation?.readForGraph(
+      'tgt',
+      buildSyntheticForgeGraph(['Account', 'Contact']),
+    );
+
+    expect(asked.map(({ org, api, soql }) => [org, api, /FROM (\w+)/.exec(soql)?.[1]])).toEqual([
+      ['tgt', 'regular', 'FlowDefinitionView'],
+      ['tgt', 'tooling', 'ApexTrigger'],
+      ['tgt', 'tooling', 'Flow'],
+    ]);
+    expect(automation?.objects).toEqual([
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Contact_Welcome',
+            label: 'Contact welcome',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [{ name: 'Load_Data', bypass: true }],
+          },
+        ],
+        triggers: [],
+      },
+    ]);
+    expect(automation?.requests).toBe(3);
+  });
+
   it('copies the file of a cloned record through the connection, one request each way', async () => {
     const DOCUMENT = '069000000000001AAA';
     const VERSION = '068000000000001AAA';

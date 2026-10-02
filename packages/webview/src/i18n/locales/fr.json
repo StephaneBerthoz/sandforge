@@ -2441,9 +2441,9 @@
     "graphView": "Vue graphe",
     "direct": {
       "action": "Cloner directement",
-      "hint": "Découvre le graphe, puis clone ce qu'il contient tel que la revue l'envoie par défaut, sans s'arrêter sur le graphe ni sur la revue. La comparaison des métadonnées entre les deux organisations n'est pas lancée.",
+      "hint": "Découvre le graphe, puis clone ce qu'il contient tel que la revue l'envoie par défaut, sans s'arrêter sur le graphe ni sur la revue. La comparaison des métadonnées entre les deux organisations n'est pas lancée. La lecture des flux et des déclencheurs Apex que l'org cible exécute sur les enregistrements écrits ne l'est pas non plus.",
       "discovering": "Le clonage démarre dès que la découverte répond.",
-      "reviewSkipped": "Revue sautée : ce clonage a démarré dès que la découverte a répondu, avec les objets qu'elle a retenus, et la comparaison des métadonnées entre les deux organisations n'a pas été lancée."
+      "reviewSkipped": "Revue sautée : ce clonage a démarré dès que la découverte a répondu, avec les objets qu'elle a retenus, et la comparaison des métadonnées entre les deux organisations n'a pas été lancée. La lecture des flux et des déclencheurs Apex que l'org cible exécute sur les enregistrements écrits ne l'a pas été non plus."
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -2563,6 +2563,7 @@
       "anonymizationTab": "Anonymisation",
       "complianceTab": "Conformité",
       "metadataTab": "Métadonnées",
+      "automationTab": "Automatisation",
       "tabs": "Onglets de revue",
       "back": "← Retour à la découverte",
       "preset": "Préréglage",
@@ -2586,7 +2587,40 @@
       "fieldsAnonymized_one": "{{count}} champ anonymisé",
       "fieldsAnonymized_other": "{{count}} champs anonymisés",
       "fieldsScanned_one": "{{count}} champ analysé au total",
-      "fieldsScanned_other": "{{count}} champs analysés au total"
+      "fieldsScanned_other": "{{count}} champs analysés au total",
+      "automation": {
+        "loading": "Lecture de ce que l'org cible exécute sur les enregistrements que cette exécution écrit…",
+        "intro": "À mesure que l'exécution écrit ses enregistrements, l'org cible exécute :",
+        "none_one": "Aucun flux actif ni déclencheur Apex de l'org cible ne démarre sur l'objet que cette exécution écrit.",
+        "none_other": "Aucun flux actif ni déclencheur Apex de l'org cible ne démarre sur les {{count}} objets que cette exécution écrit.",
+        "nothingSeen": "Rien n'a été trouvé dans ce qui a pu être lu.",
+        "onInsert": "À l'insertion",
+        "onUpdate": "À la mise à jour, quand l'exécution écrit un enregistrement une seconde fois",
+        "onDelete": "À la suppression, quand les enregistrements de l'exécution sont supprimés",
+        "flow": "Flux : {{name}}",
+        "trigger": "Déclencheur Apex : {{name}}",
+        "beforeSave": "avant l'enregistrement",
+        "afterSave": "après l'enregistrement",
+        "beforeAndAfterSave": "avant et après l'enregistrement",
+        "beforeDelete": "avant la suppression",
+        "afterDelete": "après la suppression",
+        "beforeAndAfterDelete": "avant et après la suppression",
+        "notFor_one": "Ne démarre pas pour un utilisateur qui a l'autorisation personnalisée {{names}}",
+        "notFor_other": "Ne démarre pas pour un utilisateur qui a l'une des autorisations personnalisées {{names}}",
+        "named_one": "Sa condition de démarrage nomme l'autorisation personnalisée {{names}}",
+        "named_other": "Sa condition de démarrage nomme les autorisations personnalisées {{names}}",
+        "conditionNotRead": "Condition de démarrage non lue",
+        "conditionUnreadable": "La condition de démarrage n'a pas pu être lue",
+        "bypassHint_one": "Attribuez l'autorisation personnalisée {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les flux dont la condition de démarrage l'exclut restent muets.",
+        "bypassHint_other": "Attribuez les autorisations personnalisées {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les flux dont la condition de démarrage les exclut restent muets.",
+        "notRead_one": "La condition de démarrage de {{count}} flux n'a pas été lue : la lecture en prend {{bound}} au plus, une requête chacune.",
+        "notRead_other": "Les conditions de démarrage de {{count}} flux n'ont pas été lues : la lecture en prend {{bound}} au plus, une requête chacune.",
+        "unreadFlows": "Les flux de l'org cible n'ont pas pu être lus : {{reason}}",
+        "unreadTriggers": "Les déclencheurs Apex de l'org cible n'ont pas pu être lus : {{reason}}",
+        "unreadConditions": "Les conditions de démarrage de certains flux n'ont pas pu être lues : {{reason}}",
+        "cost_one": "Lu en {{count}} requête vers l'org cible.",
+        "cost_other": "Lu en {{count}} requêtes vers l'org cible."
+      }
     },
     "history": {
       "title": "Exécutions récentes",

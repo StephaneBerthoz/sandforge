@@ -280,7 +280,8 @@ export const ForgeExecution: React.FC = () => {
       )}
 
       {/* A run Clone directly started went from its discovery to here with
-          no stop on the graph or on Review, where the metadata diff runs. */}
+          no stop on the graph or on Review, where the metadata diff and the
+          read of the target's automation run. */}
       {reviewSkipped && (
         <p
           data-testid="forge-execution-review-skipped"

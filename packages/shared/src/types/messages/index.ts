@@ -279,6 +279,7 @@ import type {
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
+  ForgeAutomationRequest,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
   ForgeDiscoverResponse,
@@ -301,6 +302,8 @@ import type {
   ForgeComplianceErrorMessage,
   ForgeMetadataDiffResponse,
   ForgeMetadataDiffErrorMessage,
+  ForgeAutomationResponse,
+  ForgeAutomationErrorMessage,
 } from './forge.messages.js';
 import type {
   AIChatRequest,
@@ -555,6 +558,7 @@ export type WebViewToExtensionMessage =
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
+  | ForgeAutomationRequest
   // AI
   | AIChatRequest
   | AIConversationCreateRequest
@@ -760,6 +764,8 @@ export type ExtensionToWebViewMessage =
   | ForgeComplianceErrorMessage
   | ForgeMetadataDiffResponse
   | ForgeMetadataDiffErrorMessage
+  | ForgeAutomationResponse
+  | ForgeAutomationErrorMessage
   // AI
   | AIChatResponse
   | AIConversationCreatedResponse

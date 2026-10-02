@@ -122,7 +122,7 @@ export interface ForgeCompositionDeps {
  * Wire up the Forge orchestrator via dynamic imports, then inject it
  * into the handlers through the late setter (`setForgeOrchestrator`).
  *
- * Fire-and-forget by design: the 11 dynamic imports stay OFF the activation
+ * Fire-and-forget by design: the 12 dynamic imports stay OFF the activation
  * hot path. The injection therefore lands AFTER `handlers.registerAll(router)`
  * — see the late-injection contract in `./lateServices.ts`. Failures are
  * logged, never thrown (the rest of the extension stays usable).
@@ -144,6 +144,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/ForgeHistoryStore.js'),
     import('../core/connection/ConnectionHelper.js'),
     import('../modules/forge/fileTransfer.js'),
+    import('../modules/forge/TargetAutomationReader.js'),
   ])
     .then(
       ([
@@ -158,6 +159,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeHistoryStore },
         { getJsforceConnection },
         fileTransfer,
+        { TargetAutomationReader, answerOf },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -507,6 +509,31 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           },
         });
 
+        // Review's read of the target's flows and triggers: the regular API for
+        // the flows, the Tooling API for the triggers and the start conditions.
+        const targetAutomation = new TargetAutomationReader({
+          query: async (orgId, soql) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return answerOf(
+              {
+                query: async (q) => conn.query<Record<string, unknown>>(q),
+                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            );
+          },
+          toolingQuery: async (orgId, soql) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return answerOf(
+              {
+                query: async (q) => conn.tooling.query<Record<string, unknown>>(q),
+                queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            );
+          },
+        });
+
         // No workspace folder means no `.sandforge/` to write into, so the
         // store is not constructed at all and the handler stays on its
         // ConfigStore path rather than writing to a path rooted at ''.
@@ -536,6 +563,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           planGenerator,
           complianceService,
           metadataDiff,
+          targetAutomation,
           templateStore,
           historyStore,
           // The executor's own count, read as a run goes: its progress says

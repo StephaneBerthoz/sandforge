@@ -155,6 +155,14 @@ export {
   objectsBeyondTheGraph,
 } from './utils/forge-graph-nodes.js';
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
+export {
+  automationByWrite,
+  bypassPermissionsOf,
+  firedOnInsert,
+  type ForgeAutomationFired,
+  type ForgeAutomationOfWrite,
+  type ForgeAutomationWrite,
+} from './utils/forge-target-automation.js';
 export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
 
 // Barrel exports — Templates

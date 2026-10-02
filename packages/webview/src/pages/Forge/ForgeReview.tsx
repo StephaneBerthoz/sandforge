@@ -1,6 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BaseMessage, ForgePlanResponse } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeAutomationResponse,
+  ForgeGraph,
+  ForgePlanResponse,
+  ForgeTargetAutomation,
+} from '@sandforge/shared';
+import { firedOnInsert } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
@@ -13,13 +20,31 @@ import { ReviewPlanTab } from './ReviewPlanTab';
 import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
+import { ReviewAutomationTab } from './ReviewAutomationTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { startForgeRun } from './startForgeRun';
 
 /** Tabs available in the Review phase right panel. */
-type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata';
+type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation';
+
+/**
+ * The graph the target's automation is read for: the objects the user left
+ * out count as written, so one taken back in on Review has its automation
+ * read already. The tab leaves out what the user leaves out when it shows it.
+ */
+function graphForAutomation(graph: ForgeGraph): ForgeGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      if (node.leftOutByUser !== true) return node;
+      const taken = { ...node, included: true };
+      delete taken.leftOutByUser;
+      return taken;
+    }),
+  };
+}
 
 /**
  * Objects sent per diff request.
@@ -36,7 +61,8 @@ const METADATA_DIFF_MAX_OBJECTS = 100;
  *
  * Split layout with the dependency graph, or its table, on the left (60%)
  * and a tabbed panel on the right (40%) covering Plan, Anonymization,
- * Compliance, and Metadata tabs. Action bar with Back and Execute buttons.
+ * Compliance, Metadata and Automation tabs. Action bar with Back and Execute
+ * buttons.
  */
 export const ForgeReview: React.FC = () => {
   const { t } = useTranslation();
@@ -86,6 +112,16 @@ export const ForgeReview: React.FC = () => {
   const [metadataPending, setMetadataPending] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const metadataRequested = useRef(false);
+  const [automation, setAutomation] = useState<ForgeTargetAutomation | null>(null);
+  const [automationError, setAutomationError] = useState<string | null>(null);
+  /** The objects of the graph the user has left out: their automation fires no more. */
+  const leftOut = useMemo(
+    () =>
+      new Set(
+        (graph?.nodes ?? []).filter((node) => !node.included).map((node) => node.objectApiName),
+      ),
+    [graph],
+  );
 
   /**
    * Ask the extension to diff source and target schemas.
@@ -111,7 +147,38 @@ export const ForgeReview: React.FC = () => {
           .map((node) => node.objectApiName),
       },
     );
+    // What the target runs on the records the run writes, read with the diff
+    // and once as well: a clone fired the target's flows on every record it
+    // created, emails among them, and nothing said so before the run.
+    sendBridgeMessage<{ targetOrgId: string; graph: ForgeGraph }>('forge:automation:request', {
+      targetOrgId: config.targetOrgId,
+      graph: graphForAutomation(graph),
+    });
   }, [graph, config]);
+
+  useMessageListener<ForgeAutomationResponse>(
+    'forge:automation:response',
+    useCallback((msg) => {
+      setAutomation(msg.payload.automation);
+      setAutomationError(null);
+    }, []),
+  );
+
+  useMessageListener<BaseMessage & { payload: { message: string } }>(
+    'forge:automation:error',
+    useCallback((msg) => setAutomationError(msg.payload.message), []),
+  );
+
+  /** What fires as the run inserts its records, on the objects it still writes. */
+  const firedAtInsert = useMemo(
+    () =>
+      automation
+        ? firedOnInsert({
+            objects: automation.objects.filter((object) => !leftOut.has(object.objectApiName)),
+          })
+        : 0,
+    [automation, leftOut],
+  );
 
   useMessageListener<BaseMessage & { payload: { diffs: MetadataDiffEntry[] } }>(
     'forge:metadata-diff:response',
@@ -158,6 +225,11 @@ export const ForgeReview: React.FC = () => {
       id: 'metadata',
       label: t('forge.review.metadataTab', 'Metadata'),
       badge: metadataDiffs.length > 0 ? metadataDiffs.length : undefined,
+    },
+    {
+      id: 'automation',
+      label: t('forge.review.automationTab'),
+      badge: firedAtInsert > 0 ? firedAtInsert : undefined,
     },
   ];
 
@@ -247,6 +319,13 @@ export const ForgeReview: React.FC = () => {
             {activeTab === 'compliance' && <ReviewComplianceTab />}
             {activeTab === 'metadata' && (
               <ReviewMetadataTab pending={metadataPending} error={metadataError} />
+            )}
+            {activeTab === 'automation' && (
+              <ReviewAutomationTab
+                automation={automation}
+                error={automationError}
+                leftOut={leftOut}
+              />
             )}
           </div>
         </div>

@@ -2441,9 +2441,9 @@
     "graphView": "Visualização em grafo",
     "direct": {
       "action": "Clonar diretamente",
-      "hint": "Descobre o grafo e depois clona o que ele contém como a revisão envia por padrão, sem parar no grafo nem na revisão. A comparação de metadados entre as duas orgs não é executada.",
+      "hint": "Descobre o grafo e depois clona o que ele contém como a revisão envia por padrão, sem parar no grafo nem na revisão. A comparação de metadados entre as duas orgs não é executada. Nem são lidos os fluxos e gatilhos Apex que a org de destino executa nos registros gravados.",
       "discovering": "A clonagem começa assim que a descoberta responde.",
-      "reviewSkipped": "Revisão pulada: esta execução começou assim que a descoberta respondeu, com os objetos que ela incluiu, e a comparação de metadados entre as duas orgs não foi executada."
+      "reviewSkipped": "Revisão pulada: esta execução começou assim que a descoberta respondeu, com os objetos que ela incluiu, e a comparação de metadados entre as duas orgs não foi executada. Nem foram lidos os fluxos e gatilhos Apex que a org de destino executa nos registros gravados."
     },
     "executionTable": {
       "leftOut": "excluído",
@@ -2563,6 +2563,7 @@
       "anonymizationTab": "Anonimização",
       "complianceTab": "Conformidade",
       "metadataTab": "Metadados",
+      "automationTab": "Automação",
       "tabs": "Abas de revisão",
       "back": "← Voltar à descoberta",
       "preset": "Predefinição",
@@ -2586,7 +2587,40 @@
       "fieldsAnonymized_one": "{{count}} campo anonimizado",
       "fieldsAnonymized_other": "{{count}} campos anonimizados",
       "fieldsScanned_one": "{{count}} campo analisado no total",
-      "fieldsScanned_other": "{{count}} campos analisados no total"
+      "fieldsScanned_other": "{{count}} campos analisados no total",
+      "automation": {
+        "loading": "Lendo o que a org de destino executa nos registros que esta execução grava…",
+        "intro": "À medida que a execução grava seus registros, a org de destino executa:",
+        "none_one": "Nenhum fluxo ativo nem gatilho Apex da org de destino é iniciado no objeto que esta execução grava.",
+        "none_other": "Nenhum fluxo ativo nem gatilho Apex da org de destino é iniciado nos {{count}} objetos que esta execução grava.",
+        "nothingSeen": "Nada foi encontrado no que pôde ser lido.",
+        "onInsert": "Na inserção",
+        "onUpdate": "Na atualização, quando a execução grava um registro pela segunda vez",
+        "onDelete": "Na exclusão, quando os registros da execução são removidos",
+        "flow": "Fluxo: {{name}}",
+        "trigger": "Gatilho Apex: {{name}}",
+        "beforeSave": "antes de salvar",
+        "afterSave": "depois de salvar",
+        "beforeAndAfterSave": "antes e depois de salvar",
+        "beforeDelete": "antes de excluir",
+        "afterDelete": "depois de excluir",
+        "beforeAndAfterDelete": "antes e depois de excluir",
+        "notFor_one": "Não é iniciado para um usuário com a permissão personalizada {{names}}",
+        "notFor_other": "Não é iniciado para um usuário com alguma das permissões personalizadas {{names}}",
+        "named_one": "Sua condição de início nomeia a permissão personalizada {{names}}",
+        "named_other": "Sua condição de início nomeia as permissões personalizadas {{names}}",
+        "conditionNotRead": "Condição de início não lida",
+        "conditionUnreadable": "Não foi possível ler a condição de início",
+        "bypassHint_one": "Atribua a permissão personalizada {{names}} ao usuário com o qual a execução grava na org de destino, e os fluxos cuja condição de início a exclui ficam em silêncio.",
+        "bypassHint_other": "Atribua as permissões personalizadas {{names}} ao usuário com o qual a execução grava na org de destino, e os fluxos cuja condição de início as exclui ficam em silêncio.",
+        "notRead_one": "A condição de início de {{count}} fluxo não foi lida: a leitura lê {{bound}} no máximo, uma solicitação cada.",
+        "notRead_other": "As condições de início de {{count}} fluxos não foram lidas: a leitura lê {{bound}} no máximo, uma solicitação cada.",
+        "unreadFlows": "Não foi possível ler os fluxos da org de destino: {{reason}}",
+        "unreadTriggers": "Não foi possível ler os gatilhos Apex da org de destino: {{reason}}",
+        "unreadConditions": "Não foi possível ler as condições de início de alguns fluxos: {{reason}}",
+        "cost_one": "Lido com {{count}} solicitação à org de destino.",
+        "cost_other": "Lido com {{count}} solicitações à org de destino."
+      }
     },
     "history": {
       "title": "Execuções recentes",

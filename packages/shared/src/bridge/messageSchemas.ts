@@ -313,6 +313,8 @@ const AutomationMessages = [
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
+  // Reads what the target org runs on the objects a run writes.
+  msg('forge:automation:request'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -336,6 +338,8 @@ const AutomationMessages = [
   msg('forge:compliance:error'),
   msg('forge:metadata-diff:response'),
   msg('forge:metadata-diff:error'),
+  msg('forge:automation:response'),
+  msg('forge:automation:error'),
 ] as const;
 export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 

@@ -97,6 +97,11 @@ import {
   type RunRemovalOutcome,
 } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatus } from '../src/modules/forge/removalOutcome.js';
+import {
+  TargetAutomationReader,
+  answerOf,
+  automationLines,
+} from '../src/modules/forge/TargetAutomationReader.js';
 
 export interface CliArgs {
   record: string;
@@ -155,6 +160,11 @@ Usage:
   one, and a production org (a Developer Edition org is one) is refused
   before anything is written or deleted. --dry-run and --list-objects only
   read, and run against any org.
+
+  Before it reads a row, the clone says what the target runs on the objects
+  it writes: its active record-triggered flows and Apex triggers, per object
+  and write, and the custom permissions that keep a flow from starting for
+  the user who holds them (with --json, under targetAutomation).
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically)
@@ -1051,6 +1061,32 @@ export function executeOptions(
   };
 }
 
+/**
+ * What reads the target's automation through its connection, as Review reads
+ * it in the extension: the flows over the regular API, the triggers and the
+ * start conditions over the Tooling API. Exported so it can be tested.
+ */
+export function targetAutomationReader(conn: Connection): TargetAutomationReader {
+  return new TargetAutomationReader({
+    query: async (_orgId, soql) =>
+      answerOf(
+        {
+          query: async (q) => conn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      ),
+    toolingQuery: async (_orgId, soql) =>
+      answerOf(
+        {
+          query: async (q) => conn.tooling.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      ),
+  });
+}
+
 /** An org as the command types it before it writes to it or deletes from it. */
 export interface TypedOrg {
   /** The org's own id, `Organization.Id`. */
@@ -1857,6 +1893,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
+  // What the target runs on the objects the run writes, said before anything
+  // is written — on a dry run too, for the requests the read sends alone. Run
+  // into a sandbox, a clone fired the target's record-triggered flows on every
+  // record it created, and nothing said so before the run.
+  const targetAutomation = await targetAutomationReader(conns.get(args.target)!).readForGraph(
+    args.target,
+    graph,
+    new Set(args.excludedObjects),
+  );
+  say('');
+  for (const line of automationLines(targetAutomation, args.target)) say(line);
+
   say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
   const recordTypeMappings = await loadRecordTypes(
@@ -2108,6 +2156,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           expandOrphans: args.expandOrphans,
           files: args.files !== undefined,
           graph: graphJson(graph, plan),
+          // What the target runs on the objects the run writes, read before
+          // the run: flows and triggers per object, the custom permissions
+          // that keep a flow quiet, and what could not be read.
+          targetAutomation,
           result: jsonResult(summary),
           elapsedMs: elapsed,
           finishedAt: finishedAt.toISOString(),
