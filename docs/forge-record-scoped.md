@@ -133,6 +133,14 @@ ForgeOrchestrator.execute(graph, config)
        │       required parent copied from outside the graph, its picklist
        │       values checked first
        │
+       ├─ once every node is read, before anything is written: a record the
+       │    rows cannot be written without, of an object no node holds, is
+       │    read by id with nothing under it, and so is what it cannot be
+       │    written without in turn, five levels up at most; its object is
+       │    written in a turn of its own, ahead of the rows that need it, and
+       │    one the target refuses or lacks holds those rows back (see "A
+       │    record whose required parent is outside the graph")
+       │
        ├─ with `files`: before the first write, the files of the records read
        │    (the latest version of each document linked to one, and the
        │    attachments under them) are chosen, and their total checked
@@ -346,6 +354,64 @@ name once they are all read, of an object mapped by name, of one that failed
 or that the target cannot take. The cap on each object holds, and so does the
 user's filter on it. An optional lookup at a record outside the clone stays as
 it was: left empty, and said so (above).
+
+## A record whose required parent is outside the graph
+
+The parent can belong to an object no node holds: discovery walks nothing of an
+object at the depth asked. Run between two sandboxes, a direct clone of a case
+read the case's invoice junction, a child of the case whose master-detail names
+an invoice; the invoice's object was in no node, and every junction was refused
+(`REQUIRED_FIELD_MISSING: Required fields are missing: [Invoice__c]`). Walking
+such a parent in discovery is no way out: it becomes a node like any other, and
+a node is a scope for the children the graph already holds — they are read
+under the rows of each parent the graph has. Tried, the graph grew to a hundred
+objects, a product added brought every coverage of the products in the org, and
+the clone wrote some thirty-four thousand records.
+
+Such a parent is read as the catalog's are, for the rows that need it and never
+as a scope. Once every node has been read, the catalog included, the ids the
+rows hold in lookups they may not leave empty (as above) at an object no node
+holds are read by id, one statement per object, split as any scoped read is;
+and so are the records those cannot be written without in turn — of an object
+no node holds, or of one of the graph whose reads did not take them — five
+levels up at most. Read last, by those ids alone, such a record brings nothing
+under it, nor its files, and the nodes of the graph read what they read without
+it. Its object is written in a turn of its own, ahead of the rows that need it,
+and each record is linked to the one the target holds, as any row is matched; a
+record of an object of the graph goes in that object's turn. It goes on the
+user's choices for its object — fields excluded or renamed, record types
+mapped, picklist values checked, anonymized — and its optional lookups are
+never followed: one at a record outside the clone is left empty, and said so as
+any row's is; one at a record the clone writes anyway is set, as an order's
+price book, which its items cannot be written without.
+
+A dry run counts such records among what it would insert, and says why:
+`[dry-run] Invoice__c: 2 record(s) would be inserted, which the InvoiceLink__c
+records cannot be written without: read by id, nothing read under them`. A real
+run says it on the object's line — `Completed Invoice__c: 2 succeeded, 0
+failed, 2 read by id for the InvoiceLink__c records that cannot be written
+without them` — and `readByObject` counts them, so the results list the object
+beside the graph's.
+
+An object the target refuses inserts of, or does not have (its describe
+answers `NOT_FOUND`, as for one the user the run writes as cannot see), is not
+read: the rows that need one of its records are held back before anything is
+written, counted as failed and said as the rows an exclusion holds back are —
+`Not written: Invoice__c may not be left empty, and the target org takes no
+insert of Invoice__c.` — and so are the rows that cannot be written without
+those. A row whose object in the target does not carry the lookup at all goes
+in without it, as before.
+
+Not asked, besides what is not asked of an object of the graph (above): a
+record of an object the user excluded, whose rows are held back for it; one of
+an object no copy writes (`User`, `RecordType` and the rest of
+`excludedObjects.ts`); one a row the run retries wrote needs. A run that keeps
+the source's ids of the records it does not write (`referenceFallback:
+'keep'`) reads none: those ids name the target's own records. Each record is
+asked once a run, the cap on each object holds, and so does the user's filter
+on it. The orphan-parent expansion (`expandOrphanParents`) copies, one by one,
+what this leaves: a parent a lookup naming several objects names, one past the
+fifth level or the cap, and the parents of a run of whole tables.
 
 ## Person accounts
 
@@ -608,6 +674,12 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   read again under by the nodes read before, and what that adds, three levels
   below the parent at most. Past that, the rows are as the order of the reads
   left them.
+- **Parents outside the graph, five levels up**: a record read by id for the
+  rows that cannot be written without it brings what it cannot be written
+  without, five levels up at most — a chain of master-detail lookups is three
+  deep. A record past the fifth goes to the target without its parent, which
+  refuses it. Such a record brings nothing under it: its other children — the
+  junction rows of another case, an invoice's lines — stay out of the clone.
 - **A person account whose record type the target does not tell**: one whose
   record type the mapping does not know, or in a target whose record types the
   run could not read, goes in as a person account, without its computed name:

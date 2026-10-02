@@ -16,6 +16,7 @@ import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { isNotFound } from './ForgeMetadataDiff.js';
+import { isNeverCopied } from './excludedObjects.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
@@ -360,8 +361,16 @@ export interface ExecuteOptions {
    * orphan-nullified normally (no recursion). Capped at
    * `maxOrphanParentExpansions` to bound API usage.
    *
-   * Default: `false` (back-compat — required orphans surface as
-   * REQUIRED_FIELD_MISSING errors).
+   * A record-scoped run reads such a parent by id itself before it writes
+   * anything, set or not, when the lookup names one object — with what the
+   * parent cannot be written without, and nothing under it — and writes it in
+   * a turn of its own (`readParentsOutsideTheGraph`): the expansion then finds
+   * it in the target. What it still copies is what that read leaves: a parent
+   * a lookup naming several objects names, one past its levels or the cap,
+   * and every parent of a run of whole tables.
+   *
+   * Default: `false` (back-compat — in a run of whole tables, required
+   * orphans surface as REQUIRED_FIELD_MISSING errors).
    */
   expandOrphanParents?: boolean;
   /**
@@ -831,14 +840,25 @@ interface ChildOfAStatus {
   readonly lookup: string;
 }
 
-/** What a row held back for an object the user excluded by name needed of it. */
+/**
+ * Why the target takes no record of an object outside the graph that rows read
+ * cannot be written without: it refuses inserts of it, or it does not have it
+ * — its describe answers `NOT_FOUND`, as for one the user the run writes as
+ * cannot see. See `readParentsOutsideTheGraph`.
+ */
+type TargetRefusal = 'not-creatable' | 'not-in-target';
+
+/**
+ * What a row held back for an object the user excluded by name needed of it —
+ * or for an object outside the graph the target takes no record of.
+ */
 interface HeldForExclusion {
   /**
    * The lookup that names the record it cannot be written without; for a
    * price sold under a selling model, the lookup that names the model.
    */
   readonly field: string;
-  /** The object excluded. */
+  /** The object excluded, or the one the target takes no record of. */
   readonly excluded: string;
   /**
    * The object of the row that lookup names, when that row is itself held
@@ -851,6 +871,11 @@ interface HeldForExclusion {
    * `field` is then its lookup that names the row.
    */
   readonly namedBy?: string;
+  /**
+   * Set when the user did not exclude `excluded`: an object outside the graph
+   * whose records the target cannot take, and why.
+   */
+  readonly target?: TargetRefusal;
 }
 
 /**
@@ -967,6 +992,19 @@ interface ExecutionState {
    * See `readWhatTheyCannotBeWrittenWithout`.
    */
   readonly askedForRowsThatNeedThem: Map<string, Set<string>>;
+  /**
+   * Objects no node of the graph holds whose records rows read cannot be
+   * written without, read by id once every node has been read: the node each
+   * is written as, in a turn of its own ahead of the rows that need it. See
+   * `readParentsOutsideTheGraph`.
+   */
+  readonly parentsOutside: Map<string, ForgeGraphNode>;
+  /**
+   * Per object, the rows read by id because rows read cannot be written
+   * without them, and the objects of those rows: said on the object's line.
+   * See `readParentsOutsideTheGraph`.
+   */
+  readonly readAsParents: Map<string, { count: number; neededBy: Set<string> }>;
   /**
    * The source id of every row a read of the run took, to clone it or to find
    * it in the target: what tells a lookup at a record outside the clone from
@@ -1306,6 +1344,71 @@ const READ_AGAIN_DEPTH = 3;
 const CATALOG_TREE_LEVELS = 10;
 
 /**
+ * How many levels up the records rows cannot be written without are read by
+ * id when no node of the graph holds them (`readParentsOutsideTheGraph`): the
+ * parents the rows of the graph need, then the parents those need, and so on.
+ * A chain of master-detail lookups is three levels deep at most, and a lookup
+ * marked required above it seldom adds more. Each record is asked once a run
+ * whatever its level, and the cap on each object holds; a record past the last
+ * level goes to the target without its parent, which refuses it, as before.
+ */
+const PARENT_LEVELS_OUTSIDE_THE_GRAPH = 5;
+
+/** Rows of one object whose required parents are looked for: see `readParentsOutsideTheGraph`. */
+interface RowsOfAnObject {
+  readonly objectApiName: string;
+  readonly fieldInfos: readonly FieldInfo[];
+  readonly records: readonly Record<string, unknown>[];
+}
+
+/** What rows want of one object no read took: see `parentsWanted`. */
+interface ParentsWanted {
+  /** The ids of its records wanted. */
+  readonly ids: Set<string>;
+  /** The objects of the rows that want them. */
+  readonly neededBy: Set<string>;
+  /** Each row that wants one, with its object and the lookup that names it. */
+  readonly rows: Array<{
+    readonly objectApiName: string;
+    readonly row: Record<string, unknown>;
+    readonly field: string;
+  }>;
+}
+
+/**
+ * Of what rows want of an object, what the rows not held back since want: a
+ * row held back for a record the target cannot take wants nothing more read.
+ */
+function stillWanted(state: ExecutionState, wanted: ParentsWanted): ParentsWanted {
+  const rows = wanted.rows.filter(({ objectApiName, row }) => {
+    const id = row['Id'];
+    return typeof id !== 'string' || !state.heldForExclusions.get(objectApiName)?.has(id);
+  });
+  if (rows.length === wanted.rows.length) return wanted;
+  const ids = new Set<string>();
+  const neededBy = new Set<string>();
+  for (const { objectApiName, row, field } of rows) {
+    ids.add(String(row[field]));
+    neededBy.add(objectApiName);
+  }
+  return { ids, neededBy, rows };
+}
+
+/**
+ * What an object's line says of the rows read by id for the rows that cannot
+ * be written without them — `, 2 read by id for the InvoiceLink__c records
+ * that cannot be written without them` — or nothing.
+ */
+function readAsParentsNote(state: ExecutionState, objectApiName: string): string {
+  const read = state.readAsParents.get(objectApiName);
+  if (!read || read.count === 0) return '';
+  return (
+    `, ${read.count} read by id for the ${[...read.neededBy].sort().join(', ')} records ` +
+    `that cannot be written without ${read.count === 1 ? 'it' : 'them'}`
+  );
+}
+
+/**
  * The ids of `objectApiName` that rows read since its read have named and
  * that read did not take — every id named of it, when it was not read.
  */
@@ -1479,19 +1582,63 @@ function leftToThePlatformReports(state: ExecutionState): ExecutionObjectError[]
   }));
 }
 
-/** Why a row held back for an object the user excluded is not written. */
-function heldForExclusionReason({ field, excluded, through, namedBy }: HeldForExclusion): string {
+/**
+ * What follows the name of an object rows are held back for: the user excluded
+ * it, or it is an object outside the graph the target takes no record of.
+ */
+function heldForWhat(target: TargetRefusal | undefined): string {
+  if (target === 'not-creatable') return ', which the target org takes no insert of';
+  if (target === 'not-in-target') return ', which the target org does not have';
+  return ', excluded from this run';
+}
+
+/**
+ * The objects rows are held back for, each group of them followed by why —
+ * `PricebookEntry, excluded from this run` — and the groups one after the
+ * other: the user's exclusions, then the objects the target refuses, then
+ * those it does not have.
+ */
+function heldForObjects(held: Iterable<Pick<HeldForExclusion, 'excluded' | 'target'>>): string {
+  const groups = new Map<TargetRefusal | undefined, Set<string>>([
+    [undefined, new Set()],
+    ['not-creatable', new Set()],
+    ['not-in-target', new Set()],
+  ]);
+  for (const { excluded, target } of held) groups.get(target)?.add(excluded);
+  return [...groups]
+    .filter(([, objects]) => objects.size > 0)
+    .map(([target, objects]) => `${[...objects].sort().join(', ')}${heldForWhat(target)}`)
+    .join('; ');
+}
+
+/**
+ * Why a row held back for an object the user excluded is not written — or for
+ * an object outside the graph the target takes no record of.
+ */
+function heldForExclusionReason({
+  field,
+  excluded,
+  through,
+  namedBy,
+  target,
+}: HeldForExclusion): string {
   if (namedBy !== undefined) {
     return (
       `Not written: the only records that name it are ${namedBy} records held back for ` +
-      `${excluded}, excluded from this run.`
+      `${excluded}${heldForWhat(target)}.`
     );
   }
   if (through !== undefined) {
     return (
       `Not written: ${field} may not be left empty, and the ${through} it names is held back ` +
-      `for ${excluded}, excluded from this run.`
+      `for ${excluded}${heldForWhat(target)}.`
     );
+  }
+  if (target === 'not-creatable') {
+    return `Not written: ${field} may not be left empty, and the target org takes no insert of ${excluded}.`;
+  }
+  if (target === 'not-in-target') {
+    return `Not written: ${field} may not be left empty, and the target org does not have ${excluded}.`;
   }
   return excluded === SELLING_MODEL_OPTION_OBJECT
     ? `Not written: a price sold under a selling model needs its product's option for that ` +
@@ -1531,34 +1678,39 @@ const PERSON_CONTACT_NOT_SENT = {
  * excluded said thirty-one of its products were not written without them,
  * where a product needs none: the only records that named those were lines
  * held back for want of their price's option, as its errors said.
+ *
+ * The rows held back for an object outside the graph the target takes no
+ * record of are said apart, with why: `held back for want of Invoice__c,
+ * which the target org takes no insert of`.
  */
 function heldForExclusionsWhy(held: Iterable<HeldForExclusion>): HeldBackReason[] {
-  const needing: string[] = [];
-  const namedOnly: string[] = [];
-  for (const { excluded, namedBy } of held) {
-    (namedBy === undefined ? needing : namedOnly).push(excluded);
+  /** By kind and cause, the objects held back for, one entry per row. */
+  const groups = new Map<
+    string,
+    { namedOnly: boolean; target: TargetRefusal | undefined; objects: string[] }
+  >();
+  for (const { excluded, namedBy, target } of held) {
+    const namedOnly = namedBy !== undefined;
+    const key = `${namedOnly ? 'named' : 'needing'}|${target ?? ''}`;
+    const group = groups.get(key) ?? { namedOnly, target, objects: [] };
+    group.objects.push(excluded);
+    groups.set(key, group);
   }
-  const objects = (excluded: readonly string[]): string => [...new Set(excluded)].sort().join(', ');
-  return [
-    ...(needing.length > 0
-      ? [
-          {
-            count: needing.length,
-            why: `held back for want of ${objects(needing)}, excluded from this run`,
-          },
-        ]
-      : []),
-    ...(namedOnly.length > 0
-      ? [
-          {
-            count: namedOnly.length,
-            why:
-              `held back, named only by records held back for ${objects(namedOnly)}, ` +
-              'excluded from this run',
-          },
-        ]
-      : []),
-  ];
+  // The rows needing a record first, then those only such rows name; within
+  // each, the user's exclusions before what the target refuses.
+  const rank = ({ namedOnly, target }: { namedOnly: boolean; target?: TargetRefusal }): number =>
+    (namedOnly ? 3 : 0) + (target === undefined ? 0 : target === 'not-creatable' ? 1 : 2);
+  return [...groups.values()]
+    .sort((a, b) => rank(a) - rank(b))
+    .map(({ namedOnly, target, objects }) => {
+      const list = `${[...new Set(objects)].sort().join(', ')}${heldForWhat(target)}`;
+      return {
+        count: objects.length,
+        why: namedOnly
+          ? `held back, named only by records held back for ${list}`
+          : `held back for want of ${list}`,
+      };
+    });
 }
 
 /** The rows of an object held back for an object the user excluded, by reason. */
@@ -1624,7 +1776,9 @@ function heldForExclusionsReports(state: ExecutionState): ExecutionObjectError[]
   return [...state.heldForExclusions].map(([objectApiName, held]): ExecutionObjectError => {
     const groups = new Map<string, HeldForExclusion & { count: number }>();
     for (const why of held.values()) {
-      const key = `${why.field}|${why.through ?? ''}|${why.namedBy ?? ''}|${why.excluded}`;
+      const key =
+        `${why.field}|${why.through ?? ''}|${why.namedBy ?? ''}|${why.excluded}|` +
+        (why.target ?? '');
       const group = groups.get(key) ?? { ...why, count: 0 };
       group.count++;
       groups.set(key, group);
@@ -1683,7 +1837,13 @@ function heldRowNamedBy(
     if (typeof value !== 'string' || value === '' || state.remapper.get(value)) continue;
     const heldRow = heldRowOf(state, value);
     if (heldRow) {
-      return { field: field.name, excluded: heldRow.why.excluded, through: heldRow.objectApiName };
+      const { excluded, target } = heldRow.why;
+      return {
+        field: field.name,
+        excluded,
+        through: heldRow.objectApiName,
+        ...(target ? { target } : {}),
+      };
     }
   }
   return undefined;
@@ -1729,8 +1889,11 @@ function nothingWrittenMessage(
 ): string {
   const needing = [...held.values()].filter((h) => h.namedBy === undefined);
   const namedOnly = [...held.values()].filter((h) => h.namedBy !== undefined);
+  // The user's exclusions say why once, at the end; an object outside the
+  // graph the target refuses says it beside its name.
+  const excludedOnly = [...held.values()].every((h) => h.target === undefined);
   const objects = (of: readonly HeldForExclusion[]): string =>
-    [...new Set(of.map((h) => h.excluded))].sort().join(', ');
+    excludedOnly ? [...new Set(of.map((h) => h.excluded))].sort().join(', ') : heldForObjects(of);
   // Each reason for its own records. Said as the first, a row of the catalog
   // that only rows held back name was said to need what those rows needed.
   const why =
@@ -1741,7 +1904,7 @@ function nothingWrittenMessage(
         : `${needing.length} of its records need ${objects(needing)}, and the only records ` +
           `that name the rest are held back for ${objects(namedOnly)}`;
   return (
-    `${heldBackWhole(objectApiName, held.size)}: ${why}, excluded from this run.` +
+    `${heldBackWhole(objectApiName, held.size)}: ${why}${excludedOnly ? ', excluded from this run' : ''}.` +
     (skipped ? ' Objects that cannot be written without it will be skipped.' : '')
   );
 }
@@ -2172,6 +2335,8 @@ export class ForgeExecutor {
       waitingFor: new Map<string, ForgeGraphNode[]>(),
       readAgainUnder: new Map<string, NodeReadOnce[]>(),
       askedForRowsThatNeedThem: new Map<string, Set<string>>(),
+      parentsOutside: new Map<string, ForgeGraphNode>(),
+      readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
       idsRead: new Set<string>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
@@ -2680,6 +2845,14 @@ export class ForgeExecutor {
       do {
         this.holdBackWhatHeldRowsCost(state);
       } while (this.holdBackWhatOnlyRowsHeldBackName(state));
+      // Then what the rows kept cannot be written without and no node of the
+      // graph holds, read by id with nothing under it, and what that holds
+      // back in turn: see `readParentsOutsideTheGraph`.
+      if (await this.readParentsOutsideTheGraph(state)) {
+        do {
+          this.holdBackWhatHeldRowsCost(state);
+        } while (this.holdBackWhatOnlyRowsHeldBackName(state));
+      }
     }
 
     // The files of what was read, chosen and measured while nothing is
@@ -2963,8 +3136,8 @@ export class ForgeExecutor {
           const held = read.held.get(id);
           if (held) {
             why =
-              `none of its ${child.object} records can be written without ${held.excluded}, ` +
-              'which is excluded from this run';
+              `none of its ${child.object} records can be written without ${held.excluded}` +
+              (held.target ? heldForWhat(held.target) : ', which is excluded from this run');
           }
         }
         if (!why) continue;
@@ -3347,15 +3520,22 @@ export class ForgeExecutor {
    * in an org with person accounts, the accounts go before the contacts the
    * platform writes with them: see `personAccountWriteEdges`.
    *
+   * The objects outside the graph the run reads records of for the rows that
+   * cannot be written without them are written too, each in a turn of its
+   * own: their records first, as any required parent's
+   * (`readParentsOutsideTheGraph`).
+   *
    * @param fieldsByObject - The source fields of each object the run writes.
    */
   private orderByFields(
     state: ExecutionState,
     fieldsByObject: ReadonlyMap<string, readonly FieldInfo[]>,
   ): ForgeGraphNode[] {
-    const objects = new Set(
-      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
-    );
+    const graph: ForgeGraph =
+      state.parentsOutside.size > 0
+        ? { ...state.graph, nodes: [...state.graph.nodes, ...state.parentsOutside.values()] }
+        : state.graph;
+    const objects = new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName));
     const required: ForgeGraphEdge[] = [];
     const lines: string[] = [];
     for (const [child, fields] of fieldsByObject) {
@@ -3379,7 +3559,7 @@ export class ForgeExecutor {
         }
       }
     }
-    return sortNodesForWriting(withWhatTheFieldsSayOfEdges(state.graph, fieldsByObject), [
+    return sortNodesForWriting(withWhatTheFieldsSayOfEdges(graph, fieldsByObject), [
       ...required,
       ...catalogWriteEdges(objects, lines),
       ...emailWriteEdges(objects),
@@ -4125,6 +4305,494 @@ export class ForgeExecutor {
       if (again.described) this.withoutFileContent(state, parent, again.described, true);
       await this.readUnderRowsAdded(parent, state, 0);
     }
+  }
+
+  /**
+   * Read by id, once every node has been read, the records the rows read
+   * cannot be written without that no node of the graph holds — each named by
+   * a lookup of theirs that may not be left empty and names one object — and
+   * the records those cannot be written without in turn,
+   * {@link PARENT_LEVELS_OUTSIDE_THE_GRAPH} levels up at most. Returns whether
+   * any row wanted one.
+   *
+   * Run between two sandboxes, a direct clone of a case read the case's
+   * invoice junction, a child of the case whose master-detail names an
+   * invoice: discovery walks nothing of an object at the depth asked, so the
+   * invoice's object was in no node, and the junction was refused,
+   * `REQUIRED_FIELD_MISSING: Required fields are missing: [Invoice__c]`.
+   * Walking such a parent in discovery made it a node like any other, and a
+   * node is a scope for the children the graph already holds: the graph grew
+   * to a hundred objects, a product added brought every coverage of the
+   * products in the org, and the clone wrote some thirty-four thousand
+   * records into a client sandbox.
+   *
+   * Read here, after every node, by the ids the rows name and by nothing
+   * else, such a record is the scope of no read and brings nothing under it:
+   * the nodes of the graph read what they read without it. It is written in a
+   * turn of its own, ahead of the rows that need it, or linked to the record
+   * the target holds, as any row is matched, on the user's choices for its
+   * object. Its optional lookups are never followed: one at a record outside
+   * the clone is left empty. A record of an object of the graph that such a
+   * record needs and no read of the graph took is read the same way, and
+   * written in that object's turn.
+   *
+   * An object the target refuses inserts of, or does not have, is not read:
+   * the rows that need one of its records are held back and said, as the rows
+   * an exclusion holds back are — but for a row whose object in the target
+   * does not carry the lookup, which goes in without it, as before.
+   *
+   * Not asked: a record the target already holds for the run, one the
+   * platform writes itself, one held back already, or one a row the run it
+   * retries wrote needs; nor a record of the root's object, read by the root's
+   * id alone, of the catalog, read by what the records name, of an object
+   * mapped by name, excluded by the user, or that no copy writes
+   * (`isNeverCopied`). A run that keeps the source's ids for the records it
+   * does not write (`referenceFallback: 'keep'`) reads none: those ids name
+   * the target's own records. Each record is asked once a run, the cap on each
+   * object holds, and so does the user's filter on it.
+   */
+  private async readParentsOutsideTheGraph(state: ExecutionState): Promise<boolean> {
+    const { config } = state;
+    if (!state.scopeCache || config.referenceFallback !== 'nullify') return false;
+    const nodesOfGraph = new Map(state.graph.nodes.map((n) => [n.objectApiName, n]));
+    /** Per object outside the graph, why the target takes none of its records; null when it takes them. */
+    const refusals = new Map<string, TargetRefusal | null>();
+    /** Per object, the target's field sets, once asked whether it carries a lookup; null when they could not be read. */
+    const targetSets = new Map<string, TargetFieldSets | null>();
+    let wantedAny = false;
+    let rows: RowsOfAnObject[] = [...state.preread]
+      .filter(([objectApiName]) => !state.failedObjects.has(objectApiName))
+      .map(([objectApiName, read]) => ({
+        objectApiName,
+        fieldInfos: read.fieldInfos,
+        records: read.records,
+      }));
+    for (let level = 0; level < PARENT_LEVELS_OUTSIDE_THE_GRAPH && rows.length > 0; level++) {
+      const wanted = this.parentsWanted(state, rows, level > 0, nodesOfGraph);
+      if (wanted.size > 0) wantedAny = true;
+      // What the target cannot take first: a row held back for one of those
+      // wants nothing more read for it.
+      const readable: Array<[string, ParentsWanted]> = [];
+      for (const [parent, want] of wanted) {
+        if (this.isAborted) {
+          throw new ForgeAbortedError(
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          );
+        }
+        const refusal = await this.refusalOf(state, parent, nodesOfGraph.get(parent), refusals);
+        if (refusal) await this.holdBackForARefusedParent(state, parent, refusal, want, targetSets);
+        else readable.push([parent, want]);
+      }
+      const added: RowsOfAnObject[] = [];
+      for (const [parent, want] of readable) {
+        if (this.isAborted) {
+          throw new ForgeAbortedError(
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          );
+        }
+        const still = stillWanted(state, want);
+        if (still.ids.size === 0) continue;
+        const fresh = await this.readParentsById(state, parent, nodesOfGraph.get(parent), still);
+        if (fresh) added.push(fresh);
+      }
+      rows = added;
+    }
+    return wantedAny;
+  }
+
+  /**
+   * What `rows` want, by object, of the records no read took that they cannot
+   * be written without: see `readParentsOutsideTheGraph`.
+   *
+   * @param ofParents - Whether the rows are records read by id for the rows
+   *   that need them, which want what no read of the graph took of one of its
+   *   objects too. The graph's own rows want only what no node holds: a record
+   *   of an object read before them was read with them
+   *   (`readWhatTheyCannotBeWrittenWithout`), and an object the graph holds
+   *   and leaves out stays out.
+   */
+  private parentsWanted(
+    state: ExecutionState,
+    rows: readonly RowsOfAnObject[],
+    ofParents: boolean,
+    nodesOfGraph: ReadonlyMap<string, ForgeGraphNode>,
+  ): Map<string, ParentsWanted> {
+    const { config } = state;
+    const wanted = new Map<string, ParentsWanted>();
+    /** Per object, the ids of the rows the run holds of it to write. */
+    const inHand = new Map<string, Set<string>>();
+    const held = (parent: string): Set<string> => {
+      let ids = inHand.get(parent);
+      if (!ids) {
+        ids = new Set(
+          (state.preread.get(parent)?.records ?? []).flatMap((r) =>
+            typeof r['Id'] === 'string' ? [r['Id']] : [],
+          ),
+        );
+        inHand.set(parent, ids);
+      }
+      return ids;
+    };
+    for (const { objectApiName, fieldInfos, records } of rows) {
+      const leftOut = new Set(config.fieldExclusions[objectApiName] ?? []);
+      for (const field of fieldInfos) {
+        const targets = field.referenceTo ?? [];
+        if (
+          !field.isReference ||
+          targets.length !== 1 ||
+          leftOut.has(field.name) ||
+          !isSettableField(field) ||
+          !isRequiredLookup(objectApiName, field.name, field.nillable)
+        ) {
+          continue;
+        }
+        const [parent] = targets;
+        if (
+          parent === objectApiName ||
+          parent === config.rootObjectApiName ||
+          CATALOG_OBJECTS.has(parent) ||
+          config.referenceDataObjects.has(parent) ||
+          config.excludedObjects.has(parent) ||
+          isNeverCopied(parent)
+        ) {
+          continue;
+        }
+        const node = nodesOfGraph.get(parent);
+        if (node && (!ofParents || !node.included || state.failedObjects.has(parent))) continue;
+        const asked = state.askedForRowsThatNeedThem.get(parent);
+        const heldBack = state.heldForExclusions.get(parent);
+        for (const row of records) {
+          const id = row[field.name];
+          if (
+            typeof id !== 'string' ||
+            id === '' ||
+            wasWrittenBefore(config, row) ||
+            state.remapper.get(id) ||
+            state.leftToThePlatform.has(id) ||
+            asked?.has(id) ||
+            heldBack?.has(id) ||
+            held(parent).has(id)
+          ) {
+            continue;
+          }
+          let want = wanted.get(parent);
+          if (!want) {
+            want = { ids: new Set<string>(), neededBy: new Set<string>(), rows: [] };
+            wanted.set(parent, want);
+          }
+          want.ids.add(id);
+          want.neededBy.add(objectApiName);
+          want.rows.push({ objectApiName, row, field: field.name });
+        }
+      }
+    }
+    return wanted;
+  }
+
+  /**
+   * Why the target takes no record of `parent`, or nothing when it takes them:
+   * for an object of the graph, as the check before the node loop found; for
+   * one outside it, from the target's describe, asked once a run. A check that
+   * fails for another reason is said, and the records are read all the same,
+   * as a node's are.
+   */
+  private async refusalOf(
+    state: ExecutionState,
+    parent: string,
+    node: ForgeGraphNode | undefined,
+    refusals: Map<string, TargetRefusal | null>,
+  ): Promise<TargetRefusal | undefined> {
+    if (node) {
+      if (state.notInTarget.has(parent)) return 'not-in-target';
+      return state.notCreatable.has(parent) ? 'not-creatable' : undefined;
+    }
+    const known = refusals.get(parent);
+    if (known !== undefined) return known ?? undefined;
+    let refusal: TargetRefusal | undefined;
+    const isObjectCreatable = this.deps.isObjectCreatable;
+    if (isObjectCreatable) {
+      try {
+        if (!(await isObjectCreatable(state.targetOrgId, parent))) refusal = 'not-creatable';
+      } catch (err) {
+        if (isNotFound(err)) {
+          refusal = 'not-in-target';
+        } else {
+          state.errors.push({
+            objectApiName: parent,
+            stage: 'scope',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: '(target describe failed)',
+                messages: [
+                  `isObjectCreatable check failed: ${err instanceof Error ? err.message : String(err)}`,
+                ],
+              },
+            ],
+          });
+        }
+      }
+    }
+    refusals.set(parent, refusal ?? null);
+    return refusal;
+  }
+
+  /**
+   * Hold back the rows that want a record of `parent`, an object the target
+   * refuses inserts of or does not have: counted as failed and said, as the
+   * rows an exclusion holds back are, before anything is written — and what
+   * cannot be written without them after them (`holdBackWhatHeldRowsCost`).
+   * Not a row whose object in the target does not carry the lookup, which
+   * goes in without it, as before (`carriesTheLookup`).
+   */
+  private async holdBackForARefusedParent(
+    state: ExecutionState,
+    parent: string,
+    refusal: TargetRefusal,
+    wanted: ParentsWanted,
+    targetSets: Map<string, TargetFieldSets | null>,
+  ): Promise<void> {
+    type Held = Map<string, { row: Record<string, unknown>; why: HeldForExclusion }>;
+    /** Per object, the rows held back, by source id: a row wanting two such records once. */
+    const byObject = new Map<string, Held>();
+    for (const { objectApiName, row, field } of wanted.rows) {
+      const id = row['Id'];
+      if (typeof id !== 'string' || byObject.get(objectApiName)?.has(id)) continue;
+      if (!(await this.carriesTheLookup(state, objectApiName, field, targetSets))) continue;
+      const held: Held = byObject.get(objectApiName) ?? new Map();
+      held.set(id, { row, why: { field, excluded: parent, target: refusal } });
+      byObject.set(objectApiName, held);
+    }
+    for (const [objectApiName, held] of byObject) {
+      const read = state.preread.get(objectApiName);
+      if (!read) continue;
+      const kept = read.records.filter(
+        (row) => typeof row['Id'] !== 'string' || !held.has(row['Id']),
+      );
+      this.holdBackRowsRead(
+        state,
+        objectApiName,
+        read,
+        kept,
+        [...held].map(([id, { row, why }]) => ({ id, row, why })),
+      );
+    }
+  }
+
+  /**
+   * Whether the target's `objectApiName` takes `field` at insert — or the user
+   * renamed it, the field map answering for it: a row sent without the record
+   * it names is then refused. A target whose describe fails is taken to.
+   * Where the target does not carry the lookup, the row goes in without it.
+   */
+  private async carriesTheLookup(
+    state: ExecutionState,
+    objectApiName: string,
+    field: string,
+    targetSets: Map<string, TargetFieldSets | null>,
+  ): Promise<boolean> {
+    if (state.config.fieldMappings[objectApiName]?.[field]) return true;
+    let sets = targetSets.get(objectApiName);
+    if (sets === undefined) {
+      try {
+        sets = await describeTargetFieldSets(
+          this.deps.describeFields,
+          state.targetOrgId,
+          objectApiName,
+        );
+      } catch {
+        sets = null;
+      }
+      targetSets.set(objectApiName, sets);
+    }
+    return sets === null || sets.creatable.has(field);
+  }
+
+  /**
+   * Read by id the records of `parent` that rows cannot be written without —
+   * of an object no node holds, or of one whose records no read of the graph
+   * took — and add them to what the write pass writes, to what the run says
+   * it read and, on a dry run, to what it would insert: into no scope, so
+   * nothing is read under them. Returns the rows added, for what they cannot
+   * be written without in turn; nothing when none was.
+   *
+   * @param node - The object's node, when the graph holds it.
+   */
+  private async readParentsById(
+    state: ExecutionState,
+    parent: string,
+    node: ForgeGraphNode | undefined,
+    wanted: ParentsWanted,
+  ): Promise<RowsOfAnObject | undefined> {
+    const { config } = state;
+    const neededBy = [...wanted.neededBy].sort().join(', ');
+    // The cap on each object counts what the run holds of it already.
+    const cap = config.maxRecordsPerObject ? Math.floor(config.maxRecordsPerObject) : 0;
+    const room = cap > 0 ? cap - (state.readByObject.get(parent) ?? 0) : 0;
+    if (cap > 0 && room <= 0) return undefined;
+    const before = state.preread.get(parent);
+    let fields: FieldInfo[];
+    let described: FieldInfo[] | undefined;
+    if (before) {
+      fields = [...before.fieldInfos];
+    } else {
+      try {
+        described = await this.deps.describeFields(state.sourceOrgId, parent);
+      } catch (err) {
+        state.errors.push({
+          objectApiName: parent,
+          stage: 'query',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: `(describe, for the ${neededBy} records that cannot be written without its records)`,
+              messages: [extractErrorMessage(err)],
+            },
+          ],
+        });
+        return undefined;
+      }
+      // Never read, so never written: see `withoutFileContent`.
+      fields = described.filter((f) => !isFileContentField(f));
+    }
+    const asked = state.askedForRowsThatNeedThem.get(parent) ?? new Set<string>();
+    for (const id of wanted.ids) asked.add(id);
+    state.askedForRowsThatNeedThem.set(parent, asked);
+    const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+    const statements = new ScopedSoqlBuilder().buildById({
+      objectApiName: parent,
+      selectFields: selectFields.length > 0 ? selectFields : ['Id'],
+      ids: wanted.ids,
+      extraWhere: config.objectSoqlFilters?.[parent],
+    });
+    let read: Record<string, unknown>[];
+    try {
+      read = await queryNodeRecords(
+        {
+          kind: 'query',
+          statements: room > 0 ? statements.map((s) => `${s} LIMIT ${room}`) : statements,
+          ...(room > 0 ? { limit: room } : {}),
+          byIdCount: statements.length,
+        },
+        (soql) =>
+          this.deps.queryRecords(state.sourceOrgId, soql, () => state.truncatedObjects.add(parent)),
+      );
+    } catch (err) {
+      if (err instanceof ForgeAbortedError) throw err;
+      state.errors.push({
+        objectApiName: parent,
+        stage: 'query',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: `(read by id, for the ${neededBy} records that cannot be written without them)`,
+            messages: [extractErrorMessage(err)],
+          },
+        ],
+      });
+      return undefined;
+    }
+    noteIdsRead(state, read);
+    const inHand = new Set(
+      (before?.records ?? []).flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : [])),
+    );
+    const fresh = read.filter((r) => typeof r['Id'] !== 'string' || !inHand.has(r['Id']));
+    const levelOf = (object: string): number =>
+      (
+        state.graph.nodes.find((n) => n.objectApiName === object) ??
+        state.parentsOutside.get(object)
+      )?.level ?? 0;
+    const theNode =
+      node ??
+      state.parentsOutside.get(parent) ??
+      nodeTheRunAdds(parent, fields, 1 + Math.max(0, ...[...wanted.neededBy].map(levelOf)));
+    // What an exclusion of the user's holds back and what the platform writes
+    // itself, as at any read: the rows that need those are held back after
+    // them (`holdBackWhatHeldRowsCost`).
+    const heldBefore = new Set(state.heldForExclusions.get(parent)?.keys() ?? []);
+    this.holdBackWhatExclusionsCost(
+      state,
+      theNode,
+      fields,
+      fresh,
+      undefined,
+      await this.excludedByKeyPrefix(state, parent, fields),
+    );
+    const heldNow = [...(state.heldForExclusions.get(parent) ?? [])].filter(
+      ([id]) => !heldBefore.has(id),
+    );
+    this.leaveToThePlatform(state, parent, fresh, fields);
+    if (fresh.length === 0 && heldNow.length === 0) return undefined;
+    const createableSet =
+      before?.createableSet ?? new Set(fields.filter((f) => f.createable).map((f) => f.name));
+    if (fresh.length > 0) {
+      state.preread.set(
+        parent,
+        before
+          ? { ...before, records: [...before.records, ...fresh] }
+          : { fieldInfos: fields, createableSet, records: fresh, targetSetsPending: null },
+      );
+      // Said as a read of the object says them, now that it has rows to write.
+      if (described) this.withoutFileContent(state, parent, described, true);
+      if (!node) {
+        state.parentsOutside.set(parent, theNode);
+        state.writtenObjects.add(parent);
+      } else if (!before) {
+        // Left out of scope by its read, the object was counted as skipped.
+        state.skippedCount--;
+      }
+      const firstId = fresh.find((r) => typeof r['Id'] === 'string')?.['Id'];
+      if (typeof firstId === 'string' && !state.sourceKeyPrefixes.has(parent)) {
+        state.sourceKeyPrefixes.set(parent, firstId.slice(0, 3));
+      }
+      const said = state.readAsParents.get(parent) ?? { count: 0, neededBy: new Set<string>() };
+      said.count += fresh.length;
+      for (const object of wanted.neededBy) said.neededBy.add(object);
+      state.readAsParents.set(parent, said);
+    } else if (!node) {
+      // Every record read held back: said as a node whose every row is, at its read.
+      const heldOfParent = state.heldForExclusions.get(parent);
+      if (heldOfParent) {
+        state.onProgress({
+          objectName: parent,
+          status: 'error',
+          progress: 100,
+          message: nothingWrittenMessage(parent, heldOfParent, false),
+        });
+      }
+    }
+    // The rows held back were read to be cloned, and are counted with them.
+    state.readByObject.set(
+      parent,
+      (state.readByObject.get(parent) ?? 0) + fresh.length + heldNow.length,
+    );
+    if (config.dryRun) {
+      const withTheirAccount =
+        fresh.length > 0
+          ? await this.writtenWithTheirAccountOnADryRun(state, parent, fresh, createableSet)
+          : 0;
+      const more = before ? 'more ' : '';
+      state.wouldInsertCount += fresh.length - withTheirAccount;
+      state.onProgress({
+        objectName: parent,
+        status: 'done',
+        progress: 100,
+        message:
+          `[dry-run] ${parent}: ${fresh.length - withTheirAccount} ${more}record(s) would be inserted` +
+          (withTheirAccount > 0
+            ? `, ${withTheirAccount} ${more}would be written by the platform with their person account`
+            : '') +
+          `, which the ${neededBy} records cannot be written without: read by id, ` +
+          'nothing read under them' +
+          failedHeldBack(heldForExclusionsWhy(heldNow.map(([, why]) => why)), before !== undefined),
+      });
+    }
+    return fresh.length > 0
+      ? { objectApiName: parent, fieldInfos: fields, records: fresh }
+      : undefined;
   }
 
   /**
@@ -7059,11 +7727,16 @@ export class ForgeExecutor {
       // ends the node: after the emails that waited for their task, if any,
       // or on the line a cancel ends the node with before them.
       const leftToThePlatform = leftToThePlatformNote(state, node.objectApiName);
+      // The rows read by id for the rows that cannot be written without them,
+      // said once, on the node's first line: what brought an object the graph
+      // does not hold into the run, or more of one it holds.
+      const readById =
+        afterTheirTask === undefined ? readAsParentsNote(state, node.objectApiName) : '';
       const counts = (reasons: readonly HeldBackReason[]): string =>
         `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}` +
         `${writtenWithTheirAccount}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
-      const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}`;
+      const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}${readById}`;
 
       if (stoppedBy) {
         /*
@@ -7118,9 +7791,9 @@ export class ForgeExecutor {
           message:
             settled === 0
               ? `Failed all ${node.objectApiName} records: ` +
-                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}`
+                `${nodeFailure + heldCount} failed${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${readById}`
               : `${nodeFailure + heldCount}/${total + heldCount} ${node.objectApiName} records ` +
-                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields} — objects that cannot be written without it will be skipped`,
+                `failed (>50%)${ofThemHeldBack(held)}${sentOnTheirOwn}${picklists}${withoutFields}${readById} — objects that cannot be written without it will be skipped`,
         });
       } else {
         onProgress({

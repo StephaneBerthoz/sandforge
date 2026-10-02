@@ -2894,7 +2894,9 @@ describe('ForgeExecutor', () => {
         /**
          * A delivery of the account that cannot be written without its order,
          * an order the graph does not reach: copied as an orphan parent, it
-         * went over activated and was refused, and the delivery with it.
+         * went over activated and was refused, and the delivery with it. Read
+         * by id now, as a parent outside the graph, it goes in a turn of its
+         * own, with its lookup at the account the clone writes set.
          */
         function deliveries(rows: FakeRow[]) {
           const orgs = activatedOrder({ Delivery__c: rows }, [], {
@@ -2925,7 +2927,9 @@ describe('ForgeExecutor', () => {
             { rootRecordId: ACCOUNT, rootObjectApiName: 'Account', expandOrphanParents: true },
           );
 
-          expect(inserted['Order']).toEqual([{ Name: 'First', Status: 'Open' }]);
+          expect(inserted['Order']).toEqual([
+            { Name: 'First', AccountId: 'Account:Acme', Status: 'Open' },
+          ]);
           expect(inserted['Delivery__c']).toEqual([
             { Name: 'Truck', Account__c: 'Account:Acme', Order__c: 'Order:First' },
           ]);
@@ -11565,9 +11569,9 @@ describe('ForgeExecutor', () => {
         return [];
       });
 
+      // A run of whole tables: a record-scoped run reads such parents by id
+      // itself, before its writes, and the expansion finds them written.
       await executor.execute(graph, 'src', 'tgt', onProgress, {
-        rootRecordId: ROOT_ID,
-        rootObjectApiName: 'Asset',
         expandOrphanParents: true,
         maxOrphanParentExpansions: 2, // only 2 of the 3 orphans get expanded
       });
@@ -11593,10 +11597,9 @@ describe('ForgeExecutor', () => {
       ]);
       vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '02iA', AccountId: '001ORPHAN' }]);
 
-      await executor.execute(graph, 'src', 'tgt', onProgress, {
-        rootRecordId: ROOT_ID,
-        rootObjectApiName: 'Asset',
-      });
+      // A run of whole tables: a record-scoped run reads a required parent
+      // outside the graph by id whether this is set or not.
+      await executor.execute(graph, 'src', 'tgt', onProgress, {});
 
       const accountInsert = vi
         .mocked(deps.insertRecords)
