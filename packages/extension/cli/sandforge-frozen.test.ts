@@ -347,6 +347,63 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('names each field the target refused records on that went in written again, with what refused it', () => {
+    // The Load tab said them, and the command said none: a record in the
+    // target short of a value the dataset held read as one written whole.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [
+            {
+              objectApiName: 'Account',
+              fromFiles: 3,
+              inserted: 3,
+              reused: 0,
+              skippedDuplicates: [],
+              failed: [],
+              writtenWithoutFields: {
+                rows: 2,
+                fields: [
+                  {
+                    field: 'Tier__c',
+                    refusedBy: 'restricted-picklist',
+                    reason: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Gold',
+                    rows: 1,
+                    replacedWith: 'Silver',
+                  },
+                  {
+                    field: 'Phone',
+                    refusedBy: 'validation-rule',
+                    reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33…',
+                    rows: 1,
+                  },
+                ],
+              },
+            },
+          ],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'load: completed in 5ms — 0 object(s) excluded, 0 field removal(s), 0 record type issue(s), 0 placeholder(s)',
+      '  Account: 3 inserted, 0 reused, 0 duplicate(s), 0 failed of 3',
+      'written again without a field a validation rule or a restricted picklist refused (1 object(s)):',
+      '  Account.Tier__c  1 record(s) — a restricted picklist refused its value — written with ' +
+        '"Silver", as its picklist rule declares — INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Gold',
+      '  Account.Phone  1 record(s) — a validation rule refused it — ' +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33…',
+      'pass 2: 0 resolved, 0 unresolved',
+    ]);
+  });
+
   it('names each object a load did not send, with why, and the feed items it could not type', () => {
     const lines = messageLines({
       type: 'frozen:load:response',

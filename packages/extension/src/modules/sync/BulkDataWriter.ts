@@ -11,9 +11,12 @@ import type {
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import {
+  bulkSaveErrorDetail,
   duplicateRuleMatchIds,
   existingRecordOf,
   formatSaveError,
+  saveErrorDetail,
+  type SaveErrorDetail,
 } from '../../core/common/existingRecordMatch.js';
 import type { OperationOutcome } from './DataSync.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
@@ -33,6 +36,25 @@ type JsforceResult = {
 /** The `created` flag of a write's answer, kept when the answer carries one. */
 function createdOf(answer: { created?: boolean }): Pick<OperationOutcome, 'created'> {
   return typeof answer.created === 'boolean' ? { created: answer.created } : {};
+}
+
+/**
+ * The errors of a refusal with the fields they named, when one named a field:
+ * see `OperationOutcome.errorDetails`. The message alone kept them as text, and
+ * a writer could not tell which fields a validation rule or a restricted
+ * picklist had refused the record on.
+ */
+function detailsOf(details: SaveErrorDetail[]): Pick<OperationOutcome, 'errorDetails'> {
+  return details.some((detail) => detail.fields.length > 0) ? { errorDetails: details } : {};
+}
+
+/**
+ * The error of a Bulk API row with the fields it named: see
+ * `bulkSaveErrorDetail`. Nothing for a text that is not one error.
+ */
+function bulkDetailsOf(error: string | undefined): Pick<OperationOutcome, 'errorDetails'> {
+  const detail = error === undefined ? undefined : bulkSaveErrorDetail(error);
+  return detail ? detailsOf([detail]) : {};
 }
 
 /** Dependencies required by BulkDataWriter. */
@@ -281,6 +303,7 @@ export class BulkDataWriter {
         success: outcome.success,
         errors: outcome.success ? [] : [outcome.error ?? 'Streaming error'],
         ...createdOf(outcome),
+        ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
   }
@@ -329,6 +352,7 @@ export class BulkDataWriter {
         success: outcome.success,
         errors: outcome.success ? [] : [outcome.error ?? 'Bulk error'],
         ...createdOf(outcome),
+        ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
   }
@@ -392,7 +416,8 @@ export class BulkDataWriter {
    * One REST result as an outcome. The first error is the one reported, now
    * with its status code — the code is what says a row already exists — and
    * every error, with the records a duplicate rule matched, decides whether
-   * the target named the record it already holds.
+   * the target named the record it already holds. Every error goes with it,
+   * with the fields it named, when one named a field (`errorDetails`).
    */
   private restOutcome(objectName: string, r: JsforceResult): OperationOutcome {
     // An upsert's answer says whether it created the record or updated it:
@@ -404,6 +429,7 @@ export class BulkDataWriter {
       id: r.id,
       success: false,
       errors: [formatted[0] ?? 'Unknown error'],
+      ...detailsOf(errors.map(saveErrorDetail)),
     };
     const existing = existingRecordOf(
       {

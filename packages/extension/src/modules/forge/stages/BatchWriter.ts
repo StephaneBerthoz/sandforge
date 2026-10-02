@@ -23,15 +23,19 @@ import type {
   ForgeProgressEvent,
   InsertResult,
 } from '../ForgeExecutor.js';
-import type {
-  ForgeFieldRefusal,
-  ForgeGraphNode,
-  ForgeRefusedField,
-  ForgeWrittenWithoutFields,
-} from '@sandforge/shared';
+import type { ForgeGraphNode } from '@sandforge/shared';
 import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
 import { codeAndMessage, existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import {
+  RESTRICTED_PICKLIST_REFUSAL,
+  addWrittenWithoutFields,
+  heldKeyOf,
+  refusedFields,
+  without,
+  type FieldToLeaveOut,
+  type WrittenWithoutFields,
+} from '../../../core/common/refusedFields.js';
 import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
@@ -49,6 +53,16 @@ import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { PicklistField } from './RecordTypePicklists.js';
 import type { IdRemapper } from '../IdRemapper.js';
+
+// Shared with Frozen's loader, which writes a refused row again on the same
+// rules; the stages of the clone read them from here.
+export {
+  addWrittenWithoutFields,
+  without,
+  writtenWithoutFieldsNote,
+  type FieldToLeaveOut,
+  type WrittenWithoutFields,
+} from '../../../core/common/refusedFields.js';
 
 /**
  * Maximum records each write API accepts in a single call.
@@ -239,38 +253,6 @@ export interface BatchWriteResult {
 }
 
 /**
- * Rows written without the fields the target refused them on: how many, and
- * each field left out with what refused it, the refusal that named it and
- * how many of them went without it.
- */
-export type WrittenWithoutFields = Omit<ForgeWrittenWithoutFields, 'objectApiName'>;
-
-/** A field a row goes without, what refused it, and the refusal that named it. */
-export type FieldToLeaveOut = Omit<ForgeRefusedField, 'rows' | 'refusedBy'> & {
-  readonly refusedBy: ForgeFieldRefusal;
-};
-
-/**
- * The code a validation rule of the target refuses a row with. A trigger that
- * puts an error on one of the row's fields is reported with it too, and is
- * the same refusal of that field.
- */
-const VALIDATION_RULE_REFUSAL = 'FIELD_CUSTOM_VALIDATION_EXCEPTION';
-
-/**
- * The code a restricted picklist of the target refuses a value with: one the
- * field does not hold, one the record type the row goes in with does not
- * take, or one its controlling value does not allow.
- */
-const RESTRICTED_PICKLIST_REFUSAL = 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST';
-
-/** What refused a row on the fields its error named, by the code it refused with. */
-const REFUSED_BY: ReadonlyMap<string, ForgeFieldRefusal> = new Map([
-  [VALIDATION_RULE_REFUSAL, 'validation-rule'],
-  [RESTRICTED_PICKLIST_REFUSAL, 'restricted-picklist'],
-]);
-
-/**
  * A row the target refused as one it already holds without naming the
  * record, for an object with a natural key: it waits for the lookup by that
  * key made once the node's calls are through.
@@ -326,46 +308,6 @@ interface NodeWrite {
   readonly remembered: ReadonlySet<string>;
 }
 
-/**
- * `from` added to `into`, which is changed in place — or made, when there is
- * none: a field left out for the same refusal is counted once, with the rows
- * of both.
- */
-export function addWrittenWithoutFields(
-  into: WrittenWithoutFields | undefined,
-  from: WrittenWithoutFields,
-): WrittenWithoutFields {
-  const sum = into ?? { rows: 0, fields: [] };
-  sum.rows += from.rows;
-  for (const field of from.fields) {
-    const known = sum.fields.find((f) => f.field === field.field && f.reason === field.reason);
-    if (known) known.rows += field.rows;
-    else sum.fields.push({ ...field });
-  }
-  return sum;
-}
-
-/** What refused a field rows went without, as the object's line says it. */
-const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
-  'validation-rule': 'a validation rule of the target refused it',
-  'restricted-picklist': 'a restricted picklist of the target refused its value',
-};
-
-/**
- * What the object's line says of the rows written without the fields the
- * target refused them on: each field, how many rows went without it, what
- * refused it and in what words. Empty when none did. A field recorded before
- * a picklist's refusal was written again is a validation rule's.
- */
-export function writtenWithoutFieldsNote(written: WrittenWithoutFields | undefined): string {
-  return (written?.fields ?? [])
-    .map(
-      ({ field, refusedBy = 'validation-rule', reason, rows }) =>
-        `, ${rows} written without ${field}: ${REFUSED_IT[refusedBy]}, ${reason}`,
-    )
-    .join('');
-}
-
 /** What refused the fields of `leftOut`, as the line of their second write says it. */
 function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
   const by = new Set(leftOut.map((f) => f.refusedBy));
@@ -375,39 +317,13 @@ function whatRefused(leftOut: readonly FieldToLeaveOut[]): string {
     : 'a validation rule of the target';
 }
 
-/** Whether a payload gives a field a value: leaving out one it gives none changes nothing. */
-function holdsValue(value: unknown): boolean {
-  return value !== undefined && value !== null && value !== '';
-}
-
-/**
- * The key of `payload` the platform named, when the payload gives it a value.
- * An API name ignores case, and a payload built from the source's describe
- * need not spell a field as the target's names it.
- */
-function heldKeyOf(payload: Record<string, unknown>, named: string): string | undefined {
-  const wanted = named.toLowerCase();
-  return Object.keys(payload).find(
-    (key) => key.toLowerCase() === wanted && holdsValue(payload[key]),
-  );
-}
-
 /**
  * The fields to write a refused row again without, each with what refused it
- * and the refusal that named it: only when every error of the refusal is a
- * validation rule's or a restricted picklist's, and each names a field the
- * row gives a value to; a refusal that holds both leaves out every field they
- * name. Nothing otherwise — an error that names no field, or only fields the
- * row leaves empty, would refuse the row again whatever went, as any other
- * error would.
- *
- * A restricted picklist's refusal gets past the check before the write when
- * the record type is at fault: the check keeps a value the target's describe
- * lists, and one the UI API says the record type takes, and a record type
- * never given values of the field takes none of them while the UI API answers
- * them all. A real run was refused so on every row of an object, and what
- * hung from them failed with them. No read tells it; the refusal does. A
- * parent copied from outside the graph is written again on the same rule
+ * and the refusal that named it: a validation rule's, or a restricted
+ * picklist's, refusal of fields the row gives a value to, on the rules of
+ * `refusedFields`. A result whose details do not answer its errors one for one
+ * says less than the row was refused for, and nothing is left out. A parent
+ * copied from outside the graph is written again on the same rule
  * (`OrphanExpander`).
  *
  * @param keep - A field the row cannot go without: the external id an upsert matches it by.
@@ -418,33 +334,8 @@ export function fieldsToLeaveOut(
   keep: string | undefined,
 ): FieldToLeaveOut[] | undefined {
   const details = result.errorDetails ?? [];
-  if (details.length === 0 || details.length !== result.errors.length) return undefined;
-  const leftOut = new Map<string, FieldToLeaveOut>();
-  for (const detail of details) {
-    const refusedBy = REFUSED_BY.get(detail.statusCode);
-    if (!refusedBy) return undefined;
-    const held = detail.fields
-      .map((named) => heldKeyOf(payload, named))
-      .filter(
-        (key): key is string => key !== undefined && key.toLowerCase() !== keep?.toLowerCase(),
-      );
-    if (held.length === 0) return undefined;
-    for (const field of held) {
-      if (!leftOut.has(field)) {
-        leftOut.set(field, { field, refusedBy, reason: codeAndMessage(detail) });
-      }
-    }
-  }
-  return [...leftOut.values()];
-}
-
-/** `payload` without the fields of `leftOut`, the payload itself left as it was. */
-export function without(
-  payload: Record<string, unknown>,
-  leftOut: readonly FieldToLeaveOut[],
-): Record<string, unknown> {
-  const fields = new Set(leftOut.map((f) => f.field));
-  return Object.fromEntries(Object.entries(payload).filter(([key]) => !fields.has(key)));
+  if (details.length !== result.errors.length) return undefined;
+  return refusedFields(details, payload, keep);
 }
 
 /** The fields a row went again without, as a sample says them. */

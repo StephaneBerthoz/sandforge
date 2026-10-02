@@ -3109,6 +3109,14 @@
       "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}",
       "failedReasons": "Pourquoi des enregistrements ont échoué",
       "statusCode": "Code de statut",
+      "writtenWithoutFields": {
+        "title": "Écrits de nouveau sans un champ refusé par l'org cible",
+        "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, ou une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit. Le chargement a écrit de nouveau chaque enregistrement sans ces champs, ou avec la valeur que déclare la règle de liste de sélection du champ : l'enregistrement est dans l'org cible, sans la valeur que lui donne le jeu de données.",
+        "refusedBy": "Refusé par",
+        "written": "Écrit",
+        "leftOut": "sans le champ",
+        "replacedWith": "avec « {{value}} », comme le déclare sa règle de liste de sélection"
+      },
       "purge": {
         "title": "Ce que le rechargement a purgé des chargements précédents",
         "deleted": "Supprimés",

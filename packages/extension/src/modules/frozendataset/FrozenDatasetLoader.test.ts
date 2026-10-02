@@ -8051,6 +8051,82 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
       );
     });
 
+    it('counts what the emails that waited came to when the write sending one of them again throws', async () => {
+      // A record the target refused on a field it named goes again in a write
+      // of its own. When that one threw, the emails the write before it had
+      // put in would have read as kept from the target.
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const writer = withCaseIds(platformWriter(calls, emails));
+      const insert = writer.insert;
+      let waited = 0;
+      writer.insert = vi.fn(
+        async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+          if (objectApiName !== 'EmailMessage' || !records.every((r) => r.ActivityId)) {
+            return insert(org, objectApiName, records);
+          }
+          if (++waited === 2) throw new Error('Bulk job failed: the connection was reset');
+          const outcomes = await insert(org, objectApiName, records);
+          // The email related to the case alone is refused by a rule on that relation.
+          return outcomes.map((outcome, i) =>
+            records[i].RelatedToId
+              ? {
+                  id: '',
+                  success: false,
+                  errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: not on a case alone [RelatedToId]'],
+                  errorDetails: [
+                    {
+                      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                      message: 'not on a case alone',
+                      fields: ['RelatedToId'],
+                    },
+                  ],
+                }
+              : outcome,
+          );
+        },
+      );
+      const deps = makeDeps({ dataset, writer, queryImpl: platformReads(emails) });
+
+      const error = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FrozenLoadFailedError);
+      expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
+        [
+          'error',
+          'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+            'waiting for their tasks; after their task: 1 inserted, 0 reused, 0 duplicates ' +
+            'skipped, 1 failed — Bulk job failed: the connection was reset',
+        ],
+      ]);
+      // The audit trail counts them as the line does: none kept from the target.
+      expect(
+        (error as FrozenLoadFailedError).written.perObject.find(
+          (o) => o.objectApiName === 'EmailMessage',
+        ),
+      ).toEqual({
+        objectApiName: 'EmailMessage',
+        fromFiles: 3,
+        inserted: 2,
+        reused: 0,
+        skippedDuplicates: [],
+        failed: [
+          {
+            objectApiName: 'EmailMessage',
+            referenceId: ref('EmailMessage', 3),
+            errors: [
+              'FIELD_CUSTOM_VALIDATION_EXCEPTION: not on a case alone [RelatedToId]',
+              'Not written again without RelatedToId: Bulk job failed: the connection was reset',
+            ],
+          },
+        ],
+      });
+    });
+
     it('ends the task object failed, and then the email object with its first write, when the lookup of the tasks written with the emails throws', async () => {
       const { error, progress } = await loadFailingAt(
         () => false,

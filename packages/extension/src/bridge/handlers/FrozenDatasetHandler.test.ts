@@ -20,7 +20,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
-import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
+import type { BaseMessage, FrozenLoadReportInfo, FrozenProjectConfig } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -811,6 +811,72 @@ describe('FrozenDatasetHandler', () => {
             ],
           }),
         ]);
+      });
+
+      it('counts apart, among the records it inserted, those written again without a field the org refused', async () => {
+        // In the target, each short of a value the dataset held: counted as
+        // created alone, the trail could not tell them from the others.
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(async () => ({
+          ...report(),
+          status: 'completed',
+          perObject: [
+            {
+              objectApiName: 'Account',
+              fromFiles: 2,
+              inserted: 2,
+              reused: 0,
+              skippedDuplicates: [],
+              failed: [],
+              writtenWithoutFields: {
+                rows: 1,
+                fields: [
+                  {
+                    field: 'Tier__c',
+                    refusedBy: 'restricted-picklist',
+                    reason: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value',
+                    rows: 1,
+                  },
+                ],
+              },
+            },
+          ],
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+        }));
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'success',
+            objects: [
+              {
+                objectApiName: 'Account',
+                created: 2,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                writtenWithoutFields: 1,
+              },
+            ],
+          }),
+        ]);
+        // And the Load tab hears which field, what refused it, and how many.
+        expect(
+          (posted(deps, 'frozen:load:response')[0].payload.report as FrozenLoadReportInfo)
+            .perObject[0].writtenWithoutFields,
+        ).toEqual({
+          rows: 1,
+          fields: [
+            {
+              field: 'Tier__c',
+              refusedBy: 'restricted-picklist',
+              reason: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value',
+              rows: 1,
+            },
+          ],
+        });
       });
 
       describe('a load the cancel stopped before it wrote', () => {

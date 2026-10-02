@@ -175,9 +175,9 @@ export class PostLoadVerifier {
   ): Promise<VerificationSnapshot> {
     return {
       counts: await this.measureCounts(options, contract),
-      orphans: await this.measureOrphans(options),
+      orphans: await this.measureOrphans(options, contract),
       personContact: await this.measurePersonContacts(options),
-      presence: await this.measurePresence(options),
+      presence: await this.measurePresence(options, contract),
     };
   }
 
@@ -216,14 +216,28 @@ export class PostLoadVerifier {
    * Sampled orphans per mandatory lookup of the graph — among the records
    * this load wrote when the mapping says which they are, for the reason the
    * counts are: the records already in the org are not this load's to judge.
+   * Nor is a record the load wrote without the lookup, which the target
+   * refused it on and took once it was left out (`writtenWithout`): the
+   * lookup is empty on purpose, and the load report says why.
    */
-  private async measureOrphans(options: PostLoadVerifyOptions): Promise<Record<string, string[]>> {
+  private async measureOrphans(
+    options: PostLoadVerifyOptions,
+    contract: CountingContract,
+  ): Promise<Record<string, string[]>> {
     const orphans: Record<string, string[]> = {};
     const sample = options.orphanSampleSize ?? DEFAULT_ORPHAN_SAMPLE_SIZE;
     const loaded = options.mapping ? loadedIdsByObject(options.mapping) : undefined;
     for (const [objectApiName, fields] of Object.entries(options.mandatoryLookups ?? {})) {
-      const clauses = loaded ? idInClauses(loaded.get(objectApiName) ?? []) : [''];
       for (const field of fields) {
+        const leftEmpty = new Set(
+          writtenWithout(contract, objectApiName, field).flatMap((referenceId) => {
+            const id = options.mapping?.get(referenceId);
+            return id === undefined ? [] : [id];
+          }),
+        );
+        const clauses = loaded
+          ? idInClauses((loaded.get(objectApiName) ?? []).filter((id) => !leftEmpty.has(id)))
+          : [''];
         const found: string[] = [];
         for (const clause of clauses) {
           const soql =
@@ -312,15 +326,25 @@ export class PostLoadVerifier {
     return known;
   }
 
-  /** Presence by key (e.g. ExternalId) for the referential shared with the org. */
-  private async measurePresence(options: PostLoadVerifyOptions): Promise<Record<string, string[]>> {
+  /**
+   * Presence by key (e.g. ExternalId) for the referential shared with the
+   * org — but the key of a record the load wrote without it, which the target
+   * refused it on and took once it was left out (`writtenWithout`): the
+   * record is in the org, its key empty on purpose.
+   */
+  private async measurePresence(
+    options: PostLoadVerifyOptions,
+    contract: CountingContract,
+  ): Promise<Record<string, string[]>> {
     const presence: Record<string, string[]> = {};
     if (!options.dataset) {
       return presence;
     }
     for (const [objectApiName, keyField] of Object.entries(options.presenceKeys ?? {})) {
-      const records =
-        options.dataset.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
+      const withoutTheKey = new Set(writtenWithout(contract, objectApiName, keyField));
+      const records = (
+        options.dataset.objects.find((o) => o.objectApiName === objectApiName)?.records ?? []
+      ).filter((r) => !withoutTheKey.has(r.referenceId));
       const keys = [
         ...new Set(
           records
@@ -444,6 +468,22 @@ function stableSerialize(value: unknown): string {
     return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableSerialize(v)}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+/**
+ * The referenceIds of the records of `objectApiName` the load wrote without
+ * `field`, as the contract names them: none from a contract written before a
+ * refused record was written again, or that names something else there.
+ */
+function writtenWithout(
+  contract: CountingContract,
+  objectApiName: string,
+  field: string,
+): string[] {
+  const named: unknown = contract.objects[objectApiName]?.writtenWithout?.[field];
+  return Array.isArray(named)
+    ? named.filter((referenceId): referenceId is string => typeof referenceId === 'string')
+    : [];
 }
 
 /** Ids per SOQL `IN` list: short enough for any statement to stay well inside the limit. */

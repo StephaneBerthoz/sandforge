@@ -632,7 +632,8 @@ const FROZEN_STATUS_WITH_DATASET = {
 /**
  * A pilot load's report: one object the target takes no insert of, contacts
  * the target refused, feed items a dataset extracted before their type was
- * kept could not load, and the links it could not make after its inserts.
+ * kept could not load, the links it could not make after its inserts, and an
+ * account the target took once written again without the fields it refused.
  */
 const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   status: 'completed-with-errors',
@@ -661,6 +662,25 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       reused: 0,
       skippedDuplicates: [],
       failed: [],
+      writtenWithoutFields: {
+        rows: 1,
+        fields: [
+          {
+            field: 'Rating__c',
+            refusedBy: 'restricted-picklist',
+            reason:
+              'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Hot',
+            rows: 1,
+            replacedWith: 'Warm',
+          },
+          {
+            field: 'Phone',
+            refusedBy: 'validation-rule',
+            reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33…',
+            rows: 1,
+          },
+        ],
+      },
     },
     {
       objectApiName: 'Opportunity',
@@ -5127,6 +5147,10 @@ for (const theme of STATE_THEMES) {
       await page
         .getByTestId('frozen-report-unresolved-lost')
         .waitFor({ state: 'visible', timeout: 10_000 });
+      // The fields the target refused records on, which went in written again.
+      await expect(
+        page.getByTestId('frozen-report-written-without-fields').locator('tbody tr'),
+      ).toHaveCount(2, { timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

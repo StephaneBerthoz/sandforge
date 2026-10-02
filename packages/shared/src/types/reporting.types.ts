@@ -81,9 +81,10 @@ export interface AuditObjectCounts {
   /**
    * Of the records written, those the target refused on fields it named — a
    * validation rule, or a restricted picklist refusing their value — and that
-   * went in once those fields were left out: counted among the created or
-   * updated too, and said apart because they lack a value the source held.
-   * Absent when there are none.
+   * went in once those fields were left out, or, for a Frozen load whose
+   * picklist rule replaces a rejected value, given that value: counted among
+   * the created or updated too, and said apart because they lack a value the
+   * source held. Absent when there are none.
    */
   writtenWithoutFields?: number;
   /**

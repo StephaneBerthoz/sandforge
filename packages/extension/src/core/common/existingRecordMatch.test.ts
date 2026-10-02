@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  bulkSaveErrorDetail,
   canonicalRecordId,
   codeAndMessage,
   duplicateRuleMatchIds,
@@ -194,6 +195,57 @@ describe('saveErrorDetail', () => {
       fields: [],
     });
     expect(saveErrorDetail(null).statusCode).toBe('UNKNOWN_ERROR');
+  });
+});
+
+describe('bulkSaveErrorDetail', () => {
+  it('reads the field a restricted picklist refused out of the text a real target wrote', () => {
+    // The message holds colons of its own; the field follows the last one.
+    expect(
+      bulkSaveErrorDetail(
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST:Tier: bad value for restricted picklist field : NOPE:Tier__c --',
+      ),
+    ).toEqual({
+      statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+      message: 'Tier: bad value for restricted picklist field : NOPE',
+      fields: ['Tier__c'],
+    });
+  });
+
+  it('reads every field of a refusal naming several, separated by spaces', () => {
+    expect(
+      bulkSaveErrorDetail(
+        'REQUIRED_FIELD_MISSING:Required fields are missing: [Name, StageName, CloseDate]:Name StageName CloseDate --',
+      ),
+    ).toEqual({
+      statusCode: 'REQUIRED_FIELD_MISSING',
+      message: 'Required fields are missing: [Name, StageName, CloseDate]',
+      fields: ['Name', 'StageName', 'CloseDate'],
+    });
+  });
+
+  it('reads no field of a refusal that named none', () => {
+    expect(
+      bulkSaveErrorDetail(
+        'DUPLICATE_VALUE:duplicate value found: Code__c duplicates value on record with id: <unknown>:--',
+      ),
+    ).toEqual({
+      statusCode: 'DUPLICATE_VALUE',
+      message: 'duplicate value found: Code__c duplicates value on record with id: <unknown>',
+      fields: [],
+    });
+  });
+
+  it('reads nothing of a text that is not exactly one error', () => {
+    // Read as one, two errors would name the fields of the second under the
+    // code of the first.
+    expect(
+      bulkSaveErrorDetail(
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION:first:Phone --FIELD_CUSTOM_VALIDATION_EXCEPTION:second:Email --',
+      ),
+    ).toBeUndefined();
+    expect(bulkSaveErrorDetail('Record not processed by Bulk API job')).toBeUndefined();
+    expect(bulkSaveErrorDetail('No result returned by Bulk API job')).toBeUndefined();
   });
 });
 

@@ -397,6 +397,16 @@ export function messageLines(message: Posted): string[] {
           reused: number;
           skippedDuplicates: unknown[];
           failed: Array<{ errors?: string[]; error?: string }>;
+          writtenWithoutFields?: {
+            rows: number;
+            fields: Array<{
+              field: string;
+              refusedBy?: string;
+              reason: string;
+              rows: number;
+              replacedWith?: string;
+            }>;
+          };
         }>;
         pass2: {
           resolved: number;
@@ -443,6 +453,40 @@ export function messageLines(message: Posted): string[] {
       // which of them the platform writes itself.
       for (const left of [...(r.leftToThePlatform ?? []), ...(r.untypedFeedItems ?? [])]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
+      }
+      // Refused by a validation rule on the fields it named, or by a
+      // restricted picklist on their value, and written again without them —
+      // or with the value the declared picklist rule gives: in the target,
+      // each short of a value the dataset held. Each field says which refused it.
+      const withoutFields = r.perObject.filter(
+        (o) => (o.writtenWithoutFields?.fields.length ?? 0) > 0,
+      );
+      if (withoutFields.length > 0) {
+        lines.push(
+          'written again without a field a validation rule or a restricted picklist refused ' +
+            `(${withoutFields.length} object(s)):`,
+        );
+        for (const { objectApiName, writtenWithoutFields } of withoutFields) {
+          for (const {
+            field,
+            refusedBy,
+            reason,
+            rows,
+            replacedWith,
+          } of writtenWithoutFields?.fields ?? []) {
+            const by =
+              refusedBy === 'restricted-picklist'
+                ? 'a restricted picklist refused its value'
+                : 'a validation rule refused it';
+            const instead =
+              replacedWith === undefined
+                ? ''
+                : ` — written with "${replacedWith}", as its picklist rule declares`;
+            lines.push(
+              `  ${objectApiName}.${field}  ${rows} record(s) — ${by}${instead} — ${reason}`,
+            );
+          }
+        }
       }
       lines.push(`pass 2: ${r.pass2.resolved} resolved, ${r.pass2.unresolved.length} unresolved`);
       for (const u of r.pass2.unresolved.slice(0, 5)) {

@@ -179,6 +179,37 @@ export function saveErrorDetail(error: unknown): SaveErrorDetail {
   };
 }
 
+/**
+ * One error as the Bulk API writes it in a failed row's `sf__Error`:
+ * `STATUS_CODE:message:fields --`, the fields the error named separated by
+ * spaces, and none before the closing dashes when it named none. Run against a
+ * real target: `REQUIRED_FIELD_MISSING:Required fields are missing: [Name,
+ * StageName, CloseDate]:Name StageName CloseDate --`, and a restricted
+ * picklist's `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST:<label>: bad value for
+ * restricted picklist field: <value>:<field> --`. The message holds colons of
+ * its own: the fields follow the last one.
+ */
+const BULK_ERROR_RE = /^([A-Z][A-Z0-9_]*):([\s\S]*):([A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*)? ?--$/;
+
+/**
+ * One Bulk API error with its code and the fields it named, read from the text
+ * of `sf__Error` — the only form that path gives it in. Nothing for a text that
+ * is not exactly one error: a row refused for several reasons is written in a
+ * form no run has shown, and read as one it would name the fields of another
+ * error than its code's.
+ */
+export function bulkSaveErrorDetail(sfError: string): SaveErrorDetail | undefined {
+  const text = sfError.trim();
+  if (text.indexOf('--') !== text.length - 2) return undefined;
+  const match = BULK_ERROR_RE.exec(text);
+  if (!match) return undefined;
+  return {
+    statusCode: match[1],
+    message: match[2],
+    fields: match[3] === undefined ? [] : match[3].split(' '),
+  };
+}
+
 /** The part of a duplicate rule's `duplicateResult` that names the matched records. */
 const duplicateResultSchema = z
   .object({

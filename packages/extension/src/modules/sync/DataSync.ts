@@ -6,6 +6,7 @@ import type {
   AddOnField,
 } from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
+import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import {
   carriesRecordType,
   defaultRecordTypeOf,
@@ -63,6 +64,15 @@ export interface OperationOutcome {
    * updated the one it found (false). Absent when the write does not say.
    */
   created?: boolean;
+  /**
+   * Every error the org refused the record with, each with its code and the
+   * fields it named — `errors` may report the first alone — when one of them
+   * named a field: what a writer reads to send the record again without the
+   * fields a validation rule or a restricted picklist refused it on
+   * (`refusedFields`). Absent when none named one, which leaves no field to
+   * send it without.
+   */
+  errorDetails?: SaveErrorDetail[];
 }
 
 /** Dependencies required by DataSync */

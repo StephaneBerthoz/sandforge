@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import i18n from '../../i18n';
+import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
 import { FrozenPage } from './FrozenPage';
 import { useFrozenStore } from '../../stores/useFrozenStore';
@@ -601,6 +602,95 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
     // A load without Reload purges nothing, and says nothing of a purge.
     expect(screen.queryByTestId('frozen-report-purge')).toBeNull();
+    expect(screen.queryByTestId('frozen-report-written-without-fields')).toBeNull();
+  });
+
+  it('names each field the target refused records on that went in written again, what refused it, and how', () => {
+    // Counted among the inserted alone, a record in the target short of a
+    // value the dataset held read as one written whole.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Account',
+            fromFiles: 3,
+            inserted: 3,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [],
+            writtenWithoutFields: {
+              rows: 3,
+              fields: [
+                {
+                  field: 'Tier__c',
+                  refusedBy: 'restricted-picklist',
+                  reason: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Gold',
+                  rows: 2,
+                },
+                {
+                  field: 'Rating__c',
+                  refusedBy: 'restricted-picklist',
+                  reason: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Hot',
+                  rows: 1,
+                  replacedWith: 'Warm',
+                },
+                {
+                  field: 'Phone',
+                  refusedBy: 'validation-rule',
+                  reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33…',
+                  rows: 1,
+                },
+              ],
+            },
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    const section = screen.getByTestId('frozen-report-written-without-fields');
+    expect(section.textContent).toContain(en.frozen.report.writtenWithoutFields.title);
+    const rows = Array.from(section.querySelectorAll('tbody tr')).map((row) =>
+      Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+    );
+    expect(rows).toEqual([
+      [
+        'Account.Tier__c',
+        'a restricted picklist refused its value',
+        'without the field',
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Gold',
+        '2',
+      ],
+      [
+        'Account.Rating__c',
+        'a restricted picklist refused its value',
+        'with “Warm”, as its picklist rule declares',
+        'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value: Hot',
+        '1',
+      ],
+      [
+        'Account.Phone',
+        'a validation rule refused it',
+        'without the field',
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33…',
+        '1',
+      ],
+    ]);
   });
 
   it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', () => {

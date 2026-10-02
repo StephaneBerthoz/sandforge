@@ -17,7 +17,13 @@
  * per-project configuration.
  */
 
-import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
+import type {
+  ForgeFieldRefusal,
+  ForgeRefusedField,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+} from './forge.types.js';
 
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
@@ -342,6 +348,34 @@ export interface FrozenSkippedRecord {
 export type FrozenUnresolvedLinkCause =
   'record-not-loaded' | 'target-not-loaded' | 'update-refused';
 
+/**
+ * A field the target refused records of one object on at their insert — a
+ * validation rule, or a restricted picklist refusing their value — and that
+ * they went in without once written again: left out, or, for a picklist whose
+ * declared rule replaces a rejected value, with that value instead.
+ */
+export interface FrozenRefusedField extends ForgeRefusedField {
+  refusedBy: ForgeFieldRefusal;
+  /**
+   * The value the declared picklist rule gave the field in place of the one
+   * the target refused. Absent when the records went without the field.
+   */
+  replacedWith?: string;
+}
+
+/**
+ * The records of one object the target refused on fields it named, that went
+ * in once written again without their values: counted among the inserted. A
+ * record refused without a field named, or refused again, is a failure
+ * instead.
+ */
+export interface FrozenWrittenWithoutFields {
+  /** Records written so. */
+  rows: number;
+  /** Each field they went without, with the refusal that named it. */
+  fields: FrozenRefusedField[];
+}
+
 /** Per-object load accounting. */
 export interface FrozenPerObjectLoadResult {
   objectApiName: string;
@@ -350,6 +384,12 @@ export interface FrozenPerObjectLoadResult {
   reused: number;
   skippedDuplicates: FrozenSkippedRecord[];
   failed: FrozenSkippedRecord[];
+  /**
+   * Of the records inserted, those the target refused on fields it named and
+   * took once written again without their values. Absent when there were
+   * none, and from reports written before a refused record was written again.
+   */
+  writtenWithoutFields?: FrozenWrittenWithoutFields;
 }
 
 /** Final load report — every exclusion/adjustment is listed. */

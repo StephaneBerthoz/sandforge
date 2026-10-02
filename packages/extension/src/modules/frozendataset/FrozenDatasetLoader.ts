@@ -53,12 +53,22 @@ import {
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
 } from '@sandforge/shared';
-import type { ForgeWrittenBetween, GuardDecision } from '@sandforge/shared';
+import type {
+  ForgeWrittenBetween,
+  FrozenRefusedField,
+  FrozenWrittenWithoutFields,
+  GuardDecision,
+} from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  addWrittenWithoutFields,
+  refusedFields,
+  writtenWithoutFieldsNote,
+} from '../../core/common/refusedFields.js';
 import {
   ACCOUNT,
   ACCOUNT_CONTACT_RELATION,
@@ -570,6 +580,9 @@ function mergeResults(
   second: PerObjectLoadResult,
 ): PerObjectLoadResult {
   const notInserted = (first.notInserted ?? 0) + (second.notInserted ?? 0);
+  const writtenWithoutFields = [first.writtenWithoutFields, second.writtenWithoutFields].reduce<
+    FrozenWrittenWithoutFields | undefined
+  >((sum, written) => (written ? addWrittenWithoutFields(sum, written) : sum), undefined);
   return {
     objectApiName: second.objectApiName,
     fromFiles: first.fromFiles + second.fromFiles,
@@ -577,8 +590,39 @@ function mergeResults(
     reused: first.reused + second.reused,
     skippedDuplicates: [...first.skippedDuplicates, ...second.skippedDuplicates],
     failed: [...first.failed, ...second.failed],
+    ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
     ...(notInserted > 0 ? { notInserted } : {}),
   };
+}
+
+/**
+ * Per object and field, the referenceIds of the records the target took once
+ * written again without the field: what the counting contract names for the
+ * verification (`CountingContractEntry.writtenWithout`).
+ */
+type WrittenWithout = Map<string, Map<string, string[]>>;
+
+/**
+ * A record the target refused on fields it named, as it goes again: see
+ * `FrozenDatasetLoader.sentAgain`.
+ */
+interface SentAgain {
+  /** What it is sent: without the fields refused, or with the value a declared picklist rule gives one. */
+  payload: Record<string, unknown>;
+  /** Each field it goes without, or with another value, and the refusal that named it. */
+  fields: Array<Omit<FrozenRefusedField, 'rows'>>;
+}
+
+/** How a record went again, as its failure says it: `without Phone and with Tier__c set to "Silver"`. */
+function howSentAgain(fields: SentAgain['fields']): string {
+  const leftOut = fields.filter((f) => f.replacedWith === undefined).map((f) => f.field);
+  const replaced = fields
+    .filter((f) => f.replacedWith !== undefined)
+    .map((f) => `${f.field} set to "${f.replacedWith}"`);
+  return [
+    ...(leftOut.length > 0 ? [`without ${leftOut.join(', ')}`] : []),
+    ...(replaced.length > 0 ? [`with ${replaced.join(', ')}`] : []),
+  ].join(' and ');
 }
 
 /**
@@ -971,6 +1015,8 @@ export class FrozenDatasetLoader {
     const placeholders: PlaceholderCreation[] = [];
     const perObject: PerObjectLoadResult[] = [];
     const created = new CreatedKeys();
+    /** The records the target took once written again without a field, for the contract. */
+    const writtenWithout: WrittenWithout = new Map();
     /** Records earlier loads created that this load reuses, by the keys it maps them under. */
     let carried: LoadCreatedRecords[] = [];
     /**
@@ -1645,13 +1691,15 @@ export class FrozenDatasetLoader {
       cause: unknown,
     ): void => {
       // What a first write of it put in: the standard prices, when the
-      // custom ones threw.
+      // custom ones threw, and the rows its first write did, when the one
+      // that sends again those the target refused on their fields threw.
       const at = perObject.findIndex((o) => o.objectApiName === objectApiName);
       const counted = at >= 0 ? perObject[at] : undefined;
       const linked = rows.filter((r) => reused.has(r.referenceId)).length;
       const inserted = counted?.inserted ?? 0;
       const skippedDuplicates = counted?.skippedDuplicates ?? [];
       const failed = counted?.failed ?? [];
+      const writtenWithoutFields = counted?.writtenWithoutFields;
       const notInserted =
         rows.length - linked - inserted - skippedDuplicates.length - failed.length;
       // The person accounts' contacts are none of the rows it sends: counted
@@ -1663,6 +1711,7 @@ export class FrozenDatasetLoader {
         reused: linked,
         skippedDuplicates,
         failed,
+        ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
         ...(notInserted > 0 ? { notInserted } : {}),
       });
       if (counted) perObject[at] = row;
@@ -1675,8 +1724,8 @@ export class FrozenDatasetLoader {
         message:
           `${objectApiName}: ${inserted} inserted, ${row.reused} reused, ${skippedDuplicates.length} ` +
           `duplicates skipped, ${row.failed.length} failed${waitingForTheirTask(objectApiName)}` +
-          `${keptBackByTheFailure(notInserted)}${leftOutNoteOf(objectApiName, flagsNotKept)}` +
-          ` — ${extractErrorMessage(cause)}`,
+          `${keptBackByTheFailure(notInserted)}${writtenWithoutFieldsNote(writtenWithoutFields)}` +
+          `${leftOutNoteOf(objectApiName, flagsNotKept)} — ${extractErrorMessage(cause)}`,
       });
     };
     /**
@@ -1774,6 +1823,17 @@ export class FrozenDatasetLoader {
         }
         throw err;
       }
+      /** What the emails that waited came to: see `countWithTheFirst`. */
+      const countsOf = (result: PerObjectLoadResult): string =>
+        `${result.inserted} inserted, ${result.reused} reused, ${result.skippedDuplicates.length} duplicates skipped, ${result.failed.length} failed${keptBackByTheCancel(result.notInserted ?? 0)}${writtenWithoutFieldsNote(result.writtenWithoutFields)}`;
+      /** Count what the emails that waited came to with what the object's first write put in. */
+      const countWithTheFirst = (result: PerObjectLoadResult): void => {
+        const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
+        if (at >= 0) perObject[at] = mergeResults(perObject[at], result);
+        else perObject.push(result);
+      };
+      /** What their write came to when the one sending again those refused on their fields threw. */
+      const soFar: { result?: PerObjectLoadResult } = {};
       try {
         late = await this.insertObject(
           options,
@@ -1786,20 +1846,39 @@ export class FrozenDatasetLoader {
           pendingFk,
           duplicatePatterns,
           created,
+          writtenWithout,
+          (result) => {
+            soFar.result = result;
+          },
         );
       } catch (err: unknown) {
         // The write of the emails that waited threw: the object's own, which
         // the load fails on. The first write's line ends it, failed, and
-        // says why.
-        if (first) endOnTheFirstWrite(first, 'failure', { cause: err });
+        // says why — and what they came to, when what threw was the write
+        // sending again those the target refused on their fields: the others
+        // are in the target, and only the rows no answer came for were kept
+        // from it.
+        const answered = soFar.result;
+        if (answered) countWithTheFirst(answered);
+        if (first && answered) {
+          const counted =
+            answered.inserted + answered.skippedDuplicates.length + answered.failed.length;
+          endOnTheFirstWrite(
+            {
+              ...first,
+              waiting: Math.max(first.waiting - counted, 0),
+              message: `${first.message}; after their task: ${countsOf(answered)}`,
+            },
+            'failure',
+            { cause: err },
+          );
+        } else if (first) endOnTheFirstWrite(first, 'failure', { cause: err });
         throw err;
       }
-      const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
-      if (at >= 0) perObject[at] = mergeResults(perObject[at], late);
-      else perObject.push(late);
+      countWithTheFirst(late);
       // A cancel that came as they were written kept the rest of them from
       // the target: the object ends stopped, and the load at its next check.
-      const lateCounts = `${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed${keptBackByTheCancel(late.notInserted ?? 0)}`;
+      const lateCounts = countsOf(late);
       let status: FrozenLoadProgressEvent['status'] = 'done';
       if (late.failed.length > 0 || first?.status === 'error') status = 'error';
       else if ((late.notInserted ?? 0) > 0) status = 'stopped';
@@ -1932,9 +2011,16 @@ export class FrozenDatasetLoader {
        */
       const leftToInsert = startingRecords.filter((r) => !reused.has(r.referenceId)).length;
       const stoppedBeforeTheInsert = options.signal?.aborted === true && leftToInsert > 0;
+      /*
+       * Insert rows of the object. When the write sending again the rows the
+       * target refused on their fields throws, what the first write put in is
+       * counted where the line the failure ends the object on reads it
+       * (`endOnItsFailure`) — unless `keepOnFailure` keeps it elsewhere.
+       */
       const insert = (
         records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
         count: number,
+        keepOnFailure: (soFar: PerObjectLoadResult) => void = (soFar) => perObject.push(soFar),
       ): Promise<PerObjectLoadResult> =>
         this.insertObject(
           options,
@@ -1947,6 +2033,8 @@ export class FrozenDatasetLoader {
           pendingFk,
           duplicatePatterns,
           created,
+          writtenWithout,
+          keepOnFailure,
         );
       // A custom price is refused for a product with no standard one, so the
       // standard prices are written first, in a call of their own.
@@ -1992,11 +2080,21 @@ export class FrozenDatasetLoader {
             counted.failed.length;
           objectResult = { ...counted, ...(notInserted > 0 ? { notInserted } : {}) };
         } else {
-          const customPrices = await insert(custom, fromFiles).catch((err: unknown) => {
-            // Counted, as at a cancel: the standard prices are in the target.
-            // The line that ends the object adds the custom prices the
-            // failure kept from it: see `endOnItsFailure`.
-            perObject.push({ ...standardPrices, fromFiles });
+          /** What the custom prices came to when the write sending some of them again threw. */
+          const customSoFar: { result?: PerObjectLoadResult } = {};
+          const customPrices = await insert(custom, fromFiles, (soFar) => {
+            customSoFar.result = soFar;
+          }).catch((err: unknown) => {
+            // Counted, as at a cancel: the standard prices are in the target,
+            // with the custom ones the first write of theirs put in when what
+            // threw was the write sending again those the target refused on
+            // their fields. The line that ends the object adds the custom
+            // prices the failure kept from it: see `endOnItsFailure`.
+            perObject.push(
+              customSoFar.result
+                ? mergeResults(standardPrices, customSoFar.result)
+                : { ...standardPrices, fromFiles },
+            );
             throw err;
           });
           objectResult = mergeResults(standardPrices, customPrices);
@@ -2038,7 +2136,9 @@ export class FrozenDatasetLoader {
       let status: FrozenLoadProgressEvent['status'] = failedSome ? 'error' : 'done';
       if (!failedSome && notInserted > 0) status = 'stopped';
       const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
-      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBackByTheCancel(notInserted)}`;
+      // The rows written again without the fields the target refused them
+      // on: which field, how many, what refused it and in what words.
+      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${keptBackByTheCancel(notInserted)}${writtenWithoutFieldsNote(objectResult.writtenWithoutFields)}`;
       if (waiting && notInserted === 0) {
         // A step on the way: the write of the emails that wait for their task
         // ends the object, in one line with this one. See `emailsWrittenFirst`.
@@ -2195,6 +2295,7 @@ export class FrozenDatasetLoader {
         })),
       ],
       personContactsNotSent.size,
+      writtenWithout,
     );
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
@@ -3332,7 +3433,30 @@ export class FrozenDatasetLoader {
     });
   }
 
-  /** Insert pass 1 for one object; queue unresolved FKs for pass 2. */
+  /**
+   * Insert pass 1 for one object; queue unresolved FKs for pass 2.
+   *
+   * A record the target refused on fields it named — a validation rule, or a
+   * restricted picklist refusing its value — goes again once, in a call of its
+   * own past Production Guard: without those fields, or with the value the
+   * declared picklist rule gives (`sentAgain`). Refused, it failed, and every
+   * record hanging from it failed or lost its lookup with it, though nothing
+   * read before the write could have told: a record type never given values of
+   * a restricted picklist takes none of them, while the UI API the alignment
+   * reads answers the field's whole value set for it. Taken the second time,
+   * it is inserted and mapped as any other, and counted with the fields it
+   * went without (`writtenWithoutFields`); refused again, it fails with both
+   * refusals. The rows of one object go out in one write: every row a value
+   * is refused for is refused in it, and goes again in the write that
+   * follows, so no refused value is remembered from one call to the next, as
+   * Forge remembers one between its batches.
+   *
+   * @param writtenWithout - Where the records taken without a field are noted, for the contract.
+   * @param keepOnFailure - Handed the object as counted so far when that second
+   *   write throws, or Production Guard refuses it, before the failure goes
+   *   on: the records the first write put in are in the target, and the line
+   *   the failure ends the object on counts them as its line counts any other.
+   */
   private async insertObject(
     options: FrozenLoadOptions,
     objectApiName: string,
@@ -3344,6 +3468,8 @@ export class FrozenDatasetLoader {
     pendingFk: PendingFk[],
     duplicatePatterns: readonly string[],
     created: CreatedKeys,
+    writtenWithout: WrittenWithout,
+    keepOnFailure?: (soFar: PerObjectLoadResult) => void,
   ): Promise<PerObjectLoadResult> {
     const result: PerObjectLoadResult = {
       objectApiName,
@@ -3394,23 +3520,32 @@ export class FrozenDatasetLoader {
       pendingFk.push(...pending.filter((p) => !filled.includes(p.field)));
       return payload;
     });
+    /** Keep a record the target took: mapped, created by the load, counted. */
+    const inserted = (referenceId: string, id: string, payload: Record<string, unknown>): void => {
+      mapping.set(referenceId, id);
+      created.add(
+        objectApiName,
+        referenceId,
+        AUDIT_DATE_FIELDS.some((f) => f in payload),
+      );
+      result.inserted++;
+    };
     await this.checkGuard(options, 'insert', objectApiName, payloads.length);
     const outcomes = await this.deps.writer.insert(options.orgId, objectApiName, payloads);
+    const refused: Array<SentAgain & { referenceId: string; errors: string[] }> = [];
     outcomes.forEach((outcome, i) => {
       const referenceId = toInsert[i].referenceId;
       if (outcome.success && outcome.id) {
-        mapping.set(referenceId, outcome.id);
-        created.add(
-          objectApiName,
-          referenceId,
-          AUDIT_DATE_FIELDS.some((f) => f in payloads[i]),
-        );
-        result.inserted++;
-      } else if (isDuplicateRejection(outcome.errors, duplicatePatterns)) {
-        result.skippedDuplicates.push({ objectApiName, referenceId, errors: outcome.errors });
-      } else {
-        result.failed.push({ objectApiName, referenceId, errors: outcome.errors });
+        inserted(referenceId, outcome.id, payloads[i]);
+        return;
       }
+      if (isDuplicateRejection(outcome.errors, duplicatePatterns)) {
+        result.skippedDuplicates.push({ objectApiName, referenceId, errors: outcome.errors });
+        return;
+      }
+      const again = this.sentAgain(objectApiName, payloads[i], outcome);
+      if (again) refused.push({ ...again, referenceId, errors: outcome.errors });
+      else result.failed.push({ objectApiName, referenceId, errors: outcome.errors });
     });
     // The rows the writer had no answer for were never sent: the load's
     // cancel came while the object was written, and the writer stopped before
@@ -3419,7 +3554,111 @@ export class FrozenDatasetLoader {
     // as if written whole.
     const unanswered = toInsert.length - outcomes.length;
     if (unanswered > 0 && options.signal?.aborted) result.notInserted = unanswered;
+    if (refused.length === 0) return result;
+
+    /** Leave as the failures the target made them records kept from their second write, and why. */
+    const notSentAgain = (rows: typeof refused, why: string): void => {
+      for (const row of rows) {
+        result.failed.push({
+          objectApiName,
+          referenceId: row.referenceId,
+          errors: [...row.errors, `Not written again ${howSentAgain(row.fields)}: ${why}`],
+        });
+      }
+    };
+    // A cancel that came during the first write keeps them from the second,
+    // which the guard is not asked about.
+    if (options.signal?.aborted) {
+      notSentAgain(refused, 'the load was cancelled first');
+      return result;
+    }
+    let answers: OperationOutcome[];
+    try {
+      await this.checkGuard(options, 'insert', objectApiName, refused.length);
+      answers = await this.deps.writer.insert(
+        options.orgId,
+        objectApiName,
+        refused.map((row) => row.payload),
+      );
+    } catch (err: unknown) {
+      notSentAgain(refused, extractErrorMessage(err));
+      keepOnFailure?.(result);
+      throw err;
+    }
+    refused.forEach((row, k) => {
+      const answer = answers[k];
+      if (!answer) {
+        // The writer stopped at the cancel before the call that held it.
+        notSentAgain(
+          [row],
+          options.signal?.aborted ? 'the load was cancelled first' : 'no answer came for it',
+        );
+        return;
+      }
+      if (answer.success && answer.id) {
+        inserted(row.referenceId, answer.id, row.payload);
+        result.writtenWithoutFields = addWrittenWithoutFields(result.writtenWithoutFields, {
+          rows: 1,
+          fields: row.fields.map((field) => ({ ...field, rows: 1 })),
+        });
+        for (const { field, replacedWith } of row.fields) {
+          if (replacedWith !== undefined) continue;
+          const fields = writtenWithout.get(objectApiName) ?? new Map<string, string[]>();
+          fields.set(field, [...(fields.get(field) ?? []), row.referenceId]);
+          writtenWithout.set(objectApiName, fields);
+        }
+        return;
+      }
+      // Refused again, it says what it was first refused with too.
+      const errors = [
+        ...answer.errors,
+        `Sent again ${howSentAgain(row.fields)} after the first refusal: ${row.errors.join('; ')}`,
+      ];
+      if (isDuplicateRejection(answer.errors, duplicatePatterns)) {
+        result.skippedDuplicates.push({ objectApiName, referenceId: row.referenceId, errors });
+      } else {
+        result.failed.push({ objectApiName, referenceId: row.referenceId, errors });
+      }
+    });
     return result;
+  }
+
+  /**
+   * How a record the target refused on fields it named goes again: without
+   * them, as Forge sends one (`refusedFields`). A field whose value a
+   * restricted picklist refused goes instead with the value its declared rule
+   * gives, when the rule replaces a rejected value (`picklistRuleFor`), as the
+   * alignment gives one — unless that is the value refused, or none: sent
+   * again, it would be refused again, and the field is left out. The refusal
+   * names the field, not which of its values: a multi-select one goes without
+   * them all. Nothing for a refusal that holds another error, or names no
+   * field the record gives a value to.
+   */
+  private sentAgain(
+    objectApiName: string,
+    payload: Record<string, unknown>,
+    outcome: OperationOutcome,
+  ): SentAgain | undefined {
+    const leftOut = refusedFields(outcome.errorDetails, payload, undefined);
+    if (!leftOut) return undefined;
+    const again = { ...payload };
+    const fields = leftOut.map((refused): SentAgain['fields'][number] => {
+      const rule =
+        refused.refusedBy === 'restricted-picklist'
+          ? this.picklistRuleFor(objectApiName, refused.field)
+          : undefined;
+      if (
+        rule?.action === 'replace' &&
+        rule.value !== '' &&
+        rule.value !== payload[refused.field]
+      ) {
+        again[refused.field] = rule.value;
+        return { ...refused, replacedWith: rule.value };
+      }
+      delete again[refused.field];
+      return { ...refused };
+    });
+    return { payload: again, fields };
   }
 
   /**
@@ -3959,8 +4198,15 @@ export class FrozenDatasetLoader {
    * the load kept names it: a verification reads the records a mapping names
    * against the contract of the load that wrote it, or not at all.
    *
+   * A record the target took once written again without a field it refused
+   * is expected as any it inserted, and named under that field
+   * (`writtenWithout`): its lookup or its key is empty on purpose, which the
+   * verification does not count against it.
+   *
    * @param personContactsNotSent - How many of the contact object's failures
    *   are person accounts' contacts the load did not send.
+   * @param writtenWithout - Per object and field, the records the target took
+   *   once written again without the field.
    */
   private writeContract(
     options: FrozenLoadOptions,
@@ -3971,6 +4217,7 @@ export class FrozenDatasetLoader {
     lost: ReadonlySet<string>,
     leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
     personContactsNotSent = 0,
+    writtenWithout: WrittenWithout = new Map(),
   ): string {
     const leftOf = new Map<string, Record<string, number>>();
     for (const { objectApiName, count, reason } of leftOut) {
@@ -4013,12 +4260,14 @@ export class FrozenDatasetLoader {
       const added = placeholders.filter(
         (p) => p.placeholderObjectApiName === result.objectApiName,
       ).length;
+      const without = writtenWithout.get(result.objectApiName);
       objects[result.objectApiName] = {
         fromFiles: result.fromFiles,
         exclusionReasons,
         excluded,
         added,
         expected: result.inserted + result.reused + added,
+        ...(without && without.size > 0 ? { writtenWithout: Object.fromEntries(without) } : {}),
       };
     }
     return writeCountingContract(this.sasGuard, options.sasDir, {

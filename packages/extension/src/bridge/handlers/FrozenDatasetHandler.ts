@@ -415,6 +415,8 @@ function cancelledFrozenOutcome(
  * the ones the org refused — duplicates it skipped among them, since the org
  * would not take them. Of an object a cancel stopped while it was written, or
  * the load failed at, the records kept from the target, which were neither.
+ * Of the records inserted, those the org took only once written again without
+ * the fields it refused them on, which lack a value the dataset holds.
  */
 function frozenAuditObjects(
   report: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
@@ -430,6 +432,10 @@ function frozenAuditObjects(
     counts.created += object.inserted;
     counts.failed += object.failed.length + object.skippedDuplicates.length;
     if (object.notInserted) counts.notSent = (counts.notSent ?? 0) + object.notInserted;
+    if (object.writtenWithoutFields) {
+      counts.writtenWithoutFields =
+        (counts.writtenWithoutFields ?? 0) + object.writtenWithoutFields.rows;
+    }
   }
   for (const placeholder of report.placeholders) {
     countsOf(placeholder.placeholderObjectApiName).created += 1;

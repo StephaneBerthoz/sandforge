@@ -3109,6 +3109,14 @@
       "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
       "failedReasons": "Why records failed",
       "statusCode": "Status code",
+      "writtenWithoutFields": {
+        "title": "Written again without a field the target org refused",
+        "hint": "The target org refused these records on the fields it named: a validation rule of its own, or a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells. The load wrote each record again without those fields, or with the value the field's picklist rule declares: the record is in the target org, without the value the dataset holds.",
+        "refusedBy": "Refused by",
+        "written": "Written",
+        "leftOut": "without the field",
+        "replacedWith": "with “{{value}}”, as its picklist rule declares"
+      },
       "purge": {
         "title": "What the reload purged of earlier loads",
         "deleted": "Deleted",

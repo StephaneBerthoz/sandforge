@@ -9,7 +9,11 @@
  * exactly like the forge/sync dep functions.
  */
 
-import type { FrozenLeftToThePlatform, FrozenUnresolvedLinkCause } from '@sandforge/shared';
+import type {
+  FrozenLeftToThePlatform,
+  FrozenUnresolvedLinkCause,
+  FrozenWrittenWithoutFields,
+} from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import type { PersonContactLink } from './types.js';
@@ -74,10 +78,13 @@ export interface TargetOrgAccess {
   /** Describe a target object. Rejects when the object is absent. */
   describe(orgId: string, objectApiName: string): Promise<TargetObjectDescribe>;
   /**
-   * UI API `picklist-values/{recordTypeId}/{field}`: the ONLY source that
-   * sees RecordType assignment gaps — a value active globally may not be
-   * assigned to the record's RecordType, invisible to describe. Returns
-   * the active values for that (RT, field) pair.
+   * UI API `picklist-values/{recordTypeId}/{field}`: the active values for
+   * that (RT, field) pair — a value active globally may not be assigned to the
+   * record's RecordType, which describe does not say. It does not see every
+   * gap: a record type never given values of a field takes none of them, and
+   * the UI API answers the field's whole value set for it. The target's
+   * refusal at insert tells that one, and the loader writes the record again
+   * on the declared picklist rule (`FrozenDatasetLoader.insertObject`).
    */
   picklistValues(
     orgId: string,
@@ -330,6 +337,14 @@ export interface PerObjectLoadResult {
   reused: number;
   skippedDuplicates: SkippedDuplicate[];
   failed: FailedRecord[];
+  /**
+   * Of the records inserted, those the target refused on fields it named — a
+   * validation rule, or a restricted picklist refusing their value — and took
+   * once written again without them, or with the value the declared picklist
+   * rule gives: per field, what refused it and how many went so. Absent when
+   * there were none.
+   */
+  writtenWithoutFields?: FrozenWrittenWithoutFields;
   /**
    * Records the load had to insert and no answer came for: its cancel came
    * while the object was written, and kept them from the target — or the

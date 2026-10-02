@@ -8,10 +8,13 @@
  *   - restricted picklist values inactive at the global level are
  *     cleared/replaced per the DECLARED rule and listed;
  *   - RecordType assignment gaps: a value active globally may be
- *     unassigned to the record's RecordType — invisible
- *     to describe, only the UI API `picklist-values/{recordTypeId}/{field}`
- *     sees it. Rejected values follow the same declared rule and are
- *     listed with scope 'record-type';
+ *     unassigned to the record's RecordType — invisible to describe, which
+ *     the UI API `picklist-values/{recordTypeId}/{field}` tells. Rejected
+ *     values follow the same declared rule and are listed with scope
+ *     'record-type'. A record type never given values of the field is a gap
+ *     the UI API does not see: it answers the field's whole value set for it,
+ *     and the record type takes none. The target refuses such a value at
+ *     insert, and the loader writes the record again on the declared rule;
  *   - required fields missing from EVERY record the load writes (a lookup
  *     turned required after the source data was created) are
  *     reported for the placeholder pattern; records are never dropped.

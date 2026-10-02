@@ -198,6 +198,50 @@ describe('PostLoadVerifier — link integrity', () => {
     expect(orphans?.detail).toContain('003ORPHAN1');
   });
 
+  it('takes for no orphan a record the load wrote without the lookup the target refused it on', async () => {
+    // The target refused the contact on its account, a rule of its own, and
+    // took it once written again without it: loaded, the lookup empty on
+    // purpose, and said so by the load report.
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, {
+      Contact: {
+        fromFiles: 2,
+        exclusionReasons: {},
+        excluded: 0,
+        added: 0,
+        expected: 2,
+        writtenWithout: { AccountId: ['Contact-000002'] },
+      },
+    });
+    const query = vi.fn(async (_org: string, soql: string) =>
+      soql.includes('AccountId = null') && soql.includes("'003000000000002AAA'")
+        ? [{ Id: '003000000000002AAA' }]
+        : [],
+    );
+    const { deps, options } = makeOptions(contractPath, query, {
+      mandatoryLookups: { Contact: ['AccountId'] },
+      mapping: new Map([
+        ['Contact-000001', '003000000000001AAA'],
+        ['Contact-000002', '003000000000002AAA'],
+      ]),
+    });
+    deps.orgAccess.count = vi.fn(async () => 2);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.checks.find((c) => c.name === 'orphans')).toEqual({
+      name: 'orphans',
+      passed: true,
+      detail: 'No orphans on the mandatory lookups of the graph',
+    });
+    // The others it wrote are still judged.
+    expect(query).toHaveBeenCalledWith(
+      '00D-target',
+      "SELECT Id FROM Contact WHERE AccountId = null AND Id IN ('003000000000001AAA') ORDER BY Id LIMIT 10",
+    );
+    expect(verdict.status).toBe('passed');
+  });
+
   it('passes orphans when no mandatory lookup is null', async () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
@@ -409,6 +453,54 @@ describe('PostLoadVerifier — presence by key', () => {
     const presence = verdict.checks.find((c) => c.name === 'presence');
     expect(presence?.passed).toBe(false);
     expect(presence?.detail).toContain('ACC-2');
+  });
+
+  it('does not miss the key of a record the load wrote without it, the target having refused it there', async () => {
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, {
+      Account: {
+        fromFiles: 2,
+        exclusionReasons: {},
+        excluded: 0,
+        added: 0,
+        expected: 2,
+        writtenWithout: { ExternalId__c: ['Account-000002'] },
+      },
+    });
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: [
+            { referenceId: 'Account-000001', fields: { ExternalId__c: 'ACC-1' } },
+            { referenceId: 'Account-000002', fields: { ExternalId__c: 'ACC-2' } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    const query = makeQuery([
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
+      { match: 'ExternalId__c k FROM Account', responses: [[{ k: 'ACC-1' }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query, {
+      dataset,
+      presenceKeys: { Account: 'ExternalId__c' },
+    });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.checks.find((c) => c.name === 'presence')).toEqual({
+      name: 'presence',
+      passed: true,
+      detail: 'All referential keys present in the org',
+    });
+    expect(query).toHaveBeenCalledWith(
+      '00D-target',
+      "SELECT ExternalId__c k FROM Account WHERE ExternalId__c IN ('ACC-1')",
+    );
   });
 });
 

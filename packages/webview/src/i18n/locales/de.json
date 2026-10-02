@@ -3109,6 +3109,14 @@
       "untypedFeedItems": "Beim Laden ausgelassen — der Datensatz enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie den Datensatz erneut, um sie zu laden: {{objects}}",
       "failedReasons": "Warum Datensätze fehlgeschlagen sind",
       "statusCode": "Statuscode",
+      "writtenWithoutFields": {
+        "title": "Erneut ohne ein von der Ziel-Org abgelehntes Feld geschrieben",
+        "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Ladevorgang hat jeden Datensatz ohne diese Felder erneut geschrieben, oder mit dem Wert, den die Auswahllistenregel des Felds festlegt: Der Datensatz ist in der Ziel-Org, ohne den Wert, den der eingefrorene Datensatz für diese Felder enthält.",
+        "refusedBy": "Abgelehnt von",
+        "written": "Geschrieben",
+        "leftOut": "ohne das Feld",
+        "replacedWith": "mit „{{value}}“, wie seine Auswahllistenregel festlegt"
+      },
       "purge": {
         "title": "Was das Neuladen von früheren Ladevorgängen bereinigt hat",
         "deleted": "Gelöscht",

@@ -2,7 +2,8 @@
  * Counting contract: written by the loader into the sas at load time, consumed by the PostLoadVerifier. Per object, the expected count
  * is « files minus exclusions » — dataset records considered for load,
  * minus every listed exclusion (duplicate skips, DML failures). Reused
- * reference records stay in the expected count: they ARE in the org.
+ * reference records stay in the expected count: they ARE in the org, and so
+ * does a record written again without the fields the target refused it on.
  */
 
 import * as fs from 'node:fs';
@@ -24,6 +25,14 @@ export interface CountingContractEntry {
   added: number;
   /** Expected record count in the org: fromFiles − excluded + added. */
   expected: number;
+  /**
+   * Per field, the referenceIds of the records the target refused on it and
+   * took once written again without it: loaded, and counted in `expected`, the
+   * field left empty on purpose — which the verification does not take for an
+   * orphan, or for a key missing from the org. Absent when there were none,
+   * and from contracts written before a refused record was written again.
+   */
+  writtenWithout?: Record<string, string[]>;
 }
 
 /** The counting contract consumed by the PostLoadVerifier. */

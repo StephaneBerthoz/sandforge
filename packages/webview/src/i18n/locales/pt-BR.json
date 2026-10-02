@@ -3109,6 +3109,14 @@
       "untypedFeedItems": "Deixados de fora no carregamento — o conjunto de dados não traz o tipo destes itens de feed, ou daqueles de que dependem, então uma alteração rastreada não se distingue de uma publicação; extraia novamente o conjunto de dados para carregá-los: {{objects}}",
       "failedReasons": "Por que os registros falharam",
       "statusCode": "Código de status",
+      "writtenWithoutFields": {
+        "title": "Gravados de novo sem um campo recusado pela org de destino",
+        "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, ou uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica. A carga gravou cada registro de novo sem esses campos, ou com o valor que a regra de lista de opções do campo declara: o registro está na org de destino, sem o valor que o conjunto de dados tem.",
+        "refusedBy": "Recusado por",
+        "written": "Gravado",
+        "leftOut": "sem o campo",
+        "replacedWith": "com “{{value}}”, como declara sua regra de lista de opções"
+      },
       "purge": {
         "title": "O que a recarga expurgou das cargas anteriores",
         "deleted": "Excluídos",

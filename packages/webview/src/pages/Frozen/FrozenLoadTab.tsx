@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ShieldCheck } from 'lucide-react';
 import type {
+  ForgeFieldRefusal,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
@@ -45,6 +46,12 @@ const PROGRESS_VARIANTS: Record<FrozenLoadProgress['status'], BadgeVariant> = {
   done: 'success',
   error: 'error',
   stopped: 'warning',
+};
+
+/** What refused a field records went in without, as the report names it. */
+const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
 };
 
 /** Sum a numeric field across per-object load results. */
@@ -171,6 +178,23 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
 
   // Why the failed records failed: the count said how many, and nothing why.
   const failureRows = reasonRows(failureReasons(loadReport?.perObject ?? []));
+
+  // The records the target refused on fields it named and took once written
+  // again without them, or with the value their picklist rule declares: per
+  // object and field, what refused it, in what words, and how many.
+  const withoutFieldRows = (loadReport?.perObject ?? []).flatMap((o) =>
+    (o.writtenWithoutFields?.fields ?? []).map((f) => ({
+      key: `${o.objectApiName}\u0000${f.field}\u0000${f.reason}`,
+      field: `${o.objectApiName}.${f.field}`,
+      refusedBy: t(REFUSED_BY_KEYS[f.refusedBy]),
+      written:
+        f.replacedWith === undefined
+          ? t('frozen.report.writtenWithoutFields.leftOut')
+          : t('frozen.report.writtenWithoutFields.replacedWith', { value: f.replacedWith }),
+      reason: f.reason,
+      rows: f.rows,
+    })),
+  );
 
   // What a reload purged of the loads before it, what it left in place, and
   // why the target kept what it would not let go. Shown nowhere, a reload
@@ -420,6 +444,36 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     columns={reasonColumns}
                     data={failureRows}
                     keyExtractor={(row) => row.key as string}
+                  />
+                </div>
+              )}
+
+              {/* In the target, each without a value the dataset holds: which field, what refused it, and how many. */}
+              {withoutFieldRows.length > 0 && (
+                <div data-testid="frozen-report-written-without-fields">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.writtenWithoutFields.title')}
+                  </span>
+                  <p className="text-[11px] text-text-secondary">
+                    {t('frozen.report.writtenWithoutFields.hint')}
+                  </p>
+                  <DataTable
+                    columns={[
+                      { key: 'field', header: t('frozen.report.field'), sortable: true },
+                      {
+                        key: 'refusedBy',
+                        header: t('frozen.report.writtenWithoutFields.refusedBy'),
+                      },
+                      { key: 'written', header: t('frozen.report.writtenWithoutFields.written') },
+                      { key: 'reason', header: t('frozen.report.reason') },
+                      {
+                        key: 'rows',
+                        header: t('frozen.report.affected'),
+                        align: 'right' as const,
+                      },
+                    ]}
+                    data={withoutFieldRows}
+                    keyExtractor={(row) => row.key}
                   />
                 </div>
               )}

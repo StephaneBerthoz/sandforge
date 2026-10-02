@@ -184,6 +184,52 @@ describe('BulkDataWriter', () => {
       });
     });
 
+    it('carries every error of a refusal with the fields it named, when one named a field', async () => {
+      // Kept as the first error's text alone, a refusal said where it was
+      // refused only in words: no writer could send the record again without
+      // the field a restricted picklist had refused the value of.
+      const h = createHarness();
+      h.sobject.create.mockResolvedValue([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+              message: 'Tier: bad value for restricted picklist field: Gold',
+              fields: ['Tier__c'],
+            },
+            {
+              statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+              message: 'Phone must be written +33…',
+              fields: ['Phone'],
+            },
+          ],
+        },
+      ]);
+
+      const [outcome] = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(outcome).toEqual({
+        id: undefined,
+        success: false,
+        errors: [
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Tier: bad value for restricted picklist field: Gold [Tier__c]',
+        ],
+        errorDetails: [
+          {
+            statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+            message: 'Tier: bad value for restricted picklist field: Gold',
+            fields: ['Tier__c'],
+          },
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'Phone must be written +33…',
+            fields: ['Phone'],
+          },
+        ],
+      });
+    });
+
     it('names the single record a blocking duplicate rule matched', async () => {
       const h = createHarness();
       h.sobject.create.mockResolvedValue([
@@ -548,6 +594,40 @@ describe('BulkDataWriter', () => {
       expect(outcomes[1].existingId).toBeUndefined();
     });
 
+    it('reads the fields a bulk refusal named out of its sf__Error', async () => {
+      // As a real target wrote it: the fields after the message's last colon,
+      // separated by spaces, before the closing dashes.
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        outcomes: [
+          {
+            recordIndex: 0,
+            success: false,
+            error:
+              'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST:Tier: bad value for restricted picklist field: Gold:Tier__c --',
+          },
+          {
+            recordIndex: 1,
+            success: false,
+            error:
+              'DUPLICATE_VALUE:duplicate value found: Code__c duplicates value on record with id: <unknown>:--',
+          },
+        ],
+      });
+
+      const outcomes = await h.writer.insert('Account', makeRecords(2), 200);
+
+      expect(outcomes[0].errorDetails).toEqual([
+        {
+          statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+          message: 'Tier: bad value for restricted picklist field: Gold',
+          fields: ['Tier__c'],
+        },
+      ]);
+      // One that names no field leaves the outcome as it was.
+      expect(outcomes[1]).not.toHaveProperty('errorDetails');
+    });
+
     it('substitutes a generic message when a bulk failure carries no error text', async () => {
       const h = createHarness({ useBulkApi: true });
       h.executeBulk.mockResolvedValue({
@@ -719,6 +799,30 @@ describe('BulkDataWriter', () => {
       const outcomes = await h.writer.insert('Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
 
       expect(outcomes[0].existingId).toBe('001Fk00000AbCdEIAV');
+    });
+
+    it('reads the fields a streamed refusal named out of its sf__Error', async () => {
+      const h = createHarness();
+      streaming.executeChunked.mockResolvedValue({
+        outcomes: [
+          {
+            recordIndex: 0,
+            success: false,
+            error:
+              'REQUIRED_FIELD_MISSING:Required fields are missing: [Name, StageName]:Name StageName --',
+          },
+        ],
+      });
+
+      const outcomes = await h.writer.insert('Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      expect(outcomes[0].errorDetails).toEqual([
+        {
+          statusCode: 'REQUIRED_FIELD_MISSING',
+          message: 'Required fields are missing: [Name, StageName]',
+          fields: ['Name', 'StageName'],
+        },
+      ]);
     });
 
     it('does not stream deletes: IDs are cheap to hold, so the threshold does not apply', async () => {
