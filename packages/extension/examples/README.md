@@ -88,7 +88,21 @@ pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --upsert
 ```
 
-**B) Without External Id** — clean up first, then re-clone. The cleanup selects every record your user created on the target in the `--since` window, cloned or not, so preview it and name only the cloned objects before deleting:
+**B) Without External Id** — take the earlier clone back first, then re-clone. If you kept its `--json` summary, `--remove` deletes the records that clone created, and nothing else:
+
+```bash
+# Step 1 — remove what the earlier clone created
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+  --remove clone-summary.json --target TARGET-DEV
+
+# Step 2 — re-clone, keeping the summary for the next time
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+  --record 500XX00000000001AAA \
+  --source SOURCE-UAT --target TARGET-DEV \
+  --json > clone-summary.json
+```
+
+Without the summary, clean up instead. The cleanup selects every record your user created on the target in the `--since` window, cloned or not, so preview it and name only the cloned objects before deleting:
 
 ```bash
 # Step 1 — preview what the window matches
@@ -132,4 +146,5 @@ CLI returns exit code `1` if all records failed, or if the target is a productio
 - **Cap with `--max`** while iterating — start at 5, raise once you trust the output.
 - **Use `--anonymize`** as soon as you share the dev sandbox with anyone outside your immediate team.
 - **Pick a fresh Case** for each demo — re-runs hit `DUPLICATE_VALUE` until you pass `--upsert`.
-- **Cleanup** after sensitive demos: `pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --target X --since today --dry-run`, then rerun it with `--objects` naming the cloned objects and without `--dry-run`. It matches everything your user created in that window, not only the clone.
+- **Take a demo back** with `pnpm exec tsx packages/extension/cli/sandforge-clone.ts --remove clone-summary.json --target X`, from the summary the clone printed with `--json > clone-summary.json`: it removes only what that clone created.
+- **Cleanup** after a demo whose summary you did not keep: `pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --target X --since today --dry-run`, then rerun it with `--objects` naming the cloned objects and without `--dry-run`. It matches everything your user created in that window, not only the clone.

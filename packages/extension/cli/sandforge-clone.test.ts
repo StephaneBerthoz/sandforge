@@ -21,6 +21,7 @@ import {
   failedOutright,
   graphLine,
   jsonResult,
+  listedObjects,
   loadRecordTypes,
   main,
   parseArgs,
@@ -1473,6 +1474,58 @@ describe('sandforge-clone describes', () => {
       expect(said).toContain('  [dry-run] Contact: 1 record(s) would be inserted');
     });
 
+    it('prints the objects of the graph as JSON alone on stdout under --list-objects --json', async () => {
+      // stdout carries the JSON alone under --json, and the listing is not
+      // JSON: it went to stderr, and a CI job that saved the objects a clone
+      // would reach read an empty file.
+      withFakeOrgs();
+      const { stdout, stderr } = captureStreams();
+
+      expect(
+        await run(argv('--list-objects', '--json', '--exclude-object', 'Contact')),
+      ).toBeUndefined();
+
+      expect(printed).toEqual([]);
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        tool: 'sandforge-clone',
+        version: 1,
+        action: 'list-objects',
+        source: 'SRC',
+        target: 'TGT',
+        record: ACCOUNT,
+        graph: { nodes: 2, truncated: false },
+        objects: [
+          { objectApiName: 'Account', recordCount: 1, depth: 0, included: true },
+          { objectApiName: 'Contact', recordCount: 1, depth: 1, included: false },
+        ],
+      });
+      expect(stderr.join('')).toMatch(/objects in the graph \(2\):\n {2}Account\s+1\s+depth 0/);
+    });
+
+    it('says in the JSON of --list-objects that discovery stopped at its cap', async () => {
+      withFakeOrgs();
+      const { stdout } = captureStreams();
+
+      expect(await run(argv('--list-objects', '--json', '--max-nodes', '1'))).toBeUndefined();
+
+      const listing = JSON.parse(stdout.join('')) as {
+        graph: { truncated: boolean };
+        objects: Array<{ objectApiName: string }>;
+      };
+      expect(listing.graph.truncated).toBe(true);
+      expect(listing.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+    });
+
+    it('writes no JSON under --list-objects without --json, only the listing', async () => {
+      withFakeOrgs();
+      const { stdout } = captureStreams();
+
+      expect(await run(argv('--list-objects'))).toBeUndefined();
+
+      expect(stdout).toEqual([]);
+      expect(printed).toContain('\nobjects in the graph (2):');
+    });
+
     it('refuses to clone into a production org before reading a row, and writes nothing', async () => {
       const orgs = withFakeOrgs({ targetSandbox: false });
       const { stderr } = captureStreams();
@@ -1647,6 +1700,26 @@ describe('sandforge-clone graph line', () => {
       'graph: 2 objects at a cap of 50, 2 included; 1 lookups, 1 between these objects; ' +
         '2 waves, 0 cycles',
     );
+  });
+
+  it('lists the objects by name, each with its record count, depth and whether it is included', () => {
+    const graph: ForgeGraph = {
+      nodes: [
+        { ...node('Opportunity'), level: 0 },
+        { ...node('Lead', false), level: 2 },
+        { ...node('Account'), recordCount: 3, level: 1 },
+      ],
+      edges: [],
+      totalRecords: 4,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    expect(listedObjects(graph)).toEqual([
+      { objectApiName: 'Account', recordCount: 3, depth: 1, included: true },
+      { objectApiName: 'Lead', recordCount: 0, depth: 2, included: false },
+      { objectApiName: 'Opportunity', recordCount: 1, depth: 0, included: true },
+    ]);
   });
 });
 

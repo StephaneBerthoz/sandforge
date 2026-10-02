@@ -2,19 +2,21 @@
 #
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
-#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-#   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
+#                        JSON summary saved to clone-summary.json
+#   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
+#                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, uploaded as an artifact
 #
-# There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
-# only in the VSCode extension UI. See ci-examples/README.md for details.
+# There is no installed `sandforge` command: each headless tool is a script of
+# packages/extension/cli/, run with tsx from a checkout. See ci-examples/README.md.
 #
 # Prerequisites for stages 2-3 (org-touching, dry-run by default):
 #   - Repository secrets:
 #     - SFDX_AUTH_URL_SOURCE: sfdx auth URL of the source org
 #     - SFDX_AUTH_URL_TARGET: sfdx auth URL of the target sandbox
 #   - Repository variables:
-#     - SANDFORGE_SF_ORGS: set to 'true' to enable the clone/cleanup stages
+#     - SANDFORGE_SF_ORGS: set to 'true' to enable the clone stage
 #     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
 #   - SLACK_WEBHOOK_URL (optional secret): failure notifications
 #
@@ -28,9 +30,17 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run the clone in dry-run mode (no data written); cleanup is always a preview'
+        description: 'Run the clone in dry-run mode (no data written)'
         required: false
         default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      remove_after:
+        description: 'Once a real clone is done, remove the records it created at the end of the job'
+        required: false
+        default: 'false'
         type: choice
         options:
           - 'true'
@@ -39,8 +49,9 @@ on:
     - cron: '0 6 * * 1'
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
+  REMOVE_AFTER: ${{ github.event.inputs.remove_after || 'false' }}
 
 jobs:
   quality:
@@ -127,15 +138,23 @@ jobs:
             --remap-csv remap.csv \
             > clone-summary.json
 
-      # Always a preview, whatever dry_run says: `--since today` matches every
-      # record the CI user created today, not only the ones this clone wrote.
-      # Run the real delete by hand once you have read the counts.
-      - name: Preview cleanup (sandforge-cleanup, dry-run)
+      # Your checks against the cloned records go here.
+
+      # Takes back what the clone created, from the summary it saved: never a
+      # record the target already held, and not one changed since the clone
+      # (add --include-changed when your checks change them). A dry run created
+      # nothing and its summary is refused, so this runs after a real clone
+      # only. What the removal wrote to the records it kept goes to
+      # clone-summary.removals.json, which a later --remove of the same summary
+      # reads: both are kept with the report.
+      - name: Remove what the clone created (sandforge-clone --remove)
+        if: env.DRY_RUN != 'true' && env.REMOVE_AFTER == 'true'
         run: |
-          pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+          pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+            --remove clone-summary.json \
             --target ci-target \
-            --since today \
-            --dry-run
+            --json \
+            > clone-removal.json
 
       - name: Upload clone artifacts
         if: always()
@@ -144,6 +163,8 @@ jobs:
           name: clone-report
           path: |
             clone-summary.json
+            clone-summary.removals.json
+            clone-removal.json
             remap.csv
           retention-days: 30
 

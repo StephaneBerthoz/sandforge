@@ -29,7 +29,8 @@
  *     --source SOURCE-UAT --target TARGET-DEV \
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn } from './sfSession.js';
@@ -90,7 +91,11 @@ import {
   readFileBody,
   remainingFileStorageMB,
 } from '../src/modules/forge/fileTransfer.js';
-import { removalOrg, removeRunRecords } from '../src/modules/forge/ForgeRunRemoval.js';
+import {
+  removalOrg,
+  removeRunRecords,
+  type RunRemovalOutcome,
+} from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatus } from '../src/modules/forge/removalOutcome.js';
 
 export interface CliArgs {
@@ -162,7 +167,10 @@ Options:
   --max <n>              max records cloned per object          (default: unlimited)
   --list-objects         print the objects discovery reached, then stop
                          Answers "why was my object not cloned?" — an object
-                         absent from this list was never in the graph.
+                         absent from this list was never in the graph. With
+                         --json, stdout carries them as JSON: each object's
+                         record count, depth and whether it is included, and
+                         whether the graph was truncated.
   --max-nodes <n>        objects discovery may reach            (default: 50)
                          Raise it when the summary says TRUNCATED and an
                          object you expected is missing, e.g. the lines of an
@@ -183,7 +191,8 @@ Options:
   --json                 emit JSON summary on stdout (CI mode)  (default: off)
                          stdout then carries the JSON alone, and every other
                          line goes to stderr. Saved to a file, the summary is
-                         what --remove takes the run back from.
+                         what --remove takes the run back from. With
+                         --list-objects, the JSON is the objects of the graph.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
   --exclude-object <obj> leave an object out of the clone (repeatable)
@@ -231,6 +240,11 @@ Remove what a run created:
                          record kept while records that stay depend on it. The
                          target must be the org the run wrote to. A dry run's
                          summary is refused: it created nothing.
+                         What a removal wrote to the records it left is kept
+                         beside the summary, clone-summary.removals.json for
+                         clone-summary.json, and the next --remove of that
+                         summary reads it: what a removal wrote is no change
+                         since the run. Keep that file with the summary.
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
   --json                 print what became of the records as JSON on stdout,
@@ -238,9 +252,10 @@ Remove what a run created:
 
 Exit codes:
   0  the clone ran; the removal took every record it set out to take
-  1  the clone produced only failures, or its files were refused; the target
-     is a production org; the removal could not run
-  2  a bad command line, or a summary --remove cannot take a run back from
+  1  the clone or the removal could not run; the clone produced only failures,
+     or its files were refused; the target is a production org
+  2  a bad command line, or a summary --remove cannot take a run back from, or
+     a file beside it that is not what a removal kept there
   3  the removal left records of the run in the org: kept, or refused
 `;
 
@@ -946,6 +961,48 @@ export function graphLine(
 }
 
 /**
+ * The `graph` of the `--json` summary, and of `--list-objects --json`: the
+ * objects discovery described, the lookups it met, the plan's waves and
+ * cycles, and whether discovery stopped at its cap before it had walked
+ * everything.
+ */
+function graphJson(graph: ForgeGraph, plan: Pick<ForgePlan, 'waves' | 'cycleResolutions'>) {
+  return {
+    nodes: graph.nodes.length,
+    edges: graph.edges.length,
+    waves: plan.waves.length,
+    cycles: plan.cycleResolutions.length,
+    truncated: graph.truncated ?? false,
+  };
+}
+
+/** One object of the graph as `--list-objects` names it. */
+export interface ListedObject {
+  objectApiName: string;
+  /** The rows discovery counted in the whole table. */
+  recordCount: number;
+  /** How many relationships away from the record to clone discovery reached it. */
+  depth: number;
+  /** Whether the clone reads it: an empty table, or one `--exclude-object` names, is left out. */
+  included: boolean;
+}
+
+/**
+ * The objects of the graph, by name, as `--list-objects` prints them — in
+ * lines, or in JSON with `--json`. Exported so it can be tested.
+ */
+export function listedObjects(graph: ForgeGraph): ListedObject[] {
+  return [...graph.nodes]
+    .sort((a, b) => a.objectApiName.localeCompare(b.objectApiName))
+    .map((node) => ({
+      objectApiName: node.objectApiName,
+      recordCount: node.recordCount,
+      depth: node.level,
+      included: node.included,
+    }));
+}
+
+/**
  * What the executor is asked to do, from the command line and the graph
  * discovery built. Exported so it can be tested.
  *
@@ -1309,16 +1366,166 @@ export function removalLines(
 const RECORDS_LEFT_EXIT = 3;
 
 /**
+ * Where a removal keeps what it left on the run's records, beside the summary
+ * it took the run back from — `clone-summary.removals.json` for
+ * `clone-summary.json` — and never the summary itself. Exported so it can be
+ * tested.
+ */
+export function removalsPath(summaryPath: string): string {
+  return /\.json$/i.test(summaryPath)
+    ? summaryPath.replace(/\.json$/i, '.removals.json')
+    : `${summaryPath}.removals.json`;
+}
+
+/**
+ * The run a removals file is of, by the records it created: no two runs
+ * create the same record, so the same records are the same run, however its
+ * summary was saved or laid out since. Exported so it can be tested.
+ */
+export function runKey(plan: readonly ForgeRunObjectRecords[]): string {
+  const keys = plan.flatMap((object) => object.ids.map((id) => id.slice(0, 15))).sort();
+  return createHash('sha256').update(keys.join(',')).digest('hex');
+}
+
+/**
+ * A date as the org writes one and a removal reads it back: a record's
+ * `LastModifiedDate` comes as `2026-10-01T10:00:05.000+0000`, an offset
+ * `z.iso.datetime()` refuses.
+ */
+const orgDateSchema = z
+  .string()
+  .refine(
+    (value) =>
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:?\d{2})$/.test(value) &&
+      Number.isFinite(Date.parse(value)),
+    'not a date',
+  );
+
+/**
+ * What a removal keeps beside the summary for the next one: what the
+ * removals of the run left on records they did not delete, by record id, and
+ * when each that wrote to the org ran and as which user — what the wizard
+ * keeps in a run's history entry (`removalStamps`, `removalSpans`). External
+ * input as the summary is: every id is checked for an id, every date for a
+ * date.
+ */
+const runRemovalsSchema = z.object({
+  tool: z.literal('sandforge-clone'),
+  version: z.literal(1),
+  /** The run's {@link runKey}. */
+  run: z.string(),
+  removalStamps: z.record(summaryIdSchema, orgDateSchema),
+  removalSpans: z.array(
+    z.object({ first: orgDateSchema, last: orgDateSchema, userId: summaryIdSchema }),
+  ),
+});
+
+/** What a removal keeps beside the summary for the next one. */
+export type RunRemovals = z.infer<typeof runRemovalsSchema>;
+
+/** What earlier removals of a run left on its records, for the next removal to be told. */
+export type EarlierRemovals = Pick<RunRemovals, 'removalStamps' | 'removalSpans'>;
+
+/**
+ * What the removals file beside a summary says of the earlier removals of
+ * its run: nothing when there is no file; nothing either from the file of
+ * another run, as when another run's summary was saved under the same name
+ * since, which the next removal replaces; or why it cannot be read, said after
+ * the file's name — a file there that the command did not write, which it
+ * will not overwrite, or one whose ids or dates are not what they should be.
+ * Exported so it can be tested.
+ *
+ * @param text - The file's content; undefined when there is none.
+ * @param run - The {@link runKey} of the summary's run.
+ */
+export function readEarlierRemovals(
+  text: string | undefined,
+  run: string,
+): { earlier?: EarlierRemovals; otherRun?: true } | { refusal: string } {
+  if (text === undefined) return {};
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    // Not JSON: not a file the command wrote, which the header below refuses.
+  }
+  const header = z.object({ tool: z.literal('sandforge-clone'), run: z.string() }).safeParse(raw);
+  if (!header.success) {
+    return {
+      refusal:
+        'is not the record of removals sandforge-clone keeps there, and is not overwritten: ' +
+        'move it, as the removal keeps there what it leaves on the records of the run.',
+    };
+  }
+  if (header.data.run !== run) return { otherRun: true };
+  const parsed = runRemovalsSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.map(String).join('.') || 'the file'}: ${issue.message}`);
+    return { refusal: `is not a record of removals a removal can read: ${issues.join('; ')}.` };
+  }
+  const { removalStamps, removalSpans } = parsed.data;
+  return { earlier: { removalStamps, removalSpans } };
+}
+
+/**
+ * What the removals file holds once a removal has run: what the earlier
+ * removals of the run left, with what this one left over it for a record both
+ * stamped, and when this one ran — as the wizard adds a removal's to the run's
+ * history entry. Nothing when this removal stamped nothing and did not say
+ * when it ran: it has nothing to add. Exported so it can be tested.
+ */
+export function removalsAfter(
+  run: string,
+  earlier: EarlierRemovals | undefined,
+  outcome: Pick<RunRemovalOutcome, 'stamps' | 'span'>,
+): RunRemovals | undefined {
+  if (Object.keys(outcome.stamps).length === 0 && !outcome.span) return undefined;
+  return {
+    tool: 'sandforge-clone',
+    version: 1,
+    run,
+    removalStamps: { ...earlier?.removalStamps, ...outcome.stamps },
+    removalSpans: [...(earlier?.removalSpans ?? []), ...(outcome.span ? [outcome.span] : [])],
+  };
+}
+
+/**
+ * Write the removals file, whole or not at all: a removal stopped while it
+ * wrote would leave half a file, which the next one refuses. Says why it
+ * could not, or nothing once it is written.
+ */
+function keepRemovals(path: string, removals: RunRemovals): string | undefined {
+  const written = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(written, JSON.stringify(removals, null, 2) + '\n', 'utf8');
+    renameSync(written, path);
+    return undefined;
+  } catch (err: unknown) {
+    try {
+      rmSync(written, { force: true });
+    } catch {
+      // Left where it is: the removals file itself is untouched.
+    }
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+/**
  * Remove from its target the records a run created, from the summary the run
  * printed with `--json`: the removal the wizard runs on a run of Recent runs
  * (`removeRunRecords`), on the plan it reads from a history entry, dated by
  * the target's own dates of the run's writes. Exported so it can be tested.
  *
- * The summary is read and checked before any org is contacted; then the
- * target is typed, and refused unless it is a sandbox and the org the run
- * wrote to. Exits 0 when every record planned went, deleted or found gone,
+ * The summary, and what earlier removals of it kept beside it, are read and
+ * checked before any org is contacted; then the target is typed, and refused
+ * unless it is a sandbox and the org the run wrote to. What the removal left
+ * on the run's records is kept beside the summary for the next one. Exits 0
+ * when every record planned went, deleted or found gone,
  * {@link RECORDS_LEFT_EXIT} when some stayed, 2 on a bad command line or a
- * summary that cannot be read, 1 when the removal could not run.
+ * summary or removals file that cannot be read, 1 when the removal could not
+ * run.
  */
 export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -1353,7 +1560,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(2);
   }
 
-  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], orgId?: string) => {
+  /**
+   * @param removalsFile - Where what the removal left on the run's records
+   *   was kept, when it was.
+   */
+  const output = (
+    status: ForgeUndoStatus,
+    objects: ForgeUndoObjectResult[],
+    orgId?: string,
+    removalsFile?: string,
+  ) => {
     if (args.json) {
       process.stdout.write(
         JSON.stringify(
@@ -1370,6 +1586,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               planned: objects.reduce((sum, o) => sum + o.planned, 0),
               objects,
             },
+            ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -1379,6 +1596,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       return;
     }
     for (const line of removalLines(status, objects)) console.log(line);
+    if (removalsFile) {
+      console.log(
+        `what this removal left on the run's records is kept in ${removalsFile}, ` +
+          'which the next --remove of this summary reads',
+      );
+    }
     console.log(`\ndone in ${Date.now() - t0}ms`);
   };
 
@@ -1387,6 +1610,31 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     say('The run created no record: there is nothing of it to remove.');
     output('success', []);
     return;
+  }
+
+  // What earlier removals of this summary left on the run's records, which the
+  // wizard keeps in the run's history and the command beside the summary.
+  // Unread, a second removal would take what the first wrote to a record it
+  // left — a status given back, an amount its deleted children changed — for
+  // a change since the run, and keep the record. Read and checked before any
+  // org is contacted, as the summary is.
+  const run = runKey(plan);
+  const removalsFile = removalsPath(args.summaryPath);
+  let removalsText: string | undefined;
+  try {
+    removalsText = readFileSync(removalsFile, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+      process.stderr.write(
+        `${removalsFile} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(2);
+    }
+  }
+  const before = readEarlierRemovals(removalsText, run);
+  if ('refusal' in before) {
+    process.stderr.write(`${removalsFile} ${before.refusal}\n`);
+    process.exit(2);
   }
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
@@ -1405,6 +1653,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   for (const line of removalPlanLines(summary, plan, args)) say(line);
+  if (before.earlier) {
+    say(
+      `what earlier removals of this summary left on the run's records, read from ` +
+        `${removalsFile}, is not a change since the run`,
+    );
+  } else if (before.otherRun) {
+    say(
+      `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
+        'the records, if anything, takes its place',
+    );
+  }
 
   // Ctrl-C stops the removal before its next call to the org, as Cancel does
   // in the panel: an order it set to Draft for its delete gets its status
@@ -1425,6 +1684,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             runDurationMs: summary.elapsedMs,
             ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
           }),
+      ...(before.earlier
+        ? {
+            removalStamps: before.earlier.removalStamps,
+            removalSpans: before.earlier.removalSpans,
+          }
+        : {}),
       includeChanged: args.includeChanged,
       signal: stop.signal,
     });
@@ -1432,7 +1697,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.off('SIGINT', interrupt);
   }
   const status = removalStatus(outcome.objects, outcome.cancelled);
-  output(status, outcome.objects, org.id);
+  // Kept beside the summary whatever the removal ended on, cancelled
+  // included, as the wizard adds it to the run's history. A file that cannot
+  // be written is said, and the removal's own outcome stands: the next one may
+  // then read what this one wrote as changes since the run.
+  const removals = removalsAfter(run, before.earlier, outcome);
+  const failure = removals ? keepRemovals(removalsFile, removals) : undefined;
+  if (failure) {
+    process.stderr.write(
+      `What this removal left on the run's records could not be kept in ${removalsFile} ` +
+        `(${failure}): a later --remove of this summary may keep a record this removal wrote ` +
+        'to as changed since the run, which --include-changed then takes.\n',
+    );
+  }
+  output(status, outcome.objects, org.id, removals && !failure ? removalsFile : undefined);
   if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
@@ -1540,19 +1818,40 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // The question a user asks when an object they expected is missing from a
     // clone: is it in the graph at all? Nothing answered it before, and the
     // answer decides whether to raise --max-nodes or to look elsewhere.
-    const rows = [...graph.nodes]
-      .sort((a, b) => a.objectApiName.localeCompare(b.objectApiName))
-      .map(
-        (n) =>
-          `  ${n.objectApiName.padEnd(42)}${String(n.recordCount).padStart(8)}` +
-          `  depth ${n.level}${n.included ? '' : '  (excluded)'}`,
-      );
+    const listed = listedObjects(graph);
+    const rows = listed.map(
+      (o) =>
+        `  ${o.objectApiName.padEnd(42)}${String(o.recordCount).padStart(8)}` +
+        `  depth ${o.depth}${o.included ? '' : '  (excluded)'}`,
+    );
     say(`\nobjects in the graph (${graph.nodes.length}):`);
     say(rows.join('\n'));
     if (graph.truncated) {
       say(
         '\nThe graph was truncated: discovery stopped before it had walked ' +
           'everything. Raise --max-nodes if an object you need is missing.',
+      );
+    }
+    // With --json the lines above go to stderr, and stdout carried nothing at
+    // all: saved to a file, the listing was an empty one. stdout carries the
+    // objects as JSON, as it carries a clone's summary.
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            action: 'list-objects',
+            source: args.source,
+            target: args.target,
+            record: args.record,
+            graph: graphJson(graph, plan),
+            objects: listed,
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        ) + '\n',
       );
     }
     return;
@@ -1808,13 +2107,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           upsert: args.upsert,
           expandOrphans: args.expandOrphans,
           files: args.files !== undefined,
-          graph: {
-            nodes: graph.nodes.length,
-            edges: graph.edges.length,
-            waves: plan.waves.length,
-            cycles: plan.cycleResolutions.length,
-            truncated: graph.truncated ?? false,
-          },
+          graph: graphJson(graph, plan),
           result: jsonResult(summary),
           elapsedMs: elapsed,
           finishedAt: finishedAt.toISOString(),

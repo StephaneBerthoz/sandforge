@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Connection } from 'jsforce';
-import type { ForgeUndoObjectResult } from '@sandforge/shared';
+import type { ForgeRemovalSpan, ForgeUndoObjectResult } from '@sandforge/shared';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+// The files are real; a test can make one write refuse.
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, writeFileSync: vi.fn(actual.writeFileSync) };
+});
 vi.mock('./sfSession.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sfSession.js')>();
   return { ...actual, loadOrg: vi.fn(), makeConn: vi.fn() };
@@ -29,8 +34,12 @@ import {
   main,
   parseRunSummary,
   productionRefusal,
+  readEarlierRemovals,
   removalLines,
   removalPlan,
+  removalsAfter,
+  removalsPath,
+  runKey,
   typeOrg,
 } from './sandforge-clone';
 
@@ -151,6 +160,40 @@ const TOOK_ALL: RunRemovalOutcome = {
   stamps: {},
 };
 
+/** The plan the summary of `runSummary` gives a removal, children first. */
+const PLAN = [
+  { objectApiName: 'Contact', ids: [TGT('003', 2), TGT('003', 1)] },
+  { objectApiName: 'Account', ids: [TGT('001', 1)] },
+];
+
+/** When a removal ran by the org's clock, and as which user. */
+const span = (first: string, last: string): ForgeRemovalSpan => ({
+  first,
+  last,
+  userId: '005000000000001',
+});
+const FIRST_SPAN = span('2026-10-01T11:00:00.000Z', '2026-10-01T11:00:20.000Z');
+const SECOND_SPAN = span('2026-10-01T12:00:00.000Z', '2026-10-01T12:00:20.000Z');
+
+/**
+ * What a first removal left on the account it did not reach: as it deleted
+ * the contacts, the org dated their account, modified by the removal's user —
+ * a date the org writes with an offset `z.iso.datetime()` refuses.
+ */
+const FIRST_STAMPS = { [TGT('001', 1)]: '2026-10-01T11:00:07.000+0000' };
+
+/**
+ * A first removal stopped once it had deleted the contacts: the next one,
+ * told nothing, reads their account as changed since the run, and keeps it.
+ */
+const STOPPED_AFTER_CONTACTS: RunRemovalOutcome = {
+  objects: [objectResult('Contact', 2)],
+  cancelled: true,
+  gone: [TGT('003', 2), TGT('003', 1)],
+  stamps: FIRST_STAMPS,
+  span: FIRST_SPAN,
+};
+
 describe('sandforge-clone --remove', () => {
   let dir: string;
   let printed: string[];
@@ -172,6 +215,9 @@ describe('sandforge-clone --remove', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Back to the real write: a refusal a test queued and the command never
+    // reached would otherwise refuse the next test's own files.
+    vi.mocked(writeFileSync).mockReset();
     dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-remove-'));
     printed = [];
     stdout = [];
@@ -508,6 +554,239 @@ describe('sandforge-clone --remove', () => {
 
       expect(printed).toContain('removal: CANCELLED');
       expect(process.listenerCount('SIGINT')).toBe(listening);
+    });
+  });
+
+  describe('what a removal keeps for the next one', () => {
+    /** The removals file beside a summary, as JSON. */
+    const removalsOf = (summaryPath: string): unknown =>
+      JSON.parse(readFileSync(removalsPath(summaryPath), 'utf8'));
+
+    it("keeps what it left on the run's records beside the summary, and leaves the summary as it was", async () => {
+      const path = file(runSummary());
+      const summaryText = readFileSync(path, 'utf8');
+      vi.mocked(removeRunRecords).mockResolvedValue(STOPPED_AFTER_CONTACTS);
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+
+      expect(removalsPath(path)).toBe(join(dir, 'clone-summary.removals.json'));
+      expect(removalsOf(path)).toEqual({
+        tool: 'sandforge-clone',
+        version: 1,
+        run: runKey(PLAN),
+        removalStamps: FIRST_STAMPS,
+        removalSpans: [FIRST_SPAN],
+      });
+      expect(readFileSync(path, 'utf8')).toBe(summaryText);
+      expect(printed).toContain(
+        `what this removal left on the run's records is kept in ${removalsPath(path)}, ` +
+          'which the next --remove of this summary reads',
+      );
+    });
+
+    it("hands a second removal of the summary what the first left, as the wizard hands it a run's history", async () => {
+      // Told nothing, the second removal reads the account the first dated,
+      // deleting its contacts, as changed since the run, and keeps it.
+      const path = file(runSummary());
+      vi.mocked(removeRunRecords)
+        .mockResolvedValueOnce(STOPPED_AFTER_CONTACTS)
+        .mockResolvedValueOnce({ ...TOOK_ALL, span: SECOND_SPAN });
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      const [first, second] = vi
+        .mocked(removeRunRecords)
+        .mock.calls.map(([, , options]) => options);
+      expect(first.removalStamps).toBeUndefined();
+      expect(first.removalSpans).toBeUndefined();
+      expect(second.removalStamps).toEqual(FIRST_STAMPS);
+      expect(second.removalSpans).toEqual([FIRST_SPAN]);
+      expect(printed).toContain(
+        `what earlier removals of this summary left on the run's records, read from ` +
+          `${removalsPath(path)}, is not a change since the run`,
+      );
+      // What the second removal adds goes after what the first kept.
+      expect(removalsOf(path)).toMatchObject({
+        removalStamps: FIRST_STAMPS,
+        removalSpans: [FIRST_SPAN, SECOND_SPAN],
+      });
+    });
+
+    it('reads nothing from the removals file of another run, and replaces it', async () => {
+      // Another run's summary saved under the same name since: what its
+      // removals wrote is no doing of this run's.
+      const path = file(runSummary());
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey([{ objectApiName: 'Account', ids: [TGT('001', 7)] }]),
+          removalStamps: { [TGT('001', 7)]: '2026-09-30T11:00:07.000+0000' },
+          removalSpans: [FIRST_SPAN],
+        },
+        'clone-summary.removals.json',
+      );
+      vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: SECOND_SPAN });
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      const options = removalOptions();
+      expect(options.removalStamps).toBeUndefined();
+      expect(options.removalSpans).toBeUndefined();
+      expect(printed).toContain(
+        `${removalsPath(path)} is of another run: it is not read, and what this removal leaves ` +
+          'on the records, if anything, takes its place',
+      );
+      expect(removalsOf(path)).toEqual({
+        tool: 'sandforge-clone',
+        version: 1,
+        run: runKey(PLAN),
+        removalStamps: {},
+        removalSpans: [SECOND_SPAN],
+      });
+    });
+
+    it.each([
+      ["another run's summary", runSummary({ record: SRC('001', 9) })],
+      ['notes that are not JSON', 'what the clone of Monday wrote'],
+    ])(
+      'refuses %s in the way of the removals file, before contacting any org, and leaves it as it was',
+      async (_label, content) => {
+        const path = file(runSummary());
+        const inTheWay = file(content, 'clone-summary.removals.json');
+        const before = readFileSync(inTheWay, 'utf8');
+
+        expect(await run(['--remove', path, '--target', 'TGT'])).toBe(2);
+
+        expect(stderr.join('')).toContain(
+          `${inTheWay} is not the record of removals sandforge-clone keeps there, and is not ` +
+            'overwritten',
+        );
+        expect(loadOrg).not.toHaveBeenCalled();
+        expect(readFileSync(inTheWay, 'utf8')).toBe(before);
+      },
+    );
+
+    it('refuses a removals file of the run whose ids or dates are not what they should be, and says where', async () => {
+      const path = file(runSummary());
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey(PLAN),
+          removalStamps: { [TGT('001', 1)]: 'yesterday' },
+          removalSpans: [{ ...FIRST_SPAN, userId: "005' OR Id != '" }],
+        },
+        'clone-summary.removals.json',
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(2);
+
+      const said = stderr.join('');
+      expect(said).toContain('is not a record of removals a removal can read');
+      expect(said).toContain(`removalStamps.${TGT('001', 1)}: not a date`);
+      expect(said).toContain('removalSpans.0.userId: not a Salesforce id');
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
+    it('says when what it left cannot be kept, and its own outcome stands', async () => {
+      const path = file(runSummary());
+      vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: FIRST_SPAN });
+      vi.mocked(writeFileSync).mockImplementationOnce(() => {
+        throw new Error('EACCES: permission denied');
+      });
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      expect(stderr.join('')).toContain(
+        `What this removal left on the run's records could not be kept in ${removalsPath(path)} ` +
+          '(EACCES: permission denied): a later --remove of this summary may keep a record this ' +
+          'removal wrote to as changed since the run, which --include-changed then takes.',
+      );
+      expect(existsSync(removalsPath(path))).toBe(false);
+      expect(printed).toContain('removal: SUCCESS');
+    });
+
+    it('keeps nothing when the removal wrote nothing to the org', async () => {
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      expect(existsSync(removalsPath(path))).toBe(false);
+    });
+
+    it('names the removals file in its JSON once it kept it', async () => {
+      const path = file(runSummary());
+      vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: FIRST_SPAN });
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
+
+      expect(JSON.parse(stdout.join(''))).toMatchObject({ removalsFile: removalsPath(path) });
+    });
+  });
+});
+
+describe('sandforge-clone removals file', () => {
+  it('sits beside the summary under a name of its own, never the summary itself', () => {
+    expect(removalsPath('ci/clone-summary.json')).toBe('ci/clone-summary.removals.json');
+    expect(removalsPath('RUN.JSON')).toBe('RUN.removals.json');
+    expect(removalsPath('clone-summary')).toBe('clone-summary.removals.json');
+  });
+
+  it("reads the earlier removals of the summary's run, none without a file, and nothing of another run's", () => {
+    const run = runKey(PLAN);
+    const kept = (of: string) =>
+      JSON.stringify({
+        tool: 'sandforge-clone',
+        version: 1,
+        run: of,
+        removalStamps: FIRST_STAMPS,
+        removalSpans: [FIRST_SPAN],
+      });
+
+    expect(readEarlierRemovals(undefined, run)).toEqual({});
+    expect(readEarlierRemovals(kept(run), run)).toEqual({
+      earlier: { removalStamps: FIRST_STAMPS, removalSpans: [FIRST_SPAN] },
+    });
+    expect(readEarlierRemovals(kept('another run'), run)).toEqual({ otherRun: true });
+    // A clone's summary saved under that name.
+    const refused = readEarlierRemovals('{"tool":"sandforge-clone","dryRun":false}', run);
+    expect('refusal' in refused ? refused.refusal : '').toContain('is not overwritten');
+  });
+
+  it('names a run by the records it created, whatever their order or the length of their ids', () => {
+    const reordered = [
+      { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      { objectApiName: 'Contact', ids: [TGT('003', 1), TGT('003', 2).slice(0, 15)] },
+    ];
+
+    expect(runKey(reordered)).toBe(runKey(PLAN));
+    expect(runKey([{ objectApiName: 'Account', ids: [TGT('001', 1)] }])).not.toBe(runKey(PLAN));
+  });
+
+  it('adds nothing for a removal that stamped nothing and did not say when it ran', () => {
+    expect(removalsAfter(runKey(PLAN), undefined, { stamps: {} })).toBeUndefined();
+  });
+
+  it("adds a removal's stamps over the earlier ones for a record both stamped, and its span after theirs", () => {
+    const later = { [TGT('001', 1)]: '2026-10-01T12:00:07.000+0000' };
+
+    expect(
+      removalsAfter(
+        'run',
+        {
+          removalStamps: { ...FIRST_STAMPS, [TGT('003', 1)]: '2026-10-01T11:00:03.000+0000' },
+          removalSpans: [FIRST_SPAN],
+        },
+        { stamps: later, span: SECOND_SPAN },
+      ),
+    ).toEqual({
+      tool: 'sandforge-clone',
+      version: 1,
+      run: 'run',
+      removalStamps: { ...later, [TGT('003', 1)]: '2026-10-01T11:00:03.000+0000' },
+      removalSpans: [FIRST_SPAN, SECOND_SPAN],
     });
   });
 });

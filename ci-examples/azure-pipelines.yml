@@ -2,12 +2,14 @@
 #
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
-#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-#   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
+#                        JSON summary saved to clone-summary.json
+#   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
+#                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, published as a pipeline artifact
 #
-# There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
-# only in the VSCode extension UI. See ci-examples/README.md for details.
+# There is no installed `sandforge` command: each headless tool is a script of
+# packages/extension/cli/, run with tsx from a checkout. See ci-examples/README.md.
 #
 # Prerequisites:
 #   - Create a Variable Group named "SandForge-Credentials" with:
@@ -37,14 +39,18 @@ schedules:
 
 parameters:
   - name: dryRun
-    displayName: 'Dry Run Mode (the clone writes nothing; cleanup is always a preview)'
+    displayName: 'Dry Run Mode (the clone writes nothing)'
     type: boolean
     default: true
+  - name: removeAfter
+    displayName: 'Once a real clone is done, remove the records it created at the end of the job'
+    type: boolean
+    default: false
 
 variables:
   - group: SandForge-Credentials
   - name: nodeVersion
-    value: '22'
+    value: '24'
   - name: dryRunFlag
     ${{ if eq(parameters.dryRun, true) }}:
       value: '--dry-run'
@@ -82,7 +88,7 @@ stages:
           - script: pnpm validate
             displayName: 'Validate'
 
-  # ── Forge clone + cleanup (real CLIs, dry-run default) ──────
+  # ── Forge clone + removal (real CLI, dry-run default) ────────
   - stage: Clone
     displayName: 'Forge Clone (sandforge-clone)'
     dependsOn: Quality
@@ -92,7 +98,7 @@ stages:
     condition: and(succeeded(), eq(variables['SANDFORGE_SF_ORGS'], 'true'), ne(variables['SF_CLONE_RECORD_ID'], ''))
     jobs:
       - job: CloneRecords
-        displayName: 'Clone record graph + cleanup preview'
+        displayName: 'Clone record graph'
         steps:
           - task: NodeTool@0
             inputs:
@@ -137,29 +143,44 @@ stages:
                 > clone-summary.json
             displayName: 'Clone record graph (sandforge-clone)'
 
-          # Always a preview, whatever dryRun says: `--since today` matches
-          # every record the CI user created today, not only the ones this
-          # clone wrote. Run the real delete by hand once you have read the counts.
-          - script: |
-              pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
-                --target ci-target \
-                --since today \
-                --dry-run
-            displayName: 'Preview cleanup (sandforge-cleanup, dry-run)'
+          # Your checks against the cloned records go here.
+
+          # Takes back what the clone created, from the summary it saved: never
+          # a record the target already held, and not one changed since the
+          # clone (add --include-changed when your checks change them). A dry
+          # run created nothing and its summary is refused, so this step is
+          # only there after a real clone. What the removal wrote to the
+          # records it kept goes to clone-summary.removals.json, which a later
+          # --remove of the same summary reads: both go with the report.
+          - ${{ if and(eq(parameters.dryRun, false), eq(parameters.removeAfter, true)) }}:
+              - script: |
+                  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+                    --remove clone-summary.json \
+                    --target ci-target \
+                    --json \
+                    > clone-removal.json
+                displayName: 'Remove what the clone created (sandforge-clone --remove)'
+
+          # Copied into one folder first: CopyFiles skips a file the run did not
+          # write — the removal's, after a dry run — where a publish task per
+          # file would fail on it.
+          - task: CopyFiles@2
+            condition: always()
+            inputs:
+              Contents: |
+                clone-summary.json
+                clone-summary.removals.json
+                clone-removal.json
+                remap.csv
+              TargetFolder: $(Build.ArtifactStagingDirectory)/clone-report
+            displayName: 'Collect the clone report'
 
           - task: PublishPipelineArtifact@1
             condition: always()
             inputs:
-              targetPath: clone-summary.json
+              targetPath: $(Build.ArtifactStagingDirectory)/clone-report
               artifactName: clone-report
-            displayName: 'Publish clone summary'
-
-          - task: PublishPipelineArtifact@1
-            condition: always()
-            inputs:
-              targetPath: remap.csv
-              artifactName: clone-remap-csv
-            displayName: 'Publish ID remap CSV'
+            displayName: 'Publish the clone report'
 
   # ── VSIX package ────────────────────────────────────────────
   - stage: Package

@@ -2,35 +2,42 @@
 //
 // Honest example built on what actually exists in this repo:
 //   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
-//   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-//   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+//   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
+//                        JSON summary saved to clone-summary.json
+//   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
+//                        back what that clone created, and nothing else
 //   4. VSIX package    — pnpm package, archived as an artifact
 //
-// There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
-// only in the VSCode extension UI. See ci-examples/README.md for details.
+// There is no installed `sandforge` command: each headless tool is a script of
+// packages/extension/cli/, run with tsx from a checkout. See ci-examples/README.md.
 //
 // Prerequisites:
-//   - Node.js 22 configured in Jenkins Global Tool Configuration ('Node-22')
+//   - Node.js 24 configured in Jenkins Global Tool Configuration ('Node-24')
 //   - Credentials (Secret text):
 //     - sfdx-auth-url-source: sfdx auth URL of the source org
 //     - sfdx-auth-url-target: sfdx auth URL of the target sandbox
 //     - slack-webhook: (optional) Slack webhook for failure notifications
-//   - To enable the clone/cleanup stages: set SANDFORGE_SF_ORGS=true in the
-//     job environment (e.g. in folder properties) and pass SF_CLONE_RECORD_ID
-//     as a build parameter; an environment variable of that name is ignored
+//   - To enable the Clone stage: set SANDFORGE_SF_ORGS=true in the job
+//     environment (e.g. in folder properties) and pass SF_CLONE_RECORD_ID as a
+//     build parameter; an environment variable of that name is ignored
 
 pipeline {
     agent any
 
     tools {
-        nodejs 'Node-22'
+        nodejs 'Node-24'
     }
 
     parameters {
         booleanParam(
             name: 'DRY_RUN',
             defaultValue: true,
-            description: 'Run the clone in dry-run mode (no data written to target org); cleanup is always a preview'
+            description: 'Run the clone in dry-run mode (no data written to target org)'
+        )
+        booleanParam(
+            name: 'REMOVE_AFTER',
+            defaultValue: false,
+            description: 'Once a real clone is done, remove the records it created at the end of the Clone stage'
         )
         string(
             name: 'SF_CLONE_RECORD_ID',
@@ -66,7 +73,7 @@ pipeline {
             }
         }
 
-        // ── Forge clone (real CLI, dry-run default) ────────
+        // ── Forge clone + removal (dry-run default) ────────
         stage('Clone (sandforge-clone)') {
             when {
                 expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
@@ -104,33 +111,36 @@ pipeline {
                                 --remap-csv remap.csv \\
                                 > clone-summary.json
                         """
+                        // Your checks against the cloned records go here.
+
+                        // Takes back what the clone created, from the summary
+                        // it saved: never a record the target already held,
+                        // and not one changed since the clone (add
+                        // --include-changed when your checks change them). A
+                        // dry run created nothing and its summary is refused,
+                        // so this runs after a real clone only. It stays in
+                        // the stage that logged in: on a persistent agent, a
+                        // stage of its own would act on whatever `ci-target`
+                        // an earlier build left. What the removal wrote to the
+                        // records it kept goes to clone-summary.removals.json,
+                        // which a later --remove of the same summary reads:
+                        // both are archived.
+                        if (!params.DRY_RUN && params.REMOVE_AFTER) {
+                            sh '''
+                                pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+                                    --remove clone-summary.json \\
+                                    --target ci-target \\
+                                    --json \\
+                                    > clone-removal.json
+                            '''
+                        }
                     }
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'clone-summary.json, remap.csv', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'clone-summary.json, clone-summary.removals.json, clone-removal.json, remap.csv', allowEmptyArchive: true
                 }
-            }
-        }
-
-        // ── Cleanup (real CLI, always a preview) ───────────
-        // Same condition as Clone: this stage has no login of its own, and on a
-        // persistent agent a `ci-target` alias left by an earlier build would
-        // otherwise answer for it. Always `--dry-run`, whatever DRY_RUN says:
-        // `--since today` matches every record the CI user created today, not
-        // only the ones this clone wrote. Run the real delete by hand.
-        stage('Cleanup (sandforge-cleanup)') {
-            when {
-                expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
-            }
-            steps {
-                sh '''
-                    pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \\
-                        --target ci-target \\
-                        --since today \\
-                        --dry-run
-                '''
             }
         }
 

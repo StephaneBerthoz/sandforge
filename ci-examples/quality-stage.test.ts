@@ -32,6 +32,46 @@ function read(name: string): string {
   return readFileSync(join(EXAMPLES_DIR, name), 'utf8').replace(/\r\n/g, '\n');
 }
 
+/**
+ * Each call of a script the pipeline executes, with its backslash-continued
+ * lines, whatever the host language escapes the backslash as. Comment lines
+ * are left out: the headers name the very scripts under test.
+ */
+function scriptCalls(source: string, script: string): string[] {
+  const executed = source
+    .split('\n')
+    .filter((line) => !/^\s*(?:#|\/\/)/.test(line))
+    .join('\n');
+  const call = new RegExp(`${script}\\.ts(?:[^\\n]*\\\\\\n)*[^\\n]*`, 'g');
+  return [...executed.matchAll(call)].map(([found]) => found);
+}
+
+/** The line of a pipeline's removal call that names the summary it takes the clone back from. */
+const REMOVAL_CALL = /^\s*--remove clone-summary\.json\b/m;
+
+/**
+ * Per pipeline, how its removal switch is declared off, and the condition the
+ * removal runs under: the clone was no dry run, and the removal was asked for.
+ */
+const REMOVAL_SWITCH: Record<string, { off: RegExp; gate: RegExp }> = {
+  'github-actions.yml': {
+    off: /remove_after:\n(?:[ \t]+[^\n]*\n)*?[ \t]+default: 'false'/,
+    gate: /if: env\.DRY_RUN != 'true' && env\.REMOVE_AFTER == 'true'/,
+  },
+  'gitlab-ci.yml': {
+    off: /^ {2}REMOVE_AFTER: 'false'$/m,
+    gate: /if \[ "\$DRY_RUN" != "true" \] && \[ "\$REMOVE_AFTER" = "true" \]; then/,
+  },
+  Jenkinsfile: {
+    off: /booleanParam\(\s*name: 'REMOVE_AFTER',\s*defaultValue: false/,
+    gate: /if \(!params\.DRY_RUN && params\.REMOVE_AFTER\) \{/,
+  },
+  'azure-pipelines.yml': {
+    off: /- name: removeAfter\n(?:[ \t]+[^\n]*\n)*?[ \t]+default: false/,
+    gate: /\$\{\{ if and\(eq\(parameters\.dryRun, false\), eq\(parameters\.removeAfter, true\)\) \}\}:/,
+  },
+};
+
 describe('ci-examples quality stage', () => {
   describe.each(PIPELINES)('%s', (pipeline) => {
     it('runs the quality gates through pnpm validate', () => {
@@ -79,24 +119,54 @@ describe('ci-examples quality stage', () => {
       expect(block).not.toMatch(/^\s*(?:- \||(?:- )?(?:run|script): \||sh ['"]|- name:|- task:)/m);
     });
 
-    it('only ever previews the cleanup', () => {
+    it('never runs the cleanup to undo the clone', () => {
       // `--since today` matches every record the CI user created today, not
-      // only the ones the clone step wrote, so a pipeline switch must not be
-      // able to turn it into a delete.
-      const source = read(pipeline)
-        .split('\n')
-        .filter((line) => !/^\s*(?:#|\/\/)/.test(line))
-        .join('\n');
-      // The invocation plus its backslash-continued lines, whatever the host
-      // language escapes the backslash as.
-      const calls = [...source.matchAll(/sandforge-cleanup\.ts(?:[^\n]*\\\n)*[^\n]*/g)].map(
-        ([call]) => call,
-      );
-
-      expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) {
+      // only the ones the clone step wrote: a cleanup the pipeline runs can
+      // only ever be a preview.
+      for (const call of scriptCalls(read(pipeline), 'sandforge-cleanup')) {
         expect(call).toMatch(/\s--dry-run\b/);
       }
+    });
+
+    it('takes the clone back with --remove of the summary the clone saved', () => {
+      // What the clone created, and nothing else, as the wizard removes a run
+      // from Recent runs: the summary says which records those are.
+      const calls = scriptCalls(read(pipeline), 'sandforge-clone');
+      const clone = calls.findIndex((call) => /\s--record\s/.test(call));
+      const removal = calls.findIndex((call) => /\s--remove\s/.test(call));
+
+      expect(clone).toBeGreaterThan(-1);
+      expect(calls[clone]).toMatch(/\s--json\b[\s\S]*> clone-summary\.json/);
+      expect(removal).toBeGreaterThan(clone);
+      expect(calls[removal]).toMatch(/\s--remove clone-summary\.json\b/);
+      expect(calls[removal]).toMatch(/\s--target ci-target\b/);
+    });
+
+    it('removes only after a real clone, and only when asked', () => {
+      // A dry run created nothing and `--remove` refuses its summary; and a
+      // real clone is there to stay unless the run asks for it back.
+      const source = read(pipeline);
+      const { off, gate } = REMOVAL_SWITCH[pipeline];
+      // The call's own line: the header names the flag too.
+      const removal = REMOVAL_CALL.exec(source)?.index ?? -1;
+      const guarded = gate.exec(source);
+
+      expect(source).toMatch(off);
+      expect(removal).toBeGreaterThan(-1);
+      expect(guarded).not.toBeNull();
+      expect(guarded?.index ?? Infinity).toBeLessThan(removal);
+      expect(source.lastIndexOf('> clone-summary.json', removal)).toBeLessThan(
+        guarded?.index ?? -1,
+      );
+    });
+
+    it('keeps the removals file with the clone summary', () => {
+      // A removal keeps there what it wrote to the records it left, which the
+      // next removal of the same summary reads; lost, that one takes those
+      // records for changed since the run, and keeps them.
+      expect(
+        commandLines(read(pipeline)).some((line) => line.includes('clone-summary.removals.json')),
+      ).toBe(true);
     });
 
     it('gates the org stages on a configured record id', () => {
@@ -137,15 +207,22 @@ describe('ci-examples quality stage', () => {
     });
   });
 
-  it('gates the Jenkins cleanup exactly like the clone that logs in', () => {
-    // A Cleanup stage that runs without the Clone stage reuses whatever
-    // `ci-target` alias an earlier build left in the agent's sf config.
-    const source = read('Jenkinsfile');
-    const whenOf = (stage: string): string | undefined =>
-      new RegExp(`stage\\('${stage}[^']*'\\) \\{\\s*when \\{\\s*([^\\n]+)`).exec(source)?.[1];
+  it('removes in the Jenkins stage that logs in, never in a stage of its own', () => {
+    // A stage without the login reuses whatever `ci-target` alias an earlier
+    // build left in the agent's sf config.
+    const removing = read('Jenkinsfile')
+      .split(/(?=stage\(')/)
+      .filter((stage) => REMOVAL_CALL.test(stage));
 
-    expect(whenOf('Clone')).toBeDefined();
-    expect(whenOf('Cleanup')).toBe(whenOf('Clone'));
+    expect(removing).toHaveLength(1);
+    expect(removing[0]).toMatch(/sf org login sfdxurl[^\n]*--alias ci-target/);
+  });
+
+  it('names the removals file as the clone command derives it from the summary', () => {
+    // `clone-summary.json` → `clone-summary.removals.json`, beside it.
+    const cli = read('../packages/extension/cli/sandforge-clone.ts');
+
+    expect(cli).toContain(".replace(/\\.json$/i, '.removals.json')");
   });
 
   it('names the Node tool the Jenkinsfile actually requests', () => {
