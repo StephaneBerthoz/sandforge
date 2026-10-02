@@ -1526,6 +1526,129 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-execution-status')).toHaveText('FORGING...');
     });
 
+    test('Forge results telling the notes of the run from its errors, each with what it means', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await forgeProgress(page, request, 'Contact', 'error');
+      // As 1.40.2 reports them: refused rows and an object the target lacks
+      // among the failures; a lookup left empty because its record is not in
+      // the clone, and contacts sent on their own, which count no failure.
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:response',
+        id: 'resp-forge-notes',
+        correlationId: request,
+        payload: {
+          result: {
+            forgeId: 'forge-run-notes',
+            status: 'partial',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 3_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            readByObject: [
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'Contact', read: 2 },
+            ],
+            errors: [
+              {
+                objectApiName: 'Contact',
+                stage: 'insert',
+                failedCount: 2,
+                attemptedCount: 2,
+                samples: [
+                  {
+                    recordSummary: 'LastName=Doe',
+                    messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Region is required'],
+                  },
+                ],
+              },
+              {
+                objectApiName: 'Visit__c',
+                stage: 'scope',
+                failedCount: 0,
+                attemptedCount: 0,
+                skipped: true,
+                samples: [
+                  {
+                    recordSummary: '(node-level skip)',
+                    messages: [
+                      'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
+                    ],
+                  },
+                ],
+              },
+              {
+                objectApiName: 'Account',
+                stage: 'scope',
+                failedCount: 0,
+                attemptedCount: 0,
+                samples: [
+                  {
+                    recordSummary: 'ParentId → Account (1 record)',
+                    messages: [
+                      'Written with the lookup empty: the Account record it points at is not in the clone.',
+                    ],
+                  },
+                ],
+              },
+              {
+                objectApiName: 'Contact',
+                stage: 'scope',
+                failedCount: 0,
+                attemptedCount: 0,
+                samples: [
+                  {
+                    recordSummary: 'IsPersonAccount=true (1 record)',
+                    messages: [
+                      'Sent as contacts of their own: the target has no person accounts, and wrote no contact with it.',
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          operationId: 'forge-execute-1',
+        },
+      });
+      const notes = page.getByTestId('forge-notes-panel');
+      await notes.waitFor({ timeout: 10_000 });
+      const errors = page.getByTestId('forge-errors-panel');
+      await expect(errors.getByTestId('forge-errors-row')).toHaveCount(2);
+      await expect(notes.getByTestId('forge-notes-row')).toHaveCount(2);
+      await expect(notes.getByTestId('forge-error-translation')).toHaveCount(1);
+      // The object skipped whole opened, with the hint that says why.
+      await errors
+        .getByTestId('forge-errors-row')
+        .filter({ hasText: 'Visit__c' })
+        .getByRole('button')
+        .click();
+      await expect(errors.getByTestId('forge-error-translation')).toHaveCount(1);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-notes-panel"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-notes-panel"] [data-testid="forge-error-translation"]',
+        ),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-errors-panel"] [data-testid="forge-error-translation"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge run an error stopped after it wrote, then the results of what it wrote', async ({
       page,
     }) => {

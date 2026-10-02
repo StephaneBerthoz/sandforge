@@ -92,4 +92,37 @@ describe('ForgeResults — translated stage badges', () => {
       expect(typeof en.forge.stage[stage]).toBe('string');
     }
   });
+
+  it('resolves the notes, apart from the errors, through i18n: their title, what they mean and their hints', () => {
+    errors.push({
+      objectApiName: 'Obj_note',
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [
+        {
+          recordSummary: 'ParentId → Account (1 record)',
+          messages: [
+            'Written with the lookup empty: the Account record it points at is not in the clone.',
+          ],
+        },
+      ],
+    });
+    try {
+      render(<ForgeResults />);
+      const notes = screen.getByTestId('forge-notes-panel');
+      expect(within(notes).getByRole('heading').textContent).toBe('forge.notesPanel.title');
+      expect(within(notes).getByTestId('forge-notes-hint').textContent).toBe(
+        'forge.notesPanel.hint',
+      );
+      expect(within(notes).getByTestId('forge-error-translation').textContent).toContain(
+        'forge.error.lookupOutsideClone.explanation',
+      );
+      expect(screen.getAllByTestId('forge-errors-row')).toHaveLength(STAGES.length);
+      expect(typeof en.forge.notesPanel.title).toBe('string');
+      expect(typeof en.forge.notesPanel.hint).toBe('string');
+    } finally {
+      errors.pop();
+    }
+  });
 });

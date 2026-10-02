@@ -2554,6 +2554,10 @@
     "errorsPanel": {
       "title": "Ausführungsfehler"
     },
+    "notesPanel": {
+      "title": "Ausführungshinweise",
+      "hint": "Keiner dieser Hinweise ist ein fehlgeschlagener Datensatz oder ein übersprungenes Objekt: Jeder sagt, was der Lauf anders gemacht hat oder nicht prüfen konnte — eine Nachschlagebeziehung, die leer blieb, weil ihr Datensatz nicht im Klon ist, Datensätze, die die Plattform selbst schreibt, eine Prüfung der Ziel-Org, die nicht möglich war. Die Summen und das Audit-Protokoll zählen keinen davon als Fehler."
+    },
     "review": {
       "planTab": "Plan",
       "anonymizationTab": "Anonymisierung",
@@ -2666,6 +2670,10 @@
         "explanation": "Salesforce nimmt für dieses Objekt keine neuen Datensätze an (Verlaufs-, Audit- oder Systemobjekt).",
         "action": "Nehmen Sie dieses Objekt vom Klonen aus."
       },
+      "automationRefused": {
+        "explanation": "Eine Automatisierung der Ziel-Org — ein Trigger, ein Flow oder ein Prozess, der beim Speichern eines Datensatzes läuft — ist bei diesem Datensatz fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt. Die Meldung nennt sie meist, mit dem, was schiefging.",
+        "action": "Beheben Sie diese Automatisierung in der Ziel-Org oder schalten Sie sie für die Dauer des Klonens ab, und wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
       "insufficientAccess": {
         "explanation": "Ihrem Benutzer im Ziel-Org fehlen die für diesen Schreibvorgang nötigen Rechte.",
         "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie den Ziel-Org mit einem Benutzer, der sie hat."
@@ -2687,8 +2695,16 @@
         "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
       },
       "cycleFkUnresolved": {
-        "explanation": "Das Feld '{{fieldName}}' verweist auf ein übergeordnetes Objekt, das nicht geklont wurde (Quell-ID {{sourceRefId}}); der Datensatz wurde ohne diese Verknüpfung angelegt.",
-        "action": "Erhöhen Sie die Tiefe, damit das übergeordnete Objekt mitgeklont wird, oder setzen Sie das Feld danach von Hand."
+        "explanation": "Das Feld '{{fieldName}}' verweist auf einen Datensatz, den dieser Lauf nicht geschrieben hat (Quell-ID {{sourceRefId}}): Der Datensatz ist fehlgeschlagen, oder sein Objekt ist fehlgeschlagen, wurde übersprungen oder kann nicht in die Ziel-Org geschrieben werden. Der Datensatz wurde ohne diese Verknüpfung geschrieben.",
+        "action": "Beheben Sie, was diesen Datensatz ferngehalten hat — sein Fehler oder der seines Objekts steht in dieser Liste —, und wiederholen Sie dann die fehlgeschlagenen Objekte: Die Wiederholung schreibt ihn und füllt diese Verknüpfung. Andernfalls setzen Sie das Feld danach von Hand."
+      },
+      "lookupOutsideClone": {
+        "explanation": "Der Datensatz, auf den diese Nachschlagebeziehung verweist, ist nicht im Klon: Kein Lesevorgang des Laufs hat ihn erfasst. Die Nachschlagebeziehung darf leer bleiben, also wurde der Datensatz ohne sie geschrieben, und nichts ist fehlgeschlagen.",
+        "action": "Braucht die Ziel-Org die Verknüpfung, bringen Sie den Datensatz, auf den sie verweist, dorthin — klonen Sie ihn eigens, oder suchen Sie den dort schon vorhandenen — und setzen Sie die Nachschlagebeziehung dann von Hand."
+      },
+      "notInTarget": {
+        "explanation": "Nach diesem Objekt gefragt, hat die Ziel-Org geantwortet, dass sie keines hat: Das Objekt existiert dort nicht — ein benutzerdefiniertes Objekt oder eine Funktion, die diese Org nicht hat — oder der Benutzer, unter dem der Klon schreibt, kann es nicht sehen. Keiner seiner Datensätze wurde gelesen oder geschrieben.",
+        "action": "Stellen Sie das Objekt in der Ziel-Org bereit, oder geben Sie dem Benutzer, unter dem der Klon schreibt, dort Zugriff darauf; bis dahin nehmen Sie es vom Klonen aus, wie dieser Lauf es getan hat."
       },
       "standardPriceMissing": {
         "explanation": "Salesforce vergibt keinen Preis für ein Produkt in einem benutzerdefinierten Preisbuch, solange das Produkt keinen Preis im Standardpreisbuch hat, und dieser Standardeintrag fehlt in der Ziel-Org.",

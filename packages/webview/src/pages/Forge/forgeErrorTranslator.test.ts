@@ -100,6 +100,68 @@ describe('translateForgeError', () => {
     expect(result?.explanationKey).toBe('forge.error.cannotInsertEntity.explanation');
   });
 
+  it("explains the same code from the target's automation as that automation failing, not as an object to leave out", () => {
+    // An object that takes no insert is skipped before its write: what comes
+    // under this code otherwise is a trigger, a Flow or a process of the
+    // target failing on the record.
+    const result = translateForgeError(
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: ' +
+        'System.NullPointerException: Attempt to de-reference a null object: Trigger.CaseTrigger: line 12, column 1',
+    );
+    expect(result?.code).toBe('CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY');
+    expect(result?.severity).toBe('error');
+    expect(result?.explanationKey).toBe('forge.error.automationRefused.explanation');
+    expect(result?.actionKey).toBe('forge.error.automationRefused.action');
+    expect(en.forge.error.automationRefused.explanation).toContain(
+      'a trigger, a Flow or a process',
+    );
+    expect(en.forge.error.automationRefused.action).not.toContain('Leave this object out');
+  });
+
+  it('explains a lookup left empty because its record is not in the clone, as a note, whether or not the run named its object', () => {
+    // The extension's words, with the object pointed at when it can tell it,
+    // and without it when it cannot.
+    for (const raw of [
+      'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
+      'Written with the lookup empty: the record it points at is not in the clone.',
+    ]) {
+      const result = translateForgeError(raw);
+      expect(result?.code).toBe('LOOKUP_OUTSIDE_THE_CLONE');
+      expect(result?.severity).toBe('info');
+      expect(result?.explanationKey).toBe('forge.error.lookupOutsideClone.explanation');
+      expect(result?.actionKey).toBe('forge.error.lookupOutsideClone.action');
+    }
+    expect(en.forge.error.lookupOutsideClone.explanation).toContain('nothing failed');
+  });
+
+  it('explains an object the target org does not have, or does not show the user the run writes as', () => {
+    const result = translateForgeError(
+      'Object is not in the target org, or the user the run writes as cannot see it: ' +
+        'none of its records can be written there',
+    );
+    expect(result?.code).toBe('NOT_IN_TARGET_ORG');
+    expect(result?.severity).toBe('error');
+    expect(result?.explanationKey).toBe('forge.error.notInTarget.explanation');
+    expect(result?.actionKey).toBe('forge.error.notInTarget.action');
+  });
+
+  it('says a lookup the second pass could not fill in points at a record the run did not write, which a retry writes', () => {
+    // A lookup at a record outside the clone is a note of its own since
+    // 1.40.2: one left for the second pass points at a record the run did not
+    // write — it failed, or its object failed or was skipped. Raising the
+    // depth reaches no such record.
+    const result = translateForgeError(
+      "Cycle FK 'OriginalPolicyId' could not be resolved — referenced parent (source 0YT000000000001AAA) was not cloned",
+    );
+    expect(result?.explanationKey).toBe('forge.error.cycleFkUnresolved.explanation');
+    const { explanation, action } = en.forge.error.cycleFkUnresolved;
+    expect(explanation).toContain('points to a record this run did not write');
+    expect(action).toContain(
+      'retry the failed objects: the retry writes it and fills in this link',
+    );
+    expect(action).not.toContain('Raise the depth');
+  });
+
   it('translates Cycle FK with field name + source ref', () => {
     const result = translateForgeError(
       "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
@@ -173,6 +235,9 @@ describe('forge.error hint keys', () => {
     'STANDARD_PRICE_NOT_DEFINED: Before creating a custom price, create a standard price.',
     "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
     'RECORD_TYPE_UNAVAILABLE: 1 Case record uses record type Partner_Case, which the running user cannot use in the target org.',
+    'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: System.NullPointerException',
+    'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
+    'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
   ];
 
   /** Walk a dotted key through a locale object. */

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   FileText,
   AlertTriangle,
+  Info,
   Lightbulb,
 } from 'lucide-react';
 import type {
@@ -25,6 +26,7 @@ import type {
 import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { translateForgeError } from './forgeErrorTranslator';
+import type { TranslatedError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { Button } from '../../components/ui/Button';
@@ -68,6 +70,20 @@ const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'validation rule',
   'restricted-picklist': 'restricted picklist',
 };
+
+/**
+ * Whether a report of the run is a note: one at the `scope` stage that counts
+ * no failed record and does not skip its object — a lookup left empty because
+ * its record is not in the clone, rows the platform writes itself, a check of
+ * the target that could not be made. The run's status and its audit entry
+ * read its reports the same way (`forgeAuditObjects`). A read that failed
+ * counts no row either in a record-scoped run, which never learned how many
+ * its scope held, and is a failure; so is an object skipped whole, whose
+ * report may count none.
+ */
+function isRunNote(error: ForgeExecutionError): boolean {
+  return error.stage === 'scope' && error.failedCount === 0 && error.skipped !== true;
+}
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
@@ -182,6 +198,20 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     () => result?.writtenWithoutFields ?? [],
     [result?.writtenWithoutFields],
   );
+
+  /*
+   * The run's reports, its failures apart from its notes (`isRunNote`). Every
+   * one went to the red panel, where a lookup left empty because its record
+   * is not in the clone read as a failure beside the refused rows, in a run
+   * whose totals, status and audit entry counted none.
+   */
+  const { failures, notes } = useMemo(() => {
+    const reports = result?.errors ?? [];
+    return {
+      failures: reports.filter((report) => !isRunNote(report)),
+      notes: reports.filter(isRunNote),
+    };
+  }, [result?.errors]);
 
   /**
    * Per object, the rows the run read to clone it; null for a result recorded
@@ -970,8 +1000,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </div>
       )}
 
-      {/* Structured execution errors, grouped by object/stage */}
-      {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}
+      {/* What failed, and the objects skipped whole, by object and stage;
+          then the notes, which count neither. */}
+      {failures.length > 0 && <ForgeErrorsPanel errors={failures} />}
+      {notes.length > 0 && <ForgeNotesPanel notes={notes} />}
 
       {/* Collapsible execution logs */}
       {logs.length > 0 && (
@@ -1208,10 +1240,12 @@ const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls:
 };
 
 /**
- * Structured errors panel — surfaces `ForgeExecutionResult.errors` from the
- * executor, grouped by object and stage, with up to three sample
- * failures and the raw Salesforce status codes. Lets the user see exactly
- * which fields/records broke without re-running the operation.
+ * Structured errors panel — surfaces the failures of
+ * `ForgeExecutionResult.errors` from the executor, and the objects it skipped
+ * whole, grouped by object and stage, with up to three sample failures and
+ * the raw Salesforce status codes. Lets the user see exactly which
+ * fields/records broke without re-running the operation. Its notes have a
+ * panel of their own (`ForgeNotesPanel`).
  */
 const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors }) => {
   const { t } = useTranslation();
@@ -1303,35 +1337,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                               <div className="text-status-error wrap-break-word font-mono">
                                 └ {msg}
                               </div>
-                              {translated && (
-                                <div
-                                  data-testid="forge-error-translation"
-                                  className={cn(
-                                    'ml-4 px-2 py-1 rounded-sm border text-text-primary',
-                                    translated.severity === 'error' &&
-                                      'border-status-error/30 bg-status-error/5',
-                                    translated.severity === 'warning' &&
-                                      'border-status-warning/30 bg-status-warning/5',
-                                    translated.severity === 'info' &&
-                                      'border-status-info/30 bg-status-info/5',
-                                  )}
-                                >
-                                  <div className="flex items-start gap-1.5">
-                                    <Lightbulb
-                                      size={12}
-                                      className="mt-0.5 shrink-0 text-hue-yellow"
-                                    />
-                                    <div>
-                                      <div className="text-text-primary">
-                                        {t(translated.explanationKey, translated.vars ?? {})}
-                                      </div>
-                                      <div className="text-text-primary mt-1 italic">
-                                        → {t(translated.actionKey, translated.vars ?? {})}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                              {translated && <ForgeErrorHint hint={translated} />}
                             </li>
                           );
                         })}
@@ -1345,5 +1351,118 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
         })}
       </ul>
     </m.div>
+  );
+};
+
+/**
+ * What the translator makes of one message of a report: what it means, and
+ * what to do about it, tinted by how much it costs the clone.
+ */
+const ForgeErrorHint: React.FC<{ hint: TranslatedError }> = ({ hint }) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      data-testid="forge-error-translation"
+      className={cn(
+        'ml-4 px-2 py-1 rounded-sm border text-text-primary',
+        hint.severity === 'error' && 'border-status-error/30 bg-status-error/5',
+        hint.severity === 'warning' && 'border-status-warning/30 bg-status-warning/5',
+        hint.severity === 'info' && 'border-status-info/30 bg-status-info/5',
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <Lightbulb size={12} className="mt-0.5 shrink-0 text-hue-yellow" />
+        <div>
+          <div className="text-text-primary">{t(hint.explanationKey, hint.vars ?? {})}</div>
+          <div className="text-text-primary mt-1 italic">
+            → {t(hint.actionKey, hint.vars ?? {})}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** One sample of a note, each of its messages with the hint said under it, if any. */
+interface NoteSample {
+  recordSummary: string;
+  messages: Array<{ text: string; hint: TranslatedError | null }>;
+}
+
+/**
+ * Each message of a note's samples with the translator's hint for it. A hint
+ * the note already gave goes unsaid: a note says one thing per lookup or kind
+ * of row, and three lookups left empty read the same paragraph three times.
+ */
+function samplesWithHints(note: ForgeExecutionError): NoteSample[] {
+  const given = new Set<string>();
+  return note.samples.map(({ recordSummary, messages }) => ({
+    recordSummary,
+    messages: messages.map((text) => {
+      const hint = translateForgeError(text);
+      const said = hint && JSON.stringify([hint.explanationKey, hint.actionKey, hint.vars ?? {}]);
+      if (!said || given.has(said)) return { text, hint: null };
+      given.add(said);
+      return { text, hint };
+    }),
+  }));
+}
+
+/**
+ * The run's notes: what it did differently, or could not check, with no
+ * failed record and no object skipped — each with what the translator makes
+ * of its message. Shown open, as the page's other notes are: there is no
+ * failure to look into, only what each one says.
+ */
+const ForgeNotesPanel: React.FC<{ notes: readonly ForgeExecutionError[] }> = ({ notes }) => {
+  const { t } = useTranslation();
+  return (
+    <m.section
+      variants={slideUp}
+      initial="hidden"
+      animate="visible"
+      data-testid="forge-notes-panel"
+      aria-labelledby="forge-notes-title"
+      className="rounded-lg border border-subtle"
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
+        <Info size={16} className="text-status-info" />
+        <h3 id="forge-notes-title" className="text-sm font-semibold text-text-primary">
+          {t('forge.notesPanel.title')}
+        </h3>
+      </div>
+      <p className="px-4 pt-2 text-xs text-text-secondary" data-testid="forge-notes-hint">
+        {t('forge.notesPanel.hint')}
+      </p>
+      <ul>
+        {notes.map((note, index) => (
+          <li
+            // An object can have two notes, as it can two failures: their
+            // place in the list tells them apart.
+            key={`${note.objectApiName}__${index}`}
+            data-testid="forge-notes-row"
+            className="border-b border-subtle px-4 py-2 text-xs last:border-b-0"
+          >
+            <span className="font-mono text-sm text-text-primary">{note.objectApiName}</span>
+            <ul className="mt-1 space-y-2">
+              {samplesWithHints(note).map(({ recordSummary, messages }, s) => (
+                <li key={s} className="space-y-1">
+                  <div className="font-mono text-text-secondary break-all">{recordSummary}</div>
+                  {messages.map(({ text, hint }, mi) => (
+                    <div key={mi} className="space-y-1">
+                      <div className="font-mono text-text-primary wrap-break-word">
+                        <span aria-hidden="true">└ </span>
+                        {text}
+                      </div>
+                      {hint && <ForgeErrorHint hint={hint} />}
+                    </div>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </m.section>
   );
 };

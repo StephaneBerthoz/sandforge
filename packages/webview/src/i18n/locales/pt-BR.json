@@ -2554,6 +2554,10 @@
     "errorsPanel": {
       "title": "Erros de execução"
     },
+    "notesPanel": {
+      "title": "Notas de execução",
+      "hint": "Nenhuma destas notas é um registro com falha nem um objeto ignorado: cada uma diz o que a execução fez de outro modo, ou não conseguiu verificar — uma pesquisa deixada vazia porque seu registro não está no clone, registros que a plataforma grava ela mesma, uma verificação da org de destino que não pôde ser feita. Os totais e o registro de auditoria não contam nenhuma delas como falha."
+    },
     "review": {
       "planTab": "Plano",
       "anonymizationTab": "Anonimização",
@@ -2666,6 +2670,10 @@
         "explanation": "O Salesforce não aceita novos registros deste objeto (objeto de histórico, auditoria ou sistema).",
         "action": "Exclua este objeto da clonagem."
       },
+      "automationRefused": {
+        "explanation": "Uma automação da org de destino — um acionador, um Flow ou um processo que roda quando um registro é salvo — falhou neste registro, e a org de destino o recusou. A mensagem costuma nomeá-la, com o que deu errado.",
+        "action": "Corrija essa automação na org de destino, ou desative-a durante a clonagem, e então tente de novo os objetos com falha."
+      },
       "insufficientAccess": {
         "explanation": "Seu usuário na org de destino não tem o acesso que esta gravação exige.",
         "action": "Peça a permissão que falta a um administrador, ou conecte a org de destino com um usuário que a tenha."
@@ -2687,8 +2695,16 @@
         "action": "Encurte o valor de origem, ou dê ao campo o mesmo tamanho nas duas orgs."
       },
       "cycleFkUnresolved": {
-        "explanation": "O campo '{{fieldName}}' aponta para um pai que não foi clonado (ID de origem {{sourceRefId}}), então o registro foi criado sem esse vínculo.",
-        "action": "Aumente a profundidade para incluir o pai, ou preencha o campo manualmente depois."
+        "explanation": "O campo '{{fieldName}}' aponta para um registro que esta execução não gravou (ID de origem {{sourceRefId}}): o registro falhou, ou seu objeto falhou, foi ignorado ou não pode ser gravado na org de destino. O registro foi gravado sem esse vínculo.",
+        "action": "Corrija o que deixou esse registro de fora — o erro dele, ou o do objeto dele, está nesta lista — e então tente de novo os objetos com falha: a nova tentativa o grava e preenche este vínculo. Se não, preencha o campo manualmente depois."
+      },
+      "lookupOutsideClone": {
+        "explanation": "O registro para o qual esta pesquisa aponta não está no clone: nenhuma leitura da execução o pegou. A pesquisa pode ficar vazia, então o registro foi gravado sem ela, e nada falhou.",
+        "action": "Se a org de destino precisa do vínculo, leve para lá o registro para o qual ela aponta — clone-o à parte, ou encontre o que já está lá — e então preencha a pesquisa manualmente."
+      },
+      "notInTarget": {
+        "explanation": "Perguntada sobre este objeto, a org de destino respondeu que não o tem: o objeto não existe lá — um objeto personalizado ou um recurso que essa org não tem — ou o usuário com que o clone grava não consegue vê-lo. Nenhum de seus registros foi lido nem gravado.",
+        "action": "Implante o objeto na org de destino, ou dê acesso a ele lá ao usuário com que o clone grava; até lá, exclua-o da clonagem, como esta execução fez."
       },
       "standardPriceMissing": {
         "explanation": "O Salesforce não dá preço a um produto em um catálogo personalizado enquanto esse produto não tiver preço no padrão, e essa entrada padrão não está na org de destino.",

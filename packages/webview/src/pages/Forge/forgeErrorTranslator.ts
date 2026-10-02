@@ -139,12 +139,31 @@ const RULES: Rule[] = [
             'error',
             { detail },
           );
+        // One code, two causes. An object that takes no insert answers it
+        // with "entity type cannot be inserted", which a run meets only when
+        // the target's describe failed: one the describe says takes no new
+        // record is skipped before its write. Every other refusal under this
+        // code is the target's own automation — a trigger, a flow, a process
+        // — failing on the record, and told to leave the object out, the
+        // reader was sent away from the one thing to fix.
         case 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY':
-          return mapping(
-            ['forge.error.cannotInsertEntity.explanation', 'forge.error.cannotInsertEntity.action'],
-            code,
-            'info',
-          );
+          return /entity type cannot be inserted/i.test(raw)
+            ? mapping(
+                [
+                  'forge.error.cannotInsertEntity.explanation',
+                  'forge.error.cannotInsertEntity.action',
+                ],
+                code,
+                'info',
+              )
+            : mapping(
+                [
+                  'forge.error.automationRefused.explanation',
+                  'forge.error.automationRefused.action',
+                ],
+                code,
+                'error',
+              );
         case 'INSUFFICIENT_ACCESS_OR_READONLY':
         case 'INSUFFICIENT_ACCESS':
           return mapping(
@@ -188,6 +207,11 @@ const RULES: Rule[] = [
       }
     },
   },
+  // A lookup at a record outside the clone is a note of its own (below): one
+  // the second pass reports points at a record the run did not write — it
+  // failed, or its object failed, was skipped or cannot be written to the
+  // target — which a retry writes and links. Raising the depth, as the hint
+  // said, reaches no record already in the clone.
   {
     match: /Cycle FK '([^']+)'.*?source ([0-9A-Za-z]+)/,
     build: (_raw, m) => ({
@@ -216,6 +240,32 @@ const RULES: Rule[] = [
       actionKey: 'forge.error.outOfScope.action',
       severity: 'info',
     }),
+  },
+  // The run's own note, not the platform's: a lookup a row may leave empty, at
+  // a record no read of the run took, the object pointed at named when the
+  // run can tell it. Owed to the second pass, such a lookup was reported as a
+  // cycle's that could not be resolved, and counted as failed, in a run that
+  // lost no record.
+  {
+    match: /^Written with the lookup empty: the (?:\w+ )?record it points at is not in the clone/,
+    build: () =>
+      mapping(
+        ['forge.error.lookupOutsideClone.explanation', 'forge.error.lookupOutsideClone.action'],
+        'LOOKUP_OUTSIDE_THE_CLONE',
+        'info',
+      ),
+  },
+  // The run's own as well: an object whose describe of the target answered
+  // NOT_FOUND, as it does for one the user the run writes as cannot see,
+  // skipped whole before anything of it was read.
+  {
+    match: /^Object is not in the target org, or the user the run writes as cannot see it/,
+    build: () =>
+      mapping(
+        ['forge.error.notInTarget.explanation', 'forge.error.notInTarget.action'],
+        'NOT_IN_TARGET_ORG',
+        'error',
+      ),
   },
 ];
 

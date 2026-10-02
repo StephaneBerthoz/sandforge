@@ -1698,4 +1698,164 @@ describe('ForgeResults', () => {
     expect(drafts.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getAllByTestId('forge-errors-samples')).toHaveLength(1);
   });
+
+  describe('the notes of the run', () => {
+    /** Rows the target refused: a failure. */
+    const refused = {
+      objectApiName: 'Contact',
+      stage: 'insert' as const,
+      failedCount: 2,
+      attemptedCount: 2,
+      samples: [
+        {
+          recordSummary: 'LastName=Doe',
+          messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Region is required'],
+        },
+      ],
+    };
+    /** An object the target lacks, skipped whole: it counts no row, and is lost all the same. */
+    const notInTarget = {
+      objectApiName: 'Visit__c',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [
+        {
+          recordSummary: '(node-level skip)',
+          messages: [
+            'Object is not in the target org, or the user the run writes as cannot see it: ' +
+              'none of its records can be written there',
+          ],
+        },
+      ],
+    };
+    /** A read that failed in a record-scoped run: it counts no row either, and is a failure. */
+    const readFailed = {
+      objectApiName: 'Asset',
+      stage: 'query' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [
+        {
+          recordSummary: '(stage failed before insert)',
+          messages: ["No such column 'Region__c' on entity 'Asset'."],
+        },
+      ],
+    };
+    /** Lookups left empty because their record is not in the clone, as 1.40.2 says them. */
+    const lookupsLeftEmpty = {
+      objectApiName: 'InsurancePolicy',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [
+        {
+          recordSummary: 'OriginalPolicyId → InsurancePolicy (2 records)',
+          messages: [
+            'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
+          ],
+        },
+        {
+          recordSummary: 'SourceQuoteId (1 record)',
+          messages: ['Written with the lookup empty: the record it points at is not in the clone.'],
+        },
+      ],
+    };
+    /** Person accounts' contacts the target took as contacts of their own. */
+    const sentOnTheirOwn = {
+      objectApiName: 'Contact',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [
+        {
+          recordSummary: 'IsPersonAccount=true (1 record)',
+          messages: [
+            'Sent as contacts of their own: the target has no person accounts, and wrote no contact with it.',
+          ],
+        },
+      ],
+    };
+
+    /** The object of each row of a panel, in order. */
+    const objectsIn = (panel: HTMLElement, rowTestId: string): string[] =>
+      within(panel)
+        .getAllByTestId(rowTestId)
+        .map((row) => row.querySelector('.font-mono')?.textContent ?? '');
+
+    it('lists apart, as notes, the reports that count no failed record and skip no object', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        errors: [refused, lookupsLeftEmpty, notInTarget, sentOnTheirOwn, readFailed],
+      });
+      render(<ForgeResults />);
+
+      const errors = screen.getByTestId('forge-errors-panel');
+      expect(objectsIn(errors, 'forge-errors-row')).toEqual(['Contact', 'Visit__c', 'Asset']);
+      // Counted as the run counts them: three reports, two failed records.
+      expect(errors.textContent).toContain('3 objects · 2 records');
+
+      const notes = screen.getByTestId('forge-notes-panel');
+      expect(objectsIn(notes, 'forge-notes-row')).toEqual(['InsurancePolicy', 'Contact']);
+      expect(within(notes).getByRole('heading').textContent).toBe(i18n.t('forge.notesPanel.title'));
+      expect(notes.getAttribute('aria-labelledby')).toBe(
+        within(notes).getByRole('heading').getAttribute('id'),
+      );
+      expect(within(notes).getByTestId('forge-notes-hint').textContent).toBe(
+        i18n.t('forge.notesPanel.hint'),
+      );
+      // Open: each note says what it is about without a click.
+      expect(notes.textContent).toContain('OriginalPolicyId → InsurancePolicy (2 records)');
+      expect(notes.textContent).toContain('IsPersonAccount=true (1 record)');
+      expect(errors.textContent).not.toContain('Written with the lookup empty');
+    });
+
+    it('says under a lookup left empty what it means and what to do, once for its note', () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [lookupsLeftEmpty, sentOnTheirOwn] });
+      render(<ForgeResults />);
+
+      const hints = within(screen.getByTestId('forge-notes-panel')).getAllByTestId(
+        'forge-error-translation',
+      );
+      // Both lookups say the same thing, and a contact sent on its own needs no hint.
+      expect(hints).toHaveLength(1);
+      expect(hints[0].textContent).toContain(i18n.t('forge.error.lookupOutsideClone.explanation'));
+      expect(hints[0].textContent).toContain(i18n.t('forge.error.lookupOutsideClone.action'));
+    });
+
+    it('shows no red panel for a run whose reports are all notes', () => {
+      // A clone that lost no record read as one with execution errors.
+      mockResult = Object.assign(makeMockResult(), { errors: [lookupsLeftEmpty] });
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-errors-panel')).toBeNull();
+      expect(screen.getByTestId('forge-notes-panel')).toBeTruthy();
+    });
+
+    it('shows no notes for a run whose reports all count a failure or skip an object', () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [refused, notInTarget] });
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-notes-panel')).toBeNull();
+      expect(screen.getAllByTestId('forge-errors-row')).toHaveLength(2);
+    });
+
+    it('says why an object the target lacks was skipped, among the failures', () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [notInTarget] });
+      render(<ForgeResults />);
+
+      fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
+
+      const hint = screen.getByTestId('forge-error-translation');
+      expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.explanation'));
+      expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.action'));
+    });
+
+    it('offers no retry for a run whose only reports are notes', () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [lookupsLeftEmpty, sentOnTheirOwn] });
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+    });
+  });
 });

@@ -2554,6 +2554,10 @@
     "errorsPanel": {
       "title": "Execution errors"
     },
+    "notesPanel": {
+      "title": "Execution notes",
+      "hint": "None of these is a failed record or a skipped object: each says what the run did differently, or could not check — a lookup left empty because its record is not in the clone, records the platform writes itself, a check of the target org that could not be made. The totals and the audit trail count none of them as a failure."
+    },
     "review": {
       "planTab": "Plan",
       "anonymizationTab": "Anonymization",
@@ -2666,6 +2670,10 @@
         "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
         "action": "Leave this object out of the clone."
       },
+      "automationRefused": {
+        "explanation": "An automation of the target org — a trigger, a Flow or a process that runs as a record is saved — failed on this record, and the target refused it. The message usually names it, and what went wrong.",
+        "action": "Fix that automation in the target org, or turn it off while you clone, then retry the failed objects."
+      },
       "insufficientAccess": {
         "explanation": "Your user in the target org lacks the access this write needs.",
         "action": "Ask an administrator for the missing permission, or connect the target org with a user that has it."
@@ -2687,8 +2695,16 @@
         "action": "Shorten the source value, or give the field the same length in both orgs."
       },
       "cycleFkUnresolved": {
-        "explanation": "Field '{{fieldName}}' points to a parent that was not cloned (source ID {{sourceRefId}}), so the record was created without that link.",
-        "action": "Raise the depth so the parent is part of the clone, or set the field by hand afterwards."
+        "explanation": "Field '{{fieldName}}' points to a record this run did not write (source ID {{sourceRefId}}): the record failed, or its object failed, was skipped or cannot be written to the target org. The record went in without that link.",
+        "action": "Fix what kept that record out — its error, or its object's, is listed here — then retry the failed objects: the retry writes it and fills in this link. Otherwise set the field by hand afterwards."
+      },
+      "lookupOutsideClone": {
+        "explanation": "The record this lookup points at is not in the clone: none of the run's reads took it. The lookup may be left empty, so the record went in without it, and nothing failed.",
+        "action": "If the target org needs the link, bring the record it points at there — clone it on its own, or find the one already there — then set the lookup by hand."
+      },
+      "notInTarget": {
+        "explanation": "Asked about this object, the target org answered that it has none: the object is not there — a custom object or a feature that org lacks — or the user the clone writes as cannot see it. None of its records were read or written.",
+        "action": "Deploy the object to the target org, or give the user the clone writes as access to it there; until then, leave it out of the clone, as this run did."
       },
       "standardPriceMissing": {
         "explanation": "Salesforce will not price a product in a custom price book until that product has a price in the standard one, and the standard entry is not in the target org.",

@@ -2554,6 +2554,10 @@
     "errorsPanel": {
       "title": "Errores de ejecución"
     },
+    "notesPanel": {
+      "title": "Notas de ejecución",
+      "hint": "Ninguna de estas notas es un registro fallido ni un objeto omitido: cada una dice lo que la ejecución hizo de otro modo, o no pudo comprobar — una búsqueda que quedó vacía porque su registro no está en el clon, registros que la plataforma escribe por sí misma, una comprobación de la org de destino que no se pudo hacer. Los totales y el registro de auditoría no cuentan ninguna como un fallo."
+    },
     "review": {
       "planTab": "Plan",
       "anonymizationTab": "Anonimización",
@@ -2666,6 +2670,10 @@
         "explanation": "Salesforce no acepta registros nuevos de este objeto (objeto de historial, auditoría o sistema).",
         "action": "Excluya este objeto de la clonación."
       },
+      "automationRefused": {
+        "explanation": "Una automatización de la org de destino — un desencadenador, un Flow o un proceso que se ejecuta al guardar un registro — falló en este registro, y la org de destino lo rechazó. El mensaje suele nombrarla, con lo que salió mal.",
+        "action": "Corrija esa automatización en la org de destino, o desactívela mientras clona, y luego reintente los objetos fallidos."
+      },
       "insufficientAccess": {
         "explanation": "Su usuario en la org de destino no tiene el acceso que requiere esta escritura.",
         "action": "Pida el permiso que falta a un administrador, o conecte la org de destino con un usuario que lo tenga."
@@ -2687,8 +2695,16 @@
         "action": "Acorte el valor de origen, o dé al campo la misma longitud en ambas orgs."
       },
       "cycleFkUnresolved": {
-        "explanation": "El campo '{{fieldName}}' apunta a un padre que no se clonó (ID de origen {{sourceRefId}}), así que el registro se creó sin ese vínculo.",
-        "action": "Aumente la profundidad para incluir el padre, o complete el campo a mano después."
+        "explanation": "El campo '{{fieldName}}' apunta a un registro que esta ejecución no escribió (ID de origen {{sourceRefId}}): el registro falló, o su objeto falló, se omitió o no se puede escribir en la org de destino. El registro se escribió sin ese vínculo.",
+        "action": "Corrija lo que dejó fuera ese registro — su error, o el de su objeto, aparece en esta lista — y luego reintente los objetos fallidos: el reintento lo escribe y completa este vínculo. Si no, complete el campo a mano después."
+      },
+      "lookupOutsideClone": {
+        "explanation": "El registro al que apunta esta búsqueda no está en el clon: ninguna lectura de la ejecución lo tomó. La búsqueda puede quedar vacía, así que el registro se escribió sin ella, y nada falló.",
+        "action": "Si la org de destino necesita el vínculo, lleve allí el registro al que apunta — clónelo por separado, o busque el que ya está allí — y luego complete la búsqueda a mano."
+      },
+      "notInTarget": {
+        "explanation": "Al preguntarle por este objeto, la org de destino respondió que no lo tiene: el objeto no existe allí — un objeto personalizado o una función que esa org no tiene — o el usuario con el que escribe el clon no puede verlo. Ninguno de sus registros se leyó ni se escribió.",
+        "action": "Despliegue el objeto en la org de destino, o dé acceso a él allí al usuario con el que escribe el clon; mientras tanto, exclúyalo de la clonación, como hizo esta ejecución."
       },
       "standardPriceMissing": {
         "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",

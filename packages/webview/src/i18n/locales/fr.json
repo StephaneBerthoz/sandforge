@@ -2554,6 +2554,10 @@
     "errorsPanel": {
       "title": "Erreurs d'exécution"
     },
+    "notesPanel": {
+      "title": "Notes d'exécution",
+      "hint": "Aucune de ces notes n'est un enregistrement en échec ni un objet ignoré : chacune dit ce que l'exécution a fait autrement, ou n'a pas pu vérifier — une recherche laissée vide parce que son enregistrement n'est pas dans le clone, des enregistrements que la plateforme écrit elle-même, une vérification de l'org cible qui n'a pas pu être faite. Les totaux et le journal d'audit n'en comptent aucune comme un échec."
+    },
     "review": {
       "planTab": "Plan",
       "anonymizationTab": "Anonymisation",
@@ -2666,6 +2670,10 @@
         "explanation": "Salesforce n'accepte pas de nouveaux enregistrements pour cet objet (objet d'historique, d'audit ou système).",
         "action": "Excluez cet objet du clonage."
       },
+      "automationRefused": {
+        "explanation": "Une automatisation de l'org cible — un déclencheur, un Flow ou un processus qui s'exécute quand un enregistrement est sauvegardé — a échoué sur cet enregistrement, et l'org cible l'a refusé. Le message la désigne en général, avec ce qui s'est mal passé.",
+        "action": "Corrigez cette automatisation dans l'org cible, ou désactivez-la le temps du clonage, puis relancez les objets en échec."
+      },
       "insufficientAccess": {
         "explanation": "Votre utilisateur dans l'org cible n'a pas les droits nécessaires à cette écriture.",
         "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org cible avec un utilisateur qui la possède."
@@ -2687,8 +2695,16 @@
         "action": "Raccourcissez la valeur source, ou donnez au champ la même longueur dans les deux orgs."
       },
       "cycleFkUnresolved": {
-        "explanation": "Le champ '{{fieldName}}' pointe vers un parent qui n'a pas été cloné (ID source {{sourceRefId}}) : l'enregistrement a été créé sans ce lien.",
-        "action": "Augmentez la profondeur pour inclure le parent, ou renseignez le champ à la main ensuite."
+        "explanation": "Le champ '{{fieldName}}' pointe vers un enregistrement que cette exécution n'a pas écrit (ID source {{sourceRefId}}) : l'enregistrement a échoué, ou son objet a échoué, a été ignoré ou ne peut pas être écrit dans l'org cible. L'enregistrement a été écrit sans ce lien.",
+        "action": "Corrigez ce qui a tenu cet enregistrement à l'écart — son erreur, ou celle de son objet, figure dans cette liste — puis relancez les objets en échec : la relance l'écrit et renseigne ce lien. Sinon, renseignez le champ à la main ensuite."
+      },
+      "lookupOutsideClone": {
+        "explanation": "L'enregistrement vers lequel pointe cette recherche n'est pas dans le clone : aucune lecture de l'exécution ne l'a pris. La recherche peut rester vide : l'enregistrement a été écrit sans elle, et rien n'a échoué.",
+        "action": "Si l'org cible a besoin du lien, amenez-y l'enregistrement pointé — clonez-le à part, ou retrouvez celui qui s'y trouve déjà — puis renseignez la recherche à la main."
+      },
+      "notInTarget": {
+        "explanation": "Interrogée sur cet objet, l'org cible a répondu qu'elle n'en a pas : l'objet n'y existe pas — un objet personnalisé ou une fonctionnalité que cette org n'a pas — ou l'utilisateur sous lequel le clone écrit ne peut pas le voir. Aucun de ses enregistrements n'a été lu ni écrit.",
+        "action": "Déployez l'objet dans l'org cible, ou donnez-y accès à l'utilisateur sous lequel le clone écrit ; d'ici là, excluez-le du clonage, comme cette exécution l'a fait."
       },
       "standardPriceMissing": {
         "explanation": "Salesforce refuse de tarifer un produit dans un catalogue personnalisé tant que ce produit n'a pas de prix dans le catalogue standard, et cette entrée standard est absente de l'org cible.",

@@ -53,7 +53,11 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 ```
 
 The results screen groups any failures by object/stage with
-Salesforce-code → human-friendly explanation + action hint.
+Salesforce-code → human-friendly explanation + action hint. What counts no
+failed record and skips no object — a lookup left empty because its record is
+not in the clone, rows the platform writes itself, a check of the target that
+could not be made — is listed apart, under **Execution notes**, with the same
+hints: no total and no audit entry counts it as a failure.
 
 > In a hurry? The "Template" tab ships starter graphs (Account 360,
 > Case Workflow, Lead → Opportunity) and the "Quick start" button skips
@@ -184,10 +188,10 @@ The clone's exit code is `1` when the run produced **only** failures; when its f
 | `REQUIRED_FIELD_MISSING`                  | A required FK pointed outside the scope.                 | Enable "Auto-fetch parents" toggle in the wizard.                                                                                    |
 | `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` | Value not on target, or not allowed by its record type.  | Auto-handled: replaced by its record type's default, or left out, and named; refused all the same, the record goes again without it. |
 | `FIELD_CUSTOM_VALIDATION_EXCEPTION`       | A validation rule of the target refused the record.      | Auto-handled when the rule names a field: the record goes again without it.                                                          |
-| `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | Object is read-only (audit/history table).               | Auto-handled: node is now skipped pre-flight.                                                                                        |
+| `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | A trigger, Flow or process of the target failed on it.   | Fix or turn off that automation in the target, then retry; a read-only object (audit/history) is skipped pre-flight.                 |
 | `FIELD_INTEGRITY_EXCEPTION` (Asset)       | Asset needs at least an Account or Contact.              | Enable "Auto-fetch parents" toggle.                                                                                                  |
 
-The wizard's Errors panel shows an explanation and an action hint under each message it recognizes, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese. Each message the target gave ends with the fields its error named, in brackets, where the message does not already list them: a restricted picklist's refusal names the value it refused and not the field.
+The wizard's Errors and Notes panels show an explanation and an action hint under each message they recognize, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese. Each message the target gave ends with the fields its error named, in brackets, where the message does not already list them: a restricted picklist's refusal names the value it refused and not the field.
 
 A record the target refuses on fields it names — a validation rule's refusal, or a restricted picklist's refusal of the record's value — is written once more without them, once only. A restricted picklist can refuse a value the check before the write let through: a record type never given values of a field takes none of them, while the target's UI API, the one read that answers per record type, lists them all for it. Taken that time, the record counts as created and the records under it link to it; the object's line and the results page say which field it went without, what refused it and why, as does the command line's summary (under `writtenWithoutFields` with `--json`, each field with `refusedBy`), and the audit trail counts such records per object. Once the target has refused a picklist's value under a record type, the records after it holding that value under that record type are sent without it from the start, and counted the same way. A refusal that names no field leaves the record failed, as does a second refusal, which the Errors panel shows with what the first one said.
 
