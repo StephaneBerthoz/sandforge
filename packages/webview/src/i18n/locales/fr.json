@@ -1960,6 +1960,10 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "forgeAutomation1410": "Ce que la cible exécute, avant de cloner",
+      "forgeAutomation1410Desc": "Review a un onglet Automatisation : par objet, les Flows déclenchés par enregistrement et les triggers Apex de la cible qui se déclenchent sur les écritures, et les permissions personnalisées qui empêchent un Flow de démarrer pour l'utilisateur qui les détient. La commande de clone l'affiche avant d'écrire.",
+      "fixRound1410": "Les écritures Bulk gardent chaque champ",
+      "fixRound1410Desc": "Une écriture de plus de 200 lignes envoie chaque champ de chaque ligne et retrouve l'id de chacune ; une suppression retente une fois ce qui lui a été refusé ; Frozen réécrit sans son champ une ligne refusée ; un enregistrement fait lire son parent obligatoire même hors du graphe.",
       "fixRound1402": "Forge clone davantage d'un vrai dossier",
       "fixRound1402Desc": "Une ligne dont la cible refuse une valeur de liste est écrite sans ce champ, un enregistrement reçoit le parent obligatoire qui lui manquait, et les comptes personnels sont gérés dans Forge comme dans Frozen. La commande de clone supprime ce qu'un de ses runs a créé et refuse une org de production.",
       "fixRound1401": "Forge écrit davantage d'un vrai clone",

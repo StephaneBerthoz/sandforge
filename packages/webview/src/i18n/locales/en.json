@@ -1960,6 +1960,10 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "forgeAutomation1410": "What the target runs, before you clone",
+      "forgeAutomation1410Desc": "Review has an Automation tab: per object, the target's record-triggered flows and Apex triggers that fire on the writes, and the custom permissions that keep a flow quiet for the user who holds them. The clone command prints it before it writes.",
+      "fixRound1410": "Bulk writes keep every field",
+      "fixRound1410Desc": "A write past 200 rows sends every field of every row and finds each row's id again; a removal tries once more what it was refused; Frozen writes a refused row again without its field; a record gets its required parent read even outside the graph.",
       "fixRound1402": "Forge clones more of a real case",
       "fixRound1402Desc": "A row the target refuses for a picklist value goes in without that field, a record gets the required parent it was missing, and person accounts are handled in Forge and Frozen alike. The clone command removes what a run of it created, and refuses a production target.",
       "fixRound1401": "Forge writes more of a real clone",

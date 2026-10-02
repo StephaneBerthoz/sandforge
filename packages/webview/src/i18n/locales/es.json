@@ -1960,6 +1960,10 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeAutomation1410": "Lo que ejecuta el destino, antes de clonar",
+      "forgeAutomation1410Desc": "Review tiene una pestaña Automatización: por objeto, los flujos desencadenados por registro y los desencadenadores Apex del destino que se ejecutan con las escrituras, y los permisos personalizados que impiden que un flujo se inicie para el usuario que los tiene. El comando de clonación lo muestra antes de escribir.",
+      "fixRound1410": "Las escrituras Bulk conservan cada campo",
+      "fixRound1410Desc": "Una escritura de más de 200 filas envía cada campo de cada fila y recupera el ID de cada una; una eliminación vuelve a intentar una vez lo que se le rechazó; Frozen vuelve a escribir sin su campo una fila rechazada; un registro hace leer su registro principal obligatorio incluso fuera del grafo.",
       "fixRound1402": "Forge clona más de un caso real",
       "fixRound1402Desc": "Una fila cuyo valor de lista de selección rechaza el destino se escribe sin ese campo, un registro recibe el registro principal obligatorio que le faltaba y las cuentas personales se gestionan tanto en Forge como en Frozen. El comando de clonación elimina lo que creó una de sus ejecuciones y rechaza una organización de producción.",
       "fixRound1401": "Forge escribe más de una clonación real",

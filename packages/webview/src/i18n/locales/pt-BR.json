@@ -1960,6 +1960,10 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeAutomation1410": "O que o destino executa, antes de clonar",
+      "forgeAutomation1410Desc": "A revisão tem uma aba Automação: por objeto, os fluxos acionados por registro e os gatilhos Apex do destino que disparam nas gravações, e as permissões personalizadas que impedem um fluxo de iniciar para o usuário que as possui. O comando de clonagem mostra isso antes de gravar.",
+      "fixRound1410": "As gravações Bulk mantêm cada campo",
+      "fixRound1410Desc": "Uma gravação de mais de 200 linhas envia cada campo de cada linha e encontra o ID de cada uma; uma remoção tenta mais uma vez o que lhe foi recusado; o Frozen grava de novo sem o campo uma linha recusada; um registro faz ler o registro pai obrigatório mesmo fora do grafo.",
       "fixRound1402": "O Forge clona mais de um caso real",
       "fixRound1402Desc": "Uma linha cujo valor de lista de opções o destino recusa é escrita sem esse campo, um registro recebe o registro pai obrigatório que faltava, e as contas pessoais são tratadas no Forge e no Frozen. O comando de clonagem remove o que uma de suas execuções criou e recusa uma organização de produção.",
       "fixRound1401": "O Forge escreve mais de um clone real",

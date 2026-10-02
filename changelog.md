@@ -5,6 +5,45 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.0] - 2026-10-02
+
+Review says what the target runs before a clone writes, and Bulk writes keep
+every field of every row.
+
+### Added
+
+- **Review has an Automation tab**: per object the run writes, the target's
+  active record-triggered flows and Apex triggers, on insert, update and
+  delete, and the custom permissions that keep a flow from starting for the
+  user who holds them; the clone command prints it before it writes, under
+  `targetAutomation` with `--json`.
+- **`--list-objects --json`** prints the graph as JSON, and a second
+  `--remove` of a run knows what the first one wrote, from a file kept beside
+  the summary.
+
+### Fixed
+
+- **A Bulk API write sends every field of every row and finds each row's own
+  answer**: fields a row held that the first row did not were lost, and the
+  ids of the rows were not found again, though the records were written; a
+  write past 10 000 rows went nowhere.
+- **A removal, or a reload's purge, tries once more what it was refused** once
+  the rest has gone, never takes for gone a record it could not read, and a
+  Frozen removal no longer counts as kept what the platform deletes with a
+  contact or an email the load created.
+- **A record whose required parent is of an object outside the graph gets that
+  parent read by id**, with nothing read under it, so a case's invoice
+  junction goes in with its invoice.
+- **A Frozen load writes again a row the target refuses** for a restricted
+  picklist value or a validation rule, without the field or with its declared
+  replacement.
+- **The Forge results page lists the run's notes apart from its errors**,
+  counts an object with two reports once, and explains a lookup left empty, an
+  object the target lacks or takes no insert of, and a refusal from the
+  target's automation.
+- **The discovery screen's counters follow only the discovery the flow waits
+  on**, and the CI examples take a clone back with `--remove` on Node 24.
+
 ## [1.40.2] - 2026-10-01
 
 Forge clones more of a real case: a record type that takes none of a

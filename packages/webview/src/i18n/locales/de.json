@@ -1960,6 +1960,10 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "forgeAutomation1410": "Was das Ziel ausführt, bevor Sie klonen",
+      "forgeAutomation1410Desc": "Review hat einen Tab Automatisierung: pro Objekt die datensatzausgelösten Flows und Apex-Trigger des Ziels, die bei den Schreibvorgängen auslösen, und die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, stumm halten. Der Klonbefehl gibt dies aus, bevor er schreibt.",
+      "fixRound1410": "Bulk-Schreibvorgänge behalten jedes Feld",
+      "fixRound1410Desc": "Ein Schreibvorgang über 200 Zeilen sendet jedes Feld jeder Zeile und findet die ID jeder Zeile wieder; ein Entfernen versucht abgelehnte Datensätze noch einmal; Frozen schreibt eine abgelehnte Zeile ohne ihr Feld erneut; ein Datensatz lässt seinen erforderlichen übergeordneten Datensatz auch außerhalb des Graphen lesen.",
       "fixRound1402": "Forge klont mehr von einem echten Fall",
       "fixRound1402Desc": "Eine Zeile, deren Auswahllistenwert das Ziel ablehnt, wird ohne dieses Feld geschrieben, ein Datensatz erhält den erforderlichen übergeordneten Datensatz, der ihm fehlte, und Personenkonten werden in Forge wie in Frozen behandelt. Der Klonbefehl entfernt, was einer seiner Läufe erstellt hat, und lehnt eine Produktionsorganisation ab.",
       "fixRound1401": "Forge schreibt mehr von einem echten Klon",
