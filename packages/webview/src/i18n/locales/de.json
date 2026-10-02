@@ -2507,7 +2507,7 @@
     "smartLimitSuggested_one": "Org mit {{count}} Datensatz erkannt — Limit von {{limit}}/Objekt angewendet",
     "smartLimitSuggested_other": "Org mit {{count}} Datensätzen erkannt — Limit von {{limit}}/Objekt angewendet",
     "expandOrphanParents": "Übergeordnete automatisch abrufen",
-    "expandOrphanParentsHint": "Fehlende erforderliche übergeordnete Datensätze automatisch abrufen (ein Schritt), damit Asset/InsurancePolicy usw. mit intakten Fremdschlüsseln ankommen.",
+    "expandOrphanParentsHint": "Kopiert auch die übergeordneten Datensätze, die der Klon nicht von selbst liest: hinter einer Referenz, die mehrere Objekte benennen kann, jenseits von fünf Ebenen oder über der Obergrenze. Ein Klon ab einem Datensatz liest die übergeordneten Datensätze, ohne die seine Datensätze nicht geschrieben werden können, bereits per ID.",
     "reuseLastGraph": "Letzten Graph wiederverwenden (Ermittlung überspringen)",
     "reuseLastGraphHint": "Überspringen Sie die über 30 Sekunden dauernde Ermittlung und verwenden Sie den Graph Ihrer letzten Ausführung erneut.",
     "quickStartTemplate": "Schnellstart ({{name}})",

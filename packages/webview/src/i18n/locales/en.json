@@ -2507,7 +2507,7 @@
     "smartLimitSuggested_one": "Detected org with {{count}} record — applied {{limit}}/object cap",
     "smartLimitSuggested_other": "Detected org with {{count}} records — applied {{limit}}/object cap",
     "expandOrphanParents": "Auto-fetch parents",
-    "expandOrphanParentsHint": "Auto-fetch missing required parents (single-hop) so Asset/InsurancePolicy etc. land with their FKs intact.",
+    "expandOrphanParentsHint": "Also copies the parents the clone does not read on its own: behind a lookup that can name several objects, past five levels up, or past the cap. A record-scoped clone already reads by id the parents its records cannot be written without.",
     "reuseLastGraph": "Reuse last graph (skip discovery)",
     "reuseLastGraphHint": "Skip the 30s+ discovery and reuse the graph from your last execution.",
     "quickStartTemplate": "Quick start ({{name}})",

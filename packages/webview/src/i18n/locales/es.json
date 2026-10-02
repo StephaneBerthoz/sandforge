@@ -2507,7 +2507,7 @@
     "smartLimitSuggested_one": "Org detectada con {{count}} registro — se aplicó un límite de {{limit}}/objeto",
     "smartLimitSuggested_other": "Org detectada con {{count}} registros — se aplicó un límite de {{limit}}/objeto",
     "expandOrphanParents": "Obtener padres automáticamente",
-    "expandOrphanParentsHint": "Obtiene automáticamente los padres obligatorios faltantes (un solo salto) para que Asset/InsurancePolicy etc. lleguen con sus FK intactas.",
+    "expandOrphanParentsHint": "Copia también los registros principales que el clon no lee por sí mismo: tras una referencia que puede apuntar a varios objetos, más allá de cinco niveles o del límite. Un clon a partir de un registro ya lee por ID los registros principales sin los que sus registros no pueden escribirse.",
     "reuseLastGraph": "Reutilizar último grafo (omitir descubrimiento)",
     "reuseLastGraphHint": "Omita el descubrimiento de más de 30 s y reutilice el grafo de su última ejecución.",
     "quickStartTemplate": "Inicio rápido ({{name}})",

@@ -2507,7 +2507,7 @@
     "smartLimitSuggested_one": "Org avec {{count}} enregistrement détectée — limite {{limit}}/objet appliquée",
     "smartLimitSuggested_other": "Org avec {{count}} enregistrements détectée — limite {{limit}}/objet appliquée",
     "expandOrphanParents": "Récupérer les parents automatiquement",
-    "expandOrphanParentsHint": "Récupère automatiquement les parents requis manquants (single-hop) pour qu'Asset/InsurancePolicy etc. arrivent avec leurs FKs intactes.",
+    "expandOrphanParentsHint": "Copie aussi les parents que le clone ne lit pas de lui-même : derrière une référence pouvant désigner plusieurs objets, au-delà de cinq niveaux ou du plafond. Un clone à partir d'un enregistrement lit déjà par id les parents sans lesquels ses enregistrements ne peuvent pas être écrits.",
     "reuseLastGraph": "Réutiliser le dernier graphe (skip discovery)",
     "reuseLastGraphHint": "Saute la découverte (30s+) et réutilise le graphe de la dernière exécution.",
     "quickStartTemplate": "Démarrage rapide ({{name}})",

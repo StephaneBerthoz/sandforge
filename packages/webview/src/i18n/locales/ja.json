@@ -2394,7 +2394,7 @@
     },
     "smartLimitSuggested_other": "{{count}}件のレコードを持つ組織を検出 — {{limit}}/オブジェクトの上限を適用しました",
     "expandOrphanParents": "親を自動取得",
-    "expandOrphanParentsHint": "不足している必須の親レコードを自動取得（シングルホップ）し、Asset/InsurancePolicyなどが外部キーを保持したまま取り込まれます。",
+    "expandOrphanParentsHint": "複製が自動では読み込まない親レコードもコピーします。複数のオブジェクトを指せる参照の先、5 階層より上、または上限を超えた親です。レコード起点の複製は、レコードの書き込みに必要な親レコードを既に ID で読み込みます。",
     "reuseLastGraph": "前回のグラフを再利用（検出をスキップ）",
     "reuseLastGraphHint": "30秒以上かかる検出をスキップし、前回の実行のグラフを再利用します。",
     "quickStartTemplate": "クイックスタート（{{name}}）",
