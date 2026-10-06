@@ -322,6 +322,8 @@ const AutomationMessages = [
   msg('forge:undo'),
   // Opens in the browser a record a past run created, in the org it wrote to.
   msg('forge:open-record'),
+  // Verifies what a past run created, once the target has settled.
+  msg('forge:verify:request'),
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
@@ -350,6 +352,8 @@ const AutomationMessages = [
   msg('forge:undo:error'),
   msg('forge:open-record:response'),
   msg('forge:open-record:error'),
+  msg('forge:verify:response'),
+  msg('forge:verify:error'),
   msg('forge:plan:response'),
   msg('forge:plan:error'),
   msg('forge:compliance:response'),

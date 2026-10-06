@@ -17,7 +17,14 @@ const forgeRun: AuditLogEntry = {
   userId: 'sha256:0123456789ab',
   objects: [
     { objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 1 },
-    { objectApiName: 'Contract', created: 0, updated: 0, deleted: 0, failed: 0, skipped: 'uncounted' },
+    {
+      objectApiName: 'Contract',
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      failed: 0,
+      skipped: 'uncounted',
+    },
   ],
   context: {
     anonymized: true,
@@ -86,6 +93,18 @@ describe('auditTrailCsv', () => {
       Objects: 'Account created=3 failed=1; Contract skipped=uncounted',
       Details: 'contactPoints=neutralized; contactPointFields=2; contactPointValues=7',
     });
+  });
+
+  it("gives a verification of a run's records its verdict, in a column of its own", () => {
+    const verification = {
+      ...forgeRun,
+      action: 'forge_verify' as const,
+      verdict: 'unstable' as const,
+    };
+    const [header, line] = auditTrailCsv([verification]).split('\n');
+    const byColumn = Object.fromEntries(cells(header).map((name, i) => [name, cells(line)[i]]));
+
+    expect(byColumn).toMatchObject({ Action: 'forge_verify', Verdict: 'unstable' });
   });
 
   it('quotes every cell, its quotes doubled, so a comma or a quote stays in its cell', () => {

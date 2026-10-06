@@ -22,6 +22,8 @@
  *     [--max <n>] [--anonymize] [--dry-run]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--json]
+ *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+ *     --verify <summary.json> --target <alias> [--source <alias>] [--json]
  *
  * Example:
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
@@ -129,6 +131,13 @@ import {
   rehearse,
   type RehearsalPlan,
 } from '../src/modules/forge/rehearsal/rehearse.js';
+import type { ForgeRunVerification } from '@sandforge/shared';
+import {
+  RunVerifier,
+  verifiedOrg,
+  writtenWithoutByObject,
+  type SourceOrg,
+} from '../src/modules/forge/RunVerifier.js';
 
 export interface CliArgs {
   record: string;
@@ -199,6 +208,8 @@ Usage:
     --record <id> --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--json]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --verify <summary.json> --target <alias> [--source <alias>] [--json]
 
   Run from the repository root of a checkout, after pnpm install and
   pnpm build:shared.
@@ -362,6 +373,27 @@ Remove what a run created:
                          what was added to them since           (default: kept)
   --json                 print what became of the records as JSON on stdout,
                          every other line on stderr
+
+Verify what a run created:
+  --verify <file>        the summary a run printed with --json, saved to a file
+                         Reads back from --target every record the run created,
+                         after a pause and again until two readings agree (three
+                         at most, two seconds apart): those there, those in the
+                         recycle bin, those neither, out of the user's sight;
+                         checks on twenty records of each object that the
+                         lookups the run set point at the ids their parents got,
+                         reading the source records in --source; and lists the
+                         records changed since the run, which --remove keeps
+                         unless --include-changed. Only reads, from either org.
+                         Exits 0 when VERIFIED, 3 when PARTIAL (a record not
+                         there, a lookup that does not hold, or a part that could
+                         not be checked) and 4 when UNSTABLE (no two readings
+                         agreed: something still writes to the records).
+  --source <alias>       the org the run read from      (default: the summary's)
+                         A lookup the clone left out with --exclude reads as
+                         one left empty.
+  --json                 print the verification as JSON on stdout, every other
+                         line on stderr
 
 Exit codes:
   0  the clone ran; the rehearsal ran, whatever it found refused; the removal
@@ -2168,11 +2200,297 @@ function sameRecord(a: string, b: string): boolean {
   return a.slice(0, 15) === b.slice(0, 15);
 }
 
+/** What `--verify` was given. */
+export interface VerifyArgs {
+  /** The summary a run printed with `--json`, saved to a file. */
+  summaryPath: string;
+  /** sf CLI alias of the org the run wrote to. */
+  target: string;
+  /** sf CLI alias of the org the run read from; absent, the summary's. */
+  source: string | undefined;
+  /** Print the verification as JSON on stdout, and every other line on stderr. */
+  json: boolean;
+}
+
+/** The flags a verification reads. */
+const VERIFY_FLAGS: ReadonlySet<string> = new Set(['--verify', '--target', '--source', '--json']);
+
+/** The flags of a verification that take a value. */
+const VERIFY_VALUE_FLAGS: ReadonlySet<string> = new Set(['--verify', '--target', '--source']);
+
+/**
+ * The command line of a verification read and checked; exits on `--help` or
+ * a bad flag. A flag of the clone or of a removal is refused rather than
+ * ignored: `--include-changed` beside `--verify` would read as a removal.
+ * Exported so it can be tested.
+ */
+export function parseVerifyArgs(argv: string[]): VerifyArgs {
+  const args = argv.slice(2);
+  if (args.includes('-h') || args.includes('--help')) {
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+  const get = (flag: string): string | undefined => {
+    const i = args.indexOf(flag);
+    const value = i >= 0 ? args[i + 1] : undefined;
+    return value !== undefined && !value.startsWith('--') ? value : undefined;
+  };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (VERIFY_VALUE_FLAGS.has(arg)) {
+      if (args[i + 1] !== undefined && !args[i + 1].startsWith('--')) i++;
+      continue;
+    }
+    if (!VERIFY_FLAGS.has(arg)) {
+      process.stderr.write(
+        `--verify takes --target, --source and --json, not "${arg}". Run with --help for usage.\n`,
+      );
+      process.exit(2);
+    }
+  }
+  const summaryPath = get('--verify');
+  const target = get('--target');
+  if (!summaryPath || !target || (args.includes('--source') && !get('--source'))) {
+    process.stderr.write(
+      '--verify takes the file a run printed its --json summary to, --target the org the run ' +
+        'wrote to, and --source, when given, the org it read from. Run with --help for usage.\n',
+    );
+    process.exit(2);
+  }
+  return { summaryPath, target, source: get('--source'), json: args.includes('--json') };
+}
+
+/**
+ * The rows a run wrote again without the fields the target refused, as its
+ * summary names them: read apart from what a removal reads, and nothing from
+ * a summary that names none or names them otherwise.
+ */
+const writtenWithoutSchema = z.object({
+  result: z.object({
+    writtenWithoutFields: z.array(
+      z.object({
+        objectApiName: z.string().regex(API_NAME_RE),
+        fields: z.array(z.object({ field: z.string().regex(API_NAME_RE) })),
+      }),
+    ),
+  }),
+});
+
+/** The exit code each verdict leaves. */
+const VERDICT_EXIT: Readonly<Record<ForgeRunVerification['verdict'], number>> = {
+  verified: 0,
+  partial: 3,
+  unstable: 4,
+};
+
+/**
+ * What a verification found, as the command says it: the verdict and how
+ * many readings it took, then per object the records there and those not,
+ * the lookups checked and those that do not hold, the records changed since
+ * the run, and what could not be checked. Exported so it can be tested.
+ */
+export function verificationLines(verification: ForgeRunVerification, target: string): string[] {
+  const lines = [
+    verification.verdict === 'unstable'
+      ? `verification: UNSTABLE — no two of ${verification.attempts} readings of ${target} agreed: ` +
+        "something still writes to the run's records; verify again once it is done"
+      : `verification: ${verification.verdict.toUpperCase()} (${verification.attempts} readings of ${target})`,
+  ];
+  const changed: string[] = [];
+  for (const o of verification.objects) {
+    if (o.error !== undefined) {
+      lines.push(`  ${o.objectApiName}: not read (${o.error})`);
+      continue;
+    }
+    const missing = [
+      o.deleted > 0 ? `${o.deleted} in the recycle bin` : '',
+      o.notVisible > 0 ? `${o.notVisible} neither there nor in the recycle bin, out of sight` : '',
+    ].filter(Boolean);
+    const links =
+      o.linksUnchecked !== undefined
+        ? `lookups not checked (${o.linksUnchecked})`
+        : o.linksChecked === 0
+          ? 'no lookup the run set to check'
+          : o.linksBroken === 0
+            ? `lookups: ${o.linksChecked} checked, all hold`
+            : `lookups: ${o.linksChecked} checked, ${o.linksBroken} do not hold`;
+    lines.push(
+      `  ${o.objectApiName}: ${o.present} of ${o.expected} there` +
+        (missing.length > 0 ? `, ${missing.join(', ')}` : '') +
+        `; ${links}`,
+    );
+    for (const link of o.brokenLinks) {
+      lines.push(
+        link.found === null
+          ? `      ${link.recordId}: ${link.field} is empty, the run set it to ${link.expected}`
+          : `      ${link.recordId}: ${link.field} points at ${link.found}, the run set it to ${link.expected}`,
+      );
+    }
+    if (o.recycleBinUnread !== undefined) {
+      lines.push(`      the recycle bin could not be read (${o.recycleBinUnread})`);
+    }
+    for (const change of o.changedRecords) {
+      changed.push(
+        `      ${o.objectApiName} ${change.recordId}: modified ${change.modifiedAt}` +
+          (change.modifiedById ? ` by ${change.modifiedById}` : ''),
+      );
+    }
+  }
+  const changedCount = verification.objects.reduce((sum, o) => sum + o.changed, 0);
+  if (changedCount > 0) {
+    lines.push(
+      `changed since the run: ${changedCount} record(s), which --remove keeps unless --include-changed`,
+      ...changed,
+    );
+  }
+  if (verification.linksUnchecked !== undefined) {
+    lines.push(`lookups not checked: ${verification.linksUnchecked}`);
+  }
+  return lines;
+}
+
+/**
+ * Verify what a run created, from the summary it printed with `--json`: the
+ * verification the wizard runs from a run's results (`RunVerifier`), on the
+ * records the summary says the run created, the lookups of a sample of them
+ * checked against the source records in the org the run read from. Exported
+ * so it can be tested.
+ *
+ * The summary is read and checked before any org is contacted; the target
+ * must be the org the run wrote to. Nothing is written to either org. Exits
+ * 0 when verified, 3 when partial, 4 when unstable, 2 on a bad command line
+ * or a summary that cannot be read, 1 when the verification could not run.
+ */
+export async function verifyMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseVerifyArgs(argv);
+  const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
+
+  let text: string;
+  try {
+    text = readFileSync(args.summaryPath, 'utf8');
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--verify ${args.summaryPath} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    // Not JSON: the summary's own reading says so below.
+  }
+  const dryRun = z.object({ tool: z.literal('sandforge-clone'), dryRun: z.literal(true) });
+  if (dryRun.safeParse(raw).success) {
+    process.stderr.write(
+      `--verify ${args.summaryPath} is the summary of a dry run, which wrote nothing to the ` +
+        'target: there is nothing of it to verify.\n',
+    );
+    process.exit(2);
+  }
+  const read = parseRunSummary(text);
+  if ('refusal' in read) {
+    process.stderr.write(`--verify ${args.summaryPath} ${read.refusal}\n`);
+    process.exit(2);
+  }
+  const { summary } = read;
+  if (summary.targetOrgId === undefined && summary.target !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${summary.target}, and its records are verified in that org only: ` +
+        `give --target ${summary.target}.\n`,
+    );
+    process.exit(2);
+  }
+  const records = removalPlan(summary);
+  if (records.length === 0) {
+    say('The run created no record: there is nothing of it to verify.');
+    return;
+  }
+  // What earlier removals of the summary left on the run's records, kept
+  // beside it: no change since the run. A file that cannot be read is said,
+  // and the verification goes on without it.
+  let removalStamps: Readonly<Record<string, string>> | undefined;
+  const removalsFile = removalsPath(args.summaryPath);
+  let removalsText: string | undefined;
+  try {
+    removalsText = readFileSync(removalsFile, 'utf8');
+  } catch {
+    // No removal kept anything beside the summary.
+  }
+  const earlier = readEarlierRemovals(removalsText, runKey(records));
+  if ('refusal' in earlier) say(`${removalsFile} ${earlier.refusal}`);
+  else removalStamps = earlier.earlier?.removalStamps;
+  const written = writtenWithoutSchema.safeParse(raw);
+
+  say(`sandforge-clone --verify  ${args.summaryPath}  in ${args.target}`);
+  const conn = makeConn(await loadOrg(args.target));
+  const org = await typeOrg(conn);
+  if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
+    process.stderr.write(
+      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its records ` +
+        'are verified in that org only.\n',
+    );
+    process.exit(1);
+  }
+  const sourceAlias = args.source ?? summary.source;
+  let source: SourceOrg | { unavailable: string };
+  try {
+    source = verifiedOrg(makeConn(await loadOrg(sourceAlias)), 'sandforge-clone --verify source');
+  } catch (err: unknown) {
+    source = {
+      unavailable: `the org the run read from, ${sourceAlias}, could not be reached: ${extractErrorMessage(err)}`,
+    };
+  }
+  const verification = await new RunVerifier({
+    target: verifiedOrg(conn, 'sandforge-clone --verify'),
+    source,
+  }).verify({
+    records,
+    remapTable: summary.result.remapTable,
+    ...(summary.result.writtenBetween
+      ? { runEndedAt: new Date(summary.result.writtenBetween.last) }
+      : summary.finishedAt
+        ? { runRecordedAt: new Date(summary.finishedAt) }
+        : {}),
+    ...(removalStamps ? { removalStamps } : {}),
+    ...(written.success
+      ? { writtenWithout: writtenWithoutByObject(written.data.result.writtenWithoutFields) }
+      : {}),
+  });
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          action: 'verify',
+          summary: args.summaryPath,
+          target: args.target,
+          targetOrgId: org.id,
+          source: sourceAlias,
+          result: verification,
+          elapsedMs: Date.now() - t0,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  } else {
+    for (const line of verificationLines(verification, args.target)) console.log(line);
+    console.log(`\ndone in ${Date.now() - t0}ms`);
+  }
+  const code = VERDICT_EXIT[verification.verdict];
+  if (code !== 0) process.exit(code);
+}
+
 /**
  * Run one clone from the given command line, or one removal under `--remove`;
  * exported so its flag checks can be tested.
  */
 export async function main(argv: string[] = process.argv): Promise<void> {
+  if (argv.slice(2).includes('--verify')) return verifyMain(argv);
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const t0 = Date.now();
   const args = parseArgs(argv);

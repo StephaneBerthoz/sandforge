@@ -7,6 +7,7 @@ import type {
   AuditObjectCounts,
   AuditOutcome,
   AuditRunContext,
+  ForgeVerificationVerdict,
   GuardDecision,
   LineageOrigin,
 } from '@sandforge/shared';
@@ -183,6 +184,8 @@ export interface WriteRun {
    * as it inserted, and what the user confirmed and decided.
    */
   context?: AuditRunContext;
+  /** For the verification of a run's records: what it concluded. */
+  verdict?: ForgeVerificationVerdict;
 }
 
 /**
@@ -265,6 +268,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       ...(run.leftBy ? { leftBy: run.leftBy } : {}),
       ...(userId ? { userId } : {}),
       ...(run.context ? { context: run.context } : {}),
+      ...(run.verdict ? { verdict: run.verdict } : {}),
       details: { ...run.details, ...(run.code ? { code: run.code } : {}) },
       timestamp,
     });

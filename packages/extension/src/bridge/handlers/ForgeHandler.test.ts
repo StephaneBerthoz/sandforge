@@ -4095,12 +4095,13 @@ describe('ForgeHandler', () => {
         message: 'INVALID_SESSION_ID: Session expired or invalid',
         code: 'EXECUTE_ERROR',
       });
-      // The entry but the config and the org the history adds, as a finished
+      // The entry but the config and the orgs the history adds, as a finished
       // run is answered: the same run, under the same id, that Retry names.
       expect(error.result).toEqual({
         ...kept(store)[0],
         config: undefined,
         targetOrgId: undefined,
+        sourceOrgId: undefined,
       });
       expect(error.result).not.toHaveProperty('config');
       expect(error.result).toMatchObject({
@@ -4169,7 +4170,9 @@ describe('ForgeHandler', () => {
         buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
       );
 
-      expect(kept(store)).toEqual([{ ...result, config: KEPT_CONFIG, targetOrgId: 'tgt-org' }]);
+      expect(kept(store)).toEqual([
+        { ...result, config: KEPT_CONFIG, targetOrgId: 'tgt-org', sourceOrgId: 'src-org' },
+      ]);
     });
   });
 

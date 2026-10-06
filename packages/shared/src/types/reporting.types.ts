@@ -1,5 +1,5 @@
 import type { UUID, ISODateString } from './common.types.js';
-import type { ForgeGapDecisionKind } from './forge.types.js';
+import type { ForgeGapDecisionKind, ForgeVerificationVerdict } from './forge.types.js';
 
 /** Report type */
 export type ReportType =
@@ -34,6 +34,7 @@ export type AuditAction =
   | 'template_update'
   | 'template_delete'
   | 'forge_execute'
+  | 'forge_verify'
   | 'seed_csv_import'
   | 'seed_clone'
   | 'autopilot_execute'
@@ -179,6 +180,11 @@ export interface AuditLogEntry {
    * counts are of those records alone.
    */
   leftBy?: ISODateString;
+  /**
+   * Set on the verification of a run's records (`forge_verify`): what it
+   * concluded. Its counts are in `details`.
+   */
+  verdict?: ForgeVerificationVerdict;
   /**
    * The user the run wrote as, by the username this machine's org registry
    * holds for the org: `sha256:` and the first twelve hex characters of the

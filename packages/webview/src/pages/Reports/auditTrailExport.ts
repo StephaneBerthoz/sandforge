@@ -46,6 +46,7 @@ const HEADER = [
   'Automation unread',
   'Confirmed',
   'Decisions',
+  'Verdict',
   'Objects',
   'Left by',
   'Details',
@@ -78,7 +79,10 @@ function objectCell(counts: AuditObjectCounts): string {
 function detailsCell(details: Record<string, unknown>): string {
   return Object.entries(details)
     .filter(([key]) => key !== 'code')
-    .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
+    .map(
+      ([key, value]) =>
+        `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`,
+    )
     .join('; ');
 }
 
@@ -114,6 +118,8 @@ function row(entry: AuditLogEntry): Array<string | number | undefined> {
     context?.decisions
       ?.map((d) => `${d.kind} ${d.count}${d.rows !== undefined ? ` (${d.rows} rows)` : ''}`)
       .join('; '),
+    // A verification of a run's records (`forge_verify`) says what it concluded.
+    entry.verdict,
     (entry.objects ?? []).map(objectCell).join('; '),
     entry.leftBy,
     detailsCell(entry.details),
@@ -127,9 +133,7 @@ function row(entry: AuditLogEntry): Array<string | number | undefined> {
  * spreadsheet, and a comma or a quote in it stays in its cell.
  */
 export function auditTrailCsv(entries: readonly AuditLogEntry[]): string {
-  return [HEADER, ...entries.map(row)]
-    .map((cells) => cells.map(csvCell).join(','))
-    .join('\n');
+  return [HEADER, ...entries.map(row)].map((cells) => cells.map(csvCell).join(',')).join('\n');
 }
 
 /**

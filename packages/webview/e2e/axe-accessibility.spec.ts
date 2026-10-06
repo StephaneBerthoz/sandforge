@@ -370,6 +370,68 @@ const FORGE_REMOVAL_RESULT = {
 };
 
 /**
+ * What verifying that run found: a contact in the recycle bin and one out of
+ * sight, a case whose lookup points at another account than the run set, and
+ * the account changed since the run.
+ */
+const FORGE_VERIFICATION = {
+  verdict: 'partial',
+  verifiedAt: '2026-09-23T09:00:00.000Z',
+  attempts: 2,
+  objects: [
+    {
+      objectApiName: 'Contact',
+      expected: 2,
+      present: 0,
+      deleted: 1,
+      notVisible: 1,
+      changed: 0,
+      changedRecords: [],
+      deletedIds: [fakeId('003', 1)],
+      notVisibleIds: [fakeId('003', 2)],
+      linksChecked: 0,
+      linksBroken: 0,
+      brokenLinks: [],
+    },
+    {
+      objectApiName: 'Case',
+      expected: 1,
+      present: 1,
+      deleted: 0,
+      notVisible: 0,
+      changed: 0,
+      changedRecords: [],
+      deletedIds: [],
+      notVisibleIds: [],
+      linksChecked: 1,
+      linksBroken: 1,
+      brokenLinks: [
+        {
+          recordId: fakeId('500', 1),
+          field: 'AccountId',
+          expected: fakeId('001', 1),
+          found: fakeId('001', 7),
+        },
+      ],
+    },
+    {
+      objectApiName: 'Account',
+      expected: 1,
+      present: 1,
+      deleted: 0,
+      notVisible: 0,
+      changed: 1,
+      changedRecords: [{ recordId: fakeId('001', 1), modifiedAt: '2026-09-22T10:00:00.000+0000' }],
+      deletedIds: [],
+      notVisibleIds: [],
+      linksChecked: 0,
+      linksBroken: 0,
+      brokenLinks: [],
+    },
+  ],
+};
+
+/**
  * The Frozen page's status once a load into the QA sandbox created an order
  * with its items, a contact and a technical placeholder, and linked the
  * standard price book and a selling model the sandbox already held.
@@ -1941,6 +2003,53 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-removal-result')).toBeVisible();
       await expect(page.getByTestId('forge-retry-failed')).toHaveCount(0);
       expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge results verifying what the run wrote: asked, read, and the verdict with what it found', async ({
+      page,
+    }) => {
+      await startForgeRun(bridge, page, theme, FORGE_RUN_GRAPH);
+      const written = { ...FORGE_REMOVABLE_RUN, forgeId: 'forge-run-verified' };
+      await answerAll(page, 'forge:execute', 'forge:execute:response', { result: written });
+      await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-verify-run')).toHaveText(
+        'Verify what this run wrote',
+      );
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-results-verify-run').click();
+      const asked = await bridge.waitForMessage('forge:verify:request', { timeout: 10_000 });
+      expect(asked.payload).toEqual({ forgeId: written.forgeId });
+      await expect(page.getByTestId('forge-results-verifying')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      await answerAll(page, 'forge:verify:request', 'forge:verify:response', {
+        verification: FORGE_VERIFICATION,
+      });
+      await page.getByTestId('forge-verification').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-verification-changed')).toBeVisible();
+      const partial = await checkAccessibility(page);
+      expectNoViolations(partial);
+      expect(
+        await contrastMeasuredIn(page, partial, '[data-testid="forge-verification"]'),
+      ).toBeGreaterThan(0);
+
+      // Verified, said in the colour of success.
+      await page.getByTestId('forge-results-verify-run').click();
+      await expect(page.getByTestId('forge-results-verifying')).toBeVisible();
+      await answerAll(page, 'forge:verify:request', 'forge:verify:response', {
+        verification: {
+          ...FORGE_VERIFICATION,
+          verdict: 'verified',
+          objects: [FORGE_VERIFICATION.objects[2]],
+        },
+      });
+      await expect(page.getByTestId('forge-verification-verdict')).toContainText('Verified');
+      const verified = await checkAccessibility(page);
+      expectNoViolations(verified);
+      expect(
+        await contrastMeasuredIn(page, verified, '[data-testid="forge-verification-verdict"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Forge results telling the notes of the run from its errors, each with what it means', async ({

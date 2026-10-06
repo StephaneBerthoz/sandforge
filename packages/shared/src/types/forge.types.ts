@@ -948,6 +948,100 @@ export interface ForgeWrittenBetween {
 }
 
 /**
+ * What a verification of a run's records concluded: `verified` when every
+ * record it read back is in the target and every lookup it checked points at
+ * the record the run set it to; `partial` when a record is gone, deleted or
+ * out of the user's sight, a lookup points elsewhere or is empty, or a part
+ * could not be checked; `unstable` when no two readings of the target agreed
+ * within the attempts, the target still being written to.
+ */
+export type ForgeVerificationVerdict = 'verified' | 'partial' | 'unstable';
+
+/** A lookup of a record the run created that no longer points where the run set it. */
+export interface ForgeVerificationLink {
+  /** The record, by its id in the target. */
+  recordId: string;
+  /** The lookup, by its API name in the target. */
+  field: string;
+  /** The id the record's parent got in the target: what the run set the lookup to. */
+  expected: string;
+  /** What the target holds in it now; null when it is empty. */
+  found: string | null;
+}
+
+/** A record the run created that was modified after the run ended. */
+export interface ForgeVerificationChange {
+  /** The record, by its id in the target. */
+  recordId: string;
+  /** When the target last modified it, as the org wrote the date. */
+  modifiedAt: string;
+  /** The user who did, by id, when the object keeps who modified it. */
+  modifiedById?: string;
+}
+
+/** What a verification found of one object's records the run created. */
+export interface ForgeVerificationObject {
+  /** API name of the object. */
+  objectApiName: string;
+  /** The records of the object the verification set out to read back. */
+  expected: number;
+  /** Read back from the target. */
+  present: number;
+  /** In the target's recycle bin. */
+  deleted: number;
+  /**
+   * Neither read back nor in the recycle bin: emptied from the bin, or out of
+   * the sight of the user the target is read as. Never taken for deleted.
+   */
+  notVisible: number;
+  /**
+   * Of the present, the records modified after the run ended, by someone or by
+   * automation: a removal keeps them unless it is told to take them too.
+   */
+  changed: number;
+  /** The first few of them. */
+  changedRecords: ForgeVerificationChange[];
+  /** The first few deleted, by id. */
+  deletedIds: string[];
+  /** The first few not visible, by id. */
+  notVisibleIds: string[];
+  /** The lookups checked on the sample of the object's records. */
+  linksChecked: number;
+  /** Of those, the ones that point elsewhere than the run set them, or are empty. */
+  linksBroken: number;
+  /** The first few of them. */
+  brokenLinks: ForgeVerificationLink[];
+  /** Why the object could not be read; nothing of it was judged then. */
+  error?: string;
+  /** Why its lookups could not be checked, when they could not. */
+  linksUnchecked?: string;
+  /** Why the recycle bin could not be read for the records not read back. */
+  recycleBinUnread?: string;
+}
+
+/**
+ * A verification of what a run created, once the target has settled: every
+ * record read back, a sample of each object's lookups checked against the
+ * ids the run's parents got, and the records changed since the run, read
+ * until two readings agree.
+ */
+export interface ForgeRunVerification {
+  /** What it concluded. */
+  verdict: ForgeVerificationVerdict;
+  /** When it ended, ISO 8601. */
+  verifiedAt: string;
+  /** How many times the target was read: two that agree end it early. */
+  attempts: number;
+  /** Per object, in the order the run's records are listed. */
+  objects: ForgeVerificationObject[];
+  /**
+   * Why no lookup was checked: the run did not keep the org it read from, or
+   * that org could not be read. Absent when they were checked.
+   */
+  linksUnchecked?: string;
+}
+
+/**
  * When one removal of a run's records ran, by the target org's clock, and as
  * which user: what that user created in the org meanwhile is the org's answer
  * to the removal, not a record added since the run.
@@ -1089,6 +1183,18 @@ export interface ForgeExecutionResult {
    * for runs recorded before it.
    */
   targetOrgId?: string;
+  /**
+   * The org the run read from, by its id in this machine's org registry, kept
+   * beside `config` as `targetOrgId` is: a verification reads there what each
+   * record pointed at, to check its lookups in the target. Set on history
+   * entries only; absent from runs recorded before it was kept.
+   */
+  sourceOrgId?: string;
+  /**
+   * The last verification of the records this run created, once one ran.
+   * Absent until then, and from a simulation, which wrote nothing.
+   */
+  verification?: ForgeRunVerification;
   /**
    * Set once a removal of the records this run created deleted some, or found
    * some gone, cancelled or not: see {@link ForgeUndoMark}.

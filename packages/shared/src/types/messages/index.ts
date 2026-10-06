@@ -285,6 +285,7 @@ import type {
   ForgeHistoryListRequest,
   ForgeUndoRequest,
   ForgeOpenRecordRequest,
+  ForgeVerifyRequest,
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
@@ -309,6 +310,8 @@ import type {
   ForgeUndoErrorMessage,
   ForgeOpenRecordResponse,
   ForgeOpenRecordErrorMessage,
+  ForgeVerifyResponse,
+  ForgeVerifyErrorMessage,
   ForgePlanResponse,
   ForgePlanErrorMessage,
   ForgeComplianceResponse,
@@ -578,6 +581,7 @@ export type WebViewToExtensionMessage =
   | ForgeHistoryListRequest
   | ForgeUndoRequest
   | ForgeOpenRecordRequest
+  | ForgeVerifyRequest
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
@@ -789,6 +793,8 @@ export type ExtensionToWebViewMessage =
   | ForgeUndoErrorMessage
   | ForgeOpenRecordResponse
   | ForgeOpenRecordErrorMessage
+  | ForgeVerifyResponse
+  | ForgeVerifyErrorMessage
   | ForgePlanResponse
   | ForgePlanErrorMessage
   | ForgeComplianceResponse

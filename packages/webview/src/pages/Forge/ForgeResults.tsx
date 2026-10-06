@@ -51,6 +51,7 @@ import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
+import { ForgeResultsVerify } from './ForgeResultsVerify';
 import { createdTargets, idMapCsv, idMapRows, objectResultsCsv } from './forgeResultsExport';
 
 /**
@@ -1366,6 +1367,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {t('forge.retryWithParentsHint')}
         </p>
       )}
+      {/* What the run created read back once the target has settled: a
+          simulation wrote nothing to verify. */}
+      {result && !simulated && <ForgeResultsVerify run={result} />}
       {/* The removal the history of runs offers, of the run on screen, and
           what it did said in place. */}
       {result && !simulated && (

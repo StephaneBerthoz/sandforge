@@ -759,6 +759,7 @@ export class ExtensionHandlers {
         'forge:history:list',
         'forge:undo',
         'forge:open-record',
+        'forge:verify:request',
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',

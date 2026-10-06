@@ -107,6 +107,13 @@ import {
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
 import { finishedRunStatus, forgeRunResult } from '../../modules/forge/runResult.js';
+import {
+  RunVerifier,
+  verificationTotals,
+  verifiedOrg,
+  writtenWithoutByObject,
+  type SourceOrg,
+} from '../../modules/forge/RunVerifier.js';
 import type {
   ExecutionSummary,
   ForgeProgressEvent,
@@ -188,6 +195,9 @@ const openRecordPayloadSchema = z
     recordId: z.string().regex(SF_ID_RE, 'Invalid Salesforce record ID'),
   })
   .strict();
+// The run, never its records: what is read back is what the run's entry in
+// the history says it created, from the org that entry names.
+const verifyPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) }).strict();
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
 const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
 const complianceRequestPayloadSchema = z.object({
@@ -368,6 +378,7 @@ const FORGE_TYPES = new Set([
   'forge:history:list',
   'forge:undo',
   'forge:open-record',
+  'forge:verify:request',
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
@@ -819,6 +830,8 @@ export class ForgeHandler implements DomainHandler {
 
   /** The simulations and rehearsals ended lately, for the entry of the run that follows them. */
   private readonly trials = new RecentTrials();
+  /** The runs whose records are being verified, by `forgeId`: one verification at a time each. */
+  private readonly verifying = new Set<string>();
 
   /**
    * The reads of the target's automation Review asked for, by org and graph
@@ -1018,6 +1031,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:open-record':
         await this.handleOpenRecord(msg);
+        return true;
+      case 'forge:verify:request':
+        await this.handleVerify(msg);
         return true;
       case 'forge:plan:request':
         await this.handlePlanRequest(msg);
@@ -2000,13 +2016,15 @@ export class ForgeHandler implements DomainHandler {
    * (same shape as ForgeTemplate.config): a re-run re-picks source and target
    * instead of replaying yesterday's org pair. The target is kept beside the
    * config, never in it: removing what the run created has to reach the org it
-   * wrote to.
+   * wrote to. So is the source, for a verification to read there what each
+   * record pointed at.
    */
   private addToHistory(result: ForgeExecutionResult, config: ForgeConfig): void {
     const entry: ForgeExecutionResult = {
       ...result,
       config: stripOrgIds(config),
       targetOrgId: config.targetOrgId,
+      sourceOrgId: config.sourceOrgId,
     };
     this.saveHistory([entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY));
   }
@@ -2714,6 +2732,157 @@ export class ForgeHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'forge:open-record', 'forge:open-record:error', msg, err);
+    }
+  }
+
+  /**
+   * Verify what a past run created, once its target has settled: every record
+   * read back, a sample of each object's lookups checked against the ids its
+   * parents got, the records changed since the run listed — read until two
+   * readings agree (`RunVerifier`).
+   *
+   * The request names the run, never records: its entry in the history says
+   * what it created, less what its removals took, and the orgs it read from
+   * and wrote to. Refused when the entry is gone, is a simulation's, was
+   * recorded before runs kept what they created, has nothing left to read, or
+   * is being verified now. Nothing is written to either org. The verdict is
+   * kept on the run's entry and recorded in the audit trail, counts only.
+   */
+  private async handleVerify(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(verifyPayloadSchema, msg, 'forge:verify:error', this.deps);
+    if (!parsed) return;
+    const { forgeId } = parsed;
+    const refuse = (message: string, code: string): void => {
+      sendHandlerError(
+        this.deps,
+        'forge:verify:request',
+        'forge:verify:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    };
+
+    const entry = this.loadHistory().find((e) => e.forgeId === forgeId);
+    if (!entry) {
+      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      return;
+    }
+    if (entry.dryRun === true) {
+      refuse('A simulation wrote nothing: there is nothing of it to verify.', 'SIMULATION');
+      return;
+    }
+    const targetOrgId = entry.targetOrgId;
+    if (!entry.idRemapCreated || !entry.idRemapTable || !targetOrgId) {
+      refuse(
+        'This run was recorded before Forge kept what a run created: its records cannot be verified.',
+        'NOT_RECORDED',
+      );
+      return;
+    }
+    const records = forgeRunRecordsLeft(entry);
+    if (records.length === 0) {
+      if (entry.undo) {
+        refuse(
+          `The records this run created were removed, on ${entry.undo.removedAt}: there is nothing of it to verify.`,
+          'ALREADY_REMOVED',
+        );
+      } else {
+        refuse('This run created no record to verify.', 'NOTHING_TO_VERIFY');
+      }
+      return;
+    }
+    if (!this.deps.orgManager.getOrg(targetOrgId)) {
+      refuse('The org this run wrote to is no longer registered.', 'ORG_NOT_FOUND');
+      return;
+    }
+    if (this.verifying.has(forgeId)) {
+      refuse('The records of this run are being verified already.', 'DUPLICATE');
+      return;
+    }
+    this.verifying.add(forgeId);
+    const operationId = `forge-verify-${this.deps.nextId()}`;
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const verifier = new RunVerifier({
+        target: verifiedOrg(conn, 'forge:verify'),
+        source: await this.verificationSource(entry.sourceOrgId),
+      });
+      // The run's end as the target dated it, as its removal reads it; one the
+      // target did not date is dated by when it was recorded.
+      const verification = await verifier.verify({
+        records,
+        remapTable: entry.idRemapTable,
+        ...(entry.writtenBetween
+          ? { runEndedAt: new Date(entry.writtenBetween.last) }
+          : { runRecordedAt: new Date(entry.timestamp) }),
+        ...(entry.removalStamps ? { removalStamps: entry.removalStamps } : {}),
+        ...(entry.config?.fieldExclusions ? { fieldExclusions: entry.config.fieldExclusions } : {}),
+        ...(entry.config?.fieldMappings ? { fieldMappings: entry.config.fieldMappings } : {}),
+        writtenWithout: writtenWithoutByObject(entry.writtenWithoutFields ?? []),
+      });
+      this.saveHistory(
+        this.loadHistory().map((e) => (e.forgeId === forgeId ? { ...e, verification } : e)),
+      );
+      recordWriteRun(this.deps, {
+        action: 'forge_verify',
+        module: 'forge',
+        operationId,
+        orgId: targetOrgId,
+        outcome: verification.verdict === 'verified' ? 'success' : 'partial',
+        verdict: verification.verdict,
+        details: { forgeId, ...verificationTotals(verification) },
+      });
+      const response = buildResponse(this.deps, msg, 'forge:verify:response', { verification });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} verdict=${verification.verdict}`);
+    } catch (err: unknown) {
+      recordWriteRun(this.deps, {
+        action: 'forge_verify',
+        module: 'forge',
+        operationId,
+        orgId: targetOrgId,
+        outcome: 'failure',
+        details: { forgeId },
+      });
+      sendHandlerError(this.deps, 'forge:verify:request', 'forge:verify:error', msg, err, {
+        code: 'VERIFY_ERROR',
+        retryable: true,
+      });
+    } finally {
+      this.verifying.delete(forgeId);
+    }
+  }
+
+  /**
+   * The org a run read from, for its verification to read there what each
+   * record pointed at — or why it cannot be read: the run did not keep it, it
+   * is no longer registered, or it could not be reached.
+   */
+  private async verificationSource(
+    sourceOrgId: string | undefined,
+  ): Promise<SourceOrg | { unavailable: string }> {
+    if (!sourceOrgId) {
+      return { unavailable: 'This run was recorded before Forge kept the org it read from.' };
+    }
+    if (!this.deps.orgManager.getOrg(sourceOrgId)) {
+      return { unavailable: 'The org this run read from is no longer registered.' };
+    }
+    try {
+      const conn = await getJsforceConnection(
+        sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return verifiedOrg(conn, 'forge:verify source');
+    } catch (err: unknown) {
+      return {
+        unavailable: `The org this run read from could not be reached: ${extractErrorMessage(err)}`,
+      };
     }
   }
 

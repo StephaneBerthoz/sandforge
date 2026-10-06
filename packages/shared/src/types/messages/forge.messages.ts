@@ -8,6 +8,7 @@ import type {
   ForgePlan,
   ForgeRehearsal,
   ForgeRehearsalProgress,
+  ForgeRunVerification,
   ForgeTargetAutomation,
   ForgeTargetGaps,
   ForgeTemplate,
@@ -134,6 +135,22 @@ export interface ForgeOpenRecordRequest extends BaseMessage {
     forgeId: string;
     /** The record's id in the target org. */
     recordId: string;
+  };
+}
+
+/**
+ * `forge:verify:request`. WebView -> Extension. Verify what a past run
+ * created, once the target has settled: every record read back, a sample of
+ * its lookups checked, the records changed since the run listed.
+ *
+ * The request names the run, never records: the extension reads what its own
+ * history says the run created, from the org that entry names.
+ */
+export interface ForgeVerifyRequest extends BaseMessage {
+  type: 'forge:verify:request';
+  payload: {
+    /** `forgeId` of the history entry. */
+    forgeId: string;
   };
 }
 
@@ -375,6 +392,21 @@ export interface ForgeOpenRecordResponse extends BaseMessage {
 /** `forge:open-record:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeOpenRecordErrorMessage extends BaseMessage {
   type: 'forge:open-record:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:verify:response`. Extension -> WebView. What the verification of a
+ * run found; the run's history entry keeps it too.
+ */
+export interface ForgeVerifyResponse extends BaseMessage {
+  type: 'forge:verify:response';
+  payload: { verification: ForgeRunVerification };
+}
+
+/** `forge:verify:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeVerifyErrorMessage extends BaseMessage {
+  type: 'forge:verify:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 
