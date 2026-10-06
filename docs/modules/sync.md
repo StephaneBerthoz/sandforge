@@ -8,7 +8,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 2. Select a source org and a target org, then choose direction and conflict strategy
 3. Configure the object set -- pick which objects to sync and set batch sizes
 4. Map fields between source and target using the drag-and-drop Field Mapper or auto-match
-5. Add transforms (optional), review the Sankey flow diagram, then execute
+5. Add transforms (optional), review the Sankey flow diagram, then simulate the run to see what it would write, and run it
 
 ## Features
 
@@ -20,15 +20,15 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
   and applies the conflict strategy before the write, which still goes to the
   target. To copy the other way, swap the source and target orgs: a
   configuration asking for _target to source_ is refused before it runs.
-- **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs
+- **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs. Nothing remembers where a previous run stopped: each run reads every object whole, as its filter allows, and no metadata is deployed
 - **Real-Time and Conflicts tabs** -- Besides Sync, History and Schedules, the page offers Real-Time, which follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, and Conflicts, which lists the real-time changes held for a decision. See [Real-Time](#real-time)
-- **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered for a run: the strategy of that name resolves to the source values without ever showing a conflict. The Conflicts tab lists only real-time changes
+- **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered for a run: no run shows its conflicts to anyone before it writes, so a configuration asking for it is refused before it runs, with the four it can pick from. A wizard draft saved when it was still offered reopens on target wins -- the strategy that writes no source value over a different target value -- and the page says so until a strategy is picked. The Conflicts tab lists only real-time changes
 
 ### Object Set Editor
 
 - Add/remove objects to the sync scope
 - Configure batch size per object
-- Available objects are loaded from the source org schema
+- Available objects are loaded from the source org schema, without the objects no copy writes -- the list Forge and Autopilot read: users and their access, metadata, files and the links to them, a record's history, feed or sharing rows, the platform's jobs and logs. A configuration naming one is refused before it runs
 - A per-object WHERE filter may only filter: a clause carrying `LIMIT`, `OFFSET`, `ORDER BY`, `FOR UPDATE`, a subquery, a comment or a semicolon is refused, including one imported from an SFDMU `export.json`
 - An upsert key (external ID) is a single field API name; an SFDMU composite key such as `Name;Parent.Name` is refused. An empty External ID box counts as no key
 
@@ -175,10 +175,48 @@ Before execution, the Review step shows:
   the source; an overflow notice in its place is reported as not written, and a
   Sync run brings the target up to date.
 
+### Simulation
+
+- **Simulate** on the Execute step reads both orgs as the run would and writes
+  nothing. Each object is read with the same query, the rows the platform
+  writes itself are set aside, and the mappings, transforms and add-ons are
+  applied; on a bidirectional run the matching target records are read and
+  compared as the run compares them. The target is then asked, a few hundred
+  records at a time, whether it holds the key each record would be written on:
+  the External ID for an upsert, the Id for an update or a delete.
+- The results step shows, per object, the records the run would insert,
+  update or delete, those it would skip (the rows the platform writes itself),
+  those the target would refuse as asked -- an upsert record with no External
+  ID value, an update or a delete naming an Id the target does not hold -- and,
+  on a bidirectional run, those in conflict: records both orgs hold whose
+  values differ on a field the run writes, with the fields and the strategy
+  that decides. **Run the sync now** runs the configuration just simulated;
+  change the configuration and the findings are put away, since they no
+  longer say what a run would do.
+- A simulation checks the field types of both orgs as a run does, and stops at
+  an object whose read fails, where a run would stop. It does not run the
+  target's validation rules, duplicate rules, required fields or automations:
+  a record one of them would refuse is counted as the run would send it.
+- It writes nothing to the target, to the audit trail or to the sync history.
+  Like a run it is listed in Live Operations, and its Cancel -- or the page's
+  -- stops it before its next object. Each lookup is an API request: about one
+  per two hundred records of an upsert, an update or a delete.
+- A configuration never carries a simulation: a saved, scheduled or replayed
+  configuration asking for `dryRun: true` is refused, so no run can be taken
+  for one that only reports.
+
 ### Execution and Results
 
 - Before anything is written, both orgs are described and every field a mapping copies unchanged is compared (the same-named fields when the object has no mapping). A field that cannot hold the other's type -- text onto a date, a number onto a checkbox -- stops the run with the list of mismatched pairs, and nothing is written. A mapping whose value a transform rewrites is not judged on its source type
 - Real-time progress bar with elapsed time
+- **Pause** and **Cancel run** on the Execute step, and on Quick Sync's run.
+  Cancel means what Live Operations' Cancel means: the run stops before its
+  next object or batch, and what it wrote stays in the target org; it asks
+  first. Pause holds the run before its next object, or its next batch of
+  records -- a batch already sent, or a Bulk API job already closed, finishes
+  first -- and nothing is written until **Resume**. A paused run is resumed
+  from the page that paused it; once that page is closed, it can only be
+  cancelled, from Live Operations, where it is listed as paused
 - Sequential per-object execution. With Grappe enabled and the source records,
   counted before the run, at or above `sandforge.grappe.autoActivateThreshold`,
   the run reports progress one partition per object over that same sequential
@@ -203,6 +241,7 @@ Before execution, the Review step shows:
 - Use "Auto Match" in the Field Mapper first, then manually adjust the few fields that do not match
 - Narrow the object set and batch sizes for recurring syncs -- every run reprocesses the full scope
 - Files do not travel: Sync has no blob-transfer stage, so `Attachment`, `ContentVersion` and `Document` are not offered in the object picker, are absent from the prebuilt templates, and a configuration naming one is refused before it runs -- Bulk API 2.0 rejects base64, so such a run used to break past 200 records
+- Simulate before a run that updates or deletes: an update or a delete cannot be taken back, and the simulation says how many records it would touch
 - Always review PII warnings in the Review step before executing
 - If sync fails on certain objects, check field-level security on the target org
 - Use the Sankey diagram to verify data flow before execution

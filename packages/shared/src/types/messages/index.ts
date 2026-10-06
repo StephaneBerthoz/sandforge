@@ -99,6 +99,12 @@ import type {
 } from './seed.messages.js';
 import type {
   SyncExecuteRequest,
+  SyncSimulateRequest,
+  SyncSimulateResponse,
+  SyncPauseRequest,
+  SyncPauseResponse,
+  SyncResumeRequest,
+  SyncResumeResponse,
   SyncDescribeGlobalRequest,
   SyncDescribeFieldsRequest,
   SyncExecuteResponse,
@@ -467,6 +473,9 @@ export type WebViewToExtensionMessage =
   | SeedCreatePersonaRequest
   // Sync
   | SyncExecuteRequest
+  | SyncSimulateRequest
+  | SyncPauseRequest
+  | SyncResumeRequest
   | SyncDescribeGlobalRequest
   | SyncDescribeFieldsRequest
   | SyncConfigSaveRequest
@@ -667,6 +676,9 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleToggleResponse
   | SyncScheduleDeleteResponse
   | SyncExecuteResponse
+  | SyncSimulateResponse
+  | SyncPauseResponse
+  | SyncResumeResponse
   | SyncDescribeGlobalResponse
   | SyncDescribeFieldsResponse
   | SyncErrorResponse

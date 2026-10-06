@@ -4,9 +4,9 @@
  * Two claims of `docs/modules/sync.md` outlived the code they described. The
  * feature list sold "5 Conflict Strategies -- ... manual merge ...", while the
  * page offered no tab on which a conflict could be reviewed and the strategy of
- * that name resolves to the source values like source wins. The Conflicts tab
- * is offered now, for the changes real-time replication holds, and a run's
- * manual strategy still reviews nothing. It also called
+ * that name resolved to the source values like source wins. The Conflicts tab
+ * is offered now, for the changes real-time replication holds, and a run no
+ * longer has a manual strategy at all. It also called
  * transforms "configurable per-field or per-object", while the only rules a
  * screen can produce are object-level ones that rewrite every field of every
  * record. And nothing said that Grappe's threshold is measured with one
@@ -16,7 +16,7 @@
  * Each test states the code it depends on, and fails first if that code moved:
  * an assertion about a page that no longer works this way proves nothing.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -40,6 +40,11 @@ const PUBLISHING_OBJECTS = source('packages/extension/src/modules/realtime/publi
 const BULK_EXECUTOR = source('packages/extension/src/core/engine/BulkApiExecutor.ts');
 const BULK_CSV = source('packages/extension/src/core/engine/bulkCsv.ts');
 const ROBUSTNESS_SCHEMA = source('packages/shared/src/schemas/robustness-config.schema.ts');
+const SYNC_SCHEMA = source('packages/shared/src/schemas/sync-config.schema.ts');
+const CONFLICT_RESOLVER = source('packages/extension/src/modules/sync/ConflictResolver.ts');
+const BULK_WRITER = source('packages/extension/src/modules/sync/BulkDataWriter.ts');
+const VALIDATE_PAYLOAD = source('packages/extension/src/bridge/validatePayload.ts');
+const SYNC_PAGE_DATA = source('packages/webview/src/pages/Sync/useSyncPageData.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -73,11 +78,78 @@ describe('docs/modules/sync.md', () => {
     );
   });
 
-  it('names the four strategies a run acts on', () => {
+  it('names the four strategies a run acts on, and refuses manual rather than resolving it', () => {
+    // Positive control: the run's strategies are the four, and the resolver
+    // has no answer for manual any more.
+    const strategies = /syncConflictStrategySchema = z\.enum\(\[([^\]]*)\]/.exec(SYNC_SCHEMA);
+    expect(strategies?.[1]).toContain("'target_wins'");
+    expect(strategies?.[1]).not.toContain("'manual'");
+    expect(CONFLICT_RESOLVER).not.toContain("case 'manual':");
+    expect(SYNC_PAGE_DATA).toContain(
+      "MANUAL_STRATEGY_REPLACEMENT: SyncConflictStrategy = 'target_wins'",
+    );
+
     for (const strategy of ['Source wins', 'target wins', 'newest wins', 'merge']) {
       expect(DOC).toContain(strategy);
     }
     expect(DOC).toContain('Manual review is not offered');
+    expect(DOC).toContain('a configuration asking for it is refused before it runs');
+    expect(DOC).toContain('reopens on target wins');
+    expect(DOC).not.toContain('resolves to the source values without ever showing a conflict');
+  });
+
+  it('describes the simulation the Execute step runs, and that it writes nothing', () => {
+    // Positive control: the engine's simulation and the channel that asks it.
+    expect(SYNC_ORCHESTRATOR).toContain('async simulate(config: SyncConfig)');
+    expect(SYNC_HANDLER).toContain("case 'sync:simulate':");
+    expect(SYNC_HANDLER).toContain(
+      "'A simulation writes nothing: the write it reached was refused.'",
+    );
+
+    expect(DOC).toContain('### Simulation');
+    expect(DOC).toContain('reads both orgs as the run would and writes\n  nothing');
+    expect(DOC).toContain(
+      'It writes nothing to the target, to the audit trail or to the sync history.',
+    );
+    expect(DOC).toContain("does not run the\n  target's validation rules");
+  });
+
+  it('says where a pause holds a run, and what a cancel from the page means', () => {
+    // Positive control: the run waits on its pause between objects and
+    // before each batch or job, never inside one.
+    expect(SYNC_ORCHESTRATOR).toContain(
+      'await this.deps.pauseGate?.whilePaused(this.deps.signal);',
+    );
+    expect(BULK_WRITER).toContain('await this.deps.pauseGate?.whilePaused(this.deps.signal);');
+    expect(SYNC_HANDLER).toContain("case 'sync:pause':");
+
+    expect(DOC).toContain("Cancel means what Live Operations' Cancel means");
+    expect(DOC).toContain('Pause holds the run before its next object, or its next batch of');
+    expect(DOC).toContain(
+      'once that page is closed, it can only be\n  cancelled, from Live Operations',
+    );
+  });
+
+  it('promises no delta and no metadata: every run reads each object whole', () => {
+    // Positive control: the tracker no run read back and the metadata stub
+    // are gone, so nothing in the engine could stand behind a delta.
+    for (const gone of ['IncrementalTracker.ts', 'MetadataSync.ts']) {
+      expect(existsSync(resolve(REPO_ROOT, 'packages/extension/src/modules/sync', gone))).toBe(
+        false,
+      );
+    }
+    expect(SYNC_ORCHESTRATOR).not.toContain('incrementalTracker');
+
+    expect(DOC).toContain('Nothing remembers where a previous run stopped');
+    expect(DOC).toContain('no metadata is deployed');
+  });
+
+  it('names the objects the picker leaves out as the list every copy reads', () => {
+    // Positive control: the boundary refuses Forge's list, not one of its own.
+    expect(VALIDATE_PAYLOAD).toContain('return isNeverCopied(objectApiName);');
+
+    expect(DOC).toContain('the list Forge and Autopilot read');
+    expect(DOC).toContain("a record's history, feed or sharing rows");
   });
 
   it('says a transform rule reaches every field but the one the write matches on', () => {

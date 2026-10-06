@@ -1177,7 +1177,45 @@
     "fieldMappingCount_one": "{{count}} Feld-Zuordnung",
     "fieldMappingCount_other": "{{count}} Feld-Zuordnungen",
     "transformCount_one": "{{count}} Transformation",
-    "transformCount_other": "{{count}} Transformationen"
+    "transformCount_other": "{{count}} Transformationen",
+    "runNow": "Synchronisierung starten",
+    "simulation": {
+      "start": "Simulieren",
+      "hint": "Eine Simulation liest beide Orgs so, wie es der Lauf täte, und zeigt Objekt für Objekt, was er einfügen, aktualisieren, überspringen oder als Konflikt finden würde. Sie schreibt nichts.",
+      "running": "Simulation läuft...",
+      "badge": "Simulation — nichts geschrieben",
+      "cancelled": "Simulation abgebrochen",
+      "insert": "Würde einfügen",
+      "update": "Würde aktualisieren",
+      "delete": "Würde löschen",
+      "skipped": "Übersprungen",
+      "refused": "Würden abgelehnt",
+      "conflicts": "Im Konflikt",
+      "read_one": "{{count}} Datensatz gelesen",
+      "read_other": "{{count}} Datensätze gelesen",
+      "settledBy_one": "{{count}} Datensatz weicht in einem Feld, das der Lauf schreibt, vom Ziel ab: {{strategy}} entscheidet, welcher Wert geschrieben wird.",
+      "settledBy_other": "{{count}} Datensätze weichen in einem Feld, das der Lauf schreibt, vom Ziel ab: {{strategy}} entscheidet, welcher Wert geschrieben wird.",
+      "conflictFields": "Abweichende Felder: {{fields}}.",
+      "nothingWritten": "Es wurde nichts geschrieben. Die Zahlen vergleichen, was der Lauf senden würde, mit dem, was das Ziel jetzt enthält.",
+      "notChecked": "Eine Simulation führt weder die Validierungsregeln noch die Duplikatregeln, Pflichtfelder oder Automatisierungen des Ziels aus: Ein Datensatz, den eine davon ablehnen würde, wird so gezählt, wie der Lauf ihn senden würde.",
+      "stoppedAt": "Die Simulation hat bei {{object}} angehalten: {{error}}. Ein Lauf würde dort ebenfalls anhalten.",
+      "runNow": "Synchronisierung jetzt starten"
+    },
+    "runControls": {
+      "pause": "Pausieren",
+      "resume": "Fortsetzen",
+      "cancelSimulation": "Simulation abbrechen",
+      "pausedNote": "Pausiert: Bis zur Fortsetzung wird nichts mehr geschrieben. Ein bereits gesendeter Stapel oder ein bereits laufender Bulk-API-Job wird zuerst beendet.",
+      "stopping": "Wird gestoppt: Der Lauf endet vor seinem nächsten Objekt oder Stapel, und was er geschrieben hat, bleibt in der Ziel-Org.",
+      "cancelConfirm": "Laufende Synchronisierung stoppen? Sie endet vor ihrem nächsten Objekt oder Stapel, und bereits geschriebene Datensätze bleiben in der Ziel-Org.",
+      "cancelRefused": "Lauf konnte nicht abgebrochen werden",
+      "cancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet.",
+      "pauseRefused": "Lauf konnte nicht pausiert oder fortgesetzt werden",
+      "pauseRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
+    },
+    "strategyNotice": {
+      "manualReplaced": "Dieser Entwurf verlangte eine manuelle Konfliktprüfung, die ein Synchronisierungslauf nicht bietet: Jeder seiner Läufe schrieb die Werte der Quelle. Er verwendet jetzt „Ziel hat Vorrang“, das jeden Wert des Ziels behält, wo sich die beiden Orgs unterscheiden. Wählen Sie eine andere Strategie, wenn die Quelle Vorrang haben soll."
+    }
   },
   "migration": {
     "title": "Migration",

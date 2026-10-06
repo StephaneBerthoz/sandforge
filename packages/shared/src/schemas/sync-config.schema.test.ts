@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  SYNC_CONFLICT_STRATEGIES,
   syncConfigSchema,
   syncObjectConfigSchema,
   fieldMappingSchema,
@@ -100,14 +101,27 @@ describe('syncConfigSchema', () => {
     }
   });
 
-  it('should accept all valid conflict strategies', () => {
-    const strategies = ['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge'] as const;
+  it('should accept the four strategies a run acts on', () => {
+    const strategies = ['source_wins', 'target_wins', 'newest_wins', 'merge'] as const;
 
     for (const conflictStrategy of strategies) {
       const result = syncConfigSchema.parse({ ...createValidSyncConfig(), conflictStrategy });
 
       expect(result.conflictStrategy).toBe(conflictStrategy);
     }
+    expect(SYNC_CONFLICT_STRATEGIES).toEqual(strategies);
+  });
+
+  it('refuses manual, which a run used to answer with the source values', () => {
+    // No run shows a conflict to anyone before it writes: the strategy of that
+    // name resolved every conflict as source wins. Real-time keeps it, for the
+    // changes it holds on the Conflicts tab; a sync configuration cannot.
+    const result = syncConfigSchema.safeParse({
+      ...createValidSyncConfig(),
+      conflictStrategy: 'manual',
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('should reject non-UUID sourceOrgId', () => {

@@ -1,5 +1,5 @@
 import type { RelationshipSuggestion } from '@sandforge/shared';
-import { isUncopyableObject } from '@sandforge/shared';
+import { isNeverCopied } from '../forge/excludedObjects.js';
 
 /** Field metadata needed for relationship detection (subset of jsforce describe). */
 export interface DescribeFieldInfo {
@@ -59,8 +59,10 @@ export class RelationshipDetector {
         if (selectedSet.has(parentObj)) continue;
         // Skip unavailable objects
         if (!availableSet.has(parentObj)) continue;
-        // Skip the ones a sync cannot write, whatever the org says about them
-        if (isUncopyableObject(parentObj)) continue;
+        // Skip the ones no copy writes, whatever the org says about them: the
+        // list Forge and Autopilot read, so a parent one of them would never
+        // write is not offered here either.
+        if (isNeverCopied(parentObj)) continue;
 
         const relationshipType = this.inferRelationshipType(field.name);
 

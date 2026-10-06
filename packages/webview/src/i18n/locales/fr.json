@@ -1177,7 +1177,45 @@
     "fieldMappingCount_one": "{{count}} mapping de champ",
     "fieldMappingCount_other": "{{count}} mappings de champs",
     "transformCount_one": "{{count}} transformation",
-    "transformCount_other": "{{count}} transformations"
+    "transformCount_other": "{{count}} transformations",
+    "runNow": "Lancer la synchronisation",
+    "simulation": {
+      "start": "Simuler",
+      "hint": "Une simulation lit les deux orgs comme le ferait l'exécution et indique, objet par objet, ce qu'elle insérerait, mettrait à jour, ignorerait ou trouverait en conflit. Elle n'écrit rien.",
+      "running": "Simulation en cours...",
+      "badge": "Simulation — rien n'a été écrit",
+      "cancelled": "Simulation annulée",
+      "insert": "À insérer",
+      "update": "À mettre à jour",
+      "delete": "À supprimer",
+      "skipped": "Ignorés",
+      "refused": "Seraient refusés",
+      "conflicts": "En conflit",
+      "read_one": "{{count}} enregistrement lu",
+      "read_other": "{{count}} enregistrements lus",
+      "settledBy_one": "{{count}} enregistrement diffère de la cible sur un champ que l'exécution écrit : {{strategy}} décide de la valeur écrite.",
+      "settledBy_other": "{{count}} enregistrements diffèrent de la cible sur un champ que l'exécution écrit : {{strategy}} décide de la valeur écrite.",
+      "conflictFields": "Champs qui diffèrent : {{fields}}.",
+      "nothingWritten": "Rien n'a été écrit. Les chiffres comparent ce que l'exécution enverrait avec ce que la cible contient maintenant.",
+      "notChecked": "Une simulation n'exécute ni les règles de validation, ni les règles de doublons, ni les champs obligatoires, ni les automatisations de la cible : un enregistrement que l'une d'elles refuserait est compté tel que l'exécution l'enverrait.",
+      "stoppedAt": "La simulation s'est arrêtée sur {{object}} : {{error}}. Une exécution s'y arrêterait aussi.",
+      "runNow": "Lancer la synchronisation maintenant"
+    },
+    "runControls": {
+      "pause": "Mettre en pause",
+      "resume": "Reprendre",
+      "cancelSimulation": "Annuler la simulation",
+      "pausedNote": "En pause : plus rien n'est écrit jusqu'à la reprise. Un lot déjà envoyé, ou un job Bulk API déjà en cours, se termine d'abord.",
+      "stopping": "Arrêt en cours : l'exécution s'arrête avant son prochain objet ou lot, et ce qu'elle a écrit reste dans l'org cible.",
+      "cancelConfirm": "Arrêter la synchronisation en cours ? Elle s'arrête avant son prochain objet ou lot, et les enregistrements déjà écrits restent dans l'org cible.",
+      "cancelRefused": "Impossible d'annuler l'exécution",
+      "cancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
+      "pauseRefused": "Impossible de mettre en pause ou de reprendre l'exécution",
+      "pauseRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
+    },
+    "strategyNotice": {
+      "manualReplaced": "Ce brouillon demandait une revue manuelle des conflits, qu'une synchronisation n'offre pas : chacune de ses exécutions a écrit les valeurs de la source. Il utilise désormais « Cible prioritaire », qui garde toutes les valeurs de la cible là où les deux orgs diffèrent. Choisissez une autre stratégie si la source doit l'emporter."
+    }
   },
   "migration": {
     "title": "Migration",

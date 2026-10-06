@@ -15,11 +15,6 @@ vi.mock('../../modules/sync/DataSync.js', () => ({
     return {};
   }),
 }));
-vi.mock('../../modules/sync/MetadataSync.js', () => ({
-  MetadataSync: vi.fn().mockImplementation(function () {
-    return {};
-  }),
-}));
 vi.mock('../../modules/sync/ConflictResolver.js', () => ({
   ConflictResolver: vi.fn().mockImplementation(function () {
     return {};
@@ -32,11 +27,6 @@ vi.mock('../../modules/sync/FieldMapping.js', () => ({
 }));
 vi.mock('../../modules/sync/TransformPipeline.js', () => ({
   TransformPipeline: vi.fn().mockImplementation(function () {
-    return {};
-  }),
-}));
-vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
-  IncrementalTracker: vi.fn().mockImplementation(function () {
     return {};
   }),
 }));
@@ -2334,6 +2324,38 @@ describe('SyncOpsHandler', () => {
       await handler.handle(
         inboundRequest({
           id: 'req-global-binary',
+          type: 'sync:describe-global',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: string[] };
+      };
+      expect(response.payload.objects).toEqual(['Account', 'Contact']);
+    });
+
+    it('does not offer what Forge never copies either: history, sharing, jobs, file links', async () => {
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [
+            'Account',
+            'AccountHistory',
+            'AccountShare',
+            'AsyncApexJob',
+            'LoginHistory',
+            'ContentDocumentLink',
+            'Contact',
+          ].map((name) => ({ name, createable: true, queryable: true })),
+        }),
+        limitInfo: undefined,
+      } as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-global-never-copied',
           type: 'sync:describe-global',
           timestamp: Date.now(),
           payload: { orgId: 'org-1' },

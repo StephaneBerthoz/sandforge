@@ -1,4 +1,6 @@
 import {
+  SYNC_CONFLICT_STRATEGIES,
+  isFileBodiedObject,
   syncConfigSchema,
   syncObjectConfigSchema,
   seedConfigSchema,
@@ -34,7 +36,7 @@ import {
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { AUDIT_TRAIL_LIMIT } from '../modules/audit/auditTrail.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
-import { isUncopyableObject } from '@sandforge/shared';
+import { isNeverCopied } from '../modules/forge/excludedObjects.js';
 
 /**
  * Generic webview-payload validation (defense-in-depth against a compromised
@@ -85,7 +87,7 @@ export const whereClauseSchema = z
  * FIRST`/`LAST` — the clause ends the statement, so a trailing `LIMIT 1`,
  * `OFFSET` or `FOR UPDATE` would ride along with it. Configs converted from a
  * third-party file (`SfdmuImporter`) carry this field verbatim, so it is
- * checked here exactly as `where` is, and re-checked when the delta query is
+ * checked here exactly as `where` is, and re-checked when the read query is
  * built (defense-in-depth, both layers stay).
  */
 export const orderByClauseSchema = z.string().refine(isSafeSoqlOrderBy, {
@@ -106,16 +108,51 @@ const MAX_BATCH_SIZE = 10_000;
 // ── sync:* payload schemas ────────────────────────────────────────────────
 
 /**
- * Whether `objectApiName` is one no copy can carry.
+ * Whether Sync refuses to copy `objectApiName`: one of the objects no copy
+ * writes, the list Forge and Autopilot read (`isNeverCopied`).
  *
- * Kept as a named export because the sync boundary and the object picker both
- * call it, and re-exported rather than redefined: the list lived here, in
- * `RelationshipDetector` and nowhere else, so Autopilot and Seed asked
- * Salesforce `createable` and were told yes about `User`.
+ * Sync used to read a narrower one of its own — users, metadata and files —
+ * and so offered, and ran, objects Forge never touches: a login history, an
+ * Apex job, a record's history or its sharing rows, a business process. The
+ * sync boundary and the object picker both call this, so what the picker
+ * leaves out is what the boundary refuses.
  */
-export function isSyncFileObject(objectApiName: string): boolean {
-  return isUncopyableObject(objectApiName);
+export function syncCannotCopy(objectApiName: string): boolean {
+  return isNeverCopied(objectApiName);
 }
+
+/** Why the sync boundary refuses `objectApiName`, in the words a person reads. */
+function cannotCopyMessage(objectApiName: string): string {
+  if (isFileBodiedObject(objectApiName)) {
+    return (
+      `Sync does not transfer files: "${objectApiName}" keeps its content in a file ` +
+      `body that no sync stage moves. Remove it from this configuration; the sync was not ` +
+      `started.`
+    );
+  }
+  return (
+    `Sync does not copy "${objectApiName}": no copy writes it — users and their access, ` +
+    `metadata, a record's history, feed or sharing rows, and the records the platform keeps ` +
+    `for itself are not data a copy carries. Remove it from this configuration; the sync was ` +
+    `not started.`
+  );
+}
+
+/**
+ * The strategies a run acts on, with the reason a configuration asking for
+ * `manual` is refused: no run shows a conflict to anyone before it writes,
+ * and the strategy of that name was answered with the source values.
+ */
+const syncConflictStrategyPayloadSchema = z.enum(SYNC_CONFLICT_STRATEGIES, {
+  error: (issue) =>
+    issue.input === 'manual'
+      ? `Manual conflict review is not available for a sync run: no run shows its conflicts ` +
+        `to anyone before it writes. Pick source wins, target wins, newest wins or merge — ` +
+        `target wins keeps every value the target holds where the two orgs differ. ` +
+        `The sync was not started.`
+      : `Conflict strategy "${String(issue.input)}" is not one a sync run acts on: pick ` +
+        `source wins, target wins, newest wins or merge. The sync was not started.`,
+});
 
 /**
  * Per-object sync config as sent by the webview. `batchSize` is made optional
@@ -126,11 +163,8 @@ export function isSyncFileObject(objectApiName: string): boolean {
  */
 export const syncObjectPayloadSchema = syncObjectConfigSchema
   .extend({
-    objectApiName: sfApiNameSchema.refine((name) => !isSyncFileObject(name), {
-      error: (issue) =>
-        `Sync does not transfer files: "${String(issue.input)}" keeps its content in a file ` +
-        `body that no sync stage moves. Remove it from this configuration; the sync was not ` +
-        `started.`,
+    objectApiName: sfApiNameSchema.refine((name) => !syncCannotCopy(name), {
+      error: (issue) => cannotCopyMessage(String(issue.input)),
     }),
     // The External ID box is shown for every operation and sends what it holds:
     // a box left empty is no key, not a malformed one.
@@ -194,19 +228,23 @@ export const syncConfigPayloadSchema = syncConfigSchema
     sourceOrgId: orgIdSchema,
     targetOrgId: orgIdSchema,
     objects: z.array(syncObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    conflictStrategy: syncConflictStrategyPayloadSchema,
     createdAt: z.string().max(40).optional(),
     updatedAt: z.string().max(40).optional(),
     preScript: removedScriptField('preScript'),
     postScript: removedScriptField('postScript'),
-    // A sync run always writes to the target org; there is no simulated path
-    // behind this flag. `false` stays legal — every config SandForge wrote
-    // carries it with that value, and history reruns replay those snapshots.
+    // A configuration never carries a simulation: one is asked apart
+    // (`sync:simulate`), so a saved, scheduled or replayed configuration can
+    // never be believed to only report while it writes. `false` stays legal —
+    // every config SandForge wrote carries it with that value, and history
+    // reruns replay those snapshots.
     dryRun: z
       .literal(false, {
         error: () =>
-          `Sync has no dry run: remove "dryRun" from this configuration. ` +
-          `A sync run writes to the target org, and the run was not started ` +
-          `so it cannot write while you believed it was only reporting.`,
+          `A sync configuration cannot ask for a dry run: remove "dryRun" from it. ` +
+          `A run of it writes to the target org; to see what it would write, ` +
+          `simulate it from the Sync page. The run was not started, so it ` +
+          `cannot write while you believed it was only reporting.`,
       })
       .optional(),
   })
@@ -238,19 +276,6 @@ export const syncConfigPayloadSchema = syncConfigSchema
           `object set while you believed it was reading changes only.`,
       });
     }
-
-    // There is no screen on which a conflict could be reviewed, and the
-    // resolver answers `manual` with the source values — the same write as
-    // source wins, under a name that promises a decision.
-    if (config.conflictStrategy === 'manual') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['conflictStrategy'],
-        message:
-          `Manual conflict review is not available: pick source wins, target wins, ` +
-          `newest wins or merge. The sync was not started.`,
-      });
-    }
   });
 
 /**
@@ -277,6 +302,10 @@ export const fileSavePayloadSchema = z.object({
 });
 
 export const syncExecutePayloadSchema = z.object({ config: syncConfigPayloadSchema });
+/** `sync:simulate` — the configuration a run would be given, checked as one is. */
+export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSchema });
+/** `sync:pause` / `sync:resume` — the run, by the id of the request that started it. */
+export const syncRunControlPayloadSchema = z.object({ operationId: opaqueIdSchema });
 export const syncConfigSavePayloadSchema = z.object({ config: syncConfigPayloadSchema });
 export const syncConfigIdPayloadSchema = z.object({ id: opaqueIdSchema });
 export const syncDescribeGlobalPayloadSchema = z.object({ orgId: orgIdSchema });

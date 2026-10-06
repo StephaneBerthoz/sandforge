@@ -6,6 +6,7 @@ import { Card, CardHeader, CardBody } from '../../../components/ui/Card';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
+import { SyncRunControls } from '../SyncRunControls';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -15,6 +16,8 @@ export interface QuickSyncPreviewStepProps {
   result: SyncExecutionResult | null;
   /** Whether sync is currently executing. */
   isExecuting: boolean;
+  /** The id the extension runs the sync under, once sent: what Pause and Cancel name. */
+  runOperationId?: string | null;
   /** Callback to execute the sync. */
   onExecute: () => void;
   /** Callback to reset and start a new Quick Sync. */
@@ -41,6 +44,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   preview,
   result,
   isExecuting,
+  runOperationId = null,
   onExecute,
   onReset,
   onBack,
@@ -58,6 +62,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           showPercent={false}
           variant="default"
         />
+        <SyncRunControls operationId={runOperationId} kind="run" />
       </div>
     );
   }

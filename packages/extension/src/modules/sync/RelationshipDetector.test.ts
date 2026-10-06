@@ -107,6 +107,40 @@ describe('parents a sync cannot write are not offered', () => {
     expect(suggestions.map((s) => s.parentObject)).not.toContain('User');
   });
 
+  it('leaves out the parents Forge never copies either, which the narrower list let through', () => {
+    // A quote's opportunity points at a business process, a record at the
+    // organization, a currency field at the currency type: the org reports
+    // each one createable or queryable, and no copy writes any of them.
+    const detector = new RelationshipDetector();
+    const suggestions = detector.detect(
+      'Opportunity',
+      [
+        { name: 'AccountId', type: 'reference', referenceTo: ['Account'], relationshipName: null },
+        {
+          name: 'ProcessId__c',
+          type: 'reference',
+          referenceTo: ['BusinessProcess'],
+          relationshipName: null,
+        },
+        {
+          name: 'Org__c',
+          type: 'reference',
+          referenceTo: ['Organization'],
+          relationshipName: null,
+        },
+        {
+          name: 'Job__c',
+          type: 'reference',
+          referenceTo: ['AsyncApexJob'],
+          relationshipName: null,
+        },
+      ],
+      [],
+      ['Account', 'BusinessProcess', 'Organization', 'AsyncApexJob'],
+    );
+    expect(suggestions.map((s) => s.parentObject)).toEqual(['Account']);
+  });
+
   it('still offers a parent a sync can write', () => {
     const detector = new RelationshipDetector();
     const suggestions = detector.detect(

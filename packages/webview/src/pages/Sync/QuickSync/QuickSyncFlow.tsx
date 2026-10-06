@@ -93,6 +93,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
           preview={state.preview}
           result={state.result}
           isExecuting={state.isExecuting}
+          runOperationId={state.runOperationId}
           onExecute={flow.execute}
           onReset={flow.reset}
           onBack={() => flow.goToObjects()}

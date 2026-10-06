@@ -3,6 +3,7 @@ import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
 import { useLatestRef } from '../../../hooks/useLatestRef';
+import { SYNC_RUN_TIMEOUT_MS } from '../useSyncRunControls';
 
 /** Step in the Quick Sync 3-screen flow. */
 export type QuickSyncStep = 'orgs' | 'objects' | 'preview' | 'executing' | 'results';
@@ -25,6 +26,11 @@ export interface QuickSyncFlowState {
   result: SyncExecutionResult | null;
   /** Whether sync is currently executing. */
   isExecuting: boolean;
+  /**
+   * The id the extension runs the sync under once it has been sent, for its
+   * Pause and Cancel; null while the run is prepared, and once it is over.
+   */
+  runOperationId: string | null;
   /** Error message if any step failed. */
   error: string | null;
 }
@@ -125,9 +131,9 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     objectCount: number;
   }>('quicksync:execute');
   const syncMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // A bulk write runs past the 30 s default on real volumes, and a paused
+    // run waits on a person; operation:progress keeps flowing meanwhile.
+    timeoutMs: SYNC_RUN_TIMEOUT_MS,
   });
 
   // Sync preview mutation response into state (handler wraps it in { preview })
@@ -292,6 +298,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     preview,
     result,
     isExecuting,
+    runOperationId: syncMutation.loading ? syncMutation.requestId : null,
     error,
   };
 

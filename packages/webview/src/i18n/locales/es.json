@@ -1177,7 +1177,45 @@
     "fieldMappingCount_one": "{{count}} mapeo de campos",
     "fieldMappingCount_other": "{{count}} mapeos de campos",
     "transformCount_one": "{{count}} transformación",
-    "transformCount_other": "{{count}} transformaciones"
+    "transformCount_other": "{{count}} transformaciones",
+    "runNow": "Ejecutar la sincronización",
+    "simulation": {
+      "start": "Simular",
+      "hint": "Una simulación lee ambas orgs como lo haría la ejecución e indica, objeto por objeto, qué insertaría, actualizaría, omitiría o encontraría en conflicto. No escribe nada.",
+      "running": "Simulando...",
+      "badge": "Simulación: no se escribió nada",
+      "cancelled": "Simulación cancelada",
+      "insert": "Insertaría",
+      "update": "Actualizaría",
+      "delete": "Eliminaría",
+      "skipped": "Omitidos",
+      "refused": "Se rechazarían",
+      "conflicts": "En conflicto",
+      "read_one": "{{count}} registro leído",
+      "read_other": "{{count}} registros leídos",
+      "settledBy_one": "{{count}} registro difiere del destino en un campo que la ejecución escribe: {{strategy}} decide qué valor se escribe.",
+      "settledBy_other": "{{count}} registros difieren del destino en un campo que la ejecución escribe: {{strategy}} decide qué valor se escribe.",
+      "conflictFields": "Campos que difieren: {{fields}}.",
+      "nothingWritten": "No se escribió nada. Las cifras comparan lo que la ejecución enviaría con lo que el destino contiene ahora.",
+      "notChecked": "Una simulación no ejecuta las reglas de validación, las reglas de duplicados, los campos obligatorios ni las automatizaciones del destino: un registro que alguna de ellas rechazaría se cuenta tal como la ejecución lo enviaría.",
+      "stoppedAt": "La simulación se detuvo en {{object}}: {{error}}. Una ejecución también se detendría ahí.",
+      "runNow": "Ejecutar la sincronización ahora"
+    },
+    "runControls": {
+      "pause": "Pausar",
+      "resume": "Reanudar",
+      "cancelSimulation": "Cancelar simulación",
+      "pausedNote": "En pausa: no se escribe nada más hasta reanudar. Un lote ya enviado, o un trabajo de Bulk API ya en curso, termina primero.",
+      "stopping": "Deteniendo: la ejecución termina antes de su siguiente objeto o lote, y lo que escribió permanece en la org de destino.",
+      "cancelConfirm": "¿Detener la sincronización en curso? Termina antes de su siguiente objeto o lote, y los registros ya escritos permanecen en la org de destino.",
+      "cancelRefused": "No se pudo cancelar la ejecución",
+      "cancelRefusedDetail": "La ejecución ya no está en curso o no se inició desde esta ventana.",
+      "pauseRefused": "No se pudo pausar ni reanudar la ejecución",
+      "pauseRefusedDetail": "La ejecución ya no está en curso o no se inició desde esta ventana."
+    },
+    "strategyNotice": {
+      "manualReplaced": "Este borrador pedía una revisión manual de conflictos, que una sincronización no ofrece: cada una de sus ejecuciones escribió los valores del origen. Ahora usa «Destino prevalece», que conserva todos los valores del destino donde las dos orgs difieren. Elija otra estrategia si el origen debe prevalecer."
+    }
   },
   "migration": {
     "title": "Migración",

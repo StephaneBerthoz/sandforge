@@ -67,6 +67,21 @@ export const syncObjectConfigSchema = z.object({
   insertOrder: z.number().int().nonnegative().default(0),
 });
 
+/**
+ * The strategies a bidirectional sync run settles a conflict with, in the
+ * order the page offers them. `manual` is left out on purpose: see
+ * `SyncConflictStrategy`.
+ */
+export const syncConflictStrategySchema = z.enum([
+  'source_wins',
+  'target_wins',
+  'newest_wins',
+  'merge',
+]);
+
+/** {@link syncConflictStrategySchema}'s values. */
+export const SYNC_CONFLICT_STRATEGIES = syncConflictStrategySchema.options;
+
 /** Top-level sync configuration schema */
 export const syncConfigSchema = z.object({
   name: z.string().min(1),
@@ -76,7 +91,7 @@ export const syncConfigSchema = z.object({
   direction: z.enum(['source_to_target', 'target_to_source', 'bidirectional']),
   mode: z.enum(['full', 'incremental', 'delta', 'cdc']),
   objects: z.array(syncObjectConfigSchema).min(1),
-  conflictStrategy: z.enum(['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge']),
+  conflictStrategy: syncConflictStrategySchema,
   enableRollback: z.boolean().default(false),
 });
 

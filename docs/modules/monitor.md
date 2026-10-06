@@ -41,7 +41,8 @@ A compact panel below the KPIs showing:
 
 When a run that writes to an org is in progress — Seed, Sync, a Forge clone
 or the removal of the records one created, a record clone, a CSV import, a
-Frozen Dataset load — a Live Operations panel lists it, showing:
+Frozen Dataset load — a Live Operations panel lists it, showing (a Sync
+simulation, which only reads, is listed too):
 
 - Each run's module, progress bar and current step, and its records and
   records per second where it counts them: a Frozen load goes by phases and
@@ -51,7 +52,9 @@ Frozen Dataset load — a Live Operations panel lists it, showing:
 - How a run ended — succeeded, failed with its error, or cancelled — for a
   short while after it ends
 
-These runs cannot be paused, so the panel offers no pause or resume.
+The panel offers no pause or resume. A Sync run can be paused from the Sync
+page that started it, and is listed here as paused until it is resumed there;
+its Cancel still stops it.
 The list is read when the dashboard opens, again on each dashboard refresh and
 after a Cancel. Between readings it shows each run as it last was, not live.
 

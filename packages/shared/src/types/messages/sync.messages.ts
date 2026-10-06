@@ -1,5 +1,10 @@
 import type { BaseMessage } from './base.messages.js';
-import type { SyncExecutionResult, SyncHistoryEntry, SyncScheduleEntry } from '../sync.types.js';
+import type {
+  SyncExecutionResult,
+  SyncHistoryEntry,
+  SyncScheduleEntry,
+  SyncSimulationResult,
+} from '../sync.types.js';
 import type { ExportFormat } from '../reporting.types.js';
 
 /** Sync messages */
@@ -12,6 +17,58 @@ export interface SyncExecuteRequest extends BaseMessage {
 export interface SyncExecuteResponse extends BaseMessage {
   type: 'sync:execute:response';
   payload: SyncExecutionResult;
+}
+
+/**
+ * Simulate a sync: read both orgs, compare, and say per object what the run
+ * would insert, update, skip or find in conflict. Nothing is written. Asked
+ * apart from `sync:execute` rather than as a flag of the configuration, so a
+ * saved or scheduled configuration can never carry it.
+ */
+export interface SyncSimulateRequest extends BaseMessage {
+  type: 'sync:simulate';
+  payload: { config: Record<string, unknown> };
+}
+
+/** Response for a simulation — what the run would do, object by object. */
+export interface SyncSimulateResponse extends BaseMessage {
+  type: 'sync:simulate:response';
+  payload: SyncSimulationResult;
+}
+
+/** Pause a running sync before its next object or batch, by the id of the request that started it. */
+export interface SyncPauseRequest extends BaseMessage {
+  type: 'sync:pause';
+  payload: { operationId: string };
+}
+
+/** Resume a paused sync, by the id of the request that started it. */
+export interface SyncResumeRequest extends BaseMessage {
+  type: 'sync:resume';
+  payload: { operationId: string };
+}
+
+/** What a pause or a resume came to. */
+export interface SyncRunControlAnswer {
+  /** Whether a running sync had this id. */
+  success: boolean;
+  operationId: string;
+  /** Whether the run is now held before its next object or batch. */
+  paused: boolean;
+  /** Why nothing was done, when nothing was. */
+  error?: string;
+}
+
+/** Response for `sync:pause`. */
+export interface SyncPauseResponse extends BaseMessage {
+  type: 'sync:pause:response';
+  payload: SyncRunControlAnswer;
+}
+
+/** Response for `sync:resume`. */
+export interface SyncResumeResponse extends BaseMessage {
+  type: 'sync:resume:response';
+  payload: SyncRunControlAnswer;
 }
 
 /** Response containing the createable + queryable object API names of an org. */

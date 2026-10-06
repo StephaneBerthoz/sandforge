@@ -8,6 +8,8 @@ import type {
   SyncExecutionResult,
   SyncObjectResult,
   SyncOperation,
+  SyncRunControlAnswer,
+  SyncSimulationResult,
 } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
@@ -52,7 +54,9 @@ import {
   syncConfigIdPayloadSchema,
   syncDescribeGlobalPayloadSchema,
   syncDescribeFieldsPayloadSchema,
-  isSyncFileObject,
+  syncSimulatePayloadSchema,
+  syncRunControlPayloadSchema,
+  syncCannotCopy,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import { SyncRunFailure } from '../../modules/sync/SyncRunFailure.js';
@@ -74,10 +78,20 @@ import {
   type TargetWriteFields,
 } from '../../modules/sync/targetWriteFields.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { PauseGate } from '../../modules/sync/PauseGate.js';
+import { targetLookup } from '../../modules/sync/SyncSimulation.js';
+import type {
+  OrchestratorCountFn,
+  OrchestratorFindFn,
+  OrchestratorQueryFn,
+} from '../../modules/sync/SyncOrchestrator.js';
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
   'sync:execute',
+  'sync:simulate',
+  'sync:pause',
+  'sync:resume',
   'sync:describe-global',
   'sync:describe-fields',
   'sync:config:save',
@@ -175,6 +189,17 @@ function parseDescribedFields(
   );
 }
 
+/** What a run and a simulation of it read both orgs with: see `SyncOpsHandler.readersFor`. */
+interface SyncReaders {
+  sourceConn: Awaited<ReturnType<typeof getJsforceConnection>>;
+  targetConn: Awaited<ReturnType<typeof getJsforceConnection>>;
+  querySource: OrchestratorQueryFn;
+  queryTarget: OrchestratorQueryFn;
+  countSource: OrchestratorCountFn;
+  describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
+  findInTarget: OrchestratorFindFn;
+}
+
 /**
  * Domain handler for sync-related webview-to-extension messages.
  *
@@ -208,6 +233,9 @@ export class SyncOpsHandler implements DomainHandler {
 
   /** Live operation tracker feeding the Monitor "live operations" panel. */
   private liveTracker?: LiveOperationTracker;
+
+  /** The pause of each run under way, by its operation id: what `sync:pause` sets. */
+  private readonly pauseGates = new Map<string, PauseGate>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
@@ -261,6 +289,15 @@ export class SyncOpsHandler implements DomainHandler {
         return true;
       case 'sync:execute':
         await this.handleExecute(msg);
+        return true;
+      case 'sync:simulate':
+        await this.handleSimulate(msg);
+        return true;
+      case 'sync:pause':
+        await this.handleRunControl(msg, 'pause');
+        return true;
+      case 'sync:resume':
+        await this.handleRunControl(msg, 'resume');
         return true;
       case 'sync:config:save':
         await this.handleConfigSave(msg);
@@ -530,12 +567,13 @@ export class SyncOpsHandler implements DomainHandler {
       const result = await timeout.withTimeout('describe-global', () => conn.describeGlobal());
       checkApiLimits(conn.limitInfo, 'sync:describe-global');
 
-      // Objects whose content is a file are left out: Sync has no stage that
-      // moves one, and the bridge refuses a config naming them.
+      // The objects no copy writes are left out — files, users, metadata,
+      // history, sharing and the platform's own records — and the bridge
+      // refuses a config naming one: the list Forge and Autopilot read.
       const objects = result.sobjects
         .filter((s: { createable: boolean; queryable: boolean }) => s.createable && s.queryable)
         .map((s: { name: string }) => s.name)
-        .filter((name: string) => !isSyncFileObject(name));
+        .filter((name: string) => !syncCannotCopy(name));
 
       const response = buildResponse(this.deps, msg, 'sync:describe-global:response', { objects });
       this.deps.broker.postToWebview(response);
@@ -610,6 +648,408 @@ export class SyncOpsHandler implements DomainHandler {
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
     await this.startExecution(msg, parsed.config, 'manual');
+  }
+
+  /**
+   * `sync:simulate`: what a run of this configuration would do, object by
+   * object, with nothing written.
+   *
+   * Checked at the boundary exactly as a run is, then read and compared by the
+   * same engine — the field types of both orgs, each object's read, its
+   * mappings, transforms and add-ons, the rows left to the platform and, on a
+   * bidirectional run, its conflicts. No guard is consulted and nothing is
+   * written to the audit trail or the history: the writer the engine is given
+   * refuses every write. It is listed in Live Operations like a run, so its
+   * Cancel — and the Sync page's — stop it before its next object.
+   */
+  private async handleSimulate(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncSimulatePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    const operationId = msg.id;
+    const config = parsed.config as unknown as SyncConfig;
+    const description = `Simulation of a sync of ${config.objects.length} object(s), writing nothing`;
+    const abortController = new AbortController();
+    sendOperationStarted(this.deps, operationId, 'sync', description);
+    this.liveTracker?.register(operationId, 'sync', description);
+
+    const simulation = this.simulateSync(msg, config, operationId, abortController);
+    if (this.registry) {
+      // The registry reads a `failure` status as a failed operation; a
+      // simulation that stopped on an error is one.
+      const outcome = simulation.then((result) => ({
+        status: result === null || result.error ? 'failure' : 'success',
+      }));
+      this.registry.register(operationId, 'sync', description, outcome, abortController);
+    } else {
+      await simulation;
+    }
+  }
+
+  /**
+   * Run a simulation in the background and answer it on
+   * `sync:simulate:response`; `null` when it could not start, which is said on
+   * `sync:error`.
+   */
+  private async simulateSync(
+    msg: InboundRequest,
+    config: SyncConfig,
+    operationId: string,
+    abortController: AbortController,
+  ): Promise<SyncSimulationResult | null> {
+    const robustnessConfig = robustnessConfigOf(this.deps);
+    const failure: OperationFailureContext = {
+      module: 'sync',
+      operation: msg.type,
+      ...objectsFailureContext(config.objects),
+    };
+    try {
+      const readers = await this.readersFor(config, abortController.signal);
+      const { DataSync } = await import('../../modules/sync/DataSync.js');
+      const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
+      const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
+      const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
+
+      // A simulation writes nothing, and its writer says so to anything that
+      // tries: the engine never hands it a record, and if it ever did the
+      // simulation would stop on this error rather than write.
+      const refuse = async (): Promise<never> => {
+        throw new Error('A simulation writes nothing: the write it reached was refused.');
+      };
+      const dataSync = new DataSync({
+        insert: refuse,
+        update: refuse,
+        upsert: refuse,
+        delete: refuse,
+        describeTargetFields: readers.describeTargetFields,
+      });
+      if (!this.deps.services) {
+        throw new Error(
+          'SyncOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
+        );
+      }
+      const orchestrator = this.deps.services.syncOrchestrator({
+        dataSync,
+        conflictResolver: new ConflictResolver(),
+        fieldMapping: new FieldMappingService(),
+        transformPipeline: new TransformPipeline(),
+        querySource: readers.querySource,
+        queryTarget: readers.queryTarget,
+        services: this.deps.services,
+        signal: abortController.signal,
+        findInTarget: readers.findInTarget,
+        describeTargetFields: readers.describeTargetFields,
+        onSimulationProgress: (done, total, objectApiName) => {
+          const pct = Math.round((done / total) * 100);
+          const label = `Simulating ${objectApiName}`;
+          sendOperationProgress(this.deps, operationId, pct, done, total, label);
+          this.liveTracker?.updateProgress(operationId, pct, done, total, label);
+        },
+      });
+
+      await this.assertFieldTypesMatch(
+        config,
+        readers.sourceConn,
+        readers.targetConn,
+        robustnessConfig.timeouts.describe,
+      );
+
+      const result: SyncSimulationResult = {
+        ...(await orchestrator.simulate(config)),
+        operationId,
+      };
+      if (result.cancelled) {
+        this.endCancelled(operationId);
+      } else if (result.error) {
+        this.liveTracker?.fail(operationId, result.error);
+        sendOperationFailed(this.deps, operationId, result.error, true, { context: failure });
+      } else {
+        sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Simulation complete');
+        sendOperationCompleted(this.deps, operationId, { status: 'success', simulated: true });
+        this.liveTracker?.complete(operationId);
+      }
+      this.deps.log(
+        `[sync] simulation ${operationId} ${result.cancelled ? 'stopped' : 'finished'}: ` +
+          result.objects
+            .map(
+              (o) =>
+                `${o.objectApiName} insert=${o.insert} update=${o.update} delete=${o.delete} ` +
+                `skipped=${o.skipped} refused=${o.refused} conflicts=${o.conflicts}`,
+            )
+            .join('; '),
+      );
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'sync:simulate:response',
+        result as unknown as Record<string, unknown>,
+      );
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      return result;
+    } catch (err: unknown) {
+      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      sendHandlerError(this.deps, 'sync:simulate', 'sync:error', msg, err);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * `sync:pause` / `sync:resume`: hold a running sync before its next object
+   * or batch, or let it go on. Answered with whether the run is now paused,
+   * or why nothing was done: a run that has finished, or one this window
+   * never started, has no pause to set.
+   */
+  private async handleRunControl(msg: InboundRequest, action: 'pause' | 'resume'): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncRunControlPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    const { operationId } = parsed;
+    const responseType = action === 'pause' ? 'sync:pause:response' : 'sync:resume:response';
+    const gate = this.pauseGates.get(operationId);
+    let answer: SyncRunControlAnswer;
+    if (!gate) {
+      answer = {
+        success: false,
+        operationId,
+        paused: false,
+        error: 'No sync with this id is running: it has finished, or it was not started here.',
+      };
+    } else {
+      if (action === 'pause') {
+        gate.pause();
+        this.liveTracker?.pause(operationId);
+      } else {
+        gate.resume();
+        this.liveTracker?.resume(operationId);
+      }
+      answer = { success: true, operationId, paused: gate.isPaused };
+    }
+    const response = buildResponse(
+      this.deps,
+      msg,
+      responseType,
+      answer as unknown as Record<string, unknown>,
+    );
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} paused=${answer.paused}`);
+  }
+
+  /**
+   * What a run and a simulation of it read both orgs with: the two
+   * connections, the source and target reads, the source count Grappe's
+   * threshold is measured on, the target's describe of what a write may
+   * carry, and the target lookup a simulation asks in place of a write.
+   *
+   * @param signal - The run's cancel, which stops a simulation's lookups.
+   */
+  private async readersFor(config: SyncConfig, signal: AbortSignal): Promise<SyncReaders> {
+    const robustnessConfig = robustnessConfigOf(this.deps);
+    const sourceConn = await getJsforceConnection(
+      config.sourceOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+    const targetConn = await getJsforceConnection(
+      config.targetOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+
+    /**
+     * Query limits, resolved PER ORG.
+     *
+     * This used to resolve the tier from the source alone and hand the same
+     * closure to both reads. Harmless while every read carried a LIMIT; the
+     * moment the cap became conditional it inverted the protection it exists
+     * for — on a sandbox -> production sync the source is a sandbox, so the
+     * production TARGET was read with no cap at all, against the very org
+     * whose API budget the cap protects.
+     */
+    const limitsFor = (
+      orgId: string,
+    ): { tier: ReturnType<typeof resolveOrgTier>; limits: ReturnType<typeof getQueryLimits> } => {
+      const org = this.deps.orgManager.getOrg(orgId);
+      const tier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
+      return { tier, limits: getQueryLimits(tier) };
+    };
+
+    // Build query functions with retry wrapping and dynamic limits
+    const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
+    const buildQueryFn =
+      (conn: typeof sourceConn, orgId: string) =>
+      async (
+        _orgId: string,
+        objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      ): Promise<Record<string, unknown>[]> => {
+        const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
+        let soql = `SELECT FIELDS(ALL) FROM ${safeObj}`;
+        // The boundary refuses a WHERE that does more than filter; checked
+        // again here because this is where it becomes query text, and a
+        // `LIMIT 1` riding on the filter would cut the read short while the
+        // run still reported itself complete.
+        if (objectConfig.where) {
+          soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
+        }
+        // An SFDMU export carries its read order, and the importer keeps it.
+        // The boundary refuses anything but field names, ASC/DESC and NULLS
+        // FIRST/LAST; checked again here because this is where it becomes
+        // query text — an ORDER BY ends the statement, so whatever followed
+        // it would run.
+        if (objectConfig.orderBy) {
+          soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
+        }
+        // This query used to end in a bare
+        // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
+        // page only — 2 000 rows from a sandbox source, 500 from a
+        // production one. On the 100 000-record orgs this product targets
+        // that copies 2 % of the object and reports a completed sync.
+        //
+        // Two changes, and only these two:
+        //  - the read follows the cursor to the end (`queryAllPages`, the
+        //    same bounded helper Forge uses);
+        //  - when a bound cuts the read short the user is told, on the
+        //    notification channel and in the log. A bounded sync is a
+        //    legitimate outcome; a silently partial one is the defect.
+        //
+        // The production cap stays. `queryLimits` keeps a production source
+        // conservative on purpose — a sandbox refresh must not spend a
+        // business org's daily API budget — so a production-tier run is
+        // still capped server-side at `defaultQueryLimit` and now announces
+        // the cut instead of hiding it. Sandbox and scratch sources, where
+        // the 100 000-row clone actually happens, read every page up to
+        // FORGE_QUERY_MAX_RECORDS / FORGE_QUERY_MAX_PAGES.
+        const { tier, limits } = limitsFor(orgId);
+        if (tier === 'production') {
+          soql += ` LIMIT ${limits.defaultQueryLimit}`;
+        }
+        let boundCutTheRead = false;
+        const retryResult = await queryRetryOp.execute(async () => {
+          try {
+            const paged = await queryAllPages<Record<string, unknown>>(
+              {
+                // jsforce hands back a thenable `Query`, not a Promise.
+                query: async (q) => conn.query<Record<string, unknown>>(q),
+                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            );
+            boundCutTheRead = paged.truncated;
+            return paged.records;
+          } catch {
+            // The org rejects the `FIELDS()` syntax: fall back to the
+            // explicit field list built from `describe()`. That path
+            // paginates internally and rethrows anything that is not a
+            // FIELDS() problem, so a real failure still surfaces.
+            const records = await queryWithFieldsFallback<Record<string, unknown>>(
+              conn,
+              safeObj,
+              soql,
+            );
+            boundCutTheRead = records.length >= FORGE_QUERY_MAX_RECORDS;
+            return records;
+          }
+        });
+        if (!retryResult.success) {
+          throw retryResult.error ?? new Error('Query failed after retries');
+        }
+        checkApiLimits(conn.limitInfo, `sync:execute query ${safeObj}`);
+        const records = retryResult.result ?? [];
+        const tierCapReached = tier === 'production' && records.length >= limits.defaultQueryLimit;
+        if (boundCutTheRead || tierCapReached) {
+          const bound = tierCapReached
+            ? `${limits.defaultQueryLimit} records (production-tier query cap)`
+            : `${FORGE_QUERY_MAX_RECORDS} records / ${FORGE_QUERY_MAX_PAGES} pages`;
+          // The same closure reads both orgs, and a short read means
+          // different things on each: on the source it means part of the
+          // object is not copied, on the target it means conflict detection
+          // ran against part of the destination — a record the target holds
+          // past the bound is never compared. Saying "the sync copies this
+          // subset" on the target read would be the wrong warning.
+          const side = orgId === config.sourceOrgId ? 'source' : 'target';
+          const consequence =
+            side === 'source'
+              ? 'this sync copies a subset, not the whole object'
+              : 'conflict detection ran against a subset of the destination';
+          this.deps.log(
+            `[WARN] sync:execute ${safeObj} (${side}): read stopped at ${records.length} ` +
+              `record(s) — bound: ${bound}. ${consequence}.`,
+          );
+          sendNotification(
+            this.deps,
+            'warning',
+            'Sync',
+            `${safeObj}: only ${records.length} record(s) were read from the ${side} ` +
+              `(bound: ${bound}) — ${consequence}. ` +
+              `Narrow it with a WHERE filter, or split the run.`,
+          );
+        }
+        return records;
+      };
+
+    // What the Grappe threshold is measured against: the rows the read above
+    // would return, counted with the same filter before the run writes. The
+    // read stops at a bound — the query limit on a production source,
+    // FORGE_QUERY_MAX_RECORDS elsewhere — so the count stops there too, and a
+    // run is never reported past the rows it will actually read.
+    const countSource = async (
+      orgId: string,
+      objectConfig: import('@sandforge/shared').SyncObjectConfig,
+    ): Promise<number> => {
+      const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
+      let soql = `SELECT COUNT() FROM ${safeObj}`;
+      if (objectConfig.where) {
+        soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
+      }
+      const { totalSize } = await sourceConn.query(soql);
+      const { tier, limits } = limitsFor(orgId);
+      return Math.min(
+        totalSize,
+        tier === 'production' ? limits.defaultQueryLimit : FORGE_QUERY_MAX_RECORDS,
+      );
+    };
+
+    // One describe of the target per object, kept for the run. Without it a
+    // sync with no field mappings sends every field it read — see
+    // `DataSyncDeps.describeCreateableFields`. The record types the running
+    // user may use are read from the same describe.
+    const targetFieldsByObject = new Map<string, TargetWriteFields>();
+    const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
+      const cached = targetFieldsByObject.get(objectApiName);
+      if (cached) return cached;
+      const described = await targetConn.describe(objectApiName);
+      const answer = targetWriteFieldsOf(described);
+      targetFieldsByObject.set(objectApiName, answer);
+      return answer;
+    };
+
+    // What a simulation asks the target in place of the write: see
+    // `targetLookup`.
+    const lookup = targetLookup(
+      {
+        query: async (q) => targetConn.query<Record<string, unknown>>(q),
+        queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+      },
+      signal,
+    );
+    const findInTarget: OrchestratorFindFn = async (orgId, objectConfig, keyField, keys) => {
+      const held = await lookup(orgId, objectConfig, keyField, keys);
+      checkApiLimits(targetConn.limitInfo, `sync:simulate lookup ${objectConfig.objectApiName}`);
+      return held;
+    };
+
+    return {
+      sourceConn,
+      targetConn,
+      querySource: buildQueryFn(sourceConn, config.sourceOrgId),
+      queryTarget: buildQueryFn(targetConn, config.targetOrgId),
+      countSource,
+      describeTargetFields,
+      findInTarget,
+    };
   }
 
   /**
@@ -913,36 +1353,13 @@ export class SyncOpsHandler implements DomainHandler {
     guardDecision?: GuardDecision,
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = robustnessConfigOf(this.deps);
+    // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
+    const pauseGate = new PauseGate();
+    this.pauseGates.set(operationId, pauseGate);
 
     try {
-      const sourceConn = await getJsforceConnection(
-        config.sourceOrgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-      const targetConn = await getJsforceConnection(
-        config.targetOrgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-
-      /**
-       * Query limits, resolved PER ORG.
-       *
-       * This used to resolve the tier from the source alone and hand the same
-       * closure to both reads. Harmless while every read carried a LIMIT; the
-       * moment the cap became conditional it inverted the protection it exists
-       * for — on a sandbox -> production sync the source is a sandbox, so the
-       * production TARGET was read with no cap at all, against the very org
-       * whose API budget the cap protects.
-       */
-      const limitsFor = (
-        orgId: string,
-      ): { tier: ReturnType<typeof resolveOrgTier>; limits: ReturnType<typeof getQueryLimits> } => {
-        const org = this.deps.orgManager.getOrg(orgId);
-        const tier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
-        return { tier, limits: getQueryLimits(tier) };
-      };
+      const readers = await this.readersFor(config, abortController.signal);
+      const { sourceConn, targetConn } = readers;
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
@@ -959,6 +1376,7 @@ export class SyncOpsHandler implements DomainHandler {
         bulkManager,
         retryConfig: robustnessConfig.retry,
         signal: abortController.signal,
+        pauseGate,
         onProgress: (processed, total, label) => {
           const pct = Math.round((processed / total) * 100);
           sendOperationProgress(this.deps, operationId, pct, processed, total, label);
@@ -967,163 +1385,11 @@ export class SyncOpsHandler implements DomainHandler {
         log: (message) => this.deps.log(message),
       });
 
-      // Build query functions with retry wrapping and dynamic limits
-      const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
-      const buildQueryFn =
-        (conn: typeof sourceConn, orgId: string) =>
-        async (
-          _orgId: string,
-          objectConfig: import('@sandforge/shared').SyncObjectConfig,
-        ): Promise<Record<string, unknown>[]> => {
-          const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
-          let soql = `SELECT FIELDS(ALL) FROM ${safeObj}`;
-          // The boundary refuses a WHERE that does more than filter; checked
-          // again here because this is where it becomes query text, and a
-          // `LIMIT 1` riding on the filter would cut the read short while the
-          // run still reported itself complete.
-          if (objectConfig.where) {
-            soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
-          }
-          // An SFDMU export carries its read order, and the importer keeps it.
-          // The boundary refuses anything but field names, ASC/DESC and NULLS
-          // FIRST/LAST; checked again here because this is where it becomes
-          // query text — an ORDER BY ends the statement, so whatever followed
-          // it would run.
-          if (objectConfig.orderBy) {
-            soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
-          }
-          // This query used to end in a bare
-          // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
-          // page only — 2 000 rows from a sandbox source, 500 from a
-          // production one. On the 100 000-record orgs this product targets
-          // that copies 2 % of the object and reports a completed sync.
-          //
-          // Two changes, and only these two:
-          //  - the read follows the cursor to the end (`queryAllPages`, the
-          //    same bounded helper Forge uses);
-          //  - when a bound cuts the read short the user is told, on the
-          //    notification channel and in the log. A bounded sync is a
-          //    legitimate outcome; a silently partial one is the defect.
-          //
-          // The production cap stays. `queryLimits` keeps a production source
-          // conservative on purpose — a sandbox refresh must not spend a
-          // business org's daily API budget — so a production-tier run is
-          // still capped server-side at `defaultQueryLimit` and now announces
-          // the cut instead of hiding it. Sandbox and scratch sources, where
-          // the 100 000-row clone actually happens, read every page up to
-          // FORGE_QUERY_MAX_RECORDS / FORGE_QUERY_MAX_PAGES.
-          const { tier, limits } = limitsFor(orgId);
-          if (tier === 'production') {
-            soql += ` LIMIT ${limits.defaultQueryLimit}`;
-          }
-          let boundCutTheRead = false;
-          const retryResult = await queryRetryOp.execute(async () => {
-            try {
-              const paged = await queryAllPages<Record<string, unknown>>(
-                {
-                  // jsforce hands back a thenable `Query`, not a Promise.
-                  query: async (q) => conn.query<Record<string, unknown>>(q),
-                  queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
-                },
-                soql,
-              );
-              boundCutTheRead = paged.truncated;
-              return paged.records;
-            } catch {
-              // The org rejects the `FIELDS()` syntax: fall back to the
-              // explicit field list built from `describe()`. That path
-              // paginates internally and rethrows anything that is not a
-              // FIELDS() problem, so a real failure still surfaces.
-              const records = await queryWithFieldsFallback<Record<string, unknown>>(
-                conn,
-                safeObj,
-                soql,
-              );
-              boundCutTheRead = records.length >= FORGE_QUERY_MAX_RECORDS;
-              return records;
-            }
-          });
-          if (!retryResult.success) {
-            throw retryResult.error ?? new Error('Query failed after retries');
-          }
-          checkApiLimits(conn.limitInfo, `sync:execute query ${safeObj}`);
-          const records = retryResult.result ?? [];
-          const tierCapReached =
-            tier === 'production' && records.length >= limits.defaultQueryLimit;
-          if (boundCutTheRead || tierCapReached) {
-            const bound = tierCapReached
-              ? `${limits.defaultQueryLimit} records (production-tier query cap)`
-              : `${FORGE_QUERY_MAX_RECORDS} records / ${FORGE_QUERY_MAX_PAGES} pages`;
-            // The same closure reads both orgs, and a short read means
-            // different things on each: on the source it means part of the
-            // object is not copied, on the target it means delta detection and
-            // conflict resolution ran against part of the destination — which
-            // can make an update look like an insert. Saying "the sync copies
-            // this subset" on the target read would be the wrong warning.
-            const side = orgId === config.sourceOrgId ? 'source' : 'target';
-            const consequence =
-              side === 'source'
-                ? 'this sync copies a subset, not the whole object'
-                : 'delta detection ran against a subset of the destination';
-            this.deps.log(
-              `[WARN] sync:execute ${safeObj} (${side}): read stopped at ${records.length} ` +
-                `record(s) — bound: ${bound}. ${consequence}.`,
-            );
-            sendNotification(
-              this.deps,
-              'warning',
-              'Sync',
-              `${safeObj}: only ${records.length} record(s) were read from the ${side} ` +
-                `(bound: ${bound}) — ${consequence}. ` +
-                `Narrow it with a WHERE filter, or split the run.`,
-            );
-          }
-          return records;
-        };
-
-      // What the Grappe threshold is measured against: the rows the read above
-      // would return, counted with the same filter before the run writes. The
-      // read stops at a bound — the query limit on a production source,
-      // FORGE_QUERY_MAX_RECORDS elsewhere — so the count stops there too, and a
-      // run is never reported past the rows it will actually read.
-      const countSource = async (
-        orgId: string,
-        objectConfig: import('@sandforge/shared').SyncObjectConfig,
-      ): Promise<number> => {
-        const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
-        let soql = `SELECT COUNT() FROM ${safeObj}`;
-        if (objectConfig.where) {
-          soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
-        }
-        const { totalSize } = await sourceConn.query(soql);
-        const { tier, limits } = limitsFor(orgId);
-        return Math.min(
-          totalSize,
-          tier === 'production' ? limits.defaultQueryLimit : FORGE_QUERY_MAX_RECORDS,
-        );
-      };
-
       // Lazy-import sync dependencies
       const { DataSync } = await import('../../modules/sync/DataSync.js');
-      const { MetadataSync } = await import('../../modules/sync/MetadataSync.js');
       const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
-      const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
-
-      // One describe of the target per object, kept for the run. Without it a
-      // sync with no field mappings sends every field it read — see
-      // `DataSyncDeps.describeCreateableFields`. The record types the running
-      // user may use are read from the same describe.
-      const targetFieldsByObject = new Map<string, TargetWriteFields>();
-      const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
-        const cached = targetFieldsByObject.get(objectApiName);
-        if (cached) return cached;
-        const described = await targetConn.describe(objectApiName);
-        const answer = targetWriteFieldsOf(described);
-        targetFieldsByObject.set(objectApiName, answer);
-        return answer;
-      };
 
       const dataSync = new DataSync({
         upsert: (objectName, externalIdField, records, batchSize) =>
@@ -1132,34 +1398,30 @@ export class SyncOpsHandler implements DomainHandler {
         update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
         delete: (objectName, recordIds, batchSize) =>
           writer.delete(objectName, recordIds, batchSize),
-        describeTargetFields,
-      });
-      const metadataSync = new MetadataSync({
-        fetchMetadata: async () => [],
-        deployMetadata: async () => [],
+        describeTargetFields: readers.describeTargetFields,
       });
       const conflictResolver = new ConflictResolver();
       const fieldMapping = new FieldMappingService();
       const transformPipeline = new TransformPipeline();
-      const incrementalTracker = new IncrementalTracker();
 
       const syncDeps = {
         dataSync,
-        metadataSync,
         conflictResolver,
         fieldMapping,
         transformPipeline,
-        incrementalTracker,
-        querySource: buildQueryFn(sourceConn, config.sourceOrgId),
-        queryTarget: buildQueryFn(targetConn, config.targetOrgId),
+        querySource: readers.querySource,
+        queryTarget: readers.queryTarget,
         services: this.deps.services,
         // Same contract as seed: without BOTH the config and the callback the
         // `grappe:*` channels never fire and the Grappe page stays blank.
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
-        countSource,
-        // The controller the registry aborts: Live Operations' Cancel.
+        countSource: readers.countSource,
+        // The controller the registry aborts: Live Operations' Cancel, and
+        // the Sync page's.
         signal: abortController.signal,
+        // The page's Pause and Resume.
+        pauseGate,
       };
       if (!this.deps.services) {
         throw new Error(
@@ -1283,6 +1545,7 @@ export class SyncOpsHandler implements DomainHandler {
 
       return failureResult;
     } finally {
+      this.pauseGates.delete(operationId);
       if (this.activeOperationIds.has(operationId)) {
         this.deps.infraServices?.performanceTracker?.complete(operationId);
         this.activeOperationIds.delete(operationId);

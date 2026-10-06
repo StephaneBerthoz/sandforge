@@ -1177,7 +1177,45 @@
     "fieldMappingCount_one": "{{count}} field mapping",
     "fieldMappingCount_other": "{{count}} field mappings",
     "transformCount_one": "{{count}} transform",
-    "transformCount_other": "{{count}} transforms"
+    "transformCount_other": "{{count}} transforms",
+    "runNow": "Run the sync",
+    "simulation": {
+      "start": "Simulate",
+      "hint": "A simulation reads both orgs as the run would and says, object by object, what it would insert, update, skip or find in conflict. It writes nothing.",
+      "running": "Simulating...",
+      "badge": "Simulation — nothing written",
+      "cancelled": "Simulation cancelled",
+      "insert": "Would insert",
+      "update": "Would update",
+      "delete": "Would delete",
+      "skipped": "Skipped",
+      "refused": "Would be refused",
+      "conflicts": "In conflict",
+      "read_one": "{{count}} record read",
+      "read_other": "{{count}} records read",
+      "settledBy_one": "{{count}} record differs from the target on a field the run writes: {{strategy}} decides which value is written.",
+      "settledBy_other": "{{count}} records differ from the target on a field the run writes: {{strategy}} decides which value is written.",
+      "conflictFields": "Fields that differ: {{fields}}.",
+      "nothingWritten": "Nothing was written. The counts compare what the run would send with what the target holds now.",
+      "notChecked": "A simulation does not run the target's validation rules, duplicate rules, required fields or automations: a record one of them would refuse is counted as the run would send it.",
+      "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
+      "runNow": "Run the sync now"
+    },
+    "runControls": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "cancelSimulation": "Cancel simulation",
+      "pausedNote": "Paused: nothing more is written until you resume. A batch already sent, or a Bulk API job already under way, finishes first.",
+      "stopping": "Stopping: the run ends before its next object or batch, and what it wrote stays in the target org.",
+      "cancelConfirm": "Stop the running sync? It ends before its next object or batch, and the records already written stay in the target org.",
+      "cancelRefused": "Could not cancel the run",
+      "cancelRefusedDetail": "The run is no longer in progress, or it was not started from this window.",
+      "pauseRefused": "Could not pause or resume the run",
+      "pauseRefusedDetail": "The run is no longer in progress, or it was not started from this window."
+    },
+    "strategyNotice": {
+      "manualReplaced": "This draft asked for manual conflict review, which a sync run does not offer: every run of it wrote the source values. It now uses Target Wins, which keeps every value the target holds where the two orgs differ. Pick another strategy if the source should win."
+    }
   },
   "migration": {
     "title": "Migration",

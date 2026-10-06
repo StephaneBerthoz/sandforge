@@ -45,10 +45,35 @@ describe('a sync may not carry an object whose content is a file', () => {
     },
   );
 
-  it.each(['Account', 'ContentDocumentLink', 'Document__c', 'Case'])(
+  it.each(['Account', 'Document__c', 'Case', 'Opportunity'])(
     'the bridge accepts %j',
     (objectApiName) => {
       expect(syncObjectPayloadSchema.safeParse(createConfig({ objectApiName })).success).toBe(true);
     },
   );
+});
+
+/**
+ * Sync read a list of its own — users, metadata, files — and accepted every
+ * object Forge and Autopilot never copy: a login history, an Apex job, a
+ * record's history or sharing rows, the link of a file it does not carry.
+ * One list now, Forge's, and the boundary refuses what it names.
+ */
+describe('a sync may not carry an object no copy writes', () => {
+  it.each([
+    'ContentDocumentLink',
+    'AccountHistory',
+    'AccountShare',
+    'LoginHistory',
+    'AsyncApexJob',
+    'BusinessProcess',
+    'User',
+  ])('the bridge refuses %j and says why', (objectApiName) => {
+    const issues = objectIssues(objectApiName);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain(`"${objectApiName}"`);
+    expect(issues[0]).toContain('no copy writes it');
+    expect(issues[0]).toContain('the sync was not started');
+  });
 });

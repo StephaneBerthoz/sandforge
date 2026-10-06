@@ -10,13 +10,16 @@ import type {
   SyncMode,
   SyncOperation,
   ConflictStrategy,
+  SyncConflictStrategy,
   MappingType,
   TransformRuleType,
   TransformRuleConfig,
   SyncTemplateConfig,
   SyncConfigSaveResponse,
+  SyncSimulationResult,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
+import { SYNC_CONFLICT_STRATEGIES } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
@@ -27,12 +30,17 @@ import { useElapsedSince } from '../../hooks/useElapsedSince';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
+import { SYNC_RUN_TIMEOUT_MS } from './useSyncRunControls';
 
 /** Draft state safe to persist (no credentials, no execution results). */
 interface SyncDraftState {
   currentStep: number;
   direction: SyncDirection;
   mode: SyncMode;
+  /**
+   * As the draft was saved: a draft from a build that offered `manual` can
+   * still hold it, and reopens on {@link MANUAL_STRATEGY_REPLACEMENT}.
+   */
   conflictStrategy: ConflictStrategy;
   sourceOrgId: string;
   targetOrgId: string;
@@ -65,8 +73,17 @@ export interface SyncPageData {
   targetFields: FieldInfo[];
   /** Execution result after sync completes. */
   result: SyncExecutionResult | undefined;
+  /**
+   * What the last simulation found, while the configuration on screen is the
+   * one it simulated and until a run or another simulation starts.
+   */
+  simulation: SyncSimulationResult | undefined;
   /** Whether the sync execution is currently running. */
   isRunning: boolean;
+  /** Whether a simulation is under way. */
+  isSimulating: boolean;
+  /** The id the run or simulation under way is known by in the extension, or null. */
+  runOperationId: string | null;
   /** Whether the objects query is loading. */
   objectsLoading: boolean;
   /** Whether the fields mutation is loading. */
@@ -94,9 +111,13 @@ export interface SyncPageData {
   /** Set sync mode. */
   setMode: (m: SyncMode) => void;
   /** Conflict resolution strategy. */
-  conflictStrategy: ConflictStrategy;
+  conflictStrategy: SyncConflictStrategy;
   /** Set conflict strategy. */
-  setConflictStrategy: (cs: ConflictStrategy) => void;
+  setConflictStrategy: (cs: SyncConflictStrategy) => void;
+  /** Whether the draft asked for manual review and reopened on target wins, to be said. */
+  strategyNotice: boolean;
+  /** Put the notice away. */
+  dismissStrategyNotice: () => void;
   /** Configured object entries for sync. */
   objectEntries: ObjectSetEntry[];
   /** Field mappings between source and target. */
@@ -132,6 +153,8 @@ export interface SyncPageData {
   handleChangeTransformConfig: (index: number, key: string, value: string) => void;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
+  /** Simulate the sync with current configuration: read, compare, write nothing. */
+  handleSimulate: () => void;
   /** Save the current configuration under `name` so a schedule can run it. */
   handleSaveConfig: (name: string) => void;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
@@ -151,16 +174,39 @@ export interface SyncPageData {
 /**
  * The conflict strategies a bidirectional run acts on. `manual` is not one of
  * them: the resolver answered it with the source values and wrote them, like
- * source wins, and there is no screen on which a conflict could be reviewed.
- * A draft saved while it was offered reopens on the default rather than on a
- * strategy with no option and no label.
+ * source wins, and no run shows a conflict to anyone before it writes.
  */
-export const OFFERED_CONFLICT_STRATEGIES: readonly ConflictStrategy[] = [
-  'source_wins',
-  'target_wins',
-  'newest_wins',
-  'merge',
-];
+export const OFFERED_CONFLICT_STRATEGIES: readonly SyncConflictStrategy[] =
+  SYNC_CONFLICT_STRATEGIES;
+
+/**
+ * What a draft that asked for `manual` reopens on: target wins, the strategy
+ * that writes no value of the source where the target holds a different one —
+ * the nearest a run comes to waiting for a decision. Every run of such a draft
+ * wrote the source values; reopened on the default, it went on doing so
+ * without a word. The page says it changed, and the strategy can be picked
+ * again.
+ */
+export const MANUAL_STRATEGY_REPLACEMENT: SyncConflictStrategy = 'target_wins';
+
+/**
+ * The strategy a saved draft reopens on, and whether it had asked for manual
+ * review. Anything else no run acts on reopens on the default.
+ */
+export function draftConflictStrategy(saved: string): {
+  strategy: SyncConflictStrategy;
+  replacedManual: boolean;
+} {
+  if (saved === 'manual') return { strategy: MANUAL_STRATEGY_REPLACEMENT, replacedManual: true };
+  return {
+    strategy: offeredOr<string>(
+      OFFERED_CONFLICT_STRATEGIES,
+      saved,
+      'source_wins',
+    ) as SyncConflictStrategy,
+    replacedManual: false,
+  };
+}
 
 /**
  * The directions and modes a run accepts, and what a draft holding anything
@@ -256,7 +302,9 @@ export function useSyncPageData(): SyncPageData {
     if (useAppStore.getState().navigationIntent?.route === 'sync') clearNavigationIntent();
   }, [clearNavigationIntent]);
 
-  const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
+  // A run's progress and its results are not kept with the draft, so a draft
+  // left on the results step reopens on the step that starts a run.
+  const [currentStep, setCurrentStep] = useState(Math.min(initialDraft.current.currentStep, 4));
   const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
   const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
   const [direction, setDirection] = useState<SyncDirection>(
@@ -265,9 +313,18 @@ export function useSyncPageData(): SyncPageData {
   const [mode, setMode] = useState<SyncMode>(
     offeredOr(OFFERED_MODES, initialDraft.current.mode, 'full'),
   );
-  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(
-    offeredOr(OFFERED_CONFLICT_STRATEGIES, initialDraft.current.conflictStrategy, 'source_wins'),
+  const [savedStrategy] = useState(() =>
+    draftConflictStrategy(initialDraft.current.conflictStrategy),
   );
+  const [conflictStrategy, setConflictStrategyValue] = useState<SyncConflictStrategy>(
+    savedStrategy.strategy,
+  );
+  const [strategyNotice, setStrategyNotice] = useState(savedStrategy.replacedManual);
+  // A strategy picked by hand is the answer the notice asked for.
+  const setConflictStrategy = useCallback((cs: SyncConflictStrategy) => {
+    setConflictStrategyValue(cs);
+    setStrategyNotice(false);
+  }, []);
   const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
     initialDraft.current.objectEntries,
   );
@@ -346,9 +403,15 @@ export function useSyncPageData(): SyncPageData {
   // Bridge mutation: execute sync
   const executeMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
     responseType: 'sync:execute:response',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // A bulk write runs past the 30 s default on real volumes, and a paused
+    // run waits on a person; operation:progress keeps flowing meanwhile.
+    timeoutMs: SYNC_RUN_TIMEOUT_MS,
+  });
+
+  // Bridge mutation: simulate sync — the same reads, nothing written
+  const simulateMutation = useBridgeMutation<SyncSimulationResult>('sync:simulate', {
+    responseType: 'sync:simulate:response',
+    timeoutMs: SYNC_RUN_TIMEOUT_MS,
   });
 
   // Bridge mutation: persist the configuration a schedule runs by id
@@ -399,17 +462,39 @@ export function useSyncPageData(): SyncPageData {
   // Derive execution result and running state from bridge mutation
   const result = executeMutation.data;
   const isRunning = executeMutation.loading;
+  // A simulation stands for the configuration it was run on and no other:
+  // once the orgs, objects, mappings, transforms or strategy change, its
+  // findings say nothing of what a run would now do, and the run it offers
+  // would not be the one simulated.
+  const simulatedConfig = JSON.stringify({
+    sourceOrgId,
+    targetOrgId,
+    direction,
+    conflictStrategy,
+    objectEntries,
+    mappingsByObject,
+    transforms,
+  });
+  const [simulatedFor, setSimulatedFor] = useState<string | null>(null);
+  const simulation = simulatedFor === simulatedConfig ? simulateMutation.data : null;
+  const isSimulating = simulateMutation.loading;
+  const busy = isRunning || isSimulating;
 
   // SyncOpsHandler emits operation:progress throughout the run; nothing
   // consumed it, so the bar sat at 0 % and the timer at 0.0s for the whole
   // sync — a healthy long run looked identical to a hung one.
   // Read for this run only: SyncOpsHandler uses the request id as the
-  // operationId, and every panel receives every run's events.
+  // operationId, and every panel receives every run's events. A simulation
+  // is known the same way.
   const { getProgress } = useOperationProgress();
-  const syncRunId = executeMutation.requestId;
-  const syncProgress = isRunning && syncRunId !== null ? getProgress(syncRunId) : undefined;
+  const runOperationId = isRunning
+    ? executeMutation.requestId
+    : isSimulating
+      ? simulateMutation.requestId
+      : null;
+  const syncProgress = runOperationId !== null ? getProgress(runOperationId) : undefined;
   const overallPercent = syncProgress?.percentage ?? 0;
-  const elapsedMs = useElapsedSince(isRunning ? syncStartedAt : null);
+  const elapsedMs = useElapsedSince(busy ? syncStartedAt : null);
 
   // Show error notifications from bridge hooks
   useEffect(() => {
@@ -417,6 +502,7 @@ export function useSyncPageData(): SyncPageData {
       objectsQuery.error ??
       fieldsMutation.error ??
       executeMutation.error ??
+      simulateMutation.error ??
       saveConfigMutation.error;
     if (bridgeError) {
       setError(bridgeError);
@@ -430,6 +516,7 @@ export function useSyncPageData(): SyncPageData {
     objectsQuery.error,
     fieldsMutation.error,
     executeMutation.error,
+    simulateMutation.error,
     saveConfigMutation.error,
     addNotification,
     t,
@@ -441,6 +528,13 @@ export function useSyncPageData(): SyncPageData {
       setCurrentStep(5);
     }
   }, [result, isRunning]);
+
+  // And when a simulation answers: the results step shows what it found.
+  useEffect(() => {
+    if (simulation && !isSimulating) {
+      setCurrentStep(5);
+    }
+  }, [simulation, isSimulating]);
 
   // Trigger PII scan when entering the review step. The step is the trigger:
   // re-scanning on every object-list identity change would fire a scan per
@@ -548,25 +642,28 @@ export function useSyncPageData(): SyncPageData {
     );
   };
 
-  const handleApplyTemplate = useCallback((template: SyncTemplateConfig) => {
-    setDirection(template.direction);
-    setMode(template.mode);
-    setConflictStrategy(template.conflictStrategy);
-    setObjectEntries(
-      template.objects.map((o) => ({
-        objectApiName: o.objectApiName,
-        operation: o.operation,
-        // The editor row always has the box; a template without a key leaves
-        // it empty, and the bridge reads an empty box as "no key".
-        externalIdField: o.externalIdField ?? '',
-        batchSize: o.batchSize,
-        where: '',
-      })),
-    );
-    // Clear any existing mappings/transforms since template objects changed
-    setMappingsByObject({});
-    setTransforms([]);
-  }, []);
+  const handleApplyTemplate = useCallback(
+    (template: SyncTemplateConfig) => {
+      setDirection(template.direction);
+      setMode(template.mode);
+      setConflictStrategy(template.conflictStrategy);
+      setObjectEntries(
+        template.objects.map((o) => ({
+          objectApiName: o.objectApiName,
+          operation: o.operation,
+          // The editor row always has the box; a template without a key leaves
+          // it empty, and the bridge reads an empty box as "no key".
+          externalIdField: o.externalIdField ?? '',
+          batchSize: o.batchSize,
+          where: '',
+        })),
+      );
+      // Clear any existing mappings/transforms since template objects changed
+      setMappingsByObject({});
+      setTransforms([]);
+    },
+    [setConflictStrategy],
+  );
 
   /** The wizard's state as the one config shape both the run and the store take. */
   const buildConfig = (id: string, name: string, description: string): SyncConfig => ({
@@ -597,13 +694,35 @@ export function useSyncPageData(): SyncPageData {
   });
 
   const handleExecute = () => {
-    if (!sourceOrgId || !targetOrgId) return;
+    if (!sourceOrgId || !targetOrgId || busy) return;
     setError(null);
 
     const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
 
+    // One outcome on the results step at a time: a simulation's findings are
+    // not left standing under a run that has started writing.
+    simulateMutation.reset();
     setSyncStartedAt(Date.now());
+    setCurrentStep(4);
     executeMutation.mutate({ config: config as unknown as Record<string, unknown> });
+  };
+
+  /**
+   * Simulate the configuration on screen: the extension reads both orgs as a
+   * run would and says per object what it would insert, update, skip or find
+   * in conflict. Nothing is written, and nothing is recorded as a run.
+   */
+  const handleSimulate = () => {
+    if (!sourceOrgId || !targetOrgId || busy) return;
+    setError(null);
+
+    const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
+
+    executeMutation.reset();
+    setSimulatedFor(simulatedConfig);
+    setSyncStartedAt(Date.now());
+    setCurrentStep(4);
+    simulateMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
 
   /**
@@ -628,20 +747,27 @@ export function useSyncPageData(): SyncPageData {
           !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId && objectEntries.length > 0
         );
       case 4:
-        return !isRunning;
+        // The results step shows what a run or a simulation came to; there is
+        // nothing to show before one has answered.
+        return !busy && (!!result || !!simulation);
+      case 5:
+        return false;
       default:
         return true;
     }
   };
 
-  const isFinished = currentStep === 5 && !!result;
+  const isFinished = currentStep === 5 && (!!result || !!simulation);
 
   return {
     availableObjects,
     sourceFields,
     targetFields,
     result: result ?? undefined,
+    simulation: simulation ?? undefined,
     isRunning,
+    isSimulating,
+    runOperationId,
     objectsLoading: objectsQuery.loading,
     fieldsLoading: fieldsMutation.loading,
     error,
@@ -657,6 +783,8 @@ export function useSyncPageData(): SyncPageData {
     setMode,
     conflictStrategy,
     setConflictStrategy,
+    strategyNotice,
+    dismissStrategyNotice: () => setStrategyNotice(false),
     objectEntries,
     mappings,
     mappedObject,
@@ -675,6 +803,7 @@ export function useSyncPageData(): SyncPageData {
     handleRemoveTransform,
     handleChangeTransformConfig,
     handleExecute,
+    handleSimulate,
     handleSaveConfig,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved:

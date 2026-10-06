@@ -1,6 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncDirection, ConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
+import type {
+  SyncDirection,
+  SyncConflictStrategy,
+  MappingType,
+  FieldMapping,
+} from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -39,6 +44,9 @@ import { ConflictListPanel } from './ConflictListPanel';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel';
 import { useConflictStore } from '../../stores/useConflictStore';
 import { SplitView } from '../../components/ui/SplitView';
+import { Button } from '../../components/ui/Button';
+import { SyncRunControls } from './SyncRunControls';
+import { SyncSimulationResults } from './SyncSimulationResults';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -192,7 +200,10 @@ export const SyncPage: React.FC = () => {
     sourceFields,
     targetFields,
     result,
+    simulation,
     isRunning,
+    isSimulating,
+    runOperationId,
     objectsLoading,
     fieldsLoading,
     error,
@@ -206,6 +217,8 @@ export const SyncPage: React.FC = () => {
     setDirection,
     conflictStrategy,
     setConflictStrategy,
+    strategyNotice,
+    dismissStrategyNotice,
     objectEntries,
     mappedObject,
     setMappedObject,
@@ -224,6 +237,7 @@ export const SyncPage: React.FC = () => {
     handleRemoveTransform,
     handleChangeTransformConfig,
     handleExecute,
+    handleSimulate,
     handleSaveConfig,
     configSaved,
     handleApplyTemplate,
@@ -272,11 +286,12 @@ export const SyncPage: React.FC = () => {
   const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${
     targetOrg?.alias || targetOrg?.username || targetOrgId
   }`;
-  const conflictOptions: { value: ConflictStrategy; label: string }[] =
+  const conflictOptions: { value: SyncConflictStrategy; label: string }[] =
     OFFERED_CONFLICT_STRATEGIES.map((value) => ({
       value,
       label: t(`sync.conflicts.${value}`),
     }));
+  const busy = isRunning || isSimulating;
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
@@ -381,7 +396,7 @@ export const SyncPage: React.FC = () => {
           onStepChange={setCurrentStep}
           canGoNext={canGoNext()}
           isFinished={isFinished}
-          onFinish={handleExecute}
+          canRevisitSteps={!busy}
         >
           {/* Step 0: Select orgs + Configure objects (merged) */}
           {currentStep === 0 && (
@@ -419,9 +434,30 @@ export const SyncPage: React.FC = () => {
                   label={t('sync.conflictStrategy')}
                   options={conflictOptions}
                   value={conflictStrategy}
-                  onChange={(e) => setConflictStrategy(e.target.value as ConflictStrategy)}
+                  onChange={(e) => setConflictStrategy(e.target.value as SyncConflictStrategy)}
                 />
               </div>
+
+              {/* A draft saved when manual review was offered: it reopens on
+                  target wins, and says so, rather than going on writing the
+                  source values under a name that promised a decision. */}
+              {strategyNotice && (
+                <div
+                  className="flex items-start justify-between gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2) text-xs text-text-primary"
+                  role="status"
+                  data-testid="sync-strategy-notice"
+                >
+                  <p>{t('sync.strategyNotice.manualReplaced')}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={dismissStrategyNotice}
+                    data-testid="sync-strategy-notice-dismiss"
+                  >
+                    {t('common.dismiss')}
+                  </Button>
+                </div>
+              )}
 
               {/* Template picker — only show when both orgs are selected */}
               {sourceOrgId && targetOrgId && (
@@ -611,14 +647,43 @@ export const SyncPage: React.FC = () => {
             </div>
           )}
 
-          {/* Step 4: Execute */}
+          {/* Step 4: Execute — a simulation first, if wanted, then the run. */}
           {currentStep === 4 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-execute">
               <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
+              {!busy && (
+                <>
+                  <p className="text-xs text-text-secondary">{t('sync.simulation.hint')}</p>
+                  <div className="flex items-center gap-(--sf-space-2)">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleSimulate}
+                      data-testid="sync-simulate"
+                    >
+                      {t('sync.simulation.start')}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleExecute}
+                      data-testid="sync-run"
+                    >
+                      {t('sync.runNow')}
+                    </Button>
+                  </div>
+                </>
+              )}
               <ProgressBar
                 value={overallPercent}
                 max={100}
-                label={isRunning ? t('sync.running') : `${Math.round(overallPercent)}%`}
+                label={
+                  isSimulating
+                    ? t('sync.simulation.running')
+                    : isRunning
+                      ? t('sync.running')
+                      : `${Math.round(overallPercent)}%`
+                }
                 showPercent
                 variant={overallPercent >= 100 ? 'success' : 'default'}
               />
@@ -627,12 +692,18 @@ export const SyncPage: React.FC = () => {
                   name: t('nav.sync'),
                   percent: Math.round(overallPercent),
                 })}
-                immediate={!isRunning || overallPercent >= 100}
+                immediate={!busy || overallPercent >= 100}
                 testId="sync-progress-status"
               />
               <div className="text-[10px] text-text-secondary" data-testid="sync-elapsed">
                 {(elapsedMs / 1000).toFixed(1)}s
               </div>
+              {busy && (
+                <SyncRunControls
+                  operationId={runOperationId}
+                  kind={isSimulating ? 'simulation' : 'run'}
+                />
+              )}
               <SyncGrappePanel />
             </div>
           )}
@@ -640,7 +711,9 @@ export const SyncPage: React.FC = () => {
           {/* Step 5: Results */}
           {currentStep === 5 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-results">
-              {!result ? (
+              {simulation ? (
+                <SyncSimulationResults simulation={simulation} onRun={handleExecute} />
+              ) : !result ? (
                 <p className="text-xs text-center text-text-secondary py-4">{t('common.noData')}</p>
               ) : (
                 <>

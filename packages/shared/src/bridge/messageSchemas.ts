@@ -104,6 +104,14 @@ const SyncMessages = [
   msg('sync:describe-global'),
   msg('sync:describe-fields'),
   msg('sync:execute:response'),
+  // A simulation reads and compares, and writes nothing; pause and resume hold
+  // a running sync before its next object or batch.
+  msg('sync:simulate'),
+  msg('sync:simulate:response'),
+  msg('sync:pause'),
+  msg('sync:pause:response'),
+  msg('sync:resume'),
+  msg('sync:resume:response'),
   msg('sync:describe-global:response'),
   msg('sync:describe-fields:response'),
   // Error channel for config/describe/execute failures.

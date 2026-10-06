@@ -383,6 +383,28 @@ describe('useQuickSyncFlow', () => {
     expect(mockSetStep).toHaveBeenCalledWith('results');
   });
 
+  it('names the run it sent while it runs, so the page can pause or cancel that run', () => {
+    mockSyncState = {
+      ...mockSyncState,
+      loading: true,
+      requestId: 'wv-quick-run',
+    } as typeof mockSyncState;
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    expect(result.current.state.runOperationId).toBe('wv-quick-run');
+  });
+
+  it('names no run before the sync is sent or once it has answered', () => {
+    mockSyncState = {
+      ...mockSyncState,
+      loading: false,
+      requestId: 'wv-quick-run',
+    } as typeof mockSyncState;
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    expect(result.current.state.runOperationId).toBeNull();
+  });
+
   it('surfaces a prepare-step error and stops executing', () => {
     mockPrepareState.error = 'Quick Sync failed';
     const { result } = renderHook(() => useQuickSyncFlow());

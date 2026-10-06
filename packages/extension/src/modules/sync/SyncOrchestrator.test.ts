@@ -10,6 +10,8 @@ import { DataSync, type OperationOutcome } from './DataSync';
 import { targetWriteFieldsOf } from './targetWriteFields';
 import { FieldMappingService } from './FieldMapping';
 import { TransformPipeline } from './TransformPipeline';
+import { ConflictResolver } from './ConflictResolver';
+import { PauseGate } from './PauseGate';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
@@ -64,9 +66,6 @@ function createMockDeps(): SyncOrchestratorDeps {
     dataSync: {
       sync: vi.fn().mockResolvedValue(createSuccessResult()),
     } as unknown as SyncOrchestratorDeps['dataSync'],
-    metadataSync: {
-      sync: vi.fn().mockResolvedValue(createSuccessResult('Metadata')),
-    } as unknown as SyncOrchestratorDeps['metadataSync'],
     conflictResolver: {
       detectConflicts: vi.fn().mockReturnValue([]),
       resolve: vi.fn().mockReturnValue([]),
@@ -80,11 +79,6 @@ function createMockDeps(): SyncOrchestratorDeps {
         .fn()
         .mockImplementation((record: Record<string, unknown>) => ({ ...record })),
     } as unknown as SyncOrchestratorDeps['transformPipeline'],
-    incrementalTracker: {
-      getLastSync: vi.fn().mockReturnValue(undefined),
-      recordSync: vi.fn(),
-      reset: vi.fn(),
-    } as unknown as SyncOrchestratorDeps['incrementalTracker'],
     querySource: vi.fn().mockResolvedValue([{ Id: '001', Name: 'Acme' }]),
     queryTarget: vi.fn().mockResolvedValue([]),
   };
@@ -163,14 +157,16 @@ describe('SyncOrchestrator', () => {
       expect(calls[1][1].objectApiName).toBe('Contact');
     });
 
-    it('should record sync timestamps for each object', async () => {
+    it('reads every object whole on every run, as a full sync does', async () => {
+      // A tracker used to record each run's end and nothing read it back:
+      // no run ever read less, and no run should seem to.
+      await orchestrator.execute(createConfig());
       await orchestrator.execute(createConfig());
 
-      expect(deps.incrementalTracker.recordSync).toHaveBeenCalledWith(
-        'config-1',
-        'Account',
-        expect.any(String),
-      );
+      const reads = vi.mocked(deps.querySource).mock.calls.map(([, objectConfig]) => objectConfig);
+      expect(reads).toHaveLength(2);
+      expect(reads[1]).toEqual(reads[0]);
+      expect(reads[1].where).toBeUndefined();
     });
 
     it('should return success status when all objects sync successfully', async () => {
@@ -501,8 +497,6 @@ describe('a cancel stops the run before what it has not reached', () => {
     // The object it reached succeeded, and the run is still not a success.
     expect(result.status).toBe('partial');
     expect(result.error).toBe('Cancelled before Contact, Opportunity were synced.');
-    // Nothing is marked synced: the next run reads again what this one skipped.
-    expect(deps.incrementalTracker.recordSync).not.toHaveBeenCalled();
   });
 
   it('writes nothing of an object the cancel came while it was being read', async () => {
@@ -1060,5 +1054,198 @@ describe('a feed item the platform writes itself', () => {
         expect.objectContaining({ failed: 1, skipped: 1, errors: ['ECONNRESET', LEFT_OUT] }),
       ]);
     });
+  });
+});
+
+describe('a simulation reads as the run does and writes nothing', () => {
+  /** Two accounts in the source; the target holds the first by its External ID. */
+  function simulatedDeps(): SyncOrchestratorDeps {
+    const deps = createMockDeps();
+    deps.querySource = vi.fn().mockResolvedValue([
+      { Id: '001S1', Name: 'Acme', Ext_Id__c: 'A-1' },
+      { Id: '001S2', Name: 'Globex', Ext_Id__c: 'A-2' },
+    ]);
+    deps.findInTarget = vi.fn().mockResolvedValue(new Map([['a-1', 1]]));
+    return deps;
+  }
+
+  const upsertOnKey = (overrides?: Partial<SyncConfig>): SyncConfig =>
+    createConfig({
+      objects: [createObjectConfig({ externalIdField: 'Ext_Id__c' })],
+      ...overrides,
+    });
+
+  it('says what each object would insert and update, and hands the writer nothing', async () => {
+    const deps = simulatedDeps();
+
+    const result = await new SyncOrchestrator(deps).simulate(upsertOnKey());
+
+    expect(deps.dataSync.sync).not.toHaveBeenCalled();
+    expect(deps.findInTarget).toHaveBeenCalledWith(
+      'tgt-org',
+      expect.objectContaining({ objectApiName: 'Account' }),
+      'Ext_Id__c',
+      ['A-1', 'A-2'],
+    );
+    expect(result).toMatchObject({
+      configId: 'config-1',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+    });
+    expect(result.cancelled).toBeUndefined();
+    expect(result.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', read: 2, insert: 1, update: 1 }),
+    ]);
+  });
+
+  it('maps and transforms the records as the run does before asking the target', async () => {
+    const deps = simulatedDeps();
+    vi.mocked(deps.fieldMapping.apply).mockImplementation((record: Record<string, unknown>) => ({
+      ...record,
+      Ext_Id__c: `X-${String(record.Ext_Id__c)}`,
+    }));
+
+    await new SyncOrchestrator(deps).simulate(upsertOnKey());
+
+    expect(deps.transformPipeline.transformRecord).toHaveBeenCalledTimes(2);
+    expect(deps.fieldMapping.applyAddOns).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(deps.findInTarget!).mock.calls[0][3]).toEqual(['X-A-1', 'X-A-2']);
+  });
+
+  it('counts on a bidirectional run the conflicts its strategy would settle', async () => {
+    const deps = simulatedDeps();
+    deps.queryTarget = vi.fn().mockResolvedValue([{ Id: '001T1', Name: 'ACME', Ext_Id__c: 'A-1' }]);
+    deps.conflictResolver = new ConflictResolver();
+    deps.describeTargetFields = vi.fn().mockResolvedValue({
+      creatable: new Set(['Name', 'Ext_Id__c']),
+      references: new Set(),
+    });
+
+    const result = await new SyncOrchestrator(deps).simulate(
+      upsertOnKey({ direction: 'bidirectional', conflictStrategy: 'target_wins' }),
+    );
+
+    expect(result.conflictStrategy).toBe('target_wins');
+    expect(result.objects[0]).toMatchObject({ conflicts: 1, conflictFields: ['Name'] });
+    expect(deps.dataSync.sync).not.toHaveBeenCalled();
+  });
+
+  it('stops before its next object once cancelled, with the objects it reached', async () => {
+    const stop = new AbortController();
+    const deps = simulatedDeps();
+    deps.signal = stop.signal;
+    deps.findInTarget = vi.fn(async () => {
+      stop.abort();
+      return new Map<string, number>();
+    });
+    const config = createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', externalIdField: 'Ext_Id__c' }),
+        createObjectConfig({
+          objectApiName: 'Contact',
+          externalIdField: 'Ext_Id__c',
+          insertOrder: 2,
+        }),
+      ],
+    });
+
+    const result = await new SyncOrchestrator(deps).simulate(config);
+
+    expect(result.cancelled).toBe(true);
+    expect(result.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+    expect(deps.querySource).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the object whose read fails, where the run would stop, and names it', async () => {
+    const deps = simulatedDeps();
+    deps.querySource = vi
+      .fn()
+      .mockRejectedValue(new Error('INVALID_TYPE: sObject type not supported'));
+
+    const result = await new SyncOrchestrator(deps).simulate(upsertOnKey());
+
+    expect(result).toMatchObject({
+      error: 'INVALID_TYPE: sObject type not supported',
+      failedObject: 'Account',
+      objects: [],
+    });
+  });
+
+  it('cannot run without a way to ask the target, and says so rather than guess', async () => {
+    const deps = simulatedDeps();
+    delete deps.findInTarget;
+
+    const result = await new SyncOrchestrator(deps).simulate(upsertOnKey());
+
+    expect(result.error).toContain('look records up in the target');
+  });
+});
+
+describe('a paused run writes nothing until it is resumed', () => {
+  it('holds the run between two objects, and goes on when resumed', async () => {
+    const deps = createMockDeps();
+    const gate = new PauseGate();
+    deps.pauseGate = gate;
+    deps.dataSync = {
+      sync: vi.fn(async (objectConfig: SyncObjectConfig) => {
+        // The pause comes while the first object is written.
+        gate.pause();
+        return createSuccessResult(objectConfig.objectApiName);
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+    const config = createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', insertOrder: 0 }),
+        createObjectConfig({ objectApiName: 'Contact', insertOrder: 1 }),
+      ],
+    });
+
+    const running = new SyncOrchestrator(deps).execute(config);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(deps.querySource).toHaveBeenCalledTimes(1);
+    expect(deps.dataSync.sync).toHaveBeenCalledTimes(1);
+
+    gate.resume();
+    const result = await running;
+    expect(deps.dataSync.sync).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('success');
+  });
+
+  it('holds an object whose records are read before its write', async () => {
+    const deps = createMockDeps();
+    const gate = new PauseGate();
+    deps.pauseGate = gate;
+    deps.querySource = vi.fn(async () => {
+      gate.pause();
+      return [{ Id: '001', Name: 'Acme' }];
+    });
+
+    const running = new SyncOrchestrator(deps).execute(createConfig());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(deps.dataSync.sync).not.toHaveBeenCalled();
+
+    gate.resume();
+    await running;
+    expect(deps.dataSync.sync).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a paused run as cancelled when the cancel comes, writing nothing more', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    const gate = new PauseGate();
+    deps.pauseGate = gate;
+    deps.signal = stop.signal;
+    deps.querySource = vi.fn(async () => {
+      gate.pause();
+      return [{ Id: '001', Name: 'Acme' }];
+    });
+
+    const running = new SyncOrchestrator(deps).execute(createConfig());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    stop.abort();
+
+    const result = await running;
+    expect(result.cancelled).toBe(true);
+    expect(deps.dataSync.sync).not.toHaveBeenCalled();
   });
 });

@@ -1,19 +1,23 @@
 import type {
+  ConflictRecord,
   SyncConfig,
   SyncExecutionResult,
   SyncObjectConfig,
   SyncObjectResult,
+  SyncObjectSimulation,
+  SyncSimulationResult,
   GrappeConfig,
 } from '@sandforge/shared';
 import { buildObjectResult, type DataSync } from './DataSync.js';
-import type { MetadataSync } from './MetadataSync';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
-import type { IncrementalTracker } from './IncrementalTracker';
 import type { CoreServices } from '../../services.js';
+import type { PauseGate } from './PauseGate.js';
+import type { TargetWriteFields } from './targetWriteFields.js';
 import { SyncRunFailure } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
+import { simulateObjectOutcome, simulationKey, targetKeyOf } from './SyncSimulation.js';
 import {
   RowsLeftToThePlatform,
   leftToThePlatformNote,
@@ -32,6 +36,20 @@ export type OrchestratorCountFn = (
   objectConfig: SyncObjectConfig,
 ) => Promise<number>;
 
+/**
+ * How many records of an object an org holds with each of `keys` in
+ * `keyField`, by the key as `simulationKey` gives it. What a simulation asks
+ * the target in place of the write: an upsert updates the one record its key
+ * matches, creates one where it matches none and is refused where it matches
+ * several; an update and a delete find their record by `Id` or fail.
+ */
+export type OrchestratorFindFn = (
+  orgId: string,
+  objectConfig: SyncObjectConfig,
+  keyField: string,
+  keys: readonly (string | number | boolean)[],
+) => Promise<ReadonlyMap<string, number>>;
+
 /** Grappe event emitted during partitioned sync execution */
 export interface SyncGrappeEvent {
   type: 'grappe:started' | 'grappe:partitionProgress' | 'grappe:completed';
@@ -41,11 +59,9 @@ export interface SyncGrappeEvent {
 /** Dependencies required by the SyncOrchestrator */
 export interface SyncOrchestratorDeps {
   dataSync: DataSync;
-  metadataSync: MetadataSync;
   conflictResolver: ConflictResolver;
   fieldMapping: FieldMappingService;
   transformPipeline: TransformPipeline;
-  incrementalTracker: IncrementalTracker;
   querySource: OrchestratorQueryFn;
   queryTarget: OrchestratorQueryFn;
   grappeConfig?: GrappeConfig;
@@ -69,6 +85,22 @@ export interface SyncOrchestratorDeps {
    */
   signal?: AbortSignal;
   /**
+   * The run's pause, asked from the Sync page. Waited on before each object
+   * and before an object's write, as the writer waits on it before each batch
+   * or job it opens; a cancel ends the wait. See {@link PauseGate}.
+   */
+  pauseGate?: PauseGate;
+  /** For {@link SyncOrchestrator.simulate}: what the target holds. Required there. */
+  findInTarget?: OrchestratorFindFn;
+  /**
+   * For {@link SyncOrchestrator.simulate}: what the target lets a write carry,
+   * the describe the write reads too. Without it every field the records
+   * carry is taken as written.
+   */
+  describeTargetFields?: (objectApiName: string) => Promise<TargetWriteFields>;
+  /** For {@link SyncOrchestrator.simulate}: called before each object is read. */
+  onSimulationProgress?: (done: number, total: number, objectApiName: string) => void;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -79,17 +111,36 @@ export interface SyncOrchestratorDeps {
 /** What {@link SyncOrchestrator.syncObject} answers for an object a cancel stopped before its write. */
 const NOT_WRITTEN: unique symbol = Symbol('not written');
 
+/** One object's records as the run's write would be handed them. */
+interface PreparedObject {
+  /** Rows the source read returned. */
+  read: number;
+  /** The records for the write, conflicts settled, in the order read. */
+  records: Record<string, unknown>[];
+  /** On a bidirectional run: the records both orgs hold with different values. */
+  conflicts: ConflictRecord[];
+  /** The records before the strategy settled those conflicts. */
+  unsettled: Record<string, unknown>[];
+  /** The field the conflicts were matched on. */
+  matchField: string;
+}
+
 /**
  * Central orchestrator that coordinates all sync sub-services.
- * Manages the full sync lifecycle for each object: data querying, delta
- * detection, field mapping, conflict resolution and data sync.
+ * Manages the full sync lifecycle for each object: data querying, field
+ * mapping, conflict resolution and data sync.
  *
  * A sync moves data and nothing else — it never runs code in an org. Configs
  * carrying a `preScript`/`postScript` are refused at the bridge boundary
  * (`syncConfigPayloadSchema`) rather than silently ignored here.
  *
- * Every run writes: there is no simulated path. A config asking for one
- * (`dryRun: true`) is refused at that same boundary.
+ * A run writes. {@link simulate} reads and compares the same way and writes
+ * nothing; it is asked apart, never by a flag of the configuration — a config
+ * carrying `dryRun: true` is refused at that same boundary, so a saved or
+ * scheduled run can never believe it only reports.
+ *
+ * Every run is a full sync: each object is read whole, as its filter allows,
+ * every time. Nothing remembers where a previous run stopped.
  */
 export class SyncOrchestrator {
   private readonly deps: SyncOrchestratorDeps;
@@ -149,6 +200,8 @@ export class SyncOrchestrator {
 
     let partitionIndex = 0;
     for (const [index, objectConfig] of sortedObjects.entries()) {
+      // A pause holds the run here, between two objects; a cancel ends it.
+      await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) return stopHere(sortedObjects.slice(index));
       // The rows the object's read leaves to the platform, kept out here: its
       // result says them however it ends — written, stopped by a cancel, or
@@ -224,11 +277,6 @@ export class SyncOrchestrator {
       }
     }
 
-    const timestamp = new Date().toISOString();
-    for (const objectConfig of sortedObjects) {
-      this.deps.incrementalTracker.recordSync(config.id, objectConfig.objectApiName, timestamp);
-    }
-
     const status = determineStatus(objectResults);
 
     endGrappe();
@@ -270,6 +318,97 @@ export class SyncOrchestrator {
   }
 
   /**
+   * What the run would do, object by object, without writing anything.
+   *
+   * Each object is read, mapped and settled exactly as {@link execute} reads
+   * it, in the same order; then, where the run would write, the target is
+   * asked whether it holds the key each record would be written on. Nothing
+   * is handed to the writer. A read that fails stops the simulation at that
+   * object, where it would stop the run; a cancel stops it before its next
+   * object, with the objects it reached.
+   */
+  async simulate(config: SyncConfig): Promise<SyncSimulationResult> {
+    const startTime = Date.now();
+    const objects: SyncObjectSimulation[] = [];
+    const ordered = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
+    const answer = (ending: Partial<SyncSimulationResult> = {}): SyncSimulationResult => ({
+      configId: config.id,
+      operationId: `sync-simulation-${startTime}`,
+      direction: config.direction,
+      conflictStrategy: config.conflictStrategy,
+      objects,
+      duration: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+      ...ending,
+    });
+
+    for (const [index, objectConfig] of ordered.entries()) {
+      if (this.deps.signal?.aborted) return answer({ cancelled: true });
+      this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
+      try {
+        objects.push(await this.simulateObject(config, objectConfig));
+      } catch (err: unknown) {
+        // A lookup the cancel cut short is the cancel, not an error of the read.
+        if (this.deps.signal?.aborted) return answer({ cancelled: true });
+        return answer({
+          error: err instanceof Error ? err.message : String(err),
+          failedObject: objectConfig.objectApiName,
+        });
+      }
+    }
+    return answer();
+  }
+
+  /** One object's line of {@link simulate}. */
+  private async simulateObject(
+    config: SyncConfig,
+    objectConfig: SyncObjectConfig,
+  ): Promise<SyncObjectSimulation> {
+    const find = this.deps.findInTarget;
+    if (!find) throw new Error('A simulation needs to look records up in the target org.');
+    const leftOut = new RowsLeftToThePlatform();
+    const prepared = await this.prepare(config, objectConfig, leftOut);
+
+    const keyField = targetKeyOf(objectConfig);
+    let inTarget: ReadonlyMap<string, number> = new Map();
+    if (keyField !== null) {
+      const keys = new Map<string, string | number | boolean>();
+      for (const record of prepared.records) {
+        const value = record[keyField];
+        const key = simulationKey(value);
+        if (key !== null) keys.set(key, value as string | number | boolean);
+      }
+      if (keys.size > 0) {
+        inTarget = await find(config.targetOrgId, objectConfig, keyField, [...keys.values()]);
+      }
+    }
+
+    // What the write would carry decides which conflicts are worth a word: a
+    // field the target does not let anyone write is never written.
+    let writable: ReadonlySet<string> | null = null;
+    if (prepared.conflicts.length > 0 && this.deps.describeTargetFields) {
+      try {
+        const described = await this.deps.describeTargetFields(objectConfig.objectApiName);
+        writable = described.creatable.size > 0 ? described.creatable : null;
+      } catch {
+        writable = null;
+      }
+    }
+
+    return simulateObjectOutcome({
+      objectConfig,
+      read: prepared.read,
+      records: prepared.records,
+      leftOut: leftOut.counts(objectConfig.objectApiName),
+      inTarget,
+      conflicts: prepared.conflicts,
+      unsettled: prepared.unsettled,
+      matchField: prepared.matchField,
+      writable,
+    });
+  }
+
+  /**
    * Read, map and write one object: its result, or {@link NOT_WRITTEN} when a
    * cancel came while it was being read, before anything of it was written.
    *
@@ -280,7 +419,46 @@ export class SyncOrchestrator {
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
+    const { records } = await this.prepare(config, objectConfig, leftOut);
+
+    if (records.length === 0) {
+      return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
+    }
+
+    // Reading a large object takes a while: a pause or a cancel that came
+    // meanwhile is honoured before its first record is written.
+    await this.deps.pauseGate?.whilePaused(this.deps.signal);
+    if (this.deps.signal?.aborted) return NOT_WRITTEN;
+
+    // The records are mapped, transformed and carry their add-ons, so DataSync
+    // is handed nothing left to apply — as Real-time hands it. Given the
+    // object's own mappings, it mapped every record a second time, by source
+    // field name, on records that hold target names: a rename, a constant or a
+    // formula found nothing there and wrote its field empty.
+    return withRowsLeftOut(
+      await this.deps.dataSync.sync(
+        { ...objectConfig, fieldMappings: [], addOnFields: [] },
+        records,
+      ),
+      leftOut,
+    );
+  }
+
+  /**
+   * Read one object and make its records what the write is handed: the rows
+   * left to the platform set aside, mapped, transformed, with their add-ons,
+   * and on a bidirectional run every conflict with the target settled by the
+   * strategy. {@link execute} writes them; {@link simulate} only looks.
+   *
+   * @param leftOut - Receives the rows the read leaves to the platform.
+   */
+  private async prepare(
+    config: SyncConfig,
+    objectConfig: SyncObjectConfig,
+    leftOut: RowsLeftToThePlatform,
+  ): Promise<PreparedObject> {
     const read = await this.deps.querySource(config.sourceOrgId, objectConfig);
+    const matchField = objectConfig.externalIdField ?? 'Id';
 
     // What the platform writes itself is left out of a write that creates
     // records, and said: see `writtenByThePlatform`. Sent, a tracked change is
@@ -292,7 +470,7 @@ export class SyncOrchestrator {
     const sourceRecords = creates ? leftOut.keep(objectConfig.objectApiName, read) : read;
 
     if (sourceRecords.length === 0) {
-      return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
+      return { read: read.length, records: [], conflicts: [], unsettled: [], matchField };
     }
 
     const mappedRecords = sourceRecords.map((record) => {
@@ -312,12 +490,12 @@ export class SyncOrchestrator {
     });
 
     let finalRecords = recordsWithAddOns;
+    let conflicts: ConflictRecord[] = [];
 
     if (config.direction === 'bidirectional') {
       const targetRecords = await this.deps.queryTarget(config.targetOrgId, objectConfig);
 
-      const matchField = objectConfig.externalIdField ?? 'Id';
-      const conflicts = this.deps.conflictResolver.detectConflicts(
+      conflicts = this.deps.conflictResolver.detectConflicts(
         recordsWithAddOns,
         targetRecords,
         matchField,
@@ -339,22 +517,13 @@ export class SyncOrchestrator {
       }
     }
 
-    // Reading a large object takes a while: a cancel that came meanwhile is
-    // honoured before its first record is written.
-    if (this.deps.signal?.aborted) return NOT_WRITTEN;
-
-    // The records are mapped, transformed and carry their add-ons, so DataSync
-    // is handed nothing left to apply — as Real-time hands it. Given the
-    // object's own mappings, it mapped every record a second time, by source
-    // field name, on records that hold target names: a rename, a constant or a
-    // formula found nothing there and wrote its field empty.
-    return withRowsLeftOut(
-      await this.deps.dataSync.sync(
-        { ...objectConfig, fieldMappings: [], addOnFields: [] },
-        finalRecords,
-      ),
-      leftOut,
-    );
+    return {
+      read: read.length,
+      records: finalRecords,
+      conflicts,
+      unsettled: recordsWithAddOns,
+      matchField,
+    };
   }
 }
 

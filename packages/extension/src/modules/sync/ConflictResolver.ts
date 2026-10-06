@@ -1,62 +1,32 @@
-import type { ConflictRecord, ConflictStrategy, FieldResolution } from '@sandforge/shared';
+import type { ConflictRecord, SyncConflictStrategy } from '@sandforge/shared';
 
 /** A record after conflict resolution with chosen values */
 export interface ResolvedRecord {
   recordId: string;
   resolvedValues: Record<string, unknown>;
-  strategy: ConflictStrategy;
+  strategy: SyncConflictStrategy;
 }
 
 /**
- * Detects and resolves conflicts between source and target records.
- * Supports multiple conflict resolution strategies: source_wins, target_wins,
- * newest_wins, manual, and merge.
+ * Detects and resolves conflicts between source and target records, by one of
+ * the four strategies a run acts on: source wins, target wins, newest wins
+ * and merge.
+ *
+ * There is no manual strategy here. A run has no screen on which a person
+ * decides before it writes, and this resolver answered `manual` with the
+ * source values: every conflict a "manual" run met was written as source wins.
+ * The per-field resolver that went with it had no caller. A strategy outside
+ * the four is refused rather than answered with anything.
  */
 export class ConflictResolver {
   /**
    * Resolve a list of conflicts using the specified strategy.
    * Returns resolved records with the chosen values for each conflict.
-   */
-  resolve(conflicts: ConflictRecord[], strategy: ConflictStrategy): ResolvedRecord[] {
-    return conflicts.map((conflict) => resolveConflict(conflict, strategy));
-  }
-
-  /**
-   * Resolve a conflict using per-field resolution choices.
-   * Each conflicting field gets its value from the specified source.
-   * Non-conflict fields are taken from the target record as baseline.
    *
-   * @param conflict - The conflict record with source, target, and conflict field info
-   * @param fieldResolutions - Per-field choices mapping field name to resolution
-   * @returns Merged record values with all fields resolved
+   * @throws {Error} For a strategy that is not one of the four.
    */
-  static resolvePerField(
-    conflict: ConflictRecord,
-    fieldResolutions: Record<string, FieldResolution>,
-  ): Record<string, unknown> {
-    // Start with all target values as baseline
-    const merged: Record<string, unknown> = { ...conflict.targetValues };
-
-    for (const field of conflict.conflictFields) {
-      const resolution = fieldResolutions[field];
-      if (!resolution) {
-        continue;
-      }
-
-      switch (resolution.source) {
-        case 'source':
-          merged[field] = conflict.sourceValues[field];
-          break;
-        case 'target':
-          merged[field] = conflict.targetValues[field];
-          break;
-        case 'manual':
-          merged[field] = resolution.value;
-          break;
-      }
-    }
-
-    return merged;
+  resolve(conflicts: ConflictRecord[], strategy: SyncConflictStrategy): ResolvedRecord[] {
+    return conflicts.map((conflict) => resolveConflict(conflict, strategy));
   }
 
   /**
@@ -109,7 +79,7 @@ export class ConflictResolver {
 /**
  * Resolve a single conflict using the specified strategy.
  */
-function resolveConflict(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
+function resolveConflict(conflict: ConflictRecord, strategy: SyncConflictStrategy): ResolvedRecord {
   const effectiveStrategy = conflict.resolution ?? strategy;
 
   switch (effectiveStrategy) {
@@ -133,12 +103,14 @@ function resolveConflict(conflict: ConflictRecord, strategy: ConflictStrategy): 
     case 'merge':
       return resolveMerge(conflict, effectiveStrategy);
 
-    case 'manual':
-      return {
-        recordId: conflict.recordId,
-        resolvedValues: { ...conflict.sourceValues },
-        strategy: effectiveStrategy,
-      };
+    default:
+      // Reached only by a value from outside the types — a stored config
+      // round-tripping through JSON. Answered with any side's values, it would
+      // write them under a name that promised something else.
+      throw new Error(
+        `A sync run settles a conflict by source wins, target wins, newest wins or merge, ` +
+          `not by "${String(effectiveStrategy)}": nothing was written for ${conflict.recordId}.`,
+      );
   }
 }
 
@@ -146,7 +118,7 @@ function resolveConflict(conflict: ConflictRecord, strategy: ConflictStrategy): 
  * Resolve by choosing whichever side has the newest LastModifiedDate.
  * Falls back to source if dates are unavailable or equal.
  */
-function resolveByNewest(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
+function resolveByNewest(conflict: ConflictRecord, strategy: SyncConflictStrategy): ResolvedRecord {
   const sourceDate = parseDate(conflict.sourceValues.LastModifiedDate);
   const targetDate = parseDate(conflict.targetValues.LastModifiedDate);
 
@@ -169,7 +141,7 @@ function resolveByNewest(conflict: ConflictRecord, strategy: ConflictStrategy): 
  * Merge strategy: source values for conflicting fields, target values for non-conflicting.
  * Non-null source values take precedence over null target values.
  */
-function resolveMerge(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
+function resolveMerge(conflict: ConflictRecord, strategy: SyncConflictStrategy): ResolvedRecord {
   const merged: Record<string, unknown> = { ...conflict.targetValues };
 
   for (const field of conflict.conflictFields) {

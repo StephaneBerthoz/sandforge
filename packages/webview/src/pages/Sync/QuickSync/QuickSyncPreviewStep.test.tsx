@@ -93,6 +93,19 @@ describe('QuickSyncPreviewStep', () => {
     expect(screen.getByRole('progressbar')).toBeDefined();
   });
 
+  it('offers pause and cancel once the run is sent, on the page that started it', () => {
+    const { rerender } = render(<QuickSyncPreviewStep {...defaultProps} isExecuting={true} />);
+    // While the run is prepared it has no id yet, so nothing can name it.
+    expect(screen.queryByTestId('sync-run-controls')).toBeNull();
+
+    rerender(
+      <QuickSyncPreviewStep {...defaultProps} isExecuting={true} runOperationId="wv-quick-1" />,
+    );
+
+    expect(screen.getByTestId('sync-pause')).toBeDefined();
+    expect(screen.getByTestId('sync-cancel').textContent).toBe('Cancel run');
+  });
+
   it('shows results after execution completes', () => {
     render(<QuickSyncPreviewStep {...defaultProps} result={mockResult} />);
 

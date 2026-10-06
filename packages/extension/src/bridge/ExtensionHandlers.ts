@@ -575,6 +575,9 @@ export class ExtensionHandlers {
     route(
       [
         'sync:execute',
+        'sync:simulate',
+        'sync:pause',
+        'sync:resume',
         'sync:describe-global',
         'sync:describe-fields',
         'sync:config:save',

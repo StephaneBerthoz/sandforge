@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Connection } from 'jsforce';
-import { parseArgs, buildConfig, buildQueryFn } from './sandforge-sync.js';
+import { parseArgs, buildConfig, buildQueryFn, simulationLines } from './sandforge-sync.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -217,5 +217,73 @@ describe('the read of an object', () => {
 
     expect(rows).toHaveLength(250);
     expect(conn.query).not.toHaveBeenCalledWith(expect.stringContaining('LIMIT'));
+  });
+});
+
+describe('what a dry run prints', () => {
+  it('says per object what the run would do, and that nothing was written', () => {
+    const lines = simulationLines({
+      configId: 'cli-1',
+      operationId: 'sync-simulation-1',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objects: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          read: 3,
+          insert: 1,
+          update: 1,
+          delete: 0,
+          skipped: 0,
+          refused: 1,
+          conflicts: 0,
+          conflictFields: [],
+          notes: ['1 record(s) carry no value in Ext_Id__c: an upsert matches on it.'],
+        },
+      ],
+      duration: 5,
+      timestamp: '2026-10-06T00:00:00.000Z',
+    });
+
+    expect(lines).toEqual([
+      '\nsimulation: 1 object(s), nothing written',
+      '  Account (upsert): 3 read, would insert 1, update 1, delete 0, skip 0, refuse 1',
+      '      1 record(s) carry no value in Ext_Id__c: an upsert matches on it.',
+    ]);
+  });
+
+  it('names the conflicts of a bidirectional run, and where a simulation stopped', () => {
+    const lines = simulationLines({
+      configId: 'cli-1',
+      operationId: 'sync-simulation-1',
+      direction: 'bidirectional',
+      conflictStrategy: 'target_wins',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          operation: 'upsert',
+          read: 2,
+          insert: 0,
+          update: 2,
+          delete: 0,
+          skipped: 0,
+          refused: 0,
+          conflicts: 2,
+          conflictFields: ['Phone'],
+          notes: [],
+        },
+      ],
+      duration: 5,
+      timestamp: '2026-10-06T00:00:00.000Z',
+      error: 'INVALID_TYPE',
+      failedObject: 'Case',
+    });
+
+    expect(lines).toContain(
+      '  Contact (upsert): 2 read, would insert 0, update 2, delete 0, skip 0, refuse 0, 2 in conflict',
+    );
+    expect(lines).toContain('      differ on: Phone');
+    expect(lines).toContain('  stopped at Case: INVALID_TYPE');
   });
 });

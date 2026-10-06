@@ -4397,6 +4397,53 @@ async function expectReadable(page: Page, theme: StateTheme, include?: string): 
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 }
 
+/**
+ * Open the Sync panel on a saved draft at its Execute step: a bidirectional
+ * upsert of accounts between the two sandboxes, ready to simulate or run.
+ */
+async function openSyncExecuteStep(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<void> {
+  await bridge.setup(page);
+  await paintHostTheme(page, theme);
+  await page.addInitScript(
+    (ids: { source: string; target: string }) => {
+      const host = window as unknown as {
+        acquireVsCodeApi: () => { setState: (state: unknown) => void };
+        __SANDFORGE_MODULE__?: string;
+      };
+      host.acquireVsCodeApi().setState({
+        syncDraft: {
+          currentStep: 4,
+          direction: 'bidirectional',
+          mode: 'full',
+          conflictStrategy: 'target_wins',
+          sourceOrgId: ids.source,
+          targetOrgId: ids.target,
+          objectEntries: [
+            {
+              objectApiName: 'Account',
+              operation: 'upsert',
+              externalIdField: 'Legacy_Key__c',
+              batchSize: 200,
+              where: '',
+            },
+          ],
+          mappingsByObject: {},
+          transforms: [],
+        },
+      });
+      host.__SANDFORGE_MODULE__ = 'sync';
+    },
+    { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+  );
+  await page.goto('/');
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('sync-step-execute').first().waitFor({ timeout: 10_000 });
+}
+
 /** Open the Org Manager's JWT form, with its key file hint and placeholders on screen. */
 async function openJwtForm(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'orgs', theme);
@@ -5260,6 +5307,57 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('data-table').locator('[data-testid^="table-row-"]').first().click();
       await page.getByTestId('conflict-resolution-panel').waitFor({ timeout: 10_000 });
       await page.getByTestId('pick-source-Title').click();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results of a simulation, with conflicts, a refused record and why', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-simulate').click();
+      await bridge.respondToNext('sync:simulate', 'sync:simulate:response', {
+        configId: 'cfg-axe',
+        operationId: 'sim-axe',
+        direction: 'bidirectional',
+        conflictStrategy: 'target_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            read: 12,
+            insert: 4,
+            update: 7,
+            delete: 0,
+            skipped: 2,
+            refused: 1,
+            conflicts: 3,
+            conflictFields: ['Phone', 'Name'],
+            notes: [
+              '2 tracked changes left out: the platform writes them itself',
+              '1 record(s) carry no value in Legacy_Key__c: an upsert matches on it, and the target refuses a record without one.',
+            ],
+          },
+        ],
+        duration: 840,
+        timestamp: '2026-10-06T09:00:00.000Z',
+      });
+      await page.getByTestId('sync-simulation-results').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync run paused from its page, with Resume and Cancel', async ({ page }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+      await page.getByTestId('sync-pause').click();
+      await bridge.respondToNext('sync:pause', 'sync:pause:response', {
+        success: true,
+        operationId: run.id,
+        paused: true,
+      });
+      await page.getByTestId('sync-resume').waitFor({ timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

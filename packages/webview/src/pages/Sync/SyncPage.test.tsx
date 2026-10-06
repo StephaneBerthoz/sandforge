@@ -121,6 +121,18 @@ let mockExecuteMutationState = {
   reset: mockExecuteReset,
 };
 
+const mockSimulateMutate = vi.fn();
+
+/** Mutable mutation state for sync:simulate. */
+let mockSimulateMutationState = {
+  mutate: mockSimulateMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+  requestId: null as string | null,
+};
+
 /** Mutable mutation state for sync:config:save. */
 let mockSaveConfigMutationState = {
   mutate: mockSaveConfigMutate,
@@ -198,6 +210,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'sync:config:save') {
       return mockSaveConfigMutationState;
     }
+    if (type === 'sync:simulate') {
+      return mockSimulateMutationState;
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -237,6 +252,15 @@ describe('SyncPage', () => {
       loading: false,
       error: null,
       reset: mockExecuteReset,
+    };
+    mockSimulateMutate.mockClear();
+    mockSimulateMutationState = {
+      mutate: mockSimulateMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+      requestId: null,
     };
     mockSaveConfigMutate.mockClear();
     mockSaveConfigMutationState = {
@@ -788,5 +812,133 @@ describe('SyncPage execute step for assistive technology', () => {
       expect(summary.textContent).toContain('Cancelled');
       expect(summary.textContent).not.toContain('Partially Complete');
     });
+  });
+});
+
+describe('SyncPage simulation, pause and cancel', () => {
+  const idleExecute = mockExecuteMutationState;
+  const idleSimulate = mockSimulateMutationState;
+
+  /** A draft on the execute step, two orgs and one object picked. */
+  const onExecuteStep = (): Record<string, unknown> => ({
+    currentStep: 4,
+    direction: 'source_to_target',
+    mode: 'full',
+    conflictStrategy: 'source_wins',
+    sourceOrgId: 'org-1',
+    targetOrgId: 'org-2',
+    objectEntries: [
+      { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+    ],
+    mappingsByObject: {},
+    transforms: [],
+  });
+
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    draft.value = onExecuteStep();
+    mockExecuteMutate.mockClear();
+    mockSimulateMutate.mockClear();
+  });
+  afterEach(() => {
+    mockExecuteMutationState = idleExecute;
+    mockSimulateMutationState = idleSimulate;
+  });
+
+  it('offers to simulate before running, and a simulation is not a run', () => {
+    render(<SyncPage />);
+
+    fireEvent.click(screen.getByTestId('sync-simulate'));
+
+    expect(mockSimulateMutate).toHaveBeenCalledTimes(1);
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+    // Nothing to show on the results step until one of them answers.
+    expect(screen.getByTestId('sync-wizard-next').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('starts the run from the step that shows its progress', () => {
+    render(<SyncPage />);
+
+    fireEvent.click(screen.getByTestId('sync-run'));
+
+    expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+    expect(mockSimulateMutate).not.toHaveBeenCalled();
+  });
+
+  it('offers pause and cancel on the page while the run writes', () => {
+    mockExecuteMutationState = { ...idleExecute, loading: true, requestId: 'sync-run-1' } as never;
+
+    render(<SyncPage />);
+
+    expect(screen.getByTestId('sync-run-controls')).toBeDefined();
+    expect(screen.getByTestId('sync-pause')).toBeDefined();
+    expect(screen.getByTestId('sync-cancel').textContent).toBe('Cancel run');
+    // No second run while this one goes.
+    expect(screen.queryByTestId('sync-run')).toBeNull();
+    expect(screen.queryByTestId('sync-simulate')).toBeNull();
+  });
+
+  it('offers only a cancel while a simulation reads', () => {
+    mockSimulateMutationState = { ...idleSimulate, loading: true, requestId: 'sync-sim-1' };
+
+    render(<SyncPage />);
+
+    expect(screen.queryByTestId('sync-pause')).toBeNull();
+    expect(screen.getByTestId('sync-cancel').textContent).toBe('Cancel simulation');
+    expect(screen.getByText('Simulating...')).toBeDefined();
+  });
+
+  it('shows the results step in its simulation state once a simulation answers', () => {
+    const { rerender } = render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('sync-simulate'));
+    mockSimulateMutationState = {
+      ...idleSimulate,
+      data: {
+        configId: 'c',
+        operationId: 'sync-sim-1',
+        direction: 'source_to_target',
+        conflictStrategy: 'source_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            read: 2,
+            insert: 2,
+            update: 0,
+            delete: 0,
+            skipped: 0,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+          },
+        ],
+        duration: 3,
+        timestamp: '2026-10-06T00:00:00.000Z',
+      },
+    };
+    rerender(<SyncPage />);
+
+    expect(screen.getByTestId('sync-simulation-results')).toBeDefined();
+    expect(screen.queryByTestId('sync-result-summary')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('sync-run-after-simulation'));
+    expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a draft that asked for manual review now keeps the target values', () => {
+    draft.value = { ...onExecuteStep(), currentStep: 0, conflictStrategy: 'manual' };
+
+    render(<SyncPage />);
+
+    const notice = screen.getByTestId('sync-strategy-notice');
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).toContain('It now uses Target Wins');
+    expect((screen.getByLabelText('Conflict Strategy') as HTMLSelectElement).value).toBe(
+      'target_wins',
+    );
+
+    fireEvent.click(screen.getByTestId('sync-strategy-notice-dismiss'));
+    expect(screen.queryByTestId('sync-strategy-notice')).toBeNull();
   });
 });

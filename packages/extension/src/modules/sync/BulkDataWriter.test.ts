@@ -26,6 +26,7 @@ vi.mock('../../core/engine/ChunkedBulkExecutor.js', () => ({
 }));
 
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import { PauseGate } from './PauseGate.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Records above this count take the streaming path (STREAMING_THRESHOLD). */
@@ -425,6 +426,45 @@ describe('BulkDataWriter', () => {
       expect(h.sobject.destroy).toHaveBeenCalledTimes(1);
     });
 
+    it('holds the write between two batches while the run is paused, and goes on when resumed', async () => {
+      const h = createHarness();
+      const gate = new PauseGate();
+      const writer = new BulkDataWriter({ ...h.deps, pauseGate: gate });
+      h.sobject.create.mockImplementation(async (batch: unknown[]) => {
+        // The pause comes while the first batch is on its way.
+        gate.pause();
+        return okResults(batch.length);
+      });
+
+      const writing = writer.insert('Account', makeRecords(4), 2);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+
+      gate.resume();
+      const outcomes = await writing;
+      expect(h.sobject.create).toHaveBeenCalledTimes(2);
+      expect(outcomes).toHaveLength(4);
+    });
+
+    it('stops a paused write when the run is cancelled, with what it wrote before the pause', async () => {
+      const h = createHarness();
+      const gate = new PauseGate();
+      const writer = new BulkDataWriter({ ...h.deps, pauseGate: gate });
+      h.sobject.create.mockImplementation(async (batch: unknown[]) => {
+        gate.pause();
+        return okResults(batch.length);
+      });
+
+      const writing = writer.insert('Account', makeRecords(4), 2);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      h.abort.abort();
+
+      const stopped = (await writing.catch((err: unknown) => err)) as WriteCancelledError;
+      expect(stopped).toBeInstanceOf(WriteCancelledError);
+      expect(stopped.written).toHaveLength(2);
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+    });
+
     it('routes update through sobject.update and delete through sobject.destroy', async () => {
       const h = createHarness();
       h.sobject.update.mockResolvedValue(okResults(1));
@@ -566,6 +606,24 @@ describe('BulkDataWriter', () => {
 
       expect(h.executeBulk.mock.calls[0][4]).toBe('External_Id__c');
       expect(h.deps.onProgress).toHaveBeenCalledWith(1, 2, 'Bulk upsert Account');
+    });
+
+    it('opens no Bulk API job while the run is paused, and opens it once resumed', async () => {
+      const h = createHarness({ useBulkApi: true });
+      const gate = new PauseGate();
+      gate.pause();
+      const writer = new BulkDataWriter({ ...h.deps, pauseGate: gate });
+      h.executeBulk.mockResolvedValue({
+        outcomes: [{ recordIndex: 0, id: '001B', success: true }],
+      });
+
+      const writing = writer.insert('Account', makeRecords(1), 200);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(h.executeBulk).not.toHaveBeenCalled();
+
+      gate.resume();
+      await writing;
+      expect(h.executeBulk).toHaveBeenCalledTimes(1);
     });
 
     it('names the record the target already holds from the sf__Error of a bulk refusal', async () => {

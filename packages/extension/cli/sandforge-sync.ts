@@ -25,7 +25,7 @@
 
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
-import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, SyncSimulationResult } from '@sandforge/shared';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
@@ -34,11 +34,10 @@ import {
   targetWriteFieldsOf,
   type TargetWriteFields,
 } from '../src/modules/sync/targetWriteFields.js';
-import { MetadataSync } from '../src/modules/sync/MetadataSync.js';
 import { ConflictResolver } from '../src/modules/sync/ConflictResolver.js';
 import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
-import { IncrementalTracker } from '../src/modules/sync/IncrementalTracker.js';
+import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
 import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
@@ -63,7 +62,9 @@ Options:
   --where <obj=clause>   SOQL WHERE for one object (repeatable)
                          e.g. --where "Account=BillingCountry = 'France'"
   --batch-size <n>       records per write call            (default: 200)
-  --dry-run              read and map, write nothing       (default: off)
+  --dry-run              simulate: read both orgs and say what the run
+                         would insert, update, skip or refuse, writing
+                         nothing                           (default: off)
   --json                 emit the run summary as JSON      (default: off)
   --help                 this text
 
@@ -242,6 +243,25 @@ export function buildQueryFn(conn: Connection) {
   };
 }
 
+/** What a simulation found, as the lines the command prints. */
+export function simulationLines(simulation: SyncSimulationResult): string[] {
+  const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
+  for (const o of simulation.objects) {
+    lines.push(
+      `  ${o.objectApiName} (${o.operation}): ${o.read} read, would insert ${o.insert}, ` +
+        `update ${o.update}, delete ${o.delete}, skip ${o.skipped}, refuse ${o.refused}` +
+        (simulation.direction === 'bidirectional' ? `, ${o.conflicts} in conflict` : ''),
+    );
+    if (o.conflictFields.length > 0) lines.push(`      differ on: ${o.conflictFields.join(', ')}`);
+    for (const note of o.notes) lines.push(`      ${note}`);
+  }
+  if (simulation.cancelled) lines.push('  stopped by a cancel before its last object');
+  if (simulation.error) {
+    lines.push(`  stopped at ${simulation.failedObject ?? 'an object'}: ${simulation.error}`);
+  }
+  return lines;
+}
+
 /** Run one sync from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -270,19 +290,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log,
   });
 
-  // A dry run reads, maps and transforms exactly as a real one does, and then
-  // reports what it would have written. Anything short of that would test a
-  // different code path from the one that matters.
+  // A dry run is the panel's simulation: the same reads, mappings and
+  // transforms, then the target asked which records it holds. It never
+  // reaches the writer, which refuses to write if anything ever tried.
+  // Answering every record "written" instead told nothing a run would not.
   const write = async (
     kind: 'insert' | 'update' | 'upsert' | 'delete',
     objectName: string,
     records: Record<string, unknown>[] | string[],
     externalIdField?: string,
   ): Promise<OperationOutcome[]> => {
-    if (args.dryRun) {
-      log(`  [dry-run] ${kind} ${objectName}: ${records.length} record(s)`);
-      return records.map(() => ({ id: '', success: true, errors: [] }));
-    }
+    if (args.dryRun) throw new Error(`A dry run writes nothing: ${kind} ${objectName} refused.`);
     if (kind === 'delete') return writer.delete(objectName, records as string[], args.batchSize);
     if (kind === 'upsert') {
       return writer.upsert(
@@ -298,6 +316,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return writer.insert(objectName, records as Record<string, unknown>[], args.batchSize);
   };
 
+  const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
+    const cached = targetFieldsByObject.get(objectApiName);
+    if (cached) return cached;
+    const described = await targetConn.sobject(objectApiName).describe();
+    // Fields and record types from the one describe, as the panel reads them.
+    const answer = targetWriteFieldsOf(described);
+    targetFieldsByObject.set(objectApiName, answer);
+    return answer;
+  };
+
   const orchestrator = new SyncOrchestrator({
     dataSync: new DataSync({
       insert: (objectName, records) => write('insert', objectName, records),
@@ -305,30 +333,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       upsert: (objectName, externalIdField, records) =>
         write('upsert', objectName, records, externalIdField),
       delete: (objectName, recordIds) => write('delete', objectName, recordIds),
-      describeTargetFields: async (objectApiName) => {
-        const cached = targetFieldsByObject.get(objectApiName);
-        if (cached) return cached;
-        const described = await targetConn.sobject(objectApiName).describe();
-        // Fields and record types from the one describe, as the panel reads them.
-        const answer = targetWriteFieldsOf(described);
-        targetFieldsByObject.set(objectApiName, answer);
-        return answer;
-      },
-    }),
-    // The panel wires no metadata source either: a data sync deploys nothing.
-    metadataSync: new MetadataSync({
-      fetchMetadata: async () => [],
-      deployMetadata: async () => [],
+      describeTargetFields,
     }),
     conflictResolver: new ConflictResolver(),
     fieldMapping: new FieldMappingService(),
     transformPipeline: new TransformPipeline(),
-    incrementalTracker: new IncrementalTracker(),
     querySource: buildQueryFn(sourceConn),
     queryTarget: buildQueryFn(targetConn),
+    findInTarget: targetLookup({
+      query: async (q) => targetConn.query<Record<string, unknown>>(q),
+      queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+    }),
+    describeTargetFields,
   });
 
-  log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
+  if (args.dryRun) {
+    log('\nsimulating… (DRY-RUN: nothing is written)');
+    const simulation = await orchestrator.simulate(config);
+    const elapsed = Date.now() - t0;
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, elapsedMs: elapsed }, null, 2)}\n`,
+      );
+      return;
+    }
+    for (const line of simulationLines(simulation)) log(line);
+    log(`\ndone in ${elapsed}ms`);
+    return;
+  }
+
+  log('\nexecuting… (REAL)');
   const result = await orchestrator.execute(config);
   const elapsedMs = Date.now() - t0;
 

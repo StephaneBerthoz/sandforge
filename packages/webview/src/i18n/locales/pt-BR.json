@@ -1177,7 +1177,45 @@
     "fieldMappingCount_one": "{{count}} mapeamento de campo",
     "fieldMappingCount_other": "{{count}} mapeamentos de campos",
     "transformCount_one": "{{count}} transformação",
-    "transformCount_other": "{{count}} transformações"
+    "transformCount_other": "{{count}} transformações",
+    "runNow": "Executar a sincronização",
+    "simulation": {
+      "start": "Simular",
+      "hint": "Uma simulação lê as duas orgs como a execução faria e informa, objeto por objeto, o que ela inseriria, atualizaria, ignoraria ou encontraria em conflito. Ela não grava nada.",
+      "running": "Simulando...",
+      "badge": "Simulação — nada foi gravado",
+      "cancelled": "Simulação cancelada",
+      "insert": "Inseriria",
+      "update": "Atualizaria",
+      "delete": "Excluiria",
+      "skipped": "Ignorados",
+      "refused": "Seriam recusados",
+      "conflicts": "Em conflito",
+      "read_one": "{{count}} registro lido",
+      "read_other": "{{count}} registros lidos",
+      "settledBy_one": "{{count}} registro difere do destino em um campo que a execução grava: {{strategy}} decide qual valor é gravado.",
+      "settledBy_other": "{{count}} registros diferem do destino em um campo que a execução grava: {{strategy}} decide qual valor é gravado.",
+      "conflictFields": "Campos que diferem: {{fields}}.",
+      "nothingWritten": "Nada foi gravado. Os números comparam o que a execução enviaria com o que o destino contém agora.",
+      "notChecked": "Uma simulação não executa as regras de validação, as regras de duplicidade, os campos obrigatórios nem as automações do destino: um registro que uma delas recusaria é contado como a execução o enviaria.",
+      "stoppedAt": "A simulação parou em {{object}}: {{error}}. Uma execução também pararia ali.",
+      "runNow": "Executar a sincronização agora"
+    },
+    "runControls": {
+      "pause": "Pausar",
+      "resume": "Retomar",
+      "cancelSimulation": "Cancelar simulação",
+      "pausedNote": "Em pausa: nada mais é gravado até a retomada. Um lote já enviado, ou um job da Bulk API já em andamento, termina primeiro.",
+      "stopping": "Parando: a execução termina antes do próximo objeto ou lote, e o que ela gravou permanece na org de destino.",
+      "cancelConfirm": "Parar a sincronização em execução? Ela termina antes do próximo objeto ou lote, e os registros já gravados permanecem na org de destino.",
+      "cancelRefused": "Não foi possível cancelar a execução",
+      "cancelRefusedDetail": "A execução não está mais em andamento ou não foi iniciada nesta janela.",
+      "pauseRefused": "Não foi possível pausar ou retomar a execução",
+      "pauseRefusedDetail": "A execução não está mais em andamento ou não foi iniciada nesta janela."
+    },
+    "strategyNotice": {
+      "manualReplaced": "Este rascunho pedia uma revisão manual de conflitos, que uma sincronização não oferece: cada execução dele gravou os valores da origem. Agora ele usa “Destino prevalece”, que mantém todos os valores do destino onde as duas orgs diferem. Escolha outra estratégia se a origem deve prevalecer."
+    }
   },
   "migration": {
     "title": "Migração",

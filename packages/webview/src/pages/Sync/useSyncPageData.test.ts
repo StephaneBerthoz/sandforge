@@ -40,20 +40,41 @@ const execution = vi.hoisted(() => ({
  */
 const describeFields = vi.hoisted(() => ({ mutate: vi.fn() }));
 
+/** State of the sync:simulate mutation, as {@link execution} is of the run's. */
+const simulation = vi.hoisted(() => ({
+  loading: false,
+  requestId: null as string | null,
+  data: null as Record<string, unknown> | null,
+  mutate: vi.fn(),
+  reset: vi.fn(),
+}));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (requestType: string) => ({
-    mutate:
-      requestType === 'sync:execute'
-        ? execution.mutate
-        : requestType === 'sync:describe-fields'
-          ? (payload?: Record<string, unknown>) => describeFields.mutate(payload)
-          : vi.fn(),
-    data: null,
-    loading: requestType === 'sync:execute' ? execution.loading : false,
-    error: null,
-    reset: vi.fn(),
-    requestId: requestType === 'sync:execute' ? execution.requestId : null,
-  }),
+  useBridgeMutation: (requestType: string) => {
+    if (requestType === 'sync:simulate') {
+      return {
+        mutate: simulation.mutate,
+        data: simulation.data,
+        loading: simulation.loading,
+        error: null,
+        reset: simulation.reset,
+        requestId: simulation.requestId,
+      };
+    }
+    return {
+      mutate:
+        requestType === 'sync:execute'
+          ? execution.mutate
+          : requestType === 'sync:describe-fields'
+            ? (payload?: Record<string, unknown>) => describeFields.mutate(payload)
+            : vi.fn(),
+      data: null,
+      loading: requestType === 'sync:execute' ? execution.loading : false,
+      error: null,
+      reset: vi.fn(),
+      requestId: requestType === 'sync:execute' ? execution.requestId : null,
+    };
+  },
 }));
 
 /** The stored draft the page reopens on; a test that needs one sets it. */
@@ -77,6 +98,9 @@ describe('useSyncPageData', () => {
     execution.loading = false;
     execution.requestId = null;
     execution.mutate.mockClear();
+    simulation.loading = false;
+    simulation.requestId = null;
+    simulation.data = null;
   });
 
   it('shows the progress of the sync it started, not of another run reporting at the same time', () => {
@@ -187,10 +211,9 @@ describe('useSyncPageData', () => {
     expect(sent.config.objects[0].transformRules[0].config.length).toBeUndefined();
   });
 
-  it('reopens a draft naming a conflict strategy the page no longer offers on source wins', () => {
-    // A draft saved while 'manual' was still offered would otherwise put the
-    // select on a value with no option and print its raw label key on the
-    // review step.
+  it('reopens a draft that asked for manual review on target wins, and says so', () => {
+    // It reopened on source wins without a word: the write every run of it
+    // had made under the manual name, kept and still unsaid.
     draft.value = {
       currentStep: 0,
       direction: 'source_to_target',
@@ -205,7 +228,147 @@ describe('useSyncPageData', () => {
 
     const { result } = renderHook(() => useSyncPageData());
 
+    expect(result.current.conflictStrategy).toBe('target_wins');
+    expect(result.current.strategyNotice).toBe(true);
+
+    // Picking a strategy is the answer the notice asked for.
+    act(() => result.current.setConflictStrategy('newest_wins'));
+    expect(result.current.conflictStrategy).toBe('newest_wins');
+    expect(result.current.strategyNotice).toBe(false);
+  });
+
+  it('reopens a draft on a strategy no run knows on the default, with nothing to say', () => {
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'whatever',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+
+    const { result } = renderHook(() => useSyncPageData());
+
     expect(result.current.conflictStrategy).toBe('source_wins');
+    expect(result.current.strategyNotice).toBe(false);
+  });
+
+  describe('a simulation', () => {
+    const ready = {
+      currentStep: 4,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+
+    it('sends the configuration on screen to be simulated, not run', () => {
+      draft.value = ready;
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleSimulate());
+
+      expect(execution.mutate).not.toHaveBeenCalled();
+      expect(simulation.mutate).toHaveBeenCalledTimes(1);
+      const sent = simulation.mutate.mock.calls[0][0] as {
+        config: { objects: Array<{ objectApiName: string }>; sourceOrgId: string };
+      };
+      expect(sent.config.sourceOrgId).toBe('org-1');
+      expect(sent.config.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+    });
+
+    it('is followed by its own progress and its own controls while it runs', () => {
+      draft.value = ready;
+      simulation.loading = true;
+      simulation.requestId = 'wv-simulation';
+
+      const { result } = renderHook(() => useSyncPageData());
+
+      expect(result.current.isSimulating).toBe(true);
+      expect(result.current.runOperationId).toBe('wv-simulation');
+      expect(result.current.canGoNext()).toBe(false);
+      // Nothing else starts while it runs.
+      act(() => result.current.handleExecute());
+      expect(execution.mutate).not.toHaveBeenCalled();
+    });
+
+    const found = {
+      configId: 'c',
+      operationId: 'wv-simulation',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objects: [],
+      duration: 1,
+      timestamp: '2026-10-06T00:00:00.000Z',
+    };
+
+    it('opens the results step on what it found', () => {
+      draft.value = ready;
+      const { result, rerender } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleSimulate());
+      simulation.data = found;
+      rerender();
+
+      expect(result.current.currentStep).toBe(5);
+      expect(result.current.simulation?.operationId).toBe('wv-simulation');
+      expect(result.current.isFinished).toBe(true);
+    });
+
+    it('is no longer shown once the configuration it was run on changes', () => {
+      // Its "run the sync now" would have run another configuration than the
+      // one it had simulated.
+      draft.value = ready;
+      const { result, rerender } = renderHook(() => useSyncPageData());
+      act(() => result.current.handleSimulate());
+      simulation.data = found;
+      rerender();
+      expect(result.current.simulation).toBeDefined();
+
+      act(() => result.current.setConflictStrategy('target_wins'));
+
+      expect(result.current.simulation).toBeUndefined();
+    });
+
+    it('is put away when the run starts, so its findings never stand under a run', () => {
+      draft.value = ready;
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleExecute());
+
+      expect(simulation.reset).toHaveBeenCalled();
+      expect(execution.mutate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('reopens a draft left on the results step on the step that starts a run', () => {
+    // Results are not kept with the draft: the results step had nothing to
+    // show, and its Confirm ran the sync straight away.
+    draft.value = {
+      currentStep: 5,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappingsByObject: {},
+      transforms: [],
+    };
+
+    const { result } = renderHook(() => useSyncPageData());
+
+    expect(result.current.currentStep).toBe(4);
+    expect(result.current.canGoNext()).toBe(false);
   });
 
   it('should start at step 0', () => {

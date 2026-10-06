@@ -19,6 +19,7 @@ import {
   type SaveErrorDetail,
 } from '../../core/common/existingRecordMatch.js';
 import type { OperationOutcome } from './DataSync.js';
+import type { PauseGate } from './PauseGate.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
@@ -84,6 +85,13 @@ export interface BulkDataWriterDeps {
    * when it stops.
    */
   signal?: AbortSignal;
+  /**
+   * The run's pause. Waited on before each REST batch and before a Bulk API
+   * job is opened, never inside one: a batch sent is not taken back, and a
+   * job runs on the platform to its end once it is closed. A cancel ends the
+   * wait, and the write then stops as it would have.
+   */
+  pauseGate?: Pick<PauseGate, 'whilePaused'>;
   /** Progress sink invoked by the streaming and bulk paths. */
   onProgress: (processed: number, total: number, label: string) => void;
   /** Log sink for non-fatal validation warnings. */
@@ -270,6 +278,7 @@ export class BulkDataWriter {
     externalIdField?: string,
   ): Promise<OperationOutcome[] | undefined> {
     if (records.length <= STREAMING_THRESHOLD) return undefined;
+    await this.deps.pauseGate?.whilePaused(this.deps.signal);
     // A cancel that came before the write opens no job: see `tryBulk`.
     if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
@@ -316,6 +325,8 @@ export class BulkDataWriter {
     externalIdField?: string,
   ): Promise<OperationOutcome[] | undefined> {
     if (!this.deps.bulkExecutor.shouldUseBulkApi(records.length)) return undefined;
+    // A pause holds the write before its job is opened, never once it is.
+    await this.deps.pauseGate?.whilePaused(this.deps.signal);
     // A cancel that came before the write opens no job. The job was created
     // and opened all the same, then aborted before its upload: nothing of it
     // was written, but the target was asked to create a job, and to abort it,
@@ -398,7 +409,9 @@ export class BulkDataWriter {
       // after the run was cancelled. The first batch included — a caller looks
       // at the cancel before it writes, then waits on the target: a describe,
       // a lookup, the write whose refused rows it sends again. A cancel that
-      // came meanwhile still sent a batch of up to two hundred records.
+      // came meanwhile still sent a batch of up to two hundred records. A pause
+      // holds the write here too, between two batches, and a cancel ends it.
+      await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
       const retryResult = await this.retryOp.execute(() => call(batch));

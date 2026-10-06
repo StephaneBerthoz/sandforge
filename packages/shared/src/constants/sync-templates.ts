@@ -2,7 +2,7 @@ import type {
   SyncDirection,
   SyncMode,
   SyncOperation,
-  ConflictStrategy,
+  SyncConflictStrategy,
 } from '../types/sync.types.js';
 
 /* ------------------------------------------------------------------ */
@@ -51,7 +51,7 @@ export interface SyncTemplateConfig {
   /** Default sync mode. */
   mode: SyncMode;
   /** Default conflict resolution strategy. */
-  conflictStrategy: ConflictStrategy;
+  conflictStrategy: SyncConflictStrategy;
 }
 
 /* ------------------------------------------------------------------ */

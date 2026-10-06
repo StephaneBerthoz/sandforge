@@ -6,8 +6,19 @@ export type SyncDirection = 'source_to_target' | 'target_to_source' | 'bidirecti
 /** Sync mode */
 export type SyncMode = 'full' | 'incremental' | 'delta' | 'cdc';
 
-/** Conflict resolution strategy */
+/**
+ * Conflict resolution strategy. `manual` holds a change for a person to
+ * decide, which only real-time replication does: see {@link SyncConflictStrategy}.
+ */
 export type ConflictStrategy = 'source_wins' | 'target_wins' | 'newest_wins' | 'manual' | 'merge';
+
+/**
+ * How a bidirectional sync run settles a record both orgs hold with different
+ * values. `manual` is not one of them: a run has no screen on which a person
+ * decides before it writes, and the resolver answered it with the source
+ * values — the write of source wins, under a name that promised a decision.
+ */
+export type SyncConflictStrategy = Exclude<ConflictStrategy, 'manual'>;
 
 /** Field mapping type */
 export type MappingType =
@@ -39,7 +50,7 @@ export interface SyncConfig {
   direction: SyncDirection;
   mode: SyncMode;
   objects: SyncObjectConfig[];
-  conflictStrategy: ConflictStrategy;
+  conflictStrategy: SyncConflictStrategy;
   enableRollback: boolean;
   createdAt: ISODateString;
   updatedAt: ISODateString;
@@ -203,6 +214,57 @@ export interface SyncObjectResult {
   upsertSplit?: { created: number; updated: number };
 }
 
+/**
+ * What a sync run would do with one object, as a simulation found it: both
+ * orgs read and compared, nothing written. The target's validation rules,
+ * duplicate rules and automations are not run, so a record they would refuse
+ * is counted as the run would send it.
+ */
+export interface SyncObjectSimulation {
+  objectApiName: ApiName;
+  operation: SyncOperation;
+  /** Rows the source read returned. */
+  read: number;
+  /** Records the target would create. */
+  insert: number;
+  /** Records the target holds already, which the write would update. */
+  update: number;
+  /** Records the target holds, which the write would delete. */
+  delete: number;
+  /** Rows the run leaves out before it writes; `notes` says why. */
+  skipped: number;
+  /** Records the run would send that the target cannot take as asked; `notes` says why. */
+  refused: number;
+  /**
+   * On a bidirectional run, records both orgs hold whose values differ on a
+   * field the run writes: the strategy decides which value is written. Zero
+   * on a run that writes source to target, which does not compare.
+   */
+  conflicts: number;
+  /** The fields those records differ on, the most frequent first, ten at most. */
+  conflictFields: string[];
+  /** What the counts leave unsaid, in words. */
+  notes: string[];
+}
+
+/** What a sync run would do, object by object, as a simulation found it. */
+export interface SyncSimulationResult {
+  configId: UUID;
+  operationId: UUID;
+  direction: SyncDirection;
+  conflictStrategy: SyncConflictStrategy;
+  /** The objects simulated, in the order the run would write them. */
+  objects: SyncObjectSimulation[];
+  duration: number;
+  timestamp: ISODateString;
+  /** Set when a cancel stopped the simulation before its last object. */
+  cancelled?: boolean;
+  /** The error a read met. A run would stop on it too, at the same object. */
+  error?: string;
+  /** The object whose read failed, when one did. */
+  failedObject?: ApiName;
+}
+
 /** Conflict record needing resolution */
 export interface ConflictRecord {
   objectApiName: ApiName;
@@ -212,7 +274,7 @@ export interface ConflictRecord {
   /** Base (common ancestor) values for 3-way merge, if available */
   baseValues?: Record<string, unknown>;
   conflictFields: string[];
-  resolution?: ConflictStrategy;
+  resolution?: SyncConflictStrategy;
 }
 
 /** Type of conflict detected between source and target */
