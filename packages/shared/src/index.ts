@@ -160,6 +160,7 @@ export {
   objectsBeyondTheGraph,
 } from './utils/forge-graph-nodes.js';
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
+export { forgeGapId, mergeGaps } from './utils/forge-gaps.js';
 export {
   automationByWrite,
   blindedBy,

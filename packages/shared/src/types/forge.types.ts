@@ -135,6 +135,131 @@ export interface ForgeConfig {
    * The source key is dropped from the cleaned record.
    */
   fieldMappings?: Record<string, Record<string, string>>;
+  /**
+   * Run as a simulation: the run reads, cleans and checks every row as a real
+   * run would, through the write stage, and writes nothing. Its result lists
+   * the gaps the target holds against the rows (`ForgeExecutionResult.gaps`).
+   */
+  dryRun?: boolean;
+  /**
+   * A picklist value the target refuses, written as another: `to: null`
+   * leaves the field out of the rows that hold it. Scoped to one record type
+   * of the target (its DeveloperName) when set, to every row of the object
+   * otherwise. Decided on Review's Gaps tab, kept in templates.
+   */
+  picklistValueMappings?: ForgePicklistValueMapping[];
+  /** A source record type written as a target one (DeveloperName), or as the object's default (`to: null`). */
+  recordTypeMappings?: ForgeRecordTypeMapping[];
+  /** A value given to a field the target requires and the rows leave empty. */
+  defaultValues?: ForgeDefaultValue[];
+  /** Text fields cut to the length the target holds, rather than refused. */
+  truncateFields?: ForgeFieldRef[];
+  /** Objects of the graph the run does not write, kept with the run and its template. */
+  excludedObjects?: string[];
+  /** Gaps (`ForgeGap.id`) the user chose to leave as they are. */
+  ignoredGaps?: string[];
+}
+
+/** A field of an object, by API names. */
+export interface ForgeFieldRef {
+  object: string;
+  field: string;
+}
+
+/** See `ForgeConfig.picklistValueMappings`. */
+export interface ForgePicklistValueMapping extends ForgeFieldRef {
+  /** The target record type's DeveloperName the mapping holds for; every one when absent. */
+  recordType?: string;
+  from: string;
+  /** The value written instead; `null` leaves the field out of those rows. */
+  to: string | null;
+}
+
+/** See `ForgeConfig.recordTypeMappings`. */
+export interface ForgeRecordTypeMapping {
+  object: string;
+  /** The source record type's DeveloperName. */
+  from: string;
+  /** The target record type's DeveloperName; `null` for the object's default. */
+  to: string | null;
+}
+
+/** See `ForgeConfig.defaultValues`. */
+export interface ForgeDefaultValue extends ForgeFieldRef {
+  value: string | number | boolean;
+}
+
+/**
+ * What the target holds against the rows a run is about to write, that would
+ * refuse a row, change it, or say nothing and surprise the user:
+ * - read from its metadata before the run (validation and duplicate rules,
+ *   fields only the target requires, lookup filters, the API budget);
+ * - found by a simulation, row by row (a picklist value a record type
+ *   refuses, a text longer than the field, a unique value already there);
+ * - or the platform's own verdict, from a rehearsal it rolled back.
+ */
+export type ForgeGapKind =
+  | 'picklist_value_refused'
+  | 'dependent_value_invalid'
+  | 'picklist_value_absent'
+  | 'required_field_missing'
+  | 'value_too_long'
+  | 'number_out_of_range'
+  | 'record_type_unmapped'
+  | 'record_type_unavailable'
+  | 'currency_inactive'
+  | 'unique_value_collision'
+  | 'lookup_filter'
+  | 'validation_rule'
+  | 'duplicate_rule'
+  | 'api_budget'
+  | 'rehearsal_refusal';
+
+/** `blocking`: rows will be refused; `warning`: rows may be, or change; `info`: nothing is refused. */
+export type ForgeGapSeverity = 'blocking' | 'warning' | 'info';
+
+/** What the user may decide about a gap, each recorded in `ForgeConfig`. */
+export type ForgeGapDecisionKind =
+  | 'map_value'
+  | 'leave_empty'
+  | 'set_default'
+  | 'truncate'
+  | 'map_record_type'
+  | 'exclude_object'
+  | 'skip_rows'
+  | 'ignore';
+
+/** Where a gap was found. */
+export type ForgeGapSource = 'metadata' | 'simulation' | 'rehearsal';
+
+/** One gap. Never a record's data: a picklist value at most, or lengths and counts. */
+export interface ForgeGap {
+  /** Stable across reads: `forgeGapId(kind, object, field, recordType, value)`. */
+  id: string;
+  kind: ForgeGapKind;
+  severity: ForgeGapSeverity;
+  source: ForgeGapSource;
+  objectApiName: string;
+  field?: string;
+  /** The target record type's DeveloperName, when the gap holds for one. */
+  recordType?: string;
+  /** A picklist value, or a status code for a rehearsal refusal; never a text value. */
+  value?: string;
+  /** How many rows of the run it touches (0 when read from metadata alone). */
+  rows: number;
+  /** What the gap is about: allowed values, a length, a rule's name and message… */
+  detail?: Record<string, string | number | boolean | string[]>;
+  /** The decisions the user can make about it, in the order they are offered. */
+  decisions: ForgeGapDecisionKind[];
+  /** What the run does about it when the user decides nothing. */
+  defaultDecision?: ForgeGapDecisionKind;
+}
+
+/** What a read of the target's gaps found, and what it could not read. */
+export interface ForgeTargetGaps {
+  gaps: ForgeGap[];
+  unread: Array<{ part: string; reason: string }>;
+  requests: number;
 }
 
 /**
@@ -930,6 +1055,8 @@ export interface ForgeExecutionResult {
    * was kept, which wrote them as the source held them unless they anonymized.
    */
   contactPoints?: ForgeContactPointsReport;
+  /** The gaps a simulation found, row by row; set by a run with `dryRun`. */
+  gaps?: ForgeGap[];
   /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded

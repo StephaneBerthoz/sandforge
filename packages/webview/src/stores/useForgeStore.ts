@@ -10,7 +10,12 @@ import type {
   ForgeAnonymizationCategory,
   ForgeBatchStrategy,
 } from '@sandforge/shared';
-import type { AnonymizationMethod, ComplianceReport } from '@sandforge/shared';
+import type {
+  AnonymizationMethod,
+  ComplianceReport,
+  ForgeGap,
+  ForgeGapSource,
+} from '@sandforge/shared';
 import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shared';
 import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
@@ -243,6 +248,13 @@ const NO_FILE_COPY: ForgeFileCopyChoice = {
 };
 
 /** Initial state values for reset. */
+/** No gap read yet: a new config or a new run starts from nothing. */
+const NO_GAPS: Readonly<Record<ForgeGapSource, ForgeGap[]>> = {
+  metadata: [],
+  simulation: [],
+  rehearsal: [],
+};
+
 const INITIAL_STATE = {
   phase: 'input' as ForgePhase,
   config: null as ForgeConfig | null,
@@ -254,6 +266,7 @@ const INITIAL_STATE = {
   plan: null as ForgePlan | null,
   complianceReport: null as ComplianceReport | null,
   metadataDiffs: [] as MetadataDiffEntry[],
+  gaps: { ...NO_GAPS },
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
   anonymizationPresetId: '',
   fileCopy: { ...NO_FILE_COPY },
@@ -300,6 +313,12 @@ export interface ForgeState {
   complianceReport: ComplianceReport | null;
   /** Metadata diffs between source and target. */
   metadataDiffs: MetadataDiffEntry[];
+  /**
+   * What the target holds against the rows, per read that found it: its
+   * metadata, a simulation, a rehearsal. The Gaps tab shows them merged
+   * (`mergeGaps`); each read replaces only its own.
+   */
+  gaps: Record<ForgeGapSource, ForgeGap[]>;
   /** Anonymization rules per category. */
   anonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod>;
   /**
@@ -573,6 +592,8 @@ export interface ForgeState {
   setComplianceReport: (report: ComplianceReport | null) => void;
   /** Set metadata diffs. */
   setMetadataDiffs: (diffs: MetadataDiffEntry[]) => void;
+  /** Replace the gaps one read found, leaving the others' as they are. */
+  setGaps: (source: ForgeGapSource, gaps: ForgeGap[]) => void;
   /** Set an anonymization rule for a category. */
   setAnonymizationRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
   /** Set the method of every category a template names, leaving the others as they are. */
@@ -621,6 +642,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       plan: null,
       complianceReport: null,
       metadataDiffs: [],
+      gaps: { ...NO_GAPS },
       result: null,
       fileCopy: { ...NO_FILE_COPY },
       discoveryId: null,
@@ -1077,6 +1099,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set({ metadataDiffs: diffs });
   },
 
+  setGaps(source: ForgeGapSource, gaps: ForgeGap[]): void {
+    set((state) => ({ gaps: { ...state.gaps, [source]: gaps } }));
+  },
+
   setAnonymizationRule(category: ForgeAnonymizationCategory, method: AnonymizationMethod): void {
     set((state) => ({
       anonymizationRules: {
@@ -1123,6 +1149,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       plan: null,
       complianceReport: null,
       metadataDiffs: [],
+      gaps: { ...NO_GAPS },
       logs: [],
       stoppedAt: null,
       runError: null,

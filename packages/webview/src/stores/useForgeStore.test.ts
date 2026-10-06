@@ -529,6 +529,42 @@ describe('useForgeStore', () => {
     expect(getState().metadataDiffs[0].issue).toBe('missing');
   });
 
+  it('keeps the gaps of each read apart, a read replacing only its own', () => {
+    const gap = (source: 'metadata' | 'simulation', id: string) => ({
+      id,
+      kind: 'validation_rule' as const,
+      severity: 'warning' as const,
+      source,
+      objectApiName: 'Contact',
+      rows: 0,
+      decisions: ['ignore' as const],
+    });
+    getState().setGaps('metadata', [gap('metadata', 'a')]);
+    getState().setGaps('simulation', [gap('simulation', 'b')]);
+    getState().setGaps('metadata', [gap('metadata', 'c')]);
+
+    expect(getState().gaps.metadata.map(({ id }) => id)).toEqual(['c']);
+    expect(getState().gaps.simulation.map(({ id }) => id)).toEqual(['b']);
+    expect(getState().gaps.rehearsal).toEqual([]);
+  });
+
+  it('drops every gap when a new config is set: they were read for the old one', () => {
+    getState().setGaps('rehearsal', [
+      {
+        id: 'r',
+        kind: 'rehearsal_refusal',
+        severity: 'blocking',
+        source: 'rehearsal',
+        objectApiName: 'Case',
+        rows: 1,
+        decisions: [],
+      },
+    ]);
+    getState().setConfig(createMockConfig());
+
+    expect(getState().gaps).toEqual({ metadata: [], simulation: [], rehearsal: [] });
+  });
+
   it('should update anonymization rule for a category', () => {
     getState().setAnonymizationRule('email', 'hash');
     expect(getState().anonymizationRules.email).toBe('hash');

@@ -61,6 +61,9 @@ const SF_RECORD_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
  */
 const SF_OBJECT_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
+/** A field's API name (and a record type's DeveloperName), as Salesforce allows them. */
+const SF_FIELD_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
 /**
  * Base ForgeConfig schema (no cross-field refine). Kept as a plain ZodObject
  * so consumers like `forgeTemplateSchema` can still call `.omit()` on it.
@@ -166,6 +169,56 @@ export const forgeConfigSchema = z.object({
       message: 'Too many objects with field mappings (max 50)',
     })
     .optional(),
+  dryRun: z.boolean().optional(),
+  // The decisions taken on Review's Gaps tab. Bounded like the maps above:
+  // a payload from a compromised webview cannot grow them without end, and
+  // every name is held to the SF pattern before it reaches a query or a row.
+  picklistValueMappings: z
+    .array(
+      z.object({
+        object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+        field: z.string().regex(SF_FIELD_NAME_REGEX, 'Invalid field name'),
+        recordType: z.string().regex(SF_FIELD_NAME_REGEX).optional(),
+        from: z.string().min(1).max(255),
+        to: z.string().min(1).max(255).nullable(),
+      }),
+    )
+    .max(500)
+    .optional(),
+  recordTypeMappings: z
+    .array(
+      z.object({
+        object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+        from: z.string().regex(SF_FIELD_NAME_REGEX),
+        to: z.string().regex(SF_FIELD_NAME_REGEX).nullable(),
+      }),
+    )
+    .max(200)
+    .optional(),
+  defaultValues: z
+    .array(
+      z.object({
+        object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+        field: z.string().regex(SF_FIELD_NAME_REGEX, 'Invalid field name'),
+        value: z.union([z.string().max(1_000), z.number(), z.boolean()]),
+      }),
+    )
+    .max(200)
+    .optional(),
+  truncateFields: z
+    .array(
+      z.object({
+        object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+        field: z.string().regex(SF_FIELD_NAME_REGEX, 'Invalid field name'),
+      }),
+    )
+    .max(200)
+    .optional(),
+  excludedObjects: z
+    .array(z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'))
+    .max(500)
+    .optional(),
+  ignoredGaps: z.array(z.string().min(1).max(600)).max(1_000).optional(),
 });
 
 /**

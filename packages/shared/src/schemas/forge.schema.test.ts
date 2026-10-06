@@ -781,3 +781,48 @@ describe('forgeFileCopyOptionSchema', () => {
     expect(forgeFileCopyOptionSchema.safeParse({ maxFileSizeMB: 10 }).success).toBe(false);
   });
 });
+
+describe('the decisions taken on the Gaps tab', () => {
+  it('keeps every decision a run reads, and a simulation', () => {
+    const parsed = forgeConfigSchema.parse({
+      ...createValidForgeConfig(),
+      dryRun: true,
+      picklistValueMappings: [
+        { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: 'General' },
+        { object: 'Case', field: 'Reason__c', from: 'Legacy', to: null },
+      ],
+      recordTypeMappings: [{ object: 'Case', from: 'Old_RT', to: null }],
+      defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+      truncateFields: [{ object: 'Contact', field: 'Description' }],
+      excludedObjects: ['Task'],
+      ignoredGaps: ['validation_rule|Contact|||Phone_Format'],
+    });
+
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.picklistValueMappings?.[1]).toEqual({
+      object: 'Case',
+      field: 'Reason__c',
+      from: 'Legacy',
+      to: null,
+    });
+    expect(parsed.excludedObjects).toEqual(['Task']);
+  });
+
+  it('refuses a name a query or a row could not hold, and lists past their bound', () => {
+    expect(() =>
+      forgeConfigSchema.parse({ ...createValidForgeConfig(), excludedObjects: ['Task; DELETE'] }),
+    ).toThrow();
+    expect(() =>
+      forgeConfigSchema.parse({
+        ...createValidForgeConfig(),
+        truncateFields: [{ object: 'Contact', field: 'Desc ription' }],
+      }),
+    ).toThrow();
+    expect(() =>
+      forgeConfigSchema.parse({
+        ...createValidForgeConfig(),
+        excludedObjects: Array.from({ length: 501 }, (_, i) => `Object_${i}__c`),
+      }),
+    ).toThrow();
+  });
+});
