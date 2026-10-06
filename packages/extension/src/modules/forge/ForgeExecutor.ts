@@ -1,4 +1,5 @@
 import type {
+  ForgeContactPointsReport,
   ForgeCreatedRecords,
   ForgeFieldsLeftOut,
   ForgeFilesReport,
@@ -49,6 +50,7 @@ import {
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
+import { ContactPointNeutralizer } from './stages/ContactPointNeutralizer.js';
 import {
   cleanNodeRecords,
   describeTargetFieldSets,
@@ -226,6 +228,13 @@ export interface FieldInfo {
    * its name alone.
    */
   type?: string;
+  /**
+   * The most characters the field takes, as the describe gives it: what an
+   * email address or a phone number is neutralized within
+   * (`stages/ContactPointNeutralizer.ts`). Absent, an email field takes 80, a
+   * phone field 40, and a text field is not bound.
+   */
+  length?: number;
   /**
    * Objects this reference field can point to (one entry for monomorphic,
    * many for polymorphic fields like Task.WhatId). Only meaningful when
@@ -418,6 +427,12 @@ export interface ExecuteOptions {
    * written as the source holds it.
    */
   anonymization?: ForgeRunAnonymization;
+  /**
+   * Write email addresses and phone numbers as the source holds them. Absent
+   * or false, every row the run writes has them neutralized first, whatever
+   * `anonymization` says: see `stages/ContactPointNeutralizer.ts`.
+   */
+  keepContactPoints?: boolean;
   /**
    * Per-object owner remap. When the source-org `OwnerId` of a record
    * matches a key, the cleaned record gets the mapped target Id instead.
@@ -819,6 +834,12 @@ export interface ExecutionSummary {
    */
   writtenWithoutFields?: ForgeWrittenWithoutFields[];
   /**
+   * Whether the run neutralized the email addresses and phone numbers of the
+   * rows it sent — or, on a dry run, would send — and how many per object and
+   * field. Set by every run; absent from summaries built elsewhere.
+   */
+  contactPoints?: ForgeContactPointsReport;
+  /**
    * When the target dated the run's writes, read from the records it created
    * once it had written them. Absent when it created nothing, or on a dry run.
    */
@@ -1122,6 +1143,12 @@ interface ExecutionState {
   >;
   /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
+  /**
+   * Makes the email addresses and phone numbers of every row unreachable
+   * before it is written, and counts them; `null` when the run keeps them as
+   * the source holds them.
+   */
+  readonly contactPoints: ContactPointNeutralizer | null;
   /** Per object no node knows the fields of, the personal fields the detector named. */
   readonly detectedPersonalFields: Map<string, string[]>;
   /**
@@ -2192,15 +2219,21 @@ export class ForgeExecutor {
       anonymization.fields[objectApiName] ??
       this.detectedPersonalFields(state, anonymization, objectApiName, fieldInfos);
     if (selected.length === 0) return rows;
-    const typeOf = new Map(fieldInfos.map((f) => [f.name, f.type ?? '']));
+    const described = new Map(fieldInfos.map((f) => [f.name, f]));
     return state.anonymize({
       objectApiName,
       records: rows,
       sourceIds,
-      fields: selected.map((name) => ({
-        name: rename[name] ?? name,
-        type: typeOf.get(name) ?? '',
-      })),
+      // With its length: a fictional number in place of a phone has to fit
+      // the field it goes in.
+      fields: selected.map((name) => {
+        const field = described.get(name);
+        return {
+          name: rename[name] ?? name,
+          type: field?.type ?? '',
+          ...(field?.length !== undefined ? { length: field.length } : {}),
+        };
+      }),
       methods: anonymization.methods,
     });
   }
@@ -2361,6 +2394,7 @@ export class ForgeExecutor {
       readAtItsTurn: new Map(),
       statusChildrenRead: new Map(),
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
+      contactPoints: config.keepContactPoints ? null : new ContactPointNeutralizer(),
       detectedPersonalFields: new Map<string, string[]>(),
       fileScope: new Map<string, string[]>(),
       files: null,
@@ -3914,6 +3948,9 @@ export class ForgeExecutor {
             ),
           }
         : {}),
+      contactPoints: state.contactPoints
+        ? state.contactPoints.report()
+        : { neutralized: false, fields: [], values: 0 },
       ...(state.writtenBetween ? { writtenBetween: { ...state.writtenBetween } } : {}),
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
         ? { apiCalls: requestsNow - state.requestsBefore }
@@ -4776,6 +4813,7 @@ export class ForgeExecutor {
           : 0;
       const more = before ? 'more ' : '';
       state.wouldInsertCount += fresh.length - withTheirAccount;
+      this.countContactPointsOnADryRun(state, parent, fresh, fields, createableSet);
       state.onProgress({
         objectName: parent,
         status: 'done',
@@ -5193,6 +5231,13 @@ export class ForgeExecutor {
         });
         // Counted under their own name: a dry run creates nothing.
         state.wouldInsertCount += inserted;
+        this.countContactPointsOnADryRun(
+          state,
+          node.objectApiName,
+          records,
+          fieldInfos,
+          createableSet,
+        );
       }
       // What these rows cannot be written without and the run has not read,
       // read before anything is written: see `readWhatTheyCannotBeWrittenWithout`.
@@ -6091,6 +6136,33 @@ export class ForgeExecutor {
   }
 
   /**
+   * Count the email addresses and phone numbers a dry run's rows would have
+   * neutralized, on copies of the fields the run would write: a dry run
+   * cleans no row, and its summary said none whatever a real run would write.
+   *
+   * @param createable - The fields of the object the source lets the run write.
+   */
+  private countContactPointsOnADryRun(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    fields: readonly FieldInfo[],
+    createable: ReadonlySet<string>,
+  ): void {
+    if (!state.contactPoints) return;
+    const excluded = new Set(state.config.fieldExclusions[objectApiName] ?? []);
+    const rename = state.config.fieldMappings[objectApiName] ?? {};
+    const written = fields.filter((f) => createable.has(f.name) && !excluded.has(f.name));
+    const neutralize = state.contactPoints.forObject(objectApiName, written, rename);
+    if (!neutralize) return;
+    for (const row of rows) {
+      const copy: Record<string, unknown> = {};
+      for (const field of written) copy[rename[field.name] ?? field.name] = row[field.name];
+      neutralize(copy);
+    }
+  }
+
+  /**
    * Of the contacts of person accounts the contact node read, those that go in
    * as contacts of their own, and why: the target wrote none with their
    * account. It has no person accounts, and each goes as any contact does, its
@@ -6710,6 +6782,13 @@ export class ForgeExecutor {
           createableSet,
         );
         state.wouldInsertCount += added - withTheirAccount;
+        this.countContactPointsOnADryRun(
+          state,
+          objectApiName,
+          records.slice(earlier.length),
+          fields,
+          createableSet,
+        );
         state.onProgress({
           objectName: objectApiName,
           status: 'done',
@@ -7426,6 +7505,7 @@ export class ForgeExecutor {
           ? (objectApiName, payload, sourceId, parentFields) =>
               this.anonymizeRows(state, objectApiName, [payload], [sourceId], parentFields, {})[0]
           : undefined,
+        contactPoints: state.contactPoints ?? undefined,
         withoutFileContent: (objectApiName, parentFields) =>
           this.withoutFileContent(state, objectApiName, parentFields, true),
         // A parent order or contract past Draft takes the path the node's own
@@ -7518,6 +7598,7 @@ export class ForgeExecutor {
         picklistFields: targetPicklistFields,
         recordTypeValues: recordTypes?.byRecordType,
         businessAccounts,
+        contactPoints: state.contactPoints ?? undefined,
       });
       // The picklist values this write does not send as read: said on the
       // object's line, and counted for the run's result.

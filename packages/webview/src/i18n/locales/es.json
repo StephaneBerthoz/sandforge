@@ -2508,6 +2508,9 @@
     "smartLimitSuggested_other": "Org detectada con {{count}} registros — se aplicó un límite de {{limit}}/objeto",
     "expandOrphanParents": "Obtener padres automáticamente",
     "expandOrphanParentsHint": "Copia también los registros principales que el clon no lee por sí mismo: tras una referencia que puede apuntar a varios objetos, más allá de cinco niveles o del límite. Un clon a partir de un registro ya lee por ID los registros principales sin los que sus registros no pueden escribirse.",
+    "keepContactPoints": "Mantener los correos y los números de teléfono tal como están",
+    "keepContactPointsHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie.",
+    "keepContactPointsWarning": "Los correos y los números de teléfono se escribirán tal como los tiene el origen: los Flows, los triggers y las alertas por correo de la org de destino podrán entonces enviar correos o SMS a personas reales.",
     "reuseLastGraph": "Reutilizar último grafo (omitir descubrimiento)",
     "reuseLastGraphHint": "Omita el descubrimiento de más de 30 s y reutilice el grafo de su última ejecución.",
     "quickStartTemplate": "Inicio rápido ({{name}})",
@@ -2825,6 +2828,14 @@
       "replacedDefault": "sustituido por {{value}}, el valor predeterminado del tipo de registro {{recordType}}",
       "replacedFirst": "sustituido por {{value}}, el primer valor que permite el tipo de registro {{recordType}}: el campo es obligatorio y ese tipo de registro no le asigna un valor predeterminado",
       "leftOut": "dejado fuera"
+    },
+    "contactPoints": {
+      "title": "Correos y números de teléfono",
+      "neutralized": "Neutralizados antes de escribir: {{values}} en {{fields}}. Cada dirección de correo se escribió bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llegó a nadie.",
+      "none": "Neutralizados antes de escribir: los registros escritos no contenían ninguna dirección de correo ni ningún número de teléfono.",
+      "kept": "Escritos tal como los tiene el origen, como se pidió: la automatización de la org de destino puede haber enviado correos o SMS a personas reales.",
+      "values_one": "{{count}} valor",
+      "values_other": "{{count}} valores"
     },
     "writtenWithoutFields": {
       "title": "Escritos sin un campo que rechazó la org de destino",

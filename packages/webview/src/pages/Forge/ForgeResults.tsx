@@ -42,6 +42,7 @@ import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
+import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 
 /**
@@ -973,6 +974,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </ul>
         </div>
       )}
+
+      {/* Whether the emails and phone numbers went neutralized — and how many
+          — or as the source holds them, which the target's automation may
+          have used to reach real people. */}
+      {result?.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
 
       {/* Picklist values the target would have refused, for the field or for
           the record type the rows went in with: replaced or left out, and said

@@ -261,6 +261,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // stay nodes the run skips.
       const leftOut = graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName);
       const excludedObjects = leftOut.length > 0 ? leftOut : undefined;
+      // Only said when the user keeps them: absent, the executor neutralizes
+      // every email address and phone number it writes.
+      const keepContactPoints = config.keepContactPoints === true ? true : undefined;
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
@@ -275,6 +278,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               fieldMappings: config.fieldMappings,
               recordTypeMappings,
               anonymization,
+              keepContactPoints,
               files,
               writtenBefore,
             }
@@ -286,6 +290,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               config.fieldMappings ||
               recordTypeMappings ||
               anonymization ||
+              keepContactPoints ||
               files ||
               writtenBefore
             ? {
@@ -297,6 +302,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 fieldMappings: config.fieldMappings,
                 recordTypeMappings,
                 anonymization,
+                keepContactPoints,
                 files,
                 writtenBefore,
               }

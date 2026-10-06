@@ -62,6 +62,124 @@ export function isPersonNameField(apiName: string): boolean {
   return PERSON_NAME.test(apiName.toLowerCase().replace(/__c$/i, ''));
 }
 
+/** What a contact point field holds: email addresses, or phone numbers. */
+export type ContactPointKind = 'email' | 'phone';
+
+/**
+ * The types a contact point is written in as text, beside the email and phone
+ * types. A checkbox or a picklist named like one holds a flag or a choice —
+ * `Email_Opt_Out__c`, `Phone_Type__c` — and no address or number.
+ */
+const CONTACT_POINT_TEXT_TYPES: ReadonlySet<string> = new Set([
+  'string',
+  'textarea',
+  'encryptedstring',
+]);
+
+/** Words of an API name that give a field to email addresses. */
+const EMAIL_WORDS: ReadonlySet<string> = new Set([
+  'email',
+  'emails',
+  'mail',
+  'mails',
+  'courriel',
+  'courriels',
+]);
+
+/**
+ * The recipients of an email, kept as text: an email message's `ToAddress`,
+ * `CcAddress` and `BccAddress` hold the addresses it went to, under no word
+ * that names one.
+ */
+const RECIPIENT_FIELDS: ReadonlySet<string> = new Set(['ToAddress', 'CcAddress', 'BccAddress']);
+
+/** Words of an API name that give a field to phone numbers. */
+const PHONE_WORDS: ReadonlySet<string> = new Set([
+  'phone',
+  'phones',
+  'telephone',
+  'tel',
+  'mobile',
+  'cell',
+  'fax',
+  'sms',
+  'gsm',
+  'whatsapp',
+  'portable',
+]);
+
+/**
+ * The words of an API name, lowercased: split at underscores, where a small
+ * letter meets a capital and between letters and digits, with its suffix and
+ * a namespace left out. `Notification_Email__c` reads "notification email",
+ * `SuppliedPhone` "supplied phone", `ns__SMSNumber__c` "sms number".
+ */
+function apiNameWords(apiName: string): string[] {
+  return apiName
+    .replace(/__[a-z]+$/i, '')
+    .replace(/^[a-z0-9]+__/i, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([A-Za-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([A-Za-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word !== '')
+    .map((word) => word.toLowerCase());
+}
+
+/**
+ * Whether a field holds a contact point, and which: an email or a phone field
+ * by its type, a text field by the words of its API name — the last of them
+ * that names one, as a name ends on what it holds. The detector's patterns
+ * read the words of a label: `\bemail\b` finds "Notification Email" and never
+ * `Notification_Email__c`, whose words an underscore joins, and no pattern
+ * names a number for texts like `SMS_Number__c`. Any other type holds none,
+ * whatever its name.
+ *
+ * @param apiName - The field's API name.
+ * @param type - Its Salesforce type, as the describe gives it.
+ */
+export function contactPointOf(apiName: string, type: string): ContactPointKind | undefined {
+  const lowerType = type.toLowerCase();
+  if (lowerType === 'email') return 'email';
+  if (lowerType === 'phone') return 'phone';
+  if (!CONTACT_POINT_TEXT_TYPES.has(lowerType)) return undefined;
+  if (RECIPIENT_FIELDS.has(apiName)) return 'email';
+  let kind: ContactPointKind | undefined;
+  for (const word of apiNameWords(apiName)) {
+    if (EMAIL_WORDS.has(word) || word.endsWith('email')) kind = 'email';
+    else if (PHONE_WORDS.has(word) || word.endsWith('phone')) kind = 'phone';
+  }
+  return kind;
+}
+
+/**
+ * The personal fields among fields known by API name and type alone, as a
+ * describe kept without labels has them — Forge's. The API name stands in for
+ * the label, as it always did; a text field named for an email address or a
+ * phone number, which no pattern finds in an API name, is added by the words
+ * of that name (`contactPointOf`).
+ *
+ * @param detector - The detector the session runs.
+ * @param fields - The object's fields, in the describe's order, kept in it.
+ */
+export function personalFieldsByApiName(
+  detector: Pick<PIIDetector, 'detectPII'>,
+  fields: ReadonlyArray<{ name: string; type: string }>,
+): string[] {
+  const detected = new Set(
+    detector
+      .detectPII(
+        'unknown',
+        fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type })),
+      )
+      .piiFields.map((p) => p.fieldApiName),
+  );
+  return fields
+    .filter((f) => detected.has(f.name) || contactPointOf(f.name, f.type) !== undefined)
+    .map((f) => f.name);
+}
+
 interface ContentPattern {
   regex: RegExp;
   classification: PIIField['classification'];

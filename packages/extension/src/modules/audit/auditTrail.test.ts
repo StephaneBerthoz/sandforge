@@ -155,6 +155,18 @@ describe('recordWriteRun', () => {
     expect(typeof recorded.id).toBe('string');
   });
 
+  it('keeps what the run says of itself beside its counts, and its code with it', () => {
+    const deps = makeDeps();
+    const details = { contactPoints: 'neutralized', contactPointFields: 2, contactPointValues: 7 };
+
+    recordWriteRun(deps, run({ details }));
+    recordWriteRun(deps, run({ operationId: 'op-2', details, code: 'RUN_CANCELLED' }));
+
+    const [second, first] = new AuditTrailStore(deps.configStore).list().entries;
+    expect(first.details).toEqual(details);
+    expect(second.details).toEqual({ ...details, code: 'RUN_CANCELLED' });
+  });
+
   it('says a removal took up what an earlier one left, and when that one ended', () => {
     const deps = makeDeps();
 

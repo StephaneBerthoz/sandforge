@@ -20,6 +20,13 @@ describe('resolveStageConfig', () => {
     expect(config.recordTypeMappings).toBeUndefined();
     expect(config.maxRecordsPerObject).toBeUndefined();
     expect(config.objectSoqlFilters).toBeUndefined();
+    // Every email address and phone number neutralized unless asked otherwise.
+    expect(config.keepContactPoints).toBe(false);
+  });
+
+  it('keeps the contact points as read only when the options say so', () => {
+    expect(resolveStageConfig({ keepContactPoints: true }).keepContactPoints).toBe(true);
+    expect(resolveStageConfig({ keepContactPoints: false }).keepContactPoints).toBe(false);
   });
 
   it('enters scoped mode and defaults fallback to nullify when root is provided', () => {

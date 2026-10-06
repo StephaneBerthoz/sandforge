@@ -55,6 +55,8 @@ export interface ForgeStageConfig {
   readonly fieldMappings: Record<string, Record<string, string>>;
   /** Fields to anonymize per object and the method per PII category; absent, none. */
   readonly anonymization?: ForgeRunAnonymization;
+  /** Write email addresses and phone numbers as read; false neutralizes them, the default. */
+  readonly keepContactPoints: boolean;
   /**
    * Copy the files of the records the run clones; absent, no file is read. The
    * size is held to what one call carries, whatever the caller asked.
@@ -93,6 +95,7 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
     objectSoqlFilters: options?.objectSoqlFilters,
     fieldMappings: options?.fieldMappings ?? {},
     anonymization: options?.anonymization,
+    keepContactPoints: options?.keepContactPoints === true,
     files: options?.files
       ? {
           maxFileBytes: Math.min(

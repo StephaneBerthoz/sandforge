@@ -167,6 +167,12 @@ export interface WriteRun {
    * left in the org: when that one ended.
    */
   leftBy?: string;
+  /**
+   * What the entry says of the run beside its counts, by name: a Forge run's
+   * choice about the email addresses and phone numbers it wrote, and how many
+   * it neutralized. Words and counts only, never a value of a record.
+   */
+  details?: Readonly<Record<string, string | number | boolean>>;
 }
 
 /** What {@link recordWriteRun} needs from the window. */
@@ -229,7 +235,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       ...(decisionsKept && run.guard ? { guard: run.guard } : {}),
       objects: [...objects],
       ...(run.leftBy ? { leftBy: run.leftBy } : {}),
-      details: run.code ? { code: run.code } : {},
+      details: { ...run.details, ...(run.code ? { code: run.code } : {}) },
       timestamp,
     });
 

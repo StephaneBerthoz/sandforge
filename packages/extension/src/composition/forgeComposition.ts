@@ -8,7 +8,7 @@ import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import type { ConfigStore } from '../core/storage/ConfigStore';
-import type { PIIDetector } from '../core/precheck/PIIDetector';
+import { personalFieldsByApiName, type PIIDetector } from '../core/precheck/PIIDetector';
 import { duplicateRuleHeaders } from '@sandforge/shared';
 import {
   FORGE_QUERY_MAX_PAGES,
@@ -55,6 +55,11 @@ interface ForgeObjectDescribe {
     externalId: boolean;
     /** True unless the org says an update cannot set the field. */
     updateable: boolean;
+    /**
+     * The most characters the field takes; 0 when the describe gives none.
+     * What an email address or a phone number is neutralized within.
+     */
+    length: number;
   }>;
   childRelationships: Array<{
     childSObject: string;
@@ -91,6 +96,7 @@ function toForgeObjectDescribe(
       defaultedOnCreate: f.defaultedOnCreate === true,
       externalId: f.externalId === true,
       updateable: f.updateable !== false,
+      length: typeof f.length === 'number' ? f.length : 0,
     })),
     childRelationships: (meta.childRelationships ?? []).map((cr) => ({
       childSObject: cr.childSObject,
@@ -309,13 +315,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               },
               15_000,
             ),
-          detectPII: (fields) => {
-            const result = piiDetector.detectPII(
-              'unknown',
-              fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type })),
-            );
-            return result.piiFields.map((p) => p.fieldApiName);
-          },
+          // The describe kept here carries no labels: the API name stands in
+          // for one, and a text field named for an email address or a phone
+          // number — `Notification_Email__c`, `SMS_Number__c` — is read from
+          // the words of that name, which the detector's patterns never found.
+          detectPII: (fields) => personalFieldsByApiName(piiDetector, fields),
           describeGlobal: async (orgId, signal) => {
             const cached = describeGlobalCache.get(orgId);
             if (cached) return cached;
@@ -443,6 +447,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               defaultedOnCreate: f.defaultedOnCreate,
               externalId: f.externalId,
               updateable: f.updateable,
+              ...(f.length > 0 ? { length: f.length } : {}),
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>

@@ -8,6 +8,7 @@ import {
 } from './RecordCleaner.js';
 import { IdRemapper } from '../IdRemapper.js';
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
+import { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 
 const FIELDS: FieldInfo[] = [
   { name: 'Id', queryable: true, createable: false, isReference: false },
@@ -45,6 +46,58 @@ function makeInput(overrides?: Partial<CleanNodeRecordsInput>): CleanNodeRecords
 }
 
 describe('cleanNodeRecords', () => {
+  describe('contact points', () => {
+    const withContactPoints: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Email', queryable: true, createable: true, isReference: false, type: 'email' },
+      { name: 'Phone__c', queryable: true, createable: true, isReference: false, type: 'phone' },
+    ];
+    const row = { Id: '003A', Name: 'X', Email: 'jane@acme.com', Phone__c: '0612345678' };
+    const creatable = new Set(['Name', 'Email', 'Phone', 'Phone__c']);
+
+    it('neutralizes the email addresses and phone numbers of the rows it cleans', () => {
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [row],
+          fieldInfos: withContactPoints,
+          creatableFields: creatable,
+          contactPoints: new ContactPointNeutralizer('salt'),
+        }),
+      );
+
+      expect(out.cleaned).toEqual({
+        Name: 'X',
+        Email: 'jane@acme.com.invalid',
+        Phone__c: expect.stringMatching(/^\+3363998\d{4}$/),
+      });
+      // The row as read stays as read: the payload is what changes.
+      expect(out.source).toEqual(row);
+    });
+
+    it('neutralizes a renamed field under the name the payload holds it by', () => {
+      const [out] = cleanNodeRecords(
+        makeInput({
+          records: [row],
+          fieldInfos: withContactPoints,
+          creatableFields: creatable,
+          fieldRename: { Phone__c: 'Phone' },
+          contactPoints: new ContactPointNeutralizer('salt'),
+        }),
+      );
+
+      expect(out.cleaned['Phone']).toMatch(/^\+3363998\d{4}$/);
+      expect(out.cleaned).not.toHaveProperty('Phone__c');
+    });
+
+    it('writes them as read without a neutralizer: the run keeps them', () => {
+      const [out] = cleanNodeRecords(
+        makeInput({ records: [row], fieldInfos: withContactPoints, creatableFields: creatable }),
+      );
+
+      expect(out.cleaned).toEqual({ Name: 'X', Email: 'jane@acme.com', Phone__c: '0612345678' });
+    });
+  });
+
   it('remaps lookup values through the IdRemapper', () => {
     const remapper = new IdRemapper();
     remapper.add('001OLD', '001NEW');

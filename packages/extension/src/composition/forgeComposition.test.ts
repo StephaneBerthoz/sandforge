@@ -429,13 +429,13 @@ describe('initForgeComposition', () => {
       const contacts = created.get('Contact') ?? [];
       expect(contacts).toHaveLength(2);
       for (const contact of contacts) {
-        expect(String(contact['Email'])).not.toMatch(/@source\.test$/);
-        expect(String(contact['Email'])).toMatch(/@example\.com$/);
+        expect(String(contact['Email'])).not.toMatch(/@source\.test/);
+        expect(String(contact['Email'])).toMatch(/@example\.invalid$/);
       }
       expect(contacts.map((c) => c['Phone'])).toEqual(['[REDACTED]', '[REDACTED]']);
     });
 
-    it('leaves a field the user deselected as the source holds it', async () => {
+    it('leaves a field the user deselected unanonymized, its address only neutralized', async () => {
       const created = new Map<string, Array<Record<string, unknown>>>();
       const { orchestrator } = await compose(contactsWithPersonalData(created));
       const config: ForgeConfig = { ...SOQL_CONFIG, anonymizePII: true };
@@ -451,8 +451,8 @@ describe('initForgeComposition', () => {
 
       const contacts = created.get('Contact') ?? [];
       expect(contacts.map((c) => c['Email'])).toEqual([
-        'person1@source.test',
-        'person2@source.test',
+        'person1@source.test.invalid',
+        'person2@source.test.invalid',
       ]);
       expect(contacts.map((c) => c['Phone'])).not.toContain('01020300');
     });
@@ -506,6 +506,74 @@ describe('initForgeComposition', () => {
         ]);
       });
 
+      it('names the texts an API name gives to an address or a number, never a checkbox or a picklist named so', async () => {
+        const created = new Map<string, Array<Record<string, unknown>>>();
+        vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+          const connection = fakeConnection(orgId);
+          return {
+            ...connection,
+            describe: vi.fn(async (objectApiName: string) => {
+              const described = (await connection.describe(objectApiName)) as { fields: unknown[] };
+              if (objectApiName !== 'Contact') return described;
+              return {
+                ...described,
+                fields: [
+                  ...described.fields,
+                  { ...field('Notification_Email__c', 'string'), length: 255 },
+                  { ...field('SMS_Number__c', 'string'), length: 10 },
+                  field('Email_Opt_Out__c', 'boolean'),
+                  field('Phone_Type__c', 'picklist'),
+                ],
+              };
+            }),
+            query: vi.fn(async (soql: string) => {
+              const page = (await connection.query(soql)) as {
+                records: Array<Record<string, unknown>>;
+              };
+              if (!/\bFROM\s+Contact\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+              return {
+                ...page,
+                records: page.records.map((r, i) => ({
+                  ...r,
+                  Notification_Email__c: `person${i + 1}@source.test`,
+                  SMS_Number__c: `061234567${i}`,
+                  Email_Opt_Out__c: true,
+                  Phone_Type__c: 'Mobile',
+                })),
+              };
+            }),
+            sobject: (objectApiName: string) => ({
+              create: vi.fn(async (records: Array<Record<string, unknown>>) => {
+                created.set(objectApiName, records);
+                return records.map((_, i) => ({
+                  id: sfId(objectApiName, 900 + i),
+                  success: true,
+                  errors: [],
+                }));
+              }),
+            }),
+          } as unknown as Connection;
+        });
+        const { orchestrator } = await compose(detectPII);
+
+        const graph = await orchestrator.discover(config);
+        expect(graph.nodes.find((n) => n.objectApiName === 'Contact')?.piiFields).toEqual([
+          'LastName',
+          'Notification_Email__c',
+          'SMS_Number__c',
+        ]);
+        await orchestrator.execute(graph, { ...config, anonymizePII: false });
+
+        // Neutralized within the field's length, as the describe gives it: the
+        // national form of the fictional number fits ten characters.
+        for (const contact of writtenContacts(created)) {
+          expect(String(contact['Notification_Email__c'])).toMatch(/@source\.test\.invalid$/);
+          expect(String(contact['SMS_Number__c'])).toMatch(/^063998\d{4}$/);
+          expect(contact['Email_Opt_Out__c']).toBe(true);
+          expect(contact['Phone_Type__c']).toBe('Mobile');
+        }
+      });
+
       it('anonymizes a starter template’s contacts though its graph names no personal field', async () => {
         const created = new Map<string, Array<Record<string, unknown>>>();
         contactsWithPersonalData(created);
@@ -514,14 +582,14 @@ describe('initForgeComposition', () => {
         await orchestrator.execute(buildSyntheticForgeGraph(['Account', 'Contact']), config);
 
         for (const contact of writtenContacts(created)) {
-          expect(String(contact['Email'])).toMatch(/@example\.com$/);
+          expect(String(contact['Email'])).toMatch(/@example\.invalid$/);
           expect(contact['LastName']).not.toMatch(/^Contact \d$/);
           expect(contact['Phone']).not.toMatch(/^0102030\d$/);
         }
       });
     });
 
-    it('writes every field as the source holds it with the toggle off', async () => {
+    it('anonymizes nothing with the toggle off, and neutralizes every address and number', async () => {
       const created = new Map<string, Array<Record<string, unknown>>>();
       const { orchestrator } = await compose(contactsWithPersonalData(created));
       const discovered = await orchestrator.discover(SOQL_CONFIG);
@@ -533,12 +601,30 @@ describe('initForgeComposition', () => {
         ),
       };
 
-      await orchestrator.execute(graph, SOQL_CONFIG);
+      const result = await orchestrator.execute(graph, SOQL_CONFIG);
 
-      expect(created.get('Contact')?.map((c) => c['Email'])).toEqual([
-        'person1@source.test',
-        'person2@source.test',
+      const contacts = created.get('Contact') ?? [];
+      expect(contacts.map((c) => c['Email'])).toEqual([
+        'person1@source.test.invalid',
+        'person2@source.test.invalid',
       ]);
+      for (const contact of contacts) expect(String(contact['Phone'])).toMatch(/^\+3363998\d{4}$/);
+      expect(result.contactPoints).toMatchObject({ neutralized: true, values: 4 });
+    });
+
+    it('writes every field as the source holds it with the toggle off and contact points kept', async () => {
+      const created = new Map<string, Array<Record<string, unknown>>>();
+      const { orchestrator } = await compose(contactsWithPersonalData(created));
+      const config: ForgeConfig = { ...SOQL_CONFIG, keepContactPoints: true };
+      const graph = await orchestrator.discover(config);
+
+      const result = await orchestrator.execute(graph, config);
+
+      expect(created.get('Contact')?.map((c) => [c['Email'], c['Phone']])).toEqual([
+        ['person1@source.test', '01020300'],
+        ['person2@source.test', '01020301'],
+      ]);
+      expect(result.contactPoints).toEqual({ neutralized: false, fields: [], values: 0 });
     });
   });
 

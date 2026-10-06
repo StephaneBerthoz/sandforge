@@ -24,6 +24,12 @@ describe('ForgeAnonymizer', () => {
       expect(anonymizer.categorizeField('Fax', 'string')).toBe('phone');
     });
 
+    it('puts a text its API name gives to a phone number or an address in that category', () => {
+      expect(anonymizer.categorizeField('SMS_Number__c', 'string')).toBe('phone');
+      expect(anonymizer.categorizeField('Tel_Portable__c', 'string')).toBe('phone');
+      expect(anonymizer.categorizeField('Courriel__c', 'string')).toBe('email');
+    });
+
     it('should categorize name fields', () => {
       expect(anonymizer.categorizeField('FirstName', 'string')).toBe('name');
       expect(anonymizer.categorizeField('LastName', 'string')).toBe('name');
@@ -224,11 +230,99 @@ describe('ForgeAnonymizer', () => {
         methods: { email: 'redact' },
       });
 
-      // Redacted, and still an address the email field takes.
-      expect(row['Email']).toBe('REDACTED@example.com');
-      // No method given for phones: their default, a mask keeping the last four.
-      expect(row['Phone']).toBe('******0405');
+      // Redacted, and still an address the email field takes, delivered nowhere.
+      expect(row['Email']).toBe('REDACTED@example.invalid');
+      // No method given for phones: their default, a mask, which kept the last
+      // four digits of the real number; a fictional one instead.
+      expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+      expect(String(row['Phone'])).not.toContain('0405');
       expect(row['LastName']).toBe('Source');
+    });
+
+    it('writes a persona’s address under example.invalid, and keeps another domain under .invalid', () => {
+      const [persona] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Email: 'one@source.test' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Email', type: 'email' }],
+        methods: { email: 'fake' },
+      });
+      const [generalized] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Email: 'one@source.test' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Email', type: 'email' }],
+        methods: { email: 'generalize' },
+      });
+
+      expect(String(persona['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+      expect(generalized['Email']).toBe('***@source.test.invalid');
+    });
+
+    it('puts every address a method left in a text field of the category under .invalid', () => {
+      const [generalized] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Backup_Email__c: 'Ops <ops@source.test>' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Backup_Email__c', type: 'string', length: 255 }],
+        methods: { email: 'generalize' },
+      });
+      const [faked] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Backup_Email__c: 'ops@source.test' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Backup_Email__c', type: 'string', length: 255 }],
+        methods: { email: 'fake' },
+      });
+
+      // `generalize` keeps what follows the `@`: the domain, delivered nowhere now.
+      expect(generalized['Backup_Email__c']).toBe('***@source.test.invalid>');
+      // A token is no address: left as the method wrote it.
+      expect(String(faked['Backup_Email__c'])).toMatch(/^fake_[0-9a-f]{8}$/);
+    });
+
+    it('writes a fictional number for every method that leaves one, the same for the same number', () => {
+      for (const method of ['fake', 'mask', 'preserve_format', 'shuffle'] as const) {
+        const anonymizerOfRun = new ForgeAnonymizer(undefined, 'run key');
+        const rows = anonymizerOfRun.anonymize({
+          objectApiName: 'Contact',
+          records: [
+            { Phone: '06 12 34 56 78', MobilePhone: '0612345678' },
+            { Phone: '', MobilePhone: null },
+          ],
+          sourceIds: ['003000000000001', '003000000000002'],
+          fields: [
+            { name: 'Phone', type: 'phone' },
+            { name: 'MobilePhone', type: 'phone' },
+          ],
+          methods: { phone: method },
+        });
+
+        expect(String(rows[0]['Phone'])).toMatch(/^\+3363998\d{4}$/);
+        expect(rows[0]['MobilePhone']).toBe(rows[0]['Phone']);
+        // Nothing held, nothing written: `fake` gave an empty field a number.
+        expect(rows[1]).toEqual({ Phone: '', MobilePhone: null });
+      }
+    });
+
+    it('fits the fictional number to a short text field, and leaves a method that writes no number to it', () => {
+      const [national] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ SMS_Number__c: '0612345678' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'SMS_Number__c', type: 'string', length: 10 }],
+        methods: {},
+      });
+      const [hashed] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Phone: '0612345678' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Phone', type: 'phone' }],
+        methods: { phone: 'hash' },
+      });
+
+      expect(String(national['SMS_Number__c'])).toMatch(/^063998\d{4}$/);
+      expect(String(hashed['Phone'])).toMatch(/^[0-9a-f]{32}$/);
     });
 
     it('writes an address into every email field, whatever the method made of it', () => {
@@ -247,7 +341,7 @@ describe('ForgeAnonymizer', () => {
 
       // A hash alone is refused by the email field; kept as the local part, it is not.
       for (const field of ['PersonEmail', 'Backup_Email__c']) {
-        expect(String(rows[0][field])).toMatch(/^[0-9a-f]{32}@example\.com$/);
+        expect(String(rows[0][field])).toMatch(/^[0-9a-f]{32}@example\.invalid$/);
       }
       expect(rows[0]['Other__c']).toBe('x');
 
@@ -259,7 +353,7 @@ describe('ForgeAnonymizer', () => {
         methods: { email: 'fake' },
       });
       // `fake` knows Email's persona address, not PersonEmail's.
-      expect(String(redacted['PersonEmail'])).toMatch(/^fake_[0-9a-f]{8}@example\.com$/);
+      expect(String(redacted['PersonEmail'])).toMatch(/^fake_[0-9a-f]{8}@example\.invalid$/);
     });
 
     it('leaves an email field empty when the method empties it', () => {

@@ -231,6 +231,25 @@ describe('forgeConfigSchema', () => {
       forgeConfigSchema.parse({ ...createValidForgeConfig(), customDepth: 2.5 }),
     ).toThrow();
   });
+
+  it('keeps the choice to write emails and phone numbers as they are, which the run reads', () => {
+    const result = forgeConfigSchema.parse({
+      ...createValidForgeConfig(),
+      keepContactPoints: true,
+    });
+
+    expect(result.keepContactPoints).toBe(true);
+    // Left out, the run neutralizes them: nothing is filled in for it.
+    expect(forgeConfigSchema.parse(createValidForgeConfig())).not.toHaveProperty(
+      'keepContactPoints',
+    );
+  });
+
+  it('refuses a choice about contact points that is not a yes or a no', () => {
+    expect(() =>
+      forgeConfigSchema.parse({ ...createValidForgeConfig(), keepContactPoints: 'yes' }),
+    ).toThrow();
+  });
 });
 
 // ─── Node Schema Tests ───────────────────────────────────────────────────────
@@ -429,6 +448,19 @@ describe('forgeTemplateSchema', () => {
     const result = forgeTemplateSchema.parse(template);
     expect(result.config).not.toHaveProperty('sourceOrgId');
     expect(result.config).not.toHaveProperty('targetOrgId');
+  });
+
+  it('carries a run’s choice to keep emails and phone numbers as they are, read back as saved', () => {
+    const template = createValidForgeTemplate();
+    const saved = {
+      ...template,
+      config: { ...(template.config as Record<string, unknown>), keepContactPoints: true },
+    };
+
+    // Written to the workspace's file and read back, as the extension keeps it.
+    const result = forgeTemplateSchema.parse(JSON.parse(JSON.stringify(saved)));
+
+    expect(result.config.keepContactPoints).toBe(true);
   });
 
   it('should reject empty id', () => {

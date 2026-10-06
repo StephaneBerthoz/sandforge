@@ -1309,6 +1309,29 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Forge options keeping emails and phone numbers as they are, and the warning it gives', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      const toggle = page.getByTestId('forge-keep-contact-points-toggle');
+      await expect(toggle).not.toBeChecked();
+      expectNoViolations(await checkAccessibility(page));
+
+      await toggle.check({ force: true });
+      await page.waitForSelector('[data-testid="forge-keep-contact-points-warning"]', {
+        timeout: 10_000,
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-keep-contact-points-warning"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge AI tab with no provider set up', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       await page.getByTestId('forge-tab-ai').click();
@@ -1426,6 +1449,49 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-save-template-saved')).toContainText('Energy accounts');
       expectNoViolations(await checkAccessibility(page));
     });
+
+    for (const [name, contactPoints] of [
+      [
+        'the emails and phone numbers the run neutralized',
+        {
+          neutralized: true,
+          fields: [
+            { objectApiName: 'Account', field: 'Phone', kind: 'phone', values: 1 },
+            { objectApiName: 'Account', field: 'Billing_Email__c', kind: 'email', values: 1 },
+          ],
+          values: 2,
+        },
+      ],
+      [
+        'that the run kept the emails and phone numbers as read',
+        { neutralized: false, fields: [], values: 0 },
+      ],
+    ] as const) {
+      test(`Forge results saying ${name}`, async ({ page }) => {
+        await startForgeRun(bridge, page, theme, FORGE_RUN_GRAPH);
+        await answerAll(page, 'forge:execute', 'forge:execute:response', {
+          result: {
+            forgeId: 'forge-run-contact-points',
+            status: 'success',
+            graph: FORGE_RUN_GRAPH,
+            duration: 2_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            readByObject: [{ objectApiName: 'Account', read: 1 }],
+            contactPoints,
+          },
+        });
+        await page.waitForSelector('[data-testid="forge-results-contact-points"]', {
+          timeout: 10_000,
+        });
+        const results = await checkAccessibility(page);
+        expectNoViolations(results);
+        expect(
+          await contrastMeasuredIn(page, results, '[data-testid="forge-results-contact-points"]'),
+        ).toBeGreaterThan(0);
+      });
+    }
 
     test('Forge results naming the objects the run could not read', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });

@@ -2,13 +2,20 @@
  * ForgeAnonymizer wraps SmartAnonymizer for the Forge pipeline.
  * Maps Salesforce fields to anonymization categories via pattern matching
  * and delegates actual anonymization to SmartAnonymizer.
+ *
+ * What it writes in an email or a phone field is Forge's own, whatever the
+ * method: an address under `.invalid` and a number of the range kept for
+ * fiction, as the run's contact point stage writes them
+ * (`stages/ContactPointNeutralizer.ts`). SmartAnonymizer's are left to the
+ * modules that share it: DataOps draws its personas from the same registry.
  */
 
 import type { ForgeAnonymizationCategory, ForgeGraph } from '@sandforge/shared';
 import type { AnonymizationMethod, AutopilotAnonymizationRule } from '@sandforge/shared';
 import { SmartAnonymizer, PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
-import { isPersonNameField } from '../../core/precheck/PIIDetector.js';
+import { contactPointOf, isPersonNameField } from '../../core/precheck/PIIDetector.js';
 import { knowsItsFields } from './GraphDiscoveryService.js';
+import { ContactPointNeutralizer, EMAIL_FIELD_LENGTH } from './stages/ContactPointNeutralizer.js';
 
 /** PII field info for anonymization. */
 export interface PIIFieldInfo {
@@ -16,6 +23,8 @@ export interface PIIFieldInfo {
   name: string;
   /** Salesforce field type. */
   type: string;
+  /** The most characters the field takes, when the describe says. */
+  length?: number;
 }
 
 /** A method for some PII categories; a category left out takes its default. */
@@ -99,21 +108,61 @@ export function runAnonymization(
 /** What Salesforce takes as an address in an email field. */
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** The domain a persona's address is under. */
+const PERSONA_DOMAIN = /@example\.com$/i;
+
+/** Where a persona's address goes, and an anonymized value that is no address. */
+const UNDELIVERABLE_DOMAIN = '@example.invalid';
+
+/** The longest local part an address takes. */
+const LOCAL_PART_LENGTH = 64;
+
 /**
- * An anonymized value an email field will take.
+ * The methods whose output for a phone field still reads as a number: a fake
+ * one, the last four digits behind a mask, the digits shuffled or redrawn in
+ * the same format. Each could ring a line someone holds.
+ */
+const NUMBER_METHODS: ReadonlySet<AnonymizationMethod> = new Set([
+  'fake',
+  'mask',
+  'preserve_format',
+  'shuffle',
+]);
+
+/**
+ * An anonymized value an email field will take, under a domain no address is
+ * ever delivered to.
  *
  * Salesforce refuses a row whose email field does not hold an address
  * (`INVALID_EMAIL_ADDRESS`), and most methods do not produce one: a hash, a
  * mask, `[REDACTED]`, or the token `fake` falls back to for any email field
  * but `Email` itself — `PersonEmail` or a custom one. Anonymizing such a field
- * cost the whole row. The value is kept as the part before `@`, under a
- * domain reserved for examples; an empty value stays empty.
+ * cost the whole row. The value is kept as the part before `@`, under
+ * `example.invalid`; an empty value stays empty.
+ *
+ * Anonymized addresses went to `example.com`, a persona's `first.last` among
+ * them, and a method that keeps the domain — `generalize`, `preserve_format` —
+ * kept a real one. A persona's address now goes under `example.invalid`, and
+ * any other under `.invalid` after its domain, as the contact point stage
+ * writes it.
+ *
+ * @param maxLength - The most characters the field takes.
  */
-function asEmailAddress(value: unknown): unknown {
-  if (typeof value !== 'string' || value === '' || EMAIL_SHAPE.test(value)) return value;
-  const local =
-    value.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[._]+|[._]+$/g, '') || 'anonymized';
-  return `${local}@example.com`;
+function asUndeliverableAddress(
+  value: unknown,
+  contactPoints: ContactPointNeutralizer,
+  maxLength: number,
+): unknown {
+  if (typeof value !== 'string' || value === '') return value;
+  if (!EMAIL_SHAPE.test(value)) {
+    const local =
+      value
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+        .slice(0, LOCAL_PART_LENGTH)
+        .replace(/^[._]+|[._]+$/g, '') || 'anonymized';
+    return `${local}${UNDELIVERABLE_DOMAIN}`;
+  }
+  return contactPoints.email(value.replace(PERSONA_DOMAIN, UNDELIVERABLE_DOMAIN), maxLength);
 }
 
 /**
@@ -123,8 +172,17 @@ function asEmailAddress(value: unknown): unknown {
 export class ForgeAnonymizer {
   private readonly smartAnonymizer: SmartAnonymizer;
 
-  constructor(personaRegistry?: PersonaRegistry) {
+  /** What draws the addresses and the fictional numbers written in their place. */
+  private readonly contactPoints: ContactPointNeutralizer;
+
+  /**
+   * @param personaRegistry - Shared registry for cross-object coherent fakes.
+   * @param salt - The key the fictional numbers are drawn with; omitted, a
+   *   random one, so a run's numbers say nothing of the next run's.
+   */
+  constructor(personaRegistry?: PersonaRegistry, salt?: string) {
     this.smartAnonymizer = new SmartAnonymizer(personaRegistry);
+    this.contactPoints = new ContactPointNeutralizer(salt);
   }
 
   /** Categorize a field into a ForgeAnonymizationCategory based on its type and name. */
@@ -133,6 +191,10 @@ export class ForgeAnonymizer {
     const lowerType = fieldType.toLowerCase();
     if (lowerType === 'email') return 'email';
     if (lowerType === 'phone') return 'phone';
+    // A text its API name gives to an email address or a phone number:
+    // `SMS_Number__c` fell to `other`, whose default empties the field.
+    const contactPoint = contactPointOf(fieldName, fieldType);
+    if (contactPoint) return contactPoint;
 
     // Match by field name patterns
     const lowerName = fieldName.toLowerCase();
@@ -213,6 +275,11 @@ export class ForgeAnonymizer {
    * default, and each row's fake values drawn from the persona of its source
    * record.
    *
+   * An email field takes an address under `.invalid`; a phone field whose
+   * method leaves a number takes a fictional one, drawn from the value it
+   * replaces, where the mask kept the last four digits of the real one and a
+   * fake was a number of no range kept for fiction.
+   *
    * @returns The rows anonymized, in the same order; the rows passed in are
    *   not mutated, and none gains or loses an `Id`.
    */
@@ -224,17 +291,60 @@ export class ForgeAnonymizer {
       Id: request.sourceIds[index] ?? '',
     }));
     const anonymized = this.anonymizeRecords(keyed, request.fields, rules, request.objectApiName);
-    const emailFields = request.fields
-      .filter((field) => field.type.toLowerCase() === 'email')
-      .map((field) => field.name);
+    const emailFields = request.fields.filter(
+      (field) => this.categorizeField(field.name, field.type) === 'email',
+    );
+    const numberFields = NUMBER_METHODS.has(rules.phone)
+      ? request.fields.filter((field) => this.categorizeField(field.name, field.type) === 'phone')
+      : [];
     return anonymized.map((row, index) => {
       const original = request.records[index];
       const written: Record<string, unknown> = { ...row };
-      for (const field of emailFields) written[field] = asEmailAddress(written[field]);
+      for (const field of emailFields) {
+        written[field.name] = this.undeliverable(written[field.name], field);
+      }
+      for (const field of numberFields) {
+        written[field.name] = this.fictionalNumber(
+          original[field.name],
+          written[field.name],
+          field,
+        );
+      }
       if ('Id' in original) written['Id'] = original['Id'];
       else delete written['Id'];
       return written;
     });
+  }
+
+  /**
+   * What an email field takes of its anonymized value: an address under a
+   * domain no address is ever delivered to. An email field holds one address
+   * or none (`asUndeliverableAddress`); a text of the category — a backup
+   * address kept as text — has each address in it put under `.invalid`, a
+   * method that keeps the domain having kept a real one.
+   */
+  private undeliverable(value: unknown, field: PIIFieldInfo): unknown {
+    const maxLength = field.length !== undefined && field.length > 0 ? field.length : undefined;
+    if (field.type.toLowerCase() === 'email') {
+      return asUndeliverableAddress(value, this.contactPoints, maxLength ?? EMAIL_FIELD_LENGTH);
+    }
+    if (typeof value !== 'string') return value;
+    return this.contactPoints.addressesIn(
+      value.replace(/@example\.com(?![\w.-])/gi, UNDELIVERABLE_DOMAIN),
+      maxLength,
+    );
+  }
+
+  /**
+   * The fictional number a phone field takes for the value it held, within the
+   * field's length. A value with no digit holds no number, and stays as it
+   * was: `fake` gave an empty phone field a persona's number of its own.
+   */
+  private fictionalNumber(held: unknown, anonymized: unknown, field: PIIFieldInfo): unknown {
+    if (typeof held !== 'string') return anonymized;
+    if (!/\d/.test(held)) return held;
+    const maxLength = field.length !== undefined && field.length > 0 ? field.length : undefined;
+    return this.contactPoints.phone(held, maxLength);
   }
 
   /**

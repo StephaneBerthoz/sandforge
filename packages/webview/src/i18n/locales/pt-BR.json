@@ -2508,6 +2508,9 @@
     "smartLimitSuggested_other": "Org detectada com {{count}} registros — limite de {{limit}}/objeto aplicado",
     "expandOrphanParents": "Buscar pais automaticamente",
     "expandOrphanParentsHint": "Copia também os registros pai que o clone não lê por conta própria: atrás de uma referência que pode apontar para vários objetos, além de cinco níveis ou do limite. Um clone a partir de um registro já lê por ID os registros pai sem os quais seus registros não podem ser gravados.",
+    "keepContactPoints": "Manter e-mails e números de telefone como estão",
+    "keepContactPointsHint": "Desativado, o clone grava cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém.",
+    "keepContactPointsWarning": "E-mails e números de telefone serão gravados como a origem os tem: os Flows, os triggers e os alertas de e-mail da org de destino poderão então enviar e-mails ou SMS a pessoas reais.",
     "reuseLastGraph": "Reutilizar último grafo (pular descoberta)",
     "reuseLastGraphHint": "Pule a descoberta de 30s+ e reutilize o grafo da sua última execução.",
     "quickStartTemplate": "Início rápido ({{name}})",
@@ -2825,6 +2828,14 @@
       "replacedDefault": "substituído por {{value}}, o valor padrão do tipo de registro {{recordType}}",
       "replacedFirst": "substituído por {{value}}, o primeiro valor que o tipo de registro {{recordType}} permite: o campo é obrigatório e esse tipo de registro não lhe atribui um valor padrão",
       "leftOut": "deixado de fora"
+    },
+    "contactPoints": {
+      "title": "E-mails e números de telefone",
+      "neutralized": "Neutralizados antes da gravação: {{values}} em {{fields}}. Cada endereço de e-mail foi gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcançasse ninguém.",
+      "none": "Neutralizados antes da gravação: os registros gravados não continham endereço de e-mail nem número de telefone.",
+      "kept": "Gravados como a origem os tem, como foi pedido: a automação da org de destino pode ter enviado e-mails ou SMS a pessoas reais.",
+      "values_one": "{{count}} valor",
+      "values_other": "{{count}} valores"
     },
     "writtenWithoutFields": {
       "title": "Gravados sem um campo recusado pela org de destino",

@@ -18,6 +18,9 @@ vi.mock('../../logger.js', () => ({
 const RULE = 'Enter the phone in international format';
 const REASON = `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`;
 
+/** The source's phone as a run writes it: a fictional number in its place. */
+const FICTIONAL: unknown = expect.stringMatching(/^\+3363998\d{4}$/);
+
 function node(objectApiName: string, level: number): ForgeGraphNode {
   return {
     objectApiName,
@@ -130,8 +133,9 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
 
     const summary = await new ForgeExecutor(d).execute(GRAPH, 'src', 'tgt', (e) => events.push(e));
 
+    // The phone went neutralized, a fictional number, and was refused all the same.
     expect(d.inserts).toEqual([
-      ['Contact', [{ LastName: 'Doe', Phone: '555-0100' }]],
+      ['Contact', [{ LastName: 'Doe', Phone: FICTIONAL }]],
       ['Contact', [{ LastName: 'Doe' }]],
       ['Case', [{ Subject: 'Help', ContactId: '003NEW1' }]],
     ]);
@@ -189,7 +193,7 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
       attemptedCount: 1,
       samples: [
         {
-          recordSummary: 'LastName=Doe Phone=555-0100',
+          recordSummary: expect.stringMatching(/^LastName=Doe Phone=\+3363998\d{4}$/),
           messages: [
             'FIELD_CUSTOM_VALIDATION_EXCEPTION: Give a phone or an email',
             `Sent again without Phone after the first refusal: ${REASON} [Phone]`,
@@ -201,7 +205,7 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
     });
     // Two calls for the contact, never a third; the case's lookup at it left empty.
     expect(d.inserts).toEqual([
-      ['Contact', [{ LastName: 'Doe', Phone: '555-0100' }]],
+      ['Contact', [{ LastName: 'Doe', Phone: FICTIONAL }]],
       ['Contact', [{ LastName: 'Doe' }]],
       ['Case', [{ Subject: 'Help' }]],
     ]);

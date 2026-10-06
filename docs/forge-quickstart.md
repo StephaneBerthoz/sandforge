@@ -17,6 +17,7 @@ What it handles for you:
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
 - **Required parents outside the graph**: a record that cannot be written without a record of an object discovery did not reach — the invoice a case's junction row names — gets that record read by id, with what it cannot be written without, never what is under it; the "Auto-fetch parents" toggle copies, one by one, what that leaves (a parent a lookup naming several objects names), its picklist values, validation rules and person contact handled as the run's own rows are
 - **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`, and the summary counts the rows patched as `updated`, apart from the ones created. The wizard always inserts.
+- **Emails and phone numbers, neutralized by default**: every record goes in with its email addresses under `.invalid` and its phone numbers replaced by fictional ones, anonymized or not, so the target's automation reaches no one ([below](#emails-and-phone-numbers))
 - **GDPR / PHI presets**: one-click anonymization for Email, Phone, Address, Birthdate (4 starter presets)
 
 ## 60-second wizard quickstart
@@ -41,6 +42,9 @@ The main Forge journey, end to end — from a real record to a populated sandbox
      • "Records per object" — cap rows per object (Smart / 10…1000 / All)
      • "Anonymize PII" — protect sensitive fields on the way in
      • "Skip empty objects" / "Auto-fetch parents"
+     • "Keep emails and phone numbers as they are" — off by default:
+       every address goes in under .invalid and every phone number as
+       a fictional one (see below)
      • (Optional) pick an anonymization preset on the Review screen:
        GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal
 5. Click "Review & Execute", check the plan, then "Execute Forge"
@@ -71,6 +75,7 @@ hints: no total and no audit entry counts it as a failure.
 **Clone directly**, under **Discover Graph**, runs the discovery and, once it answers, the clone of what it found, without stopping on the graph or on the Review screen: it lands on the execution screen, which says the review was skipped. The run is sent as **Execute Forge** sends it when nothing was changed on Review:
 
 - the objects discovery included and, with **Anonymize PII** on, the personal fields it selected on each — narrowed to the preset a template or an earlier Review in the panel kept, if any — each anonymized with the method set for its category;
+- the email addresses and phone numbers neutralized, unless **Keep emails and phone numbers as they are** is on;
 - no file: copying the files is an option of the Review screen;
 - no dry run.
 
@@ -96,6 +101,18 @@ A clone writes its records into an org that runs its own automation on them: wri
 - **What it cannot read.** A part the target refuses — the flows, the triggers, a start condition — is said with the org's reason, and the rest is read all the same. Nothing in the tab holds back **Execute Forge**.
 
 The tab does not read a flow built with Process Builder, a workflow rule, a bypass a flow checks after it starts (in a decision rather than its start condition), the code behind an Apex trigger, or what fires on the files the run copies.
+
+## Emails and phone numbers
+
+Whatever the target runs on the records it receives, the clone gives it no address or number of a real person unless you ask it to. By default, every record it writes — the rows of its objects and the parents it copies from outside the graph — goes in neutralized, whether **Anonymize PII** is on or not:
+
+- **An email field**'s address goes in under `.invalid`, the domain kept from ever resolving: `jane@acme.com` becomes `jane@acme.com.invalid`, readable and never delivered, as Salesforce leaves the users' addresses of a refreshed sandbox. One already under `.invalid` is left as it is; one the field cannot hold with the suffix becomes a short address of its own, `user-…@example.invalid`.
+- **A phone field**'s number becomes a fictional one, in the mobile range kept for fiction, `+33 6 39 98 XX XX` (`06 39 98 XX XX` where the field cannot hold the country code): the same number gives the same fictional one throughout a run.
+- **A text field** whose API name gives it to either — `Notification_Email__c`, `SMS_Number__c`, `CC_Emails__c` — has each address, or each run of seven digits or more, in its value treated so, the rest of its text left as it is. A checkbox or a picklist named like one, such as `Email_Opt_Out__c` or `Phone_Type__c`, is left alone.
+
+With **Anonymize PII** on, the anonymized email and phone fields follow the same rule: an address goes under `example.invalid` or `.invalid`, never `example.com`, and a phone whose method leaves a number — the default mask, a fake, a shuffle, the format redrawn — takes a fictional one, never the last digits of the real one.
+
+**Keep emails and phone numbers as they are**, among the options of the Forge page, writes them as the source holds them, and says that the target's flows, triggers and email alerts may then reach real people. A template saved from the run keeps the choice, and so does a run put back in the form from **Recent runs**. The results say whether the run neutralized them, and how many values in how many fields, field by field; the run's audit entry (Reports → Audit Trail) says it too, under `contactPoints`, `contactPointFields` and `contactPointValues`, with the counts alone.
 
 ## Copy the files of the cloned records
 
@@ -181,6 +198,8 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
 The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)), and a run of the clone whose `--json` summary you kept can have them removed with `--remove` (below).
 
 Before it reads a row, the clone prints what the target runs on the objects it writes, as the Review screen's **Automation** tab says it ([above](#what-the-target-runs-as-the-clone-writes)): per object and write, the active record-triggered flows and Apex triggers, the custom permissions that keep a flow from starting for the user who holds them, and what could not be read. A `--dry-run` reads it too, and adds no other request; `--list-objects` stops before it. The read's requests — two, and one per start condition, 25 at most — are its own, not counted among the run's calls.
+
+A line below it says what that automation will find in the records: their email addresses and phone numbers neutralized before writing, as in the wizard ([above](#emails-and-phone-numbers)), or written as read under `--keep-contact-points`. The summary says how many values of which fields went neutralized — on a `--dry-run`, would — and with `--json` it is under `result.contactPoints`: `neutralized`, the `fields` with their `values`, and the `values` in all.
 
 The target of a clone, and of a removal, must be a sandbox: the command reads the org's Organization record and refuses a production org, a Developer Edition org included, before it writes or deletes anything. In the wizard, Production Guard asks before a write to a production org; the command has no one to ask, and refuses it, as the Frozen Dataset command does. `--dry-run` and `--list-objects` only read, and run against any org.
 

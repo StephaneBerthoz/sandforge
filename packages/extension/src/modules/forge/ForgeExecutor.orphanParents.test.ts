@@ -265,8 +265,14 @@ describe('ForgeExecutor, a parent copied from outside the graph', () => {
       OPTIONS,
     );
 
+    // Its phone a fictional number, as a row of the run's.
     expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
-      { Name: 'Acme', Phone: '555-0100', RecordTypeId: TARGET_RETAIL, Tier__c: 'Silver' },
+      {
+        Name: 'Acme',
+        Phone: expect.stringMatching(/^\+3363998\d{4}$/),
+        RecordTypeId: TARGET_RETAIL,
+        Tier__c: 'Silver',
+      },
     ]);
     const newAccount = summary.remapTable[ACCOUNT];
     expect(inserted.find(({ object }) => object === 'Asset')?.rows).toEqual([
@@ -302,7 +308,7 @@ describe('ForgeExecutor, a parent copied from outside the graph', () => {
 
     expect(
       inserted.filter(({ object }) => object === 'Account').map(({ rows }) => rows[0]['Phone']),
-    ).toEqual(['555-0100', undefined]);
+    ).toEqual([expect.stringMatching(/^\+3363998\d{4}$/), undefined]);
     expect(inserted.find(({ object }) => object === 'Asset')?.rows[0]['AccountId']).toBe(
       summary.remapTable[ACCOUNT],
     );

@@ -3,6 +3,7 @@ import type {
   AuditOutcome,
   BaseMessage,
   ForgeConfig,
+  ForgeContactPointsReport,
   ForgeExecutionError,
   ForgeExecutionResult,
   ForgeGraph,
@@ -504,6 +505,25 @@ function cancelledRunOutcome(
   if (objects.some((object) => object.created + object.updated > 0)) return 'partial';
   const reached = summary ? finishedRunStatus(summary) : 'success';
   return reached === 'success' ? 'stopped' : reached;
+}
+
+/**
+ * What the audit trail keeps of a run's email addresses and phone numbers:
+ * whether it neutralized them or kept them as read, and how many fields and
+ * values it neutralized — counts, never an address or a number. Nothing for a
+ * run that reported none.
+ */
+function contactPointsAudit(
+  report: ForgeContactPointsReport | undefined,
+): { details: Record<string, string | number> } | Record<string, never> {
+  if (!report) return {};
+  return {
+    details: {
+      contactPoints: report.neutralized ? 'neutralized' : 'kept',
+      contactPointFields: report.fields.length,
+      contactPointValues: report.values,
+    },
+  };
 }
 
 /**
@@ -1537,6 +1557,7 @@ export class ForgeHandler implements DomainHandler {
         objects: forgeAuditObjects(result),
         source: { origin: 'org', orgId: config.sourceOrgId },
         carried: forgeCarried(result),
+        ...contactPointsAudit(result.contactPoints),
       });
 
       this.addToHistory(result, config);
@@ -1633,6 +1654,7 @@ export class ForgeHandler implements DomainHandler {
               carried: forgeCarried(tallies),
             }
           : {}),
+        ...contactPointsAudit(partial?.contactPoints),
       });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so

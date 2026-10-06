@@ -501,6 +501,8 @@ export const ForgeInput: React.FC = () => {
             onSkipEmptyChange={form.setSkipEmpty}
             expandOrphanParents={form.expandOrphanParents}
             onExpandOrphanParentsChange={form.setExpandOrphanParents}
+            keepContactPoints={form.keepContactPoints}
+            onKeepContactPointsChange={form.setKeepContactPoints}
           />
 
           {/* CTA -- gradient Discover button */}

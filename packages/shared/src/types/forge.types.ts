@@ -74,6 +74,18 @@ export interface ForgeConfig {
    */
   expandOrphanParents?: boolean;
   /**
+   * Write email addresses and phone numbers as the source holds them.
+   *
+   * Absent or false — the default — every row the run writes has them
+   * neutralized first, whether it anonymizes or not: an email field's address
+   * goes in under `.invalid`, as Salesforce does to the users of a refreshed
+   * sandbox, and a phone field's number as a fictional one, in a range no
+   * line is ever given; so does a text field whose API name gives it to
+   * either. Run into a client's sandbox, a clone met record-triggered flows
+   * that email and text the contacts they are created for.
+   */
+  keepContactPoints?: boolean;
+  /**
    * Per-object record cap applied during execution. Translates into a
    * `LIMIT N` on each scoped SOQL query. `undefined` = no cap (full clone).
    * Used as a safety knob for big orgs / sample-only runs.
@@ -658,6 +670,39 @@ export interface ForgePicklistValuesChanged {
   replacement?: 'default' | 'first';
 }
 
+/** What a contact point field holds: email addresses, or phone numbers. */
+export type ForgeContactPointKind = 'email' | 'phone';
+
+/** One field whose values a run neutralized, and how many of them. */
+export interface ForgeContactPointField {
+  /** API name of the object. */
+  objectApiName: string;
+  /** The field, by the API name the run writes it under. */
+  field: string;
+  /** What it holds. */
+  kind: ForgeContactPointKind;
+  /** The values neutralized, in the rows the run sent. */
+  values: number;
+}
+
+/**
+ * What a run did with the email addresses and phone numbers of the rows it
+ * wrote: neutralized them, unless it was told to keep them as they are
+ * (`ForgeConfig.keepContactPoints`). A dry run counts what it would neutralize.
+ */
+export interface ForgeContactPointsReport {
+  /**
+   * Whether the run neutralized them: every address under `.invalid`, every
+   * phone number a fictional one. False when it kept them as the source holds
+   * them, and then nothing is counted.
+   */
+  neutralized: boolean;
+  /** Each field that had a value neutralized, objects in the order the run wrote them. */
+  fields: ForgeContactPointField[];
+  /** The values neutralized, every field together. */
+  values: number;
+}
+
 /**
  * When the target org dated a run's writes, by its own clock: what removing
  * the run's records tells a change made since the run by.
@@ -867,6 +912,12 @@ export interface ForgeExecutionResult {
    * written again.
    */
   writtenWithoutFields?: ForgeWrittenWithoutFields[];
+  /**
+   * Whether the run neutralized the email addresses and phone numbers it
+   * wrote, and how many fields and values. Absent from runs recorded before it
+   * was kept, which wrote them as the source held them unless they anonymized.
+   */
+  contactPoints?: ForgeContactPointsReport;
   /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded

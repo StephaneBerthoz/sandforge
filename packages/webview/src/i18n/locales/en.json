@@ -2508,6 +2508,9 @@
     "smartLimitSuggested_other": "Detected org with {{count}} records — applied {{limit}}/object cap",
     "expandOrphanParents": "Auto-fetch parents",
     "expandOrphanParentsHint": "Also copies the parents the clone does not read on its own: behind a lookup that can name several objects, past five levels up, or past the cap. A record-scoped clone already reads by id the parents its records cannot be written without.",
+    "keepContactPoints": "Keep emails and phone numbers as they are",
+    "keepContactPointsHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one.",
+    "keepContactPointsWarning": "Emails and phone numbers will be written as the source holds them: the target org's flows, triggers and email alerts may then email or text real people.",
     "reuseLastGraph": "Reuse last graph (skip discovery)",
     "reuseLastGraphHint": "Skip the 30s+ discovery and reuse the graph from your last execution.",
     "quickStartTemplate": "Quick start ({{name}})",
@@ -2825,6 +2828,14 @@
       "replacedDefault": "replaced by {{value}}, the default of record type {{recordType}}",
       "replacedFirst": "replaced by {{value}}, the first value record type {{recordType}} allows: the field is required and has no default there",
       "leftOut": "left out"
+    },
+    "contactPoints": {
+      "title": "Emails and phone numbers",
+      "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so the target org's automation reached no one.",
+      "none": "Neutralized before writing: the records written held no email address or phone number.",
+      "kept": "Written as the source holds them, as the run was asked: the target org's automation may have emailed or texted real people.",
+      "values_one": "{{count}} value",
+      "values_other": "{{count}} values"
     },
     "writtenWithoutFields": {
       "title": "Written without a field the target org refused",

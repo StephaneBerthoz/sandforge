@@ -110,6 +110,9 @@ export function forgeRunResult(
     // without the fields it named: in the target, each short of a value the
     // source held.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
+    // Whether the emails and phone numbers it wrote were neutralized, and how
+    // many: the results, the history and the audit trail say so.
+    ...(summary.contactPoints ? { contactPoints: summary.contactPoints } : {}),
     // The target's own dates of the run's writes, which removing its records
     // tells a later change by.
     ...(summary.writtenBetween ? { writtenBetween: summary.writtenBetween } : {}),

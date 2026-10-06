@@ -30,6 +30,7 @@ import {
   type PicklistField,
   type RecordTypeValues,
 } from './RecordTypePicklists.js';
+import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -229,6 +230,12 @@ export interface CleanNodeRecordsInput {
    * its computed name left out.
    */
   businessAccounts?: ReadonlySet<Record<string, unknown>>;
+  /**
+   * What makes the email addresses and phone numbers of the rows unreachable
+   * before they are written (`ContactPointNeutralizer`). Absent, they go as
+   * the source holds them: the run was told to keep them.
+   */
+  contactPoints?: ContactPointNeutralizer;
 }
 
 /** The name parts only a person account holds; `Salutation` "is available on person accounts". */
@@ -282,8 +289,10 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     picklistFields,
     recordTypeValues,
     businessAccounts,
+    contactPoints,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
+  const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
   /** Whether the insert carries a lookup: createable in both orgs, or written under a rename. */
   const carriedAtInsert = (field: FieldInfo): boolean =>
     creatableFields.has(field.name) || fieldRename[field.name] !== undefined;
@@ -508,6 +517,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // with the email. See `lookupsThePlatformFills`.
     const filled = lookupsThePlatformFills(objectApiName, cleaned);
     for (const field of filled) delete cleaned[field];
+    neutralize?.(cleaned);
     return {
       source: r,
       cleaned,

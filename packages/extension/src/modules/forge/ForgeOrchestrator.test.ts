@@ -204,6 +204,27 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[2]?.anonymization).toBeUndefined();
     });
 
+    it('asks the executor to keep the contact points as read only when the config says so, in both input modes', async () => {
+      const soql = {
+        inputMode: 'soql' as const,
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+      };
+
+      await orchestrator.execute(createMockGraph(), createMockConfig({ keepContactPoints: true }));
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({ ...soql, keepContactPoints: true }),
+      );
+      await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(optionsPassed[0]?.keepContactPoints).toBe(true);
+      expect(optionsPassed[1]?.keepContactPoints).toBe(true);
+      // Left out, the executor neutralizes them.
+      expect(optionsPassed[2]?.keepContactPoints).toBeUndefined();
+    });
+
     it('asks the executor to copy files, in bytes, only when Review asked, in both input modes', async () => {
       const files = { maxFileSizeMB: 3, acceptedAsIs: true };
 

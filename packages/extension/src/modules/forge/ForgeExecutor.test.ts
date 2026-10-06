@@ -953,10 +953,10 @@ describe('ForgeExecutor', () => {
       });
 
       const rows = inserted();
-      // A fake address, and a different person for each record.
+      // A fake address, and a different person for each record, delivered nowhere.
       expect(rows.map((r) => r['Email'])).not.toContain('one@source.test');
       expect(rows.map((r) => r['Email'])).not.toContain('two@source.test');
-      expect(String(rows[0]['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
+      expect(String(rows[0]['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
       // The method Review chose for phones, not the default mask.
       expect(rows.map((r) => r['Phone'])).toEqual(['[REDACTED]', '[REDACTED]']);
       // A field nobody selected goes as the source holds it, and no row gains an Id.
@@ -1000,13 +1000,139 @@ describe('ForgeExecutor', () => {
       expect(inserted().map((r) => r['MobilePhone'])).toEqual(['[REDACTED]', '[REDACTED]']);
     });
 
-    it('writes the source values when the run asks for no anonymization', async () => {
+    it('writes every address under .invalid and every number a fictional one when the run asks for no anonymization', async () => {
       contactsWithEmail();
       const graph = makeGraph([makeNode('Contact', { anonymizeFields: ['Email'] })]);
 
-      await executor.execute(graph, 'src', 'tgt', onProgress);
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
 
-      expect(inserted().map((r) => r['Email'])).toEqual(['one@source.test', 'two@source.test']);
+      const rows = inserted();
+      expect(rows.map((r) => r['Email'])).toEqual([
+        'one@source.test.invalid',
+        'two@source.test.invalid',
+      ]);
+      for (const row of rows) expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+      // The rest as the source holds it: nothing is anonymized.
+      expect(rows.map((r) => r['LastName'])).toEqual(['Source One', 'Source Two']);
+      expect(summary.contactPoints).toEqual({
+        neutralized: true,
+        fields: [
+          { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 2 },
+          { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 2 },
+        ],
+        values: 4,
+      });
+    });
+
+    it('writes the source values when the run keeps contact points and asks for no anonymization', async () => {
+      contactsWithEmail();
+      const graph = makeGraph([makeNode('Contact', { anonymizeFields: ['Email'] })]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        keepContactPoints: true,
+      });
+
+      expect(inserted().map((r) => [r['Email'], r['Phone']])).toEqual([
+        ['one@source.test', '0102030405'],
+        ['two@source.test', '0607080910'],
+      ]);
+      expect(summary.contactPoints).toEqual({ neutralized: false, fields: [], values: 0 });
+    });
+
+    it('anonymizes a phone with the mask into a fictional number, keeping none of its digits, the opt-out or not', async () => {
+      for (const keepContactPoints of [false, true]) {
+        vi.mocked(deps.insertRecords).mockClear();
+        contactsWithEmail();
+        const graph = makeGraph([makeNode('Contact')]);
+
+        await executor.execute(graph, 'src', 'tgt', onProgress, {
+          keepContactPoints,
+          anonymization: { fields: { Contact: ['Email', 'Phone'] }, methods: {} },
+        });
+
+        const rows = inserted();
+        for (const row of rows) {
+          expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+          expect(String(row['Email'])).toMatch(/@example\.invalid$/);
+        }
+        expect(String(rows[0]['Phone'])).not.toContain('0405');
+      }
+    });
+
+    it('neutralizes the text fields named for an address or a number, and never a checkbox or a picklist', async () => {
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false, type: 'id' },
+        { name: 'LastName', queryable: true, createable: true, isReference: false, type: 'string' },
+        {
+          name: 'Notification_Email__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'string',
+          length: 255,
+        },
+        {
+          name: 'SMS_Number__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'string',
+          length: 20,
+        },
+        {
+          name: 'Email_Opt_Out__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'boolean',
+        },
+        {
+          name: 'Phone_Type__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'picklist',
+        },
+      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        {
+          Id: '003OLD1',
+          LastName: 'Source One',
+          Notification_Email__c: 'one@source.test',
+          SMS_Number__c: '+33 6 12 34 56 78',
+          Email_Opt_Out__c: true,
+          Phone_Type__c: 'Mobile',
+        },
+      ]);
+
+      await executor.execute(makeGraph([makeNode('Contact')]), 'src', 'tgt', onProgress);
+
+      expect(inserted()).toEqual([
+        {
+          LastName: 'Source One',
+          Notification_Email__c: 'one@source.test.invalid',
+          SMS_Number__c: expect.stringMatching(/^\+3363998\d{4}$/),
+          Email_Opt_Out__c: true,
+          Phone_Type__c: 'Mobile',
+        },
+      ]);
+    });
+
+    it('counts on a dry run what the rows would have had neutralized, and writes nothing', async () => {
+      contactsWithEmail();
+      const graph = makeGraph([makeNode('Contact')]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, { dryRun: true });
+
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(summary.contactPoints).toEqual({
+        neutralized: true,
+        fields: [
+          { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 2 },
+          { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 2 },
+        ],
+        values: 4,
+      });
     });
 
     it('hands the rows, their source ids and the selected fields to an injected anonymizer', async () => {
@@ -11499,13 +11625,39 @@ describe('ForgeExecutor', () => {
         expect(phones).toHaveBeenCalledTimes(1);
       });
 
-      it('writes it as the source holds it when the run does not anonymize', async () => {
+      it('writes its phone a fictional number when the run does not anonymize, as the run’s rows', async () => {
+        assetWithOrphanAccount();
+
+        const summary = await executor.execute(
+          makeGraph([makeNode('Asset')]),
+          'src',
+          'tgt',
+          onProgress,
+          { rootRecordId: ROOT_ID, rootObjectApiName: 'Asset', expandOrphanParents: true },
+        );
+
+        const accountInsert = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.find((c) => c[1] === 'Account');
+        expect(accountInsert?.[2]).toEqual([
+          { Name: 'Parent', Phone: expect.stringMatching(/^\+3363998\d{4}$/) },
+        ]);
+        expect(summary.contactPoints?.fields).toContainEqual({
+          objectApiName: 'Account',
+          field: 'Phone',
+          kind: 'phone',
+          values: 2,
+        });
+      });
+
+      it('writes it as the source holds it when the run keeps contact points and does not anonymize', async () => {
         assetWithOrphanAccount();
 
         await executor.execute(makeGraph([makeNode('Asset')]), 'src', 'tgt', onProgress, {
           rootRecordId: ROOT_ID,
           rootObjectApiName: 'Asset',
           expandOrphanParents: true,
+          keepContactPoints: true,
         });
 
         const accountInsert = vi
@@ -11537,7 +11689,10 @@ describe('ForgeExecutor', () => {
         const accountInsert = vi
           .mocked(deps.insertRecords)
           .mock.calls.find((c) => c[1] === 'Account');
-        expect(accountInsert?.[2]).toEqual([{ Name: 'Parent', Phone: '0102030405' }]);
+        // Not redacted: only neutralized, as a field nobody selected is.
+        expect(accountInsert?.[2]).toEqual([
+          { Name: 'Parent', Phone: expect.stringMatching(/^\+3363998\d{4}$/) },
+        ]);
         expect(phones).not.toHaveBeenCalled();
       });
     });

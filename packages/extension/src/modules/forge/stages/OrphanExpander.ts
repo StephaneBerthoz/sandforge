@@ -71,6 +71,7 @@ import {
   without,
   type WrittenWithoutFields,
 } from './BatchWriter.js';
+import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 
 /**
  * Strict Salesforce record ID format (15 or 18 alphanumeric characters).
@@ -113,6 +114,13 @@ export interface OrphanExpansionInput {
     sourceId: string,
     fields: FieldInfo[],
   ) => Record<string, unknown>;
+  /**
+   * Makes the email addresses and phone numbers of a parent unreachable
+   * before it is inserted, as the rows of the run are: a contact copied from
+   * outside the scope reaches the target's automation as theirs would.
+   * Absent, the parent goes as the source holds it.
+   */
+  contactPoints?: ContactPointNeutralizer;
   /**
    * Hands back the fields of a parent's describe a copy reads, leaving out
    * those that hold a file's content, and keeps the ones left out for the
@@ -547,6 +555,7 @@ export class OrphanExpander {
       if (key === 'Name' && isPerson && !asBusiness) continue;
       cleaned[key] = value;
     }
+    input.contactPoints?.forObject(objectName, fields, rename)?.(cleaned);
     // Checked while `RecordTypeId` is still the source's, as the run's rows
     // are: what the record types allow is read by it.
     if (targetSets) {

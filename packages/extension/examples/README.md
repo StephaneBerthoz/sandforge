@@ -145,6 +145,7 @@ CLI returns exit code `1` if all records failed, or if the target is a productio
 - **Inspect the graph alone** with `tools/recipe-forge-grappe.ts` — a repo-only dev recipe that replays discovery and planning against live orgs. It does run the executor, but `SCENARIO.dryRun` is hardcoded `true` and the write deps are stubbed under that flag, so nothing reaches the target org until you flip it.
 - **Cap with `--max`** while iterating — start at 5, raise once you trust the output.
 - **Use `--anonymize`** as soon as you share the dev sandbox with anyone outside your immediate team.
+- **Emails and phone numbers go in neutralized** with or without `--anonymize`: every address under `.invalid`, every number a fictional one, so the target's flows and email alerts reach no one. `--keep-contact-points` writes them as the source holds them; the target's automation may then reach the real people the records name.
 - **Pick a fresh Case** for each demo — re-runs hit `DUPLICATE_VALUE` until you pass `--upsert`.
 - **Take a demo back** with `pnpm exec tsx packages/extension/cli/sandforge-clone.ts --remove clone-summary.json --target X`, from the summary the clone printed with `--json > clone-summary.json`: it removes only what that clone created.
 - **Cleanup** after a demo whose summary you did not keep: `pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --target X --since today --dry-run`, then rerun it with `--objects` naming the cloned objects and without `--dry-run`. It matches everything your user created in that window, not only the clone.

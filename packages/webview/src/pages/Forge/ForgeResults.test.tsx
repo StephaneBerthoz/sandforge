@@ -1535,6 +1535,35 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-file-content')).toBeNull();
   });
 
+  it('says how many emails and phone numbers the run neutralized, or that it kept them as read', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      contactPoints: {
+        neutralized: true,
+        fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email' as const, values: 2 }],
+        values: 2,
+      },
+    });
+    const { unmount } = render(<ForgeResults />);
+
+    expect(
+      screen.getAllByTestId('forge-results-contact-points-row').map((row) => row.textContent),
+    ).toEqual(['Contact.Email — 2 values']);
+    unmount();
+
+    mockResult = Object.assign(makeMockResult(), {
+      contactPoints: { neutralized: false, fields: [], values: 0 },
+    });
+    render(<ForgeResults />);
+    expect(screen.getByTestId('forge-results-contact-points-kept')).toBeDefined();
+  });
+
+  it('says nothing of contact points for a run recorded before they were reported', () => {
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-contact-points')).toBeNull();
+  });
+
   it('names the picklist values the run replaced or left out, per object and field', () => {
     mockResult = Object.assign(makeMockResult(), {
       picklistValuesChanged: [

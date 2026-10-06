@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { PIIDetector, isPersonNameField } from './PIIDetector';
+import {
+  PIIDetector,
+  contactPointOf,
+  isPersonNameField,
+  personalFieldsByApiName,
+} from './PIIDetector';
 import type { FieldDescribe } from './PIIDetector';
 
 function field(
@@ -205,6 +210,83 @@ describe('PIIDetector', () => {
       expect(isPersonNameField('SuppliedName')).toBe(true);
       expect(isPersonNameField('Name')).toBe(false);
       expect(isPersonNameField('AccountName__c')).toBe(false);
+    });
+  });
+
+  describe('contactPointOf', () => {
+    it('says an email or a phone field holds one by its type, whatever its name', () => {
+      expect(contactPointOf('Backup__c', 'email')).toBe('email');
+      expect(contactPointOf('Fax', 'phone')).toBe('phone');
+    });
+
+    it('reads a text field’s API name word by word, underscores and capitals alike', () => {
+      expect(contactPointOf('Notification_Email__c', 'string')).toBe('email');
+      expect(contactPointOf('SMS_Number__c', 'string')).toBe('phone');
+      expect(contactPointOf('SuppliedPhone', 'string')).toBe('phone');
+      expect(contactPointOf('ns__SMSNumber__c', 'string')).toBe('phone');
+      expect(contactPointOf('E_Mail__c', 'string')).toBe('email');
+      expect(contactPointOf('CC_Emails__c', 'textarea')).toBe('email');
+      expect(contactPointOf('Workemail__c', 'string')).toBe('email');
+      expect(contactPointOf('Telephone_Fixe__c', 'string')).toBe('phone');
+      expect(contactPointOf('Encrypted_Mobile__c', 'encryptedstring')).toBe('phone');
+      expect(contactPointOf('Notification_Email__pc', 'string')).toBe('email');
+    });
+
+    it('takes the recipients of an email message for the addresses they hold', () => {
+      expect(contactPointOf('ToAddress', 'textarea')).toBe('email');
+      expect(contactPointOf('CcAddress', 'textarea')).toBe('email');
+      expect(contactPointOf('BccAddress', 'textarea')).toBe('email');
+      // An address of the other kind is no recipient.
+      expect(contactPointOf('Shipping_Address__c', 'textarea')).toBeUndefined();
+    });
+
+    it('takes the last word of the name that names one', () => {
+      expect(contactPointOf('Email_Or_Phone__c', 'string')).toBe('phone');
+      expect(contactPointOf('Phone_Or_Email__c', 'string')).toBe('email');
+    });
+
+    it('leaves a checkbox and a picklist named like one, and texts that only look like one', () => {
+      expect(contactPointOf('Email_Opt_Out__c', 'boolean')).toBeUndefined();
+      expect(contactPointOf('Phone_Type__c', 'picklist')).toBeUndefined();
+      expect(contactPointOf('Preferred_Phone__c', 'combobox')).toBeUndefined();
+      expect(contactPointOf('Mailing_Street__c', 'string')).toBeUndefined();
+      expect(contactPointOf('Hotel_Name__c', 'string')).toBeUndefined();
+      expect(contactPointOf('Mailbox_Size__c', 'string')).toBeUndefined();
+      expect(contactPointOf('Description', 'textarea')).toBeUndefined();
+    });
+  });
+
+  describe('personalFieldsByApiName', () => {
+    const fields = [
+      { name: 'FirstName', type: 'string' },
+      { name: 'Email', type: 'email' },
+      { name: 'Notification_Email__c', type: 'string' },
+      { name: 'SMS_Number__c', type: 'string' },
+      { name: 'Email_Opt_Out__c', type: 'boolean' },
+      { name: 'Phone_Type__c', type: 'picklist' },
+      { name: 'Industry', type: 'picklist' },
+    ];
+
+    it('names the text fields an API name gives to an email address or a phone number', () => {
+      expect(personalFieldsByApiName(new PIIDetector(), fields)).toEqual([
+        'FirstName',
+        'Email',
+        'Notification_Email__c',
+        'SMS_Number__c',
+      ]);
+    });
+
+    it('names them where the detector, given the API name for the label, misses them', () => {
+      // What Forge's discovery was handed: the label is the API name.
+      const asBefore = new PIIDetector()
+        .detectPII(
+          'unknown',
+          fields.map((f) => field(f.name, f.name, f.type)),
+        )
+        .piiFields.map((p) => p.fieldApiName);
+
+      expect(asBefore).not.toContain('Notification_Email__c');
+      expect(asBefore).not.toContain('SMS_Number__c');
     });
   });
 

@@ -125,7 +125,10 @@ ForgeOrchestrator.execute(graph, config)
        │           write can set is owed nothing by the second pass, one
        │           only an insert sets is said to be left empty, never sent,
        │           and so is one at a record outside the clone
+       │         - neutralize the email addresses and phone numbers, unless
+       │           `keepContactPoints` (see "Emails and phone numbers")
        │         - apply RecordType mapping (DeveloperName)
+       │         - anonymize the fields selected, with `anonymization`
        │    7. batch insert into target (never a person account's contact
        │       the target writes with its account: see "Person accounts");
        │       a row a validation rule, a restricted picklist or the lookup
@@ -153,9 +156,39 @@ ForgeOrchestrator.execute(graph, config)
        └─ summary { successCount, failedCount, skippedCount, errors[],
                     readByObject[], failedReads[], files?,
                     fileContentFieldsLeftOut?, picklistValuesChanged?,
-                    writtenWithoutFields?,
+                    writtenWithoutFields?, contactPoints,
                     writtenBetween? }
 ```
+
+### Emails and phone numbers
+
+Every row the run writes — a node's, and a parent copied from outside the
+graph, by the orphan expansion or by its id — has its contact points
+neutralized as it is cleaned, whether the run anonymizes or not
+(`stages/ContactPointNeutralizer.ts`). Run into a client's sandbox, a clone
+met record-triggered flows that email and text the contacts they are created
+for.
+
+- An email field's address goes in under `.invalid`, the domain kept from ever
+  resolving: `jane@acme.com` becomes `jane@acme.com.invalid`, as Salesforce
+  leaves the users' addresses of a refreshed sandbox. One already under
+  `.invalid` is left; one the field's length cannot hold with the suffix
+  becomes a short address of its own under `example.invalid`.
+- A phone field's number becomes a fictional one of the mobile range kept for
+  fiction, `+3363998XXXX`, drawn as the Frozen dataset draws its numbers: the
+  same number gives the same one throughout the run, another in the next. A
+  field too short for the country code takes the national form, `063998XXXX`.
+- A text field whose API name gives it to either — `Notification_Email__c`,
+  `SMS_Number__c` — has each address, or each run of seven digits or more, in
+  its value treated so; a checkbox or a picklist named like one is left alone.
+
+`keepContactPoints` writes them as read. Anonymization runs on the values
+already neutralized, and writes an email field's address under
+`example.invalid` or `.invalid`, never `example.com`, and a fictional number in
+a phone field whose method leaves one — the default mask, a fake, a shuffle,
+the format redrawn — never the last digits of the real one. The summary's
+`contactPoints` says whether the run neutralized them, and per object and
+field how many values; a dry run counts what it would.
 
 `readByObject` is, per object, the rows the run read to clone — on a dry run,
 the rows it would insert — the standard price book left out and the standard
@@ -292,6 +325,7 @@ back from a query no more than a deleted one.
 | `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 | `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
+| `keepContactPoints`    | `false`                                  | write email addresses and phone numbers as read; off, each is neutralized      |
 
 `'keep'` holds for the records the run does not write, whose ids a sandbox
 refreshed from the same production can share with the source. A lookup at the
@@ -404,7 +438,8 @@ it. Its object is written in a turn of its own, ahead of the rows that need it,
 and each record is linked to the one the target holds, as any row is matched; a
 record of an object of the graph goes in that object's turn. It goes on the
 user's choices for its object — fields excluded or renamed, record types
-mapped, picklist values checked, anonymized — and its optional lookups are
+mapped, picklist values checked, its emails and phone numbers neutralized,
+anonymized — and its optional lookups are
 never followed: one at a record outside the clone is left empty, and said so as
 any row's is; one at a record the clone writes anyway is set, as an order's
 price book, which its items cannot be written without.

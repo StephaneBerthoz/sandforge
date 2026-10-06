@@ -2917,6 +2917,46 @@ describe('ForgeHandler', () => {
       ]);
     });
 
+    it('says whether the run neutralized the contact points, and how many fields and values, never one of them', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          idRemapByObject: [{ objectApiName: 'Contact', created: 3, linked: 0 }],
+          contactPoints: {
+            neutralized: true,
+            fields: [
+              { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 3 },
+              { objectApiName: 'Contact', field: 'MobilePhone', kind: 'phone', values: 2 },
+            ],
+            values: 5,
+          },
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0].details).toEqual({
+        contactPoints: 'neutralized',
+        contactPointFields: 2,
+        contactPointValues: 5,
+      });
+    });
+
+    it('says the run kept the contact points as read when it was told to', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({ contactPoints: { neutralized: false, fields: [], values: 0 } }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0].details).toEqual({
+        contactPoints: 'kept',
+        contactPointFields: 0,
+        contactPointValues: 0,
+      });
+    });
+
     it('counts the records an upsert wrote over as updated, never as created', async () => {
       const store = recordingStore();
       vi.mocked(orchestrator.execute).mockResolvedValue(
@@ -3123,6 +3163,30 @@ describe('ForgeHandler', () => {
           details: {},
         }),
       ]);
+    });
+
+    it('says of a run a cancel stopped the contact points it neutralized before it stopped', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        cancelledWith({
+          successCount: 2,
+          remapCount: 2,
+          remapByObject: [{ objectApiName: 'Contact', created: 2, linked: 0 }],
+          readByObject: [{ objectApiName: 'Contact', read: 2 }],
+          contactPoints: {
+            neutralized: true,
+            fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email', values: 2 }],
+            values: 2,
+          },
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0]).toMatchObject({
+        outcome: 'partial',
+        details: { contactPoints: 'neutralized', contactPointFields: 1, contactPointValues: 2 },
+      });
     });
 
     it('records a run a cancel stopped before it wrote anything as stopped, under the code that says so', async () => {

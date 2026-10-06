@@ -486,6 +486,25 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-skip-empty-toggle')).toBeDefined();
   });
 
+  it('neutralizes the contact points of a run by default, and keeps them as read once asked, with a warning', () => {
+    render(<ForgeInput />);
+    fireEvent.change(screen.getByTestId('forge-input-record'), {
+      target: { value: '001XXXXXXXXXXXXXXX' },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(mockSetConfig.mock.calls[0][0].keepContactPoints).toBe(false);
+    expect(screen.queryByTestId('forge-keep-contact-points-warning')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('forge-keep-contact-points-toggle'));
+    expect(screen.getByTestId('forge-keep-contact-points-warning').textContent).toBe(
+      i18n.t('forge.keepContactPointsWarning'),
+    );
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(mockSetConfig.mock.calls[1][0].keepContactPoints).toBe(true);
+  });
+
   it('should expand a user template into its saved record input when discovering', () => {
     // The extension cannot resolve a bare templateId (templates live in the
     // webview store) — handleDiscover must expand the template's saved root

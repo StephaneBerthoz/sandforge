@@ -10,6 +10,7 @@ import type { RecordTypePicklists } from '../../../core/metadata/recordTypePickl
 import { RecordTypeMapper } from '../../sync/RecordTypeMapper.js';
 import { PicklistChangeTally, RecordTypePicklistReads } from './RecordTypePicklists.js';
 import type { WrittenWithoutFields } from './BatchWriter.js';
+import { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 
 const ORPHAN_ID = '001AP00ORPHAN12'; // 15 alnum — passes SF_RECORD_ID_RE
 
@@ -108,6 +109,53 @@ describe('OrphanExpander', () => {
     // Parent registered in scope cache for multi-hop children.
     expect(input.scopeCache?.has('Account')).toBe(true);
     expect(expander.buildErrorReport()).toBeNull();
+  });
+
+  it('neutralizes the email addresses and phone numbers of the parent it copies, unless the run keeps them', async () => {
+    const withContactPoints = (): ExpanderDeps =>
+      makeDeps({
+        describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Name', queryable: true, createable: true, isReference: false },
+          { name: 'Phone', queryable: true, createable: true, isReference: false, type: 'phone' },
+          {
+            name: 'Billing_Email__c',
+            queryable: true,
+            createable: true,
+            isReference: false,
+            type: 'string',
+            length: 255,
+          },
+        ]),
+        queryRecords: vi.fn<ExpanderDeps['queryRecords']>().mockResolvedValue([
+          {
+            Id: ORPHAN_ID,
+            Name: 'Acme Insurance',
+            Phone: '+33 1 23 45 67 89',
+            Billing_Email__c: 'billing@acme.com',
+          },
+        ]),
+      });
+
+    const neutralized = withContactPoints();
+    const contactPoints = new ContactPointNeutralizer('salt');
+    await new OrphanExpander(neutralized).expandForNode(
+      makeInput(neutralized, { contactPoints }).input,
+    );
+    const kept = withContactPoints();
+    await new OrphanExpander(kept).expandForNode(makeInput(kept).input);
+
+    expect(vi.mocked(neutralized.insertRecords).mock.calls[0][2]).toEqual([
+      {
+        Name: 'Acme Insurance',
+        Phone: expect.stringMatching(/^\+3363998\d{4}$/),
+        Billing_Email__c: 'billing@acme.com.invalid',
+      },
+    ]);
+    expect(contactPoints.report().values).toBe(2);
+    expect(vi.mocked(kept.insertRecords).mock.calls[0][2]).toEqual([
+      { Name: 'Acme Insurance', Phone: '+33 1 23 45 67 89', Billing_Email__c: 'billing@acme.com' },
+    ]);
   });
 
   it('links the child to a parent the target already holds when it refuses the copy and names it', async () => {

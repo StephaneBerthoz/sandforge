@@ -325,6 +325,21 @@ describe('useForgeForm run history', () => {
     expect(result.current.recordLimit).toBe('100');
   });
 
+  it('puts back a stored run’s choice to keep the contact points, and neutralizes them for one that made none', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.applyHistoryConfig({ ...RECORD_RUN.config!, keepContactPoints: true });
+    });
+    expect(result.current.keepContactPoints).toBe(true);
+
+    // Recorded before the choice existed: replayed as every new run goes.
+    act(() => {
+      result.current.applyHistoryConfig(SOQL_RUN.config!);
+    });
+    expect(result.current.keepContactPoints).toBe(false);
+  });
+
   it('clears the fields of the modes the stored run did not use', () => {
     const { result } = renderHook(() => useForgeForm());
 
@@ -800,10 +815,31 @@ describe('applying a saved template', () => {
       anonymizePII: true,
       skipEmpty: true,
       expandOrphanParents: true,
+      keepContactPoints: false,
       maxRecordsPerObject: 500,
       sourceOrgId: 'org-src',
       targetOrgId: 'org-tgt',
     });
+  });
+
+  it('carries its choice to keep the contact points into the form, and into the run it discovers', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+    });
+    act(() => {
+      result.current.applyTemplate({
+        ...TEMPLATE,
+        config: { ...TEMPLATE.config, keepContactPoints: true },
+      });
+    });
+
+    expect(result.current.keepContactPoints).toBe(true);
+    act(() => {
+      result.current.handleDiscover();
+    });
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config.keepContactPoints).toBe(true);
   });
 });
 

@@ -37,6 +37,7 @@ import { countRequests, loadOrg, makeConn } from './sfSession.js';
 
 import type {
   ForgeConfig,
+  ForgeContactPointsReport,
   ForgeFieldRefusal,
   ForgeFilesReport,
   ForgeGraph,
@@ -81,7 +82,7 @@ import type {
 } from '../src/modules/forge/ForgeExecutor.js';
 import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
 import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
-import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { PIIDetector, personalFieldsByApiName } from '../src/core/precheck/PIIDetector.js';
 import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
@@ -114,6 +115,11 @@ export interface CliArgs {
   maxNodes: number | undefined;
   maxRecordsPerObject: number | undefined;
   anonymize: boolean;
+  /**
+   * Write email addresses and phone numbers as the source holds them
+   * (`--keep-contact-points`). Off, every row has them neutralized first.
+   */
+  keepContactPoints: boolean;
   dryRun: boolean;
   /** Print the objects discovery reached and stop, without reading a row. */
   listObjects: boolean;
@@ -191,6 +197,12 @@ Options:
                          parent a record reached cannot be written without
                          takes the cap one object further, up to twice it.
   --anonymize            anonymize PII fields                   (default: off)
+  --keep-contact-points  write emails and phone numbers as read (default: off)
+                         Off, every record is written with its email addresses
+                         under .invalid and its phone numbers in a fictional
+                         range, anonymized or not, so the target's flows and
+                         email alerts reach no one. On, they may reach the
+                         real people the records name.
   --dry-run              skip writes, surface scoped queries    (default: off)
   --upsert               use external Id upsert when available  (default: insert)
                          Skips DUPLICATE_VALUE on re-runs of the same source records.
@@ -447,6 +459,7 @@ export function parseArgs(argv: string[]): CliArgs {
     sourceOrgId: source,
     targetOrgId: target,
     anonymizePII: has('--anonymize'),
+    keepContactPoints: has('--keep-contact-points'),
     skipEmpty: true,
     batchSize: 'auto',
     maxRecordsPerObject,
@@ -474,6 +487,7 @@ export function parseArgs(argv: string[]): CliArgs {
     maxNodes,
     maxRecordsPerObject,
     anonymize: has('--anonymize'),
+    keepContactPoints: checked.data.keepContactPoints === true,
     dryRun: has('--dry-run'),
     listObjects: has('--list-objects'),
     upsert: has('--upsert'),
@@ -790,6 +804,7 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       }
     }
   }
+  if (summary.contactPoints) lines.push('', ...contactPointLines(summary.contactPoints, dryRun));
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -804,6 +819,29 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
     }
   }
   return lines;
+}
+
+/**
+ * What became of the email addresses and phone numbers of the records: how
+ * many values of which fields were neutralized — on a dry run, would be — or
+ * that they went as read under `--keep-contact-points`. Exported so it can be
+ * tested.
+ */
+export function contactPointLines(report: ForgeContactPointsReport, dryRun: boolean): string[] {
+  if (!report.neutralized) {
+    return [
+      "contact points: written as read (--keep-contact-points): the target's flows and email " +
+        'alerts may reach the people the records name',
+    ];
+  }
+  const done = dryRun ? 'would be neutralized (dry run, nothing written)' : 'neutralized';
+  return [
+    `contact points: ${report.values} value(s) in ${report.fields.length} field(s) ${done} — ` +
+      'emails under .invalid, phone numbers in a fictional range',
+    ...report.fields.map(
+      ({ objectApiName, field, values }) => `  ${objectApiName}.${field}  ${values}`,
+    ),
+  ];
 }
 
 /**
@@ -883,6 +921,9 @@ export function jsonResult(summary: ExecutionSummary) {
     // or a restricted picklist refused, each field with what refused it
     // (`refusedBy`) and the refusal; only when there were any.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
+    // Whether the email addresses and phone numbers were neutralized, and how
+    // many values of which fields — on a dry run, would have been.
+    ...(summary.contactPoints ? { contactPoints: summary.contactPoints } : {}),
     // The requests the run sent to both orgs, discovery's before it aside.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
   };
@@ -1058,6 +1099,8 @@ export function executeOptions(
     // record was then written as the source held it. The selected fields go,
     // each with its category's default method.
     anonymization: runAnonymization(args.anonymize, graph, {}, personalFieldsOf),
+    // Off, every email address and phone number the run writes is neutralized.
+    keepContactPoints: args.keepContactPoints,
     files: args.files
       ? {
           maxFileBytes: args.files.maxFileSizeMB * BYTES_PER_MB,
@@ -1824,10 +1867,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const r = await c.query(soql);
       return r.totalSize;
     },
-    detectPII: (fields) => {
-      const adapted = fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type }));
-      return piiDetector.detectPII('graph-node', adapted).piiFields.map((p) => p.fieldApiName);
-    },
+    // As the extension's discovery reads them: no label, and a text field
+    // named for an email address or a phone number read from its API name.
+    detectPII: (fields) => personalFieldsByApiName(piiDetector, fields),
     describeGlobal: async (orgId) => {
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
@@ -1910,6 +1952,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
   say('');
   for (const line of automationLines(targetAutomation, args.target)) say(line);
+  // What that automation may reach: the records' own addresses and numbers,
+  // unless they go neutralized.
+  say(
+    args.keepContactPoints
+      ? 'contact points: written as read (--keep-contact-points)'
+      : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)',
+  );
 
   say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
@@ -1983,6 +2032,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ...(f.controllerName ? { controllerName: f.controllerName } : {}),
         defaultedOnCreate: f.defaultedOnCreate === true,
         updateable: f.updateable !== false,
+        // What an email address or a phone number is neutralized within.
+        ...(f.length > 0 ? { length: f.length } : {}),
       }));
     },
     isObjectCreatable: async (orgId, name) => (await describe(orgId, name)).createable !== false,

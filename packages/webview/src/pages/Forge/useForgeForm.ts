@@ -129,6 +129,9 @@ export interface ForgeFormState {
   setSkipEmpty: (v: boolean) => void;
   expandOrphanParents: boolean;
   setExpandOrphanParents: (v: boolean) => void;
+  /** Write email addresses and phone numbers as the source holds them; off neutralizes them. */
+  keepContactPoints: boolean;
+  setKeepContactPoints: (v: boolean) => void;
   recordLimit: string;
   setRecordLimit: (v: string) => void;
   recordLimitValue: number | undefined;
@@ -220,6 +223,12 @@ export function useForgeForm(): ForgeFormState {
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
   const [expandOrphanParents, setExpandOrphanParents] = useState(false);
+  /**
+   * Off, the default: every email address and phone number the run writes is
+   * neutralized, so the target's automation reaches no one. On, they go as
+   * the source holds them.
+   */
+  const [keepContactPoints, setKeepContactPoints] = useState(false);
   /**
    * Per-object record cap, expressed as a string in the dropdown:
    * 'smart' (auto from preview metrics) | 'all' | '10'..'1000'.
@@ -525,6 +534,7 @@ export function useForgeForm(): ForgeFormState {
         anonymizePII: anonymize,
         skipEmpty,
         expandOrphanParents,
+        keepContactPoints,
         maxRecordsPerObject: recordLimitValue,
         sourceOrgId,
         targetOrgId,
@@ -546,6 +556,7 @@ export function useForgeForm(): ForgeFormState {
       anonymize,
       skipEmpty,
       expandOrphanParents,
+      keepContactPoints,
       recordLimitValue,
       sourceOrgId,
       targetOrgId,
@@ -588,6 +599,7 @@ export function useForgeForm(): ForgeFormState {
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
+      keepContactPoints,
       maxRecordsPerObject: effectiveCap,
       batchSize: 'auto',
     };
@@ -609,6 +621,7 @@ export function useForgeForm(): ForgeFormState {
     anonymize,
     skipEmpty,
     expandOrphanParents,
+    keepContactPoints,
     recordLimit,
     recordLimitValue,
     setConfig,
@@ -641,6 +654,7 @@ export function useForgeForm(): ForgeFormState {
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
+      keepContactPoints,
       maxRecordsPerObject: recordLimitValue,
       sourceOrgId,
       targetOrgId,
@@ -668,6 +682,7 @@ export function useForgeForm(): ForgeFormState {
     anonymize,
     skipEmpty,
     expandOrphanParents,
+    keepContactPoints,
     recordLimitValue,
     sourceOrgId,
     targetOrgId,
@@ -693,6 +708,9 @@ export function useForgeForm(): ForgeFormState {
     setAnonymize(config.anonymizePII);
     setSkipEmpty(config.skipEmpty);
     setExpandOrphanParents(config.expandOrphanParents ?? false);
+    // A run or a template that predates the choice neutralized nothing, but
+    // its replay is a new run, and goes as every new run does.
+    setKeepContactPoints(config.keepContactPoints ?? false);
     setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
   }, []);
 
@@ -792,6 +810,8 @@ export function useForgeForm(): ForgeFormState {
     setSkipEmpty,
     expandOrphanParents,
     setExpandOrphanParents,
+    keepContactPoints,
+    setKeepContactPoints,
     recordLimit,
     setRecordLimit,
     recordLimitValue,

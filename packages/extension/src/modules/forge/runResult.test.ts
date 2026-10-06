@@ -229,6 +229,20 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('writtenWithoutFields');
   });
 
+  it('keeps whether the run neutralized the contact points, and how many, for the results and the history', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const contactPoints = {
+      neutralized: true,
+      fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email' as const, values: 2 }],
+      values: 2,
+    };
+
+    expect(forgeRunResult(summary({ contactPoints }), GRAPH, run).contactPoints).toEqual(
+      contactPoints,
+    );
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('contactPoints');
+  });
+
   it('says which linked records go with a record the run created, only for a run that linked some', () => {
     // Read as kept, a removal's confirmation said they stayed in the org.
     const run = { startedAt: Date.now(), status: 'success' as const };

@@ -15,6 +15,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
   adaptDescribe,
+  contactPointLines,
   describeObjectInfo,
   describeOnce,
   executeOptions,
@@ -182,6 +183,14 @@ describe('sandforge-clone usage text', () => {
     expect(stdout).toContain('pnpm exec tsx packages/extension/cli/sandforge-clone.ts');
     expect(stdout).toContain('pnpm build:shared');
     expect(stdout.split('\n').filter((line) => BARE_COMMAND_LINE.test(line))).toEqual([]);
+  });
+
+  it('names the flag that keeps emails and phone numbers as read, and what it risks', async () => {
+    expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+
+    expect(stdout).toMatch(/--keep-contact-points\s+write emails and phone numbers as read/);
+    expect(stdout).toContain('under .invalid');
+    expect(stdout).toContain('may reach the');
   });
 
   it('names no bare command anywhere in the script source', () => {
@@ -364,6 +373,23 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(counted).apiCalls).toBe(64);
     expect(summaryLines(summary({})).some((line) => line.startsWith('calls:'))).toBe(false);
     expect(jsonResult(summary({}))).not.toHaveProperty('apiCalls');
+  });
+
+  it('tells a CI job and the text summary whether the contact points went neutralized, and how many', () => {
+    const contactPoints = {
+      neutralized: true,
+      fields: [{ objectApiName: 'Contact', field: 'Phone', kind: 'phone' as const, values: 4 }],
+      values: 4,
+    };
+    const neutralized = summary({ contactPoints });
+
+    expect(jsonResult(neutralized).contactPoints).toEqual(contactPoints);
+    expect(summaryLines(neutralized)).toContain('  Contact.Phone  4');
+    expect(jsonResult(summary({}))).not.toHaveProperty('contactPoints');
+
+    const kept = summary({ contactPoints: { neutralized: false, fields: [], values: 0 } });
+    expect(jsonResult(kept).contactPoints).toEqual({ neutralized: false, fields: [], values: 0 });
+    expect(summaryLines(kept).some((line) => line.includes('written as read'))).toBe(true);
   });
 
   it('gives a CI job the rows the run read of each object, the size of the clone', () => {
@@ -1012,6 +1038,60 @@ describe('sandforge-clone anonymization', () => {
   });
 });
 
+describe('sandforge-clone contact points', () => {
+  const graph: ForgeGraph = {
+    nodes: [],
+    edges: [],
+    totalRecords: 0,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it('has the run neutralize every email address and phone number without --keep-contact-points', () => {
+    const args = parseArgs(argv());
+
+    expect(args.keepContactPoints).toBe(false);
+    expect(executeOptions(args, graph, []).keepContactPoints).toBe(false);
+  });
+
+  it('has the run write them as read with --keep-contact-points, anonymized or not', () => {
+    for (const extra of [[], ['--anonymize']]) {
+      const args = parseArgs(argv('--keep-contact-points', ...extra));
+
+      expect(args.keepContactPoints).toBe(true);
+      expect(executeOptions(args, graph, []).keepContactPoints).toBe(true);
+    }
+  });
+
+  it('says how many values of which fields went neutralized, or would on a dry run', () => {
+    const report = {
+      neutralized: true,
+      fields: [
+        { objectApiName: 'Contact', field: 'Email', kind: 'email' as const, values: 3 },
+        { objectApiName: 'Contact', field: 'SMS_Number__c', kind: 'phone' as const, values: 2 },
+      ],
+      values: 5,
+    };
+
+    expect(contactPointLines(report, false)).toEqual([
+      'contact points: 5 value(s) in 2 field(s) neutralized — emails under .invalid, phone ' +
+        'numbers in a fictional range',
+      '  Contact.Email  3',
+      '  Contact.SMS_Number__c  2',
+    ]);
+    expect(contactPointLines(report, true)[0]).toContain(
+      'would be neutralized (dry run, nothing written)',
+    );
+  });
+
+  it('says the records went with their own addresses and numbers under --keep-contact-points', () => {
+    expect(contactPointLines({ neutralized: false, fields: [], values: 0 }, false)).toEqual([
+      "contact points: written as read (--keep-contact-points): the target's flows and email " +
+        'alerts may reach the people the records name',
+    ]);
+  });
+});
+
 describe('sandforge-clone describes', () => {
   describe('describeOnce', () => {
     const account = { name: 'Account' } as DescribeSObjectResult;
@@ -1486,6 +1566,28 @@ describe('sandforge-clone describes', () => {
       expect(said).toContain('preflight (target row counts)…');
       expect(said).toContain('executing… (DRY-RUN)');
       expect(said).toContain('  [dry-run] Contact: 1 record(s) would be inserted');
+    });
+
+    it('says before the run what becomes of the contact points, and in the JSON summary after it', async () => {
+      for (const keep of [false, true]) {
+        withFakeOrgs();
+        const { stdout, stderr } = captureStreams();
+
+        expect(
+          await run(argv('--dry-run', '--json', ...(keep ? ['--keep-contact-points'] : []))),
+        ).toBeUndefined();
+
+        expect(stderr.join('')).toContain(
+          keep
+            ? 'contact points: written as read (--keep-contact-points)'
+            : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)',
+        );
+        expect(JSON.parse(stdout.join('')).result.contactPoints).toEqual({
+          neutralized: !keep,
+          fields: [],
+          values: 0,
+        });
+      }
     });
 
     it('prints the objects of the graph as JSON alone on stdout under --list-objects --json', async () => {
