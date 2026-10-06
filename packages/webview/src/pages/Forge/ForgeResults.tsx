@@ -602,6 +602,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           objectCount: nodes.filter((n) => n.included).length,
           recordCount: plannedRecords,
           savedAt,
+          graph,
+          fileCopy: useForgeStore.getState().fileCopy,
         }),
       );
     },
@@ -611,6 +613,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       templateDescription,
       anonymizationRules,
       anonymizationPresetId,
+      graph,
       nodes,
       plannedRecords,
       saver,

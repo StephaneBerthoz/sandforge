@@ -284,4 +284,32 @@ describe('adoptDiscoveredGraph', () => {
 
     expect(useForgeStore.getState().graph).toBe(DISCOVERED);
   });
+
+  it('puts back the fields a template anonymized, over its preset and among those found', () => {
+    useForgeStore.getState().setConfig(CONFIG);
+    useForgeStore.getState().setAnonymizationPresetId('preset:gdpr-default');
+    useForgeStore
+      .getState()
+      .setAnonymizeFieldChoices([
+        { objectApiName: 'Contact', fieldNames: ['Title', 'Description', 'Birthdate'] },
+      ]);
+
+    adoptDiscoveredGraph(DISCOVERED);
+
+    expect(useForgeStore.getState().graph?.nodes[0].anonymizeFields).toEqual([
+      'Title',
+      'Description',
+    ]);
+  });
+
+  it('leaves out of the graph the objects the run’s config leaves out', () => {
+    useForgeStore.getState().setConfig({ ...CONFIG, excludedObjects: ['Contact'] });
+
+    adoptDiscoveredGraph(DISCOVERED);
+
+    expect(useForgeStore.getState().graph?.nodes[0]).toMatchObject({
+      included: false,
+      leftOutByUser: true,
+    });
+  });
 });

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Check, Pencil, Trash2 } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { X, Check, Pencil, Trash2, Download, Upload } from 'lucide-react';
 import { BUILTIN_FORGE_TEMPLATES } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { cn } from '../../theme';
@@ -9,6 +10,7 @@ import type { ForgeTemplatesManager } from './useForgeTemplates';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { TemplateTargetOutcome } from './useForgeForm';
 import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import type { TemplateFileRefusal } from './forgeTemplateFile';
 
 /** Props for the ForgeTemplatePanel component. */
 export interface ForgeTemplatePanelProps {
@@ -36,15 +38,31 @@ function orgLabel(org: SalesforceOrg): string {
   return org.alias || org.username;
 }
 
+/** Why a template file was refused, as the tab says it. */
+function refusalText(t: TFunction, refusal: TemplateFileRefusal): string {
+  switch (refusal.reason) {
+    case 'too_large':
+      return t('forge.savedTemplate.importTooLarge');
+    case 'not_json':
+      return t('forge.savedTemplate.importNotJson');
+    case 'not_template':
+      return refusal.where
+        ? t('forge.savedTemplate.importNotTemplate', { where: refusal.where })
+        : t('forge.savedTemplate.importNotTemplateAtAll');
+  }
+}
+
 /**
  * Template tab content: the read-only starter templates, then the templates
- * saved from finished runs, each with apply, rename and delete.
+ * saved from runs, each with apply, export, rename and delete, and a template
+ * imported from a file.
  *
- * A template is saved from a run's results, where its configuration is whole.
- * The tab used to offer "Create Template" from the form instead, and on this
- * tab the form's input mode is `template` itself: every template made that
- * way kept neither a record id nor a query. Selected, it ran on whatever
- * record id the Record tab still held, out of sight, or could not run at all.
+ * A template is saved from a run's results or from Review, where its
+ * configuration is whole. The tab used to offer "Create Template" from the
+ * form instead, and on this tab the form's input mode is `template` itself:
+ * every template made that way kept neither a record id nor a query.
+ * Selected, it ran on whatever record id the Record tab still held, out of
+ * sight, or could not run at all.
  */
 export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
   manager,
@@ -55,6 +73,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
 }) => {
   const { t } = useTranslation();
   const [applied, setApplied] = useState<AppliedTemplate | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const targetLabelOf = (tpl: ForgeTemplate): string | null => {
     if (!tpl.targetOrgId) return null;
@@ -122,9 +141,63 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
         </button>
       ))}
 
-      <div className="text-[10px] text-text-secondary uppercase tracking-widest mt-2">
-        {t('forge.yourTemplates')}
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="text-[10px] text-text-secondary uppercase tracking-widest">
+          {t('forge.yourTemplates')}
+        </div>
+        {/* A template someone handed over, as a file: read through the schema
+            the extension saves templates with, refused with its reason. */}
+        <button
+          type="button"
+          data-testid="forge-template-import"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <Upload size={12} aria-hidden="true" />
+          {t('forge.savedTemplate.import')}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          tabIndex={-1}
+          data-testid="forge-template-import-file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) manager.importTemplateFile(file);
+            // The same file picked again is read again.
+            e.target.value = '';
+          }}
+        />
       </div>
+      {manager.importRefused && (
+        <p
+          role="alert"
+          data-testid="forge-template-import-refused"
+          className="text-xs text-status-error"
+        >
+          {refusalText(t, manager.importRefused)}
+        </p>
+      )}
+      {manager.importError && (
+        <p
+          role="alert"
+          data-testid="forge-template-import-error"
+          className="text-xs text-status-error"
+        >
+          {t('forge.savedTemplate.importFailed', { message: manager.importError })}
+        </p>
+      )}
+      {manager.imported && (
+        <p
+          role="status"
+          data-testid="forge-template-imported"
+          className="text-xs text-text-primary"
+        >
+          {t('forge.savedTemplate.imported', { name: manager.imported.name })}
+        </p>
+      )}
       {manager.loadError && (
         <p
           data-testid="forge-templates-load-error"
@@ -262,6 +335,19 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                     </span>
                   </button>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      data-testid={`forge-template-export-${tpl.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        manager.exportTemplate(tpl);
+                      }}
+                      className="p-1 text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
+                      aria-label={t('forge.savedTemplate.exportLabel', { name: tpl.name })}
+                      title={t('forge.savedTemplate.export')}
+                    >
+                      <Download size={12} />
+                    </button>
                     <button
                       type="button"
                       data-testid={`forge-template-edit-${tpl.id}`}

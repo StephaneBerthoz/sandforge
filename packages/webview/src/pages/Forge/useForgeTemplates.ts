@@ -5,7 +5,25 @@ import type { ForgeTemplate } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
+import {
+  TEMPLATE_FILE_MAX_BYTES,
+  readTemplateFile,
+  templateFileContent,
+  templateFileName,
+} from './forgeTemplateFile';
+import type { TemplateFileRefusal } from './forgeTemplateFile';
+
+/** The text of a file the user picked. */
+function fileText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('unreadable'));
+    reader.readAsText(file);
+  });
+}
 
 /** Options for the useForgeTemplates hook. */
 export interface UseForgeTemplatesOptions {
@@ -48,6 +66,21 @@ export interface ForgeTemplatesManager {
   handleDeleteTemplate: () => void;
   /** Why the last delete failed, or null. */
   deleteError: string | null;
+
+  /* Files */
+  /** Offer the template to save as a file of its own, through the host's Save dialog. */
+  exportTemplate: (tpl: ForgeTemplate) => void;
+  /**
+   * Read a file the user picked as a template and save it with the others
+   * once it reads as one; refuse it, and say why, otherwise.
+   */
+  importTemplateFile: (file: File) => void;
+  /** Why the last file picked was not taken as a template, or null. */
+  importRefused: TemplateFileRefusal | null;
+  /** Why the extension did not save the template the last file held, or null. */
+  importError: string | null;
+  /** The template the last file held, once the extension saved it. */
+  imported: ForgeTemplate | null;
 }
 
 /**
@@ -122,6 +155,46 @@ export function useForgeTemplates({
 
   const handleCancelEdit = useCallback(() => setEditingTemplateId(null), []);
 
+  const { save: saveFile } = useFileSave();
+  const exportTemplate = useCallback(
+    (tpl: ForgeTemplate) => saveFile(templateFileName(tpl), templateFileContent(tpl), ['json']),
+    [saveFile],
+  );
+
+  // A save of its own: an import in flight holds no rename back, nor the
+  // reverse, and each says its own failure where it was asked for.
+  const importer = useSaveForgeTemplate();
+  const { save: saveImported } = importer;
+  const [importRefused, setImportRefused] = useState<TemplateFileRefusal | null>(null);
+  const [importAsked, setImportAsked] = useState(false);
+  const importTemplateFile = useCallback(
+    (file: File) => {
+      setImportRefused(null);
+      setImportAsked(false);
+      if (file.size > TEMPLATE_FILE_MAX_BYTES) {
+        setImportRefused({ reason: 'too_large' });
+        return;
+      }
+      fileText(file).then(
+        (text) => {
+          const reading = readTemplateFile(text);
+          if (!reading.ok) {
+            setImportRefused(
+              reading.reason === 'not_template'
+                ? { reason: reading.reason, where: reading.where }
+                : { reason: reading.reason },
+            );
+            return;
+          }
+          setImportAsked(true);
+          saveImported(reading.template);
+        },
+        () => setImportRefused({ reason: 'not_json' }),
+      );
+    },
+    [saveImported],
+  );
+
   const requestDeleteTemplate = useCallback((id: string) => setDeleteConfirmId(id), []);
 
   const cancelDeleteTemplate = useCallback(() => setDeleteConfirmId(null), []);
@@ -168,5 +241,10 @@ export function useForgeTemplates({
     cancelDeleteTemplate,
     handleDeleteTemplate,
     deleteError: removal.error,
+    exportTemplate,
+    importTemplateFile,
+    importRefused,
+    importError: importAsked ? importer.error : null,
+    imported: importAsked ? importer.saved : null,
   };
 }

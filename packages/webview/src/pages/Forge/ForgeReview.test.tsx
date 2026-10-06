@@ -5,7 +5,13 @@ import { ForgeReview } from './ForgeReview';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
 import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
-import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
+import type {
+  ForgeAnonymizationCategory,
+  AnonymizationMethod,
+  ForgeDefaultValue,
+  ForgeGap,
+  ForgeGapSource,
+} from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
 
 /* ---- Mocks ---- */
@@ -63,6 +69,7 @@ interface MockConfig {
   sourceOrgId: string;
   targetOrgId: string;
   applyAssignmentRules?: boolean;
+  defaultValues?: ForgeDefaultValue[];
 }
 
 const defaultConfig: MockConfig = {
@@ -74,6 +81,8 @@ const defaultConfig: MockConfig = {
 let mockGraph: ForgeGraph | null = defaultGraph;
 let mockConfig: MockConfig | null = { ...defaultConfig };
 let mockMetadataDiffs: MetadataDiffEntry[] = [];
+/** The gaps the reads found, by read. */
+let mockGaps: Record<ForgeGapSource, ForgeGap[]> = { metadata: [], simulation: [], rehearsal: [] };
 /** The file choice Review holds. */
 const NO_FILES = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
 let mockFileCopy = { ...NO_FILES };
@@ -97,6 +106,9 @@ vi.mock('../../stores/useForgeStore', () => {
     },
     get metadataDiffs() {
       return mockMetadataDiffs;
+    },
+    get gaps() {
+      return mockGaps;
     },
     get anonymizationRules() {
       return mockAnonymizationRules;
@@ -155,6 +167,7 @@ describe('ForgeReview', () => {
     mockMetadataDiffs = [];
     mockFileCopy = { ...NO_FILES };
     useForgeViewStore.setState({ setting: 'auto', choice: null });
+    mockGaps = { metadata: [], simulation: [], rehearsal: [] };
   });
 
   /** Deliver an extension -> webview message the way the real bus does. */
@@ -176,7 +189,7 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it('should have 5 tabs (plan, anonymization, compliance, metadata, automation)', () => {
+  it('should have 6 tabs (plan, anonymization, compliance, metadata, automation, gaps)', () => {
     render(<ForgeReview />);
     expect(screen.getAllByRole('tab').map((tab) => tab.id)).toEqual([
       'tab-plan',
@@ -184,6 +197,7 @@ describe('ForgeReview', () => {
       'tab-compliance',
       'tab-metadata',
       'tab-automation',
+      'tab-gaps',
     ]);
   });
 
@@ -568,7 +582,7 @@ describe('ForgeReview', () => {
           }),
         );
       });
-      expect(mockSetGaps).toHaveBeenCalledWith('metadata', []);
+      expect(mockSetGaps).toHaveBeenCalledWith('metadata', [], []);
       expect(screen.getByTestId('forge-gaps-read-found').textContent).toBe(
         "0 gaps read from the target org's metadata. Read in 5 requests to the target org.",
       );
@@ -746,6 +760,35 @@ describe('ForgeReview', () => {
     render(<ForgeReview />);
     const metaTab = screen.getByTestId('tab-metadata');
     expect(metaTab.textContent).toContain('1');
+  });
+
+  it('counts on the Gaps tab the blocking gaps of the objects written that no decision answers', () => {
+    const gap = (id: string, objectApiName: string, severity: 'blocking' | 'warning') => ({
+      id,
+      kind: 'required_field_missing' as const,
+      severity,
+      source: 'metadata' as const,
+      objectApiName,
+      field: 'Region__c',
+      rows: 0,
+      decisions: ['set_default' as const],
+    });
+    mockGaps = {
+      metadata: [
+        gap('a', 'Account', 'blocking'),
+        gap('b', 'Contact', 'blocking'),
+        gap('c', 'Contact', 'warning'),
+      ],
+      simulation: [],
+      rehearsal: [],
+    };
+    mockConfig = {
+      ...defaultConfig,
+      defaultValues: [{ object: 'Contact', field: 'Region__c', value: 'EMEA' }],
+    };
+    render(<ForgeReview />);
+
+    expect(screen.getByTestId('tab-gaps').textContent).toBe('Gaps1');
   });
 
   it('should switch tabs on click', () => {

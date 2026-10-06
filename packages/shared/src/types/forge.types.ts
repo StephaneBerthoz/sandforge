@@ -1177,6 +1177,13 @@ export interface ForgeTemplateAnonymization {
   presetId?: string;
   /** Method per PII category. A category left out keeps the method the panel holds. */
   rules: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+  /**
+   * The personal fields anonymized on each object, as Review left them: every
+   * object that holds one, with the fields chosen on it, none included. Put
+   * back on the graph a discovery of the template answers with, after its
+   * preset, and only among the personal fields that discovery finds.
+   */
+  fields?: Array<{ objectApiName: string; fieldNames: string[] }>;
 }
 
 /**
@@ -1204,6 +1211,12 @@ export interface ForgeTemplate {
   targetOrgId?: string;
   /** The anonymization the run was reviewed with. Absent on templates saved before it was kept. */
   anonymization?: ForgeTemplateAnonymization;
+  /**
+   * The choice to copy the files of the cloned records, and the largest file
+   * copied; absent when the run copied none. Never the acceptance that files
+   * go as they are: each run asks for it again.
+   */
+  files?: { maxFileSizeMB: number };
   /** Number of objects covered by this template */
   objectCount: number;
   /** Total number of records the template was last used with */

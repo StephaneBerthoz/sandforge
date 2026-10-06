@@ -636,6 +636,110 @@ describe('useForgeStore', () => {
     getState().setConfig(createMockConfig());
 
     expect(getState().gaps).toEqual({ metadata: [], simulation: [], rehearsal: [] });
+    expect(getState().gapReads).toEqual({});
+  });
+
+  describe('the reads of the gaps and the decisions on them', () => {
+    const refused = {
+      id: 'picklist_value_refused|Case|Reason__c|Claim|Other',
+      kind: 'picklist_value_refused' as const,
+      severity: 'blocking' as const,
+      source: 'simulation' as const,
+      objectApiName: 'Case',
+      field: 'Reason__c',
+      recordType: 'Claim',
+      value: 'Other',
+      rows: 4,
+      detail: { allowedValues: ['General', 'Billing'] },
+      decisions: ['map_value' as const, 'leave_empty' as const, 'exclude_object' as const],
+    };
+
+    it('records which reads answered, with what each could not read, until a new config', () => {
+      expect(getState().gapReads).toEqual({});
+      getState().setGaps('metadata', [], [{ part: 'validationRules', reason: 'NO_ACCESS' }]);
+      getState().setGaps('simulation', [refused]);
+
+      expect(getState().gapReads).toEqual({
+        metadata: [{ part: 'validationRules', reason: 'NO_ACCESS' }],
+        simulation: [],
+      });
+      getState().forgeAgain();
+      expect(getState().gapReads).toEqual({});
+    });
+
+    it('writes a decision into the config and keeps the plan, the diffs and the gaps read', () => {
+      const plan: ForgePlan = {
+        waves: [],
+        totalRecords: 4,
+        totalApiCalls: 1,
+        estimatedDurationSeconds: 1,
+        cycleResolutions: [],
+      };
+      getState().setConfig(createMockConfig());
+      getState().setPlan(plan);
+      getState().setMetadataDiffs([
+        {
+          objectApiName: 'Case',
+          fieldApiName: 'Reason__c',
+          issue: 'missing',
+          severity: 'warning',
+          details: 'x',
+        },
+      ]);
+      getState().setGaps('simulation', [refused]);
+
+      getState().decideGap(refused, { kind: 'map_value', to: 'General' });
+
+      expect(getState().config?.picklistValueMappings).toEqual([
+        { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: 'General' },
+      ]);
+      expect(getState().plan).toBe(plan);
+      expect(getState().metadataDiffs).toHaveLength(1);
+      expect(getState().gaps.simulation).toEqual([refused]);
+      expect(getState().gapReads).toEqual({ simulation: [] });
+
+      getState().decideGap(refused, null);
+      expect(getState().config).not.toHaveProperty('picklistValueMappings');
+    });
+
+    it('leaves the object out of the graph with the decision, and puts it back with its undo', () => {
+      getState().setConfig(createMockConfig());
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account' }),
+          createMockNode({ objectApiName: 'Case' }),
+        ]),
+      );
+
+      getState().decideGap(refused, { kind: 'exclude_object' });
+      expect(getState().config?.excludedObjects).toEqual(['Case']);
+      expect(getState().graph?.nodes[1]).toMatchObject({ included: false, leftOutByUser: true });
+
+      getState().undoDecision({ kind: 'object_excluded', object: 'Case' });
+      expect(getState().config).not.toHaveProperty('excludedObjects');
+      expect(getState().graph?.nodes[1].included).toBe(true);
+    });
+
+    it('keeps the excluded objects of the config following the boxes the user ticks', () => {
+      getState().setConfig(createMockConfig({ excludedObjects: ['Task'] }));
+      getState().setGraph(createMockGraph());
+
+      getState().toggleNodeIncluded('Contact');
+      expect(getState().config?.excludedObjects).toEqual(['Task', 'Contact']);
+
+      getState().setNodesIncluded(['Account', 'Contact'], true);
+      expect(getState().config?.excludedObjects).toEqual(['Task']);
+    });
+
+    it('leaves out of a graph put in the store the objects its config leaves out', () => {
+      getState().setConfig(createMockConfig({ excludedObjects: ['Contact'] }));
+      getState().setGraph(createMockGraph());
+
+      expect(getState().graph?.nodes.map((n) => [n.included, n.leftOutByUser])).toEqual([
+        [true, undefined],
+        [false, true],
+      ]);
+    });
   });
 
   it('should update anonymization rule for a category', () => {

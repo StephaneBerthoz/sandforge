@@ -2361,7 +2361,7 @@
     "anonymizePII": "Anonimizar PII",
     "skipEmpty": "Omitir objetos vacíos",
     "discoverGraph": "Descubrir grafo",
-    "noTemplates": "Aún no hay plantillas guardadas. Termine una ejecución y elija Guardar como plantilla en sus resultados.",
+    "noTemplates": "Aún no hay plantillas guardadas. Guarde una desde los resultados de una ejecución o desde la pestaña Discrepancias de la revisión, o importe una desde un archivo.",
     "forging": "FORJANDO...",
     "paused": "EN PAUSA",
     "finishing": "FINALIZANDO...",
@@ -2540,7 +2540,7 @@
     "yourTemplates": "Sus plantillas",
     "savedTemplate": {
       "formTitle": "Guardar esta ejecución como plantilla",
-      "saveHint": "La plantilla conserva el ID de registro o la consulta de la ejecución, su profundidad, límites y opciones, la anonimización con la que se revisó y la org de destino. Aplíquela desde la pestaña Plantilla.",
+      "saveHint": "La plantilla conserva el ID de registro o la consulta de la ejecución, su profundidad, límites y opciones, los objetos que deja fuera, las decisiones tomadas sobre sus discrepancias, su anonimización campo por campo, su copia de archivos (nunca la aceptación) y la org de destino. Aplíquela desde la pestaña Plantilla o expórtela a un archivo.",
       "nameRequired": "Ponga nombre a la plantilla para guardarla.",
       "saved": "Guardada como «{{name}}». Aparece en Sus plantillas, en la pestaña Plantilla.",
       "saveFailed": "La plantilla no se guardó: {{message}}",
@@ -2551,9 +2551,18 @@
       "deleteLabel": "Eliminar {{name}}",
       "summaryTarget": "hacia {{org}}",
       "targetNotConnected": "una org no conectada aquí",
-      "applied": "«{{name}}» aplicada: su profundidad, límites, opciones y anonimización están en el formulario.",
+      "applied": "«{{name}}» aplicada: su profundidad, límites, opciones y anonimización están en el formulario; los objetos que deja fuera, sus decisiones y su copia de archivos acompañan a la ejecución que descubre.",
       "targetSet": "Org de destino fijada en {{org}}.",
-      "targetMissing": "La org en la que escribió no está conectada aquí: elija una org de destino."
+      "targetMissing": "La org en la que escribió no está conectada aquí: elija una org de destino.",
+      "import": "Importar una plantilla",
+      "export": "Exportar",
+      "exportLabel": "Exportar {{name}} a un archivo",
+      "importTooLarge": "Este archivo es demasiado grande para ser una plantilla.",
+      "importNotJson": "Este archivo no es JSON: no contiene ninguna plantilla.",
+      "importNotTemplate": "Este archivo no es una plantilla de SandForge: {{where}} falta o no es válido.",
+      "importNotTemplateAtAll": "Este archivo no contiene ninguna plantilla.",
+      "importFailed": "La plantilla no se importó: {{message}}",
+      "imported": "«{{name}}» importada: aparece en Sus plantillas."
     },
     "smartLimitSuggested_one": "Org detectada con {{count}} registro — se aplicó un límite de {{limit}}/objeto",
     "smartLimitSuggested_other": "Org detectada con {{count}} registros — se aplicó un límite de {{limit}}/objeto",
@@ -2742,7 +2751,8 @@
         "unreadDuplicateRules": "No se pudieron leer las reglas de duplicados de la org de destino: {{reason}}",
         "unreadUserPermissions": "No se pudieron leer los permisos personalizados del usuario con el que la ejecución escribe: {{reason}}",
         "rules": "Reglas de asignación y de duplicados"
-      }
+      },
+      "gapsTab": "Discrepancias"
     },
     "history": {
       "title": "Ejecuciones recientes",
@@ -3021,6 +3031,107 @@
       "done": "Simulación, no se escribió nada. Estas cifras son lo que una ejecución real insertaría, vincularía, retendría y haría fallar; lo que el destino rechazaría o cambiaría en los registros se lista en la revisión.",
       "gapsFound": "Diferencias encontradas con el destino: {{gaps}}",
       "wouldInsert": "Se insertarían"
+    },
+    "gaps": {
+      "notRead": "Todavía no se ha leído nada. Simule la ejecución, o ensáyela, para saber qué rechazaría o cambiaría el destino en sus filas.",
+      "readBy": "Leído: {{sources}}.",
+      "readName": {
+        "metadata": "los metadatos del destino",
+        "simulation": "la simulación",
+        "rehearsal": "el ensayo"
+      },
+      "none": "Lo leído no tiene nada en contra de estas filas.",
+      "unread": "No leído por {{read}}: {{part}} — {{reason}}",
+      "severity": {
+        "blocking": "Rechazará filas",
+        "warning": "Puede rechazar o cambiar filas",
+        "info": "No rechaza nada"
+      },
+      "source": {
+        "metadata": "Leído en los metadatos del destino",
+        "simulation": "Encontrado por la simulación",
+        "rehearsal": "Rechazado por la plataforma en el ensayo"
+      },
+      "kind": {
+        "picklist_value_refused": "Valor de lista de selección que el tipo de registro rechaza",
+        "dependent_value_invalid": "Valor que su campo de control no permite",
+        "picklist_value_absent": "Valor ausente de la lista del destino",
+        "required_field_missing": "Campo que el destino exige, dejado vacío",
+        "value_too_long": "Texto más largo que el campo del destino",
+        "number_out_of_range": "Número que el campo del destino no puede contener",
+        "record_type_unmapped": "Tipo de registro sin correspondencia en el destino",
+        "record_type_unavailable": "Tipo de registro no disponible en el destino",
+        "currency_inactive": "Moneda no activa en el destino",
+        "unique_value_collision": "Valor único que el destino ya contiene",
+        "lookup_filter": "Filtro de búsqueda",
+        "validation_rule": "Regla de validación",
+        "duplicate_rule": "Regla de duplicados",
+        "api_budget": "Cuota diaria de solicitudes de API",
+        "rehearsal_refusal": "Rechazado en el ensayo"
+      },
+      "rows_one": "{{count}} fila",
+      "rows_other": "{{count}} filas",
+      "recordType": "tipo de registro {{name}}",
+      "value": "valor «{{value}}»",
+      "rule": "regla {{name}}",
+      "statusCode": "código de estado {{code}}",
+      "sourceRecordType": "tipo de registro de origen {{name}}",
+      "detail": {
+        "allowedValues": "Valores permitidos",
+        "targetRecordTypes": "Tipos de registro del destino"
+      },
+      "byDefault": "Si no se decide nada: {{decision}}.",
+      "decision": {
+        "map_value": "se escribe otro valor",
+        "leave_empty": "el campo se deja vacío",
+        "set_default": "se escribe un valor predeterminado",
+        "truncate": "el texto se corta a la longitud del campo",
+        "map_record_type": "se escribe otro tipo de registro",
+        "exclude_object": "el objeto se deja fuera",
+        "skip_rows": "estas filas se omiten",
+        "ignore": "la ejecución sigue tal cual"
+      },
+      "decisionsLabel": "Decisiones sobre esta discrepancia",
+      "mapValueLabel": "Escribir en su lugar",
+      "mapValuePlaceholder": "Elija un valor permitido",
+      "recordTypeLabel": "Escribir como tipo de registro",
+      "recordTypePlaceholder": "Elija un tipo de registro",
+      "recordTypeDefault": "El predeterminado del objeto",
+      "defaultLabel": "Valor predeterminado",
+      "defaultSet": "Aplicar",
+      "leaveEmptyValue": "Dejar el campo vacío en estas filas",
+      "leaveEmptyField": "Dejar el campo fuera",
+      "truncate": "Cortar a la longitud del campo",
+      "excludeObject": "Dejar {{object}} fuera de la ejecución",
+      "ignore": "Dejar tal cual",
+      "decided": "Decidido: {{decision}}",
+      "undo": "Deshacer",
+      "undoLabel": "Deshacer la decisión: {{decision}}",
+      "chosen": {
+        "mapValue": "escrito como «{{to}}»",
+        "leaveEmptyValue": "campo dejado vacío en estas filas",
+        "leaveEmptyField": "campo dejado fuera de las filas",
+        "setDefault": "valor predeterminado «{{value}}»",
+        "truncate": "cortado a la longitud del campo",
+        "mapRecordType": "escrito como tipo de registro {{to}}",
+        "mapRecordTypeDefault": "escrito con el tipo de registro predeterminado del objeto",
+        "excludeObject": "{{object}} dejado fuera de la ejecución",
+        "ignore": "dejado tal cual"
+      },
+      "kept": {
+        "title": "Decisiones conservadas con esta ejecución",
+        "hint": "La ejecución las aplica aunque ninguna discrepancia leída las nombre: las trajo una plantilla o una ejecución anterior, o ninguna lectura encuentra ya su discrepancia.",
+        "scope": " (tipo de registro {{name}})",
+        "picklist": "{{object}}.{{field}}{{scope}}: «{{from}}» escrito como «{{to}}»",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}}: «{{from}}» dejado vacío",
+        "recordType": "{{object}}: tipo de registro {{from}} escrito como {{to}}",
+        "recordTypeDefault": "{{object}}: tipo de registro {{from}} escrito como el predeterminado del objeto",
+        "default": "{{object}}.{{field}}: valor predeterminado «{{value}}»",
+        "truncate": "{{object}}.{{field}}: cortado a la longitud del campo",
+        "fieldExcluded": "{{object}}.{{field}}: dejado fuera de las filas",
+        "objectExcluded": "{{object}}: dejado fuera de la ejecución",
+        "ignored": "{{gap}}: dejado tal cual"
+      }
     }
   },
   "autopilot": {

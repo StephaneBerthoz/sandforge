@@ -81,6 +81,8 @@ vi.mock('../../stores/useForgeStore', () => {
     removeTemplate: (...args: unknown[]) => mockRemoveTemplate(...args),
     setAnonymizationRules: (...args: unknown[]) => mockSetAnonymizationRules(...args),
     setAnonymizationPresetId: (...args: unknown[]) => mockSetAnonymizationPresetId(...args),
+    setAnonymizeFieldChoices: vi.fn(),
+    setFileCopy: vi.fn(),
     setGraph: vi.fn(),
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: vi.fn(),

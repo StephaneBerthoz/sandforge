@@ -118,6 +118,8 @@ describe('useForgeGaps', () => {
     expect(useForgeStore.getState().gaps.metadata).toEqual(READ.gaps);
     // A read of the metadata replaces its own gaps only.
     expect(useForgeStore.getState().gaps.simulation).toEqual(simulated);
+    // What the read could not read is kept with its gaps, for the Gaps tab.
+    expect(useForgeStore.getState().gapReads.metadata).toEqual(READ.unread);
     expect(result.current).toMatchObject({
       pending: false,
       error: null,

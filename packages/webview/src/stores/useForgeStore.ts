@@ -15,10 +15,18 @@ import type {
   ComplianceReport,
   ForgeGap,
   ForgeGapSource,
+  ForgeTargetGaps,
 } from '@sandforge/shared';
 import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shared';
 import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
+import type { ForgeGapChoice, ForgeKeptDecision } from '../utils/forgeGapDecisions';
+import {
+  withGapDecision,
+  withObjectExcluded,
+  withoutGapDecision,
+  withoutKept,
+} from '../utils/forgeGapDecisions';
 
 // Re-export shared types so existing imports from this module keep working.
 export type {
@@ -205,6 +213,62 @@ function includedByUser(node: ForgeGraphNode, included: boolean): ForgeGraphNode
   return back;
 }
 
+/**
+ * `graph` with every node `excluded` names left out by the user: the objects
+ * a run's config leaves out, put back on the graph a template or a past run
+ * is discovered again with, as on the graph Review last showed.
+ */
+function withExcludedLeftOut(
+  graph: ForgeGraph,
+  excluded: readonly string[] | undefined,
+): ForgeGraph {
+  if (!excluded?.length) return graph;
+  const names = new Set(excluded);
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n: ForgeGraphNode) =>
+      names.has(n.objectApiName) ? includedByUser(n, false) : n,
+    ),
+  };
+}
+
+/**
+ * `config` with its excluded objects following the nodes `changed` the user
+ * just put in or took out: a node left out by the user is excluded, any other
+ * is not. An excluded object the graph holds no node of stays excluded.
+ */
+function withExcludedFollowing(
+  config: ForgeConfig | null,
+  changed: readonly ForgeGraphNode[],
+): ForgeConfig | null {
+  if (!config) return config;
+  return changed.reduce(
+    (next, node) => withObjectExcluded(next, node.objectApiName, node.leftOutByUser === true),
+    config,
+  );
+}
+
+/**
+ * `graph` with the node of `object` put in or left out as `config` now says:
+ * a decision on the Gaps tab and the box of the graph are one choice.
+ */
+function graphFollowingExcluded(
+  graph: ForgeGraph | null,
+  config: ForgeConfig,
+  object: string,
+): ForgeGraph | null {
+  if (!graph) return graph;
+  const excluded = config.excludedObjects?.includes(object) === true;
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n: ForgeGraphNode) =>
+      n.objectApiName === object && (n.leftOutByUser === true) !== excluded
+        ? includedByUser(n, !excluded)
+        : n,
+    ),
+  };
+}
+
 /** Every node back to idle, keeping what discovery said went wrong with each. */
 function idleNodes(nodes: ForgeGraphNode[]): ForgeGraphNode[] {
   return nodes.map((n: ForgeGraphNode) => ({
@@ -247,6 +311,18 @@ const NO_FILE_COPY: ForgeFileCopyChoice = {
   acceptedAsIs: false,
 };
 
+/**
+ * The reads of the target's gaps that have answered, by source, each with the
+ * parts it could not read. A source absent from it has not been read yet.
+ */
+export type ForgeGapReads = Partial<Record<ForgeGapSource, ForgeTargetGaps['unread']>>;
+
+/** The personal fields anonymized on each object, as a template keeps them. */
+export interface ForgeAnonymizeFieldChoice {
+  objectApiName: string;
+  fieldNames: string[];
+}
+
 /** Initial state values for reset. */
 /** No gap read yet: a new config or a new run starts from nothing. */
 const NO_GAPS: Readonly<Record<ForgeGapSource, ForgeGap[]>> = {
@@ -267,8 +343,10 @@ const INITIAL_STATE = {
   complianceReport: null as ComplianceReport | null,
   metadataDiffs: [] as MetadataDiffEntry[],
   gaps: { ...NO_GAPS },
+  gapReads: {} as ForgeGapReads,
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
   anonymizationPresetId: '',
+  anonymizeFieldChoices: null as ForgeAnonymizeFieldChoice[] | null,
   fileCopy: { ...NO_FILE_COPY },
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
@@ -320,6 +398,12 @@ export interface ForgeState {
    * (`mergeGaps`); each read replaces only its own.
    */
   gaps: Record<ForgeGapSource, ForgeGap[]>;
+  /**
+   * Which reads of the gaps have answered, and what each could not read: the
+   * Gaps tab tells a read that found nothing from one not made yet, and says
+   * what a read left unread.
+   */
+  gapReads: ForgeGapReads;
   /** Anonymization rules per category. */
   anonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod>;
   /**
@@ -329,6 +413,15 @@ export interface ForgeState {
    * with the run as a template, and a template can bring it back.
    */
   anonymizationPresetId: string;
+  /**
+   * The personal fields a template anonymized on each object, or null: put
+   * back on the graph its discovery answers with, after its preset
+   * (`adoptDiscoveredGraph`). Set when a template is applied, cleared when a
+   * past run is.
+   */
+  anonymizeFieldChoices: ForgeAnonymizeFieldChoice[] | null;
+  /** Keep the personal fields a template anonymized, or none (null). */
+  setAnonymizeFieldChoices: (choices: ForgeAnonymizeFieldChoice[] | null) => void;
   /**
    * Whether the run copies the files of the records it clones, how large a
    * file it copies, and whether the user accepted that files are copied as
@@ -606,8 +699,21 @@ export interface ForgeState {
   setComplianceReport: (report: ComplianceReport | null) => void;
   /** Set metadata diffs. */
   setMetadataDiffs: (diffs: MetadataDiffEntry[]) => void;
-  /** Replace the gaps one read found, leaving the others' as they are. */
-  setGaps: (source: ForgeGapSource, gaps: ForgeGap[]) => void;
+  /**
+   * Replace the gaps one read found, leaving the others' as they are, and
+   * record that it answered, with the parts it could not read.
+   */
+  setGaps: (source: ForgeGapSource, gaps: ForgeGap[], unread?: ForgeTargetGaps['unread']) => void;
+  /**
+   * Record the decision `choice` on `gap` in the config, in place of the one
+   * that answered it, or take that one back (null). Nothing else goes: the
+   * plan, the diffs and the gaps read stay, where `setConfig` starts a new
+   * run from nothing. Leaving the object out leaves its node out of the graph,
+   * and taking that back puts it in again.
+   */
+  decideGap: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
+  /** Take back a decision the config holds, as `decideGap` takes one back. */
+  undoDecision: (kept: ForgeKeptDecision) => void;
   /** Set an anonymization rule for a category. */
   setAnonymizationRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
   /** Set the method of every category a template names, leaving the others as they are. */
@@ -657,6 +763,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       complianceReport: null,
       metadataDiffs: [],
       gaps: { ...NO_GAPS },
+      gapReads: {},
       result: null,
       fileCopy: { ...NO_FILE_COPY },
       discoveryId: null,
@@ -738,7 +845,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   },
 
   setGraph(graph: ForgeGraph): void {
-    set({ graph });
+    set((state) => ({ graph: withExcludedLeftOut(graph, state.config?.excludedObjects) }));
   },
 
   setPhase(phase: ForgePhase): void {
@@ -1019,13 +1126,17 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   toggleNodeIncluded(objectName: string): void {
     set((state) => {
       if (!state.graph) return state;
+      const nodes = state.graph.nodes.map((n: ForgeGraphNode) =>
+        n.objectApiName === objectName ? includedByUser(n, !n.included) : n,
+      );
       return {
-        graph: {
-          ...state.graph,
-          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
-            n.objectApiName === objectName ? includedByUser(n, !n.included) : n,
-          ),
-        },
+        graph: { ...state.graph, nodes },
+        // The config says which objects the run leaves out: a template saved
+        // from it, and the Gaps tab, read them there.
+        config: withExcludedFollowing(
+          state.config,
+          nodes.filter((n: ForgeGraphNode) => n.objectApiName === objectName),
+        ),
       };
     });
   },
@@ -1034,13 +1145,15 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     const names = new Set(objectNames);
     set((state) => {
       if (!state.graph) return state;
+      const nodes = state.graph.nodes.map((n: ForgeGraphNode) =>
+        names.has(n.objectApiName) ? includedByUser(n, included) : n,
+      );
       return {
-        graph: {
-          ...state.graph,
-          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
-            names.has(n.objectApiName) ? includedByUser(n, included) : n,
-          ),
-        },
+        graph: { ...state.graph, nodes },
+        config: withExcludedFollowing(
+          state.config,
+          nodes.filter((n: ForgeGraphNode) => names.has(n.objectApiName)),
+        ),
       };
     });
   },
@@ -1148,8 +1261,35 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set({ metadataDiffs: diffs });
   },
 
-  setGaps(source: ForgeGapSource, gaps: ForgeGap[]): void {
-    set((state) => ({ gaps: { ...state.gaps, [source]: gaps } }));
+  setGaps(source: ForgeGapSource, gaps: ForgeGap[], unread: ForgeTargetGaps['unread'] = []): void {
+    set((state) => ({
+      gaps: { ...state.gaps, [source]: gaps },
+      gapReads: { ...state.gapReads, [source]: unread },
+    }));
+  },
+
+  decideGap(gap: ForgeGap, choice: ForgeGapChoice | null): void {
+    set((state) => {
+      if (!state.config) return state;
+      const config = choice
+        ? withGapDecision(state.config, gap, choice)
+        : withoutGapDecision(state.config, gap);
+      return { config, graph: graphFollowingExcluded(state.graph, config, gap.objectApiName) };
+    });
+  },
+
+  undoDecision(kept: ForgeKeptDecision): void {
+    set((state) => {
+      if (!state.config) return state;
+      const config = withoutKept(state.config, kept);
+      return {
+        config,
+        graph:
+          kept.kind === 'object_excluded'
+            ? graphFollowingExcluded(state.graph, config, kept.object)
+            : state.graph,
+      };
+    });
   },
 
   setAnonymizationRule(category: ForgeAnonymizationCategory, method: AnonymizationMethod): void {
@@ -1169,6 +1309,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   setAnonymizationPresetId(anonymizationPresetId: string): void {
     set({ anonymizationPresetId });
+  },
+
+  setAnonymizeFieldChoices(anonymizeFieldChoices: ForgeAnonymizeFieldChoice[] | null): void {
+    set({ anonymizeFieldChoices });
   },
 
   updateNodeBatchStrategy(objectApiName: string, strategy: ForgeBatchStrategy): void {
@@ -1199,6 +1343,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       complianceReport: null,
       metadataDiffs: [],
       gaps: { ...NO_GAPS },
+      gapReads: {},
       logs: [],
       stoppedAt: null,
       runError: null,

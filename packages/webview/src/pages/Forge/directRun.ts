@@ -29,13 +29,18 @@ export function sendDiscovery(
  * A preset picked in Review — or brought back by a template — applies to the
  * graph it is shown beside. A new graph comes back with every PII field it
  * found selected, and the Review tab would show the preset over fields it
- * never chose.
+ * never chose. The fields a template kept object by object come after it:
+ * they are what Review held once the preset had been changed by hand. The
+ * objects the run's config leaves out are left out of the graph as it lands.
  */
 export function adoptDiscoveredGraph(graph: ForgeGraph): void {
   useForgeStore.getState().setGraph(graph);
-  const { anonymizationPresetId, config, applyAnonymizationPreset } = useForgeStore.getState();
+  const { anonymizationPresetId, anonymizeFieldChoices, config, applyAnonymizationPreset } =
+    useForgeStore.getState();
+  if (!config?.anonymizePII) return;
   const preset = findForgeAnonymizationPreset(anonymizationPresetId);
-  if (preset && config?.anonymizePII) applyAnonymizationPreset(preset.rules);
+  if (preset) applyAnonymizationPreset(preset.rules);
+  if (anonymizeFieldChoices) applyAnonymizationPreset(anonymizeFieldChoices);
 }
 
 /** Whether `value` has the one part of a graph nothing can be done without: its nodes. */

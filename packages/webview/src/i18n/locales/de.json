@@ -2361,7 +2361,7 @@
     "anonymizePII": "PII anonymisieren",
     "skipEmpty": "Leere Objekte überspringen",
     "discoverGraph": "Graph ermitteln",
-    "noTemplates": "Noch keine gespeicherten Vorlagen. Schließen Sie einen Durchlauf ab und wählen Sie in seinen Ergebnissen „Als Vorlage speichern“.",
+    "noTemplates": "Noch keine gespeicherten Vorlagen. Speichern Sie eine aus den Ergebnissen eines Durchlaufs oder aus dem Tab „Abweichungen“ der Prüfung, oder importieren Sie eine aus einer Datei.",
     "forging": "SCHMIEDET...",
     "paused": "PAUSIERT",
     "finishing": "WIRD ABGESCHLOSSEN...",
@@ -2540,7 +2540,7 @@
     "yourTemplates": "Ihre Vorlagen",
     "savedTemplate": {
       "formTitle": "Diesen Durchlauf als Vorlage speichern",
-      "saveHint": "Die Vorlage behält die Datensatz-ID oder Abfrage des Durchlaufs, seine Tiefe, Obergrenzen und Optionen, die Anonymisierung, mit der er geprüft wurde, und die Ziel-Org. Wenden Sie sie im Tab „Vorlage“ an.",
+      "saveHint": "Die Vorlage behält die Datensatz-ID oder Abfrage des Durchlaufs, seine Tiefe, Obergrenzen und Optionen, die Objekte, die er auslässt, die zu seinen Abweichungen getroffenen Entscheidungen, seine Anonymisierung Feld für Feld, seine Dateikopie (nie die Zustimmung) und die Ziel-Org. Wenden Sie sie im Tab „Vorlage“ an, oder exportieren Sie sie in eine Datei.",
       "nameRequired": "Geben Sie der Vorlage einen Namen, um sie zu speichern.",
       "saved": "Als „{{name}}“ gespeichert. Sie steht unter „Ihre Vorlagen“ im Tab „Vorlage“.",
       "saveFailed": "Die Vorlage wurde nicht gespeichert: {{message}}",
@@ -2551,9 +2551,18 @@
       "deleteLabel": "{{name}} löschen",
       "summaryTarget": "nach {{org}}",
       "targetNotConnected": "eine hier nicht verbundene Org",
-      "applied": "„{{name}}“ angewendet: Tiefe, Obergrenzen, Optionen und Anonymisierung stehen im Formular.",
+      "applied": "„{{name}}“ angewendet: Tiefe, Obergrenzen, Optionen und Anonymisierung stehen im Formular; die Objekte, die sie auslässt, ihre Entscheidungen und ihre Dateikopie gehen mit dem Durchlauf, den sie ermittelt.",
       "targetSet": "Ziel-Org auf {{org}} gesetzt.",
-      "targetMissing": "Die Org, in die sie geschrieben hat, ist hier nicht verbunden: Wählen Sie eine Ziel-Org."
+      "targetMissing": "Die Org, in die sie geschrieben hat, ist hier nicht verbunden: Wählen Sie eine Ziel-Org.",
+      "import": "Vorlage importieren",
+      "export": "Exportieren",
+      "exportLabel": "{{name}} in eine Datei exportieren",
+      "importTooLarge": "Diese Datei ist zu groß für eine Vorlage.",
+      "importNotJson": "Diese Datei ist kein JSON: Sie enthält keine Vorlage.",
+      "importNotTemplate": "Diese Datei ist keine SandForge-Vorlage: {{where}} fehlt oder ist ungültig.",
+      "importNotTemplateAtAll": "Diese Datei enthält keine Vorlage.",
+      "importFailed": "Die Vorlage wurde nicht importiert: {{message}}",
+      "imported": "„{{name}}“ importiert: Sie steht unter „Ihre Vorlagen“."
     },
     "smartLimitSuggested_one": "Org mit {{count}} Datensatz erkannt — Limit von {{limit}}/Objekt angewendet",
     "smartLimitSuggested_other": "Org mit {{count}} Datensätzen erkannt — Limit von {{limit}}/Objekt angewendet",
@@ -2742,7 +2751,8 @@
         "unreadDuplicateRules": "Die Duplikatsregeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadUserPermissions": "Die benutzerdefinierten Berechtigungen des Benutzers, als der der Durchlauf schreibt, konnten nicht gelesen werden: {{reason}}",
         "rules": "Zuweisungs- und Duplikatsregeln"
-      }
+      },
+      "gapsTab": "Abweichungen"
     },
     "history": {
       "title": "Letzte Durchläufe",
@@ -3021,6 +3031,107 @@
       "done": "Simulation, nichts wurde geschrieben. Diese Zahlen zeigen, was ein echter Lauf einfügen, verknüpfen, zurückhalten und verfehlen würde; was das Ziel an den Datensätzen ablehnen oder ändern würde, steht in der Überprüfung.",
       "gapsFound": "Gefundene Abweichungen zum Ziel: {{gaps}}",
       "wouldInsert": "Würden eingefügt"
+    },
+    "gaps": {
+      "notRead": "Noch nichts gelesen. Simulieren Sie den Durchlauf oder proben Sie ihn, um herauszufinden, was das Ziel in seinen Zeilen ablehnen oder ändern würde.",
+      "readBy": "Gelesen: {{sources}}.",
+      "readName": {
+        "metadata": "die Metadaten des Ziels",
+        "simulation": "die Simulation",
+        "rehearsal": "die Probe"
+      },
+      "none": "Im Gelesenen spricht nichts gegen diese Zeilen.",
+      "unread": "Nicht gelesen von {{read}}: {{part}} – {{reason}}",
+      "severity": {
+        "blocking": "Wird Zeilen ablehnen",
+        "warning": "Kann Zeilen ablehnen oder ändern",
+        "info": "Lehnt nichts ab"
+      },
+      "source": {
+        "metadata": "Aus den Metadaten des Ziels gelesen",
+        "simulation": "Von der Simulation gefunden",
+        "rehearsal": "Von der Plattform in der Probe abgelehnt"
+      },
+      "kind": {
+        "picklist_value_refused": "Auswahllistenwert, den der Datensatztyp ablehnt",
+        "dependent_value_invalid": "Wert, den sein steuerndes Feld nicht zulässt",
+        "picklist_value_absent": "Wert fehlt in der Liste des Ziels",
+        "required_field_missing": "Vom Ziel verlangtes Feld, leer gelassen",
+        "value_too_long": "Text länger als das Feld des Ziels",
+        "number_out_of_range": "Zahl, die das Feld des Ziels nicht aufnehmen kann",
+        "record_type_unmapped": "Datensatztyp ohne Entsprechung im Ziel",
+        "record_type_unavailable": "Datensatztyp im Ziel nicht verfügbar",
+        "currency_inactive": "Währung im Ziel nicht aktiv",
+        "unique_value_collision": "Eindeutiger Wert, den das Ziel bereits enthält",
+        "lookup_filter": "Nachschlagefilter",
+        "validation_rule": "Validierungsregel",
+        "duplicate_rule": "Duplikatregel",
+        "api_budget": "Tägliches API-Anfragekontingent",
+        "rehearsal_refusal": "In der Probe abgelehnt"
+      },
+      "rows_one": "{{count}} Zeile",
+      "rows_other": "{{count}} Zeilen",
+      "recordType": "Datensatztyp {{name}}",
+      "value": "Wert „{{value}}“",
+      "rule": "Regel {{name}}",
+      "statusCode": "Statuscode {{code}}",
+      "sourceRecordType": "Quell-Datensatztyp {{name}}",
+      "detail": {
+        "allowedValues": "Zulässige Werte",
+        "targetRecordTypes": "Datensatztypen des Ziels"
+      },
+      "byDefault": "Ohne Entscheidung: {{decision}}.",
+      "decision": {
+        "map_value": "ein anderer Wert wird geschrieben",
+        "leave_empty": "das Feld bleibt leer",
+        "set_default": "ein Standardwert wird geschrieben",
+        "truncate": "der Text wird auf die Feldlänge gekürzt",
+        "map_record_type": "ein anderer Datensatztyp wird geschrieben",
+        "exclude_object": "das Objekt wird ausgelassen",
+        "skip_rows": "diese Zeilen werden übersprungen",
+        "ignore": "der Durchlauf geht unverändert weiter"
+      },
+      "decisionsLabel": "Entscheidungen zu dieser Abweichung",
+      "mapValueLabel": "Stattdessen schreiben",
+      "mapValuePlaceholder": "Zulässigen Wert wählen",
+      "recordTypeLabel": "Als Datensatztyp schreiben",
+      "recordTypePlaceholder": "Datensatztyp wählen",
+      "recordTypeDefault": "Standard des Objekts",
+      "defaultLabel": "Standardwert",
+      "defaultSet": "Festlegen",
+      "leaveEmptyValue": "Feld in diesen Zeilen leer lassen",
+      "leaveEmptyField": "Feld auslassen",
+      "truncate": "Auf die Feldlänge kürzen",
+      "excludeObject": "{{object}} aus dem Durchlauf auslassen",
+      "ignore": "So lassen",
+      "decided": "Entschieden: {{decision}}",
+      "undo": "Rückgängig",
+      "undoLabel": "Entscheidung rückgängig machen: {{decision}}",
+      "chosen": {
+        "mapValue": "als „{{to}}“ geschrieben",
+        "leaveEmptyValue": "Feld in diesen Zeilen leer gelassen",
+        "leaveEmptyField": "Feld aus den Zeilen ausgelassen",
+        "setDefault": "Standardwert „{{value}}“",
+        "truncate": "auf die Feldlänge gekürzt",
+        "mapRecordType": "als Datensatztyp {{to}} geschrieben",
+        "mapRecordTypeDefault": "mit dem Standard-Datensatztyp des Objekts geschrieben",
+        "excludeObject": "{{object}} aus dem Durchlauf ausgelassen",
+        "ignore": "so gelassen"
+      },
+      "kept": {
+        "title": "Mit diesem Durchlauf behaltene Entscheidungen",
+        "hint": "Der Durchlauf wendet sie an, obwohl keine gelesene Abweichung sie nennt: Eine Vorlage oder ein früherer Durchlauf hat sie mitgebracht, oder keine Lesung findet ihre Abweichung mehr.",
+        "scope": " (Datensatztyp {{name}})",
+        "picklist": "{{object}}.{{field}}{{scope}}: „{{from}}“ als „{{to}}“ geschrieben",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}}: „{{from}}“ leer gelassen",
+        "recordType": "{{object}}: Datensatztyp {{from}} als {{to}} geschrieben",
+        "recordTypeDefault": "{{object}}: Datensatztyp {{from}} als Standard des Objekts geschrieben",
+        "default": "{{object}}.{{field}}: Standardwert „{{value}}“",
+        "truncate": "{{object}}.{{field}}: auf die Feldlänge gekürzt",
+        "fieldExcluded": "{{object}}.{{field}}: aus den Zeilen ausgelassen",
+        "objectExcluded": "{{object}}: aus dem Durchlauf ausgelassen",
+        "ignored": "{{gap}}: so gelassen"
+      }
     }
   },
   "autopilot": {

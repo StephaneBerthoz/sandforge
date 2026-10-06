@@ -841,6 +841,127 @@ describe('applying a saved template', () => {
     const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
     expect(config.keepContactPoints).toBe(true);
   });
+
+  describe('what the form does not show', () => {
+    const DECIDED: ForgeTemplate = {
+      ...TEMPLATE,
+      config: {
+        ...TEMPLATE.config,
+        excludedObjects: ['Task'],
+        picklistValueMappings: [
+          { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: 'General' },
+        ],
+        recordTypeMappings: [{ object: 'Case', from: 'Old_RT', to: null }],
+        defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+        truncateFields: [{ object: 'Contact', field: 'Description' }],
+        ignoredGaps: ['validation_rule|Contact|||Phone_Format'],
+        fieldExclusions: { Contact: ['Fax'] },
+        fieldMappings: { Account: { Region__c: 'Region__pc' } },
+      },
+      anonymization: {
+        rules: { email: 'hash' },
+        fields: [{ objectApiName: 'Contact', fieldNames: ['Email'] }],
+      },
+      files: { maxFileSizeMB: 20 },
+    };
+
+    /** Apply `template`, from the source picked now, and run `start`. */
+    function applyThen(
+      template: ForgeTemplate,
+      start: (form: ReturnType<typeof useForgeForm>) => void,
+    ): void {
+      const { result } = renderHook(() => useForgeForm());
+      act(() => result.current.setSourceOrgId('org-src'));
+      act(() => {
+        result.current.applyTemplate(template);
+      });
+      act(() => start(result.current));
+    }
+
+    it('sends a template’s decisions, objects left out, exclusions and mappings with its Discover', () => {
+      applyThen(DECIDED, (form) => form.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config).toMatchObject({
+        excludedObjects: ['Task'],
+        picklistValueMappings: DECIDED.config.picklistValueMappings,
+        recordTypeMappings: DECIDED.config.recordTypeMappings,
+        defaultValues: DECIDED.config.defaultValues,
+        truncateFields: DECIDED.config.truncateFields,
+        ignoredGaps: DECIDED.config.ignoredGaps,
+        fieldExclusions: { Contact: ['Fax'] },
+        fieldMappings: { Account: { Region__c: 'Region__pc' } },
+      });
+      // The run the store holds is the one Execute, Retry and Clone directly send.
+      expect(useForgeStore.getState().config).toMatchObject({ excludedObjects: ['Task'] });
+    });
+
+    it('sends them with a Clone directly too, which copies no file, as it never did', () => {
+      applyThen(DECIDED, (form) => form.handleCloneDirectly());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config.defaultValues).toEqual(DECIDED.config.defaultValues);
+      expect(useForgeStore.getState().directDiscoveryId).not.toBeNull();
+      expect(useForgeStore.getState().fileCopy.enabled).toBe(false);
+    });
+
+    it('puts its file copy on the run it discovers, to be accepted again', () => {
+      applyThen(DECIDED, (form) => form.handleDiscover());
+
+      expect(useForgeStore.getState().fileCopy).toEqual({
+        enabled: true,
+        maxFileSizeMB: 20,
+        acceptedAsIs: false,
+      });
+    });
+
+    it('keeps its anonymized fields for the graph its discovery answers with', () => {
+      applyThen(DECIDED, () => undefined);
+
+      expect(useForgeStore.getState().anonymizeFieldChoices).toEqual([
+        { objectApiName: 'Contact', fieldNames: ['Email'] },
+      ]);
+    });
+
+    it('sends a past run’s decisions with its replay, and drops a template’s fields and files', () => {
+      const { result } = renderHook(() => useForgeForm());
+      act(() => result.current.setSourceOrgId('org-src'));
+      act(() => result.current.setTargetOrgId('org-tgt'));
+      act(() => {
+        result.current.applyTemplate(DECIDED);
+      });
+      act(() =>
+        result.current.applyHistoryConfig({
+          ...RECORD_RUN.config!,
+          excludedObjects: ['Event'],
+        }),
+      );
+      act(() => result.current.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config.excludedObjects).toEqual(['Event']);
+      expect(config).not.toHaveProperty('picklistValueMappings');
+      expect(useForgeStore.getState().anonymizeFieldChoices).toBeNull();
+      expect(useForgeStore.getState().fileCopy.enabled).toBe(false);
+    });
+
+    it('keeps the decisions of the run the store holds when the form comes back to it', () => {
+      useForgeStore.getState().setConfig({
+        ...TEMPLATE.config,
+        sourceOrgId: 'org-src',
+        targetOrgId: 'org-tgt',
+        ignoredGaps: ['api_budget|Account|||'],
+      });
+      const { result } = renderHook(() => useForgeForm());
+      act(() => result.current.setSourceOrgId('org-src'));
+      act(() => result.current.setTargetOrgId('org-tgt'));
+      act(() => result.current.handleRecordIdChange('001AB00000ABCDEFGH'));
+      act(() => result.current.handleDiscover());
+
+      const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+      expect(config.ignoredGaps).toEqual(['api_budget|Account|||']);
+    });
+  });
 });
 
 describe('cloning directly', () => {

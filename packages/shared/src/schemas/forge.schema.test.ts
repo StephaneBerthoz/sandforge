@@ -514,6 +514,60 @@ describe('forgeTemplateSchema', () => {
     expect(result.description).toBe('');
   });
 
+  it('keeps everything a run was given, read back from its file as saved', () => {
+    const saved = {
+      ...createValidForgeTemplate(),
+      config: {
+        ...(createValidForgeTemplate().config as Record<string, unknown>),
+        excludedObjects: ['Task'],
+        picklistValueMappings: [
+          { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: 'General' },
+        ],
+        recordTypeMappings: [{ object: 'Case', from: 'Old_RT', to: null }],
+        defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+        truncateFields: [{ object: 'Contact', field: 'Description' }],
+        fieldExclusions: { Contact: ['Fax'] },
+        ignoredGaps: ['validation_rule|Contact|||Phone_Format'],
+      },
+      anonymization: {
+        rules: { email: 'hash' },
+        fields: [
+          { objectApiName: 'Contact', fieldNames: ['Email'] },
+          { objectApiName: 'Account', fieldNames: [] },
+        ],
+      },
+      files: { maxFileSizeMB: 20 },
+    };
+
+    const result = forgeTemplateSchema.parse(JSON.parse(JSON.stringify(saved)));
+
+    expect(result.config).toEqual(saved.config);
+    expect(result.anonymization?.fields).toEqual(saved.anonymization.fields);
+    expect(result.files).toEqual({ maxFileSizeMB: 20 });
+  });
+
+  it('refuses a file size no call carries, and a field name no query could hold', () => {
+    expect(
+      forgeTemplateSchema.safeParse({ ...createValidForgeTemplate(), files: { maxFileSizeMB: 0 } })
+        .success,
+    ).toBe(false);
+    expect(
+      forgeTemplateSchema.safeParse({
+        ...createValidForgeTemplate(),
+        files: { maxFileSizeMB: 500 },
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeTemplateSchema.safeParse({
+        ...createValidForgeTemplate(),
+        anonymization: {
+          rules: {},
+          fields: [{ objectApiName: 'Contact', fieldNames: ['Email; DELETE'] }],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it('keeps the target org and the anonymization a run was saved with', () => {
     const result = forgeTemplateSchema.parse({
       ...createValidForgeTemplate(),

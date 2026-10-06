@@ -2361,7 +2361,7 @@
     "anonymizePII": "Anonymiser les PII",
     "skipEmpty": "Ignorer les objets vides",
     "discoverGraph": "Découvrir le graphe",
-    "noTemplates": "Aucun modèle enregistré pour le moment. Terminez une exécution, puis choisissez Enregistrer comme modèle dans ses résultats.",
+    "noTemplates": "Aucun modèle enregistré pour l'instant. Enregistrez-en un depuis les résultats d'une exécution ou depuis l'onglet Écarts de la revue, ou importez-en un depuis un fichier.",
     "forging": "FORGEAGE...",
     "paused": "EN PAUSE",
     "finishing": "FINALISATION...",
@@ -2540,7 +2540,7 @@
     "yourTemplates": "Vos modèles",
     "savedTemplate": {
       "formTitle": "Enregistrer cette exécution comme modèle",
-      "saveHint": "Le modèle garde l'ID d'enregistrement ou la requête de l'exécution, sa profondeur, ses plafonds et ses options, l'anonymisation avec laquelle elle a été revue, et l'org cible. Appliquez-le depuis l'onglet Modèle.",
+      "saveHint": "Le modèle garde l'ID d'enregistrement ou la requête de l'exécution, sa profondeur, ses plafonds et ses options, les objets qu'elle laisse de côté, les décisions prises sur ses écarts, son anonymisation champ par champ, sa copie des fichiers (jamais l'acceptation) et l'org cible. Appliquez-le depuis l'onglet Modèle, ou exportez-le dans un fichier.",
       "nameRequired": "Nommez le modèle pour l'enregistrer.",
       "saved": "Enregistré sous « {{name}} ». Il figure dans Vos modèles, dans l'onglet Modèle.",
       "saveFailed": "Le modèle n'a pas été enregistré : {{message}}",
@@ -2551,9 +2551,18 @@
       "deleteLabel": "Supprimer {{name}}",
       "summaryTarget": "vers {{org}}",
       "targetNotConnected": "une org non connectée ici",
-      "applied": "« {{name}} » appliqué : sa profondeur, ses plafonds, ses options et son anonymisation sont reportés dans le formulaire.",
+      "applied": "« {{name}} » appliqué : sa profondeur, ses plafonds, ses options et son anonymisation sont reportés dans le formulaire ; les objets qu'il laisse de côté, ses décisions et sa copie des fichiers suivent l'exécution qu'il découvre.",
       "targetSet": "Org cible réglée sur {{org}}.",
-      "targetMissing": "L'org dans laquelle il a écrit n'est pas connectée ici : choisissez une org cible."
+      "targetMissing": "L'org dans laquelle il a écrit n'est pas connectée ici : choisissez une org cible.",
+      "import": "Importer un modèle",
+      "export": "Exporter",
+      "exportLabel": "Exporter {{name}} dans un fichier",
+      "importTooLarge": "Ce fichier est trop volumineux pour être un modèle.",
+      "importNotJson": "Ce fichier n'est pas du JSON : il ne contient aucun modèle.",
+      "importNotTemplate": "Ce fichier n'est pas un modèle SandForge : {{where}} manque ou n'est pas valide.",
+      "importNotTemplateAtAll": "Ce fichier ne contient pas de modèle.",
+      "importFailed": "Le modèle n'a pas été importé : {{message}}",
+      "imported": "« {{name}} » importé : il figure dans Vos modèles."
     },
     "smartLimitSuggested_one": "Org avec {{count}} enregistrement détectée — limite {{limit}}/objet appliquée",
     "smartLimitSuggested_other": "Org avec {{count}} enregistrements détectée — limite {{limit}}/objet appliquée",
@@ -2742,7 +2751,8 @@
         "unreadDuplicateRules": "Les règles de doublons de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadUserPermissions": "Les autorisations personnalisées de l'utilisateur sous lequel l'exécution écrit n'ont pas pu être lues : {{reason}}",
         "rules": "Règles d'attribution et de doublons"
-      }
+      },
+      "gapsTab": "Écarts"
     },
     "history": {
       "title": "Exécutions récentes",
@@ -3021,6 +3031,107 @@
       "done": "Simulation, rien n'a été écrit. Ces chiffres sont ce qu'un clonage réel insérerait, lierait, retiendrait et ferait échouer ; ce que la cible refuserait ou modifierait dans les enregistrements est listé dans la revue.",
       "gapsFound": "Écarts trouvés avec la cible : {{gaps}}",
       "wouldInsert": "Seraient insérés"
+    },
+    "gaps": {
+      "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou répétez-la, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
+      "readBy": "Lu : {{sources}}.",
+      "readName": {
+        "metadata": "les métadonnées de la cible",
+        "simulation": "la simulation",
+        "rehearsal": "la répétition"
+      },
+      "none": "Ce qui a été lu ne retient rien contre ces lignes.",
+      "unread": "Non lu par {{read}} : {{part}} — {{reason}}",
+      "severity": {
+        "blocking": "Refusera des lignes",
+        "warning": "Peut refuser ou changer des lignes",
+        "info": "Ne refuse rien"
+      },
+      "source": {
+        "metadata": "Lu dans les métadonnées de la cible",
+        "simulation": "Trouvé par la simulation",
+        "rehearsal": "Refusé par la plateforme lors de la répétition"
+      },
+      "kind": {
+        "picklist_value_refused": "Valeur de liste de sélection que le type d'enregistrement refuse",
+        "dependent_value_invalid": "Valeur que son champ de contrôle n'autorise pas",
+        "picklist_value_absent": "Valeur absente de la liste de la cible",
+        "required_field_missing": "Champ que la cible exige, laissé vide",
+        "value_too_long": "Texte plus long que le champ de la cible",
+        "number_out_of_range": "Nombre que le champ de la cible ne peut pas contenir",
+        "record_type_unmapped": "Type d'enregistrement sans correspondance dans la cible",
+        "record_type_unavailable": "Type d'enregistrement indisponible dans la cible",
+        "currency_inactive": "Devise inactive dans la cible",
+        "unique_value_collision": "Valeur unique que la cible détient déjà",
+        "lookup_filter": "Filtre de recherche",
+        "validation_rule": "Règle de validation",
+        "duplicate_rule": "Règle de doublons",
+        "api_budget": "Quota quotidien de requêtes API",
+        "rehearsal_refusal": "Refusé lors de la répétition"
+      },
+      "rows_one": "{{count}} ligne",
+      "rows_other": "{{count}} lignes",
+      "recordType": "type d'enregistrement {{name}}",
+      "value": "valeur « {{value}} »",
+      "rule": "règle {{name}}",
+      "statusCode": "code d'état {{code}}",
+      "sourceRecordType": "type d'enregistrement source {{name}}",
+      "detail": {
+        "allowedValues": "Valeurs autorisées",
+        "targetRecordTypes": "Types d'enregistrement de la cible"
+      },
+      "byDefault": "Sans décision : {{decision}}.",
+      "decision": {
+        "map_value": "une autre valeur est écrite",
+        "leave_empty": "le champ est laissé vide",
+        "set_default": "une valeur par défaut est écrite",
+        "truncate": "le texte est coupé à la longueur du champ",
+        "map_record_type": "un autre type d'enregistrement est écrit",
+        "exclude_object": "l'objet est laissé de côté",
+        "skip_rows": "ces lignes sont sautées",
+        "ignore": "l'exécution continue telle quelle"
+      },
+      "decisionsLabel": "Décisions sur cet écart",
+      "mapValueLabel": "Écrire à la place",
+      "mapValuePlaceholder": "Choisissez une valeur autorisée",
+      "recordTypeLabel": "Écrire comme type d'enregistrement",
+      "recordTypePlaceholder": "Choisissez un type d'enregistrement",
+      "recordTypeDefault": "Celui par défaut de l'objet",
+      "defaultLabel": "Valeur par défaut",
+      "defaultSet": "Appliquer",
+      "leaveEmptyValue": "Laisser le champ vide dans ces lignes",
+      "leaveEmptyField": "Laisser le champ de côté",
+      "truncate": "Couper à la longueur du champ",
+      "excludeObject": "Laisser {{object}} hors de l'exécution",
+      "ignore": "Laisser tel quel",
+      "decided": "Décidé : {{decision}}",
+      "undo": "Annuler",
+      "undoLabel": "Annuler la décision : {{decision}}",
+      "chosen": {
+        "mapValue": "écrit comme « {{to}} »",
+        "leaveEmptyValue": "champ laissé vide dans ces lignes",
+        "leaveEmptyField": "champ laissé hors des lignes",
+        "setDefault": "valeur par défaut « {{value}} »",
+        "truncate": "coupé à la longueur du champ",
+        "mapRecordType": "écrit comme type d'enregistrement {{to}}",
+        "mapRecordTypeDefault": "écrit avec le type d'enregistrement par défaut de l'objet",
+        "excludeObject": "{{object}} laissé hors de l'exécution",
+        "ignore": "laissé tel quel"
+      },
+      "kept": {
+        "title": "Décisions gardées avec cette exécution",
+        "hint": "L'exécution les applique même si aucun écart lu ne les nomme : un modèle ou une exécution passée les a apportées, ou plus aucune lecture ne trouve leur écart.",
+        "scope": " (type d'enregistrement {{name}})",
+        "picklist": "{{object}}.{{field}}{{scope}} : « {{from}} » écrit comme « {{to}} »",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}} : « {{from}} » laissé vide",
+        "recordType": "{{object}} : type d'enregistrement {{from}} écrit comme {{to}}",
+        "recordTypeDefault": "{{object}} : type d'enregistrement {{from}} écrit comme celui par défaut de l'objet",
+        "default": "{{object}}.{{field}} : valeur par défaut « {{value}} »",
+        "truncate": "{{object}}.{{field}} : coupé à la longueur du champ",
+        "fieldExcluded": "{{object}}.{{field}} : laissé hors des lignes",
+        "objectExcluded": "{{object}} : laissé hors de l'exécution",
+        "ignored": "{{gap}} : laissé tel quel"
+      }
     }
   },
   "autopilot": {

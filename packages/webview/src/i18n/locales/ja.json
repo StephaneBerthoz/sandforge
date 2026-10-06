@@ -2248,7 +2248,7 @@
     "anonymizePII": "PIIを匿名化",
     "skipEmpty": "空のオブジェクトをスキップ",
     "discoverGraph": "グラフを検出",
-    "noTemplates": "保存済みテンプレートはまだありません。実行を完了し、その結果画面で「テンプレートとして保存」を選んでください。",
+    "noTemplates": "保存済みテンプレートはまだありません。実行の結果画面かレビューの「差異」タブから保存するか、ファイルからインポートしてください。",
     "forging": "FORGE中...",
     "paused": "一時停止中",
     "finishing": "仕上げ中...",
@@ -2425,7 +2425,7 @@
     "yourTemplates": "自分のテンプレート",
     "savedTemplate": {
       "formTitle": "この実行をテンプレートとして保存",
-      "saveHint": "テンプレートには、実行のレコードIDまたはクエリ、深さ・上限・オプション、レビュー時の匿名化設定、ターゲット組織が保存されます。「テンプレート」タブから適用できます。",
+      "saveHint": "テンプレートには、実行のレコードIDまたはクエリ、深さ・上限・オプション、除外したオブジェクト、差異への判断、項目ごとの匿名化設定、ファイルのコピー設定（同意は含みません）、ターゲット組織が保存されます。「テンプレート」タブから適用するか、ファイルにエクスポートできます。",
       "nameRequired": "保存するにはテンプレート名を入力してください。",
       "saved": "「{{name}}」として保存しました。「テンプレート」タブの「自分のテンプレート」に表示されます。",
       "saveFailed": "テンプレートは保存されませんでした: {{message}}",
@@ -2436,9 +2436,18 @@
       "deleteLabel": "{{name}} を削除",
       "summaryTarget": "{{org}} へ",
       "targetNotConnected": "ここに接続されていない組織",
-      "applied": "「{{name}}」を適用しました: 深さ・上限・オプション・匿名化設定がフォームに入力されています。",
+      "applied": "「{{name}}」を適用しました: 深さ・上限・オプション・匿名化設定がフォームに入力され、除外するオブジェクト、判断、ファイルのコピー設定は検出する実行に引き継がれます。",
       "targetSet": "ターゲット組織を {{org}} に設定しました。",
-      "targetMissing": "書き込み先の組織はここに接続されていません。ターゲット組織を選択してください。"
+      "targetMissing": "書き込み先の組織はここに接続されていません。ターゲット組織を選択してください。",
+      "import": "テンプレートをインポート",
+      "export": "エクスポート",
+      "exportLabel": "{{name}} をファイルにエクスポート",
+      "importTooLarge": "このファイルはテンプレートとしては大きすぎます。",
+      "importNotJson": "このファイルはJSONではありません。テンプレートは含まれていません。",
+      "importNotTemplate": "このファイルはSandForgeのテンプレートではありません: {{where}} がないか無効です。",
+      "importNotTemplateAtAll": "このファイルにはテンプレートが含まれていません。",
+      "importFailed": "テンプレートはインポートされませんでした: {{message}}",
+      "imported": "「{{name}}」をインポートしました。「自分のテンプレート」に表示されます。"
     },
     "smartLimitSuggested_other": "{{count}}件のレコードを持つ組織を検出 — {{limit}}/オブジェクトの上限を適用しました",
     "expandOrphanParents": "親を自動取得",
@@ -2602,7 +2611,8 @@
         "unreadDuplicateRules": "ターゲット組織の重複ルールを読み取れませんでした: {{reason}}",
         "unreadUserPermissions": "この実行が書き込みに使うユーザーのカスタム権限を読み取れませんでした: {{reason}}",
         "rules": "割り当てルールと重複ルール"
-      }
+      },
+      "gapsTab": "差異"
     },
     "history": {
       "title": "最近の実行",
@@ -2860,6 +2870,106 @@
       "done": "シミュレーションのため、何も書き込まれていません。これらの数は実際の実行が挿入、リンク、保留、失敗するものです。ターゲットがレコードに対して拒否または変更する内容は確認画面に一覧表示されます。",
       "gapsFound": "ターゲットとの差異：{{gaps}}件",
       "wouldInsert": "挿入予定"
+    },
+    "gaps": {
+      "notRead": "まだ何も読み取っていません。実行をシミュレートするかリハーサルして、ターゲットが行のどこを拒否または変更するかを確認してください。",
+      "readBy": "読み取り元: {{sources}}。",
+      "readName": {
+        "metadata": "ターゲットのメタデータ",
+        "simulation": "シミュレーション",
+        "rehearsal": "リハーサル"
+      },
+      "none": "読み取った範囲では、これらの行を妨げるものはありません。",
+      "unread": "{{read}}で読み取れなかったもの: {{part}} — {{reason}}",
+      "severity": {
+        "blocking": "行が拒否されます",
+        "warning": "行が拒否または変更される可能性があります",
+        "info": "何も拒否されません"
+      },
+      "source": {
+        "metadata": "ターゲットのメタデータから読み取り",
+        "simulation": "シミュレーションで検出",
+        "rehearsal": "リハーサルでプラットフォームが拒否"
+      },
+      "kind": {
+        "picklist_value_refused": "レコードタイプが拒否する選択リスト値",
+        "dependent_value_invalid": "制御項目が許可しない値",
+        "picklist_value_absent": "ターゲットのリストにない値",
+        "required_field_missing": "ターゲットが必須とする項目が空",
+        "value_too_long": "ターゲットの項目より長いテキスト",
+        "number_out_of_range": "ターゲットの項目に収まらない数値",
+        "record_type_unmapped": "ターゲットに対応するもののないレコードタイプ",
+        "record_type_unavailable": "ターゲットで使用できないレコードタイプ",
+        "currency_inactive": "ターゲットで有効でない通貨",
+        "unique_value_collision": "ターゲットに既にある一意の値",
+        "lookup_filter": "ルックアップ検索条件",
+        "validation_rule": "入力規則",
+        "duplicate_rule": "重複ルール",
+        "api_budget": "1日のAPI要求数の上限",
+        "rehearsal_refusal": "リハーサルで拒否"
+      },
+      "rows_other": "{{count}} 行",
+      "recordType": "レコードタイプ {{name}}",
+      "value": "値「{{value}}」",
+      "rule": "ルール {{name}}",
+      "statusCode": "ステータスコード {{code}}",
+      "sourceRecordType": "ソースのレコードタイプ {{name}}",
+      "detail": {
+        "allowedValues": "許可されている値",
+        "targetRecordTypes": "ターゲットのレコードタイプ"
+      },
+      "byDefault": "判断しない場合: {{decision}}。",
+      "decision": {
+        "map_value": "別の値が書き込まれます",
+        "leave_empty": "項目は空のままになります",
+        "set_default": "デフォルト値が書き込まれます",
+        "truncate": "テキストは項目の長さで切り詰められます",
+        "map_record_type": "別のレコードタイプが書き込まれます",
+        "exclude_object": "オブジェクトは除外されます",
+        "skip_rows": "これらの行はスキップされます",
+        "ignore": "実行はそのまま続きます"
+      },
+      "decisionsLabel": "この差異への判断",
+      "mapValueLabel": "代わりに書き込む値",
+      "mapValuePlaceholder": "許可されている値を選択",
+      "recordTypeLabel": "書き込むレコードタイプ",
+      "recordTypePlaceholder": "レコードタイプを選択",
+      "recordTypeDefault": "オブジェクトのデフォルト",
+      "defaultLabel": "デフォルト値",
+      "defaultSet": "設定",
+      "leaveEmptyValue": "これらの行では項目を空にする",
+      "leaveEmptyField": "項目を除外する",
+      "truncate": "項目の長さで切り詰める",
+      "excludeObject": "{{object}} を実行から除外する",
+      "ignore": "そのままにする",
+      "decided": "判断: {{decision}}",
+      "undo": "元に戻す",
+      "undoLabel": "判断を元に戻す: {{decision}}",
+      "chosen": {
+        "mapValue": "「{{to}}」として書き込み",
+        "leaveEmptyValue": "これらの行では項目を空に",
+        "leaveEmptyField": "項目を行から除外",
+        "setDefault": "デフォルト値「{{value}}」",
+        "truncate": "項目の長さで切り詰め",
+        "mapRecordType": "レコードタイプ {{to}} として書き込み",
+        "mapRecordTypeDefault": "オブジェクトのデフォルトのレコードタイプで書き込み",
+        "excludeObject": "{{object}} を実行から除外",
+        "ignore": "そのまま"
+      },
+      "kept": {
+        "title": "この実行に保持されている判断",
+        "hint": "読み取った差異のどれにも該当しなくても、実行はこれらを適用します。テンプレートや過去の実行から引き継がれたか、その差異がもう読み取られなくなったものです。",
+        "scope": "（レコードタイプ {{name}}）",
+        "picklist": "{{object}}.{{field}}{{scope}}: 「{{from}}」を「{{to}}」として書き込み",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}}: 「{{from}}」を空に",
+        "recordType": "{{object}}: レコードタイプ {{from}} を {{to}} として書き込み",
+        "recordTypeDefault": "{{object}}: レコードタイプ {{from}} をオブジェクトのデフォルトとして書き込み",
+        "default": "{{object}}.{{field}}: デフォルト値「{{value}}」",
+        "truncate": "{{object}}.{{field}}: 項目の長さで切り詰め",
+        "fieldExcluded": "{{object}}.{{field}}: 行から除外",
+        "objectExcluded": "{{object}}: 実行から除外",
+        "ignored": "{{gap}}: そのまま"
+      }
     }
   },
   "autopilot": {

@@ -21,6 +21,7 @@ import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
 import { ReviewAutomationTab } from './ReviewAutomationTab';
+import { ReviewGapsTab, useUndecidedBlockingGaps } from './ReviewGapsTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
@@ -30,7 +31,7 @@ import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
 
 /** Tabs available in the Review phase right panel. */
-type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation';
+type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation' | 'gaps';
 
 /**
  * The graph the target's automation is read for: the objects the user left
@@ -64,8 +65,8 @@ const METADATA_DIFF_MAX_OBJECTS = 100;
  *
  * Split layout with the dependency graph, or its table, on the left (60%)
  * and a tabbed panel on the right (40%) covering Plan, Anonymization,
- * Compliance, Metadata and Automation tabs. Action bar with Back and Execute
- * buttons.
+ * Compliance, Metadata, Automation and Gaps tabs. Action bar with Back and
+ * Execute buttons.
  */
 export const ForgeReview: React.FC = () => {
   const { t } = useTranslation();
@@ -211,6 +212,9 @@ export const ForgeReview: React.FC = () => {
     }, []),
   );
 
+  /** The gaps that will refuse rows with no decision taken yet, counted on their tab. */
+  const undecidedBlocking = useUndecidedBlockingGaps();
+
   /** Start the forge run, as Clone directly starts one (see `startForgeRun`). */
   const handleExecute = useCallback(() => {
     startForgeRun();
@@ -244,6 +248,11 @@ export const ForgeReview: React.FC = () => {
       id: 'automation',
       label: t('forge.review.automationTab'),
       badge: firedAtInsert > 0 ? firedAtInsert : undefined,
+    },
+    {
+      id: 'gaps',
+      label: t('forge.review.gapsTab'),
+      badge: undecidedBlocking > 0 ? undecidedBlocking : undefined,
     },
   ];
 
@@ -346,6 +355,7 @@ export const ForgeReview: React.FC = () => {
                 applyAssignmentRules={config?.applyAssignmentRules === true}
               />
             )}
+            {activeTab === 'gaps' && <ReviewGapsTab />}
           </div>
         </div>
       </div>

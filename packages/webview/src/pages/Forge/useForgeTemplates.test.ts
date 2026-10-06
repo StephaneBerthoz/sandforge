@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import type { BaseMessage, ForgeTemplate } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
@@ -181,5 +181,86 @@ describe('useForgeTemplates', () => {
 
     expect(useForgeStore.getState().templates.map((t) => t.id)).toEqual(['a']);
     expect(result.current.deleteError).toBe('EACCES: permission denied');
+  });
+
+  describe('a template as a file', () => {
+    /** A file the user picked, holding `text`. */
+    function file(text: string): File {
+      return new File([text], 'forge-template.json', { type: 'application/json' });
+    }
+
+    /** Wait until the file reader has answered and `assertion` holds. */
+    async function once(assertion: () => void): Promise<void> {
+      await waitFor(assertion);
+    }
+
+    it('offers the template to save as a JSON file of its own, through the host', () => {
+      const tpl = template('a', 'Weekly accounts');
+      const { result } = mount();
+
+      act(() => result.current.exportTemplate(tpl));
+
+      expect(
+        sent<{ suggestedName: string; content: string; extensions: string[] }>('file:save'),
+      ).toEqual([
+        {
+          suggestedName: 'forge-template-weekly-accounts.json',
+          content: `${JSON.stringify(tpl, null, 2)}\n`,
+          extensions: ['json'],
+        },
+      ]);
+    });
+
+    it('saves the template a file holds with the others, once the extension kept it', async () => {
+      const tpl = {
+        ...template('shared-1', 'Handed over'),
+        config: { ...template('x', 'x').config, excludedObjects: ['Task'] },
+      };
+      const { result } = mount();
+
+      act(() => result.current.importTemplateFile(file(JSON.stringify(tpl))));
+
+      await once(() =>
+        expect(sent<{ template: ForgeTemplate }>('forge:templates:save')).toEqual([
+          { template: tpl },
+        ]),
+      );
+      replyTo('forge:templates:save', 'forge:templates:save:response', { success: true });
+      expect(useForgeStore.getState().templates.map((t) => t.id)).toEqual(['shared-1']);
+      expect(result.current.imported?.name).toBe('Handed over');
+      expect(result.current.importRefused).toBeNull();
+    });
+
+    it('refuses a file that is not a template, says why, and saves nothing', async () => {
+      const { result } = mount();
+
+      act(() => result.current.importTemplateFile(file('{"id":"x"}')));
+
+      await once(() =>
+        expect(result.current.importRefused).toEqual({ reason: 'not_template', where: 'name' }),
+      );
+      expect(sent('forge:templates:save')).toEqual([]);
+
+      act(() => result.current.importTemplateFile(file('not json')));
+      await once(() => expect(result.current.importRefused).toEqual({ reason: 'not_json' }));
+    });
+
+    it('says why the extension did not keep the template a file held', async () => {
+      const { result } = mount();
+
+      act(() =>
+        result.current.importTemplateFile(file(JSON.stringify(template('b', 'Handed over')))),
+      );
+      await once(() => expect(sent('forge:templates:save')).toHaveLength(1));
+      replyTo('forge:templates:save', 'forge:templates:save:error', {
+        message: 'EROFS: read-only file system',
+        code: 'UNKNOWN',
+        retryable: false,
+      });
+
+      expect(result.current.importError).toBe('EROFS: read-only file system');
+      expect(result.current.imported).toBeNull();
+      expect(result.current.saveError).toBeNull();
+    });
   });
 });

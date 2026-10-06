@@ -69,7 +69,9 @@ export function useForgeGaps(): ForgeGapsRead {
       (msg) => {
         if (asked.current === null || msg.correlationId !== asked.current) return;
         const { gaps, unread, requests } = msg.payload.gaps;
-        setGaps('metadata', gaps);
+        // What it could not read goes with it: the Gaps tab tells a read that
+        // found nothing from one that could not look.
+        setGaps('metadata', gaps, unread);
         setRead({
           count: gaps.length,
           blocking: gaps.filter((gap) => gap.severity === 'blocking').length,

@@ -337,6 +337,17 @@ export const forgeFileCopyOptionSchema = z.object({
 export const forgeTemplateAnonymizationSchema = z.object({
   presetId: z.string().min(1).max(100).optional(),
   rules: forgeAnonymizationRulesSchema,
+  // Bounded as a graph's nodes and their personal fields are: a template is a
+  // file someone else may hand over, and it is read before anything checks it.
+  fields: z
+    .array(
+      z.object({
+        objectApiName: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+        fieldNames: z.array(z.string().regex(SF_FIELD_NAME_REGEX, 'Invalid field name')).max(500),
+      }),
+    )
+    .max(2_000)
+    .optional(),
 });
 
 /** Zod schema for ForgeTemplate */
@@ -347,6 +358,9 @@ export const forgeTemplateSchema = z.object({
   config: forgeConfigSchema.omit({ sourceOrgId: true, targetOrgId: true }),
   targetOrgId: z.string().min(1).max(128).optional(),
   anonymization: forgeTemplateAnonymizationSchema.optional(),
+  // Parsing drops what the schema does not name: without it, the file choice
+  // a template was saved with never reached the workspace's file.
+  files: z.object({ maxFileSizeMB: z.number().int().min(1).max(FILE_COPY_CEILING_MB) }).optional(),
   objectCount: z.number().int().nonnegative(),
   recordCount: z.number().int().nonnegative(),
   createdAt: z.string().min(1),

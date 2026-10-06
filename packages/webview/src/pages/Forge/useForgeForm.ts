@@ -20,6 +20,8 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { sendDiscovery } from './directRun';
+import { carriedChoices } from './forgeRunConfig';
+import type { CarriedRunChoices } from './forgeRunConfig';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
 import { useForgeAIPlan } from './useForgeAIPlan';
@@ -171,7 +173,8 @@ export interface ForgeFormState {
   /* Saved templates */
   /**
    * Select a saved template and put its depth, caps, toggles, anonymization
-   * and target org in the form. Returns what became of the target org.
+   * and target org in the form, and keep for the run it discovers what the
+   * form does not show. Returns what became of the target org.
    */
   applyTemplate: (template: ForgeTemplate) => TemplateTargetOutcome;
 
@@ -199,6 +202,8 @@ export function useForgeForm(): ForgeFormState {
   const templates = useForgeStore((s) => s.templates);
   const setAnonymizationRules = useForgeStore((s) => s.setAnonymizationRules);
   const setAnonymizationPresetId = useForgeStore((s) => s.setAnonymizationPresetId);
+  const setAnonymizeFieldChoices = useForgeStore((s) => s.setAnonymizeFieldChoices);
+  const setFileCopy = useForgeStore((s) => s.setFileCopy);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const sendMessage = useSendMessage();
@@ -236,6 +241,23 @@ export function useForgeForm(): ForgeFormState {
    * executor as `maxRecordsPerObject`.
    */
   const [recordLimit, setRecordLimit] = useState<string>('smart');
+  /**
+   * What the run carries that the form has no control for — the decisions
+   * taken on the Gaps tab, the objects left out, field exclusions and
+   * mappings — sent with every config the form builds. Brought by a template
+   * or a past run put back in the form, and taken from the run the store
+   * holds as the form comes back, as its record id is: going back to change
+   * the depth used to send a Discover that dropped every decision.
+   */
+  const [carried, setCarried] = useState<CarriedRunChoices>(() =>
+    carriedChoices(useForgeStore.getState().config),
+  );
+  /**
+   * The file copy a template was saved with, put back once its Discover has
+   * started the run's config, which starts with no file copied. Never the
+   * acceptance: each run asks for it again.
+   */
+  const [carriedFiles, setCarriedFiles] = useState<{ maxFileSizeMB: number } | null>(null);
 
   /* ---- Auto-select source org from global selectedOrgId on mount ---- */
   const adoptGlobalOrg = useLatestRef(() => {
@@ -516,6 +538,11 @@ export function useForgeForm(): ForgeFormState {
     setTargetOrgId(tmp);
   }, [sourceOrgId, targetOrgId]);
 
+  /** Put the template's file copy on the run whose config was just set. */
+  const takeCarriedFiles = useCallback(() => {
+    if (carriedFiles) setFileCopy({ enabled: true, maxFileSizeMB: carriedFiles.maxFileSizeMB });
+  }, [carriedFiles, setFileCopy]);
+
   /**
    * Build the config and start its discovery. With `direct`, the discovery is
    * a Clone directly's: its answer starts the run, with no stop on the
@@ -539,9 +566,14 @@ export function useForgeForm(): ForgeFormState {
         sourceOrgId,
         targetOrgId,
         batchSize: 'auto',
+        ...carried,
       };
 
       setConfig(config);
+      // Copying the files is a choice of the Review screen, which a Clone
+      // directly skips: its run copies none, as it always did, and never waits
+      // on an acceptance no screen is there to give.
+      if (!direct) takeCarriedFiles();
       // By its request: only the answer to this discovery is taken, page or
       // no page, and only a Clone directly's starts the run.
       sendDiscovery(sendMessage, config, direct);
@@ -560,6 +592,8 @@ export function useForgeForm(): ForgeFormState {
       recordLimitValue,
       sourceOrgId,
       targetOrgId,
+      carried,
+      takeCarriedFiles,
       setConfig,
       setPhase,
       sendMessage,
@@ -602,8 +636,10 @@ export function useForgeForm(): ForgeFormState {
       keepContactPoints,
       maxRecordsPerObject: effectiveCap,
       batchSize: 'auto',
+      ...carried,
     };
     setConfig(config);
+    takeCarriedFiles();
     setGraph(buildSyntheticForgeGraph(objects));
     sendMessage(
       buildMessage<{ graph: ReturnType<typeof buildSyntheticForgeGraph>; config: ForgeConfig }>(
@@ -624,6 +660,8 @@ export function useForgeForm(): ForgeFormState {
     keepContactPoints,
     recordLimit,
     recordLimitValue,
+    carried,
+    takeCarriedFiles,
     setConfig,
     setGraph,
     setPhase,
@@ -659,8 +697,10 @@ export function useForgeForm(): ForgeFormState {
       sourceOrgId,
       targetOrgId,
       batchSize: 'auto',
+      ...carried,
     };
     setConfig(config);
+    takeCarriedFiles();
     setGraph(lastGraph);
     // Re-generate the plan from the cached graph; the wizard's Review tab
     // listens for forge:plan:response and updates the store. Skips the
@@ -686,6 +726,8 @@ export function useForgeForm(): ForgeFormState {
     recordLimitValue,
     sourceOrgId,
     targetOrgId,
+    carried,
+    takeCarriedFiles,
     setConfig,
     setGraph,
     setPhase,
@@ -733,9 +775,12 @@ export function useForgeForm(): ForgeFormState {
    * as the SOQL runs they are, so one stored as `ai` predates it, and carries
    * a prompt the form would have to send to the model again.
    *
-   * `fieldExclusions`, `ownerMappings`, `objectSoqlFilters` and `fieldMappings`
-   * are not restored: the form has no control for them. A SOQL run's filter is
-   * rebuilt from its query when the replay is discovered.
+   * The decisions taken on its gaps, the objects it left out, its field
+   * exclusions and its mappings have no control in the form: they are kept
+   * and sent with the replay's Discover. Its `objectSoqlFilters` are not: a
+   * SOQL run's filter is rebuilt from its query when the replay is discovered.
+   * A past run keeps no file choice and no field-by-field anonymization: a
+   * template's are dropped.
    */
   const applyHistoryConfig = useCallback(
     (config: ForgeRunConfig): void => {
@@ -745,11 +790,14 @@ export function useForgeForm(): ForgeFormState {
       setSoqlQuery(mode === 'soql' ? (config.soqlQuery ?? '') : '');
       setSelectedTemplate(mode === 'template' ? (config.templateId ?? '') : '');
       applyRunOptions(config);
+      setCarried(carriedChoices(config));
+      setCarriedFiles(null);
+      setAnonymizeFieldChoices(null);
       // The preview describes the record id that was in the field a moment
       // ago; keeping it would caption the new one with the old one's counts.
       resetPreview();
     },
-    [applyRunOptions, resetPreview],
+    [applyRunOptions, resetPreview, setAnonymizeFieldChoices],
   );
 
   /**
@@ -760,12 +808,20 @@ export function useForgeForm(): ForgeFormState {
    * toggles and anonymization are set where the user can see and change them
    * before Discover. Its target org is set only when it is connected here: an
    * id from another machine's registry names nothing in this one.
+   *
+   * What the form does not show goes with the run it discovers: its decisions,
+   * the objects it leaves out, its field exclusions and mappings in the config;
+   * its anonymized fields on the graph discovery answers with; its file copy
+   * on the run, to be accepted again.
    */
   const applyTemplate = useCallback(
     (template: ForgeTemplate): TemplateTargetOutcome => {
       setInputMode('template');
       setSelectedTemplate(template.id);
       applyRunOptions(template.config);
+      setCarried(carriedChoices(template.config));
+      setCarriedFiles(template.files ?? null);
+      setAnonymizeFieldChoices(template.anonymization?.fields ?? null);
       if (template.anonymization) {
         setAnonymizationRules(template.anonymization.rules);
         setAnonymizationPresetId(template.anonymization.presetId ?? '');
@@ -775,7 +831,13 @@ export function useForgeForm(): ForgeFormState {
       setTargetOrgId(template.targetOrgId);
       return 'set';
     },
-    [applyRunOptions, setAnonymizationRules, setAnonymizationPresetId, orgs],
+    [
+      applyRunOptions,
+      setAnonymizationRules,
+      setAnonymizationPresetId,
+      setAnonymizeFieldChoices,
+      orgs,
+    ],
   );
 
   return {

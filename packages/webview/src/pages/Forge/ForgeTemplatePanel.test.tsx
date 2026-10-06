@@ -44,6 +44,11 @@ function manager(overrides: Partial<ForgeTemplatesManager> = {}): ForgeTemplates
     cancelDeleteTemplate: vi.fn(),
     handleDeleteTemplate: vi.fn(),
     deleteError: null,
+    exportTemplate: vi.fn(),
+    importTemplateFile: vi.fn(),
+    importRefused: null,
+    importError: null,
+    imported: null,
     ...overrides,
   };
 }
@@ -147,5 +152,75 @@ describe('ForgeTemplatePanel', () => {
     );
     expect(screen.getByTestId('forge-template-tpl-1')).toBeTruthy();
     expect(screen.queryByTestId('forge-templates-load-error')).toBeNull();
+  });
+
+  describe('a template as a file', () => {
+    it('exports a saved template from its row, named for a screen reader', () => {
+      const m = manager();
+      renderPanel(m);
+      const exportButton = screen.getByTestId('forge-template-export-tpl-1');
+
+      expect(exportButton.getAttribute('aria-label')).toBe('Export Open cases to a file');
+      fireEvent.click(exportButton);
+      expect(m.exportTemplate).toHaveBeenCalledWith(SAVED);
+    });
+
+    it('hands the file picked to the import', () => {
+      const m = manager();
+      renderPanel(m);
+      const picked = new File(['{}'], 'shared.json', { type: 'application/json' });
+
+      fireEvent.change(screen.getByTestId('forge-template-import-file'), {
+        target: { files: [picked] },
+      });
+      expect(m.importTemplateFile).toHaveBeenCalledWith(picked);
+    });
+
+    it('says why a file was refused, naming the part the schema refused', () => {
+      renderPanel(manager({ importRefused: { reason: 'not_template', where: 'config.depth' } }));
+      expect(screen.getByTestId('forge-template-import-refused').textContent).toBe(
+        'This file is not a SandForge template: config.depth is missing or not valid.',
+      );
+    });
+
+    it('says what each refusal is', () => {
+      const { unmount } = render(
+        <ForgeTemplatePanel
+          manager={manager({ importRefused: { reason: 'not_json' } })}
+          selectedTemplate=""
+          onSelectTemplate={vi.fn()}
+          onApplyTemplate={vi.fn()}
+          orgs={[]}
+        />,
+      );
+      expect(screen.getByTestId('forge-template-import-refused').textContent).toBe(
+        'This file is not JSON: it holds no template.',
+      );
+      unmount();
+      renderPanel(manager({ importRefused: { reason: 'not_template', where: '' } }));
+      expect(screen.getByTestId('forge-template-import-refused').textContent).toBe(
+        'This file does not hold a template.',
+      );
+    });
+
+    it('says a template was imported, or why the extension did not keep it', () => {
+      const { unmount } = render(
+        <ForgeTemplatePanel
+          manager={manager({ imported: SAVED })}
+          selectedTemplate=""
+          onSelectTemplate={vi.fn()}
+          onApplyTemplate={vi.fn()}
+          orgs={[]}
+        />,
+      );
+      expect(screen.getByTestId('forge-template-imported').textContent).toBe(
+        '“Open cases” imported: it is listed under Your templates.',
+      );
+      unmount();
+      renderPanel(manager({ importError: 'EROFS: read-only file system' }));
+      expect(screen.getByTestId('forge-template-import-error').textContent).toBe(
+        'The template was not imported: EROFS: read-only file system',
+      );
+    });
   });
 });

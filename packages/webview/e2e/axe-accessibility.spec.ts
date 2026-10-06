@@ -979,6 +979,60 @@ const FORGE_TWO_NODE_GRAPH = {
 };
 
 /**
+ * What the target holds against that account and its contacts, as a
+ * simulation finds it: a picklist value refused, a field only the target
+ * requires, a text longer than its field, and a rule that refuses nothing.
+ */
+const FORGE_GAPS = [
+  {
+    id: 'picklist_value_refused|Account|Type||Prospect',
+    kind: 'picklist_value_refused',
+    severity: 'blocking',
+    source: 'simulation',
+    objectApiName: 'Account',
+    field: 'Type',
+    value: 'Prospect',
+    rows: 1,
+    detail: { allowedValues: ['Customer', 'Partner'] },
+    decisions: ['map_value', 'leave_empty', 'exclude_object', 'ignore'],
+    defaultDecision: 'map_value',
+  },
+  {
+    id: 'required_field_missing|Contact|Region__c||',
+    kind: 'required_field_missing',
+    severity: 'blocking',
+    source: 'simulation',
+    objectApiName: 'Contact',
+    field: 'Region__c',
+    rows: 2,
+    decisions: ['set_default', 'exclude_object'],
+  },
+  {
+    id: 'value_too_long|Account|Description||',
+    kind: 'value_too_long',
+    severity: 'warning',
+    source: 'simulation',
+    objectApiName: 'Account',
+    field: 'Description',
+    rows: 1,
+    detail: { maxLength: 255 },
+    decisions: ['truncate', 'ignore'],
+  },
+  {
+    id: 'validation_rule|Account|Phone||Phone_Format',
+    kind: 'validation_rule',
+    severity: 'info',
+    source: 'simulation',
+    objectApiName: 'Account',
+    field: 'Phone',
+    value: 'Phone_Format',
+    rows: 0,
+    detail: { message: 'The phone needs a country code.' },
+    decisions: ['leave_empty', 'ignore'],
+  },
+];
+
+/**
  * What a target runs on that account and its contacts, as the extension reads
  * it at Review: a flow after a contact is created that a custom permission
  * keeps quiet, which sends an email and runs again after commit, one whose
@@ -1435,6 +1489,36 @@ for (const theme of SCANNED_THEMES) {
         timeout: 10_000,
       });
       expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge Template tab exporting a template, and refusing a file that holds none', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:templates:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:templates:list', 'forge:templates:list:response', {
+        templates: [FORGE_SAVED_TEMPLATE],
+      });
+      await page.getByTestId('forge-tab-template').click();
+      await page.getByTestId(`forge-template-export-${FORGE_SAVED_TEMPLATE.id}`).click();
+      const saved = await bridge.waitForMessage('file:save', { timeout: 10_000 });
+      expect(JSON.parse((saved.payload as { content: string }).content)).toEqual(
+        FORGE_SAVED_TEMPLATE,
+      );
+
+      await page.getByTestId('forge-template-import-file').setInputFiles({
+        name: 'not-a-template.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from('{"id":"tpl-x"}'),
+      });
+      await expect(page.getByTestId('forge-template-import-refused')).toHaveText(
+        'This file is not a SandForge template: name is missing or not valid.',
+      );
+      const refused = await checkAccessibility(page);
+      expectNoViolations(refused);
+      expect(
+        await contrastMeasuredIn(page, refused, '[data-testid="forge-template-import-refused"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Forge results saving the run as a template', async ({ page }) => {
@@ -2699,6 +2783,73 @@ for (const theme of SCANNED_THEMES) {
       });
       await expect(page.getByTestId('compliance-report')).toContainText('PARTIAL');
       expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge Review gaps before any read, then with gaps, then with their decisions', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-gaps').click();
+      await page.getByTestId('gaps-not-read').waitFor({ timeout: 10_000 });
+      const empty = await checkAccessibility(page);
+      expectNoViolations(empty);
+      expect(
+        await contrastMeasuredIn(page, empty, '[data-testid="review-gaps-tab"]'),
+      ).toBeGreaterThan(0);
+
+      // The reads come from the simulation, the rehearsal and the target's
+      // metadata, each through its own channel: the store is fed here as each
+      // of them feeds it.
+      // The dev server serves the panel's own module under its path: the
+      // import is the store the panel holds, not a copy of it.
+      await page.evaluate(
+        async ({ gaps, storeModule }) => {
+          const store = (await import(storeModule)) as {
+            useForgeStore: { getState: () => { setGaps: (...args: unknown[]) => void } };
+          };
+          store.useForgeStore
+            .getState()
+            .setGaps('simulation', gaps, [{ part: 'currencies', reason: 'INSUFFICIENT_ACCESS' }]);
+        },
+        { gaps: FORGE_GAPS, storeModule: '/src/stores/useForgeStore.ts' },
+      );
+      await page.getByTestId('gaps-severity-blocking').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps2');
+      const listed = await checkAccessibility(page);
+      expectNoViolations(listed);
+      expect(
+        await contrastMeasuredIn(page, listed, '[data-testid="review-gaps-tab"]'),
+      ).toBeGreaterThan(10);
+
+      const refused = page.getByTestId(`gap-${FORGE_GAPS[0].id}`);
+      await refused.getByTestId('gap-map-value').selectOption('Customer');
+      await expect(refused.getByTestId('gap-decided')).toHaveText('Decided: written as “Customer”');
+      await page.getByTestId(`gap-${FORGE_GAPS[2].id}`).getByTestId('gap-truncate').click();
+      await page.getByTestId(`gap-${FORGE_GAPS[1].id}`).getByTestId('gap-exclude-object').click();
+      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps');
+      await expect(page.getByTestId('gaps-kept-decisions')).toContainText(
+        'Contact: left out of the run',
+      );
+      await page.getByTestId('review-save-template-open').click();
+      await page.getByTestId('review-save-template-form').waitFor();
+      const decided = await checkAccessibility(page);
+      expectNoViolations(decided);
+      expect(
+        await contrastMeasuredIn(page, decided, '[data-testid="review-gaps-tab"]'),
+      ).toBeGreaterThan(5);
+
+      // The decisions are the run's: Execute sends them with its config.
+      await page.getByTestId('execute-button').click();
+      const run = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+      expect((run.payload as { config: Record<string, unknown> }).config).toMatchObject({
+        picklistValueMappings: [
+          { object: 'Account', field: 'Type', from: 'Prospect', to: 'Customer' },
+        ],
+        truncateFields: [{ object: 'Account', field: 'Description' }],
+        excludedObjects: ['Contact'],
+      });
     });
 
     test('Forge Review of a starter template, saying its record counts come with discovery', async ({

@@ -925,6 +925,26 @@ describe('ForgeResults', () => {
       expect(template.recordCount).toBe(4);
     });
 
+    it('keeps with the template the objects the user left out and the files the run copied', () => {
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((n) =>
+          n.objectApiName === 'Case' ? { ...n, leftOutByUser: true } : n,
+        ),
+      };
+      mockFileCopy = { enabled: true, maxFileSizeMB: 20, acceptedAsIs: true };
+      openForm();
+      fill('Energy accounts');
+
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+      const [{ template }] = sent<{
+        template: { config: Record<string, unknown>; files?: unknown };
+      }>('forge:templates:save');
+      expect(template.config.excludedObjects).toEqual(['Case']);
+      expect(template.files).toEqual({ maxFileSizeMB: 20 });
+    });
+
     it('lists the template only once the extension answered that it kept it', () => {
       openForm();
       fill('Energy accounts');

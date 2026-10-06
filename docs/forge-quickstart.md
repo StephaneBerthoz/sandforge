@@ -77,7 +77,8 @@ hints: no total and no audit entry counts it as a failure.
 
 **Clone directly**, under **Discover Graph**, runs the discovery and, once it answers, the clone of what it found, without stopping on the graph or on the Review screen: it lands on the execution screen, which says the review was skipped. The run is sent as **Execute Forge** sends it when nothing was changed on Review:
 
-- the objects discovery included and, with **Anonymize PII** on, the personal fields it selected on each — narrowed to the preset a template or an earlier Review in the panel kept, if any — each anonymized with the method set for its category;
+- the objects discovery included, but those a template or a past run put back in the form leaves out, and, with **Anonymize PII** on, the personal fields it selected on each — narrowed to the preset a template or an earlier Review in the panel kept, then to the fields a template kept, if any — each anonymized with the method set for its category;
+- the decisions a template or a past run brought ([Gaps](#gaps-and-their-decisions));
 - the email addresses and phone numbers neutralized, unless **Keep emails and phone numbers as they are** is on;
 - no file: copying the files is an option of the Review screen;
 - no simulation: **Simulate**, on the Review screen, runs one first ([below](#simulate-a-run)).
@@ -170,6 +171,30 @@ Nothing else: a file linked only to records outside the clone is never read, a l
 - **Afterwards.** The results say, per object, how many files were copied and their size, the links written, and every file left out with why. The files a run created are counted in its audit entry, a Salesforce File under `ContentDocument` and an attachment under `Attachment`, and **Remove the records this run created** removes them with the rest: deleting a document removes its versions and its links.
 
 With or without this option, a field that holds a file's content — a quote document's `Document`, a custom field of that type — is left empty in the clone: read, it gives the address of its content, never the content, and that address is not written in its place. The results name those fields per object. Only this option copies a file's content: a Salesforce File's version and an attachment's body.
+
+## Gaps and their decisions
+
+The **Gaps** tab of the Review screen lists what the target holds against the rows the run is about to write: what its metadata says, what a simulation of the run found row by row, and what the platform refused in a rehearsal. A gap found by several of them is listed once, with the gravest severity any of them gave it. They are grouped by what they do — will refuse rows, may refuse or change rows, refuse nothing — then by object; the gaps of an object the run leaves out, by its box or by a decision, are not listed. Each says what it is, the object, the field, the record type and the picklist value it is about, how many rows it touches, what the read said of it (the values the target allows, a length, a rule's name and message), where it was found, and what the run does when nothing is decided.
+
+Each gap offers the decisions that fit it, taken in one click or one pick:
+
+- **Write another value**, among the values the target allows: kept in `picklistValueMappings`, for the gap's record type when it has one;
+- **Leave empty**: a picklist value is mapped to nothing (`picklistValueMappings` with `to: null`), and any other field is left out of the object's rows (`fieldExclusions`);
+- **Give a default value** to a field the target requires: `defaultValues`;
+- **Cut to the field's length**: `truncateFields`;
+- **Write as record type**, one of the target's or the object's default: `recordTypeMappings`;
+- **Leave the object out**: `excludedObjects`, and its box on the graph unticked, as unticking the box adds it;
+- **Leave as it is**: `ignoredGaps`.
+
+Skipping the rows a gap refuses is not offered: no field of the run's configuration holds it. A decision taken is shown as taken, with **Undo**. The tab's label counts the gaps that will refuse rows, on the objects the run writes, that no decision answers yet. Decisions the run holds that answer no gap listed — brought by a template or a past run, or taken on a gap no read finds any more — are listed under the gaps, each with **Undo**: the run applies them all the same.
+
+Every decision is part of the run's configuration: **Execute Forge**, the retry of what failed and **Clone directly** send it, the run's entry in **Recent runs** keeps it, and going back to the form to change an option and discovering again keeps it too.
+
+## Templates
+
+**Save as Template**, on a run's results or under the **Gaps** tab, keeps the run's record ID or query, its depth, caps and options, the objects it leaves out (`excludedObjects`), every decision taken on its gaps, its field exclusions and mappings, its anonymization — the method per category, the preset, and the fields anonymized on each object — the choice to copy its files with the largest size, and its target org. It never keeps the acceptance that files are copied as they are, nor whether the run only simulated. Applied from the **Template** tab, a template sets the form's options, and the rest goes with the run it discovers: the objects it leaves out are unticked on the graph, its fields are selected after its preset, among the personal fields discovery finds, and its file copy is turned on, to be accepted again; **Clone directly** copies no file.
+
+Templates are kept in the workspace's `.sandforge/forge-templates.json`, or in VS Code's storage with no folder open. **Export** on a template's row saves it as a JSON file of its own, and **Import a template** reads one back: a file that is not JSON, larger than 1 MB, or that the template schema refuses is refused, with the part it refused.
 
 ## Remove what a run created
 

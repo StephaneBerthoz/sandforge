@@ -2361,7 +2361,7 @@
     "anonymizePII": "Anonimizar PII",
     "skipEmpty": "Ignorar objetos vazios",
     "discoverGraph": "Descobrir grafo",
-    "noTemplates": "Nenhum modelo salvo ainda. Conclua uma execução e escolha Salvar como modelo nos resultados dela.",
+    "noTemplates": "Nenhum modelo salvo ainda. Salve um nos resultados de uma execução ou na aba Divergências da revisão, ou importe um de um arquivo.",
     "forging": "FORJANDO...",
     "paused": "EM PAUSA",
     "finishing": "FINALIZANDO...",
@@ -2540,7 +2540,7 @@
     "yourTemplates": "Seus modelos",
     "savedTemplate": {
       "formTitle": "Salvar esta execução como modelo",
-      "saveHint": "O modelo guarda o ID de registro ou a consulta da execução, a profundidade, os limites e as opções, a anonimização com que ela foi revisada e a org de destino. Aplique-o pela aba Modelo.",
+      "saveHint": "O modelo guarda o ID de registro ou a consulta da execução, a profundidade, os limites e as opções, os objetos que ela deixa de fora, as decisões tomadas sobre as divergências, a anonimização campo a campo, a cópia de arquivos (nunca a aceitação) e a org de destino. Aplique-o pela aba Modelo ou exporte-o para um arquivo.",
       "nameRequired": "Dê um nome ao modelo para salvá-lo.",
       "saved": "Salvo como “{{name}}”. Ele aparece em Seus modelos, na aba Modelo.",
       "saveFailed": "O modelo não foi salvo: {{message}}",
@@ -2551,9 +2551,18 @@
       "deleteLabel": "Excluir {{name}}",
       "summaryTarget": "para {{org}}",
       "targetNotConnected": "uma org não conectada aqui",
-      "applied": "“{{name}}” aplicado: a profundidade, os limites, as opções e a anonimização dele estão no formulário.",
+      "applied": "“{{name}}” aplicado: a profundidade, os limites, as opções e a anonimização dele estão no formulário; os objetos que ele deixa de fora, as decisões e a cópia de arquivos acompanham a execução que ele descobre.",
       "targetSet": "Org de destino definida como {{org}}.",
-      "targetMissing": "A org em que ele gravou não está conectada aqui: escolha uma org de destino."
+      "targetMissing": "A org em que ele gravou não está conectada aqui: escolha uma org de destino.",
+      "import": "Importar um modelo",
+      "export": "Exportar",
+      "exportLabel": "Exportar {{name}} para um arquivo",
+      "importTooLarge": "Este arquivo é grande demais para ser um modelo.",
+      "importNotJson": "Este arquivo não é JSON: não contém nenhum modelo.",
+      "importNotTemplate": "Este arquivo não é um modelo do SandForge: {{where}} está ausente ou não é válido.",
+      "importNotTemplateAtAll": "Este arquivo não contém um modelo.",
+      "importFailed": "O modelo não foi importado: {{message}}",
+      "imported": "“{{name}}” importado: ele aparece em Seus modelos."
     },
     "smartLimitSuggested_one": "Org detectada com {{count}} registro — limite de {{limit}}/objeto aplicado",
     "smartLimitSuggested_other": "Org detectada com {{count}} registros — limite de {{limit}}/objeto aplicado",
@@ -2742,7 +2751,8 @@
         "unreadDuplicateRules": "Não foi possível ler as regras de duplicidade da org de destino: {{reason}}",
         "unreadUserPermissions": "Não foi possível ler as permissões personalizadas do usuário com o qual a execução grava: {{reason}}",
         "rules": "Regras de atribuição e de duplicidade"
-      }
+      },
+      "gapsTab": "Divergências"
     },
     "history": {
       "title": "Execuções recentes",
@@ -3021,6 +3031,107 @@
       "done": "Simulação, nada foi gravado. Estes números são o que uma execução real inseriria, vincularia, reteria e faria falhar; o que o destino recusaria ou alteraria nos registros está listado na revisão.",
       "gapsFound": "Diferenças encontradas com o destino: {{gaps}}",
       "wouldInsert": "Seriam inseridos"
+    },
+    "gaps": {
+      "notRead": "Nada foi lido ainda. Simule a execução, ou ensaie-a, para descobrir o que o destino recusaria ou mudaria nas linhas dela.",
+      "readBy": "Lido: {{sources}}.",
+      "readName": {
+        "metadata": "os metadados do destino",
+        "simulation": "a simulação",
+        "rehearsal": "o ensaio"
+      },
+      "none": "O que foi lido não tem nada contra estas linhas.",
+      "unread": "Não lido por {{read}}: {{part}} — {{reason}}",
+      "severity": {
+        "blocking": "Vai recusar linhas",
+        "warning": "Pode recusar ou mudar linhas",
+        "info": "Não recusa nada"
+      },
+      "source": {
+        "metadata": "Lido nos metadados do destino",
+        "simulation": "Encontrado pela simulação",
+        "rehearsal": "Recusado pela plataforma no ensaio"
+      },
+      "kind": {
+        "picklist_value_refused": "Valor de lista de opções que o tipo de registro recusa",
+        "dependent_value_invalid": "Valor que o campo controlador não permite",
+        "picklist_value_absent": "Valor ausente da lista do destino",
+        "required_field_missing": "Campo que o destino exige, deixado vazio",
+        "value_too_long": "Texto mais longo que o campo do destino",
+        "number_out_of_range": "Número que o campo do destino não comporta",
+        "record_type_unmapped": "Tipo de registro sem correspondência no destino",
+        "record_type_unavailable": "Tipo de registro indisponível no destino",
+        "currency_inactive": "Moeda inativa no destino",
+        "unique_value_collision": "Valor único que o destino já tem",
+        "lookup_filter": "Filtro de pesquisa",
+        "validation_rule": "Regra de validação",
+        "duplicate_rule": "Regra de duplicidade",
+        "api_budget": "Cota diária de solicitações de API",
+        "rehearsal_refusal": "Recusado no ensaio"
+      },
+      "rows_one": "{{count}} linha",
+      "rows_other": "{{count}} linhas",
+      "recordType": "tipo de registro {{name}}",
+      "value": "valor “{{value}}”",
+      "rule": "regra {{name}}",
+      "statusCode": "código de status {{code}}",
+      "sourceRecordType": "tipo de registro de origem {{name}}",
+      "detail": {
+        "allowedValues": "Valores permitidos",
+        "targetRecordTypes": "Tipos de registro do destino"
+      },
+      "byDefault": "Sem decisão: {{decision}}.",
+      "decision": {
+        "map_value": "outro valor é gravado",
+        "leave_empty": "o campo fica vazio",
+        "set_default": "um valor padrão é gravado",
+        "truncate": "o texto é cortado no tamanho do campo",
+        "map_record_type": "outro tipo de registro é gravado",
+        "exclude_object": "o objeto fica de fora",
+        "skip_rows": "estas linhas são puladas",
+        "ignore": "a execução segue como está"
+      },
+      "decisionsLabel": "Decisões sobre esta divergência",
+      "mapValueLabel": "Gravar no lugar",
+      "mapValuePlaceholder": "Escolha um valor permitido",
+      "recordTypeLabel": "Gravar como tipo de registro",
+      "recordTypePlaceholder": "Escolha um tipo de registro",
+      "recordTypeDefault": "O padrão do objeto",
+      "defaultLabel": "Valor padrão",
+      "defaultSet": "Aplicar",
+      "leaveEmptyValue": "Deixar o campo vazio nestas linhas",
+      "leaveEmptyField": "Deixar o campo de fora",
+      "truncate": "Cortar no tamanho do campo",
+      "excludeObject": "Deixar {{object}} fora da execução",
+      "ignore": "Deixar como está",
+      "decided": "Decidido: {{decision}}",
+      "undo": "Desfazer",
+      "undoLabel": "Desfazer a decisão: {{decision}}",
+      "chosen": {
+        "mapValue": "gravado como “{{to}}”",
+        "leaveEmptyValue": "campo deixado vazio nestas linhas",
+        "leaveEmptyField": "campo deixado fora das linhas",
+        "setDefault": "valor padrão “{{value}}”",
+        "truncate": "cortado no tamanho do campo",
+        "mapRecordType": "gravado como tipo de registro {{to}}",
+        "mapRecordTypeDefault": "gravado com o tipo de registro padrão do objeto",
+        "excludeObject": "{{object}} deixado fora da execução",
+        "ignore": "deixado como está"
+      },
+      "kept": {
+        "title": "Decisões mantidas com esta execução",
+        "hint": "A execução as aplica mesmo que nenhuma divergência lida as nomeie: um modelo ou uma execução anterior as trouxe, ou nenhuma leitura encontra mais a divergência delas.",
+        "scope": " (tipo de registro {{name}})",
+        "picklist": "{{object}}.{{field}}{{scope}}: “{{from}}” gravado como “{{to}}”",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}}: “{{from}}” deixado vazio",
+        "recordType": "{{object}}: tipo de registro {{from}} gravado como {{to}}",
+        "recordTypeDefault": "{{object}}: tipo de registro {{from}} gravado como o padrão do objeto",
+        "default": "{{object}}.{{field}}: valor padrão “{{value}}”",
+        "truncate": "{{object}}.{{field}}: cortado no tamanho do campo",
+        "fieldExcluded": "{{object}}.{{field}}: deixado fora das linhas",
+        "objectExcluded": "{{object}}: deixado fora da execução",
+        "ignored": "{{gap}}: deixado como está"
+      }
     }
   },
   "autopilot": {

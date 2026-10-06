@@ -2361,7 +2361,7 @@
     "anonymizePII": "Anonymize PII",
     "skipEmpty": "Skip empty objects",
     "discoverGraph": "Discover Graph",
-    "noTemplates": "No saved templates yet. Finish a run, then choose Save as Template on its results.",
+    "noTemplates": "No saved templates yet. Save one from a run's results or from Review's Gaps tab, or import one from a file.",
     "forging": "FORGING...",
     "paused": "PAUSED",
     "finishing": "FINISHING...",
@@ -2540,7 +2540,7 @@
     "yourTemplates": "Your templates",
     "savedTemplate": {
       "formTitle": "Save this run as a template",
-      "saveHint": "It keeps the run's record ID or query, its depth, caps and options, the anonymization it was reviewed with, and the target org. Apply it from the Template tab.",
+      "saveHint": "It keeps the run's record ID or query, its depth, caps and options, the objects it leaves out, the decisions taken on its gaps, its anonymization down to each field, its file copy (never the acceptance) and the target org. Apply it from the Template tab, or export it to a file.",
       "nameRequired": "Name the template to save it.",
       "saved": "Saved as “{{name}}”. It is listed under Your templates in the Template tab.",
       "saveFailed": "The template was not saved: {{message}}",
@@ -2551,9 +2551,18 @@
       "deleteLabel": "Delete {{name}}",
       "summaryTarget": "to {{org}}",
       "targetNotConnected": "an org not connected here",
-      "applied": "“{{name}}” applied: its depth, caps, options and anonymization are set in the form.",
+      "applied": "“{{name}}” applied: its depth, caps, options and anonymization are set in the form; the objects it leaves out, its decisions and its file copy go with the run it discovers.",
       "targetSet": "Target org set to {{org}}.",
-      "targetMissing": "The org it wrote to is not connected here: pick a target org."
+      "targetMissing": "The org it wrote to is not connected here: pick a target org.",
+      "import": "Import a template",
+      "export": "Export",
+      "exportLabel": "Export {{name}} to a file",
+      "importTooLarge": "This file is too large to be a template.",
+      "importNotJson": "This file is not JSON: it holds no template.",
+      "importNotTemplate": "This file is not a SandForge template: {{where}} is missing or not valid.",
+      "importNotTemplateAtAll": "This file does not hold a template.",
+      "importFailed": "The template was not imported: {{message}}",
+      "imported": "“{{name}}” imported: it is listed under Your templates."
     },
     "smartLimitSuggested_one": "Detected org with {{count}} record — applied {{limit}}/object cap",
     "smartLimitSuggested_other": "Detected org with {{count}} records — applied {{limit}}/object cap",
@@ -2742,7 +2751,8 @@
         "unreadDuplicateRules": "The duplicate rules of the target org could not be read: {{reason}}",
         "unreadUserPermissions": "The custom permissions of the user the run writes as could not be read: {{reason}}",
         "rules": "Assignment and duplicate rules"
-      }
+      },
+      "gapsTab": "Gaps"
     },
     "history": {
       "title": "Recent runs",
@@ -3021,6 +3031,107 @@
       "done": "Simulation, nothing was written. These counts are what a real run would insert, link, hold back and fail; what the target would refuse or change in the records is listed on Review.",
       "gapsFound": "Gaps found against the target: {{gaps}}",
       "wouldInsert": "Would be inserted"
+    },
+    "gaps": {
+      "notRead": "Nothing has been read yet. Simulate the run, or rehearse it, to find what the target would refuse or change in its rows.",
+      "readBy": "Read: {{sources}}.",
+      "readName": {
+        "metadata": "the target's metadata",
+        "simulation": "the simulation",
+        "rehearsal": "the rehearsal"
+      },
+      "none": "What was read holds nothing against these rows.",
+      "unread": "Not read by {{read}}: {{part}} — {{reason}}",
+      "severity": {
+        "blocking": "Will refuse rows",
+        "warning": "May refuse or change rows",
+        "info": "Refuses nothing"
+      },
+      "source": {
+        "metadata": "Read from the target's metadata",
+        "simulation": "Found by the simulation",
+        "rehearsal": "Refused by the platform in the rehearsal"
+      },
+      "kind": {
+        "picklist_value_refused": "Picklist value the record type refuses",
+        "dependent_value_invalid": "Value its controlling field does not allow",
+        "picklist_value_absent": "Value missing from the target's list",
+        "required_field_missing": "Field the target requires, left empty",
+        "value_too_long": "Text longer than the target's field",
+        "number_out_of_range": "Number the target's field cannot hold",
+        "record_type_unmapped": "Record type with no match in the target",
+        "record_type_unavailable": "Record type not available in the target",
+        "currency_inactive": "Currency not active in the target",
+        "unique_value_collision": "Unique value the target already holds",
+        "lookup_filter": "Lookup filter",
+        "validation_rule": "Validation rule",
+        "duplicate_rule": "Duplicate rule",
+        "api_budget": "Daily API request budget",
+        "rehearsal_refusal": "Refused in the rehearsal"
+      },
+      "rows_one": "{{count}} row",
+      "rows_other": "{{count}} rows",
+      "recordType": "record type {{name}}",
+      "value": "value “{{value}}”",
+      "rule": "rule {{name}}",
+      "statusCode": "status code {{code}}",
+      "sourceRecordType": "source record type {{name}}",
+      "detail": {
+        "allowedValues": "Allowed values",
+        "targetRecordTypes": "Target record types"
+      },
+      "byDefault": "If nothing is decided: {{decision}}.",
+      "decision": {
+        "map_value": "another value is written",
+        "leave_empty": "the field is left empty",
+        "set_default": "a default value is written",
+        "truncate": "the text is cut to the field's length",
+        "map_record_type": "another record type is written",
+        "exclude_object": "the object is left out",
+        "skip_rows": "these rows are skipped",
+        "ignore": "the run goes on as it is"
+      },
+      "decisionsLabel": "Decisions on this gap",
+      "mapValueLabel": "Write instead",
+      "mapValuePlaceholder": "Choose an allowed value",
+      "recordTypeLabel": "Write as record type",
+      "recordTypePlaceholder": "Choose a record type",
+      "recordTypeDefault": "The object's default",
+      "defaultLabel": "Default value",
+      "defaultSet": "Set",
+      "leaveEmptyValue": "Leave the field empty in these rows",
+      "leaveEmptyField": "Leave the field out",
+      "truncate": "Cut to the field's length",
+      "excludeObject": "Leave {{object}} out of the run",
+      "ignore": "Leave as it is",
+      "decided": "Decided: {{decision}}",
+      "undo": "Undo",
+      "undoLabel": "Undo the decision: {{decision}}",
+      "chosen": {
+        "mapValue": "written as “{{to}}”",
+        "leaveEmptyValue": "the field left empty in these rows",
+        "leaveEmptyField": "the field left out of the rows",
+        "setDefault": "default value “{{value}}”",
+        "truncate": "cut to the field's length",
+        "mapRecordType": "written as record type {{to}}",
+        "mapRecordTypeDefault": "written with the object's default record type",
+        "excludeObject": "{{object}} left out of the run",
+        "ignore": "left as it is"
+      },
+      "kept": {
+        "title": "Decisions kept with this run",
+        "hint": "The run applies them though no gap read names them: a template or a past run brought them, or no read finds their gap any more.",
+        "scope": " (record type {{name}})",
+        "picklist": "{{object}}.{{field}}{{scope}}: “{{from}}” written as “{{to}}”",
+        "picklistEmpty": "{{object}}.{{field}}{{scope}}: “{{from}}” left empty",
+        "recordType": "{{object}}: record type {{from}} written as {{to}}",
+        "recordTypeDefault": "{{object}}: record type {{from}} written as the object's default",
+        "default": "{{object}}.{{field}}: default value “{{value}}”",
+        "truncate": "{{object}}.{{field}}: cut to the field's length",
+        "fieldExcluded": "{{object}}.{{field}}: left out of the rows",
+        "objectExcluded": "{{object}}: left out of the run",
+        "ignored": "{{gap}}: left as it is"
+      }
     }
   },
   "autopilot": {
