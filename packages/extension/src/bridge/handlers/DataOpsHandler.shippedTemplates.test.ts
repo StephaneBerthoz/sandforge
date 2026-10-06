@@ -250,7 +250,12 @@ function fakeOrg() {
     })),
     query: vi.fn(async (soql: string) => {
       const objectApiName = /\bFROM\s+(\w+)/.exec(soql)?.[1] ?? '';
-      return { records: structuredClone(records[objectApiName] ?? []), done: true };
+      const rows = records[objectApiName] ?? [];
+      // A count answers with the number of rows and none of them.
+      if (soql.startsWith('SELECT COUNT() ')) {
+        return { totalSize: rows.length, records: [], done: true };
+      }
+      return { totalSize: rows.length, records: structuredClone(rows), done: true };
     }),
     sobject: vi.fn((objectApiName: string) => ({
       update: vi.fn(async (batch: Array<Record<string, unknown>>) =>
@@ -396,6 +401,15 @@ describe('DataOps masking with the templates that ship', () => {
     }
     expect(elsewhere.has(first)).toBe(false);
     expect(elsewhere.size).toBe(4);
+  });
+
+  it('makes up the GDPR template’s emails at a domain that receives no mail, as the hashed ones are', async () => {
+    await apply('tpl-gdpr-standard');
+
+    // `example.com` resolves, and the masked org's alerts and flows go on
+    // sending to the addresses it holds.
+    expect(org.records.Contact[0].Email).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+    expect(org.records.Lead[0].Email).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
   });
 
   it('masks all of a contact’s phone but its last four digits, as the GDPR template says', async () => {

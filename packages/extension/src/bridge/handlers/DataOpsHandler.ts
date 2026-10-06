@@ -5,6 +5,7 @@ import type {
   AnonymizationTemplateRule,
   AuditObjectCounts,
   BackupSummary,
+  DataOpsAnonymizationRule,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import {
@@ -34,6 +35,7 @@ import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
+import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
@@ -50,6 +52,7 @@ import {
   piiScanPayloadSchema,
 } from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import type { SforceLimitInfo } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
@@ -200,6 +203,185 @@ function plannedAnonymizeObjects(
   return template.rules
     .map((r) => r.fieldPattern.split('.')[0])
     .filter((v, i, a) => a.indexOf(v) === i);
+}
+
+/** Rows a masking run writes back per update call: the most one REST collection takes. */
+const MASKING_BATCH_SIZE = 200;
+
+/**
+ * The share of the org's daily API requests past which a masking run makes no
+ * further call: the line `checkApiLimits` logs as critical. A run writes back
+ * every row of every object, two hundred a call, so an object of a few hundred
+ * thousand rows takes thousands of calls. Left to run on, it would use the last
+ * of the org's allowance, and every integration of the org would be refused
+ * with it until the requests of the last 24 hours age out.
+ */
+const MASKING_API_STOP_PERCENT = 95;
+
+/** A record id, as the last row of a page hands it on: 15 or 18 letters and digits. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/** What a masking run did to one object, counted against the rows it held. */
+interface MaskingTally {
+  objectApiName: string;
+  /** Rows the object held when the run counted them, before it wrote anything. */
+  total: number;
+  /** Rows written back masked. */
+  masked: number;
+  /** Rows read none of whose masked fields held anything: done, with nothing to write. */
+  nothingToMask: number;
+  /** Rows the org refused to update: they keep their original values. */
+  refused: number;
+  /** Whether the run read the object to its last row. */
+  done: boolean;
+}
+
+/**
+ * Rows of an object the run never reached, counted from the rows it held: none
+ * once the run read the object to its end, whatever was deleted meanwhile.
+ */
+function notReached(tally: MaskingTally): number {
+  if (tally.done) return 0;
+  return Math.max(0, tally.total - tally.masked - tally.nothingToMask - tally.refused);
+}
+
+/** Rows of an object still holding their original values: refused, or never reached. */
+function notMasked(tally: MaskingTally): number {
+  return tally.refused + notReached(tally);
+}
+
+/** A masking run's counts over every object, as its result carries them. */
+function maskingTotals(tallies: readonly MaskingTally[]): {
+  recordsProcessed: number;
+  recordsFailed: number;
+  recordsNotMasked: number;
+} {
+  return tallies.reduce(
+    (sum, t) => ({
+      recordsProcessed: sum.recordsProcessed + t.masked + t.nothingToMask,
+      recordsFailed: sum.recordsFailed + t.refused,
+      recordsNotMasked: sum.recordsNotMasked + notMasked(t),
+    }),
+    { recordsProcessed: 0, recordsFailed: 0, recordsNotMasked: 0 },
+  );
+}
+
+/**
+ * What a masking run comes to: success only when every row it counted was
+ * masked or held nothing to mask, failure when none was, partial otherwise. A
+ * cancel that came before anything was written is still partial, as it always
+ * was: the run was stopped, not refused.
+ */
+function maskingStatus(
+  tallies: readonly MaskingTally[],
+  cancelled: boolean,
+): 'success' | 'partial' | 'failure' {
+  const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
+  if (recordsNotMasked === 0) return 'success';
+  if (recordsProcessed > 0) return 'partial';
+  return cancelled && recordsFailed === 0 ? 'partial' : 'failure';
+}
+
+/** Per object, the rows a run left holding their original values: `Contact 500, Lead 450`. */
+function leftByObject(tallies: readonly MaskingTally[]): string {
+  return tallies
+    .filter((t) => notMasked(t) > 0)
+    .map((t) => `${t.objectApiName} ${notMasked(t)}`)
+    .join(', ');
+}
+
+/**
+ * Per object, what the result of a masking run says: the rows counted, the
+ * rows done with — masked, or holding nothing to mask — the rows the org
+ * refused, and the rows still holding their original values.
+ */
+function maskingResultObjects(tallies: readonly MaskingTally[]): Array<{
+  objectApiName: string;
+  total: number;
+  processed: number;
+  failed: number;
+  notMasked: number;
+}> {
+  return tallies.map((t) => ({
+    objectApiName: t.objectApiName,
+    total: t.total,
+    processed: t.masked + t.nothingToMask,
+    failed: t.refused,
+    notMasked: notMasked(t),
+  }));
+}
+
+/**
+ * Per object, what the audit trail keeps of a masking run: the rows masked as
+ * updated, the rows the org refused as failed, and the rows the run never
+ * reached — a cancel, the API limit or the failure it ended on kept them from
+ * the org — as not sent. An object with no row to mask is left out.
+ */
+function maskingAuditCounts(tallies: readonly MaskingTally[]): AuditObjectCounts[] {
+  return tallies
+    .filter((t) => t.total > 0 || t.masked + t.refused > 0)
+    .map((t) => {
+      const left = notReached(t);
+      return {
+        ...emptyCounts(t.objectApiName),
+        updated: t.masked,
+        failed: t.refused,
+        ...(left > 0 ? { notSent: left } : {}),
+      };
+    });
+}
+
+/**
+ * One page of the rows a masking run reads: the first `pageSize` by Id after
+ * `afterId`, or from the first.
+ *
+ * By Id rather than down one cursor followed with `queryMore`: each page is a
+ * statement of its own, so no query locator stays open on the org while the
+ * page before is masked and written back — an org keeps a few per user and
+ * drops the oldest, and one left idle expires — and each page starts after the
+ * last row of the one before, whatever was written in between.
+ * `queryAllBounded`, which the backup reads with, reads the page whole,
+ * following the batches the org splits a wide one into, and says when it came
+ * back full: only then can more rows follow.
+ *
+ * @param afterId - The last row of the page before, as {@link pageEnd} checked
+ *   it: letters and digits only, so it goes into the statement as it is.
+ */
+async function maskingPage(
+  conn: Connection,
+  objectApiName: string,
+  fields: string,
+  pageSize: number,
+  afterId: string | undefined,
+): Promise<BoundedRecords<Record<string, unknown>>> {
+  const after = afterId === undefined ? '' : ` WHERE Id > '${afterId}'`;
+  return queryAllBounded<Record<string, unknown>>(
+    conn,
+    `SELECT ${fields} FROM ${objectApiName}${after} ORDER BY Id LIMIT ${pageSize}`,
+    pageSize,
+  );
+}
+
+/**
+ * Where the next page of a masking run starts: after the last row of this one.
+ *
+ * @throws When that row carries no record id, or the one the page started
+ *   after: the org did not move past it, and going on would write the same
+ *   rows again and never reach the end.
+ */
+function pageEnd(
+  records: ReadonlyArray<Record<string, unknown>>,
+  afterId: string | undefined,
+  objectApiName: string,
+): string {
+  const lastId = records[records.length - 1]?.Id;
+  if (typeof lastId !== 'string' || !RECORD_ID.test(lastId) || lastId === afterId) {
+    throw new Error(
+      `The org answered a page of ${objectApiName} that does not end past the page before it: ` +
+        'masking stopped there rather than write the same rows again.',
+    );
+  }
+  return lastId;
 }
 
 /** A snapshot taken, as its metadata records it. */
@@ -370,6 +552,50 @@ export class DataOpsHandler implements DomainHandler {
   ): Promise<string> {
     const desc = await conn.describe(objectApiName);
     return desc.fields.map((f) => f.name).join(', ');
+  }
+
+  /**
+   * The fields a masking run reads of an object: the Id it writes each row
+   * back by, and the fields its rules mask that the object has.
+   *
+   * Every field used to be read, for the few the template names: a run now
+   * reads every row, and the rest — long text, rich text, every column of every
+   * page — would cross the wire for nothing. A field the object lacks is not
+   * asked for, as reading every field never brought it, so its rule masks
+   * nothing either way.
+   *
+   * @param conn - Connection used for the describe call.
+   * @param objectApiName - Already-sanitized SObject API name.
+   * @param rules - The rules the run applies to the object.
+   */
+  private async maskedFields(
+    conn: { describe: (objectApiName: string) => Promise<{ fields: Array<{ name: string }> }> },
+    objectApiName: string,
+    rules: readonly DataOpsAnonymizationRule[],
+  ): Promise<string> {
+    const described = new Set((await conn.describe(objectApiName)).fields.map((f) => f.name));
+    const masked = rules
+      .map((r) => r.fieldApiName)
+      .filter(
+        (field, i, all) => field !== 'Id' && described.has(field) && all.indexOf(field) === i,
+      );
+    return ['Id', ...masked].join(', ');
+  }
+
+  /**
+   * How many rows an object holds (`SELECT COUNT()`), which a masking run
+   * counts before it writes anything: its progress counts against these, and
+   * what a run that stops leaves is counted from them.
+   *
+   * @throws When the org answers the count with no number.
+   */
+  private async countRows(conn: Connection, objectApiName: string): Promise<number> {
+    const answer = await conn.query(`SELECT COUNT() FROM ${objectApiName}`);
+    const total: unknown = answer.totalSize;
+    if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
+      throw new Error(`The org did not say how many records ${objectApiName} holds.`);
+    }
+    return total;
   }
 
   /**
@@ -1338,8 +1564,13 @@ export class DataOpsHandler implements DomainHandler {
       outcome: 'failure',
       source: { origin: 'org', orgId: payload.orgId },
     };
-    /** Per object, what the run masked so far. */
-    const masked: AuditObjectCounts[] = [];
+    /** Per object, the rows it held and what the run did with them so far. */
+    const tallies: MaskingTally[] = [];
+    /**
+     * Whether every object the run addresses has been counted: until then, how
+     * many rows a run that stops leaves cannot be said.
+     */
+    let counted = false;
     /**
      * True from the moment the run is announced until its end is recorded: it
      * stops at the first object it may not write, and must still be recorded.
@@ -1356,6 +1587,39 @@ export class DataOpsHandler implements DomainHandler {
     /** What the run failed on, read by `settleRun` in `finally`. */
     let runError: unknown;
 
+    /**
+     * End the run on what it failed on, on both channels the page listens on.
+     * Once every object was counted, both say what the run masked before it
+     * stopped and, per object, how many rows still hold their original values:
+     * a run that failed half-way through used to say only what the org said,
+     * and nothing told the user half the org was still unmasked.
+     */
+    const failRun = (err: unknown, retryable: boolean): void => {
+      runError = err;
+      const reason = extractErrorMessage(err);
+      const totals = maskingTotals(tallies);
+      const left = counted && totals.recordsNotMasked > 0;
+      const extraPayload = counted ? { ...totals, objects: maskingResultObjects(tallies) } : {};
+      sendHandlerError(
+        this.deps,
+        'dataops:anonymize',
+        'dataops:error',
+        msg,
+        left
+          ? new Error(
+              `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
+                `${totals.recordsNotMasked} still hold their original values ` +
+                `(${leftByObject(tallies)}).`,
+            )
+          : err,
+        { extraPayload },
+      );
+      sendOperationFailed(this.deps, operationId, reason, retryable, {
+        context: failure,
+        extraPayload,
+      });
+    };
+
     try {
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
@@ -1370,8 +1634,8 @@ export class DataOpsHandler implements DomainHandler {
         // The objects the run addresses, so a production confirmation
         // names them instead of an opaque 'AnonymizeData'.
         objectName: plannedObjects.join(', ') || 'AnonymizeData',
-        // Each object is queried below, under the tier's row limit, so the
-        // rows cannot be counted here.
+        // The rows are counted below, on a connection the guard comes
+        // before: a run it stops opens none.
         recordCount: 'unknown' as const,
         module: 'dataops',
       };
@@ -1409,12 +1673,15 @@ export class DataOpsHandler implements DomainHandler {
         return;
       }
 
-      // Resolve dynamic query limits based on org tier
+      // The org's tier sets how many rows a page reads: 2,000 on a sandbox, 500
+      // on production. It used to be how many rows of each object a run read at
+      // all: the rows past it were never masked, the progress counted only what
+      // was read, and the run said it had succeeded.
       const anonOrg = this.deps.orgManager.getOrg(payload.orgId);
       const anonOrgTier = resolveOrgTier(
         anonOrg?.orgType === 'Sandbox' || anonOrg?.orgType === 'Scratch',
       );
-      const anonQueryLimits = getQueryLimits(anonOrgTier);
+      const pageSize = getQueryLimits(anonOrgTier).defaultQueryLimit;
 
       // Create CrudFlsGuard for permission checks before DML
       const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
@@ -1442,34 +1709,75 @@ export class DataOpsHandler implements DomainHandler {
       // The window's key, not a fresh random one: see `maskingKey`.
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
 
-      let totalProcessed = 0;
-      let totalFailed = 0;
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
+      /** The org's API usage, once it passed the line past which the run makes no call. */
+      let apiLimit: SforceLimitInfo | undefined;
+      /** Log the org's API usage after a call, and keep it once it passes that line. */
+      const noteApiUsage = (context: string): void => {
+        const usage = checkApiLimits(conn.limitInfo, context);
+        if (usage && usage.usagePercent >= MASKING_API_STOP_PERCENT) apiLimit ??= usage;
+      };
+      /** Where the org's API usage stood when the run stopped on it, if it did. */
+      const usageAtStop = (): SforceLimitInfo | undefined => apiLimit;
 
-      for (let oi = 0; oi < plannedObjects.length; oi++) {
+      // Every object is counted before anything is written: the progress
+      // counts rows against these totals, and a run that stops says from them
+      // how many rows of each object it left.
+      const work: Array<{
+        objectName: string;
+        objectRules: AnonymizationTemplateRule[];
+        tally: MaskingTally;
+      }> = [];
+      for (const objectName of plannedObjects) {
+        const objectRules = template.rules.filter(
+          (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
+        );
+        if (objectRules.length === 0) continue;
+        const safeObj = sanitizeSoqlObjectName(objectName);
+        failure.objectName = safeObj;
+        const total = await this.countRows(conn, safeObj);
+        noteApiUsage(`dataops:anonymize count ${safeObj}`);
+        const tally: MaskingTally = {
+          objectApiName: safeObj,
+          total,
+          masked: 0,
+          nothingToMask: 0,
+          refused: 0,
+          done: total === 0,
+        };
+        tallies.push(tally);
+        work.push({ objectName, objectRules, tally });
+      }
+      counted = true;
+      const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
+      /** Rows of one object the run is done with: masked, refused, or holding nothing to mask. */
+      const doneWith = (t: MaskingTally): number => t.masked + t.nothingToMask + t.refused;
+      /** Progress over the rows of every object, counted against what the counts said. */
+      const reportProgress = (objectName: string, tally: MaskingTally): void => {
+        const handled = tallies.reduce((sum, t) => sum + doneWith(t), 0);
+        // A row created while the run goes can be read past the count.
+        const total = Math.max(grandTotal, handled);
+        sendOperationProgress(
+          this.deps,
+          operationId,
+          Math.round((handled / total) * 100),
+          handled,
+          total,
+          `Anonymized ${objectName} (${doneWith(tally)}/${Math.max(tally.total, doneWith(tally))})`,
+        );
+      };
+
+      for (const { objectName, objectRules, tally } of work) {
+        if (tally.total === 0) continue;
         if (stop.signal.aborted) {
           cancelled = true;
           break;
         }
-        const objectName = plannedObjects[oi];
-        const safeObj = sanitizeSoqlObjectName(objectName);
+        if (usageAtStop()) break;
+        const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
-        const objectRules = template.rules.filter(
-          (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
-        );
-
-        if (objectRules.length === 0) continue;
-
-        const records = await queryAll<Record<string, unknown>>(
-          conn,
-          `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
-            `LIMIT ${anonQueryLimits.defaultQueryLimit}`,
-        );
-        checkApiLimits(conn.limitInfo, `dataops:anonymize query ${safeObj}`);
-
-        if (records.length === 0) continue;
 
         // Verify CRUD/FLS permissions before update
         const updateFieldNames = objectRules
@@ -1482,26 +1790,11 @@ export class DataOpsHandler implements DomainHandler {
           this.deps.log(
             `[WARN] CRUD/FLS check failed for anonymize on ${safeObj}: ${flsCheck.reason}`,
           );
-          sendHandlerError(
-            this.deps,
-            'dataops:anonymize',
-            'dataops:error',
-            msg,
-            new Error(flsCheck.reason),
-          );
-          sendOperationFailed(this.deps, operationId, flsCheck.reason, false, { context: failure });
-          runError = new Error(flsCheck.reason);
+          failRun(new Error(flsCheck.reason), false);
           return;
         }
 
-        // Reading an object takes a while: a cancel that came meanwhile is
-        // honoured before any of it is written.
-        if (stop.signal.aborted) {
-          cancelled = true;
-          break;
-        }
-
-        const rules = objectRules.map((r) => ({
+        const rules: DataOpsAnonymizationRule[] = objectRules.map((r) => ({
           objectApiName: objectName,
           fieldApiName: r.fieldPattern.includes('.')
             ? r.fieldPattern.split('.')[1]
@@ -1517,90 +1810,131 @@ export class DataOpsHandler implements DomainHandler {
             | 'preserve_format',
           config: this.ruleConfig(r),
         }));
+        const fields = await this.maskedFields(conn, safeObj, rules);
+        failure.batchSize = MASKING_BATCH_SIZE;
 
-        const anonymized = engine.anonymize(records, rules);
-
-        // Only the Id and the template's fields that held something go back.
-        // The read takes every field, so each record went back with its audit
-        // dates, its compound name and address and every flag the org keeps,
-        // and Salesforce refuses a record carrying any of those, whole — Sync
-        // and Autopilot saw it refuse every record of a run over the same
-        // fields — so no record could be masked. An empty field holds nobody's
-        // data, and a value made up for it — a fake street, the digest of
-        // nothing, which an Email field refuses along with the rest of the
-        // record — is data the record never had.
-        const payloads: Array<Record<string, unknown>> = [];
-        let nothingToMask = 0;
-        records.forEach((original, index) => {
-          const payload: Record<string, unknown> = { Id: original.Id };
-          for (const rule of rules) {
-            if (isFilledValue(original[rule.fieldApiName])) {
-              payload[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
-            }
-          }
-          if (Object.keys(payload).length > 1) payloads.push(payload);
-          else nothingToMask++;
-        });
-
-        type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
-        const batchSize = 200;
-        failure.batchSize = batchSize;
-        let successCount = 0;
-        let failureCount = 0;
-        for (let bi = 0; bi < payloads.length; bi += batchSize) {
-          // A cancel stops the run before each batch, with what the batches
-          // before it masked counted below. The first batch included, as in
-          // the writer Sync writes through: the run looks at the cancel once
-          // the object is read, and nothing between that and the first batch
-          // waits today, but a cancel that came between them would still send
-          // two hundred records.
+        // Page after page to the object's last row, each written back before
+        // the next is read, so the run holds one page whatever the object's
+        // size. A cancel, or the org's API usage passing the line, is honoured
+        // before the next page, and before each batch of this one.
+        let afterId: string | undefined;
+        for (;;) {
           if (stop.signal.aborted) {
             cancelled = true;
             break;
           }
-          const batch = payloads.slice(bi, bi + batchSize);
-          // The waiver the restore's upsert sends: a duplicate rule can block
-          // an edit as it blocks a create, and a masked record that the rule
-          // refuses keeps its real values.
-          const updateResults = (await conn
-            .sobject(objectName)
-            .update(batch as Array<Record<string, unknown> & { Id: string }>, {
-              headers: duplicateRuleHeaders(true),
-            })) as unknown as JsforceResult[];
-          checkApiLimits(conn.limitInfo, `dataops:anonymize update ${objectName}`);
-          // Same dropped count as the restore: a record the org refuses keeps
-          // its real PII, and reporting only the successes hid exactly that.
-          for (const r of Array.isArray(updateResults) ? updateResults : [updateResults]) {
-            if (r.success) {
-              successCount++;
-              continue;
-            }
-            failureCount++;
-            collectDmlError(maskErrors, safeObj, r.errors);
+          if (usageAtStop()) break;
+          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId);
+          noteApiUsage(`dataops:anonymize query ${safeObj}`);
+          if (page.records.length === 0) {
+            tally.done = true;
+            break;
           }
-        }
-        // A record none of whose masked fields held anything is done, as an
-        // erasure counts one; the audit trail keeps to what was written.
-        totalProcessed += successCount + nothingToMask;
-        totalFailed += failureCount;
-        masked.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
-        if (cancelled) break;
+          // Where the next page starts, taken before this one is written: a
+          // page that does not end past the one before it is not written twice.
+          const nextAfterId = page.truncated ? pageEnd(page.records, afterId, safeObj) : undefined;
 
-        sendOperationProgress(
-          this.deps,
-          operationId,
-          Math.round(((oi + 1) / plannedObjects.length) * 100),
-          oi + 1,
-          plannedObjects.length,
-          `Anonymized ${objectName} (${successCount + nothingToMask}/${records.length})`,
-        );
+          // Reading a page takes a while: a cancel that came meanwhile is
+          // honoured before any of it is written.
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
+
+          const anonymized = engine.anonymize(page.records, rules);
+
+          // Only the Id and the template's fields that held something go back.
+          // Each record used to go back with every field it was read with — its
+          // audit dates, its compound name and address and every flag the org
+          // keeps — and Salesforce refuses a record carrying any of those,
+          // whole — Sync and Autopilot saw it refuse every record of a run over
+          // the same fields — so no record could be masked. An empty field
+          // holds nobody's data, and a value made up for it — a fake street,
+          // the digest of nothing, which an Email field refuses along with the
+          // rest of the record — is data the record never had.
+          const payloads: Array<Record<string, unknown>> = [];
+          page.records.forEach((original, index) => {
+            const payload: Record<string, unknown> = { Id: original.Id };
+            for (const rule of rules) {
+              if (isFilledValue(original[rule.fieldApiName])) {
+                payload[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
+              }
+            }
+            // A record none of whose masked fields held anything is done, as
+            // an erasure counts one; the audit trail keeps to what was written.
+            if (Object.keys(payload).length > 1) payloads.push(payload);
+            else tally.nothingToMask++;
+          });
+
+          type JsforceResult = {
+            success: boolean;
+            id?: string;
+            errors?: Array<{ message: string }>;
+          };
+          for (let bi = 0; bi < payloads.length; bi += MASKING_BATCH_SIZE) {
+            // A cancel stops the run before each batch, with what the batches
+            // before it masked counted. The first batch included, as in the
+            // writer Sync writes through: the run looks at the cancel once the
+            // page is read, and nothing between that and the first batch waits
+            // today, but a cancel that came between them would still send two
+            // hundred records.
+            if (stop.signal.aborted) {
+              cancelled = true;
+              break;
+            }
+            if (usageAtStop()) break;
+            const batch = payloads.slice(bi, bi + MASKING_BATCH_SIZE);
+            // The waiver the restore's upsert sends: a duplicate rule can block
+            // an edit as it blocks a create, and a masked record that the rule
+            // refuses keeps its real values.
+            const updateResults = (await conn
+              .sobject(objectName)
+              .update(batch as Array<Record<string, unknown> & { Id: string }>, {
+                headers: duplicateRuleHeaders(true),
+              })) as unknown as JsforceResult[];
+            noteApiUsage(`dataops:anonymize update ${safeObj}`);
+            // Same dropped count as the restore: a record the org refuses keeps
+            // its real PII, and reporting only the successes hid exactly that.
+            for (const r of Array.isArray(updateResults) ? updateResults : [updateResults]) {
+              if (r.success) {
+                tally.masked++;
+                continue;
+              }
+              tally.refused++;
+              collectDmlError(maskErrors, safeObj, r.errors);
+            }
+            reportProgress(objectName, tally);
+          }
+          // A page whose rows held nothing to mask is done with all the same.
+          if (payloads.length === 0) reportProgress(objectName, tally);
+          if (cancelled || usageAtStop()) break;
+          // A page that came back short was the last one.
+          if (nextAfterId === undefined) {
+            tally.done = true;
+            break;
+          }
+          afterId = nextAfterId;
+        }
+        if (cancelled || usageAtStop()) break;
       }
 
-      const reached = dmlStatus(totalProcessed, totalFailed);
-      // A run the cancel stopped did not mask every record it was for.
-      const status = cancelled && reached === 'success' ? 'partial' : reached;
+      const limitHit = usageAtStop();
+      const status = maskingStatus(tallies, cancelled);
+      const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
+      const left = leftByObject(tallies);
       unrecorded = false;
-      recordWriteRun(this.deps, { ...run, outcome: status, objects: masked });
+      recordWriteRun(this.deps, { ...run, outcome: status, objects: maskingAuditCounts(tallies) });
+      if (recordsNotMasked > 0) {
+        const why = cancelled
+          ? 'cancelled'
+          : limitHit
+            ? `stopped at ${limitHit.usagePercent}% of the org's API requests`
+            : 'refused by the org';
+        this.deps.log(
+          `[WARN] dataops:anonymize ${operationId} ${why}: ${recordsNotMasked} record(s) ` +
+            `not masked — ${left}`,
+        );
+      }
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
         // — already, when the cancel came through it — and posted as a
@@ -1608,32 +1942,47 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.infraServices?.backgroundRegistry?.abort(operationId);
         sendOperationCompleted(this.deps, operationId, {
           aborted: true,
-          totalProcessed,
-          totalFailed,
+          totalProcessed: recordsProcessed,
+          totalFailed: recordsFailed,
+          totalNotMasked: recordsNotMasked,
         });
       } else {
-        sendOperationCompleted(this.deps, operationId, { status, totalProcessed, totalFailed });
+        sendOperationCompleted(this.deps, operationId, {
+          status,
+          totalProcessed: recordsProcessed,
+          totalFailed: recordsFailed,
+          totalNotMasked: recordsNotMasked,
+        });
       }
 
+      const stillHeld = `${recordsNotMasked} still hold their original values (${left})`;
       const message = cancelled
-        ? `Anonymization cancelled: ${totalProcessed} masked before the cancel` +
-          ' — the records it did not reach still hold their original values.'
-        : totalFailed === 0
-          ? `Anonymization completed: ${totalProcessed} records processed.`
-          : `Anonymization ${status}: ${totalProcessed} masked, ${totalFailed} rejected by the org` +
-            ' — those records still hold their original values.';
+        ? `Anonymization cancelled: ${recordsProcessed} masked before the cancel — ${stillHeld}.`
+        : limitHit
+          ? `Anonymization stopped at ${limitHit.usagePercent}% of the org's daily API requests ` +
+            `(${limitHit.apiUsage} of ${limitHit.apiLimit}): ${recordsProcessed} masked — ` +
+            `${stillHeld}. Run it again once the org has requests to spare.`
+          : recordsFailed === 0
+            ? `Anonymization completed: ${recordsProcessed} records processed.`
+            : `Anonymization ${status}: ${recordsProcessed} masked, ${recordsFailed} rejected by the org` +
+              ' — those records still hold their original values.';
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
         templateId: payload.templateId,
         status,
-        recordsProcessed: totalProcessed,
-        recordsFailed: totalFailed,
+        recordsProcessed,
+        recordsFailed,
+        recordsNotMasked,
+        objects: maskingResultObjects(tallies),
         message,
         errors: maskErrors,
         ...(cancelled ? { cancelled: true } : {}),
+        ...(limitHit ? { stoppedAtApiLimit: true } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
-      if (totalFailed > 0) {
+      // The page shows a run's end through this notification and nothing
+      // else: a run that left records unmasked, for whatever reason, says so.
+      if (recordsNotMasked > 0) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -1644,18 +1993,19 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
       // run's failure: only the loop, stopping at the cancel, says a run was
-      // cancelled.
-      runError = err;
-      // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
-        context: failure,
-      });
+      // cancelled. Dual channel, single display (see handleBackup).
+      failRun(err, true);
     } finally {
       // A run that stopped at an object it may not write, or threw, after it
-      // started: recorded as failed, with the objects it had masked.
+      // started: recorded with what it masked — partial once it wrote a row,
+      // failed otherwise — and, per object, the rows it never reached.
       if (unrecorded) {
-        recordWriteRun(this.deps, { ...run, outcome: 'failure', objects: masked });
+        const wrote = tallies.some((t) => t.masked > 0);
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: wrote ? 'partial' : 'failure',
+          objects: counted ? maskingAuditCounts(tallies) : [],
+        });
       }
       settleRun(runError);
     }

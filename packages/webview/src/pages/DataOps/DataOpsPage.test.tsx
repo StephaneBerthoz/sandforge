@@ -115,8 +115,11 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   },
 }));
 
+const mutationOptions: Record<string, { timeoutMs?: number } | undefined> = {};
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (type: string) => {
+  useBridgeMutation: (type: string, options?: { timeoutMs?: number }) => {
+    mutationOptions[type] = options;
     if (type === 'backup:execute') {
       return mockBackupMutationState;
     }
@@ -146,6 +149,12 @@ vi.mock('../../stores/useAppStore', () => ({
 }));
 
 describe('DataOpsPage', () => {
+  it('waits as long as an anonymize run takes to mask every row, not two minutes', () => {
+    render(<DataOpsPage />);
+
+    expect(mutationOptions['dataops:anonymize']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+  });
+
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     mockNavigate.mockClear();

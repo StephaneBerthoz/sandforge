@@ -175,7 +175,7 @@ describe('AnonymizationEngine', () => {
       expect(() => engine.applyRule('123-45-6789', rule)).toThrow(MissingHashSaltError);
     });
 
-    it('should handle fake rule type', () => {
+    it('makes up an email at a domain that receives no mail, as a hash does', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',
         fieldApiName: 'Email',
@@ -184,8 +184,23 @@ describe('AnonymizationEngine', () => {
       };
       const result = engine.applyRule('real@example.com', rule);
       // A fake email has to be an email, or the anonymized org fails the
-      // validation rules the real one passed.
-      expect(String(result)).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
+      // validation rules the real one passed — and one at `example.com`, a
+      // domain that resolves, is one the masked org's mail can still be sent to.
+      expect(String(result)).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+    });
+
+    it('makes up an address for an address in a field the persona does not name', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Secondary_Email__c',
+        method: 'fake',
+        config: {},
+      };
+      // `fake_…` is no address: an Email field refuses it, and the org keeps
+      // the whole record as it was, its name and phone included.
+      const result = String(engine.applyRule('ada.lovelace@mail.test', rule));
+      expect(result).toMatch(/^fake-[0-9a-f]{8}@example\.invalid$/);
+      expect(result).not.toContain('ada');
     });
 
     it('should not encode the original value length in a fake value', () => {

@@ -100,9 +100,10 @@ export const DataOpsPage: React.FC = () => {
   /** Bridge mutation: anonymize data. */
   const anonymizeMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
     responseType: 'dataops:anonymize:response',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // A run masks every row of every object, page by page, so a large object
+    // takes many minutes; operation:progress events keep flowing while the
+    // response is pending. Two minutes showed a timeout while the run went on.
+    timeoutMs: 60 * 60_000,
   });
 
   /**

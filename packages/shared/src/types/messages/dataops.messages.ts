@@ -179,7 +179,10 @@ export interface DataOpsRollbackResponse extends BaseMessage {
   payload: { operationId: string; status: string; message: string; totalRestored: number };
 }
 
-/** Response after a successful anonymization run. */
+/**
+ * Response when an anonymization run ends, whatever it masked; a run that
+ * fails on an error ends on `dataops:error` instead, with the same counts.
+ */
 export interface DataOpsAnonymizeResponse extends BaseMessage {
   type: 'dataops:anonymize:response';
   payload: {
@@ -188,11 +191,33 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     recordsProcessed: number;
     /** Records the org refused to update: they still hold their original values. */
     recordsFailed: number;
+    /**
+     * Records still holding their original values: the ones the org refused,
+     * and the ones a cancel or the API limit kept the run from reaching.
+     */
+    recordsNotMasked: number;
+    /**
+     * Per object, the records it held when the run counted them, those done
+     * with (masked, or holding nothing to mask), those refused, and those still
+     * holding their original values.
+     */
+    objects: Array<{
+      objectApiName: string;
+      total: number;
+      processed: number;
+      failed: number;
+      notMasked: number;
+    }>;
     message: string;
     /** Why the org refused them, per object. */
     errors: Array<{ objectApiName: string; message: string }>;
     /** Present when a cancel stopped the run before every record was masked. */
     cancelled?: true;
+    /**
+     * Present when the run stopped before every record was masked because the
+     * org had used nearly all of its daily API requests.
+     */
+    stoppedAtApiLimit?: true;
   };
 }
 

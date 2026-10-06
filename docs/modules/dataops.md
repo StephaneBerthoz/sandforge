@@ -76,16 +76,35 @@ your own:
 - Browse anonymization templates from the template library; each rule is
   listed by the `Object.Field` it masks and its method
 - Apply a template to replace PII with realistic but fake data
-- **What a run writes.** The fields a template names, where they hold a value,
-  and nothing else of the record: an empty field stays empty rather than being
-  given a made-up value, and a record none of whose named fields holds
-  anything is not written at all
+- **Every record.** A run counts each object's records first
+  (`SELECT COUNT()`), then masks them a page at a time, in `Id` order: 2,000
+  records a page on a sandbox, 500 on production, each page written back in
+  batches of 200 before the next is read. An object of any size is masked
+  whole, and the progress counts records against what the counts said. A
+  backup holds at most the org's query limit of each object (see Backup), so
+  on a larger object it cannot bring back every record a run masks
+- **What a run reads and writes.** It reads the `Id` and the fields the
+  template names. It writes those fields where they hold a value, and nothing
+  else of the record: an empty field stays empty rather than being given a
+  made-up value, and a record none of whose named fields holds anything is not
+  written at all
+- **A run that stops before the end says what it left.** A cancel, honoured
+  between two batches; the org's daily API requests reaching 95%, past which
+  the run makes no further call; an error; records the org refuses. The run
+  then ends partial -- failed when it masked nothing -- and says, per object,
+  how many records still hold their original values: in its result, in the
+  message the page shows, in the audit trail (Reports: refused records as
+  failed, records never reached as not sent) and in the output log. Run the
+  template again to mask what was left: a run masks every record of its
+  objects, so the records already masked are masked once more
 - **What the templates that ship write.** Sandbox Data Scrub replaces a
   website with `https://example.com`. HIPAA Health Data keeps the first three
   characters of a postal code, the region a ZIP code's first three digits
   name. CCPA California and HIPAA Health Data hash an email into an address at
   `example.invalid`, a domain that receives no mail: the same address becomes
-  the same pseudonym on a contact and on a lead
+  the same pseudonym on a contact and on a lead. GDPR Standard makes up an
+  email at `example.invalid` too, as the Fake method does for every address
+  it writes
 - **No preview.** The Preview button is disabled: the preview it used to run
   applied the mask to the org for real, so it was inerted rather than left in
   place. Apply is the only path, and it is irreversible -- back up first.

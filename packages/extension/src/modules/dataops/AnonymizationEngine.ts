@@ -34,10 +34,17 @@ function keptAtEnd(config: DataOpsAnonymizationRule['config'], length: number): 
 const EMAIL_ADDRESS = /^[^\s@]+@[^\s@]+$/;
 
 /**
- * Where a hashed address is written. `.invalid` is reserved never to resolve
- * (RFC 6761), so no mail sent from the masked org reaches anybody.
+ * Where every address the engine writes is, hashed or made up. `.invalid` is
+ * reserved never to resolve (RFC 6761), so no mail sent from the masked org
+ * reaches anybody.
  */
-const HASHED_EMAIL_DOMAIN = 'example.invalid';
+const UNDELIVERABLE_EMAIL_DOMAIN = 'example.invalid';
+
+/** The local part of an address, kept, at {@link UNDELIVERABLE_EMAIL_DOMAIN}. */
+function undeliverable(address: string): string {
+  const at = address.lastIndexOf('@');
+  return `${at === -1 ? address : address.slice(0, at)}@${UNDELIVERABLE_EMAIL_DOMAIN}`;
+}
 
 /** Thrown when a hash rule would produce an unkeyed, brute-forceable digest. */
 export class MissingHashSaltError extends Error {
@@ -251,8 +258,8 @@ export class AnonymizationEngine {
    * An address is hashed into an address. An Email field takes an address or
    * nothing, and `sha256:…` is neither: the org refuses the whole record, so
    * its name and phone keep their real values along with the email. The digest
-   * becomes the local part at {@link HASHED_EMAIL_DOMAIN}, and the same address
-   * still gives the same pseudonym on every object it appears on.
+   * becomes the local part at {@link UNDELIVERABLE_EMAIL_DOMAIN}, and the same
+   * address still gives the same pseudonym on every object it appears on.
    */
   private applyHash(value: unknown, rule: DataOpsAnonymizationRule): string {
     const salt = rule.config.hashSalt;
@@ -263,7 +270,7 @@ export class AnonymizationEngine {
     const input = String(value ?? '');
     const digest = createHmac(algo, salt).update(input).digest('hex').slice(0, 32);
     return EMAIL_ADDRESS.test(input)
-      ? `${algo}-${digest}@${HASHED_EMAIL_DOMAIN}`
+      ? `${algo}-${digest}@${UNDELIVERABLE_EMAIL_DOMAIN}`
       : `${algo}:${digest}`;
   }
 
@@ -282,17 +289,32 @@ export class AnonymizationEngine {
    *
    * Which registry answers is decided by the rule's salt — see
    * {@link registryFor}.
+   *
+   * A made-up address goes where a hashed one does, at
+   * {@link UNDELIVERABLE_EMAIL_DOMAIN}. The persona's own is at `example.com`,
+   * a registered domain that resolves and that nothing promises will never
+   * take mail, while the masked org's alerts and flows go on sending it.
    */
   private applyFake(value: unknown, rule: DataOpsAnonymizationRule, recordId: string): string {
     const personaKey = recordId !== '' ? recordId : this.keyedDigest(String(value ?? ''), rule);
     const persona = this.registryFor(rule).getPersona(personaKey);
     const personaField = PERSONA_FIELD_MAP[rule.fieldApiName];
+    if (personaField === 'email') {
+      return undeliverable(persona.email);
+    }
     if (personaField) {
       return persona[personaField];
     }
     // Unmapped field: a fixed-width opaque token, so nothing about the original
     // — its length least of all — survives in the shape of the replacement.
-    return `fake_${this.keyedDigest(`${rule.fieldApiName}:${personaKey}`, rule).slice(0, 8)}`;
+    const token = this.keyedDigest(`${rule.fieldApiName}:${personaKey}`, rule).slice(0, 8);
+    // An address in a field the persona does not name — a second email field,
+    // a custom one — is replaced by an address, as a hash replaces it: an Email
+    // field takes an address or nothing, and refuses the whole record over
+    // `fake_…`, its name and phone included.
+    return EMAIL_ADDRESS.test(String(value ?? ''))
+      ? `fake-${token}@${UNDELIVERABLE_EMAIL_DOMAIN}`
+      : `fake_${token}`;
   }
 
   /**

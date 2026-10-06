@@ -55,6 +55,14 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
+/**
+ * A query answer as the org gives one: the rows, and how many there are —
+ * which is all a masking run reads of its `SELECT COUNT()`.
+ */
+function answer(records: Array<Record<string, unknown>>) {
+  return { records, done: true, totalSize: records.length };
+}
+
 describe('DataOpsHandler', () => {
   let handler: DataOpsHandler;
   let deps: HandlerDeps;
@@ -1412,7 +1420,7 @@ describe('DataOpsHandler', () => {
             'MALFORMED_QUERY: The SOQL FIELDS function must have a LIMIT of at most 200',
           );
         }
-        return { records, done: true };
+        return answer(records);
       });
       const describe = vi.fn().mockResolvedValue({ fields: fields.map((name) => ({ name })) });
       return {
@@ -1540,8 +1548,34 @@ describe('DataOpsHandler', () => {
       expect(posted().filter((m) => m.type === 'dataops:backup:response')).toHaveLength(1);
     });
 
-    it('anonymize reads its records with the same first-attempt query', async () => {
-      const conn = mockOrg([], ['Id', 'FirstName', 'Email']);
+    it('anonymize counts, then reads a page with a query the org accepts on the first attempt', async () => {
+      const conn = mockOrg(
+        [{ Id: '003000000000001', FirstName: 'Ada', Email: 'ada@mail.test' }],
+        ['Id', 'FirstName', 'Email'],
+      );
+      // Writable, so the CRUD/FLS check lets the page go back; and wider than
+      // the template, as every object is.
+      conn.describe.mockResolvedValue({
+        name: 'Contact',
+        label: 'Contact',
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: ['Id', 'FirstName', 'Email', 'Description', 'CreatedDate'].map((name) => ({
+          name,
+          label: name,
+          type: 'string',
+          createable: name !== 'Id' && name !== 'CreatedDate',
+          updateable: name !== 'Id' && name !== 'CreatedDate',
+        })),
+        recordTypeInfos: [],
+        childRelationships: [],
+      });
+      conn.sobject.mockReturnValue({
+        update: vi.fn(async (batch: unknown[]) => batch.map(() => ({ success: true }))),
+        upsert: vi.fn(),
+      });
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
 
@@ -1558,10 +1592,12 @@ describe('DataOpsHandler', () => {
         } as BaseMessage),
       );
 
-      expect(conn.query).toHaveBeenCalledTimes(1);
-      expect(conn.query.mock.calls[0][0]).toBe(
-        'SELECT Id, FirstName, Email FROM Contact LIMIT 2000',
-      );
+      // The Id each row is written back by, and the fields of the template
+      // the object has: nothing else of the record crosses the wire.
+      expect(conn.query.mock.calls.map(([soql]) => soql)).toEqual([
+        'SELECT COUNT() FROM Contact',
+        'SELECT Id, FirstName, Email FROM Contact ORDER BY Id LIMIT 2000',
+      ]);
       expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
     });
   });
@@ -1621,13 +1657,12 @@ describe('DataOpsHandler', () => {
           errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Locked' }],
         },
       ]);
-      const query = vi.fn(async () => ({
-        records: [
+      const query = vi.fn(async () =>
+        answer([
           { Id: '003000000000001', FirstName: 'Ada' },
           { Id: '003000000000002', FirstName: 'Grace' },
-        ],
-        done: true,
-      }));
+        ]),
+      );
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
         query,
@@ -1698,10 +1733,7 @@ describe('DataOpsHandler', () => {
       const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
-        query: vi.fn(async () => ({
-          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
-          done: true,
-        })),
+        query: vi.fn(async () => answer([{ Id: '003000000000001', FirstName: 'Ada' }])),
         describe: vi.fn().mockResolvedValue(contactDescribe),
         sobject: vi.fn(() => ({ update })),
       } as never);
@@ -1744,10 +1776,7 @@ describe('DataOpsHandler', () => {
       const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
-        query: vi.fn(async () => ({
-          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
-          done: true,
-        })),
+        query: vi.fn(async () => answer([{ Id: '003000000000001', FirstName: 'Ada' }])),
         describe: vi.fn().mockResolvedValue(contactDescribe),
         sobject: vi.fn(() => ({ update })),
       } as never);
@@ -1772,10 +1801,7 @@ describe('DataOpsHandler', () => {
       const update = vi.fn().mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
-        query: vi.fn(async () => ({
-          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
-          done: true,
-        })),
+        query: vi.fn(async () => answer([{ Id: '003000000000001', FirstName: 'Ada' }])),
         describe: vi.fn().mockResolvedValue(contactDescribe),
         sobject: vi.fn(() => ({ update })),
       } as never);
@@ -1840,7 +1866,7 @@ describe('DataOpsHandler', () => {
       async function anonymizeWith(
         update: ReturnType<typeof vi.fn>,
       ): Promise<ReturnType<typeof vi.fn>> {
-        const query = vi.fn(async () => ({ records: contacts, done: true }));
+        const query = vi.fn(async (_soql: string) => answer(contacts));
         const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
         vi.mocked(getJsforceConnection).mockResolvedValue({
           query,
@@ -1881,7 +1907,12 @@ describe('DataOpsHandler', () => {
         const query = await anonymizeWith(update);
 
         expect(update).toHaveBeenCalledTimes(1);
-        expect(query).toHaveBeenCalledTimes(1);
+        // Both objects counted first; then one page read, of Contact alone.
+        const pages = query.mock.calls
+          .map(([soql]) => String(soql))
+          .filter((soql) => !soql.startsWith('SELECT COUNT() '));
+        expect(pages).toHaveLength(1);
+        expect(pages[0]).toContain('FROM Contact ');
       });
 
       it('masks no batch of an object the cancel came before, the first included', async () => {
@@ -1920,21 +1951,44 @@ describe('DataOpsHandler', () => {
 
         expect(events).toEqual(['started', 'aborted']);
         expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
-          result: { aborted: true, totalProcessed: 200, totalFailed: 0 },
+          result: { aborted: true, totalProcessed: 200, totalFailed: 0, totalNotMasked: 700 },
         });
         expect(posted().filter((m) => m.type === 'operation:failed')).toEqual([]);
+        // What the cancel left, per object: the rest of Contact, and all of
+        // Lead, which it never reached.
         expect(anonymizePayload()).toMatchObject({
           cancelled: true,
           status: 'partial',
           recordsProcessed: 200,
+          recordsNotMasked: 700,
+          objects: [
+            { objectApiName: 'Contact', total: 450, processed: 200, failed: 0, notMasked: 250 },
+            { objectApiName: 'Lead', total: 450, processed: 0, failed: 0, notMasked: 450 },
+          ],
         });
-        // The 200 masked stay masked: the trail keeps them, the run as partial.
+        // The 200 masked stay masked: the trail keeps them, the run as
+        // partial, and the rows the cancel kept from the org as not sent.
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
             action: 'anonymize_execute',
             outcome: 'partial',
             objects: [
-              { objectApiName: 'Contact', created: 0, updated: 200, deleted: 0, failed: 0 },
+              {
+                objectApiName: 'Contact',
+                created: 0,
+                updated: 200,
+                deleted: 0,
+                failed: 0,
+                notSent: 250,
+              },
+              {
+                objectApiName: 'Lead',
+                created: 0,
+                updated: 0,
+                deleted: 0,
+                failed: 0,
+                notSent: 450,
+              },
             ],
           }),
         ]);
@@ -2093,6 +2147,375 @@ describe('DataOpsHandler — housekeeping after a written snapshot', () => {
 });
 
 /**
+ * A masking run read each object once, under the tier's row limit — 2,000
+ * rows on a sandbox, 500 on production — and never masked the rows past it,
+ * while its progress said n/n of what it had read and it reported success.
+ * The org below holds more rows than a page and reads them the way Salesforce
+ * does: a count, then pages honouring `WHERE Id > …`, `ORDER BY Id` and
+ * `LIMIT`. What an update sends is written onto its rows, so each test can
+ * say how many still hold their original values.
+ */
+describe('DataOpsHandler — a masking run over more rows than a page', () => {
+  let deps: HandlerDeps;
+  let handler: DataOpsHandler;
+  let registry: BackgroundOperationRegistry;
+  let store: ConfigStore;
+
+  /** A Contact the CRUD/FLS check lets the run write. */
+  const contactDescribe = {
+    name: 'Contact',
+    label: 'Contact',
+    createable: true,
+    updateable: true,
+    deletable: true,
+    queryable: true,
+    fields: [
+      { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+      {
+        name: 'FirstName',
+        label: 'First Name',
+        type: 'string',
+        createable: true,
+        updateable: true,
+      },
+    ],
+    recordTypeInfos: [],
+    childRelationships: [],
+  };
+
+  /** `count` contacts, their Ids in the order the org sorts them. */
+  function contactsOf(count: number): Array<Record<string, unknown>> {
+    return Array.from({ length: count }, (_, i) => ({
+      Id: `003${String(i + 1).padStart(12, '0')}`,
+      FirstName: `Person ${i + 1}`,
+    }));
+  }
+
+  /** How the org below departs from a well-behaved one. */
+  interface OrgQuirks {
+    /** The page, counted from 1, the org fails to read. */
+    failPage?: number;
+    /** Whether a page ignores where the one before ended, as no org should. */
+    ignoreAfter?: boolean;
+    /** Called once each update is answered, with how many were. */
+    afterBatch?: (batchesWritten: number, conn: { limitInfo?: unknown }) => void;
+  }
+
+  /** An org holding `rows`, read and written the way Salesforce does. */
+  function orgOf(rows: Array<Record<string, unknown>>, quirks: OrgQuirks = {}) {
+    let pagesRead = 0;
+    const conn: { limitInfo?: unknown } = {};
+    const query = vi.fn(async (soql: string) => {
+      if (soql.startsWith('SELECT COUNT() ')) {
+        return { totalSize: rows.length, records: [], done: true };
+      }
+      pagesRead += 1;
+      if (pagesRead === quirks.failPage) {
+        throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+      }
+      const after = quirks.ignoreAfter ? undefined : /\bWHERE Id > '(\w+)'/.exec(soql)?.[1];
+      const limit = Number(/\bLIMIT (\d+)/.exec(soql)?.[1] ?? rows.length);
+      const page = rows
+        .filter((r) => after === undefined || String(r.Id) > after)
+        .slice(0, limit)
+        .map((r) => ({ ...r }));
+      return { totalSize: page.length, records: page, done: true };
+    });
+    const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
+      const answers = batch.map((sent) => {
+        Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
+        return { success: true, id: sent.Id };
+      });
+      quirks.afterBatch?.(update.mock.calls.length, conn);
+      return answers;
+    });
+    Object.assign(conn, {
+      query,
+      describe: vi.fn().mockResolvedValue(contactDescribe),
+      sobject: vi.fn(() => ({ update })),
+    });
+    return { conn, query, update };
+  }
+
+  /** Mask the org's contacts with the GDPR template, the way the page asks. */
+  async function maskContacts(conn: object, orgType = 'Sandbox'): Promise<void> {
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
+    await handler.handle(
+      inboundRequest({
+        id: 'an-pages',
+        type: 'dataops:anonymize',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+      } as BaseMessage),
+    );
+  }
+
+  /** The last message of a type the handler posted. */
+  function last(type: string): (BaseMessage & { payload: Record<string, unknown> }) | undefined {
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
+      .filter((m) => m.type === type)
+      .at(-1);
+  }
+
+  /** Every progress the run posted, in order. */
+  function progress(): Array<Record<string, unknown>> {
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
+      .filter((m) => m.type === 'operation:progress')
+      .map((m) => m.payload);
+  }
+
+  /** The pages the run asked for, its counts left out. */
+  function pagesAsked(query: ReturnType<typeof vi.fn>): string[] {
+    return query.mock.calls
+      .map(([soql]) => String(soql))
+      .filter((soql) => !soql.startsWith('SELECT COUNT() '));
+  }
+
+  /** How many rows still hold the first name they had before the run. */
+  function unmasked(rows: Array<Record<string, unknown>>): number {
+    return rows.filter((r, i) => r.FirstName === `Person ${i + 1}`).length;
+  }
+
+  /** Cancel what the registry lists as running, the way `execution:abort` does. */
+  function cancelTheRun(): void {
+    for (const running of registry.getActiveOperations()) registry.abort(running.operationId);
+  }
+
+  /** The masking run's entry in the audit trail. */
+  function audited(): unknown[] {
+    return new AuditTrailStore(store).list().entries;
+  }
+
+  beforeEach(() => {
+    deps = createMockDeps();
+    store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    deps.configStore = store;
+    registry = new BackgroundOperationRegistry();
+    deps.infraServices = {
+      productionGuard: new ProductionGuard(),
+      backgroundRegistry: registry,
+    } as unknown as NonNullable<HandlerDeps['infraServices']>;
+    handler = new DataOpsHandler(deps);
+  });
+
+  it('masks all 2,500 rows, a page at a time, and counts its progress against the 2,500 the org counted', async () => {
+    const rows = contactsOf(2500);
+    const { conn, query, update } = orgOf(rows);
+
+    await maskContacts(conn);
+
+    // Two pages of a sandbox's 2,000 rows, the second after the last row of
+    // the first.
+    expect(pagesAsked(query)).toEqual([
+      'SELECT Id, FirstName FROM Contact ORDER BY Id LIMIT 2000',
+      `SELECT Id, FirstName FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
+    ]);
+    // The first page written back, all ten batches of it, before the second
+    // is read: the run holds one page, whatever the object holds.
+    const secondPage = query.mock.calls.findIndex(([soql]) => String(soql).includes('WHERE Id >'));
+    expect(update.mock.invocationCallOrder[9]).toBeLessThan(
+      query.mock.invocationCallOrder[secondPage],
+    );
+    expect(update.mock.calls.flatMap(([batch]) => batch)).toHaveLength(2500);
+    expect(unmasked(rows)).toBe(0);
+    expect(progress().at(-1)).toMatchObject({
+      percentage: 100,
+      processedRecords: 2500,
+      totalRecords: 2500,
+    });
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+      status: 'success',
+      recordsProcessed: 2500,
+      recordsNotMasked: 0,
+      objects: [{ objectApiName: 'Contact', total: 2500, processed: 2500, notMasked: 0 }],
+    });
+  });
+
+  it('masks every row of a production org too, five hundred to a page', async () => {
+    const rows = contactsOf(1200);
+    const { conn, query } = orgOf(rows);
+
+    await maskContacts(conn, 'Production');
+
+    expect(pagesAsked(query).map((soql) => /LIMIT (\d+)$/.exec(soql)?.[1])).toEqual([
+      '500',
+      '500',
+      '500',
+    ]);
+    expect(unmasked(rows)).toBe(0);
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+      status: 'success',
+      recordsProcessed: 1200,
+    });
+  });
+
+  it('stops at a cancel after the first page as partial, and counts the 500 rows it never reached', async () => {
+    const rows = contactsOf(2500);
+    const { conn, query } = orgOf(rows, {
+      afterBatch: (written) => {
+        if (written === 10) cancelTheRun();
+      },
+    });
+
+    await maskContacts(conn);
+
+    expect(pagesAsked(query)).toHaveLength(1);
+    expect(unmasked(rows)).toBe(500);
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+      status: 'partial',
+      cancelled: true,
+      recordsProcessed: 2000,
+      recordsNotMasked: 500,
+      objects: [
+        { objectApiName: 'Contact', total: 2500, processed: 2000, failed: 0, notMasked: 500 },
+      ],
+    });
+    expect(audited()).toEqual([
+      expect.objectContaining({
+        action: 'anonymize_execute',
+        outcome: 'partial',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            created: 0,
+            updated: 2000,
+            deleted: 0,
+            failed: 0,
+            notSent: 500,
+          },
+        ],
+      }),
+    ]);
+    expect(vi.mocked(deps.log).mock.calls.map(([line]) => line)).toContainEqual(
+      expect.stringMatching(/cancelled: 500 record\(s\) not masked — Contact 500$/),
+    );
+    expect(last('notification')?.payload).toMatchObject({ level: 'warning' });
+    expect(String(last('notification')?.payload.message)).toContain(
+      '500 still hold their original values (Contact 500)',
+    );
+  });
+
+  it('leaves the run partial, never a success, when the org fails to read a page, and says what it left', async () => {
+    const rows = contactsOf(2500);
+    const { conn } = orgOf(rows, { failPage: 2 });
+
+    await maskContacts(conn);
+
+    expect(unmasked(rows)).toBe(500);
+    expect(last('dataops:anonymize:response')).toBeUndefined();
+    // The org's own words go to the fix suggestion; the counts go beside them.
+    expect(last('operation:failed')?.payload).toMatchObject({
+      error: 'QUERY_TIMEOUT: Your query request was running for too long.',
+      recordsProcessed: 2000,
+      recordsNotMasked: 500,
+      objects: [
+        { objectApiName: 'Contact', total: 2500, processed: 2000, failed: 0, notMasked: 500 },
+      ],
+    });
+    expect(last('dataops:error')?.payload.message).toBe(
+      'QUERY_TIMEOUT: Your query request was running for too long. — 2000 masked before it ' +
+        'stopped; 500 still hold their original values (Contact 500).',
+    );
+    expect(audited()).toEqual([
+      expect.objectContaining({
+        outcome: 'partial',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            created: 0,
+            updated: 2000,
+            deleted: 0,
+            failed: 0,
+            notSent: 500,
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it('fails, having masked nothing, when the org fails to read the first page', async () => {
+    const rows = contactsOf(2500);
+    const { conn, update } = orgOf(rows, { failPage: 1 });
+
+    await maskContacts(conn);
+
+    expect(update).not.toHaveBeenCalled();
+    expect(String(last('dataops:error')?.payload.message)).toContain(
+      '0 masked before it stopped; 2500 still hold their original values (Contact 2500).',
+    );
+    expect(audited()).toEqual([
+      expect.objectContaining({
+        outcome: 'failure',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            created: 0,
+            updated: 0,
+            deleted: 0,
+            failed: 0,
+            notSent: 2500,
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it('makes no call once the org has used 95% of its daily API requests, and says what it left', async () => {
+    const rows = contactsOf(2500);
+    const { conn, query } = orgOf(rows, {
+      afterBatch: (written, org) => {
+        if (written === 10) org.limitInfo = { apiUsage: { used: 14_300, limit: 15_000 } };
+      },
+    });
+
+    await maskContacts(conn);
+
+    expect(pagesAsked(query)).toHaveLength(1);
+    expect(unmasked(rows)).toBe(500);
+    const response = last('dataops:anonymize:response')?.payload;
+    expect(response).toMatchObject({
+      status: 'partial',
+      stoppedAtApiLimit: true,
+      recordsProcessed: 2000,
+      recordsNotMasked: 500,
+    });
+    expect(String(response?.message)).toContain(
+      "stopped at 95% of the org's daily API requests (14300 of 15000): 2000 masked — " +
+        '500 still hold their original values (Contact 500)',
+    );
+    // Neither a cancel nor a failure: a run that ended where it chose to.
+    expect(last('operation:completed')?.payload).toMatchObject({
+      result: { status: 'partial', totalNotMasked: 500 },
+    });
+    expect(last('operation:failed')).toBeUndefined();
+    expect(audited()).toEqual([
+      expect.objectContaining({
+        outcome: 'partial',
+        objects: [expect.objectContaining({ updated: 2000, notSent: 500 })],
+      }),
+    ]);
+  });
+
+  it('stops, rather than write a page twice, when the org answers the same page again', async () => {
+    const rows = contactsOf(2500);
+    const { conn, update } = orgOf(rows, { ignoreAfter: true });
+
+    await maskContacts(conn);
+
+    // The first page, written once; the second, the same rows, never written.
+    expect(update).toHaveBeenCalledTimes(10);
+    const error = String(last('dataops:error')?.payload.message);
+    expect(error).toContain('does not end past the page before it');
+    expect(error).toContain('500 still hold their original values (Contact 500)');
+  });
+});
+
+/**
  * Templates of the user's own. The library used to be the four that ship:
  * nothing could be added to it, and the Create Template button said so.
  */
@@ -2187,10 +2610,9 @@ describe('DataOpsHandler — templates the user saves', () => {
     const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
     const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
     vi.mocked(getJsforceConnection).mockResolvedValue({
-      query: vi.fn(async () => ({
-        records: [{ Id: '003000000000001', FirstName: 'Ada', LastName: 'Lovelace' }],
-        done: true,
-      })),
+      query: vi.fn(async () =>
+        answer([{ Id: '003000000000001', FirstName: 'Ada', LastName: 'Lovelace' }]),
+      ),
       describe: vi.fn().mockResolvedValue({
         name: 'Contact',
         label: 'Contact',
@@ -2251,10 +2673,7 @@ describe('DataOpsHandler — templates the user saves', () => {
     const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
     const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
     vi.mocked(getJsforceConnection).mockResolvedValue({
-      query: vi.fn(async () => ({
-        records: [{ Id: '003000000000001', Email: 'ada@example.org' }],
-        done: true,
-      })),
+      query: vi.fn(async () => answer([{ Id: '003000000000001', Email: 'ada@example.org' }])),
       describe: vi.fn().mockResolvedValue({
         name: 'Contact',
         label: 'Contact',
