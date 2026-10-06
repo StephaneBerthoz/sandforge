@@ -3,8 +3,10 @@ import { describe, it, expect } from 'vitest';
 import type { ForgeTargetFlow, ForgeTargetObjectAutomation } from '../types/forge.types.js';
 import {
   automationByWrite,
+  blindedBy,
   bypassPermissionsOf,
   firedOnInsert,
+  heldBypassPermissionsOf,
 } from './forge-target-automation.js';
 
 /** A flow read with its start condition, naming no permission unless told. */
@@ -108,6 +110,51 @@ describe('automationByWrite', () => {
   it('lists nothing for an object that runs nothing', () => {
     expect(automationByWrite(object())).toEqual([]);
   });
+
+  it('runs the workflow rules and the processes after the triggers and before the flows after the save', () => {
+    const afterFlow = flow({ label: 'After flow' });
+    const rule = flow({ apiName: 'Case_Rule', label: 'Case rule', startsOn: 'createAndUpdate' });
+    const process = flow({ apiName: 'Case_Process', label: 'Case process' });
+    const byWrite = automationByWrite(
+      object({
+        flows: [afterFlow],
+        triggers: [{ name: 'CaseTrigger', events: ['afterInsert'] }],
+        processes: [process],
+        workflowRules: [rule],
+      }),
+    );
+    expect(byWrite).toEqual([
+      {
+        write: 'insert',
+        fired: [
+          { kind: 'trigger', name: 'CaseTrigger', when: 'after' },
+          { kind: 'workflowRule', name: 'Case rule', when: 'after', flow: rule },
+          { kind: 'process', name: 'Case process', when: 'after', flow: process },
+          { kind: 'flow', name: 'After flow', when: 'after', flow: afterFlow },
+        ],
+      },
+      {
+        write: 'update',
+        fired: [{ kind: 'workflowRule', name: 'Case rule', when: 'after', flow: rule }],
+      },
+    ]);
+  });
+
+  it('marks quiet what a permission held by the user the run writes as keeps from doing anything', () => {
+    const quiet = flow({ permissions: [{ name: 'Load_Data', bypass: true, held: true }] });
+    const loud = flow({
+      label: 'Loud',
+      permissions: [
+        { name: 'Load_Data', bypass: true, held: false },
+        { name: 'Run_Sync', bypass: false, held: true },
+      ],
+    });
+    const [insert] = automationByWrite(object({ flows: [quiet, loud] }));
+    expect(insert.fired.map((fired) => [fired.name, fired.keptQuiet ?? false])).toEqual([
+      ['Case after create', true],
+      ['Loud', false],
+    ]);
+  });
 });
 
 describe('bypassPermissionsOf', () => {
@@ -142,6 +189,55 @@ describe('bypassPermissionsOf', () => {
     };
     expect(bypassPermissionsOf(automation)).toEqual([]);
   });
+
+  it('names the permissions that keep a process or a workflow rule quiet too', () => {
+    const automation = {
+      objects: [
+        object({
+          processes: [flow({ permissions: [{ name: 'Skip_Processes', bypass: true }] })],
+          workflowRules: [flow({ permissions: [{ name: 'Skip_Rules', bypass: true }] })],
+        }),
+      ],
+    };
+    expect(bypassPermissionsOf(automation)).toEqual(['Skip_Processes', 'Skip_Rules']);
+  });
+});
+
+describe('heldBypassPermissionsOf', () => {
+  it('names the bypass permissions the user the run writes as holds, and no other', () => {
+    const automation = {
+      objects: [
+        object({
+          flows: [
+            flow({
+              permissions: [
+                { name: 'Load_Data', bypass: true, held: true },
+                { name: 'Bypass_All', bypass: true, held: false },
+                { name: 'Run_Sync', bypass: false, held: true },
+              ],
+            }),
+          ],
+          workflowRules: [flow({ permissions: [{ name: 'Skip_Rules', bypass: true }] })],
+        }),
+      ],
+    };
+    expect(heldBypassPermissionsOf(automation)).toEqual(['Load_Data']);
+  });
+});
+
+describe('blindedBy', () => {
+  it('is blinded by a part read whole, not by one read item by item', () => {
+    expect(blindedBy([{ part: 'workflowRules', reason: 'x' }])).toBe(true);
+    expect(blindedBy([{ part: 'flows', reason: 'x' }])).toBe(true);
+    expect(
+      blindedBy([
+        { part: 'conditions', reason: 'x' },
+        { part: 'definitions', reason: 'x' },
+        { part: 'userPermissions', reason: 'x' },
+      ]),
+    ).toBe(false);
+    expect(blindedBy([])).toBe(false);
+  });
 });
 
 describe('firedOnInsert', () => {
@@ -169,5 +265,22 @@ describe('firedOnInsert', () => {
 
   it('counts none when nothing fires on an insert', () => {
     expect(firedOnInsert({ objects: [object({ flows: [flow({ startsOn: 'update' })] })] })).toBe(0);
+  });
+
+  it('counts the processes and the workflow rules of an insert, and not what is kept quiet for the run', () => {
+    const automation = {
+      objects: [
+        object({
+          flows: [flow({ permissions: [{ name: 'Load_Data', bypass: true, held: true }] })],
+          processes: [flow({ label: 'Case process' })],
+          workflowRules: [
+            flow({ label: 'Case rule', startsOn: 'createAndUpdate' }),
+            flow({ label: 'Case edit rule', startsOn: 'update' }),
+          ],
+        }),
+      ],
+    };
+    // The process and the rule of an insert; the flow is quiet for this run.
+    expect(firedOnInsert(automation)).toBe(2);
   });
 });

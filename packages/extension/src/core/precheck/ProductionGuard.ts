@@ -76,8 +76,8 @@ export function largeVolumeThreshold(tier: SafetyTier): number | undefined {
 /** One flow or Apex trigger of the target that fires as a run inserts its records. */
 export interface FiredOnInsert {
   objectApiName: string;
-  kind: 'flow' | 'trigger';
-  /** The flow's label, or the trigger's name. */
+  kind: 'flow' | 'trigger' | 'process' | 'workflowRule';
+  /** The flow's or the process's label, the trigger's or the workflow rule's name. */
   name: string;
 }
 
@@ -96,7 +96,10 @@ export interface AutomationConfirmation {
    * What could not be read of the target's automation, and why: what fires
    * is then not known. `automation` when none of it could be read.
    */
-  unread: Array<{ part: 'flows' | 'triggers' | 'automation'; reason: string }>;
+  unread: Array<{
+    part: 'flows' | 'triggers' | 'processes' | 'workflowRules' | 'automation';
+    reason: string;
+  }>;
   /** Custom permissions that keep some of those flows from starting for the user who holds them. */
   bypass: string[];
 }

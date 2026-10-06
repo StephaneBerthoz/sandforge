@@ -981,9 +981,11 @@ const FORGE_TWO_NODE_GRAPH = {
 /**
  * What a target runs on that account and its contacts, as the extension reads
  * it at Review: a flow after a contact is created that a custom permission
- * keeps quiet, one whose start condition names a permission otherwise, one
- * whose condition the read left past its bound, a trigger, a flow before a
- * delete, and start conditions the org refused.
+ * keeps quiet, which sends an email and runs again after commit, one whose
+ * start condition names a permission otherwise, one whose condition the read
+ * left past its bound, a process that sends a text message, a workflow rule
+ * left unread, a trigger, a flow before a delete, duplicate rules, a lead's
+ * assignment rule, and start conditions the org refused.
  */
 const FORGE_TARGET_AUTOMATION = {
   objectsRead: ['Account', 'Contact'],
@@ -1001,6 +1003,7 @@ const FORGE_TARGET_AUTOMATION = {
         },
       ],
       triggers: [{ name: 'AccountTrigger', events: ['beforeInsert', 'afterUpdate'] }],
+      duplicateRules: [{ name: 'Account names', developerName: 'Account_Names' }],
     },
     {
       objectApiName: 'Contact',
@@ -1012,6 +1015,8 @@ const FORGE_TARGET_AUTOMATION = {
           startsOn: 'create',
           condition: 'read',
           permissions: [{ name: 'Load_Data', bypass: true }],
+          messages: [{ kind: 'email', name: 'Welcome email' }],
+          paths: [{ kind: 'async' }, { kind: 'scheduled', offset: 2, unit: 'Days' }],
         },
         {
           apiName: 'Contact_Sync',
@@ -1031,6 +1036,33 @@ const FORGE_TARGET_AUTOMATION = {
         },
       ],
       triggers: [],
+      processes: [
+        {
+          apiName: 'Contact_Routing',
+          label: 'Contact routing',
+          timing: 'afterSave',
+          startsOn: 'createAndUpdate',
+          condition: 'read',
+          permissions: [],
+          messages: [{ kind: 'sms', name: 'Send SMS', guessed: true }],
+        },
+      ],
+      workflowRules: [
+        {
+          apiName: 'Contact rule',
+          label: 'Contact rule',
+          timing: 'afterSave',
+          startsOn: 'createAndUpdate',
+          condition: 'notRead',
+          permissions: [],
+        },
+      ],
+    },
+    {
+      objectApiName: 'Lead',
+      flows: [],
+      triggers: [],
+      assignmentRules: [{ name: 'Lead routing' }],
     },
   ],
   unread: [{ part: 'conditions', reason: 'INSUFFICIENT_ACCESS: insufficient access rights' }],
@@ -2537,10 +2569,16 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('automation-object-Contact').waitFor({ timeout: 10_000 });
       // Counted on the tab: the trigger before an account is inserted, and
-      // the three flows of a contact's insert.
-      await expect(page.getByTestId('tab-automation')).toHaveText('Automation4');
+      // the three flows, the workflow rule and the process of a contact's insert.
+      await expect(page.getByTestId('tab-automation')).toHaveText('Automation6');
       await expect(page.getByTestId('automation-bypass')).toHaveText(
         'Assign the custom permission Load_Data to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.',
+      );
+      // What reaches people is marked where it fires: the flow's email at a
+      // contact's insert, the process's text message at its insert and update.
+      await expect(page.getByTestId('automation-sends-messages')).toHaveCount(3);
+      await expect(page.getByTestId('automation-Lead-rules')).toContainText(
+        'Not applied: the run keeps the owner it sets',
       );
       const read = await checkAccessibility(page);
       expectNoViolations(read);

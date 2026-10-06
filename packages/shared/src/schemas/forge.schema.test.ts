@@ -250,6 +250,17 @@ describe('forgeConfigSchema', () => {
       forgeConfigSchema.parse({ ...createValidForgeConfig(), keepContactPoints: 'yes' }),
     ).toThrow();
   });
+
+  it("keeps that the run applies the target's assignment rules, and refuses anything but a yes or a no", () => {
+    expect(
+      forgeConfigSchema.parse({ ...createValidForgeConfig(), applyAssignmentRules: true })
+        .applyAssignmentRules,
+    ).toBe(true);
+    expect(forgeConfigSchema.parse(createValidForgeConfig()).applyAssignmentRules).toBeUndefined();
+    expect(() =>
+      forgeConfigSchema.parse({ ...createValidForgeConfig(), applyAssignmentRules: 'yes' }),
+    ).toThrow();
+  });
 });
 
 // ─── Node Schema Tests ───────────────────────────────────────────────────────

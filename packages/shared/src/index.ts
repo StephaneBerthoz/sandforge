@@ -88,6 +88,11 @@ export {
   isAlreadyExistsError,
 } from './constants/duplicate-rules.js';
 export {
+  AUTO_ASSIGN_HEADER,
+  forgeWriteHeaders,
+  type ForgeWriteOptions,
+} from './constants/forge-write-headers.js';
+export {
   isProvisioningObject,
   isFileBodiedObject,
   isUncopyableObject,
@@ -157,8 +162,10 @@ export {
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
 export {
   automationByWrite,
+  blindedBy,
   bypassPermissionsOf,
   firedOnInsert,
+  heldBypassPermissionsOf,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,

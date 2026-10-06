@@ -88,6 +88,9 @@ function sfId(object: string, n: number): string {
 /** Describe calls per `org::object`, across every connection handed out. */
 let describeCalls: Map<string, number>;
 
+/** The headers each create sent, in the order the creates went out. */
+let createHeaders: Array<{ objectApiName: string; headers?: Record<string, string> }>;
+
 /** A connection to `orgId` that counts describes and answers queries and writes. */
 function fakeConnection(orgId: string) {
   return {
@@ -112,9 +115,14 @@ function fakeConnection(orgId: string) {
     }),
     queryMore: vi.fn(async () => ({ totalSize: 0, done: true, records: [] })),
     sobject: (objectApiName: string) => ({
-      create: vi.fn(async (records: unknown[]) =>
-        records.map((_, i) => ({ id: sfId(objectApiName, 900 + i), success: true, errors: [] })),
-      ),
+      create: vi.fn(async (records: unknown[], options?: { headers?: Record<string, string> }) => {
+        createHeaders.push({ objectApiName, headers: options?.headers });
+        return records.map((_, i) => ({
+          id: sfId(objectApiName, 900 + i),
+          success: true,
+          errors: [],
+        }));
+      }),
     }),
   };
 }
@@ -161,6 +169,7 @@ const SOQL_CONFIG: ForgeConfig = {
 describe('initForgeComposition', () => {
   beforeEach(() => {
     describeCalls = new Map();
+    createHeaders = [];
     vi.mocked(getJsforceConnection).mockReset();
     vi.mocked(getJsforceConnection).mockImplementation(
       async (orgId: string) => fakeConnection(orgId) as unknown as Connection,
@@ -189,6 +198,35 @@ describe('initForgeComposition', () => {
     for (const [key, count] of describeCalls) {
       expect({ key, count }).toEqual({ key, count: 1 });
     }
+  });
+
+  it("keeps the target's assignment rules off on every write of a run, and applies them on the run that asks", async () => {
+    // Forge sets the owners: REST applies the target's active assignment
+    // rules to a case, a lead or an account written without saying otherwise.
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+
+    await orchestrator.execute(graph, SOQL_CONFIG);
+    expect(createHeaders.length).toBeGreaterThan(0);
+    expect(createHeaders.map(({ headers }) => headers)).toEqual(
+      createHeaders.map(() => ({
+        'Sforce-Duplicate-Rule-Header': 'allowSave=true',
+        'Sforce-Auto-Assign': 'FALSE',
+      })),
+    );
+
+    createHeaders = [];
+    await orchestrator.execute(graph, { ...SOQL_CONFIG, applyAssignmentRules: true });
+    expect(new Set(createHeaders.map(({ headers }) => headers?.['Sforce-Auto-Assign']))).toEqual(
+      new Set(['TRUE']),
+    );
+
+    // The next run that does not ask writes with the rules off again.
+    createHeaders = [];
+    await orchestrator.execute(graph, SOQL_CONFIG);
+    expect(new Set(createHeaders.map(({ headers }) => headers?.['Sforce-Auto-Assign']))).toEqual(
+      new Set(['FALSE']),
+    );
   });
 
   it('hands the handlers the count a run’s calls are read by, so its progress can say them as it goes', async () => {
@@ -1001,7 +1039,7 @@ describe('initForgeComposition', () => {
     expect(connection.describe).not.toHaveBeenCalled();
   });
 
-  it("reads the target's flows over its regular API and its triggers and start conditions over its Tooling API", async () => {
+  it("reads the target's flows and rules over its regular API and its triggers, workflow rules and start conditions over its Tooling API", async () => {
     const VERSION = '301000000000001AAA';
     const asked: Array<{ org: string; api: 'regular' | 'tooling'; soql: string }> = [];
     vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
@@ -1010,6 +1048,7 @@ describe('initForgeComposition', () => {
         ...fakeConnection(orgId),
         query: vi.fn(async (soql: string) => {
           asked.push({ org: orgId, api: 'regular', soql });
+          if (!/FROM FlowDefinitionView/.test(soql) || /ProcessType/.test(soql)) return page([]);
           return page([
             {
               ApiName: 'Contact_Welcome',
@@ -1024,7 +1063,7 @@ describe('initForgeComposition', () => {
         tooling: {
           query: vi.fn(async (soql: string) => {
             asked.push({ org: orgId, api: 'tooling', soql });
-            if (/FROM ApexTrigger/.test(soql)) return page([]);
+            if (/FROM (ApexTrigger|WorkflowRule)/.test(soql)) return page([]);
             return page([
               { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
             ]);
@@ -1043,7 +1082,11 @@ describe('initForgeComposition', () => {
     expect(asked.map(({ org, api, soql }) => [org, api, /FROM (\w+)/.exec(soql)?.[1]])).toEqual([
       ['tgt', 'regular', 'FlowDefinitionView'],
       ['tgt', 'tooling', 'ApexTrigger'],
+      ['tgt', 'regular', 'FlowDefinitionView'],
+      ['tgt', 'tooling', 'WorkflowRule'],
+      ['tgt', 'regular', 'DuplicateRule'],
       ['tgt', 'tooling', 'Flow'],
+      ['tgt', 'regular', 'UserSetupEntityAccess'],
     ]);
     expect(automation?.objects).toEqual([
       {
@@ -1055,13 +1098,20 @@ describe('initForgeComposition', () => {
             timing: 'afterSave',
             startsOn: 'create',
             condition: 'read',
-            permissions: [{ name: 'Load_Data', bypass: true }],
+            permissions: [{ name: 'Load_Data', bypass: true, held: false }],
+            paths: [],
+            messages: [],
+            switches: [],
           },
         ],
         triggers: [],
+        processes: [],
+        workflowRules: [],
+        assignmentRules: [],
+        duplicateRules: [],
       },
     ]);
-    expect(automation?.requests).toBe(3);
+    expect(automation?.requests).toBe(7);
   });
 
   it('copies the file of a cloned record through the connection, one request each way', async () => {

@@ -88,23 +88,34 @@ const WELCOME_FLOW = {
 
 /**
  * An org holding an account and its contact. Its automation is the target's
- * welcome flow, or none; what it is asked over each API is recorded, and a
+ * welcome flow, or none, and, unless told, a duplicate rule on contacts; what
+ * it is asked over each API is recorded, with the headers each write sent, a
  * refusal of the flows can be set, and what its limits say.
  */
 function fakeOrg({
   refuseFlows,
   noFlows = false,
   limits = {},
-}: { refuseFlows?: Error; noFlows?: boolean; limits?: unknown } = {}) {
+  duplicateRules = [
+    { DeveloperName: 'Contact_Rule', MasterLabel: 'Contact rule', SobjectType: 'Contact' },
+  ],
+}: {
+  refuseFlows?: Error;
+  noFlows?: boolean;
+  limits?: unknown;
+  duplicateRules?: Array<Record<string, unknown>>;
+} = {}) {
   const regular: string[] = [];
   const tooling: string[] = [];
   const written: string[] = [];
+  const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const conn = {
     sobject: (name: string) => ({
       describe: async () => DESCRIBES[name],
-      create: async (records: unknown[]) => {
+      create: async (records: unknown[], options?: { headers?: Record<string, string> }) => {
         written.push(name);
+        headers.push(options?.headers);
         return records.map((_, i) => ({
           id: `${DESCRIBES[name].keyPrefix}00000000090${i}AAA`,
           success: true,
@@ -121,10 +132,13 @@ function fakeOrg({
       if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
         return page([{ Id: '00D000000000002AAA', IsSandbox: true }]);
       }
+      if (soql.includes(" ProcessType = 'Workflow'")) return page([]);
       if (soql.includes(' FROM FlowDefinitionView ')) {
         if (refuseFlows) throw refuseFlows;
         return page(noFlows ? [] : [WELCOME_FLOW]);
       }
+      if (soql.includes(' FROM DuplicateRule ')) return page(duplicateRules);
+      if (soql.includes(' FROM UserSetupEntityAccess ')) return page([]);
       const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
       if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, done: true, records: [] };
       if (soql.includes(' FROM RecordType ')) return page([]);
@@ -135,6 +149,7 @@ function fakeOrg({
       query: async (soql: string) => {
         tooling.push(soql);
         if (soql.includes(' FROM ApexTrigger ')) return page([]);
+        if (soql.includes(' FROM WorkflowRule')) return page([]);
         return page([{ Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } }]);
       },
       queryMore: async () => page([]),
@@ -144,7 +159,7 @@ function fakeOrg({
       return url === '/limits' ? limits : {};
     },
   };
-  return { conn: conn as unknown as Connection, regular, tooling, written };
+  return { conn: conn as unknown as Connection, regular, tooling, written, headers };
 }
 
 describe('sandforge-clone target automation', () => {
@@ -214,33 +229,54 @@ describe('sandforge-clone target automation', () => {
       'target automation: what TGT runs on the 2 object(s) the run writes',
     );
     expect(said).toBeGreaterThan(-1);
-    expect(printed.slice(said, said + 5)).toEqual([
+    expect(printed.slice(said, said + 6)).toEqual([
       'target automation: what TGT runs on the 2 object(s) the run writes',
       '  Contact',
-      '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data)',
+      '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data (not held))',
+      '    duplicate rules: "Contact rule": the run saves a record a rule only alerts on; a rule that blocks still refuses it',
       '  bypass: assign Load_Data to the user the run writes as, and the flows whose start condition excludes them stay quiet',
-      '  read in 3 request(s) to TGT',
+      // Flows, triggers, processes, workflow rules and duplicate rules; the
+      // start condition; the permissions of the user the run writes as.
+      '  read in 7 request(s) to TGT',
     ]);
     // Said before the run read a row, and before it wrote one.
     expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
   });
 
-  it('reads it from the target alone: its flows over the regular API, its triggers and start conditions over the Tooling API', async () => {
+  it('reads it from the target alone: its flows and rules over the regular API, its triggers, workflow rules and start conditions over the Tooling API', async () => {
     withOrgs();
 
     expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
 
     expect(
       orgs.TGT.regular.filter((soql) => soql.includes(' FROM FlowDefinitionView ')),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(orgs.TGT.tooling.map((soql) => /FROM (\w+)/.exec(soql)?.[1])).toEqual([
       'ApexTrigger',
+      'WorkflowRule',
       'Flow',
     ]);
-    expect(orgs.TGT.tooling[1]).toContain(WELCOME_VERSION);
+    expect(orgs.TGT.tooling[2]).toContain(WELCOME_VERSION);
     expect(orgs.SRC.tooling).toEqual([]);
     expect(orgs.SRC.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
+  });
+
+  it("keeps the target's assignment rules off on every write, and applies them when asked", async () => {
+    // The fake target runs a flow on insert: a real run goes on only when told to.
+    withOrgs();
+    expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+    expect(orgs.TGT.headers).toEqual([
+      { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
+      { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
+    ]);
+
+    withOrgs();
+    expect(
+      await run(argv('--skip-preflight', '--accept-automation', '--apply-assignment-rules')),
+    ).toBeUndefined();
+    expect(orgs.TGT.headers.map((sent) => sent?.['Sforce-Auto-Assign'])).toEqual(['TRUE', 'TRUE']);
+    expect(printed).toContain('\nexecuting… (REAL, ASSIGNMENT-RULES)');
   });
 
   it('prints the summary on stderr in --json mode, and gives it under targetAutomation', async () => {
@@ -250,9 +286,13 @@ describe('sandforge-clone target automation', () => {
 
     expect(printed).toEqual([]);
     expect(errored).toContain(
-      '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data)',
+      '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data (not held))',
     );
-    const summary = JSON.parse(stdout) as { targetAutomation: Record<string, unknown> };
+    const summary = JSON.parse(stdout) as {
+      applyAssignmentRules: boolean;
+      targetAutomation: Record<string, unknown>;
+    };
+    expect(summary.applyAssignmentRules).toBe(false);
     expect(summary.targetAutomation).toEqual({
       objectsRead: ['Account', 'Contact'],
       objects: [
@@ -265,16 +305,25 @@ describe('sandforge-clone target automation', () => {
               timing: 'afterSave',
               startsOn: 'create',
               condition: 'read',
-              permissions: [{ name: 'Load_Data', bypass: true }],
+              permissions: [{ name: 'Load_Data', bypass: true, held: false }],
+              paths: [],
+              messages: [],
+              switches: [],
             },
           ],
           triggers: [],
+          processes: [],
+          workflowRules: [],
+          assignmentRules: [],
+          duplicateRules: [{ name: 'Contact rule', developerName: 'Contact_Rule' }],
         },
       ],
       unread: [],
       conditionsNotRead: 0,
       conditionsBound: 25,
-      requests: 3,
+      definitionsNotRead: 0,
+      definitionsBound: 15,
+      requests: 7,
     });
   });
 
@@ -285,6 +334,7 @@ describe('sandforge-clone target automation', () => {
         name: 'INSUFFICIENT_ACCESS',
         errorCode: 'INSUFFICIENT_ACCESS',
       }),
+      duplicateRules: [],
     });
 
   it('says what it could not read, and goes on when told to', async () => {

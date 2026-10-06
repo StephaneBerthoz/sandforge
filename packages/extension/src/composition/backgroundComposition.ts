@@ -82,7 +82,11 @@ function automationQuestion(question: AutomationConfirmation): string[] {
       lines.push(
         fired.kind === 'flow'
           ? vscode.l10n.t('• {0}: Flow "{1}"', fired.objectApiName, fired.name)
-          : vscode.l10n.t('• {0}: Apex trigger {1}', fired.objectApiName, fired.name),
+          : fired.kind === 'process'
+            ? vscode.l10n.t('• {0}: process "{1}"', fired.objectApiName, fired.name)
+            : fired.kind === 'workflowRule'
+              ? vscode.l10n.t('• {0}: workflow rule "{1}"', fired.objectApiName, fired.name)
+              : vscode.l10n.t('• {0}: Apex trigger {1}', fired.objectApiName, fired.name),
       );
     }
     if (question.fired.length > LISTED_IN_A_QUESTION) {
@@ -108,7 +112,23 @@ function automationQuestion(question: AutomationConfirmation): string[] {
         ? vscode.l10n.t('The Flows of {0} could not be read ({1}).', question.org, reason)
         : part === 'triggers'
           ? vscode.l10n.t('The Apex triggers of {0} could not be read ({1}).', question.org, reason)
-          : vscode.l10n.t('The automation of {0} could not be read ({1}).', question.org, reason),
+          : part === 'processes'
+            ? vscode.l10n.t(
+                'The Process Builder processes of {0} could not be read ({1}).',
+                question.org,
+                reason,
+              )
+            : part === 'workflowRules'
+              ? vscode.l10n.t(
+                  'The workflow rules of {0} could not be read ({1}).',
+                  question.org,
+                  reason,
+                )
+              : vscode.l10n.t(
+                  'The automation of {0} could not be read ({1}).',
+                  question.org,
+                  reason,
+                ),
     );
   }
   if (question.unread.length > 0) {

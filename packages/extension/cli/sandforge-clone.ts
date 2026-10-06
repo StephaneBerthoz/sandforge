@@ -55,7 +55,7 @@ import {
   forgeConfigSchemaStrict,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
-  duplicateRuleHeaders,
+  forgeWriteHeaders,
   formatFileSize,
   leftOutAsEmptyTable,
 } from '@sandforge/shared';
@@ -141,6 +141,8 @@ export interface CliArgs {
   upsert: boolean;
   /** Single-hop orphan parent expansion when a required FK is out-of-graph. */
   expandOrphans: boolean;
+  /** Let the target's assignment rules apply to the records the run writes (`Sforce-Auto-Assign: TRUE`). */
+  applyAssignmentRules: boolean;
   /** Skip the pre-execute target preflight (counts existing rows on target). */
   skipPreflight: boolean;
   /** Emit JSON summary on stdout (machine-readable for CI integration). */
@@ -191,11 +193,14 @@ Usage:
   --list-objects only read, and run against any org.
 
   Before it reads a row, the clone says what the target runs on the objects
-  it writes: its active record-triggered flows and Apex triggers, per object
-  and write, and the custom permissions that keep a flow from starting for
-  the user who holds them (with --json, under targetAutomation). When any of
-  them fires as the clone inserts its records, or the target would not say
-  what it runs, nothing is written unless --accept-automation is given.
+  it writes: its active record-triggered flows, Apex triggers, Process
+  Builder processes and workflow rules, per object and write, with what of
+  them sends messages (SENDS MESSAGES) or runs after commit; its assignment
+  and duplicate rules; and what keeps a flow from starting for the user the
+  run writes as, and whether that user holds it (with --json, under
+  targetAutomation). When any of them fires as the clone inserts its
+  records, or the target would not say what it runs, nothing is written
+  unless --accept-automation is given.
 
   Once every row is read and before the first is written, the clone counts
   the records it is about to write, per object, and the data storage they
@@ -245,6 +250,12 @@ Options:
                          Skips DUPLICATE_VALUE on re-runs of the same source records.
   --expand-orphans       single-hop expand orphan parent FKs    (default: off)
                          Clones missing parents (out-of-graph) so child FKs resolve.
+  --apply-assignment-rules
+                         apply the target's assignment rules    (default: off)
+                         Off, every write says Sforce-Auto-Assign: FALSE and
+                         keeps the owner the run sets. On, the target's active
+                         assignment rules may give the Cases, Leads and
+                         Accounts the run writes another owner, and mail them.
   --skip-preflight       skip pre-execute target row count      (default: off)
                          The preflight queries each object on target so the user
                          can see existing volume before pressing through.
@@ -540,6 +551,7 @@ export function parseArgs(argv: string[]): CliArgs {
     listObjects: has('--list-objects'),
     upsert: has('--upsert'),
     expandOrphans: has('--expand-orphans'),
+    applyAssignmentRules: has('--apply-assignment-rules'),
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
     fieldExclusions,
@@ -2026,7 +2038,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     new Set(args.excludedObjects),
   );
   say('');
-  for (const line of automationLines(targetAutomation, args.target)) say(line);
+  for (const line of automationLines(targetAutomation, args.target, {
+    applyAssignmentRules: args.applyAssignmentRules,
+  })) {
+    say(line);
+  }
   // What that automation may reach: the records' own addresses and numbers,
   // unless they go neutralized.
   say(
@@ -2081,10 +2097,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      // A clone is a deliberate duplicate; see `duplicateRuleHeaders`. Without
+      // A clone is a deliberate duplicate; see `forgeWriteHeaders`. Without
       // this header every root Account of a real UAT → DEV run was refused
-      // with DUPLICATES_DETECTED, and its whole graph skipped behind it.
-      const r = await c.sobject(name).create(records, { headers: duplicateRuleHeaders(true) });
+      // with DUPLICATES_DETECTED, and its whole graph skipped behind it. The
+      // target's assignment rules stay off unless asked: the run sets owners.
+      const r = await c.sobject(name).create(records, {
+        headers: forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules }),
+      });
       // With the records a blocking duplicate rule matched: the run links a
       // row the target already holds to the one record the refusal names.
       return toSaveOutcomes(r, name);
@@ -2096,9 +2115,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       // The records the run writes again — the lookups the second pass fills
       // in, the statuses given back — look like the target's as much as they
       // did at insert: a rule that blocks an edit refuses them all the same.
-      const r = await c
-        .sobject(name)
-        .update(records as unknown as { Id: string }[], { headers: duplicateRuleHeaders(true) });
+      const r = await c.sobject(name).update(records as unknown as { Id: string }[], {
+        headers: forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules }),
+      });
       const arr = Array.isArray(r) ? r : [r];
       return arr.map((x, i) => ({
         id: x.id ?? (records[i]['Id'] as string) ?? '',
@@ -2148,9 +2167,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c
-        .sobject(name)
-        .upsert(records, externalIdField, { headers: duplicateRuleHeaders(true) });
+      const r = await c.sobject(name).upsert(records, externalIdField, {
+        headers: forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules }),
+      });
       return toSaveOutcomes(r, name);
     },
     // What --files reads and writes: one file per request each way, and the
@@ -2247,7 +2266,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   say(
-    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.files ? ', FILES' : ''})`,
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''})`,
   );
   let summary: ExecutionSummary;
   const outcomeLine = objectOutcomePrinter(graph);
@@ -2347,11 +2366,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           dryRun: args.dryRun,
           upsert: args.upsert,
           expandOrphans: args.expandOrphans,
+          // Whether the run's writes let the target's assignment rules apply.
+          applyAssignmentRules: args.applyAssignmentRules,
           files: args.files !== undefined,
           graph: graphJson(graph, plan),
           // What the target runs on the objects the run writes, read before
-          // the run: flows and triggers per object, the custom permissions
-          // that keep a flow quiet, and what could not be read.
+          // the run: flows, triggers, processes and workflow rules per
+          // object, what of them sends messages or runs after commit, the
+          // assignment and duplicate rules, the custom permissions that keep
+          // a flow quiet and whether the user the run writes as holds them,
+          // and what could not be read.
           targetAutomation,
           result: jsonResult(summary),
           elapsedMs: elapsed,

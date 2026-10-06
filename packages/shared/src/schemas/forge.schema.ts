@@ -89,6 +89,10 @@ export const forgeConfigSchema = z.object({
   // keep emails and phone numbers as they are never reached the run, nor a
   // template saved with it.
   keepContactPoints: z.boolean().optional(),
+  // Parsing drops what the schema does not name: without it, a run asked to
+  // apply the target's assignment rules reached the executor as one that
+  // keeps them off.
+  applyAssignmentRules: z.boolean().optional(),
   maxRecordsPerObject: z.number().int().positive().max(1_000_000).optional(),
   // Per-object field exclusions. Outer key = SObject API name (regex'd),
   // inner array = field API names to skip (each ≤ 80 chars, ≤ 200 per

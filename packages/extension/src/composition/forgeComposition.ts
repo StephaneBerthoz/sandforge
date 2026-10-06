@@ -9,7 +9,7 @@ import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import { personalFieldsByApiName, type PIIDetector } from '../core/precheck/PIIDetector';
-import { duplicateRuleHeaders } from '@sandforge/shared';
+import { forgeWriteHeaders, type ForgeWriteOptions } from '@sandforge/shared';
 import {
   FORGE_QUERY_MAX_PAGES,
   FORGE_QUERY_MAX_RECORDS,
@@ -341,6 +341,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 
         const batchStrategyService = new ForgeBatchStrategyService();
 
+        /**
+         * What the writes of the run under way ask of the target's rules, as
+         * the orchestrator sets it before each run (`setWriteOptions`): the
+         * executor holds one run at a time.
+         */
+        let runWrites: ForgeWriteOptions = { applyAssignmentRules: false };
+
         const executor = new ForgeExecutor({
           queryRecords: async (orgId, soql, onTruncated) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
@@ -394,10 +401,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
              * The header tells Salesforce to save anyway, and applies to
              * duplicate RULES only — a unique index still refuses, which is
              * right. What guards a production org is the production guard.
+             * The run sets each record's owner: the target's assignment rules
+             * apply only when it asks (`forgeWriteHeaders`).
              */
-            const results = await conn
-              .sobject(objectName)
-              .create(records, { allowRecursive: true, headers: duplicateRuleHeaders(true) });
+            const results = await conn.sobject(objectName).create(records, {
+              allowRecursive: true,
+              headers: forgeWriteHeaders(runWrites),
+            });
             // Read with its status code and the records a duplicate rule
             // matched. Only the message used to be kept, so a unique index
             // refusing a row the target already held reached the executor as
@@ -411,7 +421,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               .sobject(objectName)
               .update(records as unknown as { Id: string }[], {
                 allowRecursive: true,
-                headers: duplicateRuleHeaders(true),
+                headers: forgeWriteHeaders(runWrites),
               });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r, i) => ({
@@ -427,7 +437,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               .sobject(objectName)
               .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
                 allowRecursive: true,
-                headers: duplicateRuleHeaders(true),
+                headers: forgeWriteHeaders(runWrites),
               });
             return toSaveOutcomes(results, objectName);
           },
@@ -562,6 +572,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           executor,
           planGenerator,
           clearDescribes,
+          setWriteOptions: (options) => {
+            runWrites = options;
+          },
         });
 
         handlers.setForgeOrchestrator(forgeOrchestrator, {

@@ -321,6 +321,32 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('names a process and a workflow rule for what they are, and says when they could not be read', () => {
+    expect(
+      runQuestionDetail({
+        ...automation,
+        fired: [
+          { objectApiName: 'Lead', kind: 'workflowRule', name: 'Lead alert' },
+          { objectApiName: 'Lead', kind: 'process', name: 'Lead routing' },
+        ],
+        bypass: [],
+        unread: [
+          { part: 'processes', reason: 'P' },
+          { part: 'workflowRules', reason: 'W' },
+        ],
+      }).split('\n'),
+    ).toEqual([
+      'DEV runs automation on the records this clone inserts:',
+      '• Lead: workflow rule "Lead alert"',
+      '• Lead: process "Lead routing"',
+      'They run on every record the clone inserts, and what they send goes out as it would for a record created by hand.',
+      'The Process Builder processes of DEV could not be read (P).',
+      'The workflow rules of DEV could not be read (W).',
+      'What fires as the clone inserts its records is not known.',
+      'Nothing has been read or written yet.',
+    ]);
+  });
+
   it('lists the records per object, the setting the total is past, and the storage they take', () => {
     expect(runQuestionDetail(write).split('\n')).toEqual([
       'This clone is about to write 2401 records to DEV:',

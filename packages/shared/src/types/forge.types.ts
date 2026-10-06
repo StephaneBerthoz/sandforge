@@ -85,6 +85,18 @@ export interface ForgeConfig {
    * that email and text the contacts they are created for.
    */
   keepContactPoints?: boolean;
+
+  /**
+   * Whether the target's active assignment rules apply to the Cases, Leads
+   * and Accounts the run creates or writes again.
+   *
+   * Forge sets each record's owner itself. Its writes go through REST, where
+   * a request that says nothing has the target apply its active assignment
+   * rules, which hand the records to whoever they route to and can mail the
+   * new owner. Absent or false, every write says `Sforce-Auto-Assign: FALSE`;
+   * true says `TRUE`.
+   */
+  applyAssignmentRules?: boolean;
   /**
    * Per-object record cap applied during execution. Translates into a
    * `LIMIT N` on each scoped SOQL query. `undefined` = no cap (full clone).
@@ -1091,7 +1103,10 @@ export type ForgeTriggerEvent =
   | 'afterDelete'
   | 'afterUndelete';
 
-/** A custom permission a flow's start condition names. */
+/**
+ * A custom permission a flow's start condition names — or the Decision it
+ * starts with, or a workflow rule's criteria.
+ */
 export interface ForgeFlowPermission {
   /** API name of the custom permission, as `$Permission.<name>` names it. */
   name: string;
@@ -1102,9 +1117,95 @@ export interface ForgeFlowPermission {
    * flow, and assigning it would not keep the flow quiet.
    */
   bypass: boolean;
+  /**
+   * `decision` when one of the flow's Decisions tests it rather than its start
+   * condition: a bypass only when the Decision every path of the flow starts
+   * with ends the flow on it, before it does anything. Absent for the start
+   * condition.
+   */
+  where?: 'decision';
+  /**
+   * Whether the user the read ran as — the user the run writes as — holds the
+   * permission, from the custom permissions that user is given
+   * (`UserSetupEntityAccess`). Absent when it could not be read.
+   */
+  held?: boolean;
 }
 
-/** An active record-triggered flow of the target, on an object a run writes. */
+/**
+ * Something other than a custom permission that a flow tests of the user who
+ * writes or of the org's settings: a hierarchy custom setting (`$Setup`), a
+ * field of the user (`$User`), the user's profile (`$Profile`), or a custom
+ * metadata record (`$CustomMetadata`). Orgs keep their flows quiet for loads
+ * with these as often as with a permission.
+ */
+export interface ForgeFlowSwitch {
+  /**
+   * The global as the flow writes it, without braces:
+   * `$Setup.Bypass__c.Flows__c`, `$User.Bypass_Flows__c`, `$Profile.Name`,
+   * `$CustomMetadata.Switch__mdt.Default.Off__c`.
+   */
+  reference: string;
+  /**
+   * The value that keeps the flow quiet when the global holds it, as the flow
+   * writes it; absent for a checkbox that keeps it quiet when true.
+   */
+  value?: string;
+  /**
+   * Where the flow tests it: its start condition — a workflow rule's
+   * criteria — or one of its Decisions.
+   */
+  where: 'start' | 'decision';
+  /**
+   * Whether that value keeps the flow from doing anything; false when the flow
+   * only tests the global in one of its Decisions, which may or may not be a
+   * way out of it.
+   */
+  bypass: boolean;
+}
+
+/**
+ * A path of a record-triggered flow that runs once the save is committed: its
+ * asynchronous path, or a scheduled path. What it does is out of the reach of
+ * a rollback, and an email or a text message it sends is sent all the same.
+ * Also what a workflow rule's time-dependent actions are.
+ */
+export interface ForgeFlowPath {
+  /** `async`: as soon as the save is committed; `scheduled`: at a time set from it. */
+  kind: 'async' | 'scheduled';
+  /** Its label, when the flow's metadata was read. */
+  label?: string;
+  /** For a scheduled path, how far from its time source it runs; negative, before it. */
+  offset?: number;
+  /** For a scheduled path, the unit of the offset: `Minutes`, `Hours`, `Days` or `Months`. */
+  unit?: string;
+  /** For a scheduled path timed from a field of the record, that field; absent when timed from the save. */
+  field?: string;
+}
+
+/**
+ * An action of the target's automation that reaches someone outside the org:
+ * an email alert or a Send Email, a custom notification, an outbound message,
+ * or a text message.
+ */
+export interface ForgeMessageAction {
+  /** What it sends. */
+  kind: 'email' | 'notification' | 'outbound' | 'sms';
+  /** The action's label, or its name. */
+  name: string;
+  /**
+   * True for a text message told from the name of an Apex action alone: the
+   * platform has no action of its own for one, and what the class does is not
+   * read.
+   */
+  guessed?: boolean;
+}
+
+/**
+ * An active record-triggered flow of the target, on an object a run writes.
+ * A Process Builder process and a workflow rule are read into the same shape,
+ * as what runs after the save.
+ */
 export interface ForgeTargetFlow {
   /** Its API name. */
   apiName: string;
@@ -1115,12 +1216,22 @@ export interface ForgeTargetFlow {
   /** The writes that start it. */
   startsOn: ForgeFlowStart;
   /**
-   * Whether its start condition was read: `notRead` past the bound the read
-   * keeps to, one request a flow; `unreadable` when the org refused it.
+   * Whether its start condition was read — for a process or a workflow rule,
+   * its definition: `notRead` past the bound the read keeps to, one request
+   * each; `unreadable` when the org refused it.
    */
   condition: 'read' | 'notRead' | 'unreadable';
   /** The custom permissions its start condition names; empty when none, or not read. */
   permissions: ForgeFlowPermission[];
+  /**
+   * What runs of it once the save is committed. A flow's asynchronous path is
+   * known before its metadata is read; its scheduled paths only from it.
+   */
+  paths?: ForgeFlowPath[];
+  /** Its actions that send something out of the org, as its metadata names them. */
+  messages?: ForgeMessageAction[];
+  /** The custom settings, user fields, profiles and custom metadata it tests. */
+  switches?: ForgeFlowSwitch[];
 }
 
 /** An active Apex trigger of the target, on an object a run writes. */
@@ -1131,26 +1242,75 @@ export interface ForgeTargetTrigger {
   events: ForgeTriggerEvent[];
 }
 
-/** What the target runs on one object a run writes. */
+/** An active assignment rule of the target, on the Cases or the Leads a run writes. */
+export interface ForgeTargetAssignmentRule {
+  /** Its name, as Setup shows it. */
+  name: string;
+}
+
+/**
+ * An active duplicate rule of the target, on an object a run writes. Whether
+ * it alerts or blocks is in its metadata alone, which the read does not take.
+ */
+export interface ForgeTargetDuplicateRule {
+  /** Its label, as Setup shows it. */
+  name: string;
+  /** Its API name. */
+  developerName: string;
+}
+
+/**
+ * What the target runs on one object a run writes. Every list the read made
+ * is there, empty when it found nothing; one written before that part was
+ * read leaves it out.
+ */
 export interface ForgeTargetObjectAutomation {
   objectApiName: string;
   flows: ForgeTargetFlow[];
   triggers: ForgeTargetTrigger[];
+  /** Its active Process Builder processes, read into the shape of a flow that runs after the save. */
+  processes?: ForgeTargetFlow[];
+  /**
+   * Its workflow rules, read into the shape of a flow that runs after the
+   * save. A rule whose definition was read is active; one left unread may not
+   * be, and is kept rather than left unsaid.
+   */
+  workflowRules?: ForgeTargetFlow[];
+  /** Its active assignment rule: Case and Lead have one at most. */
+  assignmentRules?: ForgeTargetAssignmentRule[];
+  /** Its active duplicate rules. */
+  duplicateRules?: ForgeTargetDuplicateRule[];
 }
 
 /** A part of the target's automation the read could not read, and why. */
 export interface ForgeTargetAutomationUnread {
-  /** `flows`, `triggers`, or `conditions`: the start conditions of flows. */
-  part: 'flows' | 'triggers' | 'conditions';
+  /**
+   * `flows`, `triggers`, `conditions` — the start conditions of flows —,
+   * `processes`, `workflowRules`, `definitions` — those of processes and
+   * workflow rules —, `assignmentRules`, `duplicateRules`, or
+   * `userPermissions`: the custom permissions of the user the read ran as.
+   */
+  part:
+    | 'flows'
+    | 'triggers'
+    | 'conditions'
+    | 'processes'
+    | 'workflowRules'
+    | 'definitions'
+    | 'assignmentRules'
+    | 'duplicateRules'
+    | 'userPermissions';
   /** The org's answer, or what kept the read from it. */
   reason: string;
 }
 
 /**
  * What the target org runs on the objects a Forge run writes, read before the
- * run: its active record-triggered flows, its active Apex triggers, and the
- * custom permissions a flow's start condition names. A read that fails on
- * one part says so in `unread`, and never stops the run.
+ * run: its active record-triggered flows, Apex triggers, Process Builder
+ * processes, workflow rules, assignment rules and duplicate rules, what of
+ * them runs after the save is committed or sends messages, and what keeps a
+ * flow quiet for the user the run writes as. A read that fails on one part
+ * says so in `unread`, and never stops the run.
  */
 export interface ForgeTargetAutomation {
   /** The objects the read looked at: those the run writes. */
@@ -1163,6 +1323,10 @@ export interface ForgeTargetAutomation {
   conditionsNotRead: number;
   /** The most start conditions the read reads, one request each. */
   conditionsBound: number;
+  /** Definitions of processes and workflow rules left unread past their bound. */
+  definitionsNotRead?: number;
+  /** The most definitions of processes and workflow rules the read reads, one request each. */
+  definitionsBound?: number;
   /** The requests the read sent to the target. */
   requests: number;
 }

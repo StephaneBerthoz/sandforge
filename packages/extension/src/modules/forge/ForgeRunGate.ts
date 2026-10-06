@@ -251,9 +251,15 @@ export function firedOnInsertOf(
   automation: Pick<ForgeTargetAutomation, 'objects'>,
 ): FiredOnInsert[] {
   return automation.objects.flatMap((object) =>
-    (automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? []).map(
-      (fired) => ({ objectApiName: object.objectApiName, kind: fired.kind, name: fired.name }),
-    ),
+    (automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? [])
+      // What a bypass the run's user holds keeps quiet does not fire for its
+      // records, as the Automation tab counts it.
+      .filter((fired) => fired.keptQuiet !== true)
+      .map((fired) => ({
+        objectApiName: object.objectApiName,
+        kind: fired.kind,
+        name: fired.name,
+      })),
   );
 }
 
@@ -271,6 +277,24 @@ export function insertBypassesOf(automation: Pick<ForgeTargetAutomation, 'object
 }
 
 /**
+ * Whether a part the read could not take hides what fires on insert. A start
+ * condition or a definition not read leaves its flow, process or rule listed
+ * as firing; the assignment rules stay off unless the run asks for them; the
+ * duplicate rules and the user's permissions decide nothing about what runs.
+ */
+function isUnreadThatHides(
+  part: ForgeTargetAutomation['unread'][number]['part'] | 'automation',
+): part is AutomationConfirmation['unread'][number]['part'] {
+  return (
+    part === 'flows' ||
+    part === 'triggers' ||
+    part === 'processes' ||
+    part === 'workflowRules' ||
+    part === 'automation'
+  );
+}
+
+/**
  * What could not be read of what fires on insert. A start condition that
  * could not be read leaves its flow listed as firing, so it is not among them.
  */
@@ -278,7 +302,7 @@ export function automationUnreadOf(
   automation: Pick<ForgeTargetAutomation, 'unread'>,
 ): AutomationConfirmation['unread'] {
   return automation.unread.flatMap(({ part, reason }) =>
-    part === 'conditions' ? [] : [{ part, reason }],
+    isUnreadThatHides(part) ? [{ part, reason }] : [],
   );
 }
 
@@ -381,8 +405,18 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
 const UNREAD_WORDS: Record<AutomationConfirmation['unread'][number]['part'], string> = {
   flows: 'the flows',
   triggers: 'the Apex triggers',
+  processes: 'the Process Builder processes',
+  workflowRules: 'the workflow rules',
   automation: 'the automation',
 };
+
+/** How the command line names what fires. */
+function firedWords({ kind, name }: Pick<FiredOnInsert, 'kind' | 'name'>): string {
+  if (kind === 'flow') return `flow "${name}"`;
+  if (kind === 'process') return `process "${name}"`;
+  if (kind === 'workflowRule') return `workflow rule "${name}"`;
+  return `Apex trigger ${name}`;
+}
 
 /**
  * Why the command line will not write without `--accept-automation`: what the
@@ -398,10 +432,7 @@ export function automationRefusal(
   if (fired.length === 0 && unread.length === 0) return undefined;
   const parts: string[] = [];
   if (fired.length > 0) {
-    const named = fired.map(
-      ({ objectApiName, kind, name }) =>
-        `${objectApiName}: ${kind === 'flow' ? `flow "${name}"` : `Apex trigger ${name}`}`,
-    );
+    const named = fired.map((entry) => `${entry.objectApiName}: ${firedWords(entry)}`);
     parts.push(`${target} runs automation on the records this clone inserts: ${named.join('; ')}.`);
   }
   for (const { part, reason } of unread) {

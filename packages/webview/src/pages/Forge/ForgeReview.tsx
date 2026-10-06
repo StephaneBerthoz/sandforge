@@ -329,6 +329,7 @@ export const ForgeReview: React.FC = () => {
                 automation={automation}
                 error={automationError}
                 leftOut={leftOut}
+                applyAssignmentRules={config?.applyAssignmentRules === true}
               />
             )}
           </div>

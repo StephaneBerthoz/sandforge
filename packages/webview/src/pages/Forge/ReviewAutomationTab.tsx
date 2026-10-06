@@ -3,10 +3,20 @@ import { useTranslation } from 'react-i18next';
 import type {
   ForgeAutomationFired,
   ForgeAutomationWrite,
+  ForgeFlowPath,
+  ForgeMessageAction,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
+  ForgeTargetObjectAutomation,
 } from '@sandforge/shared';
-import { automationByWrite, bypassPermissionsOf } from '@sandforge/shared';
+import {
+  automationByWrite,
+  blindedBy,
+  bypassPermissionsOf,
+  heldBypassPermissionsOf,
+} from '@sandforge/shared';
+import { Badge } from '../../components/ui/Badge';
+import { uiLocale } from '../../utils/formatters';
 
 /** The heading of each write, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeAutomationWrite, string>> = {
@@ -31,11 +41,42 @@ const WHEN_KEYS: Readonly<
   },
 };
 
+/** What fires, by its kind. */
+const KIND_KEYS: Readonly<Record<ForgeAutomationFired['kind'], string>> = {
+  flow: 'forge.review.automation.flow',
+  trigger: 'forge.review.automation.trigger',
+  process: 'forge.review.automation.process',
+  workflowRule: 'forge.review.automation.workflowRule',
+};
+
+/** What a message action sends. */
+const MESSAGE_KEYS: Readonly<Record<ForgeMessageAction['kind'], string>> = {
+  email: 'forge.review.automation.messageEmail',
+  notification: 'forge.review.automation.messageNotification',
+  outbound: 'forge.review.automation.messageOutbound',
+  sms: 'forge.review.automation.messageSms',
+};
+
 /** What could not be read, part by part. */
 const UNREAD_KEYS: Readonly<Record<ForgeTargetAutomationUnread['part'], string>> = {
   flows: 'forge.review.automation.unreadFlows',
   triggers: 'forge.review.automation.unreadTriggers',
   conditions: 'forge.review.automation.unreadConditions',
+  processes: 'forge.review.automation.unreadProcesses',
+  workflowRules: 'forge.review.automation.unreadWorkflowRules',
+  definitions: 'forge.review.automation.unreadDefinitions',
+  assignmentRules: 'forge.review.automation.unreadAssignmentRules',
+  duplicateRules: 'forge.review.automation.unreadDuplicateRules',
+  userPermissions: 'forge.review.automation.unreadUserPermissions',
+};
+
+/** The units a scheduled path's offset is set in, as `Intl` names them. */
+const OFFSET_UNITS: Readonly<Record<string, string>> = {
+  Minutes: 'minute',
+  Hours: 'hour',
+  Days: 'day',
+  Weeks: 'week',
+  Months: 'month',
 };
 
 /** Props for {@link ReviewAutomationTab}. */
@@ -49,13 +90,16 @@ export interface ReviewAutomationTabProps {
    * target runs on them no longer fires, and is not shown.
    */
   leftOut?: ReadonlySet<string>;
+  /** Whether the run lets the target's assignment rules apply (`ForgeConfig.applyAssignmentRules`). */
+  applyAssignmentRules?: boolean;
 }
 
 /**
  * Automation tab within the Forge Review phase: what the target org runs on
- * the records the run writes, write by write — its record-triggered flows and
- * Apex triggers — and the custom permissions that keep a flow from starting
- * for the user who holds them.
+ * the records the run writes, write by write — its record-triggered flows,
+ * Apex triggers, processes and workflow rules, what of them sends messages
+ * or runs once the save is committed — its assignment and duplicate rules,
+ * and what keeps a flow from starting for the user the run writes as.
  *
  * A clone fired the target's flows on every record it created, emails and
  * text messages among them, and nothing said so before the run. The request
@@ -66,6 +110,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   automation,
   error = null,
   leftOut = new Set<string>(),
+  applyAssignmentRules = false,
 }) => {
   const { t } = useTranslation();
 
@@ -91,10 +136,12 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
 
   const objects = automation.objects.filter((object) => !leftOut.has(object.objectApiName));
   const written = automation.objectsRead.filter((name) => !leftOut.has(name)).length;
-  const bypass = bypassPermissionsOf({ objects });
-  // A part that could not be read leaves "nothing fires" unsaid: nothing was
+  const held = heldBypassPermissionsOf({ objects });
+  const toAssign = bypassPermissionsOf({ objects }).filter((name) => !held.includes(name));
+  // A part that could not be read leaves "nothing runs" unsaid: nothing was
   // seen there, which is not the same.
-  const blind = automation.unread.some((unread) => unread.part !== 'conditions');
+  const blind = blindedBy(automation.unread);
+  const definitionsNotRead = automation.definitionsNotRead ?? 0;
 
   return (
     <div data-testid="review-automation-tab" className="flex flex-col gap-2 text-xs">
@@ -105,15 +152,23 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             ? t('forge.review.automation.nothingSeen')
             : t('forge.review.automation.none', { count: written })}
       </p>
-      {bypass.length > 0 && (
+      {toAssign.length > 0 && (
         <p
           data-testid="automation-bypass"
           className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
         >
           {t('forge.review.automation.bypassHint', {
-            count: bypass.length,
-            names: bypass.join(', '),
+            count: toAssign.length,
+            names: toAssign.join(', '),
           })}
+        </p>
+      )}
+      {held.length > 0 && (
+        <p
+          data-testid="automation-bypass-held"
+          className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
+        >
+          {t('forge.review.automation.bypassHeld', { count: held.length, names: held.join(', ') })}
         </p>
       )}
       {objects.map((object) => (
@@ -147,6 +202,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
               </ul>
             </div>
           ))}
+          <ObjectRules object={object} applyAssignmentRules={applyAssignmentRules} />
         </section>
       ))}
       {automation.conditionsNotRead > 0 && (
@@ -154,6 +210,14 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           {t('forge.review.automation.notRead', {
             count: automation.conditionsNotRead,
             bound: automation.conditionsBound,
+          })}
+        </p>
+      )}
+      {definitionsNotRead > 0 && (
+        <p data-testid="automation-definitions-not-read" className="text-text-secondary">
+          {t('forge.review.automation.notReadDefinitions', {
+            count: definitionsNotRead,
+            bound: automation.definitionsBound ?? 0,
           })}
         </p>
       )}
@@ -173,40 +237,209 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   );
 };
 
-/** One flow or trigger a write fires, with when it runs and what keeps it quiet. */
+/**
+ * The assignment rule and the duplicate rules of an object: whether the run
+ * lets the first apply, and what the second still refuse.
+ */
+const ObjectRules: React.FC<{
+  object: ForgeTargetObjectAutomation;
+  applyAssignmentRules: boolean;
+}> = ({ object, applyAssignmentRules }) => {
+  const { t } = useTranslation();
+  const assignment = object.assignmentRules ?? [];
+  const duplicates = object.duplicateRules ?? [];
+  if (assignment.length === 0 && duplicates.length === 0) return null;
+  // Under a heading of their own: listed straight after the writes, they read
+  // as one more thing the last write fires.
+  return (
+    <div data-testid={`automation-${object.objectApiName}-rules`} className="mt-1">
+      <p className="font-medium text-text-secondary">{t('forge.review.automation.rules')}</p>
+      <ul className="ml-3 flex list-disc flex-col gap-0.5">
+        {assignment.map((rule) => (
+          <li key={`assignment-${rule.name}`} className="text-text-primary">
+            {t('forge.review.automation.assignmentRule', { name: rule.name })}
+            <span className="block text-text-secondary">
+              {applyAssignmentRules
+                ? t('forge.review.automation.assignmentApplied')
+                : t('forge.review.automation.assignmentNotApplied')}
+            </span>
+          </li>
+        ))}
+        {duplicates.length > 0 && (
+          <li className="text-text-primary">
+            {t('forge.review.automation.duplicateRules', {
+              count: duplicates.length,
+              names: duplicates.map((rule) => rule.name).join(', '),
+            })}
+            <span className="block text-text-secondary">
+              {t('forge.review.automation.duplicateNote')}
+            </span>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+};
+
+/** A duration in the panel's language: "2 days", "2 jours", "2 日". */
+function durationOf(offset: number, unit: string): string {
+  const size = Math.abs(offset);
+  const intlUnit = OFFSET_UNITS[unit];
+  return intlUnit
+    ? new Intl.NumberFormat(uiLocale(), {
+        style: 'unit',
+        unit: intlUnit,
+        unitDisplay: 'long',
+      }).format(size)
+    : `${size} ${unit}`;
+}
+
+/** What runs of a flow once the save is committed, one path a line. */
+const PathLine: React.FC<{ path: ForgeFlowPath }> = ({ path }) => {
+  const { t } = useTranslation();
+  let text: string;
+  if (path.kind === 'async') {
+    text = t('forge.review.automation.pathAsync');
+  } else if (path.offset === undefined || path.unit === undefined) {
+    text = t('forge.review.automation.pathScheduled');
+  } else {
+    const duration = durationOf(path.offset, path.unit);
+    text =
+      path.field === undefined
+        ? t('forge.review.automation.pathScheduledAfterSave', { duration })
+        : path.offset < 0
+          ? t('forge.review.automation.pathScheduledBeforeField', { duration, field: path.field })
+          : t('forge.review.automation.pathScheduledAfterField', { duration, field: path.field });
+  }
+  return <span className="block text-text-secondary">{text}</span>;
+};
+
+/** One flow, trigger, process or rule a write fires, with when it runs and what keeps it quiet. */
 const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomationWrite }> = ({
   entry,
   write,
 }) => {
   const { t } = useTranslation();
-  const permissions = entry.flow?.permissions ?? [];
-  const bypass = permissions.filter((p) => p.bypass).map((p) => p.name);
-  const named = permissions.filter((p) => !p.bypass).map((p) => p.name);
+  const flow = entry.flow;
+  const permissions = flow?.permissions ?? [];
+  const switches = flow?.switches ?? [];
+  const messages = flow?.messages ?? [];
+  const paths = flow?.paths ?? [];
+  const startBypass = permissions.filter((p) => p.bypass && p.where !== 'decision');
+  const decisionBypass = permissions.filter((p) => p.bypass && p.where === 'decision');
+  const named = permissions.filter((p) => !p.bypass && p.where !== 'decision').map((p) => p.name);
+  const tested = [
+    ...permissions.filter((p) => !p.bypass && p.where === 'decision').map((p) => p.name),
+    ...switches.filter((s) => !s.bypass).map((s) => s.reference),
+  ];
+  const bypassing = [...startBypass, ...decisionBypass];
+  const heldNames = bypassing.filter((p) => p.held === true).map((p) => p.name);
+  const notHeldNames = bypassing.filter((p) => p.held === false).map((p) => p.name);
   const when = WHEN_KEYS[write === 'delete' ? 'delete' : 'save'][entry.when];
+  const isFlow = entry.kind === 'flow';
   return (
     <li className="text-text-primary">
-      {entry.kind === 'flow'
-        ? t('forge.review.automation.flow', { name: entry.name })
-        : t('forge.review.automation.trigger', { name: entry.name })}
+      {t(KIND_KEYS[entry.kind], { name: entry.name })}
       <span className="text-text-secondary"> · {t(when)}</span>
-      {bypass.length > 0 && (
-        <span className="block text-text-secondary">
-          {t('forge.review.automation.notFor', { count: bypass.length, names: bypass.join(', ') })}
+      {messages.length > 0 && (
+        <>
+          {' '}
+          <Badge variant="warning" data-testid="automation-sends-messages">
+            {t('forge.review.automation.sendsMessages')}
+          </Badge>
+        </>
+      )}
+      {messages.map((message, index) => (
+        <span key={`message-${index}`} className="block text-text-secondary">
+          {t(MESSAGE_KEYS[message.kind], { name: message.name })}
         </span>
+      ))}
+      {paths.map((path, index) => (
+        <PathLine key={`path-${index}`} path={path} />
+      ))}
+      {startBypass.length > 0 && (
+        <span className="block text-text-secondary">
+          {t('forge.review.automation.notFor', {
+            count: startBypass.length,
+            names: startBypass.map((p) => p.name).join(', '),
+          })}
+        </span>
+      )}
+      {decisionBypass.length > 0 && (
+        <span className="block text-text-secondary">
+          {t('forge.review.automation.notForDecision', {
+            count: decisionBypass.length,
+            names: decisionBypass.map((p) => p.name).join(', '),
+          })}
+        </span>
+      )}
+      {switches
+        .filter((s) => s.bypass)
+        .map((s) => (
+          <span
+            key={`switch-${s.where}-${s.reference}-${s.value ?? ''}`}
+            className="block text-text-secondary"
+          >
+            {t(
+              s.where === 'decision'
+                ? s.value === undefined
+                  ? 'forge.review.automation.switchDecisionTrue'
+                  : 'forge.review.automation.switchDecisionValue'
+                : s.value === undefined
+                  ? 'forge.review.automation.switchStartTrue'
+                  : 'forge.review.automation.switchStartValue',
+              { reference: s.reference, value: s.value },
+            )}
+          </span>
+        ))}
+      {heldNames.length > 0 && (
+        <span className="block text-text-secondary">
+          {t('forge.review.automation.heldBy', {
+            count: heldNames.length,
+            names: heldNames.join(', '),
+          })}
+        </span>
+      )}
+      {notHeldNames.length > 0 && (
+        <span className="block text-text-secondary">
+          {t('forge.review.automation.notHeldBy', {
+            count: notHeldNames.length,
+            names: notHeldNames.join(', '),
+          })}
+        </span>
+      )}
+      {entry.keptQuiet && (
+        <span className="block text-text-secondary">{t('forge.review.automation.keptQuiet')}</span>
       )}
       {named.length > 0 && (
         <span className="block text-text-secondary">
           {t('forge.review.automation.named', { count: named.length, names: named.join(', ') })}
         </span>
       )}
-      {entry.flow?.condition === 'notRead' && (
+      {tested.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.conditionNotRead')}
+          {t('forge.review.automation.decisionsTest', {
+            count: tested.length,
+            names: tested.join(', '),
+          })}
         </span>
       )}
-      {entry.flow?.condition === 'unreadable' && (
+      {flow?.condition === 'notRead' && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.conditionUnreadable')}
+          {t(
+            isFlow
+              ? 'forge.review.automation.conditionNotRead'
+              : 'forge.review.automation.definitionNotRead',
+          )}
+        </span>
+      )}
+      {flow?.condition === 'unreadable' && (
+        <span className="block text-text-secondary">
+          {t(
+            isFlow
+              ? 'forge.review.automation.conditionUnreadable'
+              : 'forge.review.automation.definitionUnreadable',
+          )}
         </span>
       )}
     </li>

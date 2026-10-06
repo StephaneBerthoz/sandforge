@@ -244,6 +244,73 @@ describe('what fires as a run inserts', () => {
     );
   });
 
+  it('leaves out a flow a bypass the run writes as holds keeps quiet, as the Automation tab does', () => {
+    const held: ForgeTargetAutomation = {
+      ...automation,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            flow({
+              label: 'Contact welcome',
+              permissions: [{ name: 'Load_Data', bypass: true, held: true }],
+            }),
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+    };
+
+    expect(firedOnInsertOf(held)).toEqual([]);
+    expect(automationRefusal(held, 'TGT')).toBeUndefined();
+  });
+
+  it('names a process and a workflow rule that fire on insert for what they are, not as triggers', () => {
+    const older: ForgeTargetAutomation = {
+      ...automation,
+      objects: [
+        {
+          objectApiName: 'Lead',
+          flows: [],
+          triggers: [],
+          processes: [flow({ label: 'Lead routing' })],
+          workflowRules: [flow({ label: 'Lead alert' })],
+        },
+      ],
+      unread: [],
+    };
+
+    // In the order the platform runs them: workflow rules, then processes.
+    expect(firedOnInsertOf(older).map(({ kind }) => kind)).toEqual(['workflowRule', 'process']);
+    expect(automationRefusal(older, 'TGT')).toContain(
+      'Lead: workflow rule "Lead alert"; Lead: process "Lead routing".',
+    );
+  });
+
+  it('counts as unknown what the processes and workflow rules not read hide, and not the rules that decide nothing', () => {
+    const blind: ForgeTargetAutomation = {
+      ...automation,
+      objects: [],
+      unread: [
+        { part: 'processes', reason: 'P' },
+        { part: 'workflowRules', reason: 'W' },
+        { part: 'definitions', reason: 'D' },
+        { part: 'assignmentRules', reason: 'A' },
+        { part: 'duplicateRules', reason: 'R' },
+        { part: 'userPermissions', reason: 'U' },
+      ],
+    };
+
+    expect(automationUnreadOf(blind)).toEqual([
+      { part: 'processes', reason: 'P' },
+      { part: 'workflowRules', reason: 'W' },
+    ]);
+    expect(automationRefusal(blind, 'TGT')).toContain(
+      'The Process Builder processes of TGT could not be read (P)',
+    );
+  });
+
   it('gives it none when nothing fires on insert and everything was read', () => {
     expect(
       automationRefusal(

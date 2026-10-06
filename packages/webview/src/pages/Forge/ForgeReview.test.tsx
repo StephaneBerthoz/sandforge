@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { ForgeReview } from './ForgeReview';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
@@ -60,6 +60,7 @@ interface MockConfig {
   anonymizePII: boolean;
   sourceOrgId: string;
   targetOrgId: string;
+  applyAssignmentRules?: boolean;
 }
 
 const defaultConfig: MockConfig = {
@@ -599,6 +600,35 @@ describe('ForgeReview', () => {
 
       expect(screen.queryByTestId('automation-object-Contact')).toBeNull();
       expect(screen.getByTestId('tab-automation').textContent).toBe('Automation1');
+    });
+
+    it('says the assignment rules apply when the run is set to apply them, and not otherwise', () => {
+      const ruled = {
+        ...automation,
+        objectsRead: ['Lead'],
+        objects: [
+          {
+            objectApiName: 'Lead',
+            flows: [],
+            triggers: [],
+            assignmentRules: [{ name: 'Lead routing' }],
+          },
+        ],
+      };
+      const applied = () =>
+        within(screen.getByTestId('automation-Lead-rules')).getByRole('listitem').textContent;
+
+      const { unmount } = render(<ForgeReview />);
+      sendFromExtension('forge:automation:response', { automation: ruled });
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      expect(applied()).toContain('Not applied');
+      unmount();
+
+      mockConfig = { ...defaultConfig, applyAssignmentRules: true };
+      render(<ForgeReview />);
+      sendFromExtension('forge:automation:response', { automation: ruled });
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      expect(applied()).toContain('Applied: this run asks the target org to apply it');
     });
 
     it('shows forge:automation:error instead of reading forever', () => {

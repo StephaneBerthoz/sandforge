@@ -56,7 +56,7 @@ describe('ReviewAutomationTab', () => {
   it('says nothing fires when the read found nothing on the objects the run writes', () => {
     render(<ReviewAutomationTab automation={automation()} />);
     expect(screen.getByTestId('automation-summary').textContent).toBe(
-      'No active flow or Apex trigger of the target org fires on the 2 objects this run writes.',
+      'Nothing the target org automates runs on the 2 objects this run writes: no active flow, process, workflow rule, Apex trigger, assignment rule or duplicate rule.',
     );
     expect(screen.getByTestId('automation-cost').textContent).toBe(
       'Read in 2 requests to the target org.',
@@ -228,7 +228,288 @@ describe('ReviewAutomationTab', () => {
     expect(screen.queryByTestId('automation-object-Contact')).toBeNull();
     expect(screen.queryByTestId('automation-bypass')).toBeNull();
     expect(screen.getByTestId('automation-summary').textContent).toBe(
-      'No active flow or Apex trigger of the target org fires on the object this run writes.',
+      'Nothing the target org automates runs on the object this run writes: no active flow, process, workflow rule, Apex trigger, assignment rule or duplicate rule.',
+    );
+  });
+
+  it('names the processes and workflow rules of a write, in the order the platform runs them', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [flow()],
+              triggers: [{ name: 'CaseTrigger', events: ['afterInsert'] }],
+              processes: [flow({ apiName: 'Case_Routing', label: 'Case routing' })],
+              workflowRules: [
+                flow({ apiName: 'Notify_owner', label: 'Notify owner', condition: 'notRead' }),
+              ],
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      within(screen.getByTestId('automation-Case-insert'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Apex trigger: CaseTrigger · after save',
+      'Workflow rule: Notify owner · after saveDefinition not read',
+      'Process: Case routing · after save',
+      'Flow: Case notify customer · after save',
+    ]);
+  });
+
+  it('marks what sends messages with a badge, says each message, and calls the text message a guess', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [
+                flow({
+                  messages: [
+                    { kind: 'email', name: 'Notify customer' },
+                    { kind: 'notification', name: 'Ping owner' },
+                    { kind: 'outbound', name: 'Push to ERP' },
+                    { kind: 'sms', name: 'Send SMS', guessed: true },
+                  ],
+                }),
+                flow({ apiName: 'Case_Quiet', label: 'Case quiet' }),
+              ],
+              triggers: [],
+            },
+          ],
+        })}
+      />,
+    );
+
+    const badges = screen.getAllByTestId('automation-sends-messages');
+    expect(badges.map((badge) => badge.textContent)).toEqual(['Sends messages']);
+    expect(screen.getAllByRole('listitem')[0].textContent).toBe(
+      'Flow: Case notify customer · after save Sends messages' +
+        'Email: Notify customer' +
+        'Custom notification: Ping owner' +
+        'Outbound message: Push to ERP' +
+        'Text message: Send SMS (guessed from the name of an Apex action)',
+    );
+  });
+
+  it('says what runs once the save is committed: the asynchronous path, and each scheduled path with its offset', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                flow({
+                  paths: [
+                    { kind: 'async', label: 'Run Asynchronously' },
+                    { kind: 'scheduled', label: 'Follow up', offset: 2, unit: 'Days' },
+                    { kind: 'scheduled', offset: -1, unit: 'Hours', field: 'Birthdate' },
+                    { kind: 'scheduled', offset: 30, unit: 'Minutes', field: 'EndDate' },
+                    { kind: 'scheduled' },
+                  ],
+                }),
+              ],
+              triggers: [],
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('listitem').textContent).toBe(
+      'Flow: Case notify customer · after save' +
+        'Also runs once the save is committed: its asynchronous path' +
+        'Also runs once the save is committed: a scheduled path 2 days after the save' +
+        'Also runs once the save is committed: a scheduled path 1 hour before Birthdate' +
+        'Also runs once the save is committed: a scheduled path 30 minutes after EndDate' +
+        'Also runs once the save is committed: a scheduled path',
+    );
+  });
+
+  it('says whether the user the run writes as holds a bypass, keeps the flow quiet when it does, and asks to assign only the others', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [
+                flow({ permissions: [{ name: 'Load_Data', bypass: true, held: true }] }),
+                flow({
+                  apiName: 'Case_Other',
+                  label: 'Case other',
+                  permissions: [{ name: 'Bypass_All', bypass: true, held: false }],
+                }),
+              ],
+              triggers: [],
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Flow: Case notify customer · after save' +
+        'Does not start for a user with the custom permission Load_Data' +
+        'The user the run writes as holds Load_Data' +
+        'Stays quiet for this run',
+      'Flow: Case other · after save' +
+        'Does not start for a user with the custom permission Bypass_All' +
+        'The user the run writes as does not hold Bypass_All',
+    ]);
+    expect(screen.getByTestId('automation-bypass').textContent).toBe(
+      'Assign the custom permission Bypass_All to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.',
+    );
+    expect(screen.getByTestId('automation-bypass-held').textContent).toBe(
+      'The user the run writes as in the target org holds the custom permission Load_Data: what excludes it stays quiet for this run.',
+    );
+  });
+
+  it("says the settings, user fields and profiles a flow's start or first decision ends it on, and what its decisions test", () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [
+                flow({
+                  permissions: [
+                    { name: 'Skip_Flows', bypass: true, where: 'decision' },
+                    { name: 'Run_Sync', bypass: false, where: 'decision' },
+                  ],
+                  switches: [
+                    { reference: '$Setup.Bypass__c.Flows__c', where: 'start', bypass: true },
+                    {
+                      reference: '$Profile.Name',
+                      value: 'Integration',
+                      where: 'decision',
+                      bypass: true,
+                    },
+                    { reference: '$User.Region__c', where: 'decision', bypass: false },
+                  ],
+                }),
+              ],
+              triggers: [],
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('listitem').textContent).toBe(
+      'Flow: Case notify customer · after save' +
+        'Its first decision ends it for a user with the custom permission Skip_Flows' +
+        'Does not start when $Setup.Bypass__c.Flows__c is true' +
+        'Its first decision ends it when $Profile.Name is “Integration”' +
+        'Its decisions test Run_Sync, $User.Region__c',
+    );
+  });
+
+  it('says the assignment rule is not applied unless the run applies it, and what the duplicate rules still refuse', () => {
+    const ruled = automation({
+      objectsRead: ['Lead'],
+      objects: [
+        {
+          objectApiName: 'Lead',
+          flows: [],
+          triggers: [],
+          assignmentRules: [{ name: 'Lead routing' }],
+          duplicateRules: [
+            { name: 'Lead email', developerName: 'Lead_Email' },
+            { name: 'Lead name', developerName: 'Lead_Name' },
+          ],
+        },
+      ],
+    });
+    const { rerender } = render(<ReviewAutomationTab automation={ruled} />);
+
+    expect(screen.getByTestId('automation-summary').textContent).toBe(
+      'As the run writes its records, the target org runs:',
+    );
+    const rules = () =>
+      within(screen.getByTestId('automation-Lead-rules'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+    // Under a heading of their own, apart from what the last write fires.
+    expect(screen.getByTestId('automation-Lead-rules').firstElementChild?.textContent).toBe(
+      'Assignment and duplicate rules',
+    );
+    expect(rules()).toEqual([
+      'Assignment rule: Lead routing' +
+        'Not applied: the run keeps the owner it sets, and asks the target org not to apply its assignment rules (Sforce-Auto-Assign: FALSE)',
+      'Duplicate rules: Lead email, Lead name' +
+        'The run saves a record a rule only alerts on; a rule that blocks still refuses it.',
+    ]);
+
+    rerender(<ReviewAutomationTab automation={ruled} applyAssignmentRules />);
+    expect(rules()[0]).toBe(
+      'Assignment rule: Lead routing' +
+        'Applied: this run asks the target org to apply it, and it can give the records another owner and email that owner',
+    );
+  });
+
+  it('says what it left unread of the processes and workflow rules, and the parts it could not read', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          unread: [
+            { part: 'processes', reason: 'INSUFFICIENT_ACCESS: a' },
+            { part: 'workflowRules', reason: 'INSUFFICIENT_ACCESS: b' },
+            { part: 'definitions', reason: 'INSUFFICIENT_ACCESS: c' },
+            { part: 'assignmentRules', reason: 'INSUFFICIENT_ACCESS: d' },
+            { part: 'duplicateRules', reason: 'INSUFFICIENT_ACCESS: e' },
+            { part: 'userPermissions', reason: 'INVALID_TYPE: f' },
+          ],
+          definitionsNotRead: 3,
+          definitionsBound: 15,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('automation-summary').textContent).toBe(
+      'Nothing was found in what could be read.',
+    );
+    expect(screen.getByTestId('automation-definitions-not-read').textContent).toBe(
+      'The definitions of 3 processes or workflow rules were not read: the read takes 15 at most, one request each.',
+    );
+    expect(
+      [
+        'processes',
+        'workflowRules',
+        'definitions',
+        'assignmentRules',
+        'duplicateRules',
+        'userPermissions',
+      ].map((part) => screen.getByTestId(`automation-unread-${part}`).textContent),
+    ).toEqual([
+      'The Process Builder processes of the target org could not be read: INSUFFICIENT_ACCESS: a',
+      'The workflow rules of the target org could not be read: INSUFFICIENT_ACCESS: b',
+      'The definitions of some processes or workflow rules could not be read: INSUFFICIENT_ACCESS: c',
+      'The assignment rules of the target org could not be read: INSUFFICIENT_ACCESS: d',
+      'The duplicate rules of the target org could not be read: INSUFFICIENT_ACCESS: e',
+      'The custom permissions of the user the run writes as could not be read: INVALID_TYPE: f',
+    ]);
+  });
+
+  it('still says nothing runs when only the pieces read one by one were refused', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          unread: [{ part: 'userPermissions', reason: 'INVALID_TYPE: not supported' }],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('automation-summary').textContent).toContain(
+      'Nothing the target org automates runs on the 2 objects this run writes',
     );
   });
 
@@ -253,6 +534,33 @@ describe('ReviewAutomationTab', () => {
     );
     expect(screen.getByTestId('automation-bypass').textContent).toBe(
       'ターゲット組織でこの実行が書き込みに使うユーザーにカスタム権限 Case_BypassFlow を割り当てると、開始条件でそれを除外しているフローは起動しなくなります。',
+    );
+  });
+
+  it('writes the offset of a scheduled path and the badge in the language the panel is set to', async () => {
+    i18n.addResourceBundle('ja', 'translation', ja, true, true);
+    await i18n.changeLanguage('ja');
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                flow({
+                  paths: [{ kind: 'scheduled', offset: 2, unit: 'Days' }],
+                  messages: [{ kind: 'email', name: 'Welcome' }],
+                }),
+              ],
+              triggers: [],
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('automation-sends-messages').textContent).toBe('メッセージを送信');
+    expect(screen.getByRole('listitem').textContent).toContain(
+      '保存がコミットされた後にも実行: 保存の 2 日後のスケジュール済みパス',
     );
   });
 });

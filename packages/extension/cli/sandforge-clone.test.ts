@@ -1179,6 +1179,13 @@ describe('sandforge-clone describes', () => {
     const TARGET_ORG = '00D000000000002AAA';
 
     /**
+     * The queries of the read of the target's automation over the regular
+     * API, which says its own requests and counts none among the run's.
+     */
+    const AUTOMATION_READ =
+      / FROM (FlowDefinitionView|DuplicateRule|AssignmentRule|UserSetupEntityAccess|FlowVariableView|EntityDefinition) /;
+
+    /**
      * An org holding an account and its contact, the objects it was asked to
      * describe and the records written to it. Its Organization record says it
      * is a sandbox, unless `sandbox` says otherwise.
@@ -1321,7 +1328,7 @@ describe('sandforge-clone describes', () => {
         (soql) =>
           !soql.startsWith('SELECT COUNT()') &&
           !soql.includes(' FROM RecordType ') &&
-          !soql.includes(' FROM FlowDefinitionView '),
+          !AUTOMATION_READ.test(soql),
       );
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
@@ -1381,7 +1388,7 @@ describe('sandforge-clone describes', () => {
         (asked) =>
           !asked.startsWith('SELECT COUNT()') &&
           !asked.includes(' FROM RecordType ') &&
-          !asked.includes(' FROM FlowDefinitionView ') &&
+          !AUTOMATION_READ.test(asked) &&
           asked !== NEXT,
       );
       expect(recordTypes).toHaveLength(4);

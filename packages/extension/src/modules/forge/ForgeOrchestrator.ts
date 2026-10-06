@@ -5,6 +5,7 @@ import type {
   ForgeGraph,
   ForgeExecutionResult,
   ForgePlan,
+  ForgeWriteOptions,
 } from '@sandforge/shared';
 import { BYTES_PER_MB, leftOutByTheUser } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
@@ -43,6 +44,14 @@ export interface ForgeOrchestratorDeps {
    * from the same five-minute-old schema.
    */
   clearDescribes?: (orgIds?: string[]) => void;
+  /**
+   * Set what the writes of the run about to start ask of the target's rules:
+   * whether its assignment rules apply to the records the run creates and
+   * updates. The executor holds one run at a time, and its writers read it as
+   * each call goes out; told before every run, a run never writes with the
+   * choice of the one before it.
+   */
+  setWriteOptions?: (options: ForgeWriteOptions) => void;
 }
 
 /**
@@ -313,6 +322,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               }
             : undefined;
 
+      // Forge sets each record's owner itself: the target's assignment rules
+      // apply only when the run asks for them.
+      this.deps.setWriteOptions?.({ applyAssignmentRules: config.applyAssignmentRules === true });
       const summary = await this.deps.executor.execute(
         graph,
         config.sourceOrgId,

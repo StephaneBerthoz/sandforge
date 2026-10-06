@@ -265,6 +265,29 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[1]?.writtenBefore).toEqual(writtenBefore);
     });
 
+    it("says, before the executor writes, whether the run applies the target's assignment rules", async () => {
+      const told: Array<{ applyAssignmentRules: boolean; executed: number }> = [];
+      const ordered = new ForgeOrchestrator({
+        ...deps,
+        setWriteOptions: (options) =>
+          told.push({
+            ...options,
+            executed: vi.mocked(deps.executor.execute).mock.calls.length,
+          }),
+      });
+
+      await ordered.execute(createMockGraph(), createMockConfig());
+      await ordered.execute(createMockGraph(), createMockConfig({ applyAssignmentRules: true }));
+      await ordered.execute(createMockGraph(), createMockConfig({ applyAssignmentRules: false }));
+
+      // Each run told before its executor ran: none had, then one, then two.
+      expect(told).toEqual([
+        { applyAssignmentRules: false, executed: 0 },
+        { applyAssignmentRules: true, executed: 1 },
+        { applyAssignmentRules: false, executed: 2 },
+      ]);
+    });
+
     it('leaves out by name the objects unchecked on the page, not those discovery left out, in both input modes', async () => {
       // Unchecked on the page, the prices were skipped as a node discovery
       // left out is: the line items were sent all the same, and the target
