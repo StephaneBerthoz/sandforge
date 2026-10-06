@@ -232,6 +232,15 @@ export interface ForgeGapsRequest extends BaseMessage {
   payload: { graph: ForgeGraph; config: ForgeConfig };
 }
 
+/**
+ * `forge:users:request`. WebView -> Extension. List an org's active users, by
+ * name, for Review to map the owner of the rows to one of the target's.
+ */
+export interface ForgeUsersRequest extends BaseMessage {
+  type: 'forge:users:request';
+  payload: { orgId: string };
+}
+
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
 
 /** `forge:preview:response`. Extension -> WebView. Record preview for the wizard. */
@@ -545,5 +554,28 @@ export interface ForgeGapsResponse extends BaseMessage {
 /** `forge:gaps:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeGapsErrorMessage extends BaseMessage {
   type: 'forge:gaps:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/** One active user of an org, as Review lists it to map an owner to. */
+export interface ForgeOrgUser {
+  id: string;
+  name: string;
+  /** What tells two users of the same name apart. */
+  username: string;
+}
+
+/**
+ * `forge:users:response`. Extension -> WebView. The org's active users, by
+ * name; `truncated` when the org holds more than the list carries.
+ */
+export interface ForgeUsersResponse extends BaseMessage {
+  type: 'forge:users:response';
+  payload: { orgId: string; users: ForgeOrgUser[]; truncated: boolean };
+}
+
+/** `forge:users:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeUsersErrorMessage extends BaseMessage {
+  type: 'forge:users:error';
   payload: { message: string; code: string; retryable: boolean };
 }

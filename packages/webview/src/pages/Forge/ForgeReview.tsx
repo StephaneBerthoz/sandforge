@@ -31,9 +31,12 @@ import { ForgeRehearseAction } from './ForgeRehearseAction';
 import { startForgeRun } from './startForgeRun';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
+import { ReviewControlsTab } from './ReviewControlsTab';
+import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
 
 /** Tabs available in the Review phase right panel. */
-type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation' | 'gaps';
+type ReviewTab =
+  'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation' | 'gaps' | 'controls';
 
 /**
  * The graph the target's automation is read for: the objects the user left
@@ -65,10 +68,10 @@ const METADATA_DIFF_MAX_OBJECTS = 100;
 /**
  * Main review phase component for the Forge wizard.
  *
- * Split layout with the dependency graph, or its table, on the left (60%)
- * and a tabbed panel on the right (40%) covering Plan, Anonymization,
- * Compliance, Metadata, Automation and Gaps tabs. Action bar with Back and
- * Execute buttons.
+ * Split layout with the dependency graph, or its table, on the left (60%),
+ * searched by object name above it, and a tabbed panel on the right (40%)
+ * covering Plan, Anonymization, Compliance, Metadata, Automation, Gaps and
+ * Controls tabs. Action bar with Back and Execute buttons.
  */
 export const ForgeReview: React.FC = () => {
   const { t } = useTranslation();
@@ -82,6 +85,13 @@ export const ForgeReview: React.FC = () => {
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   /** The graph or its table, as on the discovery and execution screens around it. */
   const view = useForgeObjectsView(graph?.nodes.length ?? 0);
+  /** What the search of the graph holds, the objects it matches, and the one asked to be shown. */
+  const [graphQuery, setGraphQuery] = useState('');
+  const highlighted = useMemo(
+    () => new Set(graph ? graphMatches(graph, graphQuery) : []),
+    [graph, graphQuery],
+  );
+  const [focus, setFocus] = useState<string | null>(null);
   const metadataDiffs = useForgeStore((s) => s.metadataDiffs);
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
@@ -258,6 +268,7 @@ export const ForgeReview: React.FC = () => {
       label: t('forge.review.gapsTab'),
       badge: undecidedBlocking > 0 ? undecidedBlocking : undefined,
     },
+    { id: 'controls', label: t('forge.review.controlsTab') },
   ];
 
   return (
@@ -279,8 +290,14 @@ export const ForgeReview: React.FC = () => {
           of the discovery before it: Review drew the graph whatever its size,
           hundreds of objects included. */}
       {graph && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-start gap-4">
           <ForgeViewToggle view={view} />
+          <ReviewGraphSearch
+            graph={graph}
+            query={graphQuery}
+            onQueryChange={setGraphQuery}
+            onShow={view === 'graph' ? setFocus : undefined}
+          />
         </div>
       )}
       <div className="flex gap-4 min-h-[500px]">
@@ -291,7 +308,12 @@ export const ForgeReview: React.FC = () => {
         <div className="relative w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">
           {graph &&
             (view === 'graph' ? (
-              <LiveGraph graph={graph} onIncludeToggle={toggleNodeIncluded} />
+              <LiveGraph
+                graph={graph}
+                onIncludeToggle={toggleNodeIncluded}
+                highlighted={highlighted}
+                focus={focus}
+              />
             ) : (
               <ForgeTableView
                 graph={graph}
@@ -308,7 +330,7 @@ export const ForgeReview: React.FC = () => {
             data-testid="review-tabs"
             role="tablist"
             aria-label={t('forge.review.tabs', 'Review tabs')}
-            className="flex border-b border-subtle"
+            className="flex flex-wrap border-b border-subtle"
           >
             {tabs.map((tab) => (
               <button
@@ -363,6 +385,7 @@ export const ForgeReview: React.FC = () => {
               />
             )}
             {activeTab === 'gaps' && <ReviewGapsTab />}
+            {activeTab === 'controls' && <ReviewControlsTab />}
           </div>
         </div>
       </div>

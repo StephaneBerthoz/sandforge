@@ -37,6 +37,10 @@ export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
   // A user's login: an email address in form, unique across every org, which
   // a person's name is not, and the org refuses the user written with one.
   { pattern: /^user_?name$/i, method: 'username' },
+  // A user's nickname is unique in its org, and a person's name repeats: the
+  // locale's names came round every fifteen users, and the org refused the
+  // sixteenth.
+  { pattern: /^community_?nickname$/i, method: 'nickname' },
   { pattern: /first_?name$/i, method: 'firstName' },
   { pattern: /last_?name$/i, method: 'lastName' },
   // A middle name is a given name: a full name written in it reads as two people.

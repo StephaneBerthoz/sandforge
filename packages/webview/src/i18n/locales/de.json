@@ -2893,7 +2893,27 @@
           "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org."
         }
       },
-      "gapsTab": "Abweichungen"
+      "gapsTab": "Abweichungen",
+      "controlsTab": "Einstellungen",
+      "graphSearch": {
+        "label": "Ein Objekt im Graphen finden",
+        "placeholder": "API-Name, z. B. Contact",
+        "none": "Kein Objekt des Graphen passt.",
+        "matches_one": "{{count}} Objekt passt, im Graphen markiert.",
+        "matches_other": "{{count}} Objekte passen, im Graphen markiert.",
+        "more_one": "Und {{count}} weiteres: grenzen Sie die Suche ein.",
+        "more_other": "Und {{count}} weitere: grenzen Sie die Suche ein.",
+        "inRun": "im Lauf",
+        "out": "ausgelassen",
+        "show": "Zeigen",
+        "showLabel": "{{object}} im Graphen zeigen",
+        "rootKept": "die Wurzel des Laufs: ihr Zweig ist der ganze Klon",
+        "leaveOut": "Diesen Zweig auslassen",
+        "leaveOutLabel_one": "{{object}} und das {{count}} Objekt auslassen, das nur es erreicht",
+        "leaveOutLabel_other": "{{object}} und die {{count}} Objekte auslassen, die nur es erreicht",
+        "leftOut": "Aus dem Lauf ausgelassen: {{objects}}.",
+        "putBack": "Wieder aufnehmen"
+      }
     },
     "history": {
       "title": "Letzte Durchläufe",
@@ -3306,7 +3326,8 @@
         "mapRecordType": "als Datensatztyp {{to}} geschrieben",
         "mapRecordTypeDefault": "mit dem Standard-Datensatztyp des Objekts geschrieben",
         "excludeObject": "{{object}} aus dem Durchlauf ausgelassen",
-        "ignore": "so gelassen"
+        "ignore": "so gelassen",
+        "skipRows": "diese Zeilen zurückgehalten"
       },
       "kept": {
         "title": "Mit diesem Durchlauf behaltene Entscheidungen",
@@ -3320,8 +3341,77 @@
         "truncate": "{{object}}.{{field}}: auf die Feldlänge gekürzt",
         "fieldExcluded": "{{object}}.{{field}}: aus den Zeilen ausgelassen",
         "objectExcluded": "{{object}}: aus dem Durchlauf ausgelassen",
-        "ignored": "{{gap}}: so gelassen"
+        "ignored": "{{gap}}: so gelassen",
+        "skippedRows": "{{gap}}: Zeilen zurückgehalten"
+      },
+      "skipRows": "Diese Zeilen zurückhalten"
+    },
+    "controls": {
+      "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. Die Zahlen des Plans wurden vorher gelesen.",
+      "objectTitle": "Je Objekt",
+      "object": "Objekt",
+      "objectPlaceholder": "Ein Objekt des Laufs wählen…",
+      "pick": "Wählen…",
+      "kept": "Mit dem Lauf gespeichert.",
+      "remove": "Entfernen",
+      "removeLabel": "{{what}} entfernen",
+      "fields": {
+        "reading": "Felder von {{object}} in beiden Orgs werden gelesen…",
+        "error": "Die Felder von {{object}} konnten nicht gelesen werden: {{error}}",
+        "legend": "Felder von {{object}}, die aus seinen Zeilen ausgelassen werden",
+        "count_one": "({{count}} ausgelassen)",
+        "count_other": "({{count}} ausgelassen)",
+        "search": "Felder durchsuchen",
+        "none": "Kein Feld passt."
+      },
+      "filter": {
+        "label": "Filter auf {{object}} (WHERE-Klausel)",
+        "hint": "Nur die passenden Datensätze werden gelesen; bei einem Lauf eines Datensatzes innerhalb seines Umfangs.",
+        "fromQuery": "Durch die Abfrage des Laufs festgelegt: ändern Sie ihn in der Abfrage.",
+        "refused": "Mit diesem Filter würde der Lauf abgelehnt: höchstens 512 Zeichen, keine Kommentarmarke (--, /*, */), kein Semikolon am Ende.",
+        "apply": "Filter anwenden",
+        "clear": "Filter entfernen"
+      },
+      "rename": {
+        "legend": "Felder, die im Ziel unter einem anderen Namen geschrieben werden",
+        "item": "{{from}} als {{to}} geschrieben",
+        "from": "Quellfeld",
+        "to": "Zielfeld",
+        "add": "Dort schreiben"
+      },
+      "runTitle": "Für den ganzen Lauf",
+      "cap": {
+        "label": "Datensätze je Objekt, höchstens",
+        "none": "Keine Grenze: alle Datensätze im Umfang"
+      },
+      "owners": {
+        "legend": "Besitzer, die Benutzern des Ziels zugewiesen werden",
+        "hint": "Die Datensätze eines Quellbenutzers gehen an den nach Namen gewählten Benutzer des Ziels; der Lauf behält beide IDs.",
+        "reading": "Aktive Benutzer der Ziel-Org werden gelesen…",
+        "error": "Die Benutzer der Ziel-Org konnten nicht gelesen werden: {{error}}",
+        "truncated": "Die Ziel-Org hat mehr aktive Benutzer: die ersten {{listed}} nach Namen werden aufgeführt.",
+        "item": "{{source}} an {{target}} zugewiesen",
+        "source": "ID des Quellbenutzers",
+        "target": "Benutzer im Ziel",
+        "add": "Datensätze diesem Benutzer zuweisen"
+      },
+      "refused": {
+        "fieldExclusions": "Nicht gespeichert: der Lauf lässt höchstens 200 Felder eines Objekts aus.",
+        "objectSoqlFilters": "Nicht gespeichert: der Lauf nimmt höchstens 50 Filter, jeder eine WHERE-Klausel, die er akzeptiert.",
+        "maxRecordsPerObject": "Nicht gespeichert: eine Grenze ist eine ganze Zahl von 1 bis 1.000.000.",
+        "ownerMappings": "Nicht gespeichert: die ID eines Benutzers hat 15 oder 18 Buchstaben und Ziffern, und der Lauf nimmt höchstens 200 Besitzer.",
+        "fieldMappings": "Nicht gespeichert: der Lauf benennt höchstens 200 Felder eines Objekts um, auf höchstens 50 Objekten."
       }
+    },
+    "decisionsApplied": {
+      "title": "Angewendete Entscheidungen",
+      "hint": "In der Prüfung getroffen, jede mit den Zeilen, die sie geändert hat.",
+      "hintSimulated": "In der Prüfung getroffen, jede mit den Zeilen, die sie ändern würde: nichts wurde geschrieben.",
+      "decision": "Entscheidung",
+      "object": "Objekt",
+      "field": "Feld",
+      "values": "Werte",
+      "rows": "Zeilen"
     }
   },
   "autopilot": {

@@ -189,6 +189,8 @@ export class FakerFallback {
         return this.generateEmail(index);
       case 'username':
         return this.generateUsername(index);
+      case 'nickname':
+        return this.generateNickname(index);
       case 'phone':
         return this.generatePhone(index);
       case 'address':
@@ -279,6 +281,21 @@ export class FakerFallback {
       .replace(/[^a-z]/g, '');
     const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
     return `${first}.${last}.${this.usernameToken}${index}@${domain}`;
+  }
+
+  /**
+   * A user's nickname (`CommunityNickname`): unique in its org, and at most
+   * 40 characters. A person's name is neither — the locale's names come round
+   * every fifteen users — so the nickname is a first name with this
+   * generator's token and the index, as a username is: no two users of a seed
+   * share one, nor do those of two seeds of the same org.
+   */
+  private generateNickname(index: number): string {
+    const first = this.generateFirstName(index)
+      .toLowerCase()
+      .replace(/[^a-z]/g, '')
+      .slice(0, 20);
+    return `${first}.${this.usernameToken}${index}`;
   }
 
   /** A number nobody holds, in the locale's range: see {@link reservedPhone}. */

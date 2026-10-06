@@ -225,6 +225,7 @@ describe('decisionCounts', () => {
       truncateFields: [{ object: 'Account', field: 'Name' }],
       recordTypeMappings: [{ object: 'Account', from: 'Partner', to: null }],
       excludedObjects: ['Task'],
+      skippedRows: [{ object: 'Account', gapId: 'currency_inactive|Account|CurrencyIsoCode||CHF' }],
       ignoredGaps: ['g1', 'g2'],
     };
 
@@ -235,6 +236,7 @@ describe('decisionCounts', () => {
       { kind: 'truncate', count: 1 },
       { kind: 'map_record_type', count: 1 },
       { kind: 'exclude_object', count: 1 },
+      { kind: 'skip_rows', count: 1 },
       { kind: 'ignore', count: 2 },
     ]);
     expect(decisionCounts(CONFIG)).toEqual([]);

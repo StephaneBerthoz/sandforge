@@ -2144,6 +2144,26 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-picklists')).toBeNull();
   });
 
+  it('lists the decisions the run applied, each with its rows, and none for a run that applied none', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      decisionsApplied: [
+        { kind: 'leave_empty', objectApiName: 'Case', field: 'Origin', from: 'Fax', rows: 4 },
+        { kind: 'skip_rows', objectApiName: 'Case', field: 'Origin', from: 'Mail', rows: 2 },
+      ],
+    });
+    const { unmount } = render(<ForgeResults />);
+
+    expect(screen.getAllByTestId('forge-results-decision').map((row) => row.textContent)).toEqual([
+      'the field is left emptyCaseOrigin“Fax”4',
+      'these rows are skippedCaseOrigin“Mail”2',
+    ]);
+    unmount();
+
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+    expect(screen.queryByTestId('forge-results-decisions')).toBeNull();
+  });
+
   it('names each field records went in without, how many, what refused it and why', () => {
     mockResult = Object.assign(makeMockResult(), {
       writtenWithoutFields: [

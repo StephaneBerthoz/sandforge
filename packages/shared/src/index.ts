@@ -168,7 +168,8 @@ export {
   objectsBeyondTheGraph,
 } from './utils/forge-graph-nodes.js';
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
-export { forgeGapId, mergeGaps } from './utils/forge-gaps.js';
+export { forgeGapId, forgeGapParts, mergeGaps } from './utils/forge-gaps.js';
+export type { ForgeGapParts } from './utils/forge-gaps.js';
 export {
   assignPermsetCommand,
   automationByWrite,

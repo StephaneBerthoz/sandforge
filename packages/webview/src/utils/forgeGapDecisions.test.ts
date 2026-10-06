@@ -94,13 +94,18 @@ const RULE: ForgeGap = {
 };
 
 describe('offeredDecisions', () => {
-  it('offers what the config can hold, never skipping rows, which no field of it holds', () => {
+  it('offers what the config can hold, the holding back of the rows of a value included', () => {
     expect(offeredDecisions(REFUSED)).toEqual([
       'map_value',
       'leave_empty',
       'exclude_object',
+      'skip_rows',
       'ignore',
     ]);
+  });
+
+  it('offers no holding back of rows on a gap about no value, whatever the read offers', () => {
+    expect(offeredDecisions({ ...RULE, decisions: ['skip_rows', 'ignore'] })).toEqual(['ignore']);
   });
 
   it('reads the allowed values and record types under the names the simulation gives them', () => {
@@ -180,6 +185,19 @@ describe('each decision, written and taken back', () => {
     const ignored = withGapDecision(CONFIG, RULE, { kind: 'ignore' });
     expect(ignored.ignoredGaps).toEqual([RULE.id]);
     expect(withoutGapDecision(ignored, RULE)).toEqual(CONFIG);
+  });
+
+  it('holds back the rows of a value by the gap’s id, and takes that back', () => {
+    const config = withGapDecision(CONFIG, REFUSED, { kind: 'skip_rows' });
+
+    expect(config.skippedRows).toEqual([{ object: 'Case', gapId: REFUSED.id }]);
+    expect(choiceOf(decisionOf(config, REFUSED)!)).toEqual({ kind: 'skip_rows' });
+    expect(keptDecisions(config)).toEqual([
+      { kind: 'skipped_rows', entry: { object: 'Case', gapId: REFUSED.id } },
+    ]);
+    expect(withoutGapDecision(config, REFUSED)).toEqual(CONFIG);
+    // A gap about no value has no rows its value names.
+    expect(withGapDecision(CONFIG, RULE, { kind: 'skip_rows' })).toBe(CONFIG);
   });
 
   it('replaces the decision that answered the gap rather than adding a second', () => {

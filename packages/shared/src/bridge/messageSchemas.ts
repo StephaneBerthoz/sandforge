@@ -335,6 +335,8 @@ const AutomationMessages = [
   msg('forge:undo-automation:request'),
   // Reads from the target org's metadata what will refuse or surprise a run.
   msg('forge:gaps:request'),
+  // An org's active users, for Review's owner mapping.
+  msg('forge:users:request'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -371,6 +373,8 @@ const AutomationMessages = [
   msg('forge:undo-automation:error'),
   msg('forge:gaps:response'),
   msg('forge:gaps:error'),
+  msg('forge:users:response'),
+  msg('forge:users:error'),
 ] as const;
 export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 

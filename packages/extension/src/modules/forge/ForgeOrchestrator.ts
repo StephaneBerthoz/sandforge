@@ -15,24 +15,7 @@ import { runAnonymization, type ForgeAnonymizationMethods } from './ForgeAnonymi
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { finishedRunStatus, forgeRunResult } from './runResult.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
-import type { ForgeRunDecisions } from './stages/RunDecisions.js';
-
-/**
- * The decisions of a config the executor applies to the rows, or nothing when
- * it holds none: see `stages/RunDecisions.ts`.
- */
-function runDecisionsOf(config: ForgeConfig): ForgeRunDecisions | undefined {
-  const decisions: ForgeRunDecisions = {
-    ...(config.picklistValueMappings?.length
-      ? { picklistValueMappings: config.picklistValueMappings }
-      : {}),
-    ...(config.recordTypeMappings?.length ? { recordTypeMappings: config.recordTypeMappings } : {}),
-    ...(config.defaultValues?.length ? { defaultValues: config.defaultValues } : {}),
-    ...(config.truncateFields?.length ? { truncateFields: config.truncateFields } : {}),
-    ...(config.ignoredGaps?.length ? { ignoredGaps: config.ignoredGaps } : {}),
-  };
-  return Object.keys(decisions).length > 0 ? decisions : undefined;
-}
+import { runDecisionsOf } from './stages/RunDecisions.js';
 
 /** Events emitted by ForgeOrchestrator during operation. */
 type ForgeEvents = {

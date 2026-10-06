@@ -702,6 +702,35 @@ describe('useForgeStore', () => {
       expect(getState().config).not.toHaveProperty('picklistValueMappings');
     });
 
+    it('changes the config from Review’s controls and keeps the plan, the diffs and the gaps read', () => {
+      const plan: ForgePlan = {
+        waves: [],
+        totalRecords: 4,
+        totalApiCalls: 1,
+        estimatedDurationSeconds: 1,
+        cycleResolutions: [],
+      };
+      getState().updateConfig((config) => ({ ...config, maxRecordsPerObject: 5 }));
+      expect(getState().config).toBeNull();
+
+      getState().setConfig(createMockConfig());
+      getState().setPlan(plan);
+      getState().setGaps('simulation', [refused]);
+      getState().updateConfig((config) => ({
+        ...config,
+        fieldExclusions: { Case: ['Description'] },
+        maxRecordsPerObject: 5,
+      }));
+
+      expect(getState().config).toMatchObject({
+        fieldExclusions: { Case: ['Description'] },
+        maxRecordsPerObject: 5,
+      });
+      expect(getState().plan).toBe(plan);
+      expect(getState().gaps.simulation).toEqual([refused]);
+      expect(getState().gapReads).toEqual({ simulation: [] });
+    });
+
     it('leaves the object out of the graph with the decision, and puts it back with its undo', () => {
       getState().setConfig(createMockConfig());
       getState().setGraph(
@@ -747,20 +776,6 @@ describe('useForgeStore', () => {
     expect(getState().anonymizationRules.email).toBe('hash');
     // Other categories unchanged
     expect(getState().anonymizationRules.phone).toBe('mask');
-  });
-
-  it('should update node batch strategy', () => {
-    getState().setGraph(createMockGraph());
-    getState().updateNodeBatchStrategy('Account', 'bulk');
-    const node = getState().graph?.nodes.find((n) => n.objectApiName === 'Account');
-    expect(node?.batchStrategy).toBe('bulk');
-  });
-
-  it('should not modify other nodes when updating batch strategy', () => {
-    getState().setGraph(createMockGraph());
-    getState().updateNodeBatchStrategy('Account', 'bulk');
-    const contactNode = getState().graph?.nodes.find((n) => n.objectApiName === 'Contact');
-    expect(contactNode?.batchStrategy).toBe('auto');
   });
 
   it('should reset review phase state on reset', () => {

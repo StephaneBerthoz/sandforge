@@ -7608,6 +7608,54 @@ export class ForgeExecutor {
   }
 
   /**
+   * The rows of a node less those a decision holds back (`skippedRows`): each
+   * read by the name the target gives its fields, as the gap that named it
+   * was found, and with the record type it goes in with. Counted with the
+   * decisions applied, and said on the node's line before its write. Not a
+   * failure: the run was told not to write them. What names one of them goes
+   * as what names a row the target refused.
+   */
+  private holdBackSkippedRows(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    rows: Record<string, unknown>[],
+    onProgress: (event: ForgeProgressEvent) => void,
+  ): Record<string, unknown>[] {
+    const { config } = state;
+    if (!config.decisions.skipsRowsOf(node.objectApiName)) return rows;
+    const excluded = new Set(config.fieldExclusions[node.objectApiName] ?? []);
+    /** The name each renamed field is read by, by the name it is written under. */
+    const readAs = new Map(
+      Object.entries(config.fieldMappings[node.objectApiName] ?? {}).map(([from, to]) => [
+        to,
+        from,
+      ]),
+    );
+    const kept = rows.filter((row) => {
+      const recordTypeId = row['RecordTypeId'];
+      return !config.decisions.holdsBack(
+        node.objectApiName,
+        (field) => {
+          const key = readAs.get(field) ?? field;
+          return excluded.has(key) ? undefined : row[key];
+        },
+        targetRecordTypeOf(config, typeof recordTypeId === 'string' ? recordTypeId : undefined),
+        state.decisionsApplied,
+      );
+    });
+    const held = rows.length - kept.length;
+    if (held > 0) {
+      onProgress({
+        objectName: node.objectApiName,
+        status: 'running',
+        progress: 0,
+        message: `${node.objectApiName}: ${held} record${held === 1 ? '' : 's'} held back, as decided on the gaps`,
+      });
+    }
+    return kept;
+  }
+
+  /**
    * Find, in a simulation, what the target would refuse or change in the rows
    * of a node as a real run would send them: the picklist values its record
    * types or its fields refuse, the record types it has no counterpart of,
@@ -8025,6 +8073,10 @@ export class ForgeExecutor {
         });
         return;
       }
+
+      // The rows the user chose not to write, by a value a gap names: held
+      // back before anything is written for them, orphan parents included.
+      toWrite = this.holdBackSkippedRows(state, node, toWrite, onProgress);
 
       // A row that hangs from one left to the platform after it was read — a
       // run that reads every object before it writes one — goes with it, and

@@ -17,6 +17,7 @@ export const SUPPORTED_FAKER_METHODS = [
   'jobTitle',
   'email',
   'username',
+  'nickname',
   'phone',
   'address',
   'streetAddress',

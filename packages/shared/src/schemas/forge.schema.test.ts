@@ -879,4 +879,44 @@ describe('the decisions taken on the Gaps tab', () => {
       }),
     ).toThrow();
   });
+
+  it('keeps the gaps whose rows the run holds back, each under the object its id names', () => {
+    const skippedRows = [
+      { object: 'Case', gapId: 'picklist_value_refused|Case|Reason__c|Claim|Other' },
+      { object: 'Opportunity', gapId: 'currency_inactive|Opportunity|CurrencyIsoCode||CHF' },
+    ];
+    expect(
+      forgeConfigSchema.parse({ ...createValidForgeConfig(), skippedRows }).skippedRows,
+    ).toEqual(skippedRows);
+    expect(
+      forgeTemplateSchema.parse({
+        ...createValidForgeTemplate(),
+        config: { ...(createValidForgeTemplate().config as Record<string, unknown>), skippedRows },
+      }).config.skippedRows,
+    ).toEqual(skippedRows);
+  });
+
+  it('refuses rows held back under an object their gap is not of, or past their bound', () => {
+    expect(
+      forgeConfigSchema.safeParse({
+        ...createValidForgeConfig(),
+        skippedRows: [{ object: 'Account', gapId: 'picklist_value_refused|Case|Reason__c||Other' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...createValidForgeConfig(),
+        skippedRows: [{ object: 'Case', gapId: 'Case' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...createValidForgeConfig(),
+        skippedRows: Array.from({ length: 501 }, (_, i) => ({
+          object: 'Case',
+          gapId: `picklist_value_refused|Case|Reason__c||V${i}`,
+        })),
+      }).success,
+    ).toBe(false);
+  });
 });

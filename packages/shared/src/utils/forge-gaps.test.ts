@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForgeGap } from '../types/forge.types.js';
-import { forgeGapId, mergeGaps } from './forge-gaps.js';
+import { forgeGapId, forgeGapParts, mergeGaps } from './forge-gaps.js';
 
 const gap = (over: Partial<ForgeGap>): ForgeGap => ({
   id: forgeGapId('picklist_value_refused', 'Case', 'Reason__c', 'Claim', 'Other'),
@@ -27,6 +27,31 @@ describe('forgeGapId', () => {
     expect(forgeGapId('validation_rule', 'Contact', undefined, undefined, 'Phone_Format')).toBe(
       'validation_rule|Contact|||Phone_Format',
     );
+  });
+});
+
+describe('forgeGapParts', () => {
+  it('reads back from an id what the gap is about, a value holding a bar included', () => {
+    expect(
+      forgeGapParts(forgeGapId('picklist_value_refused', 'Case', 'Reason__c', 'Claim', 'A|B')),
+    ).toEqual({
+      kind: 'picklist_value_refused',
+      objectApiName: 'Case',
+      field: 'Reason__c',
+      recordType: 'Claim',
+      value: 'A|B',
+    });
+    expect(forgeGapParts('validation_rule|Contact|||Phone_Format')).toEqual({
+      kind: 'validation_rule',
+      objectApiName: 'Contact',
+      value: 'Phone_Format',
+    });
+  });
+
+  it('reads nothing from a text no gap id is', () => {
+    expect(forgeGapParts('Contact')).toBeNull();
+    expect(forgeGapParts('|Contact|||x')).toBeNull();
+    expect(forgeGapParts('kind||||x')).toBeNull();
   });
 });
 

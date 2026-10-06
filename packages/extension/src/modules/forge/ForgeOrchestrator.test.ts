@@ -157,6 +157,9 @@ describe('ForgeOrchestrator', () => {
         defaultValues: [{ object: 'Account', field: 'Region__c', value: 'North' }],
         truncateFields: [{ object: 'Account', field: 'Name' }],
         ignoredGaps: ['value_too_long|Account|Name||'],
+        skippedRows: [
+          { object: 'Account', gapId: 'currency_inactive|Account|CurrencyIsoCode||CHF' },
+        ],
       };
       const bare = {
         inputMode: 'soql' as const,
@@ -176,6 +179,7 @@ describe('ForgeOrchestrator', () => {
         defaultValues: decided.defaultValues,
         truncateFields: decided.truncateFields,
         ignoredGaps: decided.ignoredGaps,
+        skippedRows: decided.skippedRows,
       };
       expect(optionsPassed[0]).toMatchObject({ dryRun: true, decisions });
       expect(optionsPassed[1]).toMatchObject({ dryRun: true, decisions });

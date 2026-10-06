@@ -16,6 +16,34 @@ export function forgeGapId(
   return [kind, objectApiName, field ?? '', recordType ?? '', value ?? ''].join('|');
 }
 
+/** What a gap's id says it is about, read back from it: see {@link forgeGapId}. */
+export interface ForgeGapParts {
+  kind: string;
+  objectApiName: string;
+  field?: string;
+  recordType?: string;
+  value?: string;
+}
+
+/**
+ * What `id` says its gap is about, or null for a text no gap id is. The kind,
+ * the object, the field and the record type are API names, which never hold a
+ * `|`: whatever follows the fourth is the value, `|` and all.
+ */
+export function forgeGapParts(id: string): ForgeGapParts | null {
+  const parts = id.split('|');
+  if (parts.length < 5 || parts[0] === '' || parts[1] === '') return null;
+  const [kind, objectApiName, field, recordType, ...rest] = parts;
+  const value = rest.join('|');
+  return {
+    kind,
+    objectApiName,
+    ...(field !== '' ? { field } : {}),
+    ...(recordType !== '' ? { recordType } : {}),
+    ...(value !== '' ? { value } : {}),
+  };
+}
+
 const SEVERITY_RANK: Readonly<Record<ForgeGapSeverity, number>> = {
   info: 0,
   warning: 1,

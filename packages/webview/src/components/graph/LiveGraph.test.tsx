@@ -32,6 +32,7 @@ const received = vi.hoisted(() => ({
   flow: {} as Record<string, unknown>,
   minimap: {} as Record<string, unknown>,
   controls: {} as Record<string, unknown>,
+  fitView: vi.fn(),
 }));
 
 /** Minimal ReactFlow mock that renders nodes with their data. */
@@ -69,6 +70,7 @@ vi.mock('@xyflow/react', () => ({
     return React.createElement('div', { 'data-testid': 'controls' });
   },
   Background: () => React.createElement('div', { 'data-testid': 'background' }),
+  useReactFlow: () => ({ fitView: received.fitView }),
   Handle: () => React.createElement('div'),
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
   getBezierPath: () => ['M 0 0', 0, 0] as const,
@@ -197,6 +199,28 @@ describe('LiveGraph', () => {
     render(<LiveGraph graph={makeSampleGraph()} />);
     const container = screen.getByTestId('live-graph');
     expect(container.getAttribute('aria-label')).toBe('Dependency Graph');
+  });
+
+  it('marks on its node each object a search matched', () => {
+    render(<LiveGraph graph={makeSampleGraph()} highlighted={new Set(['Contact'])} />);
+
+    const nodes = received.flow.nodes as Array<{ id: string; data: { highlighted: boolean } }>;
+    expect(nodes.map((n) => [n.id, n.data.highlighted])).toEqual([
+      ['Account', false],
+      ['Contact', true],
+    ]);
+  });
+
+  it('brings into view the object asked for, and fits nothing until one is', () => {
+    received.fitView.mockClear();
+    const { rerender } = render(<LiveGraph graph={makeSampleGraph()} />);
+    expect(received.fitView).not.toHaveBeenCalled();
+
+    rerender(<LiveGraph graph={makeSampleGraph()} focus="Contact" />);
+
+    expect(received.fitView).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [{ id: 'Contact' }] }),
+    );
   });
 
   it('should reuse layout positions when only node status changes', () => {

@@ -216,6 +216,28 @@ describe('ReviewGapsTab', () => {
       );
     });
 
+    it('holds back the rows of a value where the read offers it, and lists it kept once its gap goes', () => {
+      const skippable: ForgeGap = { ...REFUSED, decisions: [...REFUSED.decisions, 'skip_rows'] };
+      act(() => useForgeStore.getState().setGaps('simulation', [skippable]));
+      render(<ReviewGapsTab />);
+      // Not offered on a gap whose read does not offer it.
+      expect(within(item(REQUIRED)).queryByTestId('gap-skip-rows')).toBeNull();
+
+      fireEvent.click(within(item(skippable)).getByTestId('gap-skip-rows'));
+
+      expect(useForgeStore.getState().config?.skippedRows).toEqual([
+        { object: 'Case', gapId: REFUSED.id },
+      ]);
+      expect(within(item(skippable)).getByTestId('gap-decided').textContent).toBe(
+        'Decided: these rows held back',
+      );
+
+      act(() => useForgeStore.getState().setGaps('simulation', []));
+      expect(screen.getByTestId('gaps-kept-decisions').textContent).toContain(
+        'Picklist value the record type refuses · Case · Reason__c · Claim · Other: rows held back',
+      );
+    });
+
     it('gives a required field the default value typed', () => {
       render(<ReviewGapsTab />);
       const required = item(REQUIRED);

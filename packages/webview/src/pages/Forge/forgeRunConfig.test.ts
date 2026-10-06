@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import { carriedChoices, configSubject, templateFromRun, withoutOrgs } from './forgeRunConfig';
+import {
+  carriedChoices,
+  configSubject,
+  templateFromRun,
+  withCarried,
+  withoutOrgs,
+} from './forgeRunConfig';
 import type { RunToSave } from './forgeRunConfig';
 
 const RECORD_RUN: ForgeConfig = {
@@ -177,7 +183,8 @@ describe('templateFromRun', () => {
 });
 
 describe('carriedChoices', () => {
-  it('takes the decisions, the objects left out, the exclusions and the mappings, only those set', () => {
+  it('takes the decisions, the objects left out, the exclusions, filters and mappings, only those set', () => {
+    const skippedRows = [{ object: 'Case', gapId: 'currency_inactive|Case|CurrencyIsoCode||CHF' }];
     const carried = carriedChoices({
       ...RECORD_RUN,
       dryRun: true,
@@ -185,14 +192,71 @@ describe('carriedChoices', () => {
       defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
       fieldExclusions: { Contact: ['Fax'] },
       objectSoqlFilters: { Account: "Type = 'Customer'" },
+      skippedRows,
     });
 
     expect(carried).toEqual({
       fieldMappings: { Account: { Region__c: 'Region__pc' } },
+      objectSoqlFilters: { Account: "Type = 'Customer'" },
       excludedObjects: ['Task'],
       defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
       fieldExclusions: { Contact: ['Fax'] },
+      skippedRows,
     });
     expect(carriedChoices(null)).toEqual({});
+  });
+
+  it('leaves the filter of a query’s root to the query, and carries those of other objects', () => {
+    const soqlRun = {
+      ...RECORD_RUN,
+      inputMode: 'soql' as const,
+      recordId: undefined,
+      soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Energy'",
+    };
+    expect(
+      carriedChoices({ ...soqlRun, objectSoqlFilters: { Account: "Industry = 'Energy'" } }),
+    ).not.toHaveProperty('objectSoqlFilters');
+    expect(
+      carriedChoices({
+        ...soqlRun,
+        objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
+      }).objectSoqlFilters,
+    ).toEqual({ Contact: 'Email != null' });
+  });
+});
+
+describe('withCarried', () => {
+  const built = {
+    inputMode: 'soql' as const,
+    soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Mining'",
+    objectSoqlFilters: { Account: "Industry = 'Mining'" },
+    depth: 'full' as const,
+    sourceOrgId: 'org-source',
+    targetOrgId: 'org-target',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto' as const,
+  };
+
+  it('merges the filters carried with those the form built, the query’s root winning', () => {
+    const config = withCarried(built, {
+      objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
+      excludedObjects: ['Task'],
+    });
+
+    expect(config.objectSoqlFilters).toEqual({
+      Account: "Industry = 'Mining'",
+      Contact: 'Email != null',
+    });
+    expect(config.excludedObjects).toEqual(['Task']);
+  });
+
+  it('adds no filter when neither the form nor the run holds one', () => {
+    const bare = { ...built };
+    delete (bare as Partial<typeof built>).objectSoqlFilters;
+
+    expect(withCarried(bare, { excludedObjects: ['Task'] })).not.toHaveProperty(
+      'objectSoqlFilters',
+    );
   });
 });

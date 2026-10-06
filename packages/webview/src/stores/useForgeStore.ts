@@ -8,7 +8,6 @@ import type {
   ForgeTemplate,
   ForgePlan,
   ForgeAnonymizationCategory,
-  ForgeBatchStrategy,
 } from '@sandforge/shared';
 import type {
   AnonymizationMethod,
@@ -714,6 +713,13 @@ export interface ForgeState {
   decideGap: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
   /** Take back a decision the config holds, as `decideGap` takes one back. */
   undoDecision: (kept: ForgeKeptDecision) => void;
+  /**
+   * Change the config as `change` says — a field left out, a filter, a cap, an
+   * owner or a field mapped on Review's Controls tab — keeping what Review has
+   * read: the plan, the diffs and the gaps stay, as `decideGap` keeps them,
+   * where `setConfig` starts a new run from nothing. No config, no change.
+   */
+  updateConfig: (change: (config: ForgeConfig) => ForgeConfig) => void;
   /** Set an anonymization rule for a category. */
   setAnonymizationRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
   /** Set the method of every category a template names, leaving the others as they are. */
@@ -722,8 +728,6 @@ export interface ForgeState {
   ) => void;
   /** Record the preset picked in Review ('' for none). */
   setAnonymizationPresetId: (presetId: string) => void;
-  /** Update a node's batch strategy. */
-  updateNodeBatchStrategy: (objectApiName: string, strategy: ForgeBatchStrategy) => void;
   /** Execution log entries (persisted across phase transitions). */
   logs: ForgeLogEntry[];
   /** Append a log entry. */
@@ -1292,6 +1296,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     });
   },
 
+  updateConfig(change: (config: ForgeConfig) => ForgeConfig): void {
+    set((state) => (state.config ? { config: change(state.config) } : state));
+  },
+
   setAnonymizationRule(category: ForgeAnonymizationCategory, method: AnonymizationMethod): void {
     set((state) => ({
       anonymizationRules: {
@@ -1313,20 +1321,6 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   setAnonymizeFieldChoices(anonymizeFieldChoices: ForgeAnonymizeFieldChoice[] | null): void {
     set({ anonymizeFieldChoices });
-  },
-
-  updateNodeBatchStrategy(objectApiName: string, strategy: ForgeBatchStrategy): void {
-    set((state) => {
-      if (!state.graph) return state;
-      return {
-        graph: {
-          ...state.graph,
-          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
-            n.objectApiName === objectApiName ? { ...n, batchStrategy: strategy } : n,
-          ),
-        },
-      };
-    });
   },
 
   addLog(entry: ForgeLogEntry): void {

@@ -14,6 +14,7 @@ import type {
   ForgeInputMode,
   ForgeTemplate,
 } from '@sandforge/shared';
+import { soqlRootFilter } from './forgeUtils';
 
 /** A run's configuration as History and templates keep it: without the org pair. */
 export type StoredForgeConfig = Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
@@ -57,32 +58,60 @@ export function withoutOrgs(config: ForgeConfig): StoredForgeConfig {
 /**
  * The parts of a run's config the form has no control for, which a template
  * or a past run brings back and a Discover sends on: the decisions taken on
- * the Gaps tab, the objects left out, and the field exclusions and mappings.
+ * the Gaps tab, the objects left out, the rows held back, and what Review's
+ * Controls tab sets — field exclusions, filters, owners and field mappings.
  * Built from the form alone, the config Discover sent dropped every one.
  */
 const CARRIED_KEYS = [
   'fieldExclusions',
   'ownerMappings',
   'fieldMappings',
+  'objectSoqlFilters',
   'picklistValueMappings',
   'recordTypeMappings',
   'defaultValues',
   'truncateFields',
   'excludedObjects',
   'ignoredGaps',
+  'skippedRows',
 ] as const satisfies ReadonlyArray<keyof ForgeConfig>;
 
 /** What a run carries that the form does not show (see `CARRIED_KEYS`). */
 export type CarriedRunChoices = Partial<Pick<ForgeConfig, (typeof CARRIED_KEYS)[number]>>;
 
-/** The choices `config` carries, only those it holds: none for no config. */
+/**
+ * The choices `config` carries, only those it holds: none for no config.
+ *
+ * The filter a query gives its root object is not one of them: the query
+ * says it, and the run's next Discover reads it from the query as it stands.
+ * Carried, a WHERE clause taken off the query would still have held the root.
+ */
 export function carriedChoices(config: StoredForgeConfig | ForgeConfig | null): CarriedRunChoices {
   const carried: CarriedRunChoices = {};
   if (!config) return carried;
   for (const key of CARRIED_KEYS) {
     if (config[key] !== undefined) Object.assign(carried, { [key]: config[key] });
   }
+  const root = config.soqlQuery ? soqlRootFilter(config.soqlQuery)?.objectApiName : undefined;
+  if (root !== undefined && carried.objectSoqlFilters?.[root] !== undefined) {
+    const filters = { ...carried.objectSoqlFilters };
+    delete filters[root];
+    if (Object.keys(filters).length > 0) carried.objectSoqlFilters = filters;
+    else delete carried.objectSoqlFilters;
+  }
   return carried;
+}
+
+/**
+ * `config`, built by the form, with the choices it carries over it: the
+ * filters merged with those the form built, the query's root filter winning.
+ */
+export function withCarried(config: ForgeConfig, carried: CarriedRunChoices): ForgeConfig {
+  const next: ForgeConfig = { ...config, ...carried };
+  if (config.objectSoqlFilters || carried.objectSoqlFilters) {
+    next.objectSoqlFilters = { ...carried.objectSoqlFilters, ...config.objectSoqlFilters };
+  }
+  return next;
 }
 
 /** What a template is made of, as the results screen holds it. */

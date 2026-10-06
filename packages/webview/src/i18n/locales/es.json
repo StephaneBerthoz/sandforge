@@ -2893,7 +2893,27 @@
           "neverRun": "SandForge muestra este comando y nunca lo ejecuta: lo decide un administrador de la org de destino."
         }
       },
-      "gapsTab": "Discrepancias"
+      "gapsTab": "Discrepancias",
+      "controlsTab": "Ajustes",
+      "graphSearch": {
+        "label": "Buscar un objeto en el grafo",
+        "placeholder": "Nombre de API, p. ej. Contact",
+        "none": "Ningún objeto del grafo coincide.",
+        "matches_one": "{{count}} objeto coincide, marcado en el grafo.",
+        "matches_other": "{{count}} objetos coinciden, marcados en el grafo.",
+        "more_one": "Y {{count}} más: afine la búsqueda.",
+        "more_other": "Y {{count}} más: afine la búsqueda.",
+        "inRun": "en la ejecución",
+        "out": "excluido",
+        "show": "Mostrar",
+        "showLabel": "Mostrar {{object}} en el grafo",
+        "rootKept": "la raíz de la ejecución: su rama es todo el clon",
+        "leaveOut": "Excluir esta rama",
+        "leaveOutLabel_one": "Excluir {{object}} y el {{count}} objeto al que solo él llega",
+        "leaveOutLabel_other": "Excluir {{object}} y los {{count}} objetos a los que solo él llega",
+        "leftOut": "Excluidos de la ejecución: {{objects}}.",
+        "putBack": "Volver a incluirlos"
+      }
     },
     "history": {
       "title": "Ejecuciones recientes",
@@ -3306,7 +3326,8 @@
         "mapRecordType": "escrito como tipo de registro {{to}}",
         "mapRecordTypeDefault": "escrito con el tipo de registro predeterminado del objeto",
         "excludeObject": "{{object}} dejado fuera de la ejecución",
-        "ignore": "dejado tal cual"
+        "ignore": "dejado tal cual",
+        "skipRows": "estas filas no se escriben"
       },
       "kept": {
         "title": "Decisiones conservadas con esta ejecución",
@@ -3320,8 +3341,77 @@
         "truncate": "{{object}}.{{field}}: cortado a la longitud del campo",
         "fieldExcluded": "{{object}}.{{field}}: dejado fuera de las filas",
         "objectExcluded": "{{object}}: dejado fuera de la ejecución",
-        "ignored": "{{gap}}: dejado tal cual"
+        "ignored": "{{gap}}: dejado tal cual",
+        "skippedRows": "{{gap}}: filas no escritas"
+      },
+      "skipRows": "No escribir estas filas"
+    },
+    "controls": {
+      "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Los recuentos del plan se leyeron antes.",
+      "objectTitle": "Por objeto",
+      "object": "Objeto",
+      "objectPlaceholder": "Elegir un objeto de la ejecución…",
+      "pick": "Elegir…",
+      "kept": "Guardado con la ejecución.",
+      "remove": "Quitar",
+      "removeLabel": "Quitar {{what}}",
+      "fields": {
+        "reading": "Leyendo los campos de {{object}} en ambas orgs…",
+        "error": "No se pudieron leer los campos de {{object}}: {{error}}",
+        "legend": "Campos de {{object}} excluidos de sus filas",
+        "count_one": "({{count}} excluido)",
+        "count_other": "({{count}} excluidos)",
+        "search": "Buscar en los campos",
+        "none": "Ningún campo coincide."
+      },
+      "filter": {
+        "label": "Filtro sobre {{object}} (cláusula WHERE)",
+        "hint": "Solo se leen los registros que coinciden; en la ejecución de un registro, dentro de su alcance.",
+        "fromQuery": "Lo fija la consulta de la ejecución: cámbielo en la consulta.",
+        "refused": "La ejecución se rechazaría con este filtro: 512 caracteres como máximo, sin marca de comentario (--, /*, */), sin punto y coma al final.",
+        "apply": "Aplicar el filtro",
+        "clear": "Quitar el filtro"
+      },
+      "rename": {
+        "legend": "Campos escritos con otro nombre en el destino",
+        "item": "{{from}} escrito como {{to}}",
+        "from": "Campo de origen",
+        "to": "Campo de destino",
+        "add": "Escribirlo ahí"
+      },
+      "runTitle": "Para toda la ejecución",
+      "cap": {
+        "label": "Registros de cada objeto, como máximo",
+        "none": "Sin límite: todos los registros del alcance"
+      },
+      "owners": {
+        "legend": "Propietarios asignados a usuarios del destino",
+        "hint": "Los registros de un usuario de origen pasan al usuario del destino elegido por su nombre; la ejecución guarda ambos identificadores.",
+        "reading": "Leyendo los usuarios activos de la org de destino…",
+        "error": "No se pudieron leer los usuarios de la org de destino: {{error}}",
+        "truncated": "La org de destino tiene más usuarios activos: se listan los {{listed}} primeros por nombre.",
+        "item": "{{source}} asignado a {{target}}",
+        "source": "Id. del usuario de origen",
+        "target": "Usuario del destino",
+        "add": "Asignar los registros a este usuario"
+      },
+      "refused": {
+        "fieldExclusions": "No guardado: la ejecución excluye como máximo 200 campos de un objeto.",
+        "objectSoqlFilters": "No guardado: la ejecución admite 50 filtros como máximo, cada uno una cláusula WHERE que acepte.",
+        "maxRecordsPerObject": "No guardado: un límite es un número entero de 1 a 1.000.000.",
+        "ownerMappings": "No guardado: el id. de un usuario tiene 15 o 18 letras y dígitos, y la ejecución admite 200 propietarios como máximo.",
+        "fieldMappings": "No guardado: la ejecución renombra como máximo 200 campos de un objeto, en 50 objetos como máximo."
       }
+    },
+    "decisionsApplied": {
+      "title": "Decisiones aplicadas",
+      "hint": "Tomadas en la revisión, cada una con las filas que cambió.",
+      "hintSimulated": "Tomadas en la revisión, cada una con las filas que cambiaría: no se escribió nada.",
+      "decision": "Decisión",
+      "object": "Objeto",
+      "field": "Campo",
+      "values": "Valores",
+      "rows": "Filas"
     }
   },
   "autopilot": {

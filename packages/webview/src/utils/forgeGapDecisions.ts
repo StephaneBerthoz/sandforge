@@ -18,6 +18,7 @@ import type {
   ForgeGraph,
   ForgePicklistValueMapping,
   ForgeRecordTypeMapping,
+  ForgeSkippedRows,
 } from '@sandforge/shared';
 import { mergeGaps } from '@sandforge/shared';
 
@@ -29,6 +30,7 @@ export type ForgeGapChoice =
   | { kind: 'truncate' }
   | { kind: 'map_record_type'; to: string | null }
   | { kind: 'exclude_object' }
+  | { kind: 'skip_rows' }
   | { kind: 'ignore' };
 
 /** One decision a config holds, by the entry that holds it. */
@@ -39,6 +41,7 @@ export type ForgeKeptDecision =
   | { kind: 'truncate'; entry: ForgeFieldRef }
   | { kind: 'field_excluded'; entry: ForgeFieldRef }
   | { kind: 'object_excluded'; object: string }
+  | { kind: 'skipped_rows'; entry: ForgeSkippedRows }
   | { kind: 'ignored'; gapId: string };
 
 /** The gaps a read found, by the read; a source not read yet may be absent. */
@@ -134,9 +137,9 @@ export function targetRecordTypes(gap: ForgeGap): string[] {
 
 /**
  * The decisions the tab offers on `gap`, in the order the read gave them: those
- * the config can hold with what the gap says. Skipping the refused rows is not
- * offered: no field of the config holds it, and a decision the run would not
- * apply would read as taken.
+ * the config can hold with what the gap says. Holding back the rows is offered
+ * where a read offers it — on a gap about one value, whose rows are those
+ * holding it — and the run holds back those rows by the gap's id.
  */
 export function offeredDecisions(gap: ForgeGap): ForgeGapDecisionKind[] {
   return gap.decisions.filter((kind) => {
@@ -153,7 +156,7 @@ export function offeredDecisions(gap: ForgeGap): ForgeGapDecisionKind[] {
       case 'ignore':
         return true;
       case 'skip_rows':
-        return false;
+        return aboutAValue(gap);
     }
   });
 }
@@ -191,6 +194,10 @@ export function decisionOf(config: ForgeConfig | null, gap: ForgeGap): ForgeKept
   }
   const offers = new Set(gap.decisions);
   const object = gap.objectApiName;
+  if (offers.has('skip_rows')) {
+    const entry = config.skippedRows?.find((e) => e.object === object && e.gapId === gap.id);
+    if (entry) return { kind: 'skipped_rows', entry };
+  }
   if (aboutAValue(gap) && (offers.has('map_value') || offers.has('leave_empty'))) {
     const mappings = (config.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === gap.field && m.from === gap.value,
@@ -241,6 +248,8 @@ export function choiceOf(kept: ForgeKeptDecision): ForgeGapChoice {
       return { kind: 'leave_empty' };
     case 'object_excluded':
       return { kind: 'exclude_object' };
+    case 'skipped_rows':
+      return { kind: 'skip_rows' };
     case 'ignored':
       return { kind: 'ignore' };
   }
@@ -265,6 +274,8 @@ export function keptDecisionKey(kept: ForgeKeptDecision): string {
       return [kept.kind, kept.entry.object, kept.entry.field].join('|');
     case 'object_excluded':
       return [kept.kind, kept.object].join('|');
+    case 'skipped_rows':
+      return [kept.kind, kept.entry.object, kept.entry.gapId].join('|');
     case 'ignored':
       return [kept.kind, kept.gapId].join('|');
   }
@@ -287,7 +298,7 @@ function withList<K extends keyof ForgeConfig>(
 }
 
 /** `config` with the field left out of its object's rows, or no longer. */
-function withFieldExcluded(
+export function withFieldExcluded(
   config: ForgeConfig,
   ref: ForgeFieldRef,
   excluded: boolean,
@@ -345,6 +356,14 @@ export function withoutKept(config: ForgeConfig, kept: ForgeKeptDecision): Forge
       return withFieldExcluded(config, kept.entry, false);
     case 'object_excluded':
       return withObjectExcluded(config, kept.object, false);
+    case 'skipped_rows':
+      return withList(
+        config,
+        'skippedRows',
+        (config.skippedRows ?? []).filter(
+          (e) => e.object !== kept.entry.object || e.gapId !== kept.entry.gapId,
+        ),
+      );
     case 'ignored':
       return withList(
         config,
@@ -421,6 +440,12 @@ export function withGapDecision(
     }
     case 'exclude_object':
       return withObjectExcluded(base, object, true);
+    case 'skip_rows':
+      if (!aboutAValue(gap)) return config;
+      return withList(base, 'skippedRows', [
+        ...(base.skippedRows ?? []).filter((e) => e.object !== object || e.gapId !== gap.id),
+        { object, gapId: gap.id },
+      ]);
     case 'ignore':
       return withList(base, 'ignoredGaps', [
         ...(base.ignoredGaps ?? []).filter((id) => id !== gap.id),
@@ -455,6 +480,10 @@ export function keptDecisions(config: ForgeConfig | null): ForgeKeptDecision[] {
     ...(config.excludedObjects ?? []).map((object): ForgeKeptDecision => ({
       kind: 'object_excluded',
       object,
+    })),
+    ...(config.skippedRows ?? []).map((entry): ForgeKeptDecision => ({
+      kind: 'skipped_rows',
+      entry,
     })),
     ...(config.ignoredGaps ?? []).map((gapId): ForgeKeptDecision => ({ kind: 'ignored', gapId })),
   ];

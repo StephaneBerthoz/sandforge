@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import {
   Copy,
-  Save,
   RotateCcw,
   Download,
   RefreshCw,
@@ -44,8 +43,8 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
 import { collator, formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
-import { templateFromRun } from './forgeRunConfig';
-import { useSaveForgeTemplate } from './useSaveForgeTemplate';
+import { ForgeSaveTemplate } from './ForgeSaveTemplate';
+import { ForgeDecisionsResult } from './ForgeDecisionsResult';
 import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
@@ -174,11 +173,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const setPhase = useForgeStore((s) => s.setPhase);
   const logs = useForgeStore((s) => s.logs);
   const config = useForgeStore((s) => s.config);
-  const anonymizationRules = useForgeStore((s) => s.anonymizationRules);
-  const anonymizationPresetId = useForgeStore((s) => s.anonymizationPresetId);
   const runError = useForgeStore((s) => s.runError);
   const addNotification = useNotificationStore((s) => s.addNotification);
-  const saver = useSaveForgeTemplate();
 
   /**
    * Why the run shown stopped, when an error ended it and these are the
@@ -675,75 +671,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     forgeAgain();
   }, [forgeAgain]);
 
-  /* ---- Save as template ---- */
-  const [saveOpen, setSaveOpen] = useState(false);
-  const [templateName, setTemplateName] = useState('');
-  const [templateDescription, setTemplateDescription] = useState('');
-  const [nameMissing, setNameMissing] = useState(false);
-  const saveButtonRef = useRef<HTMLButtonElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
-  // The form opens on its first field, and a finished save hands focus back
-  // to the button that opened it: the form, and the field that had focus in
-  // it, are gone.
-  useEffect(() => {
-    if (saveOpen) nameInputRef.current?.focus();
-  }, [saveOpen]);
-
-  useEffect(() => {
-    if (!saver.saved) return;
-    setSaveOpen(false);
-    setTemplateName('');
-    setTemplateDescription('');
-    saveButtonRef.current?.focus();
-  }, [saver.saved]);
-
-  /**
-   * Save the run's configuration as a template the Template tab lists: its
-   * input, depth and caps, the anonymization it was reviewed with, and the org
-   * it wrote to.
-   */
-  const handleSaveTemplate = useCallback(
-    (event: React.FormEvent) => {
-      event.preventDefault();
-      // Enter in a field submits too, and a second save in flight would store
-      // the run twice, under two ids.
-      if (!config || saver.saving) return;
-      if (!templateName.trim()) {
-        setNameMissing(true);
-        nameInputRef.current?.focus();
-        return;
-      }
-      const savedAt = new Date().toISOString();
-      saver.save(
-        templateFromRun({
-          id: `tpl-${Date.now()}`,
-          name: templateName,
-          description: templateDescription,
-          config,
-          anonymizationRules,
-          anonymizationPresetId,
-          objectCount: nodes.filter((n) => n.included).length,
-          recordCount: plannedRecords,
-          savedAt,
-          graph,
-          fileCopy: useForgeStore.getState().fileCopy,
-        }),
-      );
-    },
-    [
-      config,
-      templateName,
-      templateDescription,
-      anonymizationRules,
-      anonymizationPresetId,
-      graph,
-      nodes,
-      plannedRecords,
-      saver,
-    ],
-  );
-
   return (
     <div data-testid="forge-results" className={cn('flex flex-col gap-4', className)}>
       {/* The execution screen's announcer unmounts in the pass that shows this
@@ -1162,6 +1089,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         <ForgeContactPointsResult report={result.contactPoints} simulation={simulation} />
       )}
 
+      {/* The decisions taken on Review the run applied, each with the rows it
+          changed: a simulation applies them as a real run does. */}
+      {result?.decisionsApplied && result.decisionsApplied.length > 0 && (
+        <ForgeDecisionsResult decisions={result.decisionsApplied} simulated={simulated} />
+      )}
       {/* Picklist values the target would have refused, for the field or for
           the record type the rows went in with: replaced or left out, and said
           per object and field with why. */}
@@ -1252,19 +1184,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         className="flex flex-wrap items-center gap-3"
       >
         <Button
-          ref={saveButtonRef}
-          variant="secondary"
-          size="md"
-          icon={<Save size={14} />}
-          disabled={!config}
-          aria-expanded={saveOpen}
-          aria-controls="forge-save-template-form"
-          onClick={() => setSaveOpen((open) => !open)}
-          data-testid="forge-save-template"
-        >
-          {t('forge.saveTemplate')}
-        </Button>
-        <Button
           variant="secondary"
           size="md"
           icon={<Copy size={14} />}
@@ -1349,6 +1268,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {t('forge.forgeAgain')}
         </Button>
       </m.div>
+      {/* The run saved as a template, with the form Review saves one with. */}
+      <ForgeSaveTemplate
+        idPrefix="forge-save-template"
+        openerTestId="forge-save-template"
+        size="md"
+        recordCount={plannedRecords}
+      />
       {/* What the retry writes, and what it does not write twice: a clone run
           again would otherwise be read as writing everything a second time. */}
       {retryOffered && result && (
@@ -1381,114 +1307,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           onRemoved={handleRemoved}
         />
       )}
-
-      {saveOpen && (
-        <form
-          id="forge-save-template-form"
-          data-testid="forge-save-template-form"
-          aria-labelledby="forge-save-template-title"
-          onSubmit={handleSaveTemplate}
-          noValidate
-          className="flex flex-col gap-2 rounded-lg border border-forge/30 bg-surface-1 p-3"
-        >
-          <p id="forge-save-template-title" className="text-sm font-semibold text-text-primary">
-            {t('forge.savedTemplate.formTitle')}
-          </p>
-          <p className="text-xs text-text-secondary">{t('forge.savedTemplate.saveHint')}</p>
-          <label htmlFor="forge-save-template-name" className="text-xs text-text-primary">
-            {t('forge.templateName')}
-          </label>
-          <input
-            ref={nameInputRef}
-            id="forge-save-template-name"
-            data-testid="forge-save-template-name"
-            type="text"
-            value={templateName}
-            maxLength={120}
-            aria-required="true"
-            aria-invalid={nameMissing}
-            aria-describedby={nameMissing ? 'forge-save-template-name-error' : undefined}
-            onChange={(e) => {
-              setTemplateName(e.target.value);
-              if (e.target.value.trim()) setNameMissing(false);
-            }}
-            className={cn(
-              'px-3 py-1.5 rounded-md text-sm',
-              'bg-(--sf-bg-input) text-(--sf-text-input)',
-              'border',
-              nameMissing ? 'border-status-error/40' : 'border-(--sf-border-input)',
-              'focus:outline-hidden focus:border-forge/50',
-            )}
-          />
-          {nameMissing && (
-            <p
-              id="forge-save-template-name-error"
-              role="alert"
-              data-testid="forge-save-template-name-error"
-              className="text-xs text-status-error"
-            >
-              {t('forge.savedTemplate.nameRequired')}
-            </p>
-          )}
-          <label htmlFor="forge-save-template-desc" className="text-xs text-text-primary">
-            {t('forge.templateDescription')}
-          </label>
-          <input
-            id="forge-save-template-desc"
-            data-testid="forge-save-template-desc"
-            type="text"
-            value={templateDescription}
-            maxLength={500}
-            onChange={(e) => setTemplateDescription(e.target.value)}
-            className={cn(
-              'px-3 py-1.5 rounded-md text-sm',
-              'bg-(--sf-bg-input) text-(--sf-text-input)',
-              'border border-(--sf-border-input)',
-              'focus:outline-hidden focus:border-forge/50',
-            )}
-          />
-          <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={saver.saving}
-              data-testid="forge-save-template-submit"
-            >
-              {t('common.save')}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSaveOpen(false);
-                setNameMissing(false);
-                saveButtonRef.current?.focus();
-              }}
-              data-testid="forge-save-template-cancel"
-            >
-              {t('forge.cancelEdit')}
-            </Button>
-          </div>
-          {saver.error && (
-            <p
-              role="alert"
-              data-testid="forge-save-template-error"
-              className="text-xs text-status-error"
-            >
-              {t('forge.savedTemplate.saveFailed', { message: saver.error })}
-            </p>
-          )}
-        </form>
-      )}
-      <p
-        role="status"
-        data-testid="forge-save-template-saved"
-        className="text-xs text-text-primary"
-      >
-        {saver.saved ? t('forge.savedTemplate.saved', { name: saver.saved.name }) : ''}
-      </p>
     </div>
   );
 };

@@ -1,6 +1,6 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ReactFlow, MiniMap, Controls, Background } from '@xyflow/react';
+import { ReactFlow, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react';
 import type { Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
@@ -19,6 +19,10 @@ export interface LiveGraphProps {
   onNodeClick?: (objectName: string) => void;
   /** Callback when a node's include checkbox is toggled. */
   onIncludeToggle?: (objectName: string) => void;
+  /** The objects a search matched, marked on their node. */
+  highlighted?: ReadonlySet<string>;
+  /** The object to bring into view, when one was asked for. */
+  focus?: string | null;
   /** Additional CSS class for the container. */
   className?: string;
 }
@@ -109,6 +113,7 @@ function buildFlowNodesFromLayout(
   positions: Map<string, { x: number; y: number }>,
   onNodeClick?: (objectName: string) => void,
   onIncludeToggle?: (objectName: string) => void,
+  highlighted?: ReadonlySet<string>,
 ): Node<ProgressNodeData>[] {
   return graph.nodes.map((n) => {
     const pos = positions.get(n.objectApiName) ?? { x: 0, y: 0 };
@@ -129,6 +134,7 @@ function buildFlowNodesFromLayout(
         piiCount: n.piiFields.length,
         errorCount: n.errors.length,
         edgeType: getEdgeTypeForNode(n.objectApiName, graph.edges),
+        highlighted: highlighted?.has(n.objectApiName) === true,
         onSelect: onNodeClick,
         onIncludeToggle,
       },
@@ -153,6 +159,18 @@ function buildFlowEdges(graph: ForgeGraph): Edge<AnimatedEdgeData>[] {
 }
 
 /**
+ * Fits the view on one node, each time another is asked for: rendered inside
+ * React Flow, whose instance it reaches.
+ */
+const FitOnNode: React.FC<{ id: string }> = ({ id }) => {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    void fitView({ nodes: [{ id }], duration: 300, maxZoom: 1.2 });
+  }, [fitView, id]);
+  return null;
+};
+
+/**
  * Wrapper component that converts a ForgeGraph into an interactive
  * React Flow visualisation with custom nodes, animated edges,
  * minimap, controls, and auto-layout.
@@ -161,6 +179,8 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
   graph,
   onNodeClick,
   onIncludeToggle,
+  highlighted,
+  focus,
   className,
 }) => {
   const { t } = useTranslation();
@@ -184,8 +204,8 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
 
   // Nodes: recomputes when graph data changes (status, progress) but uses cached positions
   const nodes = useMemo(
-    () => buildFlowNodesFromLayout(graph, positions, onNodeClick, onIncludeToggle),
-    [graph, positions, onNodeClick, onIncludeToggle],
+    () => buildFlowNodesFromLayout(graph, positions, onNodeClick, onIncludeToggle, highlighted),
+    [graph, positions, onNodeClick, onIncludeToggle, highlighted],
   );
   const edges = useMemo(() => buildFlowEdges(graph), [graph]);
 
@@ -229,6 +249,7 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
           maskColor="rgba(0,0,0,0.6)"
         />
         <Controls fitViewOptions={FIT_CLEAR_OF_MINIMAP} />
+        {focus ? <FitOnNode id={focus} /> : null}
         <Background color="rgba(255,255,255,0.05)" gap={20} />
       </ReactFlow>
     </div>

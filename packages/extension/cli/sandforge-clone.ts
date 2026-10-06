@@ -39,6 +39,7 @@ import { countRequests, loadOrg, makeConn } from './sfSession.js';
 
 import type {
   ForgeConfig,
+  ForgeConfigInput,
   ForgeContactPointsReport,
   ForgeDecisionApplied,
   ForgeFieldRefusal,
@@ -48,17 +49,21 @@ import type {
   ForgePlan,
   ForgeRemovalFilesLeft,
   ForgeRunObjectRecords,
+  ForgeTemplateInput,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  forgeGapParts,
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
   fileCopyRefusal,
+  forgeConfigSchema,
   forgeConfigSchemaStrict,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
+  forgeTemplateSchema,
   removalBypassesOf,
   forgeWriteHeaders,
   formatFileSize,
@@ -78,7 +83,15 @@ import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExec
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
-import { runAnonymization, type PIIFieldInfo } from '../src/modules/forge/ForgeAnonymizer.js';
+import {
+  runAnonymization,
+  type ForgeAnonymizationMethods,
+  type PIIFieldInfo,
+} from '../src/modules/forge/ForgeAnonymizer.js';
+import {
+  runDecisionsOf,
+  type ForgeRunDecisions,
+} from '../src/modules/forge/stages/RunDecisions.js';
 import type {
   ExecuteOptions,
   ExecutionSummary,
@@ -214,7 +227,22 @@ export interface CliArgs {
    * platform's verdict on every one. Nothing stays in the target.
    */
   rehearse: boolean;
+  /**
+   * The decisions taken on Review's Gaps tab, from `--config` or `--template`:
+   * picklist values mapped, defaults, cuts, record types mapped, rows held
+   * back, gaps ignored. undefined = none.
+   */
+  decisions: ForgeRunDecisions | undefined;
+  /** The method of each personal-data category, from `--template`; none given takes the defaults. */
+  anonymizationRules: ForgeAnonymizationMethods;
+  /** The personal fields `--template` anonymizes on each object; undefined = discovery's choice. */
+  anonymizeFields: Array<{ objectApiName: string; fieldNames: string[] }> | undefined;
+  /** The file the run's choices were read from, as its output names it. */
+  choicesFrom: { flag: ChoicesFlag; path: string } | undefined;
 }
+
+/** The flags that read a run's choices from a file. */
+type ChoicesFlag = '--config' | '--template';
 
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox,
 or remove what a run of it created.
@@ -264,7 +292,8 @@ Usage:
   nor more than the target's data storage has left.
 
 Required:
-  --record <id>          Source record ID (any object type — prefix detected automatically)
+  --record <id>          Source record ID (any object type — prefix detected automatically);
+                         may come from --template instead
   --source <alias>       sf CLI alias of the source org
   --target <alias>       sf CLI alias of the target sandbox
 
@@ -371,6 +400,25 @@ Options:
                          (managed-package re-key, namespace change). The
                          source field is dropped and the value written to
                          the target field name on insert.
+  --config <file.json>   the run's choices from a JSON file: the decisions
+                         taken on Review's Gaps tab (picklistValueMappings,
+                         recordTypeMappings, defaultValues, truncateFields,
+                         skippedRows, ignoredGaps), the fields and objects
+                         left out (fieldExclusions, excludedObjects), the
+                         filters (objectSoqlFilters) and the mappings
+                         (ownerMappings, fieldMappings), as a Forge config
+                         names them. Checked as the panel checks a run's
+                         config; any other key is refused. The flags above
+                         win over the file: their exclusions are added, their
+                         filters and mappings replace the file's for the same
+                         object, user or field.
+  --template <file.json> a template the Template tab exported: its decisions,
+                         exclusions, filters and mappings, as --config takes
+                         them, and its depth, caps, anonymization, contact
+                         points and orphan parents, each unless its flag is
+                         given. Its record is cloned when --record is not
+                         given; a template of a query needs --record. Not
+                         with --config.
   --remap-csv <file>     write the source→target ID remap table to a CSV
                          file (header: sourceId,targetId). BA reconciliation:
                          "where did source X go on the target sandbox?"
@@ -476,6 +524,96 @@ const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
   fieldMappings: '--map',
 };
 
+/** The keys of a Forge config `--config` takes: what decides, leaves out, filters and maps. */
+const CONFIG_FILE_KEYS = [
+  'fieldExclusions',
+  'excludedObjects',
+  'ownerMappings',
+  'objectSoqlFilters',
+  'fieldMappings',
+  'picklistValueMappings',
+  'recordTypeMappings',
+  'defaultValues',
+  'truncateFields',
+  'skippedRows',
+  'ignoredGaps',
+] as const;
+
+/**
+ * What `--config` reads: those keys of a Forge config, checked as the schema
+ * checks them, and nothing else. A key it does not take is refused rather
+ * than dropped: a depth or a cap written there and ignored would read, in the
+ * file, as one the run used.
+ */
+const configFileSchema = z.strictObject(
+  forgeConfigSchema.pick(
+    Object.fromEntries(CONFIG_FILE_KEYS.map((key) => [key, true])) as {
+      [K in (typeof CONFIG_FILE_KEYS)[number]]: true;
+    },
+  ).shape,
+);
+
+/**
+ * The object a query reads from: the name after its FROM, its subqueries set
+ * aside. Exported so it can be tested.
+ */
+export function queryRootOf(soql: string): string | undefined {
+  let flat = soql;
+  for (let before = ''; before !== flat;) {
+    before = flat;
+    flat = flat.replace(/\([^()]*\)/g, ' ');
+  }
+  return /\bFROM\s+([A-Za-z][A-Za-z0-9_]*)/i.exec(flat)?.[1];
+}
+
+/** The largest file read as a run's choices: a template with every decision a graph holds stays well under it. */
+const CHOICES_FILE_MAX_BYTES = 1_000_000;
+
+/** What a choices file holds, read and checked. */
+export type ChoicesFile =
+  | { kind: 'config'; config: Pick<ForgeConfigInput, (typeof CONFIG_FILE_KEYS)[number]> }
+  | { kind: 'template'; template: ForgeTemplateInput };
+
+/**
+ * Read a run's choices from `text`, the content of the file `flag` names:
+ * a config subset for `--config`, a template the Template tab exported for
+ * `--template`. Returns the reasons the file is refused, one per line, when
+ * it is. Exported so it can be tested.
+ */
+export function readChoicesFile(
+  flag: ChoicesFlag,
+  text: string,
+): { file: ChoicesFile } | { refusal: string[] } {
+  if (text.length > CHOICES_FILE_MAX_BYTES) {
+    return { refusal: [`${flag}: the file is larger than ${CHOICES_FILE_MAX_BYTES} bytes`] };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
+  } catch {
+    return { refusal: [`${flag}: the file is not JSON`] };
+  }
+  const issues = (error: z.ZodError): string[] =>
+    error.issues.map((issue) => {
+      const at = issue.path.map(String).join('.');
+      return `${flag}${at ? ` (${at})` : ''}: ${issue.message}`;
+    });
+  if (flag === '--template') {
+    const checked = forgeTemplateSchema.safeParse(parsed);
+    return checked.success
+      ? { file: { kind: 'template', template: checked.data } }
+      : { refusal: issues(checked.error) };
+  }
+  const checked = configFileSchema.safeParse(parsed);
+  if (checked.success) return { file: { kind: 'config', config: checked.data } };
+  return {
+    refusal: [
+      ...issues(checked.error),
+      `${flag} takes ${CONFIG_FILE_KEYS.join(', ')}; the other choices have flags of their own.`,
+    ],
+  };
+}
+
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -489,7 +627,65 @@ export function parseArgs(argv: string[]): CliArgs {
   };
   const has = (flag: string): boolean => args.includes(flag);
 
-  const record = get('--record');
+  // The choices a file brings, read before anything else is checked: a
+  // template may name the record to clone.
+  if (has('--config') && has('--template')) {
+    process.stderr.write('--config and --template: give one of them.\n');
+    process.exit(2);
+  }
+  const choicesFlag: ChoicesFlag | undefined = has('--template')
+    ? '--template'
+    : has('--config')
+      ? '--config'
+      : undefined;
+  const choicesPath = choicesFlag ? get(choicesFlag) : undefined;
+  let choices: ChoicesFile | undefined;
+  if (choicesFlag) {
+    if (!choicesPath || choicesPath.startsWith('--')) {
+      process.stderr.write(`${choicesFlag} takes the path of a JSON file.\n`);
+      process.exit(2);
+    }
+    let text: string;
+    try {
+      text = readFileSync(choicesPath, 'utf8');
+    } catch (err: unknown) {
+      process.stderr.write(
+        `${choicesFlag}: cannot read ${choicesPath}: ${extractErrorMessage(err)}\n`,
+      );
+      process.exit(2);
+    }
+    const read = readChoicesFile(choicesFlag, text);
+    if ('refusal' in read) {
+      for (const line of read.refusal) process.stderr.write(`${line}\n`);
+      process.exit(2);
+    }
+    choices = read.file;
+  }
+  const template = choices?.kind === 'template' ? choices.template : undefined;
+  /** What the file decides, leaves out, filters and maps: the template's config, or the config. */
+  const fileChoices: Partial<ForgeConfigInput> =
+    choices?.kind === 'template' ? { ...choices.template.config } : (choices?.config ?? {});
+  // A template of a query holds the query's WHERE clause as its root's filter:
+  // the command clones a record, and held to that clause, the record's own
+  // object could read nothing. The panel leaves it to the query too.
+  const queryRoot =
+    template?.config.soqlQuery !== undefined ? queryRootOf(template.config.soqlQuery) : undefined;
+  if (queryRoot !== undefined && fileChoices.objectSoqlFilters?.[queryRoot] !== undefined) {
+    const filters = { ...fileChoices.objectSoqlFilters };
+    delete filters[queryRoot];
+    fileChoices.objectSoqlFilters = filters;
+  }
+
+  const templateRecord =
+    template?.config.inputMode === 'record' ? template.config.recordId : undefined;
+  if (template && !has('--record') && !templateRecord) {
+    process.stderr.write(
+      `--template: the template clones from a ${template.config.inputMode === 'record' ? 'record it does not name' : 'query'}, ` +
+        'and the command clones from a record: give --record.\n',
+    );
+    process.exit(2);
+  }
+  const record = get('--record') ?? templateRecord;
   const source = get('--source');
   const target = get('--target');
   if (!record || !source || !target) {
@@ -514,10 +710,19 @@ export function parseArgs(argv: string[]): CliArgs {
   }
   const summary = summaryArg(args);
 
-  const depthRaw = get('--depth', 'custom') ?? 'custom';
-  const customDepthRaw = get('--custom-depth', '5');
-  const maxRaw = get('--max');
-  const maxNodesRaw = get('--max-nodes');
+  // A template's depth and caps, each unless its flag is given.
+  const depthRaw = get('--depth') ?? template?.config.depth ?? 'custom';
+  const customDepthRaw =
+    get('--custom-depth') ??
+    (template?.config.customDepth !== undefined ? String(template.config.customDepth) : '5');
+  const maxRaw =
+    get('--max') ??
+    (template?.config.maxRecordsPerObject !== undefined
+      ? String(template.config.maxRecordsPerObject)
+      : undefined);
+  const maxNodesRaw =
+    get('--max-nodes') ??
+    (template?.config.maxNodes !== undefined ? String(template.config.maxNodes) : undefined);
   const maxTotalRaw = get('--max-total');
   // Repeatable flags: scan all positions for matches.
   const collectRepeated = (flag: string): string[] => {
@@ -527,7 +732,11 @@ export function parseArgs(argv: string[]): CliArgs {
     }
     return out;
   };
-  const fieldExclusions: Record<string, string[]> = {};
+  // The file's exclusions, filters and mappings first; the flags' are added
+  // to them, or put in place of theirs for the same object, user or field.
+  const fieldExclusions: Record<string, string[]> = Object.fromEntries(
+    Object.entries(fileChoices.fieldExclusions ?? {}).map(([obj, fields]) => [obj, [...fields]]),
+  );
   for (const raw of collectRepeated('--exclude')) {
     const dotIdx = raw.indexOf('.');
     if (dotIdx <= 0 || dotIdx === raw.length - 1) {
@@ -542,9 +751,10 @@ export function parseArgs(argv: string[]): CliArgs {
       );
       process.exit(2);
     }
-    (fieldExclusions[obj] ??= []).push(field);
+    const fields = (fieldExclusions[obj] ??= []);
+    if (!fields.includes(field)) fields.push(field);
   }
-  const excludedObjects: string[] = [];
+  const excludedObjects: string[] = [...(fileChoices.excludedObjects ?? [])];
   for (const obj of collectRepeated('--exclude-object')) {
     if (!API_NAME_RE.test(obj)) {
       process.stderr.write(
@@ -554,7 +764,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
     if (!excludedObjects.includes(obj)) excludedObjects.push(obj);
   }
-  const ownerMappings: Record<string, string> = {};
+  const ownerMappings: Record<string, string> = { ...fileChoices.ownerMappings };
   for (const raw of collectRepeated('--owner-map')) {
     const eqIdx = raw.indexOf('=');
     if (eqIdx <= 0 || eqIdx === raw.length - 1) {
@@ -571,7 +781,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
     ownerMappings[src] = tgt;
   }
-  const objectSoqlFilters: Record<string, string> = {};
+  const objectSoqlFilters: Record<string, string> = { ...fileChoices.objectSoqlFilters };
   for (const raw of collectRepeated('--filter')) {
     const eqIdx = raw.indexOf('=');
     if (eqIdx <= 0 || eqIdx === raw.length - 1) {
@@ -592,7 +802,9 @@ export function parseArgs(argv: string[]): CliArgs {
     }
     objectSoqlFilters[obj] = where;
   }
-  const fieldMappings: Record<string, Record<string, string>> = {};
+  const fieldMappings: Record<string, Record<string, string>> = Object.fromEntries(
+    Object.entries(fileChoices.fieldMappings ?? {}).map(([obj, renames]) => [obj, { ...renames }]),
+  );
   for (const raw of collectRepeated('--map')) {
     const dotIdx = raw.indexOf('.');
     const eqIdx = raw.indexOf('=');
@@ -631,7 +843,13 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--max-total takes a whole number of records, 1 or more.\n');
     process.exit(2);
   }
-  const files = fileCopyArgs(args);
+  // A template that anonymizes or keeps contact points does so unless told
+  // otherwise; there is no flag to turn either off, so the flag adds to it.
+  const anonymize = has('--anonymize') || template?.config.anonymizePII === true;
+  const keepContactPoints =
+    has('--keep-contact-points') || template?.config.keepContactPoints === true;
+  const files = fileCopyArgs(args, anonymize);
+  const decisions = runDecisionsOf(fileChoices);
 
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
@@ -643,20 +861,24 @@ export function parseArgs(argv: string[]): CliArgs {
     customDepth: depthRaw === 'custom' ? customDepth : undefined,
     sourceOrgId: source,
     targetOrgId: target,
-    anonymizePII: has('--anonymize'),
-    keepContactPoints: has('--keep-contact-points'),
+    anonymizePII: anonymize,
+    keepContactPoints,
     skipEmpty: true,
     batchSize: 'auto',
     maxRecordsPerObject,
     fieldExclusions,
+    excludedObjects,
     ownerMappings,
     objectSoqlFilters,
     fieldMappings,
+    ...decisions,
   });
   if (!checked.success) {
     for (const issue of checked.error.issues) {
       const [field, ...rest] = issue.path.map(String);
-      const flag = FLAG_OF_FIELD[field ?? ''] ?? field ?? 'arguments';
+      const flag =
+        FLAG_OF_FIELD[field ?? ''] ??
+        (choicesFlag && field ? `${choicesFlag} ${field}` : (field ?? 'arguments'));
       const at = rest.length > 0 ? ` (${rest.join('.')})` : '';
       process.stderr.write(`Invalid ${flag}${at}: ${issue.message}\n`);
     }
@@ -671,13 +893,14 @@ export function parseArgs(argv: string[]): CliArgs {
     customDepth,
     maxNodes,
     maxRecordsPerObject,
-    anonymize: has('--anonymize'),
+    anonymize,
     keepContactPoints: checked.data.keepContactPoints === true,
     dryRun: has('--dry-run'),
     listObjects: has('--list-objects'),
     upsert: has('--upsert'),
-    expandOrphans: has('--expand-orphans'),
-    applyAssignmentRules: has('--apply-assignment-rules'),
+    expandOrphans: has('--expand-orphans') || template?.config.expandOrphanParents === true,
+    applyAssignmentRules:
+      has('--apply-assignment-rules') || template?.config.applyAssignmentRules === true,
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
     summary,
@@ -691,6 +914,10 @@ export function parseArgs(argv: string[]): CliArgs {
     acceptAutomation: has('--accept-automation'),
     maxTotal,
     rehearse: has('--rehearse'),
+    decisions,
+    anonymizationRules: { ...template?.anonymization?.rules },
+    anonymizeFields: template?.anonymization?.fields,
+    choicesFrom: choicesFlag && choicesPath ? { flag: choicesFlag, path: choicesPath } : undefined,
   };
 }
 
@@ -731,7 +958,7 @@ function summaryArg(args: readonly string[]): string | undefined {
  * says the files may go as they are. The other two flags only mean something
  * with `--files`, and are refused without it rather than ignored.
  */
-function fileCopyArgs(args: readonly string[]): CliArgs['files'] {
+function fileCopyArgs(args: readonly string[], anonymize: boolean): CliArgs['files'] {
   const wanted = args.includes('--files');
   const acceptedAsIs = args.includes('--files-as-is');
   const sizeAt = args.indexOf('--max-file-size');
@@ -755,7 +982,7 @@ function fileCopyArgs(args: readonly string[]): CliArgs['files'] {
     );
     process.exit(2);
   }
-  const refusal = fileCopyRefusal(args.includes('--anonymize'), acceptedAsIs);
+  const refusal = fileCopyRefusal(anonymize, acceptedAsIs);
   if (refusal) {
     process.stderr.write(
       '--anonymize anonymizes the records, and the content of a file cannot be anonymized: ' +
@@ -1100,6 +1327,73 @@ export function simulationGapLines(gaps: readonly ForgeGap[]): string[] {
   ];
 }
 
+/**
+ * The run's choices, when a file brought them (`--config`, `--template`), said
+ * before discovery: what it leaves out, filters and maps, the flags' included,
+ * and each decision it holds, one line each — those the run then applies are
+ * counted in its summary, with the rows each changed. Nothing without a file.
+ * Exported so it can be tested.
+ */
+export function choicesLines(
+  args: Pick<
+    CliArgs,
+    | 'choicesFrom'
+    | 'decisions'
+    | 'fieldExclusions'
+    | 'excludedObjects'
+    | 'objectSoqlFilters'
+    | 'ownerMappings'
+    | 'fieldMappings'
+  >,
+): string[] {
+  if (!args.choicesFrom) return [];
+  const lines = [
+    `choices from ${args.choicesFrom.flag} ${args.choicesFrom.path}, the flags over it:`,
+  ];
+  const fields = Object.entries(args.fieldExclusions).flatMap(([object, names]) =>
+    names.map((name) => `${object}.${name}`),
+  );
+  if (fields.length > 0) lines.push(`  fields left out: ${fields.join(', ')}`);
+  if (args.excludedObjects.length > 0) {
+    lines.push(`  objects left out: ${args.excludedObjects.join(', ')}`);
+  }
+  for (const [object, where] of Object.entries(args.objectSoqlFilters)) {
+    lines.push(`  filter ${object}: ${where}`);
+  }
+  const owners = Object.keys(args.ownerMappings).length;
+  if (owners > 0) lines.push(`  owners mapped: ${owners}`);
+  for (const [object, renames] of Object.entries(args.fieldMappings)) {
+    for (const [from, to] of Object.entries(renames)) {
+      lines.push(`  renamed: ${object}.${from} → ${to}`);
+    }
+  }
+  const decided = args.decisions;
+  const scope = (recordType: string | undefined): string =>
+    recordType !== undefined ? ` (record type ${recordType})` : '';
+  const decisions = [
+    ...(decided?.picklistValueMappings ?? []).map(
+      (m) =>
+        `  ${m.object}.${m.field}  ${m.to === null ? 'leave_empty' : 'map_value'} "${m.from}"` +
+        `${m.to !== null ? ` → "${m.to}"` : ''}${scope(m.recordType)}`,
+    ),
+    ...(decided?.recordTypeMappings ?? []).map(
+      (m) =>
+        `  ${m.object}  map_record_type "${m.from}" → ${m.to === null ? 'the default' : `"${m.to}"`}`,
+    ),
+    ...(decided?.defaultValues ?? []).map(
+      (d) => `  ${d.object}.${d.field}  set_default "${String(d.value)}"`,
+    ),
+    ...(decided?.truncateFields ?? []).map((f) => `  ${f.object}.${f.field}  truncate`),
+    ...(decided?.skippedRows ?? []).map((entry) => {
+      const gap = forgeGapParts(entry.gapId);
+      return `  ${entry.object}.${gap?.field ?? '?'}  skip_rows "${gap?.value ?? ''}"${scope(gap?.recordType)}`;
+    }),
+    ...(decided?.ignoredGaps ?? []).map((gapId) => `  ignore ${gapId}`),
+  ];
+  if (decisions.length > 0) lines.push(`  decisions (${decisions.length}):`, ...decisions);
+  return lines;
+}
+
 /** The user's decisions the run applied, one line each with the rows it changed. Exported so it can be tested. */
 export function decisionLines(applied: readonly ForgeDecisionApplied[]): string[] {
   return [
@@ -1408,15 +1702,45 @@ export function executeOptions(
     // `--anonymize` had discovery select each object's PII fields, and every
     // record was then written as the source held it. The selected fields go,
     // each with its category's default method.
-    anonymization: runAnonymization(args.anonymize, graph, {}, personalFieldsOf),
+    anonymization: runAnonymization(
+      args.anonymize,
+      graph,
+      args.anonymizationRules,
+      personalFieldsOf,
+    ),
     // Off, every email address and phone number the run writes is neutralized.
     keepContactPoints: args.keepContactPoints,
+    // From --config or --template: applied to the rows, in a dry run too.
+    decisions: args.decisions,
     files: args.files
       ? {
           maxFileBytes: args.files.maxFileSizeMB * BYTES_PER_MB,
           acceptedAsIs: args.files.acceptedAsIs,
         }
       : undefined,
+  };
+}
+
+/**
+ * The graph with the personal fields a template anonymizes on each object it
+ * names, among those discovery found personal there: never a field the
+ * source does not show as one. An object the template does not name keeps
+ * discovery's choice. Exported so it can be tested.
+ */
+export function withTemplateFields(
+  graph: ForgeGraph,
+  fields: CliArgs['anonymizeFields'],
+): ForgeGraph {
+  if (!fields) return graph;
+  const chosen = new Map(fields.map((entry) => [entry.objectApiName, entry.fieldNames]));
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const names = chosen.get(node.objectApiName);
+      if (!names) return node;
+      const personal = new Set(node.piiFields);
+      return { ...node, anonymizeFields: names.filter((name) => personal.has(name)) };
+    }),
   };
 }
 
@@ -2626,6 +2950,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // JSON, and failed on them. What the run says on the way goes to stderr.
   const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
   say(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
+  for (const line of choicesLines(args)) say(line);
 
   const sourceOrg = await loadOrg(args.source);
   const targetOrg = await loadOrg(args.target);
@@ -2706,7 +3031,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   // Listed as excluded and out of the plan; the run leaves them out as well,
   // and those discovery never reached, which it would otherwise add.
-  const graph = withObjectsLeftOut(discovered, new Set(args.excludedObjects));
+  const graph = withTemplateFields(
+    withObjectsLeftOut(discovered, new Set(args.excludedObjects)),
+    args.anonymizeFields,
+  );
   const plan = new ForgePlanGenerator().generate(graph);
   say(graphLine(graph, plan, args.maxNodes ?? DEFAULT_MAX_NODES));
 
@@ -3153,6 +3481,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Whether the run's writes let the target's assignment rules apply.
     applyAssignmentRules: args.applyAssignmentRules,
     files: args.files !== undefined,
+    // The file the run's choices came from, and the decisions it held: those
+    // the run applied are in result.decisionsApplied, with their rows.
+    ...(args.choicesFrom
+      ? {
+          choices: {
+            from: args.choicesFrom.flag,
+            file: args.choicesFrom.path,
+            ...(args.decisions ? { decisions: args.decisions } : {}),
+          },
+        }
+      : {}),
     graph: graphJson(graph, plan),
     // What the target runs on the objects the run writes, read before the
     // run: flows, triggers, processes and workflow rules per object, what of

@@ -2893,7 +2893,27 @@
           "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider."
         }
       },
-      "gapsTab": "Écarts"
+      "gapsTab": "Écarts",
+      "controlsTab": "Réglages",
+      "graphSearch": {
+        "label": "Trouver un objet dans le graphe",
+        "placeholder": "Nom d'API, par exemple Contact",
+        "none": "Aucun objet du graphe ne correspond.",
+        "matches_one": "{{count}} objet correspond, marqué dans le graphe.",
+        "matches_other": "{{count}} objets correspondent, marqués dans le graphe.",
+        "more_one": "Et {{count}} de plus : affinez la recherche.",
+        "more_other": "Et {{count}} de plus : affinez la recherche.",
+        "inRun": "dans l'exécution",
+        "out": "laissé de côté",
+        "show": "Afficher",
+        "showLabel": "Afficher {{object}} dans le graphe",
+        "rootKept": "la racine de l'exécution : sa branche est tout le clone",
+        "leaveOut": "Laisser de côté cette branche",
+        "leaveOutLabel_one": "Laisser de côté {{object}} et l'objet qu'il est seul à atteindre ({{count}})",
+        "leaveOutLabel_other": "Laisser de côté {{object}} et les {{count}} objets qu'il est seul à atteindre",
+        "leftOut": "Laissés de côté : {{objects}}.",
+        "putBack": "Les remettre"
+      }
     },
     "history": {
       "title": "Exécutions récentes",
@@ -3306,7 +3326,8 @@
         "mapRecordType": "écrit comme type d'enregistrement {{to}}",
         "mapRecordTypeDefault": "écrit avec le type d'enregistrement par défaut de l'objet",
         "excludeObject": "{{object}} laissé hors de l'exécution",
-        "ignore": "laissé tel quel"
+        "ignore": "laissé tel quel",
+        "skipRows": "ces lignes non écrites"
       },
       "kept": {
         "title": "Décisions gardées avec cette exécution",
@@ -3320,8 +3341,77 @@
         "truncate": "{{object}}.{{field}} : coupé à la longueur du champ",
         "fieldExcluded": "{{object}}.{{field}} : laissé hors des lignes",
         "objectExcluded": "{{object}} : laissé hors de l'exécution",
-        "ignored": "{{gap}} : laissé tel quel"
+        "ignored": "{{gap}} : laissé tel quel",
+        "skippedRows": "{{gap}} : lignes non écrites"
+      },
+      "skipRows": "Ne pas écrire ces lignes"
+    },
+    "controls": {
+      "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Les comptes du plan ont été lus avant.",
+      "objectTitle": "Par objet",
+      "object": "Objet",
+      "objectPlaceholder": "Choisir un objet de l'exécution…",
+      "pick": "Choisir…",
+      "kept": "Gardé avec l'exécution.",
+      "remove": "Retirer",
+      "removeLabel": "Retirer {{what}}",
+      "fields": {
+        "reading": "Lecture des champs de {{object}} dans les deux orgs…",
+        "error": "Les champs de {{object}} n'ont pas pu être lus : {{error}}",
+        "legend": "Champs de {{object}} laissés hors de ses lignes",
+        "count_one": "({{count}} laissé de côté)",
+        "count_other": "({{count}} laissés de côté)",
+        "search": "Rechercher dans les champs",
+        "none": "Aucun champ ne correspond."
+      },
+      "filter": {
+        "label": "Filtre sur {{object}} (clause WHERE)",
+        "hint": "Seuls les enregistrements qu'il retient sont lus ; dans l'exécution d'un enregistrement, à l'intérieur de sa portée.",
+        "fromQuery": "Fixé par la requête de l'exécution : modifiez-le dans la requête.",
+        "refused": "L'exécution serait refusée avec ce filtre : 512 caractères au plus, pas de marque de commentaire (--, /*, */), pas de point-virgule à la fin.",
+        "apply": "Appliquer le filtre",
+        "clear": "Retirer le filtre"
+      },
+      "rename": {
+        "legend": "Champs écrits sous un autre nom dans la cible",
+        "item": "{{from}} écrit comme {{to}}",
+        "from": "Champ source",
+        "to": "Champ cible",
+        "add": "L'écrire là"
+      },
+      "runTitle": "Pour toute l'exécution",
+      "cap": {
+        "label": "Enregistrements de chaque objet, au plus",
+        "none": "Aucune limite : tous les enregistrements de la portée"
+      },
+      "owners": {
+        "legend": "Propriétaires confiés aux utilisateurs de la cible",
+        "hint": "Les enregistrements d'un utilisateur source vont à l'utilisateur de la cible choisi par son nom ; l'exécution garde les deux identifiants.",
+        "reading": "Lecture des utilisateurs actifs de l'org cible…",
+        "error": "Les utilisateurs de l'org cible n'ont pas pu être lus : {{error}}",
+        "truncated": "L'org cible compte plus d'utilisateurs actifs : les {{listed}} premiers par nom sont listés.",
+        "item": "{{source}} confié à {{target}}",
+        "source": "Identifiant de l'utilisateur source",
+        "target": "Utilisateur de la cible",
+        "add": "Confier les enregistrements à cet utilisateur"
+      },
+      "refused": {
+        "fieldExclusions": "Non gardé : l'exécution laisse de côté 200 champs d'un objet au plus.",
+        "objectSoqlFilters": "Non gardé : l'exécution prend 50 filtres au plus, chacun une clause WHERE qu'elle accepte.",
+        "maxRecordsPerObject": "Non gardé : une limite est un nombre entier de 1 à 1 000 000.",
+        "ownerMappings": "Non gardé : l'identifiant d'un utilisateur a 15 ou 18 lettres et chiffres, et l'exécution prend 200 propriétaires au plus.",
+        "fieldMappings": "Non gardé : l'exécution renomme 200 champs d'un objet au plus, sur 50 objets au plus."
       }
+    },
+    "decisionsApplied": {
+      "title": "Décisions appliquées",
+      "hint": "Prises sur la revue, chacune avec les lignes qu'elle a changées.",
+      "hintSimulated": "Prises sur la revue, chacune avec les lignes qu'elle changerait : rien n'a été écrit.",
+      "decision": "Décision",
+      "object": "Objet",
+      "field": "Champ",
+      "values": "Valeurs",
+      "rows": "Lignes"
     }
   },
   "autopilot": {

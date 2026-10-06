@@ -27,7 +27,7 @@ import {
   targetRecordTypes,
   undecidedBlockingGaps,
 } from '../../utils/forgeGapDecisions';
-import { ReviewSaveTemplate } from './ReviewSaveTemplate';
+import { ForgeSaveTemplate } from './ForgeSaveTemplate';
 
 /** The reads of the gaps, in the order the tab names them. */
 const SOURCES: readonly ForgeGapSource[] = ['metadata', 'simulation', 'rehearsal'];
@@ -105,9 +105,19 @@ function choiceLabel(t: TFunction, gap: ForgeGap, choice: ForgeGapChoice): strin
         : t('forge.gaps.chosen.mapRecordType', { to: choice.to });
     case 'exclude_object':
       return t('forge.gaps.chosen.excludeObject', { object: gap.objectApiName });
+    case 'skip_rows':
+      return t('forge.gaps.chosen.skipRows');
     case 'ignore':
       return t('forge.gaps.chosen.ignore');
   }
+}
+
+/** A gap named by its id alone, as a decision kept by it says it: `kind · object · field · value`. */
+function gapIdLabel(t: TFunction, gapId: string): string {
+  // An id is `kind|object|field|record type|value` (`forgeGapId`).
+  const [kind = '', ...rest] = gapId.split('|');
+  const named = i18nKindKnown(kind) ? t(`forge.gaps.kind.${kind}`) : kind;
+  return [named, ...rest.filter((part) => part !== '')].join(' · ');
 }
 
 /** A decision a config holds, as the list of those no gap names says it. */
@@ -134,13 +144,10 @@ function keptLabel(t: TFunction, kept: ForgeKeptDecision): string {
       return t('forge.gaps.kept.fieldExcluded', { ...kept.entry });
     case 'object_excluded':
       return t('forge.gaps.kept.objectExcluded', { object: kept.object });
-    case 'ignored': {
-      // An id is `kind|object|field|record type|value` (`forgeGapId`).
-      const [kind = '', ...rest] = kept.gapId.split('|');
-      const named = i18nKindKnown(kind) ? t(`forge.gaps.kind.${kind}`) : kind;
-      const gap = [named, ...rest.filter((part) => part !== '')].join(' · ');
-      return t('forge.gaps.kept.ignored', { gap });
-    }
+    case 'skipped_rows':
+      return t('forge.gaps.kept.skippedRows', { gap: gapIdLabel(t, kept.entry.gapId) });
+    case 'ignored':
+      return t('forge.gaps.kept.ignored', { gap: gapIdLabel(t, kept.gapId) });
   }
 }
 
@@ -463,7 +470,16 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
         </Button>
       );
     case 'skip_rows':
-      return null;
+      return (
+        <Button
+          variant="secondary"
+          size="sm"
+          data-testid="gap-skip-rows"
+          onClick={() => choose({ kind: 'skip_rows' })}
+        >
+          {t('forge.gaps.skipRows')}
+        </Button>
+      );
   }
 };
 
@@ -632,7 +648,11 @@ export const ReviewGapsTab: React.FC = () => {
           </ul>
         </section>
       )}
-      <ReviewSaveTemplate />
+      <ForgeSaveTemplate
+        idPrefix="review-save-template"
+        openerTestId="review-save-template-open"
+        className="border-t border-subtle pt-2"
+      />
     </div>
   );
 };

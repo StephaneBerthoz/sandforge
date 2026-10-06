@@ -133,12 +133,50 @@ describe('picklistGapsOf', () => {
         value: 'Old',
         rows: 1,
         detail: { reason: 'record-type', allowed: ['New', 'Open'], replacement: 'New' },
-        decisions: ['map_value', 'leave_empty', 'exclude_object', 'ignore'],
+        decisions: ['map_value', 'leave_empty', 'skip_rows', 'exclude_object', 'ignore'],
         defaultDecision: 'map_value',
       },
       expect.objectContaining({ field: 'Kind__c', value: 'X', defaultDecision: 'leave_empty' }),
       expect.objectContaining({ field: 'Kind__c', value: 'Y', defaultDecision: 'leave_empty' }),
     ]);
+  });
+
+  it('offers no holding back of the rows of a value its controlling value refused', () => {
+    // The rows holding it under a controlling value that allows it go in as
+    // they are: holding back every row holding it would take those too.
+    const [found] = picklistGapsOf(
+      'Case',
+      [
+        {
+          field: 'Sub_Status__c',
+          reason: 'controlling-value',
+          values: ['Waiting'],
+          controllingField: 'Status__c',
+        },
+      ],
+      () => undefined,
+    );
+
+    expect(found?.decisions).toEqual(['map_value', 'leave_empty', 'exclude_object', 'ignore']);
+  });
+
+  it('takes the holding back of the rows off a gap one of whose rows its controlling value refused', () => {
+    const gaps = new SimulationGaps();
+    const [byRecordType] = picklistGapsOf(
+      'Case',
+      [{ field: 'Kind__c', reason: 'not-in-target', values: ['X'] }],
+      () => undefined,
+    );
+    const [byController] = picklistGapsOf(
+      'Case',
+      [{ field: 'Kind__c', reason: 'controlling-value', values: ['X'], controllingField: 'Type' }],
+      () => undefined,
+    );
+
+    gaps.add(byRecordType!);
+    gaps.add(byController!);
+
+    expect(gaps.list(new Set())[0]?.decisions).not.toContain('skip_rows');
   });
 
   it('leaves the currency code to its own check', () => {
@@ -326,7 +364,7 @@ describe('the gaps found against the target itself', () => {
       field: 'CurrencyIsoCode',
       value: 'USD',
       rows: 3,
-      decisions: ['map_value', 'exclude_object', 'ignore'],
+      decisions: ['map_value', 'skip_rows', 'exclude_object', 'ignore'],
       defaultDecision: 'leave_empty',
     });
   });

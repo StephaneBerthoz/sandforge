@@ -13,6 +13,10 @@
  *   (`recordTypeMappings`): resolved to ids once a run, by
  *   {@link recordTypeDecisionMappings}, and applied with the run's own mapping.
  *
+ * - The rows that hold a value a gap names, held back rather than written
+ *   (`skippedRows`), on the gaps whose rows are exactly those
+ *   ({@link SKIPPABLE_GAP_KINDS}).
+ *
  * What the run leaves out by name (`excludedObjects`) goes with the objects
  * the user unchecked, and the gaps the user chose to leave (`ignoredGaps`)
  * change no write: a simulation reports them still, marked ignored.
@@ -22,9 +26,11 @@ import type {
   ForgeConfig,
   ForgeDecisionApplied,
   ForgeDefaultValue,
+  ForgeGapKind,
   ForgePicklistValueMapping,
   ForgeRecordTypeMapping,
 } from '@sandforge/shared';
+import { forgeGapParts } from '@sandforge/shared';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
 
@@ -36,7 +42,49 @@ export type ForgeRunDecisions = Pick<
   | 'defaultValues'
   | 'truncateFields'
   | 'ignoredGaps'
+  | 'skippedRows'
 >;
+
+/**
+ * The decisions of a config the executor applies to the rows, or nothing when
+ * it holds none. The panel's runs and the command's take them from here, so a
+ * decision one of them applies the other does not drop.
+ */
+export function runDecisionsOf(config: ForgeRunDecisions): ForgeRunDecisions | undefined {
+  const decisions: ForgeRunDecisions = {
+    ...(config.picklistValueMappings?.length
+      ? { picklistValueMappings: config.picklistValueMappings }
+      : {}),
+    ...(config.recordTypeMappings?.length ? { recordTypeMappings: config.recordTypeMappings } : {}),
+    ...(config.defaultValues?.length ? { defaultValues: config.defaultValues } : {}),
+    ...(config.truncateFields?.length ? { truncateFields: config.truncateFields } : {}),
+    ...(config.ignoredGaps?.length ? { ignoredGaps: config.ignoredGaps } : {}),
+    ...(config.skippedRows?.length ? { skippedRows: config.skippedRows } : {}),
+  };
+  return Object.keys(decisions).length > 0 ? decisions : undefined;
+}
+
+/**
+ * The kinds of gap whose rows a run can hold back exactly: each is about one
+ * value of one field, for one record type when it names one, and every row
+ * holding that value is a row the gap is about. A dependent value is not: the
+ * rows holding it under a controlling value that allows it go in as they are.
+ * Nor is a refusal a rehearsal saw: it judged a sample, and the rows of the
+ * run its sample stood for are alike in shape, not in what the target makes
+ * of them.
+ */
+export const SKIPPABLE_GAP_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
+  'picklist_value_refused',
+  'picklist_value_absent',
+  'currency_inactive',
+]);
+
+/** Rows held back by a decision: those holding `value` in `field`, for `recordType` when set. */
+interface SkippedValue {
+  readonly field: string;
+  readonly recordType?: string;
+  readonly value: string;
+}
 
 /** Whether a row leaves a field empty: absent, null, or an empty text. */
 function isEmpty(value: unknown): boolean {
@@ -84,6 +132,7 @@ export class RunDecisions {
   private readonly picklists = new Map<string, ForgePicklistValueMapping[]>();
   private readonly defaults = new Map<string, ForgeDefaultValue[]>();
   private readonly truncated = new Map<string, Set<string>>();
+  private readonly skipped = new Map<string, SkippedValue[]>();
   /** The gaps the user chose to leave as they are, by id. */
   readonly ignoredGaps: ReadonlySet<string>;
 
@@ -104,6 +153,59 @@ export class RunDecisions {
       this.truncated.set(object, fields);
     }
     this.ignoredGaps = new Set(decisions?.ignoredGaps ?? []);
+    // A gap of a kind whose rows are not exactly those holding its value holds
+    // nothing back, nor one whose id says nothing of a field and a value: the
+    // rows it would take are not the ones anybody chose.
+    for (const { object, gapId } of decisions?.skippedRows ?? []) {
+      const gap = forgeGapParts(gapId);
+      if (!gap || gap.objectApiName !== object || gap.field === undefined) continue;
+      if (gap.value === undefined || !SKIPPABLE_GAP_KINDS.has(gap.kind as ForgeGapKind)) continue;
+      const list = this.skipped.get(object) ?? [];
+      list.push({
+        field: gap.field,
+        ...(gap.recordType !== undefined ? { recordType: gap.recordType } : {}),
+        value: gap.value,
+      });
+      this.skipped.set(object, list);
+    }
+  }
+
+  /** Whether a decision holds back rows of `objectApiName`. */
+  skipsRowsOf(objectApiName: string): boolean {
+    return this.skipped.has(objectApiName);
+  }
+
+  /**
+   * Whether a decision holds back a row of `objectApiName`: it holds the value
+   * a skipped gap names in its field — one selection of a multi-select among
+   * others too, as a mapping reads it — and goes in with the record type the
+   * gap names, when it names one. Counted once, under the first that holds it.
+   *
+   * @param valueOf - The row's value of a field, by the name the target gives
+   *   the field: a gap names it so.
+   * @param recordType - The DeveloperName of the target record type the row
+   *   goes in with, when the run knows it.
+   */
+  holdsBack(
+    objectApiName: string,
+    valueOf: (field: string) => unknown,
+    recordType: string | undefined,
+    tally: DecisionTally,
+  ): boolean {
+    for (const skip of this.skipped.get(objectApiName) ?? []) {
+      if (skip.recordType !== undefined && skip.recordType !== recordType) continue;
+      const value = valueOf(skip.field);
+      if (typeof value !== 'string' || !value.split(';').includes(skip.value)) continue;
+      tally.add({
+        kind: 'skip_rows',
+        objectApiName,
+        field: skip.field,
+        ...(skip.recordType !== undefined ? { recordType: skip.recordType } : {}),
+        from: skip.value,
+      });
+      return true;
+    }
+    return false;
   }
 
   /** Whether any decision may change a row of `objectApiName` before its picklists are checked. */

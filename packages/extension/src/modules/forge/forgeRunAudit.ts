@@ -194,6 +194,7 @@ export function decisionCounts(
   add('truncate', config.truncateFields?.length ?? 0);
   add('map_record_type', config.recordTypeMappings?.length ?? 0);
   add('exclude_object', config.excludedObjects?.length ?? 0);
+  add('skip_rows', config.skippedRows?.length ?? 0);
   add('ignore', config.ignoredGaps?.length ?? 0);
   const rows = new Map<ForgeGapDecisionKind, number>();
   for (const decision of applied) {

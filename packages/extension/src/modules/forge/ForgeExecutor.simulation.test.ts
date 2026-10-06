@@ -319,7 +319,7 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
       value: 'Old',
       rows: 1,
       detail: { reason: 'record-type', allowed: ['New', 'Open'], replacement: 'New' },
-      decisions: ['map_value', 'leave_empty', 'exclude_object', 'ignore'],
+      decisions: ['map_value', 'leave_empty', 'skip_rows', 'exclude_object', 'ignore'],
       defaultDecision: 'map_value',
     });
   });
@@ -570,6 +570,122 @@ describe('ForgeExecutor, the user’s decisions about the rows', () => {
         ],
       }),
     );
+  });
+});
+
+describe('ForgeExecutor, the rows the user chose to hold back', () => {
+  const RETAIL_OLD = forgeGapId('picklist_value_refused', 'Order__c', 'Status__c', 'Retail', 'Old');
+  const USD = forgeGapId('currency_inactive', 'Order__c', 'CurrencyIsoCode', undefined, 'USD');
+
+  it('holds back the rows holding the value, for the record type the gap names, and writes the others', async () => {
+    const { deps, sent } = fakeOrgs();
+
+    const { summary, events } = await run(deps, {
+      ...OPTIONS,
+      decisions: { skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
+    });
+
+    // The Retail order holding "Old" stays out; the Trade one holding it,
+    // which Trade allows, goes as read.
+    const orders = sent.filter((s) => s.object === 'Order__c').map((s) => s.row['Name']);
+    expect(orders).toEqual(['O2', 'O3']);
+    expect(summary.failedCount).toBe(0);
+    expect(summary.decisionsApplied).toEqual([
+      {
+        kind: 'skip_rows',
+        objectApiName: 'Order__c',
+        field: 'Status__c',
+        recordType: 'Retail',
+        from: 'Old',
+        rows: 1,
+      },
+    ]);
+    expect(events.map((e) => e.message)).toContain(
+      'Order__c: 1 record held back, as decided on the gaps',
+    );
+  });
+
+  it('holds back the rows of a currency the target does not hold active', async () => {
+    const { deps, sent } = fakeOrgs();
+
+    const { summary } = await run(deps, {
+      ...OPTIONS,
+      decisions: { skippedRows: [{ object: 'Order__c', gapId: USD }] },
+    });
+
+    expect(sent.filter((s) => s.object === 'Order__c').map((s) => s.row['Name'])).toEqual([
+      'Longer than five',
+      'O2',
+    ]);
+    expect(summary.decisionsApplied).toEqual([
+      expect.objectContaining({
+        kind: 'skip_rows',
+        field: 'CurrencyIsoCode',
+        from: 'USD',
+        rows: 1,
+      }),
+    ]);
+  });
+
+  it('holds them back in a simulation too, where the gap they settle is found no more', async () => {
+    const { deps } = fakeOrgs();
+
+    const { summary } = await run(deps, {
+      ...OPTIONS,
+      dryRun: true,
+      decisions: { skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
+    });
+
+    expect(summary.wouldInsertCount).toBe(3);
+    expect(gapOf(summary, RETAIL_OLD)).toBeUndefined();
+  });
+
+  it('holds back nothing for a gap whose rows are not exactly those holding its value', async () => {
+    // A dependent value goes in on the rows whose controlling value allows
+    // it, and a rehearsal's refusal judged a sample: neither names the rows.
+    const { deps, sent } = fakeOrgs();
+
+    const { summary } = await run(deps, {
+      ...OPTIONS,
+      decisions: {
+        skippedRows: [
+          {
+            object: 'Order__c',
+            gapId: forgeGapId('dependent_value_invalid', 'Order__c', 'Status__c', undefined, 'Old'),
+          },
+          {
+            object: 'Order__c',
+            gapId: forgeGapId('rehearsal_refusal', 'Order__c', undefined, undefined, 'X'),
+          },
+        ],
+      },
+    });
+
+    expect(sent.filter((s) => s.object === 'Order__c')).toHaveLength(3);
+    expect(summary.decisionsApplied).toBeUndefined();
+  });
+
+  it('writes nothing of an object whose every row is held back, and fails none of them', async () => {
+    const { deps, sent } = fakeOrgs();
+
+    const { summary } = await run(deps, {
+      ...OPTIONS,
+      decisions: {
+        skippedRows: [
+          { object: 'Order__c', gapId: RETAIL_OLD },
+          {
+            object: 'Order__c',
+            gapId: forgeGapId('picklist_value_absent', 'Order__c', 'Status__c', undefined, 'Open'),
+          },
+          { object: 'Order__c', gapId: USD },
+        ],
+      },
+    });
+
+    expect(sent.filter((s) => s.object === 'Order__c')).toEqual([]);
+    expect(summary.failedCount).toBe(0);
+    expect(summary.successCount).toBe(1);
+    expect(summary.decisionsApplied?.reduce((sum, d) => sum + d.rows, 0)).toBe(3);
   });
 });
 

@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
+import { forgeGapId } from '@sandforge/shared';
 import {
   DecisionTally,
   RunDecisions,
   recordTypeDecisionMappings,
+  runDecisionsOf,
   withRecordTypeDecisions,
 } from './RunDecisions.js';
 
@@ -124,6 +126,68 @@ describe('RunDecisions.applyToRow', () => {
 
     expect(row).toEqual({});
     expect(tally.size).toBe(0);
+  });
+});
+
+describe('RunDecisions.holdsBack', () => {
+  const refused = (value: string, recordType?: string): string =>
+    forgeGapId('picklist_value_refused', 'Case', 'Origin', recordType, value);
+  const row =
+    (values: Record<string, unknown>) =>
+    (field: string): unknown =>
+      values[field];
+
+  it('holds back a row holding the value a skipped gap names, one selection among others included', () => {
+    const decisions = new RunDecisions({
+      skippedRows: [{ object: 'Case', gapId: refused('Fax') }],
+    });
+    const tally = new DecisionTally();
+
+    expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), undefined, tally)).toBe(true);
+    expect(decisions.holdsBack('Case', row({ Origin: 'Web;Fax' }), 'Support', tally)).toBe(true);
+    expect(decisions.holdsBack('Case', row({ Origin: 'Faxed' }), undefined, tally)).toBe(false);
+    expect(decisions.holdsBack('Case', row({}), undefined, tally)).toBe(false);
+    expect(tally.list()).toEqual([
+      { kind: 'skip_rows', objectApiName: 'Case', field: 'Origin', from: 'Fax', rows: 2 },
+    ]);
+  });
+
+  it('holds back only the rows of the record type the gap names', () => {
+    const decisions = new RunDecisions({
+      skippedRows: [{ object: 'Case', gapId: refused('Fax', 'Support') }],
+    });
+    const tally = new DecisionTally();
+
+    expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), 'Support', tally)).toBe(true);
+    expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), 'Billing', tally)).toBe(false);
+    expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), undefined, tally)).toBe(false);
+  });
+
+  it('holds back nothing for a gap of another object, or of a kind whose rows its value does not name', () => {
+    const decisions = new RunDecisions({
+      skippedRows: [
+        { object: 'Lead', gapId: refused('Fax') },
+        {
+          object: 'Case',
+          gapId: forgeGapId('dependent_value_invalid', 'Case', 'Origin', undefined, 'Fax'),
+        },
+        { object: 'Case', gapId: forgeGapId('validation_rule', 'Case', undefined, undefined, 'R') },
+      ],
+    });
+
+    expect(decisions.skipsRowsOf('Case')).toBe(false);
+    expect(decisions.skipsRowsOf('Lead')).toBe(false);
+    expect(
+      decisions.holdsBack('Case', row({ Origin: 'Fax' }), undefined, new DecisionTally()),
+    ).toBe(false);
+  });
+});
+
+describe('runDecisionsOf', () => {
+  it('hands the executor the rows held back with the other decisions, and nothing when none is held', () => {
+    const skippedRows = [{ object: 'Case', gapId: 'currency_inactive|Case|CurrencyIsoCode||USD' }];
+    expect(runDecisionsOf({ skippedRows })).toEqual({ skippedRows });
+    expect(runDecisionsOf({ skippedRows: [], ignoredGaps: [] })).toBeUndefined();
   });
 });
 

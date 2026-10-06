@@ -48,7 +48,6 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     toggleAnonymizeField: vi.fn(),
     setNodesIncluded: vi.fn(),
     setAnonymizationRule: vi.fn(),
-    updateNodeBatchStrategy: vi.fn(),
     removeTemplate: vi.fn(),
     addTemplate: vi.fn(),
     updateTemplate: vi.fn(),

@@ -20,12 +20,10 @@ vi.mock('../../stores/useForgeStore', () => {
         get graph() {
           return mockGraph;
         },
-        updateNodeBatchStrategy: vi.fn(),
       }),
     {
       getState: () => ({
         plan: mockPlan,
-        updateNodeBatchStrategy: vi.fn(),
       }),
     },
   );

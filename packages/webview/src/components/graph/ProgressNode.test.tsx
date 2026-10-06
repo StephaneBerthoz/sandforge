@@ -135,6 +135,16 @@ describe('ProgressNode', () => {
     expect(node.className).not.toMatch(/(^|\s)opacity-\d+(\s|$)/);
   });
 
+  it('rings a node a search matched, and no other', () => {
+    const { rerender } = render(<ProgressNode {...makeNodeProps({ highlighted: true })} />);
+    expect(screen.getByTestId('progress-node').className).toContain('ring-2');
+    expect(screen.getByTestId('progress-node').getAttribute('data-highlighted')).toBe('true');
+
+    rerender(<ProgressNode {...makeNodeProps({ highlighted: false })} />);
+    expect(screen.getByTestId('progress-node').className).not.toContain('ring-2');
+    expect(screen.getByTestId('progress-node').hasAttribute('data-highlighted')).toBe(false);
+  });
+
   it('draws an included node with a solid outline', () => {
     render(<ProgressNode {...makeNodeProps({ included: true })} />);
     const node = screen.getByTestId('progress-node');

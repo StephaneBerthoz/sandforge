@@ -26,7 +26,7 @@ Enter your API key in the AI tab of the SandForge Settings page. The key is stor
 
 ### Can I use SandForge without AI features?
 
-Yes. AI is entirely optional. Seed uses 31 locale-aware Faker generators by default for names, addresses, emails, usernames, phones, and more. Template-based seeding and CSV import work without any AI provider. Disable AI in settings with `sandforge.ai.enabled: false`.
+Yes. AI is entirely optional. Seed uses 32 locale-aware Faker generators by default for names, addresses, emails, usernames, user nicknames, phones, and more. Template-based seeding and CSV import work without any AI provider. Disable AI in settings with `sandforge.ai.enabled: false`.
 
 ### Is my data sent to external services?
 

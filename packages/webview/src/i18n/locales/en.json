@@ -2893,7 +2893,27 @@
           "neverRun": "SandForge shows this command and never runs it: an admin of the target org decides whether to."
         }
       },
-      "gapsTab": "Gaps"
+      "gapsTab": "Gaps",
+      "controlsTab": "Controls",
+      "graphSearch": {
+        "label": "Find an object in the graph",
+        "placeholder": "API name, e.g. Contact",
+        "none": "No object of the graph matches.",
+        "matches_one": "{{count}} object matches, marked in the graph.",
+        "matches_other": "{{count}} objects match, marked in the graph.",
+        "more_one": "And {{count}} more: narrow the search.",
+        "more_other": "And {{count}} more: narrow the search.",
+        "inRun": "in the run",
+        "out": "left out",
+        "show": "Show",
+        "showLabel": "Show {{object}} in the graph",
+        "rootKept": "the run's root: its branch is the whole clone",
+        "leaveOut": "Leave out this branch",
+        "leaveOutLabel_one": "Leave out {{object}} and the {{count}} object only it reaches",
+        "leaveOutLabel_other": "Leave out {{object}} and the {{count}} objects only it reaches",
+        "leftOut": "Left out of the run: {{objects}}.",
+        "putBack": "Put them back"
+      }
     },
     "history": {
       "title": "Recent runs",
@@ -3306,7 +3326,8 @@
         "mapRecordType": "written as record type {{to}}",
         "mapRecordTypeDefault": "written with the object's default record type",
         "excludeObject": "{{object}} left out of the run",
-        "ignore": "left as it is"
+        "ignore": "left as it is",
+        "skipRows": "these rows held back"
       },
       "kept": {
         "title": "Decisions kept with this run",
@@ -3320,8 +3341,77 @@
         "truncate": "{{object}}.{{field}}: cut to the field's length",
         "fieldExcluded": "{{object}}.{{field}}: left out of the rows",
         "objectExcluded": "{{object}}: left out of the run",
-        "ignored": "{{gap}}: left as it is"
+        "ignored": "{{gap}}: left as it is",
+        "skippedRows": "{{gap}}: rows held back"
+      },
+      "skipRows": "Hold back these rows"
+    },
+    "controls": {
+      "hint": "What is set here goes with the run: Simulate, Execute, a retry and a template saved from Review carry it. The plan's counts were read before it.",
+      "objectTitle": "Per object",
+      "object": "Object",
+      "objectPlaceholder": "Pick an object of the run…",
+      "pick": "Pick…",
+      "kept": "Kept with the run.",
+      "remove": "Remove",
+      "removeLabel": "Remove {{what}}",
+      "fields": {
+        "reading": "Reading the fields of {{object}} in both orgs…",
+        "error": "The fields of {{object}} could not be read: {{error}}",
+        "legend": "Fields of {{object}} left out of its rows",
+        "count_one": "({{count}} left out)",
+        "count_other": "({{count}} left out)",
+        "search": "Search the fields",
+        "none": "No field matches."
+      },
+      "filter": {
+        "label": "Filter on {{object}} (WHERE clause)",
+        "hint": "Only the records it matches are read; in a run of a record, within its scope.",
+        "fromQuery": "Set by the run's query: change it in the query.",
+        "refused": "The run would be refused with this filter: 512 characters at most, no comment marker (--, /*, */), no semicolon at the end.",
+        "apply": "Apply the filter",
+        "clear": "Remove the filter"
+      },
+      "rename": {
+        "legend": "Fields written under another name in the target",
+        "item": "{{from}} written as {{to}}",
+        "from": "Source field",
+        "to": "Target field",
+        "add": "Write it there"
+      },
+      "runTitle": "For the whole run",
+      "cap": {
+        "label": "Records of each object, at most",
+        "none": "No cap: every record in scope"
+      },
+      "owners": {
+        "legend": "Owners given to the target's users",
+        "hint": "The records a source user owns go to the target's user picked by name; the run keeps both ids.",
+        "reading": "Reading the target org's active users…",
+        "error": "The target org's users could not be read: {{error}}",
+        "truncated": "The target org holds more active users: the first {{listed}} by name are listed.",
+        "item": "{{source}} given to {{target}}",
+        "source": "Source user's id",
+        "target": "Target user",
+        "add": "Give the records to this user"
+      },
+      "refused": {
+        "fieldExclusions": "Not kept: the run leaves out 200 fields of an object at most.",
+        "objectSoqlFilters": "Not kept: the run takes 50 filters at most, each a WHERE clause it accepts.",
+        "maxRecordsPerObject": "Not kept: a cap is a whole number from 1 to 1,000,000.",
+        "ownerMappings": "Not kept: a user's id has 15 or 18 letters and digits, and the run takes 200 owners at most.",
+        "fieldMappings": "Not kept: the run renames 200 fields of an object at most, on 50 objects at most."
       }
+    },
+    "decisionsApplied": {
+      "title": "Decisions applied",
+      "hint": "Taken on Review, each with the rows it changed.",
+      "hintSimulated": "Taken on Review, each with the rows it would change: nothing was written.",
+      "decision": "Decision",
+      "object": "Object",
+      "field": "Field",
+      "values": "Values",
+      "rows": "Rows"
     }
   },
   "autopilot": {

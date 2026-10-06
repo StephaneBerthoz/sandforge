@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
 import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
+import { forgeGapParts } from '../utils/forge-gaps.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
 
@@ -219,6 +220,23 @@ export const forgeConfigSchema = z.object({
     .max(500)
     .optional(),
   ignoredGaps: z.array(z.string().min(1).max(600)).max(1_000).optional(),
+  // The gaps whose rows the run holds back, each under the object its id
+  // names: an entry naming one object and the gap of another would hold back
+  // nothing anyone chose.
+  skippedRows: z
+    .array(
+      z
+        .object({
+          object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+          gapId: z.string().min(1).max(600),
+        })
+        .refine((entry) => forgeGapParts(entry.gapId)?.objectApiName === entry.object, {
+          message: 'The gap id must name the object',
+          path: ['gapId'],
+        }),
+    )
+    .max(500)
+    .optional(),
 });
 
 /**

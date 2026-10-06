@@ -158,6 +158,20 @@ export interface ForgeConfig {
   excludedObjects?: string[];
   /** Gaps (`ForgeGap.id`) the user chose to leave as they are. */
   ignoredGaps?: string[];
+  /**
+   * Gaps whose rows the run holds back rather than writes: the rows of the
+   * object that hold the value the gap names in its field — for the record
+   * type it names, when it names one. Offered only on the gaps where those
+   * rows are exactly the ones the gap is about (`skip_rows`).
+   */
+  skippedRows?: ForgeSkippedRows[];
+}
+
+/** See `ForgeConfig.skippedRows`. */
+export interface ForgeSkippedRows {
+  object: string;
+  /** The gap (`ForgeGap.id`) whose rows are held back. */
+  gapId: string;
 }
 
 /** A field of an object, by API names. */
@@ -330,13 +344,13 @@ export interface ForgeTargetGaps {
 export interface ForgeDecisionApplied {
   kind: Extract<
     ForgeGapDecisionKind,
-    'map_value' | 'leave_empty' | 'set_default' | 'truncate' | 'map_record_type'
+    'map_value' | 'leave_empty' | 'set_default' | 'truncate' | 'map_record_type' | 'skip_rows'
   >;
   objectApiName: string;
   field?: string;
   /** The target record type a picklist mapping is scoped to. */
   recordType?: string;
-  /** The value or record type read; absent for a default and a cut. */
+  /** The value or record type read; absent for a default and a cut. For rows held back, the value they hold. */
   from?: string;
   /** What the rows got instead; absent when the field was left out, or cut. */
   to?: string;

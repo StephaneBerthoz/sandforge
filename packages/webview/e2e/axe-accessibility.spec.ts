@@ -3134,6 +3134,74 @@ for (const theme of SCANNED_THEMES) {
       });
     });
 
+    test('Forge Review searching its graph, then the controls of the run with a filter refused', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+
+      // The search marks the object it matches on the graph, and offers to
+      // leave out the branch it heads.
+      await page.getByTestId('review-graph-search-input').fill('cont');
+      await expect(page.getByTestId('review-graph-search-count')).toHaveText(
+        '1 object matches, marked in the graph.',
+      );
+      await expect(
+        page.locator('[data-testid="progress-node"][data-highlighted="true"]'),
+      ).toHaveCount(1);
+      const searched = await checkAccessibility(page);
+      expectNoViolations(searched);
+      expect(
+        await contrastMeasuredIn(page, searched, '[data-testid="review-graph-search"]'),
+      ).toBeGreaterThan(2);
+
+      await page.getByTestId('tab-controls').click();
+      await page.getByTestId('review-controls-tab').waitFor({ timeout: 10_000 });
+      await answerAll(page, 'forge:users:request', 'forge:users:response', {
+        orgId: QA_SANDBOX.id,
+        users: [{ id: '005000000000101AAA', name: 'Ada Admin', username: 'ada@example.invalid' }],
+        truncated: false,
+      });
+      await page.getByTestId('controls-object').selectOption('Contact');
+      await answerAll(page, 'sync:describe-fields', 'sync:describe-fields:response', {
+        objectApiName: 'Contact',
+        sourceFields: [
+          { apiName: 'Email', label: 'Email', type: 'email' },
+          { apiName: 'Fax', label: 'Fax', type: 'phone' },
+          { apiName: 'Region__c', label: 'Region', type: 'string' },
+        ],
+        targetFields: [{ apiName: 'Area__c', label: 'Area', type: 'string' }],
+      });
+      await page.getByTestId('controls-field-Fax').check();
+      await page.getByTestId('controls-filter-where').fill('Email != null -- all');
+      await page.getByTestId('controls-filter-apply').click();
+      await page.getByTestId('controls-filter-refused').waitFor();
+      const refused = await checkAccessibility(page);
+      expectNoViolations(refused);
+      expect(
+        await contrastMeasuredIn(page, refused, '[data-testid="review-controls-tab"]'),
+      ).toBeGreaterThan(5);
+
+      await page.getByTestId('controls-filter-where').fill('Email != null');
+      await page.getByTestId('controls-filter-apply').click();
+      await page.getByTestId('controls-owner-source').fill('005000000000001AAA');
+      await page.getByTestId('controls-owner-target').selectOption('005000000000101AAA');
+      await page.getByTestId('controls-owner-add').click();
+      await expect(page.getByTestId('controls-said')).toHaveText('Kept with the run.');
+      const kept = await checkAccessibility(page);
+      expectNoViolations(kept);
+
+      // What the controls set is the run's: Execute sends it with its config.
+      await page.getByTestId('execute-button').click();
+      const run = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+      expect((run.payload as { config: Record<string, unknown> }).config).toMatchObject({
+        fieldExclusions: { Contact: ['Fax'] },
+        objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
+        ownerMappings: { '005000000000001AAA': '005000000000101AAA' },
+      });
+    });
+
     test('Forge Review of a starter template, saying its record counts come with discovery', async ({
       page,
     }) => {

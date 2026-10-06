@@ -20,7 +20,7 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { sendDiscovery } from './directRun';
-import { carriedChoices } from './forgeRunConfig';
+import { carriedChoices, withCarried } from './forgeRunConfig';
 import type { CarriedRunChoices } from './forgeRunConfig';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
@@ -70,7 +70,7 @@ export type TemplateTargetOutcome = 'set' | 'missing' | 'none';
  * Mirrors the `<option>` values in ForgeInput — a value outside this set
  * leaves the select with nothing to show.
  */
-const RECORD_LIMIT_PRESETS = [10, 50, 100, 500, 1000] as const;
+export const RECORD_LIMIT_PRESETS = [10, 50, 100, 500, 1000] as const;
 
 /**
  * Translate a stored `maxRecordsPerObject` back into a dropdown value.
@@ -562,21 +562,23 @@ export function useForgeForm(): ForgeFormState {
     (direct: boolean) => {
       if (!canDiscover) return;
 
-      const config: ForgeConfig = {
-        ...runInput,
-        depth,
-        customDepth: depth === 'custom' ? customDepth : undefined,
-        maxNodes,
-        anonymizePII: anonymize,
-        skipEmpty,
-        expandOrphanParents,
-        keepContactPoints,
-        maxRecordsPerObject: recordLimitValue,
-        sourceOrgId,
-        targetOrgId,
-        batchSize: 'auto',
-        ...carried,
-      };
+      const config: ForgeConfig = withCarried(
+        {
+          ...runInput,
+          depth,
+          customDepth: depth === 'custom' ? customDepth : undefined,
+          maxNodes,
+          anonymizePII: anonymize,
+          skipEmpty,
+          expandOrphanParents,
+          keepContactPoints,
+          maxRecordsPerObject: recordLimitValue,
+          sourceOrgId,
+          targetOrgId,
+          batchSize: 'auto',
+        },
+        carried,
+      );
 
       setConfig(config);
       // Copying the files is a choice of the Review screen, which a Clone
@@ -632,21 +634,23 @@ export function useForgeForm(): ForgeFormState {
     const effectiveCap = recordLimit === '100' && tplCap != null ? tplCap : recordLimitValue;
     const rootRecordId = extractRecordId(recordId);
     if (rootRecordId === null) return;
-    const config: ForgeConfig = {
-      ...builtinTplCandidate.config,
-      // The template's config says `inputMode: 'record'`; without the record
-      // itself the executor cannot scope the run to its graph.
-      recordId: rootRecordId,
-      sourceOrgId,
-      targetOrgId,
-      anonymizePII: anonymize,
-      skipEmpty,
-      expandOrphanParents,
-      keepContactPoints,
-      maxRecordsPerObject: effectiveCap,
-      batchSize: 'auto',
-      ...carried,
-    };
+    const config: ForgeConfig = withCarried(
+      {
+        ...builtinTplCandidate.config,
+        // The template's config says `inputMode: 'record'`; without the record
+        // itself the executor cannot scope the run to its graph.
+        recordId: rootRecordId,
+        sourceOrgId,
+        targetOrgId,
+        anonymizePII: anonymize,
+        skipEmpty,
+        expandOrphanParents,
+        keepContactPoints,
+        maxRecordsPerObject: effectiveCap,
+        batchSize: 'auto',
+      },
+      carried,
+    );
     setConfig(config);
     takeCarriedFiles();
     setGraph(buildSyntheticForgeGraph(objects));
@@ -693,21 +697,23 @@ export function useForgeForm(): ForgeFormState {
     (inputMode !== 'ai' || ai.checked);
   const handleReuseLastGraph = useCallback(() => {
     if (!canReuseLastGraph || !lastGraph) return;
-    const config: ForgeConfig = {
-      ...runInput,
-      depth,
-      customDepth: depth === 'custom' ? customDepth : undefined,
-      maxNodes,
-      anonymizePII: anonymize,
-      skipEmpty,
-      expandOrphanParents,
-      keepContactPoints,
-      maxRecordsPerObject: recordLimitValue,
-      sourceOrgId,
-      targetOrgId,
-      batchSize: 'auto',
-      ...carried,
-    };
+    const config: ForgeConfig = withCarried(
+      {
+        ...runInput,
+        depth,
+        customDepth: depth === 'custom' ? customDepth : undefined,
+        maxNodes,
+        anonymizePII: anonymize,
+        skipEmpty,
+        expandOrphanParents,
+        keepContactPoints,
+        maxRecordsPerObject: recordLimitValue,
+        sourceOrgId,
+        targetOrgId,
+        batchSize: 'auto',
+      },
+      carried,
+    );
     setConfig(config);
     takeCarriedFiles();
     setGraph(lastGraph);
@@ -785,9 +791,10 @@ export function useForgeForm(): ForgeFormState {
    * a prompt the form would have to send to the model again.
    *
    * The decisions taken on its gaps, the objects it left out, its field
-   * exclusions and its mappings have no control in the form: they are kept
-   * and sent with the replay's Discover. Its `objectSoqlFilters` are not: a
-   * SOQL run's filter is rebuilt from its query when the replay is discovered.
+   * exclusions, filters and mappings have no control in the form: they are
+   * kept and sent with the replay's Discover. The filter a SOQL run's query
+   * gave its root is not: it is rebuilt from the query when the replay is
+   * discovered.
    * A past run keeps no file choice and no field-by-field anonymization: a
    * template's are dropped.
    */

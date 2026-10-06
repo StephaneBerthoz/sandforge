@@ -33,6 +33,8 @@ export type ProgressNodeData = {
   errorCount: number;
   /** Edge type from parent relationship. */
   edgeType: 'master-detail' | 'lookup' | null;
+  /** Whether a search matched the object: its node is ringed. */
+  highlighted?: boolean;
   /** Callback when the node is clicked. */
   onSelect?: (objectName: string) => void;
   /** Callback when the include checkbox is toggled. */
@@ -98,6 +100,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
     piiCount,
     errorCount,
     edgeType,
+    highlighted,
     onSelect,
     onIncludeToggle,
   } = data;
@@ -123,11 +126,13 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
     // it; the keyboard reaches the name, a button of its own beside the box.
     <div
       data-testid="progress-node"
+      data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
         'bg-surface-2 rounded-lg border p-3 min-w-[200px] cursor-pointer transition-colors',
         borderByStatus[status],
         // Left out of the run: a dashed outline, not faded text.
         !included && 'border-dashed',
+        highlighted && 'ring-2 ring-forge',
       )}
     >
       <Handle type="target" position={Position.Top} className="bg-text-muted!" />

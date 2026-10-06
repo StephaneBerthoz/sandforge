@@ -114,6 +114,25 @@ describe('FakerFallback', () => {
       expect(new Set(usernames).size).toBe(usernames.length);
     });
 
+    it('gives each user of a seed a nickname of its own, within the 40 characters the field holds', () => {
+      // The locale's names come round every fifteen users: a nickname made of
+      // one was refused for the sixteenth, as another user's.
+      const generator = new FakerFallback('en_US');
+      const nicknames = generator
+        .generate([createFakerRule('nickname', 'CommunityNickname')], 40)
+        .map((record) => record['CommunityNickname'] as string);
+      const again = new FakerFallback('en_US')
+        .generate([createFakerRule('nickname', 'CommunityNickname')], 40)
+        .map((record) => record['CommunityNickname'] as string);
+
+      expect(new Set(nicknames).size).toBe(40);
+      for (const nickname of nicknames) {
+        expect(nickname).toMatch(/^[a-z]+\.[0-9a-f]{8}\d+$/);
+        expect(nickname.length).toBeLessThanOrEqual(40);
+      }
+      expect(nicknames.some((nickname) => again.includes(nickname))).toBe(false);
+    });
+
     it('sets the usernames of one seed apart from those of every other, which the org would refuse as taken', () => {
       // A username is unique across every org: the same person and index in a
       // second seed, here or in another org, would be refused.

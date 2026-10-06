@@ -67,6 +67,7 @@ import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.
 import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
+import { ACTIVE_USERS_SOQL, activeUsersOf } from '../../modules/forge/orgUsers.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 import { partialSummaryOf } from '../../modules/forge/interruptedRun.js';
@@ -256,6 +257,7 @@ const automationRequestPayloadSchema = z.object({
 // The config gives both orgs, and the fields the run leaves out or renames,
 // which tell what it writes.
 const gapsRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const usersRequestPayloadSchema = z.object({ orgId: orgIdSchema });
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -409,6 +411,7 @@ const FORGE_TYPES = new Set([
   'forge:automation:request',
   'forge:undo-automation:request',
   'forge:gaps:request',
+  'forge:users:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -1106,6 +1109,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:gaps:request':
         await this.handleGapsRequest(msg);
+        return true;
+      case 'forge:users:request':
+        await this.handleUsersRequest(msg);
         return true;
       default:
         return false;
@@ -3763,6 +3769,36 @@ export class ForgeHandler implements DomainHandler {
         retryable: isTimeout,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+    }
+  }
+
+  /**
+   * List an org's active users who can own a record, by name, for Review to
+   * map the owner of the rows to one of the target's. Read only.
+   */
+  private async handleUsersRequest(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(usersRequestPayloadSchema, msg, 'forge:users:error', this.deps);
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const answer = await conn.query<Record<string, unknown>>(ACTIVE_USERS_SOQL);
+      checkApiLimits(conn.limitInfo, 'forge:users query');
+      const { users, truncated } = activeUsersOf(answer.records, answer.done === false);
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:users:response', {
+          orgId: parsed.orgId,
+          users,
+          truncated,
+        }),
+      );
+    } catch (error: unknown) {
+      sendHandlerError(this.deps, 'forge:users', 'forge:users:error', msg, error, {
+        code: 'USERS_ERROR',
+      });
     }
   }
 }

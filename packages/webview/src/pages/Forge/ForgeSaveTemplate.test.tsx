@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { BaseMessage, ForgeGraph, ForgeGraphNode, ForgeTemplate } from '@sandforge/shared';
@@ -15,7 +16,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { useForgeStore } from '../../stores/useForgeStore';
-import { ReviewSaveTemplate } from './ReviewSaveTemplate';
+import { ForgeSaveTemplate } from './ForgeSaveTemplate';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -61,7 +62,12 @@ function savedTemplate(): ForgeTemplate {
   return last.payload.payload.template;
 }
 
-describe('ReviewSaveTemplate', () => {
+/** The form as Review shows it. */
+const Review: React.FC = () => (
+  <ForgeSaveTemplate idPrefix="review-save-template" openerTestId="review-save-template-open" />
+);
+
+describe('ForgeSaveTemplate', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
     useForgeStore.getState().reset();
@@ -83,7 +89,7 @@ describe('ReviewSaveTemplate', () => {
   });
 
   it('saves the run on Review whole: its decisions, the objects it leaves out, its fields and its files', () => {
-    render(<ReviewSaveTemplate />);
+    render(<Review />);
     fireEvent.click(screen.getByTestId('review-save-template-open'));
     fireEvent.change(screen.getByTestId('review-save-template-name'), {
       target: { value: 'Accounts for QA' },
@@ -108,8 +114,59 @@ describe('ReviewSaveTemplate', () => {
     expect(template.recordCount).toBe(20);
   });
 
+  it('counts the records the screen gives it, under the ids of that screen', () => {
+    render(
+      <ForgeSaveTemplate
+        idPrefix="forge-save-template"
+        openerTestId="forge-save-template"
+        size="md"
+        recordCount={7}
+      />,
+    );
+    const opener = screen.getByTestId('forge-save-template');
+    fireEvent.click(opener);
+    expect(opener.getAttribute('aria-controls')).toBe('forge-save-template-form');
+    fireEvent.change(screen.getByTestId('forge-save-template-name'), {
+      target: { value: 'After the run' },
+    });
+    fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+    expect(savedTemplate()).toMatchObject({
+      name: 'After the run',
+      objectCount: 2,
+      recordCount: 7,
+    });
+  });
+
+  it('keeps the controls set on Review with the template', () => {
+    useForgeStore.getState().updateConfig((config) => ({
+      ...config,
+      fieldExclusions: { Account: ['Description'] },
+      objectSoqlFilters: { Contact: 'Email != null' },
+      ownerMappings: { '005000000000001AAA': '005000000000101AAA' },
+      fieldMappings: { Account: { Region__c: 'Area__c' } },
+      maxRecordsPerObject: 25,
+      skippedRows: [{ object: 'Account', gapId: 'currency_inactive|Account|CurrencyIsoCode||CHF' }],
+    }));
+    render(<Review />);
+    fireEvent.click(screen.getByTestId('review-save-template-open'));
+    fireEvent.change(screen.getByTestId('review-save-template-name'), {
+      target: { value: 'Controlled' },
+    });
+    fireEvent.click(screen.getByTestId('review-save-template-submit'));
+
+    expect(savedTemplate().config).toMatchObject({
+      fieldExclusions: { Account: ['Description'] },
+      objectSoqlFilters: { Contact: 'Email != null' },
+      ownerMappings: { '005000000000001AAA': '005000000000101AAA' },
+      fieldMappings: { Account: { Region__c: 'Area__c' } },
+      maxRecordsPerObject: 25,
+      skippedRows: [{ object: 'Account', gapId: 'currency_inactive|Account|CurrencyIsoCode||CHF' }],
+    });
+  });
+
   it('asks for a name before it saves anything', () => {
-    render(<ReviewSaveTemplate />);
+    render(<Review />);
     fireEvent.click(screen.getByTestId('review-save-template-open'));
     fireEvent.click(screen.getByTestId('review-save-template-submit'));
 
@@ -121,7 +178,7 @@ describe('ReviewSaveTemplate', () => {
   });
 
   it('lists the template once the extension kept it, says so, and gives the focus back', () => {
-    render(<ReviewSaveTemplate />);
+    render(<Review />);
     fireEvent.click(screen.getByTestId('review-save-template-open'));
     fireEvent.change(screen.getByTestId('review-save-template-name'), {
       target: { value: 'Accounts for QA' },

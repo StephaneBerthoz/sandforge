@@ -57,7 +57,6 @@ describe('faker field defaults', () => {
   it("keeps a person's name on contacts, leads, users and a person account's own fields", () => {
     expect(defaultFakerMethod('string', 'Preferred_Name__c', 'Contact')).toBe('name');
     expect(defaultFakerMethod('string', 'Maiden_Name__c', 'lead')).toBe('name');
-    expect(defaultFakerMethod('string', 'CommunityNickname', 'User')).toBe('name');
     expect(defaultFakerMethod('string', 'Spouse_Name__pc', 'Account')).toBe('name');
     expect(defaultFakerMethod('string', 'PersonAssistantName', 'Account')).toBe('name');
   });
@@ -71,6 +70,12 @@ describe('faker field defaults', () => {
     // A middle name is a given name, on a contact and on a person account alike.
     expect(defaultFakerMethod('string', 'MiddleName', 'Contact')).toBe('firstName');
     expect(defaultFakerMethod('string', 'MiddleName', 'Account')).toBe('firstName');
+  });
+
+  it("gives a user's nickname one unique to it, which a person's name is not", () => {
+    // A person's name came round every fifteen users, and the org refuses a
+    // nickname another of its users holds.
+    expect(defaultFakerMethod('string', 'CommunityNickname', 'User')).toBe('nickname');
   });
 
   it("gives a user's Username a username, which the org refuses a person's name for", () => {

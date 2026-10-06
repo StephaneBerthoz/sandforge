@@ -767,6 +767,7 @@ export class ExtensionHandlers {
         'forge:automation:request',
         'forge:undo-automation:request',
         'forge:gaps:request',
+        'forge:users:request',
       ],
       this.forgeHandler,
     );

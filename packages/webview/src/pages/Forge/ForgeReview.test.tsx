@@ -129,7 +129,6 @@ vi.mock('../../stores/useForgeStore', () => {
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
     setGaps: (...args: unknown[]) => mockSetGaps(...args),
     setAnonymizationRule: vi.fn(),
-    updateNodeBatchStrategy: vi.fn(),
   };
 
   const store = Object.assign(
@@ -139,9 +138,26 @@ vi.mock('../../stores/useForgeStore', () => {
   return { useForgeStore: store };
 });
 
+// The tab reads fields and users through the bridge; its own test answers them.
+vi.mock('./ReviewControlsTab', () => ({
+  ReviewControlsTab: () => <div data-testid="review-controls-tab" />,
+}));
+
 vi.mock('../../components/graph/LiveGraph', () => ({
-  LiveGraph: ({ onIncludeToggle }: { onIncludeToggle?: (name: string) => void }) => (
-    <div data-testid="live-graph">
+  LiveGraph: ({
+    onIncludeToggle,
+    highlighted,
+    focus,
+  }: {
+    onIncludeToggle?: (name: string) => void;
+    highlighted?: ReadonlySet<string>;
+    focus?: string | null;
+  }) => (
+    <div
+      data-testid="live-graph"
+      data-highlighted={[...(highlighted ?? [])].join(',')}
+      data-focus={focus ?? ''}
+    >
       <button data-testid="mock-toggle-Account" onClick={() => onIncludeToggle?.('Account')}>
         Toggle Account
       </button>
@@ -189,7 +205,7 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it('should have 6 tabs (plan, anonymization, compliance, metadata, automation, gaps)', () => {
+  it('should have 7 tabs (plan, anonymization, compliance, metadata, automation, gaps, controls)', () => {
     render(<ForgeReview />);
     expect(screen.getAllByRole('tab').map((tab) => tab.id)).toEqual([
       'tab-plan',
@@ -198,7 +214,27 @@ describe('ForgeReview', () => {
       'tab-metadata',
       'tab-automation',
       'tab-gaps',
+      'tab-controls',
     ]);
+  });
+
+  it('marks in the graph the objects its search matches, and brings one into view', () => {
+    render(<ForgeReview />);
+    fireEvent.change(screen.getByTestId('review-graph-search-input'), {
+      target: { value: 'acc' },
+    });
+
+    expect(screen.getByTestId('live-graph').getAttribute('data-highlighted')).toBe('Account');
+    fireEvent.click(screen.getByTestId('review-graph-show'));
+    expect(screen.getByTestId('live-graph').getAttribute('data-focus')).toBe('Account');
+  });
+
+  it('shows the controls of the run on their own tab', () => {
+    render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('tab-controls'));
+
+    expect(screen.getByTestId('review-controls-tab')).toBeDefined();
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tab-controls');
   });
 
   it('should have Plan tab active by default', () => {

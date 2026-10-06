@@ -27,18 +27,22 @@ export type FoundGap = Omit<ForgeGap, 'id' | 'source'>;
 /**
  * What the user may decide about each kind of gap a simulation finds, in the
  * order offered — only what the run's config can hold and the run applies.
+ * Holding back the rows (`skip_rows`) is offered where they are exactly those
+ * holding the gap's value (`RunDecisions.SKIPPABLE_GAP_KINDS`); a picklist
+ * value refused by its controlling value is not such a gap
+ * ({@link picklistGapsOf}).
  */
 export const SIMULATION_DECISIONS: Readonly<Partial<Record<ForgeGapKind, ForgeGapDecisionKind[]>>> =
   {
-    picklist_value_refused: ['map_value', 'leave_empty', 'exclude_object', 'ignore'],
+    picklist_value_refused: ['map_value', 'leave_empty', 'skip_rows', 'exclude_object', 'ignore'],
     dependent_value_invalid: ['map_value', 'leave_empty', 'exclude_object', 'ignore'],
-    picklist_value_absent: ['map_value', 'ignore'],
+    picklist_value_absent: ['map_value', 'skip_rows', 'ignore'],
     required_field_missing: ['set_default', 'exclude_object', 'ignore'],
     value_too_long: ['truncate', 'exclude_object', 'ignore'],
     number_out_of_range: ['exclude_object', 'ignore'],
     record_type_unmapped: ['map_record_type', 'exclude_object', 'ignore'],
     record_type_unavailable: ['map_record_type', 'exclude_object', 'ignore'],
-    currency_inactive: ['map_value', 'exclude_object', 'ignore'],
+    currency_inactive: ['map_value', 'skip_rows', 'exclude_object', 'ignore'],
     unique_value_collision: ['exclude_object', 'ignore'],
   };
 
@@ -80,6 +84,12 @@ export class SimulationGaps {
       return;
     }
     known.rows += found.rows;
+    // Rows held back by the value alone hold back the rows of every reason
+    // the gap was found for: one row whose controlling value refused it, and
+    // the value is no longer one whose rows are all refused.
+    if (!found.decisions.includes('skip_rows')) {
+      known.decisions = known.decisions.filter((kind) => kind !== 'skip_rows');
+    }
     const detail = { ...(found.detail ?? {}), ...(known.detail ?? {}) };
     for (const key of LARGEST_KEPT) {
       const was = known.detail?.[key];
@@ -140,7 +150,12 @@ export function picklistGapsOf(
           ...(change.controllingField ? { controllingField: change.controllingField } : {}),
           ...(change.replacedBy !== undefined ? { replacement: change.replacedBy } : {}),
         },
-        decisions: decisionsOf('picklist_value_refused'),
+        // Refused by its controlling value, the value goes in on the rows
+        // whose controlling value allows it: holding back every row holding
+        // it would take those too.
+        decisions: decisionsOf('picklist_value_refused').filter(
+          (kind) => kind !== 'skip_rows' || change.reason !== 'controlling-value',
+        ),
         defaultDecision: change.replacedBy !== undefined ? 'map_value' : 'leave_empty',
       });
     }
