@@ -9,4 +9,4 @@ Nach der Verbindung erscheint jede Org als Karte mit Alias, Typ-Badge (PROD/SBX)
 
 [Organisationen öffnen](command:sandforge.openOrgs)
 
-> Sandboxes und Scratch-Orgs funktionieren sofort. Produktions-Orgs sind durch eine doppelte Bestätigung geschützt.
+> Sandboxes, Scratch-Orgs und Developer-Edition-Orgs funktionieren sofort. Forge schreibt nie in eine Produktions-Org; die anderen Module fragen vor dem Schreiben nach und löschen dort nie.

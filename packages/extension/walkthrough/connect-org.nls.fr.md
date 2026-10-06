@@ -9,4 +9,4 @@ Une fois connectée, chaque org apparaît sous forme de carte, avec son alias, s
 
 [Ouvrir les organisations](command:sandforge.openOrgs)
 
-> Les sandboxes et les scratch orgs fonctionnent immédiatement. Les orgs de production sont protégées par une double confirmation.
+> Les sandboxes, les scratch orgs et les orgs Developer Edition fonctionnent immédiatement. Forge n'écrit jamais dans une org de production ; les autres modules demandent avant d'y écrire, et n'y suppriment jamais rien.

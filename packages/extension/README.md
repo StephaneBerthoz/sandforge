@@ -17,7 +17,7 @@
 
 - **No config file to author.** Paste a record ID: BFS discovery walks the relationship graph for you and lookups are remapped on write (a record type the target does not have keeps its source Id, and the SandForge log names it). No `export.json` to hand-write, no field mapping to keep in step with the schema.
 - **No mandatory CSV round-trip.** Records move org to org over the API. CSV import is still there when you want it — one door in, not the only one.
-- **Production Guard on by default.** Double confirmation before any write to a Production org, DELETE blocked outright. Nothing to switch on, nothing to remember.
+- **Production Guard on by default.** Forge refuses a production org as a target; the other modules ask you to confirm any write to one, and DELETE there is blocked outright. Nothing to switch on, nothing to remember.
 - **Your existing SFDMU config keeps working.** The Migration module imports an `export.json` into a Sync config, so what you already built comes with you.
 
 ---
@@ -33,6 +33,21 @@
 ![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge.png)
 
 New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get started with SandForge") guides you through these steps directly inside VS Code.
+
+---
+
+## First steps, safely
+
+1. **Clone into a Developer sandbox or a scratch org.** Forge writes only to a sandbox, a scratch org or a Developer Edition org; it refuses a production org, and any org it cannot tell is one of those.
+2. **Simulate first.** On Review, **Simulate** takes every record through the write stage and writes nothing. Its results say how many records a real run would insert and how many gaps it found against the target.
+3. **Read the Automation and Gaps tabs.** Automation lists what the target runs on the records the run writes (flows, processes, workflow rules, Apex triggers, assignment and duplicate rules), marks what sends an email or a text message, and says what may refuse a removal of the run's records; a real run asks you in VS Code to confirm what fires on insert and update before it writes anything. Gaps lists what the target would refuse or change in the rows, read from its metadata or found by a simulation or a rehearsal, each with the decisions it allows; the tab counts the gaps that will refuse rows and have no decision yet.
+4. **Emails and phone numbers are neutralized by default.** Every email address is written under `.invalid` and every phone number as a fictional one, so the target's automation reaches no one. **Keep emails and phone numbers as they are** turns that off.
+5. **Rehearse when the target has validation rules or triggers.** A simulation checks the rows against the target's fields; **Rehearse** has the target itself judge them, in calls it rolls back whole: every row when the run creates 200 or fewer, otherwise one row for each object, record type and set of filled fields. You confirm the calls it costs in VS Code first, and that confirmation names what a rollback cannot take back: platform events published immediately and callouts already made.
+6. **Remove a run from Results.** **Remove the records this run created** deletes them from the target, children before their parents, into its recycle bin; its confirmation lists what the target runs as they are deleted. Records the run linked to, which the target already held, are kept, and so is a record changed since the run unless you include it. The runs under **Recent runs**, and under **Older runs** once they leave that list, offer the same removal.
+
+![Forge Review — the Gaps tab with two gaps decided and one still refusing rows, beside the Automation tab's count](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge-review.png)
+
+![Forge simulation — nothing written, what a real run would insert, the gaps found and the emails and phone numbers it would neutralize](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge-simulation.png)
 
 ---
 
@@ -57,11 +72,15 @@ SandForge ships 14 modules in a single extension:
 | **Organizations**  | Org registry with SF CLI import and tier-based safety coloring                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Reports**        | Execution reports and success-rate analytics, built from your Forge and Sync run history; an audit trail of every run that writes to an org, and the data lineage of the records each run carried                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
-Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail. Expired org sessions are auto-refreshed at startup via the sf CLI — no more mid-operation auth walls.
+Safety is on by default: Forge refuses a Production org as a target, and for every other module Production Guard asks for confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail. Expired org sessions are auto-refreshed at startup via the sf CLI — no more mid-operation auth walls.
 
 ---
 
 ## Screenshots
+
+![Launcher — the SandForge mark, the current org and every module, in the VS Code sidebar](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/launcher.png)
+
+![Forge results — the records a run created, their ids in the target, its emails and phone numbers neutralized, and the actions to verify or remove what it wrote](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge-results.png)
 
 ![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/home.png)
 
@@ -78,7 +97,7 @@ Safety is on by default: Production Guard requires double confirmation before an
 ## FAQ
 
 - **Does my data leave my machine?** No. Telemetry is opt-in (off by default), the AI assistant is disabled by default, and your API key stays in VS Code Secret Storage.
-- **Can I point it at production?** Reads, yes. Writes go through the Production Guard: double confirmation, and destructive operations (DELETE) are blocked outright.
+- **Can I point it at production?** Reads, yes. Forge never writes to one: it refuses a production target outright. The other modules' writes go through the Production Guard: a confirmation first, and destructive operations (DELETE) are blocked outright.
 - **Is this an SFDMU replacement?** For moving data between orgs from your editor, yes — and without the config file: you paste a record ID, SandForge discovers the relationship graph and remaps IDs on write (a record type the target does not have keeps its source Id, and the SandForge log names it). SFDMU keeps the edge for headless CI, where it has a real binary and SandForge does not. Switching costs nothing you already built: the Migration module imports your existing `export.json` into a Sync config, non-destructively — nothing is written to your orgs.
 - **Which orgs are supported?** Any org authenticated in the Salesforce CLI (`sf`), imported in one click.
 - **Is it free?** Yes — MIT licensed, no account, no paid tier.

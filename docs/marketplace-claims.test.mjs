@@ -805,3 +805,145 @@ test('the Compare rows of both READMEs describe what Compare reads', () => {
       offenders.join('\n  '),
   );
 });
+
+// ── a production org, and the first steps a buyer is told to take ─────────
+
+/**
+ * The body of one method of a class, from its signature to the next member or
+ * the end of the class: enough for an anchor to say what the method does
+ * before it returns, without parsing the file.
+ */
+function methodBody(source, name) {
+  const body = new RegExp(
+    `\\n {2}(?:private |public )?(?:async )?${name}\\([\\s\\S]*?(?=\\n {2}(?:private|public|async|/\\*\\*) |\\n\\}\\n)`,
+  ).exec(source);
+  return body?.[0];
+}
+
+test('anchor: Forge refuses a production target before it runs or rehearses', () => {
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
+  for (const name of ['handleExecute', 'handleRehearseRequest']) {
+    const body = methodBody(handler, name);
+    assert.ok(body, `${name} is gone from ForgeHandler — re-point this anchor`);
+    assert.match(
+      body,
+      /if \(orgTier === 'production'\) \{[\s\S]{0,400}?'PRODUCTION_TARGET'/,
+      `${name} no longer refuses a production target outright — the READMEs and the guide say ` +
+        'Forge does, and may have to say it asks again',
+    );
+  }
+});
+
+/**
+ * Where a buyer is told what Production Guard does: both READMEs and the guide
+ * they link first. "Double confirmation" was sold there since the first
+ * release; a Forge run now refuses a production target, and every other
+ * module's write to one is one modal, which a setting turns off.
+ */
+const PRODUCTION_SURFACES = () => [
+  ['README.md', read('README.md')],
+  ['packages/extension/README.md', read(...EXT, 'README.md')],
+  ['docs/getting-started.md', read('docs', 'getting-started.md')],
+];
+
+test('the READMEs and the guide say Forge refuses a production org, and promise no double confirmation', () => {
+  const offenders = [];
+  for (const [label, text] of PRODUCTION_SURFACES()) {
+    if (/double confirmation/i.test(text)) {
+      offenders.push(`${label}: promises a double confirmation before a production write`);
+    }
+    if (!/Forge refuses (?:a |to write to a )Production org/i.test(text)) {
+      offenders.push(`${label}: does not say that Forge refuses a production org`);
+    }
+  }
+  for (const relPath of READMES) {
+    if (!/Forge refuses a production org as a target/i.test(whySwitch(relPath))) {
+      offenders.push(`${relPath}: the "why switch" guardrail does not say what Forge does`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'Forge refuses a production target; the other modules ask once, before a write:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+/** The steps of "First steps, safely", in the order both READMEs give them. */
+const FIRST_STEPS = [
+  /Developer sandbox or a scratch org/,
+  /Simulate first/,
+  /Automation and Gaps tabs/,
+  /Emails and phone numbers are neutralized by default/,
+  /Rehearse when the target has validation rules or triggers/,
+  /Remove a run from Results/,
+];
+
+/** A README's "First steps, safely", its image links reduced to their file names. */
+function firstSteps(relPath) {
+  const text = read(...relPath.split('/'));
+  const start = text.indexOf('## First steps, safely');
+  assert.notEqual(start, -1, `${relPath} has no "## First steps, safely" section`);
+  const quickStart = text.indexOf('## Your first clone in 2 minutes');
+  const modules = text.indexOf('## Modules');
+  assert.ok(
+    quickStart < start && start < modules,
+    `${relPath}: the first steps go after the quick start and before the module table`,
+  );
+  return text.slice(start, modules).replace(/\]\([^)]*\/([^/)]+\.png)\)/g, ']($1)');
+}
+
+test('both READMEs give the same first steps, in the same order', () => {
+  const [root, marketplace] = READMES.map(firstSteps);
+  assert.equal(
+    root.trim(),
+    marketplace.trim(),
+    'the Marketplace README and the GitHub README must give the same first steps word for word',
+  );
+  const items = root.split('\n').filter((line) => /^\d+\. /.test(line));
+  assert.equal(items.length, FIRST_STEPS.length, 'one numbered item per step');
+  FIRST_STEPS.forEach((step, i) => {
+    assert.match(items[i], step, `step ${i + 1} is out of place or gone`);
+  });
+});
+
+test('anchor: what the first steps say of Forge is what its code does', () => {
+  const steps = firstSteps('README.md');
+
+  // Emails and phone numbers: kept as they are only when asked, neutralized otherwise.
+  const form = read('packages', 'webview', 'src', 'pages', 'Forge', 'useForgeForm.ts');
+  assert.match(
+    form,
+    /const \[keepContactPoints, setKeepContactPoints\] = useState\(false\)/,
+    'the form keeps emails and phone numbers as they are by default now — step 4 is false',
+  );
+  const executor = read(...EXT, 'src', 'modules', 'forge', 'ForgeExecutor.ts');
+  assert.match(
+    executor,
+    /config\.keepContactPoints \? null : new ContactPointNeutralizer\(\)/,
+    'a run no longer neutralizes contact points unless told to keep them — step 4 is false',
+  );
+
+  // The rehearsal's sample: every row up to the figure the step gives.
+  const sample = read(...EXT, 'src', 'modules', 'forge', 'rehearsal', 'rehearsalSample.ts');
+  const everyRow = /export const EVERY_ROW_UP_TO = (\d+);/.exec(sample);
+  assert.ok(everyRow, 'EVERY_ROW_UP_TO is gone — re-read step 5');
+  assert.match(
+    steps,
+    new RegExp(`every row when the run creates ${everyRow[1]} or fewer`),
+    `a rehearsal sends every row up to ${everyRow[1]} — step 5 says another figure`,
+  );
+
+  // What a rollback does not take back, as the rehearsal's confirmation names it.
+  const composition = read(...EXT, 'src', 'composition', 'backgroundComposition.ts');
+  assert.match(
+    composition,
+    /Not rolled back: platform events published immediately, and callouts already made\./,
+    "the rehearsal's confirmation no longer names what a rollback leaves — step 5 says it does",
+  );
+  assert.match(
+    steps,
+    /platform events published immediately and callouts already made/,
+    'step 5 no longer names what a rollback leaves, which the confirmation does',
+  );
+});

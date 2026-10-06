@@ -9,4 +9,4 @@ Depois de conectada, cada org aparece como um cartão com o alias, o selo de tip
 
 [Abrir Organizações](command:sandforge.openOrgs)
 
-> Sandboxes e scratch orgs funcionam de imediato. Orgs de produção são protegidas por uma dupla confirmação.
+> Sandboxes, scratch orgs e orgs Developer Edition funcionam de imediato. O Forge nunca grava em uma org de produção; os outros módulos perguntam antes de gravar nela e nunca excluem nada lá.

@@ -9,4 +9,4 @@ Once connected, each org shows up as a card with its alias, type badge (PROD/SBX
 
 [Open Organizations](command:sandforge.openOrgs)
 
-> Sandboxes and scratch orgs work out of the box. Production orgs are protected by a double-confirmation guard.
+> Sandboxes, scratch orgs and Developer Edition orgs work out of the box. Forge never writes to a production org; the other modules ask before writing to one, and never delete there.
