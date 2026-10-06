@@ -5,7 +5,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
-import { duplicateRuleHeaders } from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 
@@ -106,8 +105,14 @@ function orgWithAccountsAndContacts(required: { keyContact?: boolean; account?: 
   } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
 }
 
-/** How the second pass sends its updates: as Forge sends its own, duplicate rules waived. */
-const SENT_AS_FORGE_SENDS = { allowRecursive: true, headers: duplicateRuleHeaders(true) };
+/**
+ * How the second pass sends its updates: as Forge sends its own, duplicate
+ * rules waived and the target's assignment rules off.
+ */
+const SENT_AS_FORGE_SENDS = {
+  allowRecursive: true,
+  headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
+};
 
 /** The source rows, per object. */
 function sourceRows(rows: Record<string, Array<Record<string, unknown>>>): void {

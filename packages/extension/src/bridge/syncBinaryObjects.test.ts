@@ -76,4 +76,19 @@ describe('a sync may not carry an object no copy writes', () => {
     expect(issues[0]).toContain('no copy writes it');
     expect(issues[0]).toContain('the sync was not started');
   });
+
+  // Salesforce reads an object's name whatever its case, and the boundary
+  // refused `user` while `loginhistory` and `ACCOUNTSHARE` went through.
+  it.each([
+    'loginhistory',
+    'ACCOUNTSHARE',
+    'accounthistory',
+    'asyncApexJob',
+    'vlocity_INS__Party__c',
+  ])('the bridge refuses %j however its name is cased', (objectApiName) => {
+    const issues = objectIssues(objectApiName);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain('no copy writes it');
+  });
 });

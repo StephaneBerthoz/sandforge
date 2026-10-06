@@ -127,6 +127,30 @@ test('the view, its container and the provider are one name', () => {
   }
 });
 
+test('Ctrl+Shift+R leaves Refactor to the editor', () => {
+  /*
+   * VS Code binds Ctrl+Shift+R to Refactor… wherever `textInputFocus`
+   * holds — the `kbExpr` of its RefactorAction; on macOS it is Ctrl too,
+   * where Grappe takes Cmd — and an extension's keybinding outranks a
+   * built-in one when both apply.
+   * Bound while the SandForge view was the active viewlet, Grappe took the
+   * keys from every editor typed in beside it. The SandForge view is a
+   * webview, where `textInputFocus` never holds: left out there, Grappe keeps
+   * its keys in the view and gives them back to the editor.
+   */
+  const onKey = (contributes.keybindings ?? []).filter(
+    (entry) => entry.key?.toLowerCase() === 'ctrl+shift+r',
+  );
+  assert.ok(onKey.length > 0, 'nothing is bound to ctrl+shift+r — has the binding moved?');
+  for (const entry of onKey) {
+    assert.match(
+      entry.when ?? '',
+      /&&\s*!textInputFocus\b/,
+      `${entry.command} takes Ctrl+Shift+R from Refactor in an editor: ${entry.when}`,
+    );
+  }
+});
+
 test('every module the extension can open is a route the webview can mount', () => {
   /*
    * `MODULE_COMMANDS` is the extension's list; the panel router's

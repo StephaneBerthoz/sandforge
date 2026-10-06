@@ -26,7 +26,12 @@ export interface LocaleDataSet {
   readonly lastNames: readonly string[];
   /** City names in this locale (at least 10 entries) */
   readonly cities: readonly string[];
-  /** Company names appropriate for this locale (at least 10 entries) */
+  /**
+   * Company names that read as this locale's, made up (at least 10 entries).
+   * They land on `Account.Name`, and the lists of the other locales held real
+   * companies — energy, banks, carmakers — which a sandbox then showed as
+   * accounts it had.
+   */
   readonly companies: readonly string[];
   /**
    * Phone formats where X is replaced by digits, all inside {@link phoneRange}:
@@ -188,16 +193,16 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Rennes',
     ] as const,
     companies: [
-      'Total SA',
-      'Renault Group',
-      'Airbus France',
-      'BNP Paribas',
-      'Carrefour',
-      'Sanofi',
-      'Orange SA',
-      'Danone',
-      'Michelin',
-      'Capgemini',
+      'Ateliers Vercourt',
+      'Groupe Lambrecq',
+      'Maison Dufrenois',
+      'Brasseries du Morvanel',
+      'Transports Gaudriere',
+      'Laboratoires Pelvoisin',
+      'Optique Varennel SAS',
+      'Fonderies de Saint-Aubrac',
+      'Comptoir Hautemer',
+      'Cabinet Roussillac',
     ] as const,
     // Arcep keeps six blocks of 10,000 numbers for audiovisual works, numbers
     // that can neither call nor be called: those starting 01 99 00, 02 61 91,
@@ -274,16 +279,16 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Hannover',
     ] as const,
     companies: [
-      'Siemens AG',
-      'Volkswagen',
-      'BMW Group',
-      'Deutsche Bank',
-      'SAP SE',
-      'Allianz',
-      'BASF',
-      'Bosch GmbH',
-      'Bayer AG',
-      'DHL Deutsche Post',
+      'Kaltenbrunn Maschinenbau GmbH',
+      'Elbtaler Logistik AG',
+      'Brennecke & Wolter KG',
+      'Auenfeld Versicherung AG',
+      'Steinhagel Bau GmbH',
+      'Muehlenkamp Feinkost',
+      'Hollerbach Elektrotechnik',
+      'Rabenstein Chemie AG',
+      'Lindwurm Software GmbH',
+      'Ostwald & Pieper',
     ] as const,
     // The Bundesnetzagentur keeps 1,000 "Drama Numbers" in each of five cities,
     // assigned to no subscriber for good: Berlin (0)30 23125, Frankfurt am Main
@@ -360,16 +365,16 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Granada',
     ] as const,
     companies: [
-      'Telefonica',
-      'Inditex',
-      'Santander',
-      'BBVA',
-      'Repsol',
-      'Iberdrola',
-      'CaixaBank',
-      'Endesa',
-      'Mapfre',
-      'Ferrovial',
+      'Construcciones Albarran',
+      'Grupo Valdeoro',
+      'Aceites del Guadalmar',
+      'Transportes Penalvar',
+      'Bodegas Riberalta',
+      'Seguros Castellmar',
+      'Textiles Arroyuelo',
+      'Ingenieria Sotomonte',
+      'Conservas Puertoalba',
+      'Laboratorios Encinar',
     ] as const,
     // Spain publishes no numbers for fiction. Its numbering plan leaves every
     // nine-digit number starting with 3 pending attribution, so no subscriber
@@ -436,16 +441,16 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Hiroshima',
     ] as const,
     companies: [
-      'Toyota Motor',
-      'Sony Group',
-      'Honda Motor',
-      'Mitsubishi Corp',
-      'SoftBank',
-      'Panasonic',
-      'Hitachi Ltd',
-      'NTT Data',
-      'Canon Inc',
-      'Fujitsu',
+      'Kawabe Shoji',
+      'Midorigawa Denki',
+      'Hoshizora Kogyo',
+      'Kirisame Seimitsu',
+      'Shirakaba Foods',
+      'Tsukinowa Logistics',
+      'Hanamizuki Sangyo',
+      'Kuroiwa Kensetsu',
+      'Minatogawa Shoken',
+      'Yamabuki Software',
     ] as const,
     // Japan publishes no numbers for fiction. Its numbering plan, as the
     // Ministry of Internal Affairs and Communications notified it to the ITU
@@ -510,16 +515,16 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Porto Alegre',
     ] as const,
     companies: [
-      'Petrobras',
-      'Vale SA',
-      'Itau Unibanco',
-      'Bradesco',
-      'Banco do Brasil',
-      'Ambev',
-      'JBS SA',
-      'Magazine Luiza',
-      'Natura Co',
-      'Embraer',
+      'Construtora Barrocal',
+      'Laticinios Campo Verdejo',
+      'Transportadora Ribeirinha Sul',
+      'Grupo Aroeira Dourada',
+      'Tecelagem Morro Azul',
+      'Seguradora Cajuina',
+      'Farmacias Jaboticaba',
+      'Metalurgica Taquaral',
+      'Cafe Serra do Ipe',
+      'Bioquimica Pindorama',
     ] as const,
     // Brazil publishes no numbers for fiction. Anatel's Resolution 553 of
     // 14 December 2010, which gave every mobile number its leading 9, reserves

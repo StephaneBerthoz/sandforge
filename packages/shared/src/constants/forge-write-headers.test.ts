@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { AUTO_ASSIGN_HEADER, forgeWriteHeaders } from './forge-write-headers.js';
+import {
+  AUTO_ASSIGN_HEADER,
+  forgeWriteHeaders,
+  recordWriteHeaders,
+} from './forge-write-headers.js';
 
 describe('forgeWriteHeaders', () => {
   it('waives duplicate rules and keeps the assignment rules off by default', () => {
@@ -24,5 +28,20 @@ describe('forgeWriteHeaders', () => {
     const first = forgeWriteHeaders({ applyAssignmentRules: false });
     first['Sforce-Auto-Assign'] = 'TRUE';
     expect(forgeWriteHeaders({ applyAssignmentRules: false })['Sforce-Auto-Assign']).toBe('FALSE');
+  });
+});
+
+describe('recordWriteHeaders', () => {
+  it('waives duplicate rules and keeps the assignment rules off, whatever module writes', () => {
+    expect(recordWriteHeaders()).toEqual({
+      'Sforce-Duplicate-Rule-Header': 'allowSave=true',
+      'Sforce-Auto-Assign': 'FALSE',
+    });
+  });
+
+  it('gives each write headers of its own', () => {
+    const first = recordWriteHeaders();
+    first['Sforce-Auto-Assign'] = 'TRUE';
+    expect(recordWriteHeaders()['Sforce-Auto-Assign']).toBe('FALSE');
   });
 });

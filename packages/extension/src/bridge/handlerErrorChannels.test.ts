@@ -988,32 +988,41 @@ describe('correlation gate', () => {
     }, 60_000);
   });
 
-  describe('the real tree', () => {
+  /*
+   * The first test of the real tree to run builds and walks the program of
+   * every production source, which takes about 7 s on an idle machine. Run
+   * beside the other suites, as the full run does with its workers and
+   * coverage, the same walk took 62 to 75 s, and the test failed on a 60 s
+   * budget with nothing wrong in the tree. Any of them can be the first, when
+   * a filter picks one, so each has the budget the walk needs: about two and
+   * a half times the slowest one seen.
+   */
+  describe('the real tree', { timeout: 180_000 }, () => {
     let tree: Analysis | undefined;
     const real = (): Analysis => (tree ??= run());
 
     it('finds no correlation bypass in production sources', () => {
       expect(real().findings).toEqual([]);
-    }, 60_000);
+    });
 
     it('sees the sanctioned mints, so an empty walk cannot pass', () => {
       expect(unique(real().mints)).toEqual([...SANCTIONED_MINTS].sort());
-    }, 60_000);
+    });
 
     it('pins every synthetic request and every uncorrelated error', () => {
       expect(unique(real().syntheticCalls)).toEqual([...SYNTHETIC_CALL_SITES].sort());
       expect(unique(real().uncorrelatedCalls)).toEqual([...UNCORRELATED_CALL_SITES].sort());
-    }, 60_000);
+    });
 
     it('accepts error channels only through branded sinks, and every listed exception is live', () => {
       expect(real().sinkChannels.length).toBeGreaterThan(200);
       expect(unique(real().exceptionsSeen)).toEqual([...ERROR_CHANNEL_EXCEPTIONS].sort());
       expect(unique(real().correlationWriters)).toEqual([...CORRELATION_WRITERS].sort());
-    }, 60_000);
+    });
 
     it('builds a :response by hand only at the listed broadcast sites, and every one is live', () => {
       expect(unique(real().responseBroadcasts)).toEqual([...RESPONSE_BROADCAST_SITES].sort());
-    }, 60_000);
+    });
 
     it('never posts an error payload on a :response channel', () => {
       // `sendHandlerError` delivers `{ message, code, retryable }`. On a
@@ -1023,6 +1032,6 @@ describe('correlation gate', () => {
       const channels = real().handlerErrorChannels;
       expect(channels.length).toBeGreaterThan(100);
       expect(channels.filter((c) => c.endsWith(':response'))).toEqual([]);
-    }, 60_000);
+    });
   });
 });

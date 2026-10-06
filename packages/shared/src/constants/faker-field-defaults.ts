@@ -34,6 +34,9 @@ export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
   pattern: RegExp;
   method: FakerMethodName;
 }> = [
+  // A user's login: an email address in form, unique across every org, which
+  // a person's name is not, and the org refuses the user written with one.
+  { pattern: /^user_?name$/i, method: 'username' },
   { pattern: /first_?name$/i, method: 'firstName' },
   { pattern: /last_?name$/i, method: 'lastName' },
   // A middle name is a given name: a full name written in it reads as two people.

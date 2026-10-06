@@ -24,6 +24,16 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 };
 
 /**
+ * The word each status of a report is said in. The badge printed the code
+ * itself, upper-cased — "PARTIAL" — in every language.
+ */
+const STATUS_KEYS: Record<ComplianceReport['overallStatus'], string> = {
+  pass: 'forge.review.compliancePass',
+  partial: 'forge.review.compliancePartial',
+  fail: 'forge.review.complianceFail',
+};
+
+/**
  * Compliance tab within the Forge Review phase.
  *
  * Allows the user to select a regulatory framework and displays the report
@@ -126,12 +136,11 @@ export const ReviewComplianceTab: React.FC = () => {
         </div>
       )}
 
+      {/* Said it came once the run was executed: the report is asked for as
+          soon as a framework is selected. */}
       {framework !== 'none' && !loading && !error && !report && (
         <p data-testid="compliance-waiting" className="text-xs text-text-secondary py-4">
-          {t(
-            'forge.review.complianceWaiting',
-            'Select a framework and execute to generate compliance report.',
-          )}
+          {t('forge.review.complianceWaiting')}
         </p>
       )}
 
@@ -139,9 +148,10 @@ export const ReviewComplianceTab: React.FC = () => {
         <div data-testid="compliance-report" className="rounded-lg border border-subtle p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text-primary">
-              {t('forge.review.complianceStatus', 'Status')}: {report.overallStatus}
+              {t('forge.review.complianceStatus', 'Status')}
             </span>
             <span
+              data-testid="compliance-status"
               className={`text-[10px] px-2 py-0.5 rounded ${
                 report.overallStatus === 'pass'
                   ? 'bg-status-success/10 text-status-success'
@@ -150,7 +160,7 @@ export const ReviewComplianceTab: React.FC = () => {
                     : 'bg-status-error/10 text-status-error'
               }`}
             >
-              {report.overallStatus.toUpperCase()}
+              {t(STATUS_KEYS[report.overallStatus])}
             </span>
           </div>
           <div className="text-[10px] text-text-secondary space-y-0.5">

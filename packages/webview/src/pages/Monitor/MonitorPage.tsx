@@ -50,6 +50,7 @@ import type {
   SalesforceOrg,
   LiveOperationSnapshot,
   ExecutionAbortResponse,
+  SyncRunControlAnswer,
 } from '@sandforge/shared';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
@@ -198,6 +199,34 @@ export const MonitorPage: React.FC = () => {
     }
     refetchLiveOps();
   }, [abortReply, abortError, addNotification, refetchLiveOps, t]);
+
+  /*
+   * Pause and resume go out on `sync:pause` and `sync:resume`, the channels
+   * the Sync page uses: a Sync run is the one run Live Operations can pause,
+   * and the panel offers it on no other. The answer is read as the cancel's
+   * is: a refusal is said, and the list is read again either way, so the row
+   * shows the status the run is now in.
+   */
+  const pauseMutation = useBridgeMutation<SyncRunControlAnswer>('sync:pause');
+  const resumeMutation = useBridgeMutation<SyncRunControlAnswer>('sync:resume');
+  const controlReply = pauseMutation.data ?? resumeMutation.data;
+  const controlError = pauseMutation.error ?? resumeMutation.error;
+  useEffect(() => {
+    if (!controlReply && !controlError) return;
+    if (controlError || !controlReply?.success) {
+      addNotification({
+        level: 'warning',
+        category: 'monitor',
+        title: t('sync.runControls.pauseRefused'),
+        message: t('sync.runControls.pauseRefusedDetail'),
+      });
+    }
+    refetchLiveOps();
+  }, [controlReply, controlError, addNotification, refetchLiveOps, t]);
+  const pauseRun = pauseMutation.mutate;
+  const resumeRun = resumeMutation.mutate;
+  const resetPause = pauseMutation.reset;
+  const resetResume = resumeMutation.reset;
 
   /*
    * The list is read again on each dashboard refresh, manual or automatic, so
@@ -567,6 +596,15 @@ export const MonitorPage: React.FC = () => {
               <LiveOperationsPanel
                 operations={liveOperations}
                 onCancel={(opId) => abortMutation.mutate({ operationId: opId })}
+                // Each clears the other's answer, so the one read is the last asked.
+                onPause={(opId) => {
+                  resetResume();
+                  pauseRun({ operationId: opId });
+                }}
+                onResume={(opId) => {
+                  resetPause();
+                  resumeRun({ operationId: opId });
+                }}
               />
             </div>
           )}

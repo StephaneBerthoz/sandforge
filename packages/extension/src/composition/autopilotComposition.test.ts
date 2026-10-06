@@ -211,6 +211,21 @@ describe('autopilotComposition', () => {
     expect(target.create).toHaveBeenCalledWith([{ Name: 'Acme' }], expect.anything());
   });
 
+  it("creates with duplicate rules waived and the target's assignment rules off", async () => {
+    // REST has the target's active assignment rules reassign an account, a
+    // case or a lead it creates unless the write says not to.
+    const { handlers, getOrchestrator } = createFakeHandlers();
+    await initAutopilotComposition({ handlers, log: vi.fn() });
+    const source = fakeOrg(1, [{ Id: 'src1', Name: 'Acme' }], 'tgt1');
+    const target = fakeOrg(0, [], 'tgt1');
+
+    await runOneAccountFlow(getOrchestrator(), source.conn, target.conn);
+
+    expect(target.create.mock.calls[0]?.[1]).toEqual({
+      headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
+    });
+  });
+
   describe('a record type closed to the running user in the target', () => {
     const PARTNER = '012Fk00000RtDeFIAV';
 

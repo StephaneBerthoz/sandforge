@@ -1,6 +1,7 @@
 /**
  * The headers Forge sends with every record it creates or writes again in the
- * target, the wizard's run and the clone command's alike.
+ * target, the wizard's run and the clone command's alike — and, through
+ * `recordWriteHeaders`, every other module's REST writes.
  *
  * Two of the target's rules would otherwise act on what a clone writes:
  * - its duplicate rules, which a clone matches by construction — see
@@ -33,4 +34,22 @@ export function forgeWriteHeaders(options: ForgeWriteOptions): Record<string, st
     ...ALLOW_DUPLICATE_RULE_HEADER,
     [AUTO_ASSIGN_HEADER]: options.applyAssignmentRules ? 'TRUE' : 'FALSE',
   };
+}
+
+/**
+ * The headers of a record any other module creates or writes again over
+ * REST — Seed, its record clone and CSV import, Sync and the real-time sync,
+ * a Frozen dataset load, DataOps' masking, restore and removal edits,
+ * Autopilot: duplicate rules waived, and the target's assignment rules off.
+ *
+ * None of them offers the choice Forge does. Each writes the owner it was
+ * given, or leaves it to the running user, and a create or an update that
+ * does not say `Sforce-Auto-Assign` had the target's rules reassign the Cases,
+ * Leads and Accounts it wrote, and mail the new owners.
+ *
+ * Bulk API 2.0 needs no header: a job runs an assignment rule only when it
+ * names one (`assignmentRuleId`), and no job these modules open does.
+ */
+export function recordWriteHeaders(): Record<string, string> {
+  return forgeWriteHeaders({ applyAssignmentRules: false });
 }

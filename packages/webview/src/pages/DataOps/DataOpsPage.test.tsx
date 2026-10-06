@@ -103,13 +103,25 @@ let mockExportMutationState = {
   reset: vi.fn(),
 };
 
+/** What `dataops:anonymize:coverage` answers, and how the page last asked it. */
+let mockCoverageData: Record<string, unknown> | null = null;
+let coverageAsked: { payload?: Record<string, unknown>; skip?: boolean } | null = null;
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => {
+  useBridgeQuery: (
+    type: string,
+    payload?: Record<string, unknown>,
+    options?: { skip?: boolean },
+  ) => {
     if (type === 'backup:list') {
       return mockBackupsQueryState;
     }
     if (type === 'dataops:anonymization-templates') {
       return mockTemplatesQueryState;
+    }
+    if (type === 'dataops:anonymize:coverage') {
+      coverageAsked = { payload, skip: options?.skip };
+      return { data: mockCoverageData, loading: false, error: null, refetch: vi.fn() };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -565,6 +577,29 @@ describe('DataOpsPage', () => {
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockAnonymizeMutate).toHaveBeenCalledWith({ orgId: 'org-1', templateId: 'tpl-1' });
+    });
+
+    it('asks, for the template picked, what a restore of the org’s latest backup brings back, and says it before Apply', () => {
+      mockCoverageData = {
+        templateId: 'tpl-1',
+        backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+        objects: [{ objectApiName: 'Contact', count: 30000, backedUp: 2000, truncated: true }],
+      };
+      openTemplate();
+
+      expect(coverageAsked).toEqual({
+        payload: { orgId: 'org-1', templateId: 'tpl-1' },
+        skip: false,
+      });
+      expect(screen.getByTestId('restore-coverage-shortfall').textContent).toContain('Contact');
+      mockCoverageData = null;
+    });
+
+    it('asks nothing until a template is picked on the Anonymize tab', () => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+
+      expect(coverageAsked?.skip).toBe(true);
     });
   });
 

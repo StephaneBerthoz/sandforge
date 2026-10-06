@@ -96,7 +96,7 @@ test('every create or update call into a target org waives duplicate rules', () 
     [],
     'these write records without waiving duplicate rules, so a target that ' +
       `already resembles the source refuses them: ${offenders.join(', ')}. ` +
-      'Pass `{ headers: duplicateRuleHeaders(true) }`, or say in a comment why not.',
+      'Pass `{ headers: recordWriteHeaders() }`, which waives them, or say in a comment why not.',
   );
 });
 

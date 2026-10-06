@@ -1,5 +1,5 @@
 import type { Connection } from 'jsforce';
-import { duplicateRuleHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
+import { recordWriteHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
 import { queryAll, queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import { toSaveOutcomes } from '../core/common/existingRecordMatch';
@@ -193,7 +193,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 // module to need this header; see `duplicate-rules.ts`.
                 const results = await target
                   .sobject(safeObj)
-                  .create(cleaned, { headers: duplicateRuleHeaders(true) });
+                  .create(cleaned, { headers: recordWriteHeaders() });
                 // Each refusal with its status code, its fields and the
                 // records a duplicate rule matched. Only the message used to
                 // be kept: a French org's "valeur en double trouvée" reached
@@ -208,7 +208,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 const results = await target
                   .sobject(safeObj)
                   .update(records as Array<Record<string, unknown> & { Id: string }>, {
-                    headers: duplicateRuleHeaders(true),
+                    headers: recordWriteHeaders(),
                   });
                 return toSaveOutcomes(results, safeObj);
               },

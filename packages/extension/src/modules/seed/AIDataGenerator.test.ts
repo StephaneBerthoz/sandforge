@@ -238,6 +238,40 @@ describe('AIDataGenerator', () => {
       }
       expect(record['Mobile_Plan__c']).toBe('Unlimited 5G');
     });
+
+    it('replaces the Spanish and Brazilian numbers written the national way, with no + nor leading 0', async () => {
+      const untouched = [
+        '912 345 678,50 €',
+        '€ 712 345 678',
+        '1 912 345 678',
+        '623 456 789 00012',
+        '312 345 678',
+        '11 90123-4567',
+      ];
+      const [record] = await kept([
+        {
+          Description:
+            'Llame al 912 345 678 o al 612 34 56 78; ligue para 11 91234-5678. ' +
+            untouched.join('; '),
+        },
+      ]);
+      const description = String(record['Description']);
+
+      for (const dialable of ['912 345 678 o', '612 34 56 78', '11 91234-5678']) {
+        expect(description).not.toContain(dialable);
+      }
+      const replaced =
+        /^Llame al (.+) o al (.+); ligue para (.+?)\. /.exec(description)?.slice(1) ?? [];
+      expect(replaced).toHaveLength(3);
+      for (const number of replaced) {
+        expect(isReservedPhone(number), number).toBe(true);
+      }
+      // Amounts and identifiers stay, and so do the numbers nobody holds: a
+      // Spanish one starting with 3, a Brazilian mobile starting with 90.
+      for (const value of untouched) {
+        expect(description).toContain(value);
+      }
+    });
   });
 
   describe('parseAIResponse', () => {

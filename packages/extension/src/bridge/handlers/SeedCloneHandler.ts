@@ -7,7 +7,7 @@ import type {
   ClonePreviewResult,
   CloneSecondPass,
 } from '@sandforge/shared';
-import { duplicateRuleHeaders, orgTypeToGuardTier } from '@sandforge/shared';
+import { recordWriteHeaders, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -1544,7 +1544,7 @@ async function fillOwedLookups(input: {
         .sobject(objectApiName)
         .update(records as unknown as Array<{ Id: string }>, {
           allowRecursive: true,
-          headers: duplicateRuleHeaders(true),
+          headers: recordWriteHeaders(),
         });
       return (Array.isArray(answer) ? answer : [answer]).map((result, index) => {
         const id = records[index]?.['Id'];

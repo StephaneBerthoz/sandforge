@@ -11,6 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { Tabs } from '../../components/ui/Tabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
+import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
@@ -31,6 +32,10 @@ export interface ReportsPageProps {
   reports?: GeneratedReport[];
   /** Whether the reports and their summary are being read: their two tabs wait for them. */
   reportsLoading?: boolean;
+  /** Why the reports and their summary could not be read, when they could not. */
+  reportsError?: string;
+  /** Read the reports and their summary again. */
+  onRetryReports?: () => void;
   analyticsSummary?: AnalyticsSummary;
   operationsOverTime?: AnalyticsTimeSeries;
   errorTimeSeries?: AnalyticsTimeSeries;
@@ -65,6 +70,34 @@ const Loading: React.FC<{ testId: string }> = ({ testId }) => {
   return (
     <div data-testid={testId} className="py-8">
       <Spinner size="sm" label={t('common.loading')} />
+    </div>
+  );
+};
+
+/**
+ * What a tab says when the read it shows could not be made, with the way to
+ * make it again when there is one.
+ */
+const Unreadable: React.FC<{ testId: string; message: string; onRetry?: () => void }> = ({
+  testId,
+  message,
+  onRetry,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div data-testid={testId} className="flex flex-col gap-2">
+      <ErrorBanner data-testid={`${testId}-message`} message={message} />
+      {onRetry && (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={onRetry}
+          data-testid={`${testId}-retry`}
+        >
+          {t('common.retry')}
+        </Button>
+      )}
     </div>
   );
 };
@@ -109,6 +142,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   onSelectReport,
   onExportReport,
   reportsLoading = false,
+  reportsError,
+  onRetryReports,
   auditLoading = false,
   lineageLoading = false,
 }) => {
@@ -153,11 +188,22 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   /**
    * The tabs a producer feeds: one that has answered, is reading, or said why
    * it could not. The reports and their summary come in one answer, so the
-   * executions and analytics tabs wait on the same read.
+   * executions and analytics tabs wait on the same read, and both say when it
+   * failed: the executions tab said "No reports generated yet", and the
+   * analytics tab was taken away.
    */
+  const reportsFailed = reportsError !== undefined;
   const tabs = [
-    { id: 'executions', label: t('reports.executions'), fed: hasReports || reportsLoading },
-    { id: 'analytics', label: t('reports.analytics'), fed: hasAnalytics || reportsLoading },
+    {
+      id: 'executions',
+      label: t('reports.executions'),
+      fed: hasReports || reportsLoading || reportsFailed,
+    },
+    {
+      id: 'analytics',
+      label: t('reports.analytics'),
+      fed: hasAnalytics || reportsLoading || reportsFailed,
+    },
     {
       id: 'audit',
       label: t('reports.audit'),
@@ -264,7 +310,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     is still reading it. An empty list here would read as "the
                     report ran and found nothing" before anything was read. */}
                 {tab.id === 'executions' &&
-                  (hasReports ? (
+                  (reportsFailed ? (
+                    <Unreadable
+                      testId="reports-executions-error"
+                      message={t('reports.reportsUnreadable', { error: reportsError })}
+                      onRetry={onRetryReports}
+                    />
+                  ) : hasReports ? (
                     <ExecutionReportView
                       reports={reports}
                       selectedReportId={selectedReportId}
@@ -275,7 +327,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     <Loading testId="reports-executions-loading" />
                   ))}
                 {tab.id === 'analytics' &&
-                  (hasAnalytics ? (
+                  (reportsFailed ? (
+                    <Unreadable
+                      testId="reports-analytics-error"
+                      message={t('reports.analyticsUnreadable')}
+                      onRetry={onRetryReports}
+                    />
+                  ) : hasAnalytics ? (
                     <AnalyticsDashboard
                       summary={analyticsSummary}
                       operationsOverTime={operationsOverTime}

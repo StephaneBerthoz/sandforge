@@ -69,9 +69,7 @@ export class AIDataGenerator {
         .filter((rule) => rule.fieldType?.toLowerCase() === 'phone')
         .map((rule) => rule.fieldApiName),
     );
-    let replaced = 0;
-    const replacement = (written: string): string =>
-      reservedPhone(localeOfPhone(written) ?? DEFAULT_PHONE_LOCALE, replaced++);
+    const replacement = phoneReplacement();
 
     while (remaining > 0) {
       const batchSize = Math.min(remaining, MAX_RECORDS_PER_CALL);
@@ -84,6 +82,16 @@ export class AIDataGenerator {
 
     return results.slice(0, count);
   }
+}
+
+/**
+ * What {@link reachNobody} puts in place of a phone number someone may hold:
+ * a number nobody holds in the locale its country code names, or in the
+ * default one, each replacement a number of its own.
+ */
+export function phoneReplacement(): (written: string) => string {
+  let replaced = 0;
+  return (written) => reservedPhone(localeOfPhone(written) ?? DEFAULT_PHONE_LOCALE, replaced++);
 }
 
 /**
@@ -152,16 +160,22 @@ const WHOLE_PHONE = /^\+?[\d ()./-]+$/;
 /**
  * A number written to be dialled, inside free text: in international form
  * (+33 …), with an area code in brackets ((415) …), national with its leading
- * 0 (06 12 34 56 78), or in the North American 3-3-4 grouping. Its digit
- * groups are joined by one separator, or follow a bracket: the full stop
- * ending a sentence does not join the next one's figures to it, and no run of
- * digits can be split two ways, which would let a long one stall the match. A
- * run of digits written any other way — an amount, an IBAN, a SIRET — is left
- * as it is: turned into a phone number it would be corrupted for nothing. None
- * starts inside a word, an email address or a longer run of digit groups.
+ * 0 (06 12 34 56 78), in the North American 3-3-4 grouping, or in the national
+ * forms of Spain and Brazil, which have no leading 0: a Spanish number's nine
+ * digits from 6 to 9 grouped 3-3-3 or 3-2-2-2 (912 345 678, 612 34 56 78),
+ * and a Brazilian one's area code before a hyphenated number (11 91234-5678).
+ * Its digit groups are joined by one separator, or follow a bracket: the full
+ * stop ending a sentence does not join the next one's figures to it, and no
+ * run of digits can be split two ways, which would let a long one stall the
+ * match. A run of digits written any other way — an amount, an IBAN, a SIRET —
+ * is left as it is: turned into a phone number it would be corrupted for
+ * nothing. A Spanish number is grouped as an amount written with spaces is, so
+ * one next to a currency sign, followed by decimals or by more digit groups is
+ * read as the amount or the identifier it is. None starts inside a word, an
+ * email address or a longer run of digit groups.
  */
 const WRITTEN_PHONE =
-  /(?<![\w+.@-])(?<!\d )(?:(?:\+\d+|\(\d{1,4}\)|0\d*)(?:[ ./-]?\(\d+\)|[ ./-]\d+|(?<=\))\d+)*|\d{3}[ .-]\d{3}[ .-]\d{4})(?![\w@])/g;
+  /(?<![\w+.@-])(?<!\d )(?:(?:\+\d+|\(\d{1,4}\)|0\d*)(?:[ ./-]?\(\d+\)|[ ./-]\d+|(?<=\))\d+)*|\d{3}[ .-]\d{3}[ .-]\d{4}|(?<![€$£¥] ?)(?:[6-9]\d{2}(?<sep>[ .-])\d{3}\k<sep>\d{3}|[6-9]\d{2} \d{2} \d{2} \d{2}|[1-9]{2} (?:9 ?)?\d{4}-\d{4})(?![ ./,-]?\d| ?[€$£¥%]))(?![\w@])/g;
 
 /** A date, which a national number's leading 0 and its separators would otherwise take for one. */
 const DATE = /^\d{1,4}[./-]\d{1,2}[./-]\d{1,4}$/;

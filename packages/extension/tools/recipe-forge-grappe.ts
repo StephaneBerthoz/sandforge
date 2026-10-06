@@ -12,7 +12,7 @@
  * Default scenario: clone Case 500XX00000000001AAA from SOURCE-UAT → TARGET-DEV
  * with depth=custom=5 (matches the Forge wizard screenshot).
  */
-import { duplicateRuleHeaders } from '@sandforge/shared';
+import { recordWriteHeaders } from '@sandforge/shared';
 import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
         const results = await conn
           .sobject(objectName)
           .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
-            headers: duplicateRuleHeaders(true),
+            headers: recordWriteHeaders(),
           });
         const arr = Array.isArray(results) ? results : [results];
         return arr.map((r) => ({
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
         const results = await conn
           .sobject(objectName)
           .update(records as unknown as { Id: string }[], {
-            headers: duplicateRuleHeaders(true),
+            headers: recordWriteHeaders(),
           });
         const arr = Array.isArray(results) ? results : [results];
         return arr.map((r, i) => ({
@@ -430,7 +430,7 @@ async function main(): Promise<void> {
           // record graph into an org that already resembles its source.
           const results = await conn
             .sobject(objectName)
-            .create(records, { headers: duplicateRuleHeaders(true) });
+            .create(records, { headers: recordWriteHeaders() });
           const arr = Array.isArray(results) ? results : [results];
           let succ = 0;
           let fail = 0;

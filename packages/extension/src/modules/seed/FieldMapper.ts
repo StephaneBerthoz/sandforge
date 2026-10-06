@@ -1,5 +1,5 @@
 import type { SeedObjectConfig, FieldRule, SeedAiFallback } from '@sandforge/shared';
-import type { AIDataGenerator } from './AIDataGenerator';
+import { phoneReplacement, reachNobody, type AIDataGenerator } from './AIDataGenerator';
 import type { FakerFallback } from './FakerFallback';
 import { fillDigitMask } from './LocaleData';
 
@@ -38,9 +38,10 @@ export class FieldMapper {
 
     const aiRules = fieldRules.filter((r) => r.ruleType === 'ai_generate');
     const fakerRules = fieldRules.filter((r) => r.ruleType === 'faker');
-    const otherRules = fieldRules.filter(
-      (r) => r.ruleType !== 'ai_generate' && r.ruleType !== 'faker',
-    );
+    const replacement = phoneReplacement();
+    const otherRules = fieldRules
+      .filter((r) => r.ruleType !== 'ai_generate' && r.ruleType !== 'faker')
+      .map((rule) => pickingValuesThatReachNobody(rule, replacement));
 
     const aiRecords =
       aiRules.length > 0 ? await this.deps.aiGenerator.generate(aiRules, recordCount) : [];
@@ -97,6 +98,33 @@ export class FieldMapper {
 
     return records;
   }
+}
+
+/**
+ * A pick rule whose values reach nobody: an email address or a phone number
+ * among them is rewritten as a model's answer is (see {@link reachNobody}),
+ * each value once, so the values are still drawn as often as each other.
+ *
+ * A persona's random picks become these values, and a persona is as often a
+ * model's writing as an answer is: an AI-written persona can give a contact
+ * field real-looking addresses and numbers to pick from, which were written
+ * to the org as they stood. A picklist's own values are words, and none of
+ * them is changed.
+ */
+function pickingValuesThatReachNobody(
+  rule: FieldRule,
+  replacement: (written: string) => string,
+): FieldRule {
+  const values = rule.config.picklistValues;
+  if (rule.ruleType !== 'picklist_random' || !values) return rule;
+  const phoneFields = new Set(rule.fieldType?.toLowerCase() === 'phone' ? [rule.fieldApiName] : []);
+  const safeValues = values.map((value) => {
+    const safe = reachNobody({ [rule.fieldApiName]: value }, phoneFields, replacement)[
+      rule.fieldApiName
+    ];
+    return typeof safe === 'string' ? safe : value;
+  });
+  return { ...rule, config: { ...rule.config, picklistValues: safeValues } };
 }
 
 /**

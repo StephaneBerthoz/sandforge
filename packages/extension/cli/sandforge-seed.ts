@@ -29,7 +29,7 @@ import {
   PREBUILT_SEED_TEMPLATES,
   SEED_RELATION_LIMITS,
   describedFieldRule,
-  duplicateRuleHeaders,
+  recordWriteHeaders,
   integerDigitsOf,
   plannedChildCount,
 } from '@sandforge/shared';
@@ -468,7 +468,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const batch = records.slice(at, at + batchSize);
       const written = (await conn
         .sobject(objectApiName)
-        .create(batch, { headers: duplicateRuleHeaders(true) })) as Array<{
+        .create(batch, { headers: recordWriteHeaders() })) as Array<{
         success: boolean;
         id?: string;
         errors?: Array<{ message: string }>;

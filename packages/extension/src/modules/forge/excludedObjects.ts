@@ -27,8 +27,8 @@
 
 import { isFileBodiedObject, isUncopyableObject } from '@sandforge/shared';
 
-/** Hub, system and non-queryable objects excluded by exact API name. */
-const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
+/** Hub, system and non-queryable objects excluded by API name. */
+const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   'User',
   'Group',
   'Profile',
@@ -91,9 +91,21 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
   // of their own, which writes both.
   'ContentDocument',
   'ContentDocumentLink',
-]);
+];
 
-/** History, feed, sharing and change-event variants of any object. */
+/*
+ * Every name below is matched case-insensitively, as Salesforce matches an
+ * object's name and as `isUncopyableObject` already did: Sync's boundary and
+ * object picker read this list, and a configuration naming `loginhistory` or
+ * `ACCOUNTSHARE` passed both while `user` was refused.
+ */
+
+/** {@link EXCLUDED_OBJECT_NAMES} in lower case. */
+const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set(
+  EXCLUDED_OBJECT_NAMES.map((name) => name.toLowerCase()),
+);
+
+/** History, feed, sharing and change-event variants of any object, in lower case. */
 const EXCLUDED_SUFFIXES: readonly string[] = [
   'History',
   'Feed',
@@ -101,16 +113,17 @@ const EXCLUDED_SUFFIXES: readonly string[] = [
   'ChangeEvent',
   '__hd',
   '__Tag',
-];
+].map((suffix) => suffix.toLowerCase());
 
 /**
  * Managed-package namespaces left out of a clone. Vlocity (`vlocity_ins__`,
  * `vlocity_cmt__`, `vlocity_ps__`) hangs dozens of configuration objects off
  * standard records through reverse lookups; following them from one Case or
  * Account pulls the package's catalogue into a dev sandbox instead of the
- * record's data.
+ * record's data. Read as a namespace, its `__` included: an org's own
+ * `Vlocity__c`, which lower-cased starts the same way, is data.
  */
-const EXCLUDED_PREFIXES: readonly string[] = ['vlocity_'];
+const EXCLUDED_NAMESPACE = /^vlocity_[a-z0-9]+__/;
 
 /**
  * Whether a copy refuses to discover or write `objectApiName`.
@@ -122,14 +135,30 @@ export function isExcludedFromCopy(
   objectApiName: string,
   described?: ReadonlySet<string>,
 ): boolean {
-  if (EXCLUDED_OBJECTS.has(objectApiName)) return true;
+  const name = objectApiName.toLowerCase();
+  if (EXCLUDED_OBJECTS.has(name)) return true;
   // A file is no record to clone: read as one, its body comes back as the
   // address of the file, and that address is what the insert would have
   // written. Discovery used to walk into ContentVersion from a quote.
   if (isFileBodiedObject(objectApiName)) return true;
-  if (described?.has(objectApiName)) return true;
-  if (EXCLUDED_PREFIXES.some((prefix) => objectApiName.startsWith(prefix))) return true;
-  return EXCLUDED_SUFFIXES.some((suffix) => objectApiName.endsWith(suffix));
+  if (described && (described.has(objectApiName) || lowerCased(described).has(name))) return true;
+  if (EXCLUDED_NAMESPACE.test(name)) return true;
+  return EXCLUDED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+/** Each set of names {@link lowerCased} has read, with its size then, in lower case. */
+const LOWER_CASED = new WeakMap<ReadonlySet<string>, { size: number; names: Set<string> }>();
+
+/**
+ * `names` in lower case, read once per set: discovery asks of every lookup of
+ * every object. Read again when the set has grown or shrunk since.
+ */
+function lowerCased(names: ReadonlySet<string>): ReadonlySet<string> {
+  const read = LOWER_CASED.get(names);
+  if (read && read.size === names.size) return read.names;
+  const lower = new Set([...names].map((name) => name.toLowerCase()));
+  LOWER_CASED.set(names, { size: names.size, names: lower });
+  return lower;
 }
 
 /**

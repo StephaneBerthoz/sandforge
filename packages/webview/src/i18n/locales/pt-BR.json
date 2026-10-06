@@ -1291,6 +1291,16 @@
     "ruleCount_other": "{{count}} regras",
     "previewAnonymization": "Pré-visualizar",
     "applyAnonymization": "Aplicar",
+    "coverage": {
+      "title": "O que uma restauração pode trazer de volta",
+      "latestBackup": "Último backup desta org: {{date}}. Uma restauração traz de volta as linhas que ele contém, e nenhuma outra.",
+      "noBackup": "Esta org não tem backup nesta máquina: depois de mascarado, nenhum valor pode ser recuperado.",
+      "object": "Objeto",
+      "inOrg": "Linhas na org",
+      "inBackup": "Linhas no backup",
+      "notCounted": "Não contado",
+      "shortfall": "Mascarado de vez além do que o backup contém: {{objects}}."
+    },
     "compliance": "Conformidade",
     "frameworks": {
       "gdpr": "LGPD",
@@ -1797,6 +1807,8 @@
     "audit": "Registro de auditoria",
     "lineage": "Linhagem de dados",
     "noReports": "Nenhum relatório gerado",
+    "reportsUnreadable": "Não foi possível ler os relatórios: {{error}}",
+    "analyticsUnreadable": "Não foi possível carregar os analíticos: eles vêm com os relatórios, que não puderam ser lidos.",
     "generateReport": "Gerar relatório",
     "exportReport": "Exportar relatório",
     "reportType": "Tipo de relatório",
@@ -2414,6 +2426,7 @@
     "anonymize": "Anonimizar",
     "includeNode": "Incluir na execução",
     "anonymizationPreview": "Pré-visualização da anonimização",
+    "contactPointsPreview": "E-mails e telefones, como a execução os grava",
     "fieldName": "Campo",
     "before": "Antes",
     "after": "Depois",
@@ -2491,6 +2504,7 @@
     "depthFullTooltip": "A árvore de dependências, até 5 níveis de profundidade",
     "depthCustomTooltip": "Especifique a profundidade máxima de relacionamento",
     "depthCustomHint": "Até {{max}} níveis: além disso, a descoberta descreveria milhares de objetos em uma org de CRM e esgotaria seus limites de API sem produzir um grafo utilizável.",
+    "depthCustomInvalid": "Digite um número inteiro de 1 a {{max}}.",
     "soqlPreviewHint": "A pré-visualização está disponível para entrada de ID de registro",
     "templatePreviewHint": "Selecione um modelo para ver sua configuração",
     "aiPreviewHint": "A IA redige a consulta de onde parte a descoberta; você a confere e a executa",
@@ -2685,8 +2699,11 @@
       "noCompliance": "Nenhum framework de conformidade selecionado. Escolha um para gerar um relatório.",
       "complianceLoading": "Analisando a conformidade...",
       "complianceError": "Não foi possível gerar o relatório de conformidade: {{error}}",
-      "complianceWaiting": "Selecione um framework e execute para gerar o relatório de conformidade.",
+      "complianceWaiting": "O relatório é feito assim que um framework é selecionado, sobre a execução como ela está.",
       "complianceStatus": "Status",
+      "compliancePass": "Aprovado",
+      "compliancePartial": "Parcial",
+      "complianceFail": "Reprovado",
       "diffsLoading": "Comparando esquemas de metadados...",
       "noDiffs": "Nenhuma diferença de metadados detectada.",
       "diffsFound_one": "{{count}} diferença encontrada entre origem e destino.",
@@ -2909,6 +2926,10 @@
         "explanation": "O Salesforce recusou a solicitação: a org para a qual ela ia esgotou as solicitações de API que lhe são permitidas em 24 horas, ou está executando muitas solicitações longas ao mesmo tempo. O clone grava até 200 registros por solicitação, e as leituras e descrições dele consomem solicitações próprias.",
         "action": "Espere até que o contador dessa org libere solicitações — a página Monitor mostra o uso de API dela — e então tente de novo; uma profundidade menor ou menos registros por objeto consomem menos solicitações."
       },
+      "sessionExpired": {
+        "explanation": "O Salesforce não aceita mais a sessão que o SandForge mantém para esta org: ela expirou, ou foi encerrada por um logout, uma troca de senha ou um administrador.",
+        "action": "Autentique a org de novo — Conectar Org, ou um login com o Salesforce CLI — e então tente de novo."
+      },
       "crossReferenceAccess": {
         "explanation": "O usuário com que o clone grava não tem acesso a um registro para o qual este aponta na org de destino — de leitura ou, para o principal de um relacionamento mestre-detalhes, de edição: um registro que esse usuário não possui nem tem compartilhado, como um que a org de destino já tinha e que o clone vinculou em vez de gravar.",
         "action": "Na org de destino, compartilhe esse registro com o usuário, ou dê a ele Ver tudo ou Modificar tudo no objeto dele, ou conecte a org de destino com um usuário que tenha esse acesso, como um administrador; então tente de novo os objetos com falha."
@@ -2957,6 +2978,34 @@
       "outOfScope": {
         "explanation": "Nenhum dos registros pai deste objeto faz parte da clonagem, e ele não é o objeto raiz, então nenhum de seus registros foi clonado.",
         "action": "Aumente a profundidade se precisar de registros deste objeto na clonagem."
+      },
+      "guardBlocked": {
+        "explanation": "O Production Guard recusou esta execução antes de ler qualquer coisa, pelo motivo que a mensagem dá. Nada foi gravado.",
+        "action": "Confira se o destino é a org em que você pretendia gravar e execute de novo a partir da revisão."
+      },
+      "guardDeclined": {
+        "explanation": "A execução foi cancelada na confirmação do Production Guard, antes de ler qualquer coisa. Nada foi gravado.",
+        "action": "Volte à revisão, execute de novo quando quiser gravar nesta org e confirme."
+      },
+      "notInitialized": {
+        "explanation": "Uma parte do SandForge de que a execução precisa não estava pronta nesta janela: o módulo Forge, ou o Production Guard, sem o qual nada é gravado. Nada foi gravado.",
+        "action": "Recarregue a janela (Developer: Reload Window) e execute de novo."
+      },
+      "forgeRunning": {
+        "explanation": "Outra execução do Forge ainda está em andamento nesta janela, e o Forge executa uma por vez. Esta não gravou nada.",
+        "action": "Espere essa execução terminar — uma execução que recebeu o pedido de parar termina assim que a etapa em andamento acaba — e execute de novo."
+      },
+      "duplicateRun": {
+        "explanation": "A mesma execução foi enviada de novo enquanto ainda estava em andamento, ou menos de um minuto depois de gravar seus registros, e recusada para que não sejam gravados duas vezes. Esta não gravou nada.",
+        "action": "Veja os resultados da primeira execução antes de executar de novo: um minuto depois de ela gravar, a mesma execução é aceita de novo."
+      },
+      "retryUnavailable": {
+        "explanation": "A nova tentativa não pôde começar: o que a execução que ela retoma gravou não é conhecido aqui — ela não está mais no histórico, não guardou registro do que gravou ou gravou em outra org, ou seus registros foram removidos. Nada foi gravado.",
+        "action": "Execute a clonagem de novo a partir da revisão."
+      },
+      "filesNotAccepted": {
+        "explanation": "Esta execução anonimiza seus registros e copia os arquivos deles, cujo conteúdo não pode ser anonimizado: os arquivos só são copiados quando você aceita que sejam copiados como estão. Nada foi lido nem gravado.",
+        "action": "Na revisão, aceite que os arquivos sejam copiados como estão, ou desative a cópia, e execute de novo."
       },
       "unknown": {
         "explanation": "{{detail}}",

@@ -673,6 +673,7 @@ export class ExtensionHandlers {
         'dataops:quality-scan',
         'dataops:anonymization-template:save',
         'dataops:anonymization-template:delete',
+        'dataops:anonymize:coverage',
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,

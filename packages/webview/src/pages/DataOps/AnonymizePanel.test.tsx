@@ -134,6 +134,76 @@ describe('AnonymizePanel', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  describe('what a restore can bring back', () => {
+    // A backup reads each object up to a cap of rows, and a masking run masks
+    // every row: the rows past the cap stay masked whatever is restored.
+    const coverage = {
+      templateId: 'tpl-1',
+      backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+      objects: [
+        { objectApiName: 'Contact', count: 30000, backedUp: 2000, truncated: true },
+        { objectApiName: 'Lead', count: null, backedUp: 0, truncated: false },
+        { objectApiName: 'Account', count: 120, backedUp: 120, truncated: false },
+      ],
+    };
+
+    it('sets, before Apply, each object’s rows in the org against those the latest backup holds', () => {
+      render(
+        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+      );
+
+      const box = screen.getByTestId('restore-coverage');
+      expect(within(box).getByText('What a restore can bring back')).toBeDefined();
+      expect(screen.getByTestId('restore-coverage-backup').textContent).toMatch(
+        /^Latest backup of this org: .+\. A restore brings back the rows it holds, and no others\.$/,
+      );
+      const contact = within(screen.getByTestId('restore-coverage-Contact'));
+      expect(contact.getByText('30,000')).toBeDefined();
+      expect(contact.getByText('2,000')).toBeDefined();
+      expect(
+        within(screen.getByTestId('restore-coverage-Lead')).getByText('Not counted'),
+      ).toBeDefined();
+      // Named where a restore leaves rows masked: past the cap, and only there.
+      expect(screen.getByTestId('restore-coverage-shortfall').textContent).toBe(
+        'Masked for good past what the backup holds: Contact.',
+      );
+      // Said ahead of the button that masks.
+      expect(
+        box.compareDocumentPosition(screen.getByTestId('apply-btn')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('says the org has no backup to bring anything back from', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{
+            templateId: 'tpl-1',
+            objects: [{ objectApiName: 'Contact', count: 5, backedUp: 0, truncated: false }],
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-coverage-backup').textContent).toBe(
+        'This org has no backup on this machine: once masked, no value can be brought back.',
+      );
+      expect(screen.getByTestId('restore-coverage-shortfall').textContent).toContain('Contact');
+    });
+
+    it('shows no answer given for another template than the one on screen', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-saved-1"
+          coverage={coverage}
+        />,
+      );
+      expect(screen.queryByTestId('restore-coverage')).toBeNull();
+    });
+  });
+
   it('should show preview data table', () => {
     const previewData = [{ Name: 'J***', Email: '***@***.com' }];
     render(

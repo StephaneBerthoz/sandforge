@@ -149,6 +149,12 @@ export interface LiveOperationSnapshot {
   elapsedMs: number;
   recordsPerSecond: number;
   error?: string;
+  /**
+   * Whether Live Operations can hold the run before its next step and let it
+   * go on: a Sync run, through `sync:pause` and `sync:resume`. Absent for any
+   * other run, and for a sync's simulation.
+   */
+  pausable?: boolean;
 }
 
 /** Response containing the list of live operations. */

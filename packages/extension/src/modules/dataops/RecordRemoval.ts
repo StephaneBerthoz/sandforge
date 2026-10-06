@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Connection } from 'jsforce';
 import type { RelatedRecordCount, RemovalOutcome } from '@sandforge/shared';
-import { duplicateRuleHeaders } from '@sandforge/shared';
+import { recordWriteHeaders } from '@sandforge/shared';
 
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -43,7 +43,7 @@ export function orgSession(conn: Connection, context: string): OrgSession {
       conn
         .sobject(objectApiName)
         .update(records as Array<Record<string, unknown> & { Id: string }>, {
-          headers: duplicateRuleHeaders(true),
+          headers: recordWriteHeaders(),
         }),
     destroy: (objectApiName, ids) => conn.sobject(objectApiName).destroy(ids),
   };

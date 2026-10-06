@@ -597,6 +597,32 @@ describe('OrphanExpander', () => {
     expect(deps.insertRecords).not.toHaveBeenCalled();
   });
 
+  it('does not expand a reference to an excluded object whatever the case its name is written in', async () => {
+    // Salesforce reads an object's name whatever its case; the list was read
+    // in the describe's case alone.
+    const deps = makeDeps();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'Job__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['asyncapexjob'],
+        nillable: false,
+      },
+    ];
+    const { input } = makeInput(deps, {
+      fieldInfos: fields,
+      records: [{ Id: '02iOLD1', Job__c: '707AP00000JOB01' }],
+    });
+
+    await new OrphanExpander(deps).expandForNode(input);
+
+    expect(deps.describeFields).not.toHaveBeenCalled();
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+  });
+
   it('copies a Person Account parent without its computed Name, keeping __pc fields', async () => {
     const deps = makeDeps({
       describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([

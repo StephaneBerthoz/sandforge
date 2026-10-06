@@ -586,6 +586,10 @@ export const dataOpsAnonymizePayloadSchema = z.object({
   templateId: opaqueIdSchema,
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
 });
+export const dataOpsAnonymizeCoveragePayloadSchema = z.object({
+  orgId: orgIdSchema,
+  templateId: opaqueIdSchema,
+});
 /**
  * Rules the user saves as a template of their own: each an `Object.Field` and
  * a method a DataOps run applies with no setting (SAVED_TEMPLATE_METHODS), no

@@ -32,6 +32,13 @@ export interface LiveOperation {
   recordsPerSecond: number;
   /** Optional error message if failed. */
   error?: string;
+  /**
+   * Whether the run can be held before its next step and let go on from Live
+   * Operations: a Sync run, through `sync:pause` and `sync:resume`. Absent
+   * for every other run, which can be cancelled and not paused, and for a
+   * sync's simulation, which has no pause.
+   */
+  pausable?: boolean;
 }
 
 /** Callback invoked when the operation list changes. */
@@ -52,12 +59,14 @@ export class LiveOperationTracker {
    * @param module - Module name (e.g. 'sync', 'seed').
    * @param description - Short description of what the operation does.
    * @param totalRecords - Expected total records (0 if unknown).
+   * @param options - Whether the run can be paused: see {@link LiveOperation.pausable}.
    */
   register(
     operationId: string,
     module: string,
     description: string,
     totalRecords: number = 0,
+    options: { pausable?: boolean } = {},
   ): void {
     const op: LiveOperation = {
       operationId,
@@ -71,6 +80,7 @@ export class LiveOperationTracker {
       startedAt: new Date().toISOString(),
       elapsedMs: 0,
       recordsPerSecond: 0,
+      ...(options.pausable ? { pausable: true } : {}),
     };
     this.operations.set(operationId, op);
     this.notifyChange();

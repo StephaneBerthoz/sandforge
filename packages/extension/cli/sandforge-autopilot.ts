@@ -25,7 +25,7 @@
 
 import type { Connection } from 'jsforce';
 import type { AutopilotRefusal, ComplianceFrameworkType } from '@sandforge/shared';
-import { duplicateRuleHeaders } from '@sandforge/shared';
+import { recordWriteHeaders } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { AutopilotOrchestrator } from '../src/modules/autopilot/AutopilotOrchestrator.js';
 import { SchemaScanner } from '../src/modules/autopilot/SchemaScanner.js';
@@ -237,7 +237,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           const outcomes = toSaveOutcomes(
             await targetConn
               .sobject(objectApiName)
-              .create(cleaned, { headers: duplicateRuleHeaders(true) }),
+              .create(cleaned, { headers: recordWriteHeaders() }),
             objectApiName,
           );
           // Every id a run creates is reported, so the run can be undone to
@@ -251,7 +251,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             await targetConn
               .sobject(objectApiName)
               .update(records as Array<Record<string, unknown> & { Id: string }>, {
-                headers: duplicateRuleHeaders(true),
+                headers: recordWriteHeaders(),
               }),
             objectApiName,
           ),

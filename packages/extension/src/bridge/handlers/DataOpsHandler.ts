@@ -3,16 +3,13 @@ import { randomBytes } from 'node:crypto';
 import type {
   AnonymizationRuleConfig,
   AnonymizationTemplateRule,
+  AnonymizeCoverageObject,
   AuditObjectCounts,
   BackupSummary,
   DataOpsAnonymizationRule,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
-import {
-  duplicateRuleHeaders,
-  sanitizeSoqlObjectName,
-  orgTypeToGuardTier,
-} from '@sandforge/shared';
+import { recordWriteHeaders, sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -46,6 +43,7 @@ import {
   dataOpsBackupExportPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  dataOpsAnonymizeCoveragePayloadSchema,
   dataOpsQualityScanPayloadSchema,
   anonymizationTemplateSavePayloadSchema,
   anonymizationTemplateDeletePayloadSchema,
@@ -132,6 +130,7 @@ const DATAOPS_TYPES = new Set([
   'dataops:quality-scan',
   'dataops:anonymization-template:save',
   'dataops:anonymization-template:delete',
+  'dataops:anonymize:coverage',
   'precheck:pii-scan',
 ]);
 
@@ -203,6 +202,14 @@ function plannedAnonymizeObjects(
   return template.rules
     .map((r) => r.fieldPattern.split('.')[0])
     .filter((v, i, a) => a.indexOf(v) === i);
+}
+
+/** A backup kept on this machine, as its metadata records it. */
+interface KeptBackup {
+  operationId: string;
+  timestamp: string;
+  /** Per object, the rows it holds, and whether it stopped at the cap with the object holding more. */
+  objects: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
 }
 
 /** Rows a masking run writes back per update call: the most one REST collection takes. */
@@ -522,6 +529,9 @@ export class DataOpsHandler implements DomainHandler {
       case 'dataops:anonymization-template:delete':
         this.handleTemplateDelete(msg);
         return true;
+      case 'dataops:anonymize:coverage':
+        await this.handleAnonymizeCoverage(msg);
+        return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
         return true;
@@ -555,14 +565,19 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * The fields a masking run reads of an object: the Id it writes each row
-   * back by, and the fields its rules mask that the object has.
+   * What a masking run reads of an object and masks in it: the rules whose
+   * field the object has, under the name the describe gives it; the fields it
+   * reads, the Id it writes each row back by and those; and the fields its
+   * rules name that the object lacks.
    *
    * Every field used to be read, for the few the template names: a run now
    * reads every row, and the rest — long text, rich text, every column of every
    * page — would cross the wire for nothing. A field the object lacks is not
    * asked for, as reading every field never brought it, so its rule masks
-   * nothing either way.
+   * nothing either way — and is named, which it was not: a run whose template
+   * was written for another org's custom fields masked none of them and said
+   * it had completed. A field is matched whatever its case, as Salesforce matches
+   * it, and a rule written `Contact.email` masks the `Email` the rows carry.
    *
    * @param conn - Connection used for the describe call.
    * @param objectApiName - Already-sanitized SObject API name.
@@ -572,14 +587,24 @@ export class DataOpsHandler implements DomainHandler {
     conn: { describe: (objectApiName: string) => Promise<{ fields: Array<{ name: string }> }> },
     objectApiName: string,
     rules: readonly DataOpsAnonymizationRule[],
-  ): Promise<string> {
-    const described = new Set((await conn.describe(objectApiName)).fields.map((f) => f.name));
-    const masked = rules
+  ): Promise<{ rules: DataOpsAnonymizationRule[]; select: string; missing: string[] }> {
+    const described = new Map(
+      (await conn.describe(objectApiName)).fields.map((f) => [f.name.toLowerCase(), f.name]),
+    );
+    const kept: DataOpsAnonymizationRule[] = [];
+    const missing: string[] = [];
+    for (const rule of rules) {
+      const name = described.get(rule.fieldApiName.toLowerCase());
+      if (name !== undefined) kept.push({ ...rule, fieldApiName: name });
+      // A wildcard names no field: there is none to say is missing.
+      else if (rule.fieldApiName !== '*' && !missing.includes(rule.fieldApiName)) {
+        missing.push(rule.fieldApiName);
+      }
+    }
+    const masked = kept
       .map((r) => r.fieldApiName)
-      .filter(
-        (field, i, all) => field !== 'Id' && described.has(field) && all.indexOf(field) === i,
-      );
-    return ['Id', ...masked].join(', ');
+      .filter((field, i, all) => field !== 'Id' && all.indexOf(field) === i);
+    return { rules: kept, select: ['Id', ...masked].join(', '), missing };
   }
 
   /**
@@ -1459,7 +1484,7 @@ export class DataOpsHandler implements DomainHandler {
           const results = (await conn
             .sobject(safeObj)
             .upsert(cleaned as Array<Record<string, unknown> & { Id: string }>, 'Id', {
-              headers: duplicateRuleHeaders(true),
+              headers: recordWriteHeaders(),
             })) as unknown as JsforceResult[];
           const arr = Array.isArray(results) ? results : [results];
           // Only the successes used to be counted, so a row the org refused
@@ -1710,6 +1735,8 @@ export class DataOpsHandler implements DomainHandler {
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
 
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
+      /** The fields the template's rules name that their object does not have. */
+      const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
       /** The org's API usage, once it passed the line past which the run makes no call. */
@@ -1794,7 +1821,7 @@ export class DataOpsHandler implements DomainHandler {
           return;
         }
 
-        const rules: DataOpsAnonymizationRule[] = objectRules.map((r) => ({
+        const templateRules: DataOpsAnonymizationRule[] = objectRules.map((r) => ({
           objectApiName: objectName,
           fieldApiName: r.fieldPattern.includes('.')
             ? r.fieldPattern.split('.')[1]
@@ -1810,7 +1837,20 @@ export class DataOpsHandler implements DomainHandler {
             | 'preserve_format',
           config: this.ruleConfig(r),
         }));
-        const fields = await this.maskedFields(conn, safeObj, rules);
+        const {
+          rules,
+          select: fields,
+          missing,
+        } = await this.maskedFields(conn, safeObj, templateRules);
+        if (missing.length > 0) {
+          fieldsNotFound.push(
+            ...missing.map((fieldApiName) => ({ objectApiName: safeObj, fieldApiName })),
+          );
+          this.deps.log(
+            `[WARN] dataops:anonymize ${operationId}: ${safeObj} has no field ` +
+              `${missing.join(', ')} — the template's rule masks nothing there.`,
+          );
+        }
         failure.batchSize = MASKING_BATCH_SIZE;
 
         // Page after page to the object's last row, each written back before
@@ -1890,7 +1930,7 @@ export class DataOpsHandler implements DomainHandler {
             const updateResults = (await conn
               .sobject(objectName)
               .update(batch as Array<Record<string, unknown> & { Id: string }>, {
-                headers: duplicateRuleHeaders(true),
+                headers: recordWriteHeaders(),
               })) as unknown as JsforceResult[];
             noteApiUsage(`dataops:anonymize update ${safeObj}`);
             // Same dropped count as the restore: a record the org refuses keeps
@@ -1956,7 +1996,7 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const stillHeld = `${recordsNotMasked} still hold their original values (${left})`;
-      const message = cancelled
+      const ranMessage = cancelled
         ? `Anonymization cancelled: ${recordsProcessed} masked before the cancel — ${stillHeld}.`
         : limitHit
           ? `Anonymization stopped at ${limitHit.usagePercent}% of the org's daily API requests ` +
@@ -1966,6 +2006,12 @@ export class DataOpsHandler implements DomainHandler {
             ? `Anonymization completed: ${recordsProcessed} records processed.`
             : `Anonymization ${status}: ${recordsProcessed} masked, ${recordsFailed} rejected by the org` +
               ' — those records still hold their original values.';
+      const message =
+        fieldsNotFound.length > 0
+          ? `${ranMessage} Masked nothing in ${fieldsNotFound
+              .map((f) => `${f.objectApiName}.${f.fieldApiName}`)
+              .join(', ')}: the org has no such field.`
+          : ranMessage;
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
         templateId: payload.templateId,
         status,
@@ -1975,14 +2021,16 @@ export class DataOpsHandler implements DomainHandler {
         objects: maskingResultObjects(tallies),
         message,
         errors: maskErrors,
+        fieldsNotFound,
         ...(cancelled ? { cancelled: true } : {}),
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
       // The page shows a run's end through this notification and nothing
-      // else: a run that left records unmasked, for whatever reason, says so.
-      if (recordsNotMasked > 0) {
+      // else: a run that left records unmasked, for whatever reason, says so,
+      // as does one whose template named a field the org does not have.
+      if (recordsNotMasked > 0 || fieldsNotFound.length > 0) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -2022,6 +2070,94 @@ export class DataOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
+  }
+
+  /**
+   * Answer `dataops:anonymize:coverage`: before an Anonymize, how many rows of
+   * each object the template masks the org holds, and how many of them its
+   * latest backup holds — what a restore can bring back once the run has
+   * masked them all.
+   *
+   * A backup reads each object up to the tier's cap (2,000 rows on a sandbox,
+   * 500 on production), and a masking run masks every row: a backup taken just
+   * before an Anonymize of an object larger than the cap brings back that many
+   * rows and leaves the rest masked, and nothing said so. Read-only: one count
+   * per object, and the backups kept on this machine. An object the org will
+   * not count is listed with no count rather than failing the answer.
+   */
+  private async handleAnonymizeCoverage(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsAnonymizeCoveragePayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const template = this.findTemplate(parsed.templateId);
+      if (!template) throw new Error(`Template "${parsed.templateId}" not found.`);
+      const backup = this.latestBackup(parsed.orgId);
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const objects: AnonymizeCoverageObject[] = [];
+      for (const objectName of plannedAnonymizeObjects({}, template)) {
+        const objectApiName = sanitizeSoqlObjectName(objectName);
+        let count: number | null = null;
+        try {
+          count = await this.countRows(conn, objectApiName);
+        } catch (err: unknown) {
+          this.deps.log(
+            `[WARN] dataops:anonymize:coverage: ${objectApiName} not counted: ${extractErrorMessage(err)}`,
+          );
+        }
+        const held = backup?.objects.find(
+          (o) => o.objectApiName.toLowerCase() === objectApiName.toLowerCase(),
+        );
+        objects.push({
+          objectApiName,
+          count,
+          backedUp: held?.recordCount ?? 0,
+          truncated: held?.truncated === true,
+        });
+      }
+      const response = buildResponse(this.deps, msg, 'dataops:anonymize:coverage:response', {
+        templateId: parsed.templateId,
+        ...(backup
+          ? { backup: { operationId: backup.operationId, timestamp: backup.timestamp } }
+          : {}),
+        objects,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:anonymize:coverage', 'dataops:error', msg, err);
+    }
+  }
+
+  /**
+   * The newest backup kept for an org, as its metadata records it, or
+   * undefined when none is. Keys as `pruneBackups` reads them.
+   */
+  private latestBackup(orgId: string): KeptBackup | undefined {
+    let latest: KeptBackup | undefined;
+    for (const key of this.deps.configStore.getKeysByPrefix('backup:')) {
+      const operationId = key.slice('backup:'.length);
+      if (operationId.includes(':')) continue;
+      const meta = this.deps.configStore.get<{
+        orgId?: string;
+        timestamp?: string;
+        objects?: KeptBackup['objects'];
+      }>(key);
+      if (meta?.orgId !== orgId) continue;
+      const timestamp = meta.timestamp ?? '';
+      if (latest && latest.timestamp.localeCompare(timestamp) >= 0) continue;
+      latest = { operationId, timestamp, objects: meta.objects ?? [] };
+    }
+    return latest;
   }
 
   /**

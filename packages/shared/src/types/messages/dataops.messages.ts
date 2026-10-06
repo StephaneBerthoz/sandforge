@@ -128,6 +128,38 @@ export interface AnonymizationTemplateDeleteResponse extends BaseMessage {
   payload: { templateId: string; deleted: boolean };
 }
 
+/**
+ * Before an Anonymize: how many rows of each object a template masks the org
+ * holds, and how many of them its latest backup holds (validated by
+ * dataOpsAnonymizeCoveragePayloadSchema). Read-only: a count per object.
+ */
+export interface DataOpsAnonymizeCoverageRequest extends BaseMessage {
+  type: 'dataops:anonymize:coverage';
+  payload: { orgId: string; templateId: string };
+}
+
+/** One object a template masks: its rows in the org, and those the latest backup holds. */
+export interface AnonymizeCoverageObject {
+  objectApiName: string;
+  /** Rows the object holds in the org now; null when the org did not say. */
+  count: number | null;
+  /** Rows of it the latest backup holds: 0 when it holds none, or there is no backup. */
+  backedUp: number;
+  /** Whether the backup stopped at its cap of rows per object while the object held more. */
+  truncated: boolean;
+}
+
+/** What a restore of the latest backup can bring back of what a template masks. */
+export interface DataOpsAnonymizeCoverageResponse extends BaseMessage {
+  type: 'dataops:anonymize:coverage:response';
+  payload: {
+    templateId: string;
+    /** The org's latest backup on this machine, when it has one. */
+    backup?: { operationId: string; timestamp: string };
+    objects: AnonymizeCoverageObject[];
+  };
+}
+
 /** PII detection pre-check */
 export interface PIIScanRequest extends BaseMessage {
   type: 'precheck:pii-scan';
@@ -211,6 +243,11 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     message: string;
     /** Why the org refused them, per object. */
     errors: Array<{ objectApiName: string; message: string }>;
+    /**
+     * The fields the template's rules name that their object does not have in
+     * this org, among the objects the run read: their rules masked nothing.
+     */
+    fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
     /** Present when a cancel stopped the run before every record was masked. */
     cancelled?: true;
     /**

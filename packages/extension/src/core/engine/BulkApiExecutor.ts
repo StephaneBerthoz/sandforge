@@ -328,7 +328,15 @@ export interface BulkJobRecordResult {
   errors?: string[];
 }
 
-/** Connection abstraction for creating Bulk API 2.0 jobs */
+/**
+ * Connection abstraction for creating Bulk API 2.0 jobs.
+ *
+ * A job is opened with its operation, its object and, for an upsert, its
+ * external id, and nothing else. Bulk API 2.0 runs an assignment rule only on
+ * a job that names one (`assignmentRuleId`), so the Cases, Leads and Accounts
+ * a job writes keep the owner they carry, as the REST writes keep theirs by
+ * sending `Sforce-Auto-Assign: FALSE` (`recordWriteHeaders`).
+ */
 export interface BulkApiConnection {
   bulk2: {
     createJob: (opts: {

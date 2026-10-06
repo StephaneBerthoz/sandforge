@@ -12,9 +12,11 @@ import { MonitorPage } from './MonitorPage';
  *
  * The operations listed are Seed and Sync runs. Cancel goes out on
  * `execution:abort`, which reaches the AbortController each run registers.
- * Neither run can pause, so no pause or resume is offered. The abort's reply
- * is read: a run the extension no longer knows is refused, the page says so,
- * and the list is read again either way.
+ * A Sync run can be paused and resumed as well, on `sync:pause` and
+ * `sync:resume`, the channels its page uses; the extension marks it
+ * `pausable`, and a run it does not mark — a seed, a sync's simulation — is
+ * offered neither. Every reply is read: a run the extension no longer knows
+ * is refused, the page says so, and the list is read again either way.
  */
 
 vi.mock('../../stores/useAppStore', () => ({
@@ -51,6 +53,13 @@ const mockAbortMutate = vi.fn();
 /** The extension's answer to the last `execution:abort`, as the page sees it. */
 let abortReply: { success: boolean; operationId?: string; error?: string } | null = null;
 
+const mockPauseMutate = vi.fn();
+const mockResumeMutate = vi.fn();
+
+/** The extension's answer to the last `sync:pause`, as the page sees it. */
+let pauseReply: { success: boolean; operationId: string; paused: boolean; error?: string } | null =
+  null;
+
 function makeOperation(overrides: Partial<LiveOperationSnapshot> = {}): LiveOperationSnapshot {
   return {
     operationId: 'op-1',
@@ -69,8 +78,10 @@ function makeOperation(overrides: Partial<LiveOperationSnapshot> = {}): LiveOper
 }
 
 const liveOperations = [
-  makeOperation({ operationId: 'op-1', status: 'running' }),
+  makeOperation({ operationId: 'op-1', status: 'running', pausable: true }),
   makeOperation({ operationId: 'op-2', module: 'seed', status: 'paused' }),
+  makeOperation({ operationId: 'op-3', status: 'paused', pausable: true }),
+  makeOperation({ operationId: 'op-4', description: 'Simulation of a sync', status: 'running' }),
 ];
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
@@ -104,6 +115,18 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
         reset: vi.fn(),
       };
     }
+    if (type === 'sync:pause') {
+      return {
+        mutate: mockPauseMutate,
+        data: pauseReply,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      };
+    }
+    if (type === 'sync:resume') {
+      return { mutate: mockResumeMutate, data: null, loading: false, error: null, reset: vi.fn() };
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -128,7 +151,10 @@ describe('MonitorPage live-operation controls', () => {
   beforeEach(() => {
     mockLiveOpsRefetch.mockClear();
     mockAbortMutate.mockClear();
+    mockPauseMutate.mockClear();
+    mockResumeMutate.mockClear();
     abortReply = null;
+    pauseReply = null;
     monitorPayload = { ...monitorPayload, lastUpdated: '2026-09-15T10:00:00.000Z' };
     useNotificationStore.getState().clearAll();
     useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [mockOrg] });
@@ -140,11 +166,57 @@ describe('MonitorPage live-operation controls', () => {
     expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'op-1' });
   });
 
-  it('offers no pause on a running operation and no resume on a paused one', () => {
+  it('pauses a running sync on sync:pause, the channel its page uses', () => {
+    render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('pause-op-1'));
+    expect(mockPauseMutate).toHaveBeenCalledWith({ operationId: 'op-1' });
+    expect(screen.queryByTestId('resume-op-1')).toBeNull();
+  });
+
+  it('resumes a paused sync on sync:resume', () => {
+    render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('resume-op-3'));
+    expect(mockResumeMutate).toHaveBeenCalledWith({ operationId: 'op-3' });
+    expect(screen.queryByTestId('pause-op-3')).toBeNull();
+  });
+
+  it('offers no pause nor resume on a run the extension does not say can pause', () => {
+    // A paused seed, and a sync's simulation, which has no pause.
     render(<MonitorPage />);
     expect(screen.getByTestId('cancel-op-2')).toBeTruthy();
-    expect(screen.queryByTestId('pause-op-1')).toBeNull();
     expect(screen.queryByTestId('resume-op-2')).toBeNull();
+    expect(screen.queryByTestId('pause-op-2')).toBeNull();
+    expect(screen.getByTestId('cancel-op-4')).toBeTruthy();
+    expect(screen.queryByTestId('pause-op-4')).toBeNull();
+  });
+
+  it('warns when the extension refuses the pause, and reads the list again', () => {
+    const { rerender } = render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('pause-op-1'));
+
+    pauseReply = {
+      success: false,
+      operationId: 'op-1',
+      paused: false,
+      error: 'No sync with this id is running',
+    };
+    rerender(<MonitorPage />);
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.level).toBe('warning');
+    expect(notification?.title).toBe('Could not pause or resume the run');
+    expect(mockLiveOpsRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the list again after an accepted pause, without a warning', () => {
+    const { rerender } = render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('pause-op-1'));
+
+    pauseReply = { success: true, operationId: 'op-1', paused: true };
+    rerender(<MonitorPage />);
+
+    expect(useNotificationStore.getState().notifications).toEqual([]);
+    expect(mockLiveOpsRefetch).toHaveBeenCalledTimes(1);
   });
 
   it('warns when the extension refuses the cancel, and reads the list again', () => {

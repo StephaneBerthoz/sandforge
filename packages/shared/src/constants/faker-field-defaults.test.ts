@@ -73,6 +73,15 @@ describe('faker field defaults', () => {
     expect(defaultFakerMethod('string', 'MiddleName', 'Account')).toBe('firstName');
   });
 
+  it("gives a user's Username a username, which the org refuses a person's name for", () => {
+    // `Username` ends in `name`, and on a user it took a person's name: the
+    // org refuses a user whose username is not an email address in form.
+    expect(defaultFakerMethod('string', 'Username', 'User')).toBe('username');
+    expect(
+      describedFieldRule(described('Username', 'string', { objectApiName: 'User', length: 80 })),
+    ).toEqual({ ruleType: 'faker', config: { fakerMethod: 'username', maxLength: 80 } });
+  });
+
   it("gives a name field of an object nobody named a company's name", () => {
     // The wizard asks for a default knowing the field alone when a field's
     // rule is switched back to faker.

@@ -52,6 +52,44 @@ describe('ForgeDepthChips', () => {
     expect(onCustomDepthChange).toHaveBeenLastCalledWith(7);
   });
 
+  it('refuses 0, a decimal, a negative number and nothing, as the schema does, and says so', () => {
+    // 0 and 2.5 were passed on as they were, and discovery refused them.
+    for (const typed of ['0', '2.5', '-1', '']) {
+      expect(forgeConfigSchema.shape.customDepth.safeParse(Number(typed)).success).toBe(false);
+    }
+
+    const onCustomDepthChange = renderCustom();
+    const input = screen.getByTestId('forge-depth-custom-input') as HTMLInputElement;
+    expect(input.getAttribute('step')).toBe('1');
+    for (const typed of ['0', '2.5', '-1', '']) {
+      fireEvent.change(input, { target: { value: typed } });
+      expect({ typed, invalid: input.getAttribute('aria-invalid') }).toEqual({
+        typed,
+        invalid: 'true',
+      });
+      const error = screen.getByTestId('forge-depth-custom-error');
+      expect(error.textContent).toBe('Enter a whole number from 1 to 10.');
+      expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
+    }
+    expect(onCustomDepthChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '4' } });
+    expect(onCustomDepthChange).toHaveBeenLastCalledWith(4);
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+    expect(screen.queryByTestId('forge-depth-custom-error')).toBeNull();
+  });
+
+  it('shows the depth the run will use again once a refused value is left', () => {
+    renderCustom();
+    const input = screen.getByTestId('forge-depth-custom-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(input.value).toBe('0');
+
+    fireEvent.blur(input);
+    expect(input.value).toBe('3');
+    expect(screen.queryByTestId('forge-depth-custom-error')).toBeNull();
+  });
+
   it('says under the field why the depth stops at 10', () => {
     renderCustom();
     const hint = screen.getByTestId('forge-depth-custom-hint');

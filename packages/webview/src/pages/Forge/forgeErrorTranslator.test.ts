@@ -95,8 +95,72 @@ const TEN_CODES: ReadonlyArray<{
   },
 ];
 
+/**
+ * The session an org's request went with, refused: the platform's words as
+ * the extension passes them on, its code in front.
+ */
+const SESSION_REFUSED = 'INVALID_SESSION_ID: Session expired or invalid';
+
+/**
+ * SandForge's own refusals of a run before it wrote anything, as the
+ * extension sends them: the message it words, and the code beside it.
+ */
+const REFUSALS: ReadonlyArray<{
+  message: string;
+  code: string;
+  hint: string;
+  severity: 'info' | 'warning' | 'error';
+}> = [
+  {
+    message: 'Operation blocked by Production Guard: insert is not allowed on production org',
+    code: 'GUARD_BLOCKED',
+    hint: 'guardBlocked',
+    severity: 'error',
+  },
+  {
+    message: 'Operation cancelled by user (production confirmation declined).',
+    code: 'GUARD_DECLINED',
+    hint: 'guardDeclined',
+    severity: 'info',
+  },
+  {
+    message: 'Production Guard is not initialized — infrastructure services missing',
+    code: 'NOT_INITIALIZED',
+    hint: 'notInitialized',
+    severity: 'error',
+  },
+  {
+    message:
+      'Another Forge run is still under way in this window: start this one once it has ended. A run asked to stop ends once the step under way is done.',
+    code: 'FORGE_RUNNING',
+    hint: 'forgeRunning',
+    severity: 'warning',
+  },
+  {
+    message: 'Duplicate forge operation: forge:src:tgt:001:Account:1',
+    code: 'DUPLICATE',
+    hint: 'duplicateRun',
+    severity: 'warning',
+  },
+  {
+    message:
+      'The run to retry is no longer in the history, so what it wrote is not known. Run the clone again from Review.',
+    code: 'RETRY_UNAVAILABLE',
+    hint: 'retryUnavailable',
+    severity: 'warning',
+  },
+  {
+    message:
+      'This run anonymizes its records, and the content of a file cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.',
+    code: 'FILES_NOT_ACCEPTED',
+    hint: 'filesNotAccepted',
+    severity: 'warning',
+  },
+];
+
 /** One message per code of the guide's table the translator mapped before the ten. */
 const SAMPLES_WITH_A_ROW: readonly string[] = [
+  SESSION_REFUSED,
   'DUPLICATE_VALUE: duplicate value found: ExternalId__c',
   'INVALID_CROSS_REFERENCE_KEY: Owner ID: cannot be blank',
   'REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]',
@@ -346,6 +410,61 @@ describe('translateForgeError', () => {
     expect(action).toContain('the people on the cloned records');
   });
 
+  it('says an expired session is fixed by signing the org in again, then retrying, with its row in the guide', () => {
+    // It fell to "look up this error code in the Salesforce documentation".
+    expect(translateForgeError(SESSION_REFUSED)).toEqual({
+      code: 'INVALID_SESSION_ID',
+      explanationKey: 'forge.error.sessionExpired.explanation',
+      actionKey: 'forge.error.sessionExpired.action',
+      vars: undefined,
+      severity: 'error',
+      docUrl: `${FORGE_GUIDE_URL}#${guideAnchorOf('INVALID_SESSION_ID')}`,
+    });
+    expect(en.forge.error.sessionExpired.explanation).toContain('expired');
+    expect(en.forge.error.sessionExpired.action).toMatch(
+      /^Authenticate the org again .* then retry\.$/,
+    );
+  });
+
+  it.each(REFUSALS)(
+    'says what SandForge’s own $code refusal means by its code, whatever its message says',
+    ({ message, code, hint, severity }) => {
+      // The execution screen showed these English sentences alone, with no
+      // hint under them: no platform code leads them for a rule to read.
+      expect(translateForgeError(message)?.code).not.toBe(code);
+      expect(translateForgeError(message, code)).toEqual({
+        code,
+        explanationKey: `forge.error.${hint}.explanation`,
+        actionKey: `forge.error.${hint}.action`,
+        vars: undefined,
+        severity,
+      });
+    },
+  );
+
+  it('reads the message as before when the code the error carries is not a refusal of its own', () => {
+    // A run that failed once it had started is sent as EXECUTE_ERROR: what
+    // stopped it is in its message.
+    expect(translateForgeError(SESSION_REFUSED, 'EXECUTE_ERROR')).toEqual(
+      translateForgeError(SESSION_REFUSED),
+    );
+    expect(translateForgeError('not a salesforce error', 'EXECUTE_ERROR')).toBeNull();
+  });
+
+  it('leaves the run gate’s codes to the Review notice that says them', () => {
+    // An error carrying one takes the page back to Review before the
+    // execution screen shows it (`runGate.ts`).
+    for (const code of [
+      'PRODUCTION_TARGET',
+      'AUTOMATION_DECLINED',
+      'WRITE_DECLINED',
+      'STORAGE_EXCEEDED',
+      'CONFIRMATION_UNAVAILABLE',
+    ]) {
+      expect(translateForgeError('Nothing was written.', code)).toBeNull();
+    }
+  });
+
   it('says a lock is transient, and that retrying is the way through', () => {
     expect(en.forge.error.rowLocked.explanation).toContain('transient');
     expect(en.forge.error.rowLocked.action).toMatch(/^Retry the failed objects/);
@@ -444,6 +563,7 @@ describe('forge.error hint keys', () => {
     'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
     'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
     'Object is not createable on target org',
+    SESSION_REFUSED,
     ...TEN_CODES.map(({ raw }) => raw),
   ];
 
@@ -463,8 +583,11 @@ describe('forge.error hint keys', () => {
   const placeholders = (value: unknown): string[] =>
     typeof value === 'string' ? [...value.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]) : [];
 
-  const translated = SAMPLES.map((raw) => {
-    const result = translateForgeError(raw);
+  const translated = [
+    ...SAMPLES.map((raw) => [raw, undefined] as const),
+    ...REFUSALS.map(({ message, code }) => [message, code] as const),
+  ].map(([raw, code]) => {
+    const result = translateForgeError(raw, code);
     if (!result) throw new Error(`no translation for sample: ${raw}`);
     return result;
   });

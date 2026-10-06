@@ -902,6 +902,29 @@ describe('DataOpsHandler', () => {
       expect(response.payload).toMatchObject({ totalRestored: 1, totalFailed: 0 });
     });
 
+    it('restores with duplicate rules waived and the assignment rules off', async () => {
+      // A restore writes the backed-up rows over REST, and REST has the
+      // target's assignment rules reassign a case or a lead it writes unless
+      // the write says not to: a restore gives back the owner it saved.
+      const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue(accountDescribe),
+        sobject: vi.fn(() => ({ upsert })),
+        query: vi.fn().mockResolvedValue({ records: [] }),
+      } as never);
+      deps.configStore = configStoreWithBackup('org-A');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(rollbackMsg('org-A'));
+
+      const options = upsert.mock.calls[0]?.[2] as { headers?: Record<string, string> } | undefined;
+      expect(options?.headers).toEqual({
+        'Sforce-Duplicate-Rule-Header': 'allowSave=true',
+        'Sforce-Auto-Assign': 'FALSE',
+      });
+    });
+
     it('refuses to restore a backup taken from another org', async () => {
       const { upsert } = await mockConnection();
       deps.configStore = configStoreWithBackup('org-B');
@@ -1789,6 +1812,9 @@ describe('DataOpsHandler', () => {
 
       const options = update.mock.calls[0][1] as { headers?: Record<string, string> } | undefined;
       expect(options?.headers?.['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
+      // And the target's assignment rules off: a masked case or lead is not
+      // handed to whoever the rules route it to.
+      expect(options?.headers?.['Sforce-Auto-Assign']).toBe('FALSE');
     });
 
     it('tells the model the object and batch size a refused masking used', async () => {
@@ -2656,6 +2682,77 @@ describe('DataOpsHandler — templates the user saves', () => {
     });
   });
 
+  it('names, in the run’s result and its log, a field the template names that the org does not have', async () => {
+    // A rule naming a field the object lacks masked nothing, without a word,
+    // and the run said it had completed.
+    await send('dataops:anonymization-template:save', {
+      name: 'Loyalty desk',
+      rules: [
+        { fieldPattern: 'Contact.FirstName', ruleType: 'nullify' },
+        { fieldPattern: 'Contact.Loyalty_Code__c', ruleType: 'nullify' },
+        // Matched whatever its case, as Salesforce matches it.
+        { fieldPattern: 'Contact.lastname', ruleType: 'nullify' },
+      ],
+    });
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () =>
+        answer([{ Id: '003000000000001', FirstName: 'Ada', LastName: 'Lovelace' }]),
+      ),
+      describe: vi.fn().mockResolvedValue({
+        name: 'Contact',
+        label: 'Contact',
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: [
+          { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+          {
+            name: 'FirstName',
+            label: 'First Name',
+            type: 'string',
+            createable: true,
+            updateable: true,
+          },
+          {
+            name: 'LastName',
+            label: 'Last Name',
+            type: 'string',
+            createable: true,
+            updateable: true,
+          },
+        ],
+        recordTypeInfos: [],
+        childRelationships: [],
+      }),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(record).toEqual({ Id: '003000000000001', FirstName: null, LastName: null });
+    const result = last('dataops:anonymize:response')?.payload;
+    expect(result?.fieldsNotFound).toEqual([
+      { objectApiName: 'Contact', fieldApiName: 'Loyalty_Code__c' },
+    ]);
+    expect(String(result?.message)).toContain('Masked nothing in Contact.Loyalty_Code__c');
+    expect(
+      vi
+        .mocked(deps.log)
+        .mock.calls.some(([line]) => String(line).includes('Contact has no field Loyalty_Code__c')),
+    ).toBe(true);
+    // The page shows a run's end through a notification alone.
+    expect(String(last('notification')?.payload.message)).toContain('Contact.Loyalty_Code__c');
+  });
+
   it('saves a hash rule, which the run keys with the window’s key', async () => {
     await send('dataops:anonymization-template:save', {
       name: 'Emails hashed',
@@ -3038,5 +3135,123 @@ describe('DataOpsHandler — a snapshot taken for a pipeline', () => {
         payload: { operationId: 'snap-8' },
       });
     });
+  });
+});
+
+/*
+ * Before an Anonymize, what a restore can bring back. A backup reads each
+ * object up to a cap of rows, and a masking run masks every row: a backup
+ * taken just before the run held the first two thousand contacts of a larger
+ * org, and nothing said the rest would stay masked.
+ */
+describe('DataOpsHandler — what a restore can bring back of what a template masks', () => {
+  /** A store over memory holding these backup metadata entries, as `takeBackup` writes them. */
+  function storeWith(backups: Record<string, unknown>): HandlerDeps['configStore'] {
+    const store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    for (const [key, meta] of Object.entries(backups)) store.set(key, meta, 'backups');
+    return store;
+  }
+
+  /** A connection that counts each object as `counts` says, and refuses any other call. */
+  async function countingOrg(counts: Record<string, number>): Promise<ReturnType<typeof vi.fn>> {
+    const query = vi.fn(async (soql: string) => {
+      const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+      if (!(object in counts))
+        throw new Error(`INVALID_TYPE: sObject type '${object}' is not supported.`);
+      return { records: [], done: true, totalSize: counts[object] };
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({ query } as never);
+    return query;
+  }
+
+  async function askCoverage(deps: HandlerDeps, templateId = 'tpl-gdpr-standard') {
+    await new DataOpsHandler(deps).handle(
+      inboundRequest({
+        id: 'coverage-1',
+        type: 'dataops:anonymize:coverage',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', templateId },
+      } as BaseMessage),
+    );
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
+      .filter(
+        (m) => m.type === 'dataops:anonymize:coverage:response' || m.type === 'dataops:error',
+      );
+  }
+
+  it('sets each object the template masks against the rows the org’s latest backup holds of it', async () => {
+    const deps = createMockDeps();
+    deps.configStore = storeWith({
+      'backup:bk-old': {
+        operationId: 'bk-old',
+        orgId: 'org-1',
+        timestamp: '2026-09-01T10:00:00.000Z',
+        objects: [{ objectApiName: 'Contact', recordCount: 50, truncated: false }],
+      },
+      'backup:bk-new': {
+        operationId: 'bk-new',
+        orgId: 'org-1',
+        timestamp: '2026-10-01T10:00:00.000Z',
+        objects: [
+          { objectApiName: 'Account', recordCount: 2000, truncated: true },
+          { objectApiName: 'Contact', recordCount: 120, truncated: false },
+        ],
+      },
+      // Another org's, newer: not this org's to restore.
+      'backup:bk-other': {
+        operationId: 'bk-other',
+        orgId: 'org-2',
+        timestamp: '2026-10-05T10:00:00.000Z',
+        objects: [{ objectApiName: 'Account', recordCount: 9, truncated: false }],
+      },
+    });
+    const query = await countingOrg({ Account: 5321, Contact: 120 });
+
+    const [answer] = await askCoverage(deps);
+
+    expect(answer.type).toBe('dataops:anonymize:coverage:response');
+    expect(answer.payload).toEqual({
+      templateId: 'tpl-gdpr-standard',
+      backup: { operationId: 'bk-new', timestamp: '2026-10-01T10:00:00.000Z' },
+      objects: [
+        { objectApiName: 'Contact', count: 120, backedUp: 120, truncated: false },
+        // The org would not count it: listed, with no count, rather than lost.
+        { objectApiName: 'Lead', count: null, backedUp: 0, truncated: false },
+        { objectApiName: 'Account', count: 5321, backedUp: 2000, truncated: true },
+      ],
+    });
+    // Counted, and nothing else asked of the org.
+    expect(query.mock.calls.map(([soql]) => soql)).toEqual([
+      'SELECT COUNT() FROM Contact',
+      'SELECT COUNT() FROM Lead',
+      'SELECT COUNT() FROM Account',
+    ]);
+  });
+
+  it('says there is no backup when the org has none on this machine', async () => {
+    const deps = createMockDeps();
+    deps.configStore = storeWith({});
+    await countingOrg({ Account: 3, Contact: 4, Lead: 5 });
+
+    const [answer] = await askCoverage(deps);
+
+    expect(answer.payload).not.toHaveProperty('backup');
+    expect(
+      (answer.payload.objects as Array<{ backedUp: number }>).every((o) => o.backedUp === 0),
+    ).toBe(true);
+  });
+
+  it('answers a template it does not hold on the dataops error channel', async () => {
+    const deps = createMockDeps();
+    deps.configStore = storeWith({});
+    await countingOrg({});
+
+    const [answer] = await askCoverage(deps, 'tpl-gone');
+
+    expect(answer.type).toBe('dataops:error');
+    expect(String(answer.payload.message)).toContain('Template "tpl-gone" not found');
   });
 });

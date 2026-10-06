@@ -1151,8 +1151,9 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
     const scheduledDescription = `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`;
     sendOperationStarted(this.deps, operationId, 'sync', scheduledDescription);
-    // Feed the Monitor "live operations" panel (total unknown until queries run).
-    this.liveTracker?.register(operationId, 'sync', scheduledDescription);
+    // Feed the Monitor "live operations" panel (total unknown until queries
+    // run), where its Pause reaches the run's gate as the Sync page's does.
+    this.liveTracker?.register(operationId, 'sync', scheduledDescription, 0, { pausable: true });
 
     const abortController = new AbortController();
     // executeSync never rejects (it reports on operation:failed and converts
@@ -1274,8 +1275,9 @@ export class SyncOpsHandler implements DomainHandler {
 
       const description = `Sync ${config.objects?.length ?? 0} object(s)`;
       sendOperationStarted(this.deps, operationId, 'sync', description);
-      // Feed the Monitor "live operations" panel (total unknown until queries run).
-      this.liveTracker?.register(operationId, 'sync', description);
+      // Feed the Monitor "live operations" panel (total unknown until queries
+      // run), where its Pause reaches the run's gate as the Sync page's does.
+      this.liveTracker?.register(operationId, 'sync', description, 0, { pausable: true });
 
       // Create AbortController for this operation
       const abortController = new AbortController();

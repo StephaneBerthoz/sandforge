@@ -1291,6 +1291,16 @@
     "ruleCount_other": "{{count}} rules",
     "previewAnonymization": "Preview",
     "applyAnonymization": "Apply",
+    "coverage": {
+      "title": "What a restore can bring back",
+      "latestBackup": "Latest backup of this org: {{date}}. A restore brings back the rows it holds, and no others.",
+      "noBackup": "This org has no backup on this machine: once masked, no value can be brought back.",
+      "object": "Object",
+      "inOrg": "Rows in the org",
+      "inBackup": "Rows in the backup",
+      "notCounted": "Not counted",
+      "shortfall": "Masked for good past what the backup holds: {{objects}}."
+    },
     "compliance": "Compliance",
     "frameworks": {
       "gdpr": "GDPR",
@@ -1797,6 +1807,8 @@
     "audit": "Audit Trail",
     "lineage": "Data Lineage",
     "noReports": "No reports generated yet",
+    "reportsUnreadable": "The reports could not be read: {{error}}",
+    "analyticsUnreadable": "The analytics could not be loaded: they come with the reports, which could not be read.",
     "generateReport": "Generate Report",
     "exportReport": "Export Report",
     "reportType": "Report Type",
@@ -2414,6 +2426,7 @@
     "anonymize": "Anonymize",
     "includeNode": "Include in execution",
     "anonymizationPreview": "Anonymization Preview",
+    "contactPointsPreview": "Emails and phone numbers, as the run writes them",
     "fieldName": "Field",
     "before": "Before",
     "after": "After",
@@ -2491,6 +2504,7 @@
     "depthFullTooltip": "The dependency tree, up to 5 levels deep",
     "depthCustomTooltip": "Specify the maximum relationship depth",
     "depthCustomHint": "Up to {{max}} levels: past that, discovery would describe thousands of objects in a CRM org and spend its API limits without producing a usable graph.",
+    "depthCustomInvalid": "Enter a whole number from 1 to {{max}}.",
     "soqlPreviewHint": "Preview is available for Record ID input",
     "templatePreviewHint": "Select a template to see its configuration",
     "aiPreviewHint": "The AI drafts the query discovery starts from; you check it and run it",
@@ -2685,8 +2699,11 @@
       "noCompliance": "No compliance framework selected. Select one to generate a report.",
       "complianceLoading": "Analyzing compliance...",
       "complianceError": "The compliance report could not be made: {{error}}",
-      "complianceWaiting": "Select a framework and execute to generate compliance report.",
+      "complianceWaiting": "The report is made as soon as a framework is selected, from the run as it stands.",
       "complianceStatus": "Status",
+      "compliancePass": "Pass",
+      "compliancePartial": "Partial",
+      "complianceFail": "Fail",
       "diffsLoading": "Comparing metadata schemas...",
       "noDiffs": "No metadata differences detected.",
       "diffsFound_one": "{{count}} difference found between source and target.",
@@ -2909,6 +2926,10 @@
         "explanation": "Salesforce refused the request: the org it went to has used the API requests it is allowed over 24 hours, or is running too many long requests at once. The clone writes up to 200 records a request, and its reads and describes take requests of their own.",
         "action": "Wait until that org's count frees requests — the Monitor page shows its API usage — then retry; a lower depth or fewer records per object takes fewer requests."
       },
+      "sessionExpired": {
+        "explanation": "Salesforce no longer accepts the session SandForge holds for this org: it expired, or was ended by a logout, a password change or an administrator.",
+        "action": "Authenticate the org again — Connect Org, or a login with the Salesforce CLI — then retry."
+      },
       "crossReferenceAccess": {
         "explanation": "The user the clone writes as lacks access to a record this one points at in the target org — read access or, to the master of a master-detail relationship, edit access: a record that user neither owns nor is shared, such as one the target already held, which the clone linked to rather than wrote.",
         "action": "In the target org, share that record with the user, or give the user View All or Modify All on its object, or connect the target org with a user who has that access, such as an administrator; then retry the failed objects."
@@ -2957,6 +2978,34 @@
       "outOfScope": {
         "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",
         "action": "Raise the depth if you need records of this object in the clone."
+      },
+      "guardBlocked": {
+        "explanation": "Production Guard refused this run before it read anything, for the reason the message gives. Nothing was written.",
+        "action": "Check that the target is the org you meant to write to, then run again from Review."
+      },
+      "guardDeclined": {
+        "explanation": "The run was cancelled at Production Guard's confirmation, before it read anything. Nothing was written.",
+        "action": "Go back to Review, run it again when you mean to write to this org, and confirm."
+      },
+      "notInitialized": {
+        "explanation": "A part of SandForge the run needs was not ready in this window: the Forge module, or Production Guard, without which nothing is written. Nothing was written.",
+        "action": "Reload the window (Developer: Reload Window), then run again."
+      },
+      "forgeRunning": {
+        "explanation": "Another Forge run is still under way in this window, and Forge runs one at a time. This one wrote nothing.",
+        "action": "Wait for that run to end — a run asked to stop ends once the step under way is done — then run again."
+      },
+      "duplicateRun": {
+        "explanation": "The same run was sent again while it was still under way, or within a minute of writing its records, and refused so that they are not written twice. This one wrote nothing.",
+        "action": "Look at the first run's results before running it again: a minute after it wrote, the same run is taken again."
+      },
+      "retryUnavailable": {
+        "explanation": "The retry could not start: what the run it retries wrote is not known here — that run is no longer in the history, kept no record of what it wrote or wrote to another org, or its records were removed. Nothing was written.",
+        "action": "Run the clone again from Review."
+      },
+      "filesNotAccepted": {
+        "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",
+        "action": "On Review, accept that the files are copied as they are, or turn the copy off, then run again."
       },
       "unknown": {
         "explanation": "{{detail}}",

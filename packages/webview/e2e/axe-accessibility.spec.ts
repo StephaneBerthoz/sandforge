@@ -1393,6 +1393,21 @@ for (const theme of SCANNED_THEMES) {
       await expect(input).toHaveValue('10');
       await expect(page.getByTestId('forge-depth-custom-hint')).toContainText('Up to 10 levels');
       expectNoViolations(await checkAccessibility(page));
+
+      // 0 and decimals were passed on, and discovery refused them.
+      await input.fill('2.5');
+      await expect(input).toHaveAttribute('aria-invalid', 'true');
+      await expect(page.getByTestId('forge-depth-custom-error')).toHaveText(
+        'Enter a whole number from 1 to 10.',
+      );
+      const refused = await checkAccessibility(page);
+      expectNoViolations(refused);
+      expect(
+        await contrastMeasuredIn(page, refused, '[data-testid="forge-depth-custom-error"]'),
+      ).toBeGreaterThan(0);
+      await input.blur();
+      await expect(input).toHaveValue('10');
+      await expect(page.getByTestId('forge-depth-custom-error')).toHaveCount(0);
     });
 
     test('Forge options keeping emails and phone numbers as they are, and the warning it gives', async ({
@@ -2418,6 +2433,34 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge discovery previewing the emails and phone numbers a run writes with anonymization off', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme, {
+        ...FORGE_TWO_NODE_GRAPH,
+        nodes: [
+          FORGE_TWO_NODE_GRAPH.nodes[0],
+          { ...FORGE_TWO_NODE_GRAPH.nodes[1], piiFields: ['Email', 'Phone'] },
+        ],
+      });
+
+      // It showed u***@***.com and +1-***-****, and only for fields anonymized.
+      await page.getByTestId('forge-view-table').click();
+      await page.getByTestId('forge-table-select-Contact').click();
+      await expect(page.getByTestId('anonymization-preview-title')).toHaveText(
+        'Emails and phone numbers, as the run writes them',
+      );
+      await expect(page.getByTestId('anonymization-preview-Email')).toContainText(
+        'john.doe@acme.com.invalid',
+      );
+      await expect(page.getByTestId('anonymization-preview-Phone')).toContainText('+3363998');
+      const preview = await checkAccessibility(page);
+      expectNoViolations(preview);
+      expect(
+        await contrastMeasuredIn(page, preview, '[data-testid="anonymization-preview"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge discovery listing a graph wider than auto draws, in a table from the start', async ({
       page,
     }) => {
@@ -2862,7 +2905,8 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'forge:compliance:request', 'forge:compliance:response', {
         report: FORGE_COMPLIANCE_REPORT,
       });
-      await expect(page.getByTestId('compliance-report')).toContainText('PARTIAL');
+      // In words, as the language says it: the badge printed the code, "PARTIAL".
+      await expect(page.getByTestId('compliance-status')).toHaveText('Partial');
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -3550,6 +3594,34 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Reports whose read failed, saying so on Executions and Analytics, with a retry', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
+      // The Executions tab said "No reports generated yet", and Analytics was gone.
+      await answerAll(page, 'reports:list', 'reports:error', {
+        message: 'timed out',
+        code: 'UNKNOWN',
+        retryable: true,
+      });
+      await expect(page.getByTestId('reports-executions-error-message')).toContainText(
+        'The reports could not be read: timed out',
+      );
+      await expect(page.getByTestId('reports-executions-error-retry')).toBeVisible();
+      await expect(page.getByTestId('reports-page')).not.toContainText('No reports generated yet');
+      const executions = await checkAccessibility(page);
+      expectNoViolations(executions);
+      expect(
+        await contrastMeasuredIn(page, executions, '[data-testid="reports-executions-error"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByRole('tab', { name: 'Analytics' }).click();
+      await expect(page.getByTestId('reports-analytics-error-message')).toContainText(
+        'The analytics could not be loaded',
+      );
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Settings page', async ({ page }) => {
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
       const results = await checkAccessibility(page);
@@ -3741,10 +3813,16 @@ for (const theme of SCANNED_THEMES) {
           run('op-clone', 'clone', 'completed', { percentage: 100 }),
           run('op-csv', 'csv', 'failed', { error: 'REQUIRED_FIELD_MISSING: Name' }),
           run('op-frozen', 'frozen', 'cancelled', { processedRecords: 0, recordsPerSecond: 0 }),
+          // A sync running and one paused: the runs Live Operations can pause.
+          run('op-sync', 'sync', 'running', { pausable: true }),
+          run('op-sync-paused', 'sync', 'paused', { pausable: true }),
         ],
       });
       await page.getByTestId('live-op-op-frozen').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('cancel-op-forge')).toBeVisible();
+      await expect(page.getByTestId('pause-op-sync')).toBeVisible();
+      await expect(page.getByTestId('resume-op-sync-paused')).toBeVisible();
+      await expect(page.getByTestId('pause-op-forge')).toHaveCount(0);
       await expect(page.getByRole('img', { name: 'Cancelled' })).toBeVisible();
       await page.getByTestId('live-op-op-csv').scrollIntoViewIfNeeded();
 
@@ -5732,6 +5810,51 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('anonymize-panel')).not.toContainText('Coming soon');
       await page.getByTestId('delete-template-btn').click();
       await expect(page.getByTestId('confirm-delete-template-btn')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps Anonymize saying what a restore of the latest backup brings back', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-gdpr',
+              name: 'GDPR Standard',
+              description: 'Mask the people.',
+              complianceFramework: 'gdpr',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Account.Phone', ruleType: 'mask', description: '' },
+              ],
+            },
+          ],
+        },
+      );
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-gdpr');
+      await bridge.waitForMessage('dataops:anonymize:coverage', { timeout: 10_000 });
+      await answerAll(page, 'dataops:anonymize:coverage', 'dataops:anonymize:coverage:response', {
+        templateId: 'tpl-gdpr',
+        backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+        objects: [
+          { objectApiName: 'Contact', count: 30000, backedUp: 2000, truncated: true },
+          { objectApiName: 'Lead', count: null, backedUp: 0, truncated: false },
+          { objectApiName: 'Account', count: 120, backedUp: 120, truncated: false },
+        ],
+      });
+      await expect(page.getByTestId('restore-coverage-shortfall')).toContainText('Contact');
+      await expect(page.getByTestId('restore-coverage-Lead')).toContainText('Not counted');
 
       await expectReadable(page, theme);
     });

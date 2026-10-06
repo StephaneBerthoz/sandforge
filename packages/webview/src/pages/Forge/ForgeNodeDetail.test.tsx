@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
@@ -116,9 +116,8 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const list = screen.getByTestId('pii-fields-list');
-    expect(list).toBeDefined();
-    expect(screen.getByText('Email')).toBeDefined();
-    expect(screen.getByText('Phone')).toBeDefined();
+    expect(within(list).getByText('Email')).toBeDefined();
+    expect(within(list).getByText('Phone')).toBeDefined();
   });
 
   it('should not show PII section when no PII fields', () => {
@@ -156,23 +155,83 @@ describe('ForgeNodeDetail', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('should show anonymization preview when anonymizeFields has entries', () => {
+  /** What the preview says the run writes in one field: its sample, then what replaces it. */
+  const previewOf = (field: string): string[] =>
+    [...screen.getByTestId(`anonymization-preview-${field}`).querySelectorAll('td')].map(
+      (cell) => cell.textContent ?? '',
+    );
+
+  it('shows what an anonymizing run writes: an address under .invalid, a number of the fictional range', () => {
+    // It showed u***@***.com and +1-***-****, which no run writes.
     render(
       <ForgeNodeDetail
-        node={makeNode({ piiFields: ['Email'], anonymizeFields: ['Email'] })}
+        node={makeNode({
+          piiFields: ['Email', 'Phone', 'SSN'],
+          anonymizeFields: ['Email', 'Phone', 'SSN'],
+        })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+        anonymize
+      />,
+    );
+
+    expect(screen.getByTestId('anonymization-preview-title').textContent).toBe(
+      'Anonymization Preview',
+    );
+    expect(previewOf('Email')).toEqual([
+      'Email',
+      'john.doe@acme.com',
+      'alex.smith@example.invalid',
+    ]);
+    expect(previewOf('Phone')[2]).toMatch(/^\+3363998\d{4}$/);
+    expect(previewOf('SSN')[2]).toBe('[REDACTED]');
+    expect(screen.getByTestId('anonymization-preview').textContent).not.toContain('***');
+  });
+
+  it('shows the emails and phone numbers every run neutralizes, with anonymization off', () => {
+    // Nothing was shown with anonymization off, when every address and number
+    // is changed all the same; a box ticked on a field anonymizes nothing then.
+    render(
+      <ForgeNodeDetail
+        node={makeNode({
+          piiFields: ['Email', 'MobilePhone', 'FirstName'],
+          anonymizeFields: ['Email', 'FirstName'],
+        })}
         onToggleIncluded={vi.fn()}
         onToggleAnonymize={vi.fn()}
       />,
     );
-    expect(screen.getByTestId('anonymization-preview')).toBeDefined();
+
+    expect(screen.getByTestId('anonymization-preview-title').textContent).toBe(
+      'Emails and phone numbers, as the run writes them',
+    );
+    expect(previewOf('Email')).toEqual(['Email', 'john.doe@acme.com', 'john.doe@acme.com.invalid']);
+    expect(previewOf('MobilePhone')[2]).toMatch(/^\+3363998\d{4}$/);
+    // A name is written as the source holds it when the run does not anonymize.
+    expect(screen.queryByTestId('anonymization-preview-FirstName')).toBeNull();
   });
 
-  it('should not show anonymization preview when no fields are anonymized', () => {
+  it('neutralizes a phone number an anonymizing run leaves unselected', () => {
     render(
       <ForgeNodeDetail
-        node={makeNode({ piiFields: ['Email'], anonymizeFields: [] })}
+        node={makeNode({ piiFields: ['FirstName', 'HomePhone'], anonymizeFields: ['FirstName'] })}
         onToggleIncluded={vi.fn()}
         onToggleAnonymize={vi.fn()}
+        anonymize
+      />,
+    );
+
+    expect(previewOf('FirstName')).toEqual(['FirstName', 'John', 'Alex']);
+    expect(previewOf('HomePhone')[2]).toMatch(/^\+3363998\d{4}$/);
+  });
+
+  it('shows no preview of the fields the run writes as the source holds them', () => {
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ piiFields: ['Email', 'FirstName'], anonymizeFields: ['Email'] })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+        keepContactPoints
       />,
     );
     expect(screen.queryByTestId('anonymization-preview')).toBeNull();

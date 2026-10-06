@@ -11,6 +11,59 @@ import {
   type SupportedLocale,
 } from './LocaleData';
 
+/** A word of the name of each well-known company the lists of the other locales held. */
+const WELL_KNOWN_COMPANY_WORDS: ReadonlySet<string> = new Set([
+  'total',
+  'renault',
+  'airbus',
+  'bnp',
+  'carrefour',
+  'sanofi',
+  'orange',
+  'danone',
+  'michelin',
+  'capgemini',
+  'siemens',
+  'volkswagen',
+  'bmw',
+  'deutsche',
+  'sap',
+  'allianz',
+  'basf',
+  'bosch',
+  'bayer',
+  'dhl',
+  'telefonica',
+  'inditex',
+  'santander',
+  'bbva',
+  'repsol',
+  'iberdrola',
+  'caixabank',
+  'endesa',
+  'mapfre',
+  'ferrovial',
+  'toyota',
+  'sony',
+  'honda',
+  'mitsubishi',
+  'softbank',
+  'panasonic',
+  'hitachi',
+  'ntt',
+  'canon',
+  'fujitsu',
+  'petrobras',
+  'vale',
+  'itau',
+  'bradesco',
+  'ambev',
+  'jbs',
+  'luiza',
+  'natura',
+  'embraer',
+]);
+
 describe('LocaleData', () => {
   describe('getLocaleData', () => {
     it('should return French data for fr_FR', () => {
@@ -75,6 +128,18 @@ describe('LocaleData', () => {
 
       it(`should have at least 10 companies for ${locale}`, () => {
         expect(LOCALE_DATA[locale].companies.length).toBeGreaterThanOrEqual(10);
+      });
+
+      it(`gives ${locale} made-up companies, none of the well-known ones its list held`, () => {
+        // They land on Account.Name: a seeded sandbox showed the country's
+        // largest companies as accounts it had.
+        const words = LOCALE_DATA[locale].companies.flatMap((company) =>
+          company.toLowerCase().split(/[^a-z]+/),
+        );
+        expect(words.filter((word) => WELL_KNOWN_COMPANY_WORDS.has(word))).toEqual([]);
+        expect(new Set(LOCALE_DATA[locale].companies).size).toBe(
+          LOCALE_DATA[locale].companies.length,
+        );
       });
 
       it(`should have email domains for ${locale}`, () => {

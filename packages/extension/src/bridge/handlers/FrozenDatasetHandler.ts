@@ -56,6 +56,7 @@ import { logger } from '../../logger.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { personalFieldsByApiName } from '../../core/precheck/PIIDetector.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -698,14 +699,12 @@ export class FrozenDatasetHandler implements DomainHandler {
         const result = await conn.query(soql);
         return result.totalSize;
       },
+      // By API name and type, as Forge reads them: the detector's patterns
+      // read the words of a label, and the API name handed to it as one hid
+      // `Notification_Email__c` and `SMS_Number__c` from it.
       detectPII: (fields) => {
         const detector = this.deps.infraServices?.piiDetector;
-        if (!detector) return [];
-        const result = detector.detectPII(
-          'unknown',
-          fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type })),
-        );
-        return result.piiFields.map((p) => p.fieldApiName);
+        return detector ? personalFieldsByApiName(detector, fields) : [];
       },
       describeGlobal: (orgId) => this.describeGlobal(orgId),
     });

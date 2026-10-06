@@ -1,5 +1,5 @@
 import type { Connection } from 'jsforce';
-import { duplicateRuleHeaders } from '@sandforge/shared';
+import { recordWriteHeaders } from '@sandforge/shared';
 import type { RetryConfig } from '../../core/engine/RetryStrategy.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
@@ -161,7 +161,7 @@ export class BulkDataWriter {
       (batch) =>
         this.deps.connection
           .sobject(objectName)
-          .create(batch, { headers: duplicateRuleHeaders(true) }) as Promise<JsforceResult[]>,
+          .create(batch, { headers: recordWriteHeaders() }) as Promise<JsforceResult[]>,
       'Insert failed after retries',
     );
   }
@@ -193,7 +193,7 @@ export class BulkDataWriter {
       batchSize,
       (batch) =>
         this.deps.connection.sobject(objectName).upsert(batch, externalIdField, {
-          headers: duplicateRuleHeaders(true),
+          headers: recordWriteHeaders(),
         }) as unknown as Promise<JsforceResult[]>,
       'Upsert failed after retries',
     );
@@ -230,7 +230,7 @@ export class BulkDataWriter {
         this.deps.connection
           .sobject(objectName)
           .update(batch as Array<Record<string, unknown> & { Id: string }>, {
-            headers: duplicateRuleHeaders(true),
+            headers: recordWriteHeaders(),
           }) as unknown as Promise<JsforceResult[]>,
       'Update failed after retries',
     );

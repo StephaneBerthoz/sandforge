@@ -6,7 +6,7 @@ import type {
   SeedExecuteRequest,
 } from '@sandforge/shared';
 import {
-  duplicateRuleHeaders,
+  recordWriteHeaders,
   integerDigitsOf,
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -881,7 +881,7 @@ export class SeedOpsHandler implements DomainHandler {
             // unique index still refuses, which is right.
             return conn
               .sobject(objectApiName)
-              .create(batch, { headers: duplicateRuleHeaders(true) }) as Promise<
+              .create(batch, { headers: recordWriteHeaders() }) as Promise<
               Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
             >;
           });

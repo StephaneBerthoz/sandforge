@@ -1291,6 +1291,16 @@
     "ruleCount_other": "{{count}} règles",
     "previewAnonymization": "Aperçu",
     "applyAnonymization": "Appliquer",
+    "coverage": {
+      "title": "Ce qu'une restauration peut rendre",
+      "latestBackup": "Dernière sauvegarde de cette org : {{date}}. Une restauration rend les lignes qu'elle contient, et aucune autre.",
+      "noBackup": "Cette org n’a aucune sauvegarde sur cette machine : une fois masquée, aucune valeur ne peut être rendue.",
+      "object": "Objet",
+      "inOrg": "Lignes dans l'org",
+      "inBackup": "Lignes dans la sauvegarde",
+      "notCounted": "Non compté",
+      "shortfall": "Masqué pour de bon au-delà de ce que la sauvegarde contient : {{objects}}."
+    },
     "compliance": "Conformité",
     "frameworks": {
       "gdpr": "RGPD",
@@ -1797,6 +1807,8 @@
     "audit": "Journal d'audit",
     "lineage": "Lignée de données",
     "noReports": "Aucun rapport généré",
+    "reportsUnreadable": "Les rapports n’ont pas pu être lus : {{error}}",
+    "analyticsUnreadable": "Les analytiques n’ont pas pu être chargées : elles viennent avec les rapports, qui n’ont pas pu être lus.",
     "generateReport": "Générer un rapport",
     "exportReport": "Exporter le rapport",
     "reportType": "Type de rapport",
@@ -2414,6 +2426,7 @@
     "anonymize": "Anonymiser",
     "includeNode": "Inclure dans l'exécution",
     "anonymizationPreview": "Aperçu de l'anonymisation",
+    "contactPointsPreview": "E-mails et numéros de téléphone, tels que l'exécution les écrit",
     "fieldName": "Champ",
     "before": "Avant",
     "after": "Après",
@@ -2491,6 +2504,7 @@
     "depthFullTooltip": "L'arbre de dépendances, jusqu'à 5 niveaux de profondeur",
     "depthCustomTooltip": "Spécifiez la profondeur maximale des relations",
     "depthCustomHint": "Jusqu'à {{max}} niveaux : au-delà, la découverte décrirait des milliers d'objets dans une org CRM et épuiserait ses limites d'API sans produire de graphe exploitable.",
+    "depthCustomInvalid": "Saisissez un nombre entier de 1 à {{max}}.",
     "soqlPreviewHint": "L'aperçu est disponible pour les ID d'enregistrement",
     "templatePreviewHint": "Sélectionnez un modèle pour voir sa configuration",
     "aiPreviewHint": "L'IA rédige la requête dont part la découverte ; vous la vérifiez et la lancez",
@@ -2685,8 +2699,11 @@
       "noCompliance": "Aucun référentiel de conformité sélectionné. Choisissez-en un pour générer un rapport.",
       "complianceLoading": "Analyse de la conformité...",
       "complianceError": "Le rapport de conformité n'a pas pu être établi : {{error}}",
-      "complianceWaiting": "Sélectionnez un référentiel et lancez l'exécution pour générer le rapport de conformité.",
+      "complianceWaiting": "Le rapport est établi dès qu'un référentiel est sélectionné, sur l'exécution telle qu'elle est.",
       "complianceStatus": "Statut",
+      "compliancePass": "Réussi",
+      "compliancePartial": "Partiel",
+      "complianceFail": "Échoué",
       "diffsLoading": "Comparaison des schémas de métadonnées...",
       "noDiffs": "Aucune différence de métadonnées détectée.",
       "diffsFound_one": "{{count}} différence trouvée entre la source et la cible.",
@@ -2909,6 +2926,10 @@
         "explanation": "Salesforce a refusé la requête : l'org à laquelle elle s'adressait a épuisé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois. Le clone écrit jusqu'à 200 enregistrements par requête, et ses lectures et ses descriptions prennent des requêtes à part.",
         "action": "Attendez que le compteur de cette org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez ; une profondeur plus faible ou moins d'enregistrements par objet demandent moins de requêtes."
       },
+      "sessionExpired": {
+        "explanation": "Salesforce n'accepte plus la session que SandForge détient pour cette org : elle a expiré, ou a été fermée par une déconnexion, un changement de mot de passe ou un administrateur.",
+        "action": "Authentifiez de nouveau l'org — Connecter Org, ou une connexion avec Salesforce CLI — puis relancez."
+      },
       "crossReferenceAccess": {
         "explanation": "L'utilisateur sous lequel le clone écrit n'a pas accès à un enregistrement vers lequel celui-ci pointe dans l'org cible — en lecture ou, pour le principal d'une relation principal-détails, en modification : un enregistrement que cet utilisateur ne possède pas et qui ne lui est pas partagé, comme un enregistrement que l'org cible avait déjà et que le clone a relié au lieu de l'écrire.",
         "action": "Dans l'org cible, partagez cet enregistrement avec l'utilisateur, ou donnez-lui Afficher tout ou Modifier tout sur son objet, ou connectez l'org cible avec un utilisateur qui a cet accès, comme un administrateur ; puis relancez les objets en échec."
@@ -2957,6 +2978,34 @@
       "outOfScope": {
         "explanation": "Aucun des enregistrements parents de cet objet ne fait partie du clonage, et ce n'est pas l'objet racine : aucun de ses enregistrements n'a été cloné.",
         "action": "Augmentez la profondeur si vous voulez des enregistrements de cet objet dans le clonage."
+      },
+      "guardBlocked": {
+        "explanation": "Production Guard a refusé cette exécution avant toute lecture, pour la raison que donne le message. Rien n'a été écrit.",
+        "action": "Vérifiez que la cible est bien l'org où vous vouliez écrire, puis relancez depuis la revue."
+      },
+      "guardDeclined": {
+        "explanation": "L'exécution a été annulée à la confirmation de Production Guard, avant toute lecture. Rien n'a été écrit.",
+        "action": "Revenez à la revue, relancez quand vous voulez vraiment écrire dans cette org, et confirmez."
+      },
+      "notInitialized": {
+        "explanation": "Une partie de SandForge dont l'exécution a besoin n'était pas prête dans cette fenêtre : le module Forge, ou Production Guard, sans lequel rien n'est écrit. Rien n'a été écrit.",
+        "action": "Rechargez la fenêtre (Developer: Reload Window), puis relancez."
+      },
+      "forgeRunning": {
+        "explanation": "Une autre exécution Forge est encore en cours dans cette fenêtre, et Forge n'en mène qu'une à la fois. Celle-ci n'a rien écrit.",
+        "action": "Attendez la fin de cette exécution — une exécution à laquelle on a demandé de s'arrêter s'arrête une fois l'étape en cours terminée — puis relancez."
+      },
+      "duplicateRun": {
+        "explanation": "La même exécution a été envoyée de nouveau alors qu'elle était encore en cours, ou moins d'une minute après avoir écrit ses enregistrements, et refusée pour qu'ils ne soient pas écrits deux fois. Celle-ci n'a rien écrit.",
+        "action": "Consultez les résultats de la première exécution avant de relancer : une minute après qu'elle a écrit, la même exécution est de nouveau acceptée."
+      },
+      "retryUnavailable": {
+        "explanation": "Le nouvel essai n'a pas pu démarrer : ce qu'a écrit l'exécution qu'il reprend n'est pas connu ici — elle n'est plus dans l'historique, n'a gardé aucune trace de ce qu'elle a écrit ou a écrit dans une autre org, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
+        "action": "Relancez le clonage depuis la revue."
+      },
+      "filesNotAccepted": {
+        "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
+        "action": "Dans la revue, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie, puis relancez."
       },
       "unknown": {
         "explanation": "{{detail}}",

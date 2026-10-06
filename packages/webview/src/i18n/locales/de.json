@@ -1291,6 +1291,16 @@
     "ruleCount_other": "{{count}} Regeln",
     "previewAnonymization": "Vorschau",
     "applyAnonymization": "Anwenden",
+    "coverage": {
+      "title": "Was eine Wiederherstellung zurückbringen kann",
+      "latestBackup": "Letzte Sicherung dieser Org: {{date}}. Eine Wiederherstellung bringt die Zeilen zurück, die sie enthält, und keine anderen.",
+      "noBackup": "Diese Org hat keine Sicherung auf diesem Rechner: Einmal maskiert, lässt sich kein Wert zurückholen.",
+      "object": "Objekt",
+      "inOrg": "Zeilen in der Org",
+      "inBackup": "Zeilen in der Sicherung",
+      "notCounted": "Nicht gezählt",
+      "shortfall": "Endgültig maskiert über das hinaus, was die Sicherung enthält: {{objects}}."
+    },
     "compliance": "Compliance",
     "frameworks": {
       "gdpr": "DSGVO",
@@ -1797,6 +1807,8 @@
     "audit": "Audit-Protokoll",
     "lineage": "Datenherkunft",
     "noReports": "Noch keine Berichte erstellt",
+    "reportsUnreadable": "Die Berichte konnten nicht gelesen werden: {{error}}",
+    "analyticsUnreadable": "Die Analysen konnten nicht geladen werden: Sie kommen mit den Berichten, die nicht gelesen werden konnten.",
     "generateReport": "Bericht erstellen",
     "exportReport": "Bericht exportieren",
     "reportType": "Berichtstyp",
@@ -2414,6 +2426,7 @@
     "anonymize": "Anonymisieren",
     "includeNode": "In Ausführung einbeziehen",
     "anonymizationPreview": "Anonymisierungs-Vorschau",
+    "contactPointsPreview": "E-Mail-Adressen und Telefonnummern, wie der Lauf sie schreibt",
     "fieldName": "Feld",
     "before": "Vorher",
     "after": "Nachher",
@@ -2491,6 +2504,7 @@
     "depthFullTooltip": "Der Abhängigkeitsbaum, bis zu 5 Ebenen tief",
     "depthCustomTooltip": "Geben Sie die maximale Beziehungstiefe an",
     "depthCustomHint": "Bis zu {{max}} Ebenen: Darüber hinaus würde die Ermittlung in einer CRM-Org Tausende von Objekten beschreiben und ihre API-Limits aufbrauchen, ohne einen brauchbaren Graphen zu liefern.",
+    "depthCustomInvalid": "Geben Sie eine ganze Zahl von 1 bis {{max}} ein.",
     "soqlPreviewHint": "Vorschau ist bei Datensatz-ID-Eingabe verfügbar",
     "templatePreviewHint": "Wählen Sie eine Vorlage, um ihre Konfiguration zu sehen",
     "aiPreviewHint": "Die KI entwirft die Abfrage, von der die Ermittlung ausgeht; Sie prüfen und starten sie",
@@ -2685,8 +2699,11 @@
       "noCompliance": "Kein Compliance-Framework ausgewählt. Wählen Sie eines aus, um einen Bericht zu erzeugen.",
       "complianceLoading": "Compliance wird analysiert...",
       "complianceError": "Der Compliance-Bericht konnte nicht erstellt werden: {{error}}",
-      "complianceWaiting": "Wählen Sie ein Framework und führen Sie die Operation aus, um den Compliance-Bericht zu erzeugen.",
+      "complianceWaiting": "Der Bericht wird erstellt, sobald ein Framework ausgewählt ist, über den Lauf, wie er gerade eingestellt ist.",
       "complianceStatus": "Status",
+      "compliancePass": "Bestanden",
+      "compliancePartial": "Teilweise",
+      "complianceFail": "Nicht bestanden",
       "diffsLoading": "Metadaten-Schemas werden verglichen...",
       "noDiffs": "Keine Metadaten-Unterschiede erkannt.",
       "diffsFound_one": "{{count}} Unterschied zwischen Quelle und Ziel gefunden.",
@@ -2909,6 +2926,10 @@
         "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org, an die sie ging, hat die API-Anfragen aufgebraucht, die ihr in 24 Stunden zustehen, oder führt zu viele lange Anfragen gleichzeitig aus. Der Klon schreibt bis zu 200 Datensätze pro Anfrage, und seine Lese- und Describe-Vorgänge brauchen eigene Anfragen.",
         "action": "Warten Sie, bis der Zähler dieser Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und wiederholen Sie dann; eine geringere Tiefe oder weniger Datensätze pro Objekt brauchen weniger Anfragen."
       },
+      "sessionExpired": {
+        "explanation": "Salesforce akzeptiert die Sitzung, die SandForge für diese Org hält, nicht mehr: Sie ist abgelaufen oder wurde durch eine Abmeldung, eine Passwortänderung oder einen Administrator beendet.",
+        "action": "Authentifizieren Sie die Org erneut — über „Org verbinden“ oder eine Anmeldung mit der Salesforce CLI — und versuchen Sie es dann erneut."
+      },
       "crossReferenceAccess": {
         "explanation": "Dem Benutzer, unter dem der Klon schreibt, fehlt der Zugriff auf einen Datensatz, auf den dieser in der Ziel-Org verweist — Lesezugriff oder, beim Master-Datensatz einer Master-Detail-Beziehung, Bearbeitungszugriff: ein Datensatz, den dieser Benutzer weder besitzt noch freigegeben bekommen hat, etwa einer, den die Ziel-Org schon hatte und den der Klon verknüpft statt geschrieben hat.",
         "action": "Geben Sie diesen Datensatz in der Ziel-Org für den Benutzer frei, oder geben Sie ihm „Alle anzeigen“ oder „Alle ändern“ für sein Objekt, oder verbinden Sie die Ziel-Org mit einem Benutzer, der diesen Zugriff hat, etwa einem Administrator; wiederholen Sie dann die fehlgeschlagenen Objekte."
@@ -2957,6 +2978,34 @@
       "outOfScope": {
         "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
         "action": "Erhöhen Sie die Tiefe, wenn Datensätze dieses Objekts mitgeklont werden sollen."
+      },
+      "guardBlocked": {
+        "explanation": "Production Guard hat diesen Lauf abgelehnt, bevor etwas gelesen wurde, aus dem Grund, den die Meldung nennt. Es wurde nichts geschrieben.",
+        "action": "Prüfen Sie, ob das Ziel die Org ist, in die Sie schreiben wollten, und starten Sie dann erneut aus der Überprüfung."
+      },
+      "guardDeclined": {
+        "explanation": "Der Lauf wurde bei der Bestätigung von Production Guard abgebrochen, bevor etwas gelesen wurde. Es wurde nichts geschrieben.",
+        "action": "Gehen Sie zurück zur Überprüfung, starten Sie erneut, wenn Sie in diese Org schreiben wollen, und bestätigen Sie."
+      },
+      "notInitialized": {
+        "explanation": "Ein Teil von SandForge, den der Lauf braucht, war in diesem Fenster nicht bereit: das Forge-Modul oder Production Guard, ohne den nichts geschrieben wird. Es wurde nichts geschrieben.",
+        "action": "Laden Sie das Fenster neu (Developer: Reload Window) und starten Sie dann erneut."
+      },
+      "forgeRunning": {
+        "explanation": "In diesem Fenster läuft noch ein anderer Forge-Lauf, und Forge führt jeweils nur einen aus. Dieser hat nichts geschrieben.",
+        "action": "Warten Sie, bis jener Lauf endet — ein Lauf, der angehalten werden soll, endet, sobald der laufende Schritt fertig ist — und starten Sie dann erneut."
+      },
+      "duplicateRun": {
+        "explanation": "Derselbe Lauf wurde erneut gesendet, während er noch lief oder weniger als eine Minute nachdem er seine Datensätze geschrieben hatte, und abgelehnt, damit sie nicht doppelt geschrieben werden. Dieser hat nichts geschrieben.",
+        "action": "Sehen Sie sich die Ergebnisse des ersten Laufs an, bevor Sie erneut starten: Eine Minute nachdem er geschrieben hat, wird derselbe Lauf wieder angenommen."
+      },
+      "retryUnavailable": {
+        "explanation": "Die Wiederholung konnte nicht starten: Was der wiederholte Lauf geschrieben hat, ist hier nicht bekannt — er ist nicht mehr im Verlauf, hat keine Aufzeichnung dessen behalten, was er geschrieben hat, oder hat in eine andere Org geschrieben, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
+        "action": "Starten Sie das Klonen erneut aus der Überprüfung."
+      },
+      "filesNotAccepted": {
+        "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",
+        "action": "Akzeptieren Sie in der Überprüfung, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus, und starten Sie dann erneut."
       },
       "unknown": {
         "explanation": "{{detail}}",

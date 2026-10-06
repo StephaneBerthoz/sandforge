@@ -23,6 +23,14 @@ describe('LiveOperationTracker', () => {
     expect(ops[0].totalRecords).toBe(500);
   });
 
+  it('says which runs can be paused, and of the others says nothing', () => {
+    tracker.register('op-1', 'sync', 'Sync 2 object(s)', 0, { pausable: true });
+    tracker.register('op-2', 'seed', 'Seeding Contact', 100);
+
+    expect(tracker.get('op-1')?.pausable).toBe(true);
+    expect(tracker.get('op-2')).not.toHaveProperty('pausable');
+  });
+
   it('updates progress correctly', () => {
     tracker.register('op-1', 'seed', 'Seeding Contact', 100);
     vi.advanceTimersByTime(2000);

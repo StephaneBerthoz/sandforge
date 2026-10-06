@@ -1130,6 +1130,8 @@ describe('SyncOpsHandler', () => {
       expect(ops[0].module).toBe('sync');
       expect(ops[0].status).toBe('failed');
       expect(ops[0].operationId.startsWith('sync:schedule:')).toBe(true);
+      // Paused from Live Operations as a run started from the page is.
+      expect(ops[0].pausable).toBe(true);
       tracker.dispose();
     });
   });

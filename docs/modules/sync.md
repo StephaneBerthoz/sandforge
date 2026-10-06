@@ -215,8 +215,8 @@ Before execution, the Review step shows:
   first. Pause holds the run before its next object, or its next batch of
   records -- a batch already sent, or a Bulk API job already closed, finishes
   first -- and nothing is written until **Resume**. A paused run is resumed
-  from the page that paused it; once that page is closed, it can only be
-  cancelled, from Live Operations, where it is listed as paused
+  from the page that paused it, or from Live Operations, where it is listed
+  as paused and offers Pause and Resume too, its page open or closed
 - Sequential per-object execution. With Grappe enabled and the source records,
   counted before the run, at or above `sandforge.grappe.autoActivateThreshold`,
   the run reports progress one partition per object over that same sequential

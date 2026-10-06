@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ListedAnonymizationTemplate } from '@sandforge/shared';
+import type {
+  DataOpsAnonymizeCoverageResponse,
+  ListedAnonymizationTemplate,
+} from '@sandforge/shared';
+import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -28,7 +32,16 @@ export interface AnonymizePanelProps {
   onApply?: (templateId: string) => void;
   isApplying?: boolean;
   previewData?: Record<string, unknown>[];
+  /**
+   * For the selected template, the rows of each object it masks in the org
+   * against those the org's latest backup holds: what a restore can bring
+   * back once the run has masked them.
+   */
+  coverage?: AnonymizeCoverage | null;
 }
+
+/** What the host answers `dataops:anonymize:coverage` with. */
+type AnonymizeCoverage = DataOpsAnonymizeCoverageResponse['payload'];
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   gdpr: 'dataops.frameworks.gdpr',
@@ -36,6 +49,69 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   hipaa: 'dataops.frameworks.hipaa',
   pci_dss: 'dataops.frameworks.pci_dss',
   custom: 'dataops.frameworks.custom',
+};
+
+/**
+ * What a restore can bring back of what the template masks: per object, its
+ * rows in the org against those the latest backup holds. A backup reads each
+ * object up to a cap of rows and a masking run masks every row, so the rows
+ * past the cap stay masked whatever is restored; the page said neither.
+ */
+const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }) => {
+  const { t } = useTranslation();
+  const short = coverage.objects
+    .filter((o) => o.truncated || (o.count !== null && o.count > o.backedUp))
+    .map((o) => o.objectApiName);
+  const date = coverage.backup
+    ? (formatStoredDate(coverage.backup.timestamp, (d) => d.toLocaleString(uiLocale())) ??
+      t('common.dateUnknown'))
+    : null;
+  return (
+    <div
+      className="flex flex-col gap-1 rounded border border-subtle p-2 mt-1"
+      data-testid="restore-coverage"
+    >
+      <span className="text-xs font-medium text-text-primary">{t('dataops.coverage.title')}</span>
+      <span className="text-xs text-text-secondary" data-testid="restore-coverage-backup">
+        {date ? t('dataops.coverage.latestBackup', { date }) : t('dataops.coverage.noBackup')}
+      </span>
+      {coverage.objects.length > 0 && (
+        <table className="text-xs text-text-primary w-full">
+          <thead>
+            <tr className="text-text-secondary">
+              <th scope="col" className="text-left font-normal">
+                {t('dataops.coverage.object')}
+              </th>
+              <th scope="col" className="text-right font-normal">
+                {t('dataops.coverage.inOrg')}
+              </th>
+              <th scope="col" className="text-right font-normal">
+                {t('dataops.coverage.inBackup')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {coverage.objects.map((o) => (
+              <tr key={o.objectApiName} data-testid={`restore-coverage-${o.objectApiName}`}>
+                <th scope="row" className="text-left font-normal">
+                  {o.objectApiName}
+                </th>
+                <td className="text-right tabular-nums">
+                  {o.count === null ? t('dataops.coverage.notCounted') : formatNumber(o.count)}
+                </td>
+                <td className="text-right tabular-nums">{formatNumber(o.backedUp)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {short.length > 0 && (
+        <span className="text-xs text-text-primary" data-testid="restore-coverage-shortfall">
+          {t('dataops.coverage.shortfall', { objects: short.join(', ') })}
+        </span>
+      )}
+    </div>
+  );
 };
 
 /** Panel for anonymizing sensitive data. */
@@ -50,6 +126,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   onApply,
   isApplying = false,
   previewData,
+  coverage,
 }) => {
   const { t } = useTranslation();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -153,6 +230,11 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                     </Badge>
                   ))}
                 </div>
+                {/* Before Apply, which masks every row for good: an answer
+                    for another template is not this one's. */}
+                {coverage && coverage.templateId === selectedTemplate.id && (
+                  <RestoreCoverage coverage={coverage} />
+                )}
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="flex flex-wrap gap-2">
                     {/* No Preview button. One ran the very same irreversible

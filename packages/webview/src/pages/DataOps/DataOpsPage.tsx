@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import type { BackupSummary, ListedAnonymizationTemplate } from '@sandforge/shared';
+import type {
+  BackupSummary,
+  DataOpsAnonymizeCoverageResponse,
+  ListedAnonymizationTemplate,
+} from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -117,6 +121,24 @@ export const DataOpsPage: React.FC = () => {
     'dataops:anonymization-templates',
     undefined,
     { responseType: 'dataops:anonymization-templates:response' },
+  );
+
+  /**
+   * Bridge query: for the selected template, each object's rows in the org
+   * against those its latest backup holds — what a restore can bring back,
+   * said before Apply masks every row. Asked again whenever the tab opens, so
+   * a backup taken meanwhile is counted.
+   */
+  const coverageQuery = useBridgeQuery<DataOpsAnonymizeCoverageResponse['payload']>(
+    'dataops:anonymize:coverage',
+    currentOrg && selectedTemplateId
+      ? { orgId: currentOrg.id, templateId: selectedTemplateId }
+      : undefined,
+    {
+      responseType: 'dataops:anonymize:coverage:response',
+      errorType: 'dataops:error',
+      skip: !currentOrg || !selectedTemplateId || activeTab !== 'anonymize',
+    },
   );
 
   /** Bridge mutation: save rules as a template of the user's, kept in extension storage. */
@@ -408,6 +430,7 @@ export const DataOpsPage: React.FC = () => {
               // onPreview was this same handler: clicking "Preview" masked the
               // org's data for real. AnonymizePanel now inerts that button.
               onApply={handleApplyAnonymize}
+              coverage={coverageQuery.data}
             />
           )}
 

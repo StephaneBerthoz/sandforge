@@ -125,8 +125,18 @@ describe('docs/modules/sync.md', () => {
 
     expect(DOC).toContain("Cancel means what Live Operations' Cancel means");
     expect(DOC).toContain('Pause holds the run before its next object, or its next batch of');
+    // And Live Operations pauses and resumes it as its page does: the panel
+    // offers both on a run the extension marks pausable, and the page sends
+    // them on the Sync page's channels.
+    expect(source('packages/webview/src/pages/Monitor/LiveOperationsPanel.tsx')).toContain(
+      'data-testid={`pause-${operation.operationId}`}',
+    );
+    expect(source('packages/webview/src/pages/Monitor/MonitorPage.tsx')).toContain(
+      "useBridgeMutation<SyncRunControlAnswer>('sync:resume')",
+    );
+    expect(SYNC_HANDLER).toContain('{ pausable: true }');
     expect(DOC).toContain(
-      'once that page is closed, it can only be\n  cancelled, from Live Operations',
+      'or from Live Operations, where it is listed\n  as paused and offers Pause and Resume too',
     );
   });
 

@@ -184,9 +184,11 @@ describe('record removal', () => {
     ]);
   });
 
-  it('overwrites records in the org with the duplicate-rule waiver', async () => {
+  it('overwrites records in the org with the duplicate-rule waiver and the assignment rules off', async () => {
     // An erasure, or an order a removal drafts and gives its status back, is
     // an edit, and a duplicate rule can block an edit as it blocks a create.
+    // An edit over REST also has the target's assignment rules reassign a
+    // case or a lead, unless it says not to.
     const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001AAA' }]);
     const conn = { sobject: vi.fn(() => ({ update })) } as unknown as Connection;
 
@@ -195,7 +197,7 @@ describe('record removal', () => {
     ]);
 
     expect(update).toHaveBeenCalledWith([{ Id: '003000000000001AAA', Email: null }], {
-      headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true' },
+      headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
     });
   });
 

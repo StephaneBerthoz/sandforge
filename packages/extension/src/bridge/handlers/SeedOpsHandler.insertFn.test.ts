@@ -206,6 +206,21 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     expect(result.errors).toEqual(['REQUIRED_FIELD_MISSING: Name']);
   });
 
+  it("creates with duplicate rules waived and the target's assignment rules off", async () => {
+    // A create over REST that does not say otherwise has the target's active
+    // assignment rules reassign the cases, leads and accounts a seed writes,
+    // and the new owners can be mailed.
+    const create = vi.fn().mockResolvedValue([{ success: true, id: '00Q000000000001' }]);
+    mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+
+    const insert = await captureInsertFn(deps);
+    await insert('org-1', 'Lead', [{ LastName: 'Doe', Company: 'Acme' }], 200);
+
+    expect(create).toHaveBeenCalledWith([{ LastName: 'Doe', Company: 'Acme' }], {
+      headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true', 'Sforce-Auto-Assign': 'FALSE' },
+    });
+  });
+
   it('keeps every error the org gives a record, in its one entry, up to a bound', async () => {
     // Only the first was kept: a row refused for a missing name and a bad
     // email said only the first, and fixing it met the second on the next run.

@@ -61,21 +61,49 @@ describe('LiveOperationsPanel', () => {
     expect(screen.getByText('1 active')).toBeTruthy();
   });
 
-  it('offers no pause or resume on a Seed or Sync run, only cancel', () => {
+  it('offers no pause or resume on a run the extension does not say can pause, only cancel', () => {
+    // A seed, and a sync's simulation, which has no pause to hold.
     render(
       <LiveOperationsPanel
         operations={[
           makeOperation({ operationId: 'op-1', module: 'seed', status: 'running' }),
           makeOperation({ operationId: 'op-2', module: 'sync', status: 'running' }),
+          makeOperation({ operationId: 'op-3', module: 'seed', status: 'paused' }),
         ]}
         onCancel={vi.fn()}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
       />,
     );
     expect(screen.queryByTestId('pause-op-1')).toBeNull();
     expect(screen.queryByTestId('pause-op-2')).toBeNull();
-    expect(screen.queryByTestId('resume-op-1')).toBeNull();
+    expect(screen.queryByTestId('resume-op-3')).toBeNull();
     expect(screen.getByTestId('cancel-op-1')).toBeTruthy();
     expect(screen.getByTestId('cancel-op-2')).toBeTruthy();
+  });
+
+  it('offers Pause on a running Sync run and Resume on a paused one, by name', () => {
+    const onPause = vi.fn();
+    const onResume = vi.fn();
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({ operationId: 'op-1', status: 'running', pausable: true }),
+          makeOperation({ operationId: 'op-2', status: 'paused', pausable: true }),
+        ]}
+        onCancel={vi.fn()}
+        onPause={onPause}
+        onResume={onResume}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+
+    expect(onPause).toHaveBeenCalledWith('op-1');
+    expect(onResume).toHaveBeenCalledWith('op-2');
+    expect(screen.queryByTestId('resume-op-1')).toBeNull();
+    expect(screen.queryByTestId('pause-op-2')).toBeNull();
   });
 
   it('shows cancel button for active operations', () => {

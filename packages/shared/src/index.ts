@@ -90,6 +90,7 @@ export {
 export {
   AUTO_ASSIGN_HEADER,
   forgeWriteHeaders,
+  recordWriteHeaders,
   type ForgeWriteOptions,
 } from './constants/forge-write-headers.js';
 export {

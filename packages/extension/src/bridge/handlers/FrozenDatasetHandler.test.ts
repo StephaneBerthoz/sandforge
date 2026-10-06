@@ -17,6 +17,7 @@ import {
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
@@ -318,6 +319,28 @@ describe('FrozenDatasetHandler', () => {
           buildMsg('frozen:remove', { targetOrgId: 'org-2', loadedAt: '2026-09-24T10:05:00.000Z' }),
         ),
       ).toBe(true);
+    });
+  });
+
+  describe("discovery's personal fields", () => {
+    it('names the text fields an API name gives to an email address or a phone number, as Forge does', () => {
+      // The detector reads the words of a label, and was handed the API name
+      // as one: `Notification_Email__c` and `SMS_Number__c` went unnamed.
+      deps.infraServices = {
+        piiDetector: new PIIDetector(),
+      } as unknown as HandlerDeps['infraServices'];
+      handler = new FrozenDatasetHandler(deps);
+
+      const discovery = handler['buildDiscoveryService']();
+
+      expect(
+        discovery.personalFields([
+          { name: 'Subject', type: 'string' },
+          { name: 'Notification_Email__c', type: 'string' },
+          { name: 'SMS_Number__c', type: 'string' },
+          { name: 'Email_Opt_Out__c', type: 'boolean' },
+        ]),
+      ).toEqual(['Notification_Email__c', 'SMS_Number__c']);
     });
   });
 

@@ -217,17 +217,18 @@ describe('services', () => {
       } as unknown as Parameters<typeof services.seedOrchestrator>[0]);
       expect(seed).toBeInstanceOf(SeedOrchestrator);
 
-      const sync = services.syncOrchestrator({
+      type SyncDeps = Parameters<typeof services.syncOrchestrator>[0];
+      // Keyed on the orchestrator's own dependencies, so a key it no longer
+      // reads fails to compile here instead of riding along behind the cast.
+      const syncDeps: Partial<Record<keyof SyncDeps, unknown>> = {
         dataSync: { sync: vi.fn() },
-        metadataSync: { sync: vi.fn() },
         conflictResolver: { detectConflicts: vi.fn(), resolve: vi.fn() },
         fieldMapping: { apply: vi.fn(), applyAddOns: vi.fn() },
         transformPipeline: { transformRecord: vi.fn() },
-        migrationScript: { execute: vi.fn() },
-        incrementalTracker: { getLastSync: vi.fn(), recordSync: vi.fn(), reset: vi.fn() },
         querySource: vi.fn(),
         queryTarget: vi.fn(),
-      } as unknown as Parameters<typeof services.syncOrchestrator>[0]);
+      };
+      const sync = services.syncOrchestrator(syncDeps as unknown as SyncDeps);
       expect(sync).toBeInstanceOf(SyncOrchestrator);
 
       const compare = services.compareOrchestrator({

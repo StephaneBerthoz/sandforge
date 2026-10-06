@@ -391,6 +391,8 @@ export const ForgeDiscovery: React.FC = () => {
                 node={selectedNode}
                 onToggleIncluded={handleToggleIncluded}
                 onToggleAnonymize={handleToggleAnonymize}
+                anonymize={config?.anonymizePII ?? false}
+                keepContactPoints={config?.keepContactPoints ?? false}
               />
             ) : (
               <div

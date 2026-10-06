@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Activity, Pause, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Activity, Pause, Play, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
@@ -12,18 +12,24 @@ import { uiLocale } from '../../utils/formatters';
 /**
  * Props for the LiveOperationsPanel component.
  *
- * There is no pause or resume: the operations tracked here are the runs that
- * write to an org — Seed, Sync, a Forge clone and the removal of what one
- * created, a record clone, a CSV import, a Frozen dataset load — which can be
- * cancelled but not paused. The buttons this panel used to
- * offer reached a handler that only knows pipeline runs, and every click
- * answered "No active operation found to pause."
+ * The operations tracked here are the runs that write to an org — Seed, Sync,
+ * a Forge clone and the removal of what one created, a record clone, a CSV
+ * import, a Frozen dataset load. Every one can be cancelled. A Sync run can
+ * be paused and resumed too, through the pause its engine waits on before
+ * each object and batch, as on the Sync page; the extension says which runs
+ * can (`pausable`), and no other is offered a Pause. The buttons this panel
+ * used to offer on every run reached a handler that only knows pipeline runs,
+ * and every click answered "No active operation found to pause."
  */
 export interface LiveOperationsPanelProps {
   /** Array of live operation snapshots. */
   operations: LiveOperationSnapshot[];
   /** Callback to cancel an operation. */
   onCancel?: (operationId: string) => void;
+  /** Hold a pausable run before its next object or batch. */
+  onPause?: (operationId: string) => void;
+  /** Let a paused run go on. */
+  onResume?: (operationId: string) => void;
 }
 
 /**
@@ -119,8 +125,10 @@ const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status']; t: TFuncti
 const OperationRow: React.FC<{
   operation: LiveOperationSnapshot;
   onCancel?: (id: string) => void;
+  onPause?: (id: string) => void;
+  onResume?: (id: string) => void;
   t: TFunction;
-}> = ({ operation, onCancel, t }) => {
+}> = ({ operation, onCancel, onPause, onResume, t }) => {
   const isActive = operation.status === 'running' || operation.status === 'paused';
   const moduleKey = MODULE_LABEL_KEYS[operation.module];
   // A run that counts no record — a Frozen load goes by phases — has none to
@@ -194,6 +202,28 @@ const OperationRow: React.FC<{
       {/* Action buttons */}
       {isActive && (
         <div className="flex items-center gap-1.5 mt-1">
+          {operation.pausable && operation.status === 'running' && onPause && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onPause(operation.operationId)}
+              data-testid={`pause-${operation.operationId}`}
+            >
+              <Pause className="w-3 h-3 mr-1" />
+              {t('sync.runControls.pause')}
+            </Button>
+          )}
+          {operation.pausable && operation.status === 'paused' && onResume && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onResume(operation.operationId)}
+              data-testid={`resume-${operation.operationId}`}
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {t('sync.runControls.resume')}
+            </Button>
+          )}
           {onCancel && (
             <Button
               variant="ghost"
@@ -218,6 +248,8 @@ const OperationRow: React.FC<{
 export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
   operations,
   onCancel,
+  onPause,
+  onResume,
 }) => {
   const { t } = useTranslation();
 
@@ -252,7 +284,14 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
         )}
       </div>
       {operations.map((op) => (
-        <OperationRow key={op.operationId} operation={op} onCancel={onCancel} t={t} />
+        <OperationRow
+          key={op.operationId}
+          operation={op}
+          onCancel={onCancel}
+          onPause={onPause}
+          onResume={onResume}
+          t={t}
+        />
       ))}
     </div>
   );

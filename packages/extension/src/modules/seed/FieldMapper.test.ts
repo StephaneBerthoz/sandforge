@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FieldMapper, generateValue } from './FieldMapper';
 import type { FieldMapperDependencies } from './FieldMapper';
 import { FakerFallback } from './FakerFallback';
+import { isReservedPhone } from './LocaleData';
 import type { SeedObjectConfig, FieldRule } from '@sandforge/shared';
 
 function createMockDeps(): FieldMapperDependencies {
@@ -348,6 +349,53 @@ describe('FieldMapper', () => {
       for (const record of result) {
         expect(['Open', 'Closed', 'Pending']).toContain(record['Status']);
       }
+    });
+
+    it("picks a persona's emails and phone numbers as values that reach nobody, as an AI answer's", async () => {
+      // A persona's random picks become these values, and an AI-written
+      // persona listed real-looking addresses and numbers for contact fields.
+      const config = createObjectConfig(
+        [
+          {
+            fieldApiName: 'Email',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['jane.doe@acme.com', 'ops@corp.example'] },
+          },
+          {
+            fieldApiName: 'Hotline__c',
+            fieldType: 'phone',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['+33 6 12 34 56 78'] },
+          },
+          {
+            fieldApiName: 'Note__c',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['Call 912 345 678 after six'] },
+          },
+          {
+            fieldApiName: 'Status',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['Open'] },
+          },
+        ],
+        20,
+      );
+
+      const result = await mapper.mapFields(config, new Map());
+
+      expect(new Set(result.map((record) => record['Email']))).toEqual(
+        new Set(['jane.doe@acme.example', 'ops@corp.example']),
+      );
+      const hotlines = new Set(result.map((record) => record['Hotline__c']));
+      expect(hotlines.size).toBe(1);
+      const [hotline] = [...hotlines];
+      expect(isReservedPhone(String(hotline), 'fr_FR')).toBe(true);
+      const notes = new Set(result.map((record) => String(record['Note__c'])));
+      expect(notes.size).toBe(1);
+      const [note] = [...notes];
+      expect(note).not.toContain('912 345 678');
+      expect(isReservedPhone(note.replace(/^Call | after six$/g, ''))).toBe(true);
+      expect(result.every((record) => record['Status'] === 'Open')).toBe(true);
     });
   });
 

@@ -104,10 +104,11 @@ export const ForgeExecution: React.FC = () => {
   /**
    * What the error that ended the run means and what to do about it, as the
    * results say it of a record's error: the platform's code and its English
-   * words, shown alone, said neither, in any language.
+   * words, shown alone, said neither, in any language. A refusal of the run
+   * before it started is read by its code, its message having none.
    */
   const runErrorHint = useMemo(
-    () => (runError ? translateForgeError(runError.message) : null),
+    () => (runError ? translateForgeError(runError.message, runError.code) : null),
     [runError],
   );
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */

@@ -537,6 +537,32 @@ describe('BulkDataWriter', () => {
       expect(insertOptions.headers['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
     });
 
+    it('keeps the target from applying its assignment rules to what it creates, upserts or updates', async () => {
+      // REST applies the target's active assignment rules to a write that does
+      // not say otherwise: the cases and leads a sync, a seed clone, a CSV
+      // import or a Frozen load wrote went to whoever the rules routed them
+      // to, over the owner the row carried, and the new owner could be mailed.
+      const h = createHarness();
+      h.sobject.upsert.mockResolvedValue(okResults(1));
+      h.sobject.create.mockResolvedValue(okResults(1));
+      h.sobject.update.mockResolvedValue(okResults(1));
+
+      await h.writer.upsert('Case', 'External_Id__c', makeRecords(1), 200);
+      await h.writer.insert('Case', makeRecords(1), 200);
+      await h.writer.update('Case', [{ Id: '500000', Subject: 'Renamed' }], 200);
+
+      const sent = [
+        h.sobject.upsert.mock.calls[0][2],
+        h.sobject.create.mock.calls[0][1],
+        h.sobject.update.mock.calls[0][1],
+      ] as Array<{ headers: Record<string, string> }>;
+      expect(sent.map((options) => options.headers['Sforce-Auto-Assign'])).toEqual([
+        'FALSE',
+        'FALSE',
+        'FALSE',
+      ]);
+    });
+
     it('keeps what the org did with each record, created or updated', async () => {
       // The answer says it for every record, and was dropped: the audit trail
       // could only count the records of an upsert as "upserted".

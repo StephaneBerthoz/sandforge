@@ -56,6 +56,7 @@ const CODES_IN_THE_GUIDE: ReadonlySet<string> = new Set([
   'ENTITY_IS_DELETED',
   'UNABLE_TO_LOCK_ROW',
   'REQUEST_LIMIT_EXCEEDED',
+  'INVALID_SESSION_ID',
   'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
   'NUMBER_OUTSIDE_VALID_RANGE',
   'MALFORMED_ID',
@@ -297,6 +298,15 @@ const RULES: Rule[] = [
             code,
             'error',
           );
+        // The session the extension holds for the org was refused: expired, or
+        // ended by a logout, a password change or an administrator. Nothing
+        // the clone changes gets past it; the org has to be signed in again.
+        case 'INVALID_SESSION_ID':
+          return mapping(
+            ['forge.error.sessionExpired.explanation', 'forge.error.sessionExpired.action'],
+            code,
+            'error',
+          );
         case 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY':
           return mapping(
             [
@@ -414,6 +424,71 @@ const RULES: Rule[] = [
   },
 ];
 
+/**
+ * SandForge's own refusals of a run before it wrote anything, by the code the
+ * extension sends beside the message. Their messages are English sentences
+ * with no code in front — "Operation blocked by Production Guard: …",
+ * "Another Forge run is still under way…" — which no rule above reads: the
+ * execution screen showed them in English, in every language, with nothing
+ * said under them.
+ *
+ * The run gate's own codes are not here: an error that carries one takes the
+ * page back to Review, whose notice says each by its code, before the
+ * execution screen shows anything of it.
+ */
+const REFUSALS: ReadonlyMap<string, { keys: HintKeys; severity: 'info' | 'warning' | 'error' }> =
+  new Map([
+    [
+      'GUARD_BLOCKED',
+      {
+        keys: ['forge.error.guardBlocked.explanation', 'forge.error.guardBlocked.action'],
+        severity: 'error',
+      },
+    ],
+    [
+      'GUARD_DECLINED',
+      {
+        keys: ['forge.error.guardDeclined.explanation', 'forge.error.guardDeclined.action'],
+        severity: 'info',
+      },
+    ],
+    [
+      'NOT_INITIALIZED',
+      {
+        keys: ['forge.error.notInitialized.explanation', 'forge.error.notInitialized.action'],
+        severity: 'error',
+      },
+    ],
+    [
+      'FORGE_RUNNING',
+      {
+        keys: ['forge.error.forgeRunning.explanation', 'forge.error.forgeRunning.action'],
+        severity: 'warning',
+      },
+    ],
+    [
+      'DUPLICATE',
+      {
+        keys: ['forge.error.duplicateRun.explanation', 'forge.error.duplicateRun.action'],
+        severity: 'warning',
+      },
+    ],
+    [
+      'RETRY_UNAVAILABLE',
+      {
+        keys: ['forge.error.retryUnavailable.explanation', 'forge.error.retryUnavailable.action'],
+        severity: 'warning',
+      },
+    ],
+    [
+      'FILES_NOT_ACCEPTED',
+      {
+        keys: ['forge.error.filesNotAccepted.explanation', 'forge.error.filesNotAccepted.action'],
+        severity: 'warning',
+      },
+    ],
+  ]);
+
 function mapping(
   [explanationKey, actionKey]: HintKeys,
   code: string,
@@ -435,8 +510,14 @@ function mapping(
 /**
  * Translate a raw error message into structured i18n keys. Returns `null`
  * when no rule matches.
+ *
+ * @param code - The code the extension sent with the error, when it sent one:
+ *   one of SandForge's own refusals is translated by it, whatever the message
+ *   says.
  */
-export function translateForgeError(raw: string): TranslatedError | null {
+export function translateForgeError(raw: string, code?: string): TranslatedError | null {
+  const refusal = code === undefined ? undefined : REFUSALS.get(code);
+  if (code !== undefined && refusal) return mapping(refusal.keys, code, refusal.severity);
   const trimmed = raw.trim();
   if (!trimmed) return null;
   for (const rule of RULES) {

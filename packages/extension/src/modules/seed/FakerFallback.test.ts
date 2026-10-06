@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { FakerFallback, generateByMethod } from './FakerFallback';
 import type { FieldRule } from '@sandforge/shared';
+import { resolveFakerMethod } from '@sandforge/shared';
 import { GEO_DATA } from './GeoCoherentGenerator';
-import { LOCALE_DATA } from './LocaleData';
+import { LOCALE_DATA, isReservedEmailDomain } from './LocaleData';
 
 function createFakerRule(method: string, fieldName?: string): FieldRule {
   return {
@@ -95,6 +96,33 @@ describe('FakerFallback', () => {
       const value = generateByMethod('email', 0, { min: 0, max: 100 });
       expect(typeof value).toBe('string');
       expect(value as string).toContain('@');
+    });
+
+    it("gives a user a username the org takes: an email address in form, on a domain nobody's mail reaches", () => {
+      // A username is an email address in form, and it took a person's name:
+      // the org refused every user a seed wrote.
+      const usernames = new FakerFallback('fr_FR')
+        .generate([createFakerRule('username', 'Username')], 12)
+        .map((record) => record['Username'] as string);
+
+      for (const username of usernames) {
+        expect(username).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{8}\d+@[a-z0-9.-]+\.[a-z]+$/);
+        expect(username.length).toBeLessThanOrEqual(80);
+        const domain = username.split('@')[1];
+        expect(isReservedEmailDomain(domain)).toBe(true);
+      }
+      expect(new Set(usernames).size).toBe(usernames.length);
+    });
+
+    it('sets the usernames of one seed apart from those of every other, which the org would refuse as taken', () => {
+      // A username is unique across every org: the same person and index in a
+      // second seed, here or in another org, would be refused.
+      const rule = [createFakerRule('username', 'Username')];
+      const first = new FakerFallback().generate(rule, 3).map((record) => record['Username']);
+      const second = new FakerFallback().generate(rule, 3).map((record) => record['Username']);
+
+      expect(first.filter((username) => second.includes(username))).toEqual([]);
+      expect(resolveFakerMethod('internet.userName')).toBe('username');
     });
 
     it('should generate a phone number', () => {

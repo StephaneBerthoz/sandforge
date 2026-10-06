@@ -205,7 +205,7 @@
         "command": "sandforge.openGrappe",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r",
-        "when": "activeViewlet == 'workbench.view.extension.sandforge'"
+        "when": "activeViewlet == 'workbench.view.extension.sandforge' && !textInputFocus"
       },
       {
         "command": "sandforge.openAutomation",

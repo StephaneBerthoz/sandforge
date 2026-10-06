@@ -67,6 +67,7 @@ let mockConfig: {
   anonymizePII: boolean;
   skipEmpty: boolean;
   batchSize: string;
+  keepContactPoints?: boolean;
 } | null = null;
 
 const mockSetGraph = vi.fn();
@@ -185,6 +186,31 @@ describe('ForgeDiscovery', () => {
     // The node name appears in the detail panel header (h3)
     const detail = screen.getByTestId('forge-node-detail');
     expect(detail.querySelector('h3')?.textContent).toBe('Account');
+  });
+
+  it('previews the emails of the node as the run configured writes them', () => {
+    // The preview read nothing of the run: it showed what an anonymizing run
+    // wrote whether the run anonymized or not.
+    mockConfig = {
+      inputMode: 'record',
+      depth: 'direct',
+      sourceOrgId: 'src',
+      targetOrgId: 'tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+    const { unmount } = render(<ForgeDiscovery />);
+    fireEvent.click(screen.getByTestId('mock-node-Contact'));
+    expect(screen.getByTestId('anonymization-preview-Email').textContent).toContain(
+      'john.doe@acme.com.invalid',
+    );
+    unmount();
+
+    mockConfig = { ...mockConfig, keepContactPoints: true };
+    render(<ForgeDiscovery />);
+    fireEvent.click(screen.getByTestId('mock-node-Contact'));
+    expect(screen.queryByTestId('anonymization-preview')).toBeNull();
   });
 
   it('should call setPhase("input") when back button is clicked', () => {

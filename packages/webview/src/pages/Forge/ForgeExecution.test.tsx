@@ -784,6 +784,23 @@ describe('ForgeExecution', () => {
       ).toBe(`${FORGE_GUIDE_URL}#error-request-limit-exceeded`);
     });
 
+    it('says what a refusal of its own means by its code, its message naming none', () => {
+      // "Another Forge run is still under way…" was said in English, in every
+      // language, with nothing under it.
+      mockRunError = {
+        message:
+          'Another Forge run is still under way in this window: start this one once it has ended.',
+        code: 'FORGE_RUNNING',
+        stoppedRun: null,
+      };
+      render(<ForgeExecution />);
+
+      const hint = within(screen.getByRole('alert')).getByTestId('forge-error-translation');
+      expect(hint.textContent).toContain(i18n.t('forge.error.forgeRunning.explanation'));
+      expect(hint.textContent).toContain(i18n.t('forge.error.forgeRunning.action'));
+      expect(within(hint).queryByRole('link')).toBeNull();
+    });
+
     it('says the error alone when nothing is known of what it means', () => {
       mockRunError = {
         message: 'Forge execution was aborted before it started. Nothing was written.',

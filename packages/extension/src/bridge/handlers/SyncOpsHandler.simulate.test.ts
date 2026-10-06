@@ -222,6 +222,8 @@ describe('sync:simulate', () => {
       }),
     ]);
     expect(tracker.get('sim-2')?.status).toBe('completed');
+    // Listed with a Cancel and no Pause: a simulation has no pause to hold.
+    expect(tracker.get('sim-2')?.pausable).toBeUndefined();
     tracker.dispose();
   });
 
@@ -341,6 +343,8 @@ describe('sync:pause and sync:resume', () => {
       } as BaseMessage),
     );
     await vi.waitFor(() => expect(gate).toBeDefined());
+    // Live Operations offers its Pause on the run, which reaches this gate.
+    expect(tracker.get('run-1')?.pausable).toBe(true);
 
     await control('sync:pause', 'pause-1', 'run-1');
     expect(posted(deps, 'sync:pause:response')[0].payload).toEqual({

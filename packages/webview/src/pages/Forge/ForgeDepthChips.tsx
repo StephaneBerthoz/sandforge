@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import type { ForgeDepth } from '../../stores/useForgeStore';
@@ -41,6 +41,28 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
 }) => {
   const { t } = useTranslation();
   const hintId = useId();
+  const errorId = useId();
+  /*
+   * What is typed while it is no depth discovery takes: 0, a decimal, a
+   * negative number, nothing. The schema takes a whole number from 1 to 10,
+   * and the field passed anything on — a discovery sent with 0 or 2.5 was
+   * refused outright. Such a value is kept here, said to be wrong, and never
+   * passed on; the depth stays the last one taken, which the field shows
+   * again once it is left.
+   */
+  const [refused, setRefused] = useState<string | null>(null);
+
+  const takeDepth = (typed: string): void => {
+    const value = Number(typed);
+    if (typed.trim() === '' || !Number.isInteger(value) || value < 1) {
+      setRefused(typed);
+      return;
+    }
+    setRefused(null);
+    // A number typed past the cap is brought down to it: `max` only bounds
+    // the spinner arrows, not what is typed.
+    onCustomDepthChange(Math.min(MAX_CUSTOM_DEPTH, value));
+  };
 
   return (
     <div>
@@ -81,14 +103,13 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
             type="number"
             min={1}
             max={MAX_CUSTOM_DEPTH}
-            value={customDepth}
-            // A number typed past the cap is brought down to it: `max` only
-            // bounds the spinner arrows, not what is typed.
-            onChange={(e) =>
-              onCustomDepthChange(Math.min(MAX_CUSTOM_DEPTH, Number(e.target.value)))
-            }
+            step={1}
+            value={refused ?? customDepth}
+            onChange={(e) => takeDepth(e.target.value)}
+            onBlur={() => setRefused(null)}
             aria-label={t('forge.depthCustom')}
-            aria-describedby={hintId}
+            aria-invalid={refused !== null}
+            aria-describedby={refused !== null ? `${errorId} ${hintId}` : hintId}
             data-testid="forge-depth-custom-input"
             className={cn(
               'w-16 px-2 py-1.5 rounded-full text-xs text-center',
@@ -99,6 +120,16 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
           />
         )}
       </div>
+      {depth === 'custom' && refused !== null && (
+        <p
+          id={errorId}
+          role="alert"
+          className="mt-1.5 text-xs text-status-error"
+          data-testid="forge-depth-custom-error"
+        >
+          {t('forge.depthCustomInvalid', { max: MAX_CUSTOM_DEPTH })}
+        </p>
+      )}
       {depth === 'custom' && (
         <p
           id={hintId}

@@ -52,11 +52,13 @@ simulation, which only reads, is listed too):
 - How a run ended — succeeded, failed with its error, or cancelled — for a
   short while after it ends
 
-The panel offers no pause or resume. A Sync run can be paused from the Sync
-page that started it, and is listed here as paused until it is resumed there;
-its Cancel still stops it.
+A Sync run, started from its page or by a schedule, also offers Pause and
+Resume here, the ones of its Sync page: Pause holds it before its next object
+or batch, and it is listed as paused until it is resumed, from either place;
+its Cancel still stops it. No other run can be paused, and neither can a Sync
+simulation, which offers Cancel alone.
 The list is read when the dashboard opens, again on each dashboard refresh and
-after a Cancel. Between readings it shows each run as it last was, not live.
+after a Cancel, a Pause or a Resume. Between readings it shows each run as it last was, not live.
 
 Background operations do not survive a reload. The extension keeps the list in
 memory only, so after a window reload or an extension host restart the panel

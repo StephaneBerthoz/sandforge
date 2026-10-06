@@ -43,7 +43,12 @@ const AUDIT_PAGE_SIZE = 100;
 export const ReportsContainer: React.FC = () => {
   // The hook queries on mount by default; the histories only change when a run
   // finishes, so reopening the panel is what re-reads them.
-  const { data, error, loading } = useBridgeQuery<ReportsPayload>('reports:list', undefined, {
+  const {
+    data,
+    error,
+    loading,
+    refetch: readReportsAgain,
+  } = useBridgeQuery<ReportsPayload>('reports:list', undefined, {
     responseType: 'reports:list:response',
   });
   const { save } = useFileSave();
@@ -96,11 +101,13 @@ export const ReportsContainer: React.FC = () => {
     lineageLoading: lineage.loading || (!lineage.data && !lineage.error),
   };
 
-  // A failed read is not an absent producer: leaving `reports` undefined here
-  // would take the executions tab away from a feature that is wired and
-  // simply did not answer.
+  // A failed read is not an absent producer, nor a read that found nothing:
+  // given an empty list, the executions tab said "No reports generated yet"
+  // and the tiles counted 0 reports, and the analytics tab, given no
+  // summary, was taken away. Both tabs say the read failed, with a retry,
+  // and nothing of an earlier answer is shown as this one's.
   if (error) {
-    return <ReportsPage reports={[]} analyticsSummary={data?.summary} {...auditProps} />;
+    return <ReportsPage reportsError={error} onRetryReports={readReportsAgain} {...auditProps} />;
   }
 
   return (

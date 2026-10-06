@@ -25,10 +25,13 @@ vi.mock('@xyflow/react', () => ({
 type QueryState = { data: unknown; loading: boolean; error: string | null };
 const queries: Record<string, QueryState> = {};
 const queryCalls: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+/** The refetch each request type is given, the same one at every render. */
+const refetches: Record<string, ReturnType<typeof vi.fn>> = {};
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string, payload?: Record<string, unknown>) => {
     queryCalls.push({ type, payload });
-    return { ...(queries[type] ?? { data: null, loading: true, error: null }), refetch: vi.fn() };
+    const refetch = (refetches[type] ??= vi.fn());
+    return { ...(queries[type] ?? { data: null, loading: true, error: null }), refetch };
   },
 }));
 
@@ -90,6 +93,7 @@ const graph = (operationId: string) => ({
 describe('ReportsContainer', () => {
   beforeEach(() => {
     for (const key of Object.keys(queries)) delete queries[key];
+    for (const key of Object.keys(refetches)) delete refetches[key];
     queryCalls.length = 0;
     mockPostMessage.mockClear();
   });
@@ -156,6 +160,29 @@ describe('ReportsContainer', () => {
     render(<ReportsContainer />);
 
     expect(screen.getByTestId('reports-page')).toBeDefined();
+  });
+
+  it('says the reports could not be read, with a retry, rather than that none were generated', () => {
+    // Given an empty list, the tab said "No reports generated yet" and the
+    // tiles counted 0 reports; the analytics tab, given no summary, was gone.
+    queries['reports:list'] = { data: null, loading: false, error: 'timed out' };
+
+    render(<ReportsContainer />);
+
+    expect(screen.getByTestId('reports-executions-error-message').textContent).toContain(
+      'The reports could not be read: timed out',
+    );
+    expect(screen.queryByText('No reports generated yet')).toBeNull();
+    expect(screen.queryByText('Total Reports')).toBeNull();
+    fireEvent.click(screen.getByTestId('reports-executions-error-retry'));
+    expect(refetches['reports:list']).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
+    expect(screen.getByTestId('reports-analytics-error-message').textContent).toBe(
+      'The analytics could not be loaded: they come with the reports, which could not be read.',
+    );
+    fireEvent.click(screen.getByTestId('reports-analytics-error-retry'));
+    expect(refetches['reports:list']).toHaveBeenCalledTimes(2);
   });
 
   it('asks for the newest page of the audit trail and for the latest lineage', () => {

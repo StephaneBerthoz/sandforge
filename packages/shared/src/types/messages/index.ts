@@ -195,6 +195,8 @@ import type {
   AnonymizationTemplateSaveResponse,
   AnonymizationTemplateDeleteRequest,
   AnonymizationTemplateDeleteResponse,
+  DataOpsAnonymizeCoverageRequest,
+  DataOpsAnonymizeCoverageResponse,
   PIIScanRequest,
   PIIScanResponse,
   DataOpsRollbackRequest,
@@ -527,6 +529,7 @@ export type WebViewToExtensionMessage =
   | AnonymizationTemplatesRequest
   | AnonymizationTemplateSaveRequest
   | AnonymizationTemplateDeleteRequest
+  | DataOpsAnonymizeCoverageRequest
   | PIIScanRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
@@ -723,6 +726,7 @@ export type ExtensionToWebViewMessage =
   | AnonymizationTemplatesResponse
   | AnonymizationTemplateSaveResponse
   | AnonymizationTemplateDeleteResponse
+  | DataOpsAnonymizeCoverageResponse
   | PIIScanResponse
   | BackupListResult
   | BackupExportResult

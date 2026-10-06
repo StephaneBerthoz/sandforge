@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ComplianceReport, ForgeGraph, ForgeConfig } from '@sandforge/shared';
@@ -164,14 +165,35 @@ describe('ReviewComplianceTab', () => {
     expect(screen.queryByTestId('compliance-loading')).toBeNull();
   });
 
-  it('should display correct status badge for partial compliance', () => {
+  it('says the status of a partial report in words, not its code', () => {
     render(<ReviewComplianceTab />);
     pick('gdpr');
     answer('forge:compliance:response', lastRequest().id, {
       report: makeReport({ overallStatus: 'partial' }),
     });
 
-    expect(screen.getByTestId('compliance-report').textContent).toContain('PARTIAL');
+    expect(screen.getByTestId('compliance-status').textContent).toBe('Partial');
+    expect(screen.getByTestId('compliance-report').textContent).not.toMatch(/partial|PARTIAL/);
+  });
+
+  it('says the status in the language the panel is set to', async () => {
+    // The badge printed the code upper-cased, "PASS", in every language.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<ReviewComplianceTab />);
+      pick('gdpr');
+      answer('forge:compliance:response', lastRequest().id, {
+        report: makeReport({ overallStatus: 'fail' }),
+      });
+
+      expect(screen.getByTestId('compliance-status').textContent).toBe(
+        fr.forge.review.complianceFail,
+      );
+      expect(screen.getByTestId('compliance-report').textContent).not.toMatch(/\bfail\b/i);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('says why the report could not be made, instead of analyzing for good, and retries', () => {
@@ -212,7 +234,7 @@ describe('ReviewComplianceTab', () => {
     answer('forge:compliance:response', lastRequest().id, {
       report: makeReport({ framework: 'hipaa', overallStatus: 'fail' }),
     });
-    expect(screen.getByTestId('compliance-report').textContent).toContain('FAIL');
+    expect(screen.getByTestId('compliance-status').textContent).toBe('Fail');
   });
 
   it('asks again when a method of the run changes', () => {
@@ -232,5 +254,19 @@ describe('ReviewComplianceTab', () => {
     render(<ReviewComplianceTab />);
     pick('gdpr');
     expect(sentRequests()).toHaveLength(0);
+  });
+
+  it('says, while no report is there, that it comes on selection rather than once the run is executed', () => {
+    // It said "Select a framework and execute to generate compliance report":
+    // the report is asked for as soon as a framework is selected.
+    useForgeStore.setState({ graph: null });
+    render(<ReviewComplianceTab />);
+    pick('gdpr');
+
+    const waiting = screen.getByTestId('compliance-waiting').textContent ?? '';
+    expect(waiting).toBe(
+      'The report is made as soon as a framework is selected, from the run as it stands.',
+    );
+    expect(waiting).not.toMatch(/execute/i);
   });
 });

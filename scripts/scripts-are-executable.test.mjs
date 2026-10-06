@@ -21,9 +21,17 @@ import { join } from 'node:path';
  * as before.
  */
 
-/** The index mode of every tracked file under `scripts/`, keyed by path. */
+/**
+ * The folders whose shell scripts are run as programs: the repository's own,
+ * and the ones that set up and tear down a test org, whose usage line says
+ * `./setup-test-org.sh <org-alias>` — which a clone, given them as `100644`,
+ * refused with "Permission denied".
+ */
+const SCRIPT_DIRS = ['scripts/', 'test/scripts/'];
+
+/** The index mode of every tracked file under the script folders, keyed by path. */
 function trackedModes() {
-  const out = execFileSync('git', ['ls-files', '-s', 'scripts/'], {
+  const out = execFileSync('git', ['ls-files', '-s', '--', ...SCRIPT_DIRS], {
     encoding: 'utf8',
     cwd: join(import.meta.dirname, '..'),
   });
@@ -35,11 +43,16 @@ function trackedModes() {
   return modes;
 }
 
-test('every shell script under scripts/ is executable in the index', () => {
+test('every shell script under scripts/ and test/scripts/ is executable in the index', () => {
   const modes = trackedModes();
   const shellScripts = [...modes.keys()].filter((path) => path.endsWith('.sh'));
 
-  assert.ok(shellScripts.length > 0, 'no shell scripts found — has the layout changed?');
+  for (const dir of SCRIPT_DIRS) {
+    assert.ok(
+      shellScripts.some((path) => path.startsWith(dir)),
+      `no shell scripts found under ${dir} — has the layout changed?`,
+    );
+  }
 
   const notExecutable = shellScripts.filter((path) => modes.get(path) !== '100755');
   assert.deepEqual(

@@ -66,6 +66,34 @@ describe('isExcludedFromCopy', () => {
     expect(isExcludedFromCopy('Folder')).toBe(true);
   });
 
+  it('matches a name whatever its case, as Salesforce does', () => {
+    // A name typed in a configuration, or sent by another tool, is not always
+    // the describe's: `user` was refused and `loginhistory` was not.
+    for (const name of [
+      'loginhistory',
+      'ASYNCAPEXJOB',
+      'accountShare',
+      'casehistory',
+      'invoice__share',
+      'Vlocity_Ins__Party__c',
+      'folder',
+      'contentdocumentlink',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+    }
+    expect(isExcludedFromCopy('apexclass', new Set(['ApexClass']))).toBe(true);
+    expect(isExcludedFromCopy('account')).toBe(false);
+  });
+
+  it('reads again a set of described objects that has grown since it was last asked', () => {
+    const described = new Set(['ApexClass']);
+    expect(isExcludedFromCopy('staticresource', described)).toBe(false);
+
+    described.add('StaticResource');
+
+    expect(isExcludedFromCopy('staticresource', described)).toBe(true);
+  });
+
   it('excludes what the org says no copy writes, when the caller read it', () => {
     const described = new Set(['ApexClass', 'ContentDocument']);
 

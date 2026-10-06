@@ -93,6 +93,8 @@ export class FakerFallback {
   private locale: string;
   private localeData: LocaleDataSet;
   private geoGenerator: GeoCoherentGenerator;
+  /** Sets this generator's usernames apart from every other's: see {@link generateUsername}. */
+  private readonly usernameToken: string = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
 
   /**
    * Create a new FakerFallback instance.
@@ -185,6 +187,8 @@ export class FakerFallback {
         return generateJobTitle(index);
       case 'email':
         return this.generateEmail(index);
+      case 'username':
+        return this.generateUsername(index);
       case 'phone':
         return this.generatePhone(index);
       case 'address':
@@ -256,6 +260,25 @@ export class FakerFallback {
       .replace(/[^a-z]/g, '');
     const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
     return `${first}.${last}${index}@${domain}`;
+  }
+
+  /**
+   * A user's username: an email address in form, as the org requires, on one
+   * of the locale's reserved domains, so nothing sent to it reaches anyone.
+   * A username is unique across every Salesforce org, not within one, so the
+   * person's name and the index are not enough: a second seed, in this org or
+   * any other, would write the same ones, and the org refuses a username
+   * taken anywhere. A token drawn once per generator sets each run's apart.
+   */
+  private generateUsername(index: number): string {
+    const first = this.generateFirstName(index)
+      .toLowerCase()
+      .replace(/[^a-z]/g, '');
+    const last = this.generateLastName(index)
+      .toLowerCase()
+      .replace(/[^a-z]/g, '');
+    const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
+    return `${first}.${last}.${this.usernameToken}${index}@${domain}`;
   }
 
   /** A number nobody holds, in the locale's range: see {@link reservedPhone}. */
