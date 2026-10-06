@@ -226,14 +226,22 @@ describe('ForgePlanGenerator', () => {
       expect(plan.totalApiCalls).toBe(1);
     });
 
-    it('should estimate API calls for bulk strategy', () => {
+    it('counts the calls the writer makes, 200 rows each, for an object the strategy would put in Bulk', () => {
+      // Past 200 rows the strategy resolves to Bulk batches of 10 000; the
+      // writer sends REST calls of 200 whatever it resolves.
       const graph = makeGraph([
         makeNode({ objectApiName: 'Account', level: 0, recordCount: 500, batchStrategy: 'auto' }),
+        makeNode({
+          objectApiName: 'Contact',
+          level: 1,
+          recordCount: 25_000,
+          batchStrategy: 'bulk',
+        }),
       ]);
       const plan = generator.generate(graph);
 
-      // 500 records, auto -> bulk (>200), batchSize=10000, batchCount=1
-      expect(plan.totalApiCalls).toBe(1);
+      // 3 calls for 500 rows, 125 for 25 000.
+      expect(plan.totalApiCalls).toBe(128);
     });
 
     it('should estimate API calls for explicit REST with many records', () => {

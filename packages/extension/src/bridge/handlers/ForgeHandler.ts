@@ -55,6 +55,7 @@ import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
@@ -190,6 +191,9 @@ const automationRequestPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   graph: forgeGraphSchema,
 });
+// The config gives both orgs, and the fields the run leaves out or renames,
+// which tell what it writes.
+const gapsRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -296,6 +300,8 @@ export interface ForgeServices {
   metadataDiff?: ForgeMetadataDiff;
   /** What reads the automation the target runs on the objects a run writes. */
   targetAutomation?: TargetAutomationReader;
+  /** What reads from the target's metadata what will refuse or surprise a run. */
+  targetGaps?: TargetGapReader;
   /**
    * Workspace-file template store. Present only when a folder is open — a
    * folderless window has no `.sandforge/` to write into and falls back to
@@ -330,6 +336,7 @@ const FORGE_TYPES = new Set([
   'forge:compliance:request',
   'forge:metadata-diff:request',
   'forge:automation:request',
+  'forge:gaps:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -343,6 +350,9 @@ const METADATA_DIFF_TIMEOUT_MS = 60_000;
 
 /** Timeout for reading the target's automation, in milliseconds. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
+
+/** Timeout for reading the target's gaps from its metadata, in milliseconds. */
+const GAPS_TIMEOUT_MS = 60_000;
 
 /**
  * How long a read of the target's automation Review asked for stands for the
@@ -708,6 +718,7 @@ export class ForgeHandler implements DomainHandler {
   private complianceService?: ForgeComplianceService;
   private metadataDiff?: ForgeMetadataDiff;
   private targetAutomation?: TargetAutomationReader;
+  private targetGaps?: TargetGapReader;
   /** The requests the executor's deps have sent so far, when they count them. */
   private requestsSent?: () => number;
   /**
@@ -819,6 +830,7 @@ export class ForgeHandler implements DomainHandler {
       this.complianceService = services.complianceService;
       this.metadataDiff = services.metadataDiff;
       this.targetAutomation = services.targetAutomation;
+      this.targetGaps = services.targetGaps;
       // Composition has always built and passed this store; the assignment was
       // simply missing, so every saved recipe went to globalState instead of
       // `.sandforge/forge-templates.json` and could not be committed or shared.
@@ -940,6 +952,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:automation:request':
         await this.handleAutomationRequest(msg);
+        return true;
+      case 'forge:gaps:request':
+        await this.handleGapsRequest(msg);
         return true;
       default:
         return false;
@@ -2929,6 +2944,62 @@ export class ForgeHandler implements DomainHandler {
       // ends as a completion that says it failed.
       sendHandlerError(this.deps, 'forge:automation', 'forge:automation:error', msg, error, {
         code: isTimeout ? 'TIMEOUT' : 'AUTOMATION_ERROR',
+        retryable: isTimeout,
+      });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+    }
+  }
+  /**
+   * Read from the target's metadata what will refuse or surprise a run of the
+   * graph — its validation and duplicate rules, the fields only it requires,
+   * the lookup filters of what the run writes, its daily API budget — for
+   * Review to show before anything is read. Read only, and it never stops a
+   * run: a part the org refuses comes back named in the answer.
+   */
+  private async handleGapsRequest(msg: InboundRequest): Promise<void> {
+    if (!this.targetGaps) {
+      sendHandlerError(
+        this.deps,
+        'forge:gaps',
+        'forge:gaps:error',
+        msg,
+        new Error('Target gap reader not configured'),
+        { code: 'NOT_INITIALIZED' },
+      );
+      return;
+    }
+    const parsed = parsePayload(gapsRequestPayloadSchema, msg, 'forge:gaps:error', this.deps);
+    if (!parsed) return;
+    const { graph, config } = parsed;
+    const reader = this.targetGaps;
+    const operationId = `forge-gaps-${this.deps.nextId()}`;
+    sendOperationStarted(
+      this.deps,
+      operationId,
+      'forge',
+      'Reading what the target org holds against the rows',
+    );
+    try {
+      const gaps = await new TimeoutManager(GAPS_TIMEOUT_MS).withTimeout('forge:gaps', () =>
+        reader.read(config.sourceOrgId, config.targetOrgId, graph, config),
+      );
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:gaps:response', { gaps }),
+      );
+      // Kinds and counts only: a rule's name and message stay out of the log.
+      logger.info('Forge target gaps read', {
+        gaps: gaps.gaps.length,
+        blocking: gaps.gaps.filter((gap) => gap.severity === 'blocking').length,
+        kinds: [...new Set(gaps.gaps.map((gap) => gap.kind))],
+        unread: gaps.unread.map((u) => u.part),
+        requests: gaps.requests,
+      });
+      sendOperationCompleted(this.deps, operationId, { objectCount: graph.nodes.length });
+    } catch (error: unknown) {
+      const isTimeout = error instanceof TimeoutError;
+      // One error shown, as the automation read shows its own.
+      sendHandlerError(this.deps, 'forge:gaps', 'forge:gaps:error', msg, error, {
+        code: isTimeout ? 'TIMEOUT' : 'GAPS_ERROR',
         retryable: isTimeout,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

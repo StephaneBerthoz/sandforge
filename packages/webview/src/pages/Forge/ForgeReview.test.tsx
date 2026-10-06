@@ -17,6 +17,7 @@ const mockSetExecutionRequestId = vi.fn();
 const mockSetPlan = vi.fn();
 const mockFillPersonalFields = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
+const mockSetGaps = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
@@ -112,6 +113,7 @@ vi.mock('../../stores/useForgeStore', () => {
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
     fillPersonalFields: (...args: unknown[]) => mockFillPersonalFields(...args),
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
+    setGaps: (...args: unknown[]) => mockSetGaps(...args),
     setAnonymizationRule: vi.fn(),
     updateNodeBatchStrategy: vi.fn(),
   };
@@ -139,7 +141,9 @@ describe('ForgeReview', () => {
   beforeEach(() => {
     mockSetPhase.mockClear();
     mockToggleNodeIncluded.mockClear();
-    mockSendBridgeMessage.mockClear();
+    // Reset, not cleared: a test may give the requests an id to answer.
+    mockSendBridgeMessage.mockReset();
+    mockSetGaps.mockClear();
     mockSetPlan.mockClear();
     mockFillPersonalFields.mockClear();
     mockSetMetadataDiffs.mockClear();
@@ -501,6 +505,52 @@ describe('ForgeReview', () => {
         'Metadata diff service not configured',
       );
       expect(screen.queryByTestId('metadata-loading')).toBeNull();
+    });
+  });
+
+  describe('gaps channel', () => {
+    /** The gaps requests recorded on the mocked transport. */
+    function gapsRequests(): unknown[][] {
+      return mockSendBridgeMessage.mock.calls.filter((call) => call[0] === 'forge:gaps:request');
+    }
+
+    it('asks, as Review opens, what the target holds against the rows, with the graph and the config', () => {
+      mockSendBridgeMessage.mockReturnValue('gaps-request-1');
+      render(<ForgeReview />);
+      expect(gapsRequests()).toEqual([
+        ['forge:gaps:request', { graph: defaultGraph, config: defaultConfig }],
+      ]);
+      expect(screen.getByTestId('forge-gaps-read').textContent).toBe(
+        'Reading what the target org holds against the rows…',
+      );
+    });
+
+    it('asks it once, however often the graph changes, and keeps the answer as the metadata gaps', () => {
+      mockSendBridgeMessage.mockReturnValue('gaps-request-1');
+      const { rerender } = render(<ForgeReview />);
+      mockGraph = { ...defaultGraph, nodes: [...defaultGraph.nodes] };
+      rerender(<ForgeReview />);
+      expect(gapsRequests()).toHaveLength(1);
+
+      const gaps = { gaps: [], unread: [], requests: 5 };
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              type: 'forge:gaps:response',
+              id: 'resp-gaps',
+              timestamp: Date.now(),
+              correlationId: 'gaps-request-1',
+              payload: { gaps },
+            },
+            origin: '',
+          }),
+        );
+      });
+      expect(mockSetGaps).toHaveBeenCalledWith('metadata', []);
+      expect(screen.getByTestId('forge-gaps-read-found').textContent).toBe(
+        "0 gaps read from the target org's metadata. Read in 5 requests to the target org.",
+      );
     });
   });
 

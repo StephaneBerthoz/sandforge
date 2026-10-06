@@ -99,11 +99,17 @@ function fakeOrg({
   duplicateRules = [
     { DeveloperName: 'Contact_Rule', MasterLabel: 'Contact rule', SobjectType: 'Contact' },
   ],
+  validationRules = [],
+  duplicateActions = {},
 }: {
   refuseFlows?: Error;
   noFlows?: boolean;
   limits?: unknown;
   duplicateRules?: Array<Record<string, unknown>>;
+  /** Its active validation rules, each with a formula a permission keeps quiet. */
+  validationRules?: Array<Record<string, unknown>>;
+  /** What its duplicate rules do on insert, by full name, as the Metadata API reads them. */
+  duplicateActions?: Record<string, Record<string, unknown>>;
 } = {}) {
   const regular: string[] = [];
   const tooling: string[] = [];
@@ -150,6 +156,16 @@ function fakeOrg({
         tooling.push(soql);
         if (soql.includes(' FROM ApexTrigger ')) return page([]);
         if (soql.includes(' FROM WorkflowRule')) return page([]);
+        if (soql.includes(' FROM ValidationRule WHERE Active = true')) return page(validationRules);
+        if (soql.includes(' FROM ValidationRule WHERE Id ')) {
+          return page([
+            {
+              Metadata: {
+                errorConditionFormula: 'AND(NOT($Permission.Load_Data), ISBLANK(LastName))',
+              },
+            },
+          ]);
+        }
         return page([{ Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } }]);
       },
       queryMore: async () => page([]),
@@ -157,6 +173,10 @@ function fakeOrg({
     request: async (request: unknown) => {
       const url = typeof request === 'string' ? request : (request as { url?: string }).url;
       return url === '/limits' ? limits : {};
+    },
+    metadata: {
+      read: async (_type: string, fullNames: string[]) =>
+        fullNames.map((fullName) => ({ fullName, ...duplicateActions[fullName] })),
     },
   };
   return { conn: conn as unknown as Connection, regular, tooling, written, headers };
@@ -252,10 +272,12 @@ describe('sandforge-clone target automation', () => {
     expect(
       orgs.TGT.regular.filter((soql) => soql.includes(' FROM FlowDefinitionView ')),
     ).toHaveLength(2);
+    // Then the read of the target's gaps, which asks its validation rules there.
     expect(orgs.TGT.tooling.map((soql) => /FROM (\w+)/.exec(soql)?.[1])).toEqual([
       'ApexTrigger',
       'WorkflowRule',
       'Flow',
+      'ValidationRule',
     ]);
     expect(orgs.TGT.tooling[2]).toContain(WELCOME_VERSION);
     expect(orgs.SRC.tooling).toEqual([]);
@@ -399,6 +421,80 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight'))).toBeUndefined();
 
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  describe('what the target holds against the rows', () => {
+    const NAME_RULE = {
+      Id: '03d000000000001AAA',
+      ValidationName: 'Name_Format',
+      NamespacePrefix: null,
+      ErrorDisplayField: 'LastName',
+      ErrorMessage: 'Use capitals',
+      EntityDefinition: { QualifiedApiName: 'Contact' },
+    };
+    /** A target running no flow, with a rule on contacts' names and a duplicate rule that blocks. */
+    const withGaps = () =>
+      fakeOrg({
+        noFlows: true,
+        validationRules: [NAME_RULE],
+        duplicateActions: { 'Contact.Contact_Rule': { actionOnInsert: 'Block' } },
+        limits: { DailyApiRequests: { Max: 15_000, Remaining: 14_000 } },
+      });
+
+    it('says it before a row is read, on a dry run too, from the target alone', async () => {
+      withOrgs(withGaps());
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      const said = printed.indexOf(
+        'target gaps: what TGT holds against the rows, read from its metadata',
+      );
+      expect(said).toBeGreaterThan(-1);
+      expect(printed.slice(said + 1, said + 6)).toEqual([
+        '  Contact',
+        '    BLOCKING: duplicate rule "Contact rule": blocks an insert it matches: a row it ' +
+          'matches is refused, whatever allowSave says',
+        '    warning: validation rule "Name_Format" on LastName: "Use capitals" (not when ' +
+          '$Permission.Load_Data; a row it refuses goes again without LastName)',
+        '  info: API budget: the run takes at most about 4 call(s) (2 write(s) of 200 rows, 2 read(s)), ' +
+          'counted on whole tables; 14000 of 15000 daily requests left',
+        // The rules, the duplicate rules, the limits, the two objects described
+        // in the target, the formula, the duplicate rule's action, and the
+        // permissions of the user: the source's describes were discovery's.
+        '  read in 8 request(s) to TGT',
+      ]);
+      expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
+      expect(orgs.SRC.tooling).toEqual([]);
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('stops nothing: a real run writes all the same', async () => {
+      withOrgs(withGaps());
+
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain(
+        'target gaps: what TGT holds against the rows, read from its metadata',
+      );
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it('gives them under targetGaps in --json', async () => {
+      withOrgs(withGaps());
+
+      expect(await run(argv('--dry-run', '--skip-preflight', '--json'))).toBeUndefined();
+
+      const summary = JSON.parse(stdout) as {
+        targetGaps: { gaps: Array<Record<string, unknown>>; unread: unknown[]; requests: number };
+      };
+      expect(summary.targetGaps.requests).toBe(8);
+      expect(summary.targetGaps.unread).toEqual([]);
+      expect(summary.targetGaps.gaps.map((gap) => [gap.kind, gap.severity, gap.id])).toEqual([
+        ['duplicate_rule', 'blocking', 'duplicate_rule|Contact|||Contact_Rule'],
+        ['validation_rule', 'warning', 'validation_rule|Contact|LastName||Name_Format'],
+        ['api_budget', 'info', 'api_budget|Account|||'],
+      ]);
+    });
   });
 
   describe('before the first write', () => {

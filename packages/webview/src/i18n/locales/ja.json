@@ -2493,6 +2493,25 @@
       "hint": "これらは失敗したレコードでもスキップしたオブジェクトでもありません。実行が通常と異なる方法で行ったこと、または確認できなかったことを示します。たとえば、参照先のレコードが複製に含まれないため空のままにした参照項目、プラットフォーム自身が書き込むレコード、実行できなかったターゲット組織のチェックなどです。合計と監査ログは、どれも失敗として集計しません。"
     },
     "review": {
+      "gapsRead": {
+        "pending": "ターゲット組織が行に対して持つ制約を読み取っています…",
+        "error": "ターゲット組織が行に対して持つ制約を読み取れませんでした: {{error}}",
+        "found_other": "ターゲット組織のメタデータから {{count}} 件のギャップを読み取りました。",
+        "blocking_other": "そのうち {{count}} 件は行を拒否します。",
+        "requests_other": "ターゲット組織への {{count}} 件のリクエストで読み取りました。",
+        "formulasNotRead_other": "{{count}} 件の入力規則の数式を読み取っていません: 読み取りは最大 25 件で、1 件につき 1 リクエストです。",
+        "unread": "{{part}}を読み取れませんでした: {{reason}}",
+        "part": {
+          "validationRules": "入力規則",
+          "validationRuleFormulas": "一部の入力規則の数式",
+          "duplicateRules": "重複ルール",
+          "duplicateRuleActions": "挿入時の重複ルールの動作",
+          "userPermissions": "実行が書き込むユーザーのカスタム権限",
+          "targetFields": "ターゲット組織のオブジェクトの項目",
+          "sourceFields": "ソース組織のオブジェクトの項目",
+          "apiBudget": "残りの 1 日あたりの API リクエスト"
+        }
+      },
       "planTab": "プラン",
       "anonymizationTab": "匿名化",
       "complianceTab": "コンプライアンス",

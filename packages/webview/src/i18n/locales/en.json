@@ -2611,6 +2611,29 @@
       "hint": "None of these is a failed record or a skipped object: each says what the run did differently, or could not check — a lookup left empty because its record is not in the clone, records the platform writes itself, a check of the target org that could not be made. The totals and the audit trail count none of them as a failure."
     },
     "review": {
+      "gapsRead": {
+        "pending": "Reading what the target org holds against the rows…",
+        "error": "What the target org holds against the rows could not be read: {{error}}",
+        "found_one": "{{count}} gap read from the target org's metadata.",
+        "found_other": "{{count}} gaps read from the target org's metadata.",
+        "blocking_one": "{{count}} of them refuses rows.",
+        "blocking_other": "{{count}} of them refuse rows.",
+        "requests_one": "Read in {{count}} request to the target org.",
+        "requests_other": "Read in {{count}} requests to the target org.",
+        "formulasNotRead_one": "{{count}} validation rule formula not read: the read takes 25 at most, one request each.",
+        "formulasNotRead_other": "{{count}} validation rule formulas not read: the read takes 25 at most, one request each.",
+        "unread": "{{part}} could not be read: {{reason}}",
+        "part": {
+          "validationRules": "The validation rules",
+          "validationRuleFormulas": "The formulas of some validation rules",
+          "duplicateRules": "The duplicate rules",
+          "duplicateRuleActions": "What the duplicate rules do on insert",
+          "userPermissions": "The custom permissions of the user the run writes as",
+          "targetFields": "The fields of an object in the target org",
+          "sourceFields": "The fields of an object in the source org",
+          "apiBudget": "The daily API requests left"
+        }
+      },
       "planTab": "Plan",
       "anonymizationTab": "Anonymization",
       "complianceTab": "Compliance",

@@ -2611,6 +2611,29 @@
       "hint": "Nenhuma destas notas é um registro com falha nem um objeto ignorado: cada uma diz o que a execução fez de outro modo, ou não conseguiu verificar — uma pesquisa deixada vazia porque seu registro não está no clone, registros que a plataforma grava ela mesma, uma verificação da org de destino que não pôde ser feita. Os totais e o registro de auditoria não contam nenhuma delas como falha."
     },
     "review": {
+      "gapsRead": {
+        "pending": "Lendo o que a org de destino opõe às linhas…",
+        "error": "Não foi possível ler o que a org de destino opõe às linhas: {{error}}",
+        "found_one": "{{count}} divergência lida nos metadados da org de destino.",
+        "found_other": "{{count}} divergências lidas nos metadados da org de destino.",
+        "blocking_one": "{{count}} delas recusa linhas.",
+        "blocking_other": "{{count}} delas recusam linhas.",
+        "requests_one": "Lido com {{count}} solicitação à org de destino.",
+        "requests_other": "Lido com {{count}} solicitações à org de destino.",
+        "formulasNotRead_one": "{{count}} fórmula de regra de validação não lida: a leitura toma 25 no máximo, uma solicitação cada.",
+        "formulasNotRead_other": "{{count}} fórmulas de regras de validação não lidas: a leitura toma 25 no máximo, uma solicitação cada.",
+        "unread": "{{part}}: não foi possível ler ({{reason}})",
+        "part": {
+          "validationRules": "As regras de validação",
+          "validationRuleFormulas": "As fórmulas de algumas regras de validação",
+          "duplicateRules": "As regras de duplicidade",
+          "duplicateRuleActions": "O que as regras de duplicidade fazem na inserção",
+          "userPermissions": "As permissões personalizadas do usuário com que a execução grava",
+          "targetFields": "Os campos de um objeto da org de destino",
+          "sourceFields": "Os campos de um objeto da org de origem",
+          "apiBudget": "As solicitações de API diárias restantes"
+        }
+      },
       "planTab": "Plano",
       "anonymizationTab": "Anonimização",
       "complianceTab": "Conformidade",

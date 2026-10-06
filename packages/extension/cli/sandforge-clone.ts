@@ -105,6 +105,7 @@ import {
   answerOf,
   automationLines,
 } from '../src/modules/forge/TargetAutomationReader.js';
+import { TargetGapReader, gapFieldOf, gapLines } from '../src/modules/forge/TargetGapReader.js';
 import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
@@ -201,6 +202,14 @@ Usage:
   targetAutomation). When any of them fires as the clone inserts its
   records, or the target would not say what it runs, nothing is written
   unless --accept-automation is given.
+
+  It then says what the target holds against the rows, read from its
+  metadata: its active validation rules and what keeps them quiet, its
+  active duplicate rules and whether each blocks an insert or lets it
+  through, the fields only the target requires that the clone does not
+  write, the lookup filters of the lookups it writes, and the daily API
+  requests the target has left against those the run takes (with --json,
+  under targetGaps). None of it stops the clone.
 
   Once every row is read and before the first is written, the clone counts
   the records it is about to write, per object, and the data storage they
@@ -1198,6 +1207,56 @@ export function targetAutomationReader(conn: Connection): TargetAutomationReader
   });
 }
 
+/**
+ * What reads the target's gaps through the two connections, as Review reads
+ * them in the extension: the rules over both APIs, the fields from the
+ * describes the run keeps, the budget from `/limits`, the duplicate rules'
+ * actions from the Metadata API. Exported so it can be tested.
+ *
+ * @param describe - The command's describes, which the run shares.
+ * @param described - The describes already sent, by `<org>::<object>`: one
+ *   asked again costs the read nothing.
+ */
+export function targetGapReader(
+  conns: ReadonlyMap<string, Connection>,
+  describe: (orgId: string, objectName: string) => Promise<DescribeSObjectResult>,
+  described: ReadonlySet<string>,
+): TargetGapReader {
+  const conn = (orgId: string): Connection => {
+    const c = conns.get(orgId);
+    if (!c) throw new Error(`No connection for ${orgId}`);
+    return c;
+  };
+  return new TargetGapReader({
+    query: async (orgId, soql) =>
+      answerOf(
+        {
+          query: async (q) => conn(orgId).query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn(orgId).queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      ),
+    toolingQuery: async (orgId, soql) =>
+      answerOf(
+        {
+          query: async (q) => conn(orgId).tooling.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn(orgId).tooling.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      ),
+    describeFields: async (orgId, objectName) => {
+      const sent = !described.has(`${orgId}::${objectName}`);
+      const meta = await describe(orgId, objectName);
+      return { sent, fields: meta.fields.map(gapFieldOf) };
+    },
+    readDuplicateRules: async (orgId, fullNames) => {
+      const answer: unknown = await conn(orgId).metadata.read('DuplicateRule', fullNames);
+      return Array.isArray(answer) ? answer : [answer];
+    },
+    readLimits: async (orgId) => conn(orgId).request({ method: 'GET', url: '/limits' }),
+  });
+}
+
 /** An org as the command types it before it writes to it or deletes from it. */
 export interface TypedOrg {
   /** The org's own id, `Organization.Id`. */
@@ -1941,7 +2000,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   const piiDetector = new PIIDetector();
+  // The describes sent, which the read of the target's gaps does not count again.
+  const described = new Set<string>();
   const describe = describeOnce(async (orgId, name) => {
+    described.add(`${orgId}::${name}`);
     const c = conns.get(orgId);
     if (!c) throw new Error(`No connection for ${orgId}`);
     return c.sobject(name).describe();
@@ -2050,6 +2112,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ? 'contact points: written as read (--keep-contact-points)'
       : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)',
   );
+  // What the target holds against the rows, read from its metadata before a
+  // row is read, on a dry run too: its rules, the fields only it requires,
+  // its lookup filters, its budget. It stops nothing.
+  const targetGaps = await targetGapReader(conns, describe, described).read(
+    args.source,
+    args.target,
+    graph,
+    {
+      inputMode: config.inputMode,
+      recordId: config.recordId,
+      maxRecordsPerObject: args.maxRecordsPerObject,
+      fieldExclusions: args.fieldExclusions,
+      fieldMappings: args.fieldMappings,
+      excludedObjects: args.excludedObjects,
+    },
+  );
+  say('');
+  for (const line of gapLines(targetGaps, args.target)) say(line);
   // What fires as the clone inserts its records is no longer only said: the
   // panel puts it to the user before it reads anything, and the command,
   // with no one to ask, writes nothing unless told to go on regardless. A
@@ -2377,6 +2457,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // a flow quiet and whether the user the run writes as holds them,
           // and what could not be read.
           targetAutomation,
+          // What the target holds against the rows, read from its metadata
+          // before the run: each gap with its kind, severity, object, field
+          // and the decisions it allows; what could not be read, and what the
+          // read cost.
+          targetGaps,
           result: jsonResult(summary),
           elapsedMs: elapsed,
           finishedAt: finishedAt.toISOString(),

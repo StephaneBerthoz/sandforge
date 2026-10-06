@@ -26,6 +26,8 @@ import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { startForgeRun } from './startForgeRun';
+import { useForgeGaps } from './useForgeGaps';
+import { ReviewGapsRead } from './ReviewGapsRead';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation';
@@ -115,6 +117,8 @@ export const ForgeReview: React.FC = () => {
   const metadataRequested = useRef(false);
   const [automation, setAutomation] = useState<ForgeTargetAutomation | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
+  const gapsRead = useForgeGaps();
+  const requestGaps = gapsRead.request;
   /** The objects of the graph the user has left out: their automation fires no more. */
   const leftOut = useMemo(
     () =>
@@ -155,7 +159,11 @@ export const ForgeReview: React.FC = () => {
       targetOrgId: config.targetOrgId,
       graph: graphForAutomation(graph),
     });
-  }, [graph, config]);
+    // And what the target's metadata holds against the rows: its validation
+    // and duplicate rules, the fields only it requires, its lookup filters,
+    // its API budget. The extension reads an object the user left out too.
+    requestGaps(config, graph);
+  }, [graph, config, requestGaps]);
 
   useMessageListener<ForgeAutomationResponse>(
     'forge:automation:response',
@@ -248,6 +256,7 @@ export const ForgeReview: React.FC = () => {
         />
       )}
       {graph && <ReviewLeftOutCost graph={graph} />}
+      <ReviewGapsRead gaps={gapsRead} />
       {/* The view follows the sandforge.forge.graphView setting and the switch
           of the discovery before it: Review drew the graph whatever its size,
           hundreds of objects included. */}

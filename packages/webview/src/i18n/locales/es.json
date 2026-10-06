@@ -2611,6 +2611,29 @@
       "hint": "Ninguna de estas notas es un registro fallido ni un objeto omitido: cada una dice lo que la ejecución hizo de otro modo, o no pudo comprobar — una búsqueda que quedó vacía porque su registro no está en el clon, registros que la plataforma escribe por sí misma, una comprobación de la org de destino que no se pudo hacer. Los totales y el registro de auditoría no cuentan ninguna como un fallo."
     },
     "review": {
+      "gapsRead": {
+        "pending": "Leyendo lo que la org de destino opone a las filas…",
+        "error": "No se pudo leer lo que la org de destino opone a las filas: {{error}}",
+        "found_one": "{{count}} discrepancia leída en los metadatos de la org de destino.",
+        "found_other": "{{count}} discrepancias leídas en los metadatos de la org de destino.",
+        "blocking_one": "{{count}} de ellas rechaza filas.",
+        "blocking_other": "{{count}} de ellas rechazan filas.",
+        "requests_one": "Leído con {{count}} solicitud a la org de destino.",
+        "requests_other": "Leído con {{count}} solicitudes a la org de destino.",
+        "formulasNotRead_one": "{{count}} fórmula de regla de validación sin leer: la lectura toma 25 como máximo, una solicitud cada una.",
+        "formulasNotRead_other": "{{count}} fórmulas de reglas de validación sin leer: la lectura toma 25 como máximo, una solicitud cada una.",
+        "unread": "{{part}}: no se pudo leer ({{reason}})",
+        "part": {
+          "validationRules": "Las reglas de validación",
+          "validationRuleFormulas": "Las fórmulas de algunas reglas de validación",
+          "duplicateRules": "Las reglas de duplicados",
+          "duplicateRuleActions": "Lo que hacen las reglas de duplicados al insertar",
+          "userPermissions": "Los permisos personalizados del usuario con el que escribe la ejecución",
+          "targetFields": "Los campos de un objeto de la org de destino",
+          "sourceFields": "Los campos de un objeto de la org de origen",
+          "apiBudget": "Las solicitudes de API diarias restantes"
+        }
+      },
       "planTab": "Plan",
       "anonymizationTab": "Anonimización",
       "complianceTab": "Cumplimiento",

@@ -2611,6 +2611,29 @@
       "hint": "Keiner dieser Hinweise ist ein fehlgeschlagener Datensatz oder ein übersprungenes Objekt: Jeder sagt, was der Lauf anders gemacht hat oder nicht prüfen konnte — eine Nachschlagebeziehung, die leer blieb, weil ihr Datensatz nicht im Klon ist, Datensätze, die die Plattform selbst schreibt, eine Prüfung der Ziel-Org, die nicht möglich war. Die Summen und das Audit-Protokoll zählen keinen davon als Fehler."
     },
     "review": {
+      "gapsRead": {
+        "pending": "Lese, was die Ziel-Org den Zeilen entgegenhält…",
+        "error": "Was die Ziel-Org den Zeilen entgegenhält, konnte nicht gelesen werden: {{error}}",
+        "found_one": "{{count}} Abweichung aus den Metadaten der Ziel-Org gelesen.",
+        "found_other": "{{count}} Abweichungen aus den Metadaten der Ziel-Org gelesen.",
+        "blocking_one": "{{count}} davon lehnt Zeilen ab.",
+        "blocking_other": "{{count}} davon lehnen Zeilen ab.",
+        "requests_one": "Mit {{count}} Anfrage an die Ziel-Org gelesen.",
+        "requests_other": "Mit {{count}} Anfragen an die Ziel-Org gelesen.",
+        "formulasNotRead_one": "{{count}} Formel einer Validierungsregel nicht gelesen: Es werden höchstens 25 gelesen, je eine Anfrage.",
+        "formulasNotRead_other": "{{count}} Formeln von Validierungsregeln nicht gelesen: Es werden höchstens 25 gelesen, je eine Anfrage.",
+        "unread": "{{part}}: nicht lesbar – {{reason}}",
+        "part": {
+          "validationRules": "Die Validierungsregeln",
+          "validationRuleFormulas": "Die Formeln einiger Validierungsregeln",
+          "duplicateRules": "Die Duplikatsregeln",
+          "duplicateRuleActions": "Was die Duplikatsregeln beim Einfügen tun",
+          "userPermissions": "Die benutzerdefinierten Berechtigungen des Benutzers, als der der Durchlauf schreibt",
+          "targetFields": "Die Felder eines Objekts der Ziel-Org",
+          "sourceFields": "Die Felder eines Objekts der Quell-Org",
+          "apiBudget": "Die verbleibenden täglichen API-Anfragen"
+        }
+      },
       "planTab": "Plan",
       "anonymizationTab": "Anonymisierung",
       "complianceTab": "Compliance",

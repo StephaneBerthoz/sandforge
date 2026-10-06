@@ -7,6 +7,7 @@ import type {
   ForgeGraph,
   ForgePlan,
   ForgeTargetAutomation,
+  ForgeTargetGaps,
   ForgeTemplate,
   ForgeUndoResult,
 } from '../forge.types.js';
@@ -147,6 +148,18 @@ export interface ForgeMetadataDiffRequest extends BaseMessage {
 export interface ForgeAutomationRequest extends BaseMessage {
   type: 'forge:automation:request';
   payload: { targetOrgId: string; graph: ForgeGraph };
+}
+
+/**
+ * `forge:gaps:request`. WebView -> Extension. Read from the target org's
+ * metadata what will refuse or surprise a run of the graph under the config,
+ * before any row is read: its validation and duplicate rules, the fields only
+ * it requires, its lookup filters, its daily API budget. The config gives
+ * both orgs and the fields the run leaves out or renames.
+ */
+export interface ForgeGapsRequest extends BaseMessage {
+  type: 'forge:gaps:request';
+  payload: { graph: ForgeGraph; config: ForgeConfig };
 }
 
 // ─── Forge responses & events (Extension -> WebView) ────────────────────────
@@ -372,5 +385,21 @@ export interface ForgeAutomationResponse extends BaseMessage {
 /** `forge:automation:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeAutomationErrorMessage extends BaseMessage {
   type: 'forge:automation:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:gaps:response`. Extension -> WebView. The gaps read from the
+ * target's metadata (`source: 'metadata'`); a part the read could not read is
+ * named in `gaps.unread`.
+ */
+export interface ForgeGapsResponse extends BaseMessage {
+  type: 'forge:gaps:response';
+  payload: { gaps: ForgeTargetGaps };
+}
+
+/** `forge:gaps:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeGapsErrorMessage extends BaseMessage {
+  type: 'forge:gaps:error';
   payload: { message: string; code: string; retryable: boolean };
 }

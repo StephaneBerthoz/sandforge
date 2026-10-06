@@ -60,6 +60,8 @@ interface ForgeObjectDescribe {
      * What an email address or a phone number is neutralized within.
      */
     length: number;
+    /** The lookup filter of a reference field, `null` for a field with none. */
+    lookupFilter: { optional: boolean } | null;
   }>;
   childRelationships: Array<{
     childSObject: string;
@@ -97,6 +99,15 @@ function toForgeObjectDescribe(
       externalId: f.externalId === true,
       updateable: f.updateable !== false,
       length: typeof f.length === 'number' ? f.length : 0,
+      // Read as `TargetGapReader.lookupFilterOf` reads it, without loading the
+      // reader on the activation path.
+      lookupFilter:
+        typeof f.filteredLookupInfo === 'object' && f.filteredLookupInfo !== null
+          ? {
+              optional:
+                (f.filteredLookupInfo as { optionalFilter?: unknown }).optionalFilter === true,
+            }
+          : null,
     })),
     childRelationships: (meta.childRelationships ?? []).map((cr) => ({
       childSObject: cr.childSObject,
@@ -151,6 +162,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../core/connection/ConnectionHelper.js'),
     import('../modules/forge/fileTransfer.js'),
     import('../modules/forge/TargetAutomationReader.js'),
+    import('../modules/forge/TargetGapReader.js'),
   ])
     .then(
       ([
@@ -166,6 +178,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { getJsforceConnection },
         fileTransfer,
         { TargetAutomationReader, answerOf },
+        { TargetGapReader },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -526,8 +539,8 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 
         // Review's read of the target's flows and triggers: the regular API for
         // the flows, the Tooling API for the triggers and the start conditions.
-        const targetAutomation = new TargetAutomationReader({
-          query: async (orgId, soql) => {
+        const targetQueries = {
+          query: async (orgId: string, soql: string) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return answerOf(
               {
@@ -537,7 +550,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               soql,
             );
           },
-          toolingQuery: async (orgId, soql) => {
+          toolingQuery: async (orgId: string, soql: string) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return answerOf(
               {
@@ -546,6 +559,43 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               },
               soql,
             );
+          },
+        };
+        const targetAutomation = new TargetAutomationReader(targetQueries);
+
+        // Review's read of what the target holds against the rows: its rules
+        // over both APIs, the fields from the describes the run and the
+        // metadata diff share, its budget from `/limits`, its duplicate rules'
+        // actions from the Metadata API.
+        const targetGaps = new TargetGapReader({
+          ...targetQueries,
+          describeFields: async (orgId, objectApiName) => {
+            let sent = false;
+            const described = await describeOnce(orgId, objectApiName, [], () => {
+              sent = true;
+            });
+            return {
+              sent,
+              fields: described.fields.map((f) => ({
+                name: f.name,
+                type: f.type,
+                createable: f.createable,
+                nillable: f.nillable,
+                defaultedOnCreate: f.defaultedOnCreate,
+                referenceTo: f.referenceTo,
+                picklistValues: f.picklistValues,
+                lookupFilter: f.lookupFilter,
+              })),
+            };
+          },
+          readDuplicateRules: async (orgId, fullNames) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const answer: unknown = await conn.metadata.read('DuplicateRule', fullNames);
+            return Array.isArray(answer) ? answer : [answer];
+          },
+          readLimits: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return conn.request({ method: 'GET', url: '/limits' });
           },
         });
 
@@ -582,6 +632,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           complianceService,
           metadataDiff,
           targetAutomation,
+          targetGaps,
           templateStore,
           historyStore,
           // The executor's own count, read as a run goes: its progress says

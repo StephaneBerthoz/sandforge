@@ -992,12 +992,15 @@ function readRuleMetadata(flow: ForgeTargetFlow, metadata: unknown): boolean {
 }
 
 /** The key a custom permission is held under: its namespace's prefix before its name. */
-function permissionKey(namespace: string, name: string): string {
+export function permissionKey(namespace: string, name: string): string {
   return (namespace ? `${namespace}__${name}` : name).toLowerCase();
 }
 
 /** Each task run, `limit` at a time at most, their answers in the order of the tasks. */
-async function inFlight<T>(tasks: ReadonlyArray<() => Promise<T>>, limit: number): Promise<T[]> {
+export async function inFlight<T>(
+  tasks: ReadonlyArray<() => Promise<T>>,
+  limit: number,
+): Promise<T[]> {
   const answers: T[] = new Array<T>(tasks.length);
   let next = 0;
   const worker = async (): Promise<void> => {

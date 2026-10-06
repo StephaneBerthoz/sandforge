@@ -2595,6 +2595,74 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge Review saying what it read from the target’s metadata against the rows, and what the target would not give', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // Asked as Review opens, with the automation, under the run's config.
+      const request = await bridge.waitForMessage('forge:gaps:request', { timeout: 10_000 });
+      expect((request.payload as { config: { targetOrgId: string } }).config.targetOrgId).toBe(
+        QA_SANDBOX.id,
+      );
+      await expect(page.getByTestId('forge-gaps-read')).toHaveText(
+        'Reading what the target org holds against the rows…',
+      );
+      const reading = await checkAccessibility(page);
+      expectNoViolations(reading);
+      expect(
+        await contrastMeasuredIn(page, reading, '[data-testid="forge-gaps-read"]'),
+      ).toBeGreaterThan(0);
+
+      await answerAll(page, 'forge:gaps:request', 'forge:gaps:response', {
+        gaps: {
+          gaps: [
+            {
+              id: 'required_field_missing|Contact|Region__c||',
+              kind: 'required_field_missing',
+              severity: 'blocking',
+              source: 'metadata',
+              objectApiName: 'Contact',
+              field: 'Region__c',
+              rows: 0,
+              detail: { type: 'picklist', reason: 'notInSource' },
+              decisions: ['set_default', 'exclude_object'],
+            },
+            {
+              id: 'validation_rule|Contact|Phone||Phone_Format',
+              kind: 'validation_rule',
+              severity: 'warning',
+              source: 'metadata',
+              objectApiName: 'Contact',
+              field: 'Phone',
+              rows: 0,
+              detail: {
+                rule: 'Phone_Format',
+                message: 'Use the international format',
+                formula: 'notRead',
+              },
+              decisions: ['leave_empty', 'ignore'],
+              defaultDecision: 'leave_empty',
+            },
+          ],
+          unread: [{ part: 'apiBudget', reason: 'INSUFFICIENT_ACCESS: Manage Users' }],
+          requests: 9,
+        },
+      });
+      await expect(page.getByTestId('forge-gaps-read-found')).toHaveText(
+        "2 gaps read from the target org's metadata. 1 of them refuses rows. Read in 9 requests to the target org.",
+      );
+      await expect(page.getByTestId('forge-gaps-read-unread')).toContainText(
+        'The daily API requests left could not be read: INSUFFICIENT_ACCESS: Manage Users',
+      );
+      const read = await checkAccessibility(page);
+      expectNoViolations(read);
+      expect(
+        await contrastMeasuredIn(page, read, '[data-testid="forge-gaps-read"]'),
+      ).toBeGreaterThan(2);
+    });
+
     test('Forge Review compliance while it is analyzed, after a refusal with its retry, then the report', async ({
       page,
     }) => {

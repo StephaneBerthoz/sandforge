@@ -13,6 +13,7 @@ import type {
   ForgeCycleResolution,
 } from '@sandforge/shared';
 import { ForgeBatchStrategy as BatchStrategy } from './ForgeBatchStrategy.js';
+import { resolveWriteBatching } from './stages/BatchWriter.js';
 import { ordersTheWrite, sortNodesForWriting } from './stages/ScopeResolver.js';
 
 /**
@@ -76,8 +77,12 @@ export class ForgePlanGenerator {
         const node = nodeMap.get(objName);
         if (!node) continue;
         totalRecords += node.recordCount;
-        const resolved = this.batchStrategy.resolve(node.batchStrategy, node.recordCount);
-        const apiCalls = resolved.batchCount;
+        // The calls the writer makes, 200 rows each: the strategy resolves an
+        // object of more than 200 rows to Bulk batches of 10 000, which no
+        // write of the run sends, and the plan counted one call where the
+        // writer sends fifty.
+        const planned = this.batchStrategy.resolve(node.batchStrategy, node.recordCount);
+        const apiCalls = resolveWriteBatching(planned, node.recordCount).batchCount;
         totalApiCalls += apiCalls;
         const duration = apiCalls * this.avgSecondsPerApiCall;
         if (duration > maxDuration) maxDuration = duration;

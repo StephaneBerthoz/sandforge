@@ -2611,6 +2611,29 @@
       "hint": "Aucune de ces notes n'est un enregistrement en échec ni un objet ignoré : chacune dit ce que l'exécution a fait autrement, ou n'a pas pu vérifier — une recherche laissée vide parce que son enregistrement n'est pas dans le clone, des enregistrements que la plateforme écrit elle-même, une vérification de l'org cible qui n'a pas pu être faite. Les totaux et le journal d'audit n'en comptent aucune comme un échec."
     },
     "review": {
+      "gapsRead": {
+        "pending": "Lecture de ce que l'org cible oppose aux lignes…",
+        "error": "Ce que l'org cible oppose aux lignes n'a pas pu être lu : {{error}}",
+        "found_one": "{{count}} écart lu dans les métadonnées de l'org cible.",
+        "found_other": "{{count}} écarts lus dans les métadonnées de l'org cible.",
+        "blocking_one": "{{count}} d'entre eux refuse des lignes.",
+        "blocking_other": "{{count}} d'entre eux refusent des lignes.",
+        "requests_one": "Lu en {{count}} requête vers l'org cible.",
+        "requests_other": "Lu en {{count}} requêtes vers l'org cible.",
+        "formulasNotRead_one": "{{count}} formule de règle de validation non lue : la lecture en prend 25 au plus, une requête chacune.",
+        "formulasNotRead_other": "{{count}} formules de règles de validation non lues : la lecture en prend 25 au plus, une requête chacune.",
+        "unread": "{{part}} : lecture impossible — {{reason}}",
+        "part": {
+          "validationRules": "Les règles de validation",
+          "validationRuleFormulas": "Les formules de certaines règles de validation",
+          "duplicateRules": "Les règles de doublons",
+          "duplicateRuleActions": "Ce que font les règles de doublons à l'insertion",
+          "userPermissions": "Les autorisations personnalisées de l'utilisateur sous lequel l'exécution écrit",
+          "targetFields": "Les champs d'un objet de l'org cible",
+          "sourceFields": "Les champs d'un objet de l'org source",
+          "apiBudget": "Les requêtes API quotidiennes restantes"
+        }
+      },
       "planTab": "Plan",
       "anonymizationTab": "Anonymisation",
       "complianceTab": "Conformité",
