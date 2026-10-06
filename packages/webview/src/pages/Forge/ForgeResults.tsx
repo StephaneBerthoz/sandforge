@@ -1158,7 +1158,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {/* Whether the emails and phone numbers went neutralized — and how many
           — or as the source holds them, which the target's automation may
           have used to reach real people. */}
-      {result?.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
+      {result?.contactPoints && (
+        <ForgeContactPointsResult report={result.contactPoints} simulation={simulation} />
+      )}
 
       {/* Picklist values the target would have refused, for the field or for
           the record type the rows went in with: replaced or left out, and said

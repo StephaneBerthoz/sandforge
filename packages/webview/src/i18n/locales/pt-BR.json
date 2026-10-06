@@ -3151,6 +3151,9 @@
       "neutralized": "Neutralizados antes da gravação: {{values}} em {{fields}}. Cada endereço de e-mail foi gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcançasse ninguém.",
       "none": "Neutralizados antes da gravação: os registros gravados não continham endereço de e-mail nem número de telefone.",
       "kept": "Gravados como a origem os tem, como foi pedido: a automação da org de destino pode ter enviado e-mails ou SMS a pessoas reais.",
+      "neutralizedSimulated": "Uma execução real neutralizaria {{values}} em {{fields}}: cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício.",
+      "noneSimulated": "Os registros que uma execução real gravaria não contêm endereço de e-mail nem número de telefone.",
+      "keptSimulated": "Uma execução real os gravaria como a origem os contém, conforme pedido: a automação da org de destino poderia então enviar e-mails ou SMS a pessoas reais.",
       "values_one": "{{count}} valor",
       "values_other": "{{count}} valores"
     },

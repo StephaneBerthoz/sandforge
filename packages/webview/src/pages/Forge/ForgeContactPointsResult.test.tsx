@@ -27,6 +27,32 @@ describe('ForgeContactPointsResult', () => {
     expect(screen.queryByTestId('forge-results-contact-points-kept')).toBeNull();
   });
 
+  it('says what a real run would do after a simulation, which wrote nothing', () => {
+    // Said in the past, it told of addresses that went in and a target that
+    // reached no one, on a run that wrote no record.
+    render(<ForgeContactPointsResult report={NEUTRALIZED} simulation />);
+
+    expect(screen.getByTestId('forge-results-contact-points-summary').textContent).toBe(
+      i18n.t('forge.contactPoints.neutralizedSimulated', {
+        values: '4 values',
+        fields: '2 fields',
+      }),
+    );
+  });
+
+  it('warns what a real run would write after a simulation that keeps the contact points', () => {
+    render(
+      <ForgeContactPointsResult
+        report={{ neutralized: false, fields: [], values: 0 }}
+        simulation
+      />,
+    );
+
+    expect(screen.getByTestId('forge-results-contact-points-kept').textContent).toBe(
+      i18n.t('forge.contactPoints.keptSimulated'),
+    );
+  });
+
   it('says so when the records written held none', () => {
     render(<ForgeContactPointsResult report={{ neutralized: true, fields: [], values: 0 }} />);
 

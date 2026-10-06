@@ -3151,6 +3151,9 @@
       "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht hat.",
       "none": "Vor dem Schreiben neutralisiert: Die geschriebenen Datensätze enthielten weder E-Mail-Adressen noch Telefonnummern.",
       "kept": "So geschrieben, wie die Quelle sie enthält, wie für diesen Lauf gewünscht: Die Automatisierung der Ziel-Org kann echten Personen E-Mails oder SMS gesendet haben.",
+      "neutralizedSimulated": "Ein echter Lauf würde {{values}} in {{fields}} neutralisieren: jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer.",
+      "noneSimulated": "Die Datensätze, die ein echter Lauf schreiben würde, enthalten keine E-Mail-Adresse und keine Telefonnummer.",
+      "keptSimulated": "Ein echter Lauf würde sie wie in der Quelle schreiben, wie gewünscht: Die Automatisierung der Ziel-Org könnte dann echten Personen E-Mails oder SMS senden.",
       "values_one": "{{count}} Wert",
       "values_other": "{{count}} Werte"
     },

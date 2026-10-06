@@ -3151,6 +3151,9 @@
       "neutralized": "Neutralizados antes de escribir: {{values}} en {{fields}}. Cada dirección de correo se escribió bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llegó a nadie.",
       "none": "Neutralizados antes de escribir: los registros escritos no contenían ninguna dirección de correo ni ningún número de teléfono.",
       "kept": "Escritos tal como los tiene el origen, como se pidió: la automatización de la org de destino puede haber enviado correos o SMS a personas reales.",
+      "neutralizedSimulated": "Una ejecución real neutralizaría {{values}} en {{fields}}: cada dirección de correo bajo .invalid y cada número de teléfono como un número ficticio.",
+      "noneSimulated": "Los registros que escribiría una ejecución real no contienen ninguna dirección de correo ni número de teléfono.",
+      "keptSimulated": "Una ejecución real los escribiría tal como los tiene el origen, como se pidió: la automatización de la org de destino podría entonces escribir o enviar SMS a personas reales.",
       "values_one": "{{count}} valor",
       "values_other": "{{count}} valores"
     },

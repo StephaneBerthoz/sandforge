@@ -3151,6 +3151,9 @@
       "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so the target org's automation reached no one.",
       "none": "Neutralized before writing: the records written held no email address or phone number.",
       "kept": "Written as the source holds them, as the run was asked: the target org's automation may have emailed or texted real people.",
+      "neutralizedSimulated": "A real run would neutralize {{values}} in {{fields}}: every email address under .invalid and every phone number as a fictional one.",
+      "noneSimulated": "The records a real run would write hold no email address or phone number.",
+      "keptSimulated": "A real run would write them as the source holds them, as it was asked: the target org's automation could then email or text real people.",
       "values_one": "{{count}} value",
       "values_other": "{{count}} values"
     },

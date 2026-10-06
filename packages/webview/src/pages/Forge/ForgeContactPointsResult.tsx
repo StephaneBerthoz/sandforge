@@ -7,6 +7,11 @@ import { cn } from '../../theme';
 export interface ForgeContactPointsResultProps {
   /** What the run did with the email addresses and phone numbers it wrote. */
   report: ForgeContactPointsReport;
+  /**
+   * The run was a simulation: it wrote nothing, and says what a real run
+   * would do. Said in the past, it told of messages a run never sent.
+   */
+  simulation?: boolean;
 }
 
 /**
@@ -16,7 +21,10 @@ export interface ForgeContactPointsResultProps {
  * wrote them as the source holds them, as it was asked, which the target's
  * automation may have used to reach real people.
  */
-export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> = ({ report }) => {
+export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> = ({
+  report,
+  simulation = false,
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
   // Each count is a phrase of its own, in the form its language gives it.
@@ -38,16 +46,21 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
       </h3>
       {!report.neutralized ? (
         <p className="mt-0.5" data-testid="forge-results-contact-points-kept">
-          {t('forge.contactPoints.kept')}
+          {t(simulation ? 'forge.contactPoints.keptSimulated' : 'forge.contactPoints.kept')}
         </p>
       ) : report.values === 0 ? (
         <p className="mt-0.5" data-testid="forge-results-contact-points-summary">
-          {t('forge.contactPoints.none')}
+          {t(simulation ? 'forge.contactPoints.noneSimulated' : 'forge.contactPoints.none')}
         </p>
       ) : (
         <>
           <p className="mt-0.5" data-testid="forge-results-contact-points-summary">
-            {t('forge.contactPoints.neutralized', { values, fields })}
+            {t(
+              simulation
+                ? 'forge.contactPoints.neutralizedSimulated'
+                : 'forge.contactPoints.neutralized',
+              { values, fields },
+            )}
           </p>
           <ul className="mt-1 space-y-0.5">
             {report.fields.map(({ objectApiName, field, values }) => (
