@@ -92,6 +92,27 @@ function makeDeps(insertImpl?: InsertImpl): WriterDeps {
 type InsertImpl = WriterDeps['insertRecords'];
 type UpsertFn = NonNullable<WriterDeps['upsertRecords']>;
 
+/** An error the org answered a whole call with, as jsforce's `HttpApiError` carries it. */
+function refusedCall(errorCode: string, message: string): Error {
+  return Object.assign(new Error(message), { name: errorCode, errorCode });
+}
+
+/** A socket error as node-fetch hands it on, with the system error's code. */
+function socketError(code: string, message = code): Error {
+  return Object.assign(new Error(message), { name: 'FetchError', type: 'system', code });
+}
+
+/** A wait that returns at once, and keeps what it was asked to wait. */
+function noWait() {
+  return vi.fn<(ms: number) => Promise<void>>().mockResolvedValue(undefined);
+}
+
+/** What a sample says of a call whose answer never came back, after the error. */
+const MAY_HAVE_BEEN_WRITTEN =
+  'The call was sent and its answer never came back: the target may hold any of these ' +
+  'records, and which of them is unknown. Counted as failed and never sent again, they are ' +
+  'not among the records the run created, which removing its records takes back.';
+
 describe('BatchWriter', () => {
   it('splits records into REST batches of 200 and checkpoints between batches', async () => {
     const records = Array.from({ length: 500 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
@@ -162,7 +183,7 @@ describe('BatchWriter', () => {
     const insertRecords = vi
       .fn<InsertImpl>()
       .mockResolvedValueOnce([{ id: '001NEW0', success: true, errors: [] }])
-      .mockRejectedValueOnce(new Error('ECONNRESET'));
+      .mockRejectedValueOnce(refusedCall('INVALID_SESSION_ID', 'Session expired or invalid'));
     const records = [0, 1, 2].map((i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
     const cleanedRecords: CleanedRecord[] = records.map((r, i) => ({
       source: r,
@@ -172,11 +193,12 @@ describe('BatchWriter', () => {
     }));
     const input = makeInput(records, { cleanedRecords });
 
-    const result = await new BatchWriter({ insertRecords }, oneByOne).writeNode(input);
+    const result = await new BatchWriter({ insertRecords }, oneByOne, noWait()).writeNode(input);
 
     expect(insertRecords).toHaveBeenCalledTimes(2);
     expect(input.remapper.get('001OLD0')).toBe('001NEW0');
     expect(result).toMatchObject({ successCount: 1, failureCount: 2 });
+    expect(result.mayHaveBeenWritten).toBeUndefined();
     expect(result.pendingFkUpdates).toEqual([
       {
         objectApiName: 'Account',
@@ -189,9 +211,307 @@ describe('BatchWriter', () => {
     expect(result.errorSamples).toEqual([
       {
         recordSummary: 'Account batch 2/3: 2 records not written',
-        messages: ['ECONNRESET'],
+        messages: ['INVALID_SESSION_ID: Session expired or invalid'],
       },
     ]);
+  });
+
+  describe('a call that throws', () => {
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 3 }),
+    };
+    const accounts = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+
+    it('never sends again a call that threw after the target committed its rows, and says which rows it may hold', async () => {
+      // The target commits each row of a call on its own, then the connection
+      // is reset before its answer comes back: sent again, the row it wrote
+      // would be written twice.
+      const committed: string[] = [];
+      const insertRecords = vi.fn<InsertImpl>(async (_org, _object, rows) => {
+        committed.push(...rows.map((row) => String(row['Name'])));
+        if (rows.some((row) => row['Name'] === 'R1'))
+          throw socketError('ECONNRESET', 'read ECONNRESET');
+        return rows.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+      });
+      const wait = noWait();
+      const input = makeInput(accounts(3));
+
+      const result = await new BatchWriter({ insertRecords }, oneByOne, wait).writeNode(input);
+
+      expect(committed).toEqual(['R0', 'R1']);
+      expect(wait).not.toHaveBeenCalled();
+      expect(input.remapper.get('001OLD1')).toBeUndefined();
+      expect(result).toMatchObject({ successCount: 1, failureCount: 2 });
+      expect(result.mayHaveBeenWritten).toEqual(['001OLD1']);
+      expect(result.errorSamples).toEqual([
+        {
+          recordSummary: 'Account batch 2/3: 1 record may have been written',
+          messages: ['read ECONNRESET', MAY_HAVE_BEEN_WRITTEN, '1 record after them not sent.'],
+        },
+      ]);
+    });
+
+    it('keeps first the sample of a call that may have written, past three rows the target refused', async () => {
+      const threeAtATime: ForgeBatchStrategy = {
+        resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 3, batchCount: 2 }),
+      };
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce(
+          [0, 1, 2].map(() => ({ id: '', success: false, errors: ['STRING_TOO_LONG: too long'] })),
+        )
+        .mockRejectedValueOnce(socketError('ETIMEDOUT'));
+
+      const result = await new BatchWriter({ insertRecords }, threeAtATime, noWait()).writeNode(
+        makeInput(accounts(4)),
+      );
+
+      expect(result.errorSamples).toHaveLength(3);
+      expect(result.errorSamples[0]?.recordSummary).toBe(
+        'Account batch 2/2: 1 record may have been written',
+      );
+      expect(result.mayHaveBeenWritten).toEqual(['001OLD3']);
+      expect(result.failureCount).toBe(4);
+    });
+
+    it('sends again, after a wait that doubles, a call that never reached the target, and counts what it wrote', async () => {
+      const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockRejectedValueOnce(socketError('ECONNREFUSED', 'connect ECONNREFUSED 10.0.0.1:443'))
+        .mockRejectedValueOnce(socketError('EAI_AGAIN', 'getaddrinfo EAI_AGAIN'))
+        .mockResolvedValueOnce([
+          { id: '001NEW0', success: true, errors: [] },
+          { id: '001NEW1', success: true, errors: [] },
+        ]);
+      const wait = noWait();
+      const input = makeInput(accounts(2));
+
+      const result = await new BatchWriter({ insertRecords }, undefined, wait).writeNode(input);
+      random.mockRestore();
+
+      const sent = accounts(2);
+      expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([sent, sent, sent]);
+      // Half of each wait is left to chance: 2 s, then 4 s, three quarters of each here.
+      expect(wait.mock.calls.map(([ms]) => ms)).toEqual([1_500, 3_000]);
+      // The checkpoint each call has, before each send.
+      expect(input.waitIfPaused).toHaveBeenCalledTimes(3);
+      expect(input.remapper.get('001OLD1')).toBe('001NEW1');
+      expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+    });
+
+    it('stops sending a call that never reached the target after three more tries, nothing of it written', async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockRejectedValue(socketError('ENOTFOUND', 'getaddrinfo ENOTFOUND example.invalid'));
+      const wait = noWait();
+
+      const result = await new BatchWriter({ insertRecords }, undefined, wait).writeNode(
+        makeInput(accounts(2)),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(4);
+      expect(wait).toHaveBeenCalledTimes(3);
+      expect(result.mayHaveBeenWritten).toBeUndefined();
+      expect(result).toMatchObject({ successCount: 0, failureCount: 2 });
+      expect(result.errorSamples).toEqual([
+        {
+          recordSummary: 'Account batch 1/1: 2 records not written',
+          messages: [
+            'getaddrinfo ENOTFOUND example.invalid',
+            'Sent 4 times, the call never reached the target: it holds none of them.',
+          ],
+        },
+      ]);
+    });
+
+    it('sends nothing more once the run is cancelled while a call that never reached the target waits', async () => {
+      // The rows were never written, nor counted: the run counts them as the
+      // rows its cancel kept from the target.
+      const insertRecords = vi.fn<InsertImpl>().mockRejectedValue(socketError('ECONNREFUSED'));
+      const waitIfPaused = vi
+        .fn<() => Promise<void>>()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('cancelled'));
+      const tally = emptyBatchWriteResult();
+
+      await expect(
+        new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(
+          makeInput(accounts(2), { waitIfPaused }),
+          tally,
+        ),
+      ).rejects.toThrow('cancelled');
+
+      expect(insertRecords).toHaveBeenCalledTimes(1);
+      expect(tally).toMatchObject({ successCount: 0, failureCount: 0, errorSamples: [] });
+    });
+
+    it("stops at the target's API request limit without sending again, and says so", async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([{ id: '001NEW0', success: true, errors: [] }])
+        .mockRejectedValue(refusedCall('REQUEST_LIMIT_EXCEEDED', 'TotalRequests Limit exceeded.'));
+      const wait = noWait();
+
+      const result = await new BatchWriter({ insertRecords }, oneByOne, wait).writeNode(
+        makeInput(accounts(3)),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(2);
+      expect(wait).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ successCount: 1, failureCount: 2 });
+      expect(result.errorSamples).toEqual([
+        {
+          recordSummary: 'Account batch 2/3: 2 records not written',
+          messages: [
+            'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+            'The target refused the call for its API request limit, which no retry gets past: ' +
+              'the node stopped there.',
+          ],
+        },
+      ]);
+    });
+  });
+
+  describe('a row the target could not lock a record for', () => {
+    const LOCKED = 'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record';
+    const locked = (): InsertResult => ({ id: '', success: false, errors: [LOCKED] });
+    const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+    it('sends it again after a wait, alone, and counts it written', async () => {
+      const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([locked(), written('001NEW1')])
+        .mockResolvedValueOnce([written('001NEW0')]);
+      const wait = noWait();
+      const input = makeInput([
+        { Id: '001OLD0', Name: 'R0' },
+        { Id: '001OLD1', Name: 'R1' },
+      ]);
+
+      const result = await new BatchWriter({ insertRecords }, undefined, wait).writeNode(input);
+      random.mockRestore();
+
+      expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([
+        [
+          { Id: '001OLD0', Name: 'R0' },
+          { Id: '001OLD1', Name: 'R1' },
+        ],
+        [{ Id: '001OLD0', Name: 'R0' }],
+      ]);
+      expect(wait.mock.calls.map(([ms]) => ms)).toEqual([1_000]);
+      expect(input.waitIfPaused).toHaveBeenCalledTimes(2);
+      expect(input.remapper.get('001OLD0')).toBe('001NEW0');
+      expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+    });
+
+    it('sends it again before the next batch', async () => {
+      const oneByOne: ForgeBatchStrategy = {
+        resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 2 }),
+      };
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([locked()])
+        .mockResolvedValueOnce([written('001NEW0')])
+        .mockResolvedValueOnce([written('001NEW1')]);
+
+      await new BatchWriter({ insertRecords }, oneByOne, noWait()).writeNode(
+        makeInput([
+          { Id: '001OLD0', Name: 'R0' },
+          { Id: '001OLD1', Name: 'R1' },
+        ]),
+      );
+
+      expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([
+        [{ Id: '001OLD0', Name: 'R0' }],
+        [{ Id: '001OLD0', Name: 'R0' }],
+        [{ Id: '001OLD1', Name: 'R1' }],
+      ]);
+    });
+
+    it('fails it, saying so, when the record stays locked through three more sends', async () => {
+      const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([locked()]);
+      const wait = noWait();
+
+      const result = await new BatchWriter({ insertRecords }, undefined, wait).writeNode(
+        makeInput([{ Id: '001OLD0', Name: 'R0' }]),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(4);
+      expect(wait).toHaveBeenCalledTimes(3);
+      expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+      expect(result.errorSamples).toEqual([
+        {
+          recordSummary: 'Id=001OLD0 Name=R0',
+          messages: [
+            LOCKED,
+            'Sent again 3 times, the target still could not lock a record the write needed.',
+          ],
+        },
+      ]);
+    });
+
+    it('never sends again a row refused for a lock and for something else', async () => {
+      const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
+        {
+          id: '',
+          success: false,
+          errors: [LOCKED, 'STRING_TOO_LONG: Name: data value too large'],
+        },
+      ]);
+
+      const result = await new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(
+        makeInput([{ Id: '001OLD0', Name: 'R0' }]),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(1);
+      expect(result.failureCount).toBe(1);
+    });
+
+    it('leaves it failed with its refusal when the run is cancelled while it waits', async () => {
+      const insertRecords = vi.fn<InsertImpl>().mockResolvedValueOnce([locked()]);
+      const waitIfPaused = vi
+        .fn<() => Promise<void>>()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('cancelled'));
+      const tally = emptyBatchWriteResult();
+
+      await expect(
+        new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(
+          makeInput([{ Id: '001OLD0', Name: 'R0' }], { waitIfPaused }),
+          tally,
+        ),
+      ).rejects.toThrow('cancelled');
+
+      expect(insertRecords).toHaveBeenCalledTimes(1);
+      expect(tally).toMatchObject({ successCount: 0, failureCount: 1 });
+      expect(tally.errorSamples).toEqual([
+        { recordSummary: 'Id=001OLD0 Name=R0', messages: [LOCKED, 'Not sent again: cancelled'] },
+      ]);
+    });
+
+    it('says which rows the target may hold when the call that sends them again breaks once out', async () => {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce([locked(), written('001NEW1')])
+        .mockRejectedValueOnce(socketError('ECONNRESET'));
+
+      const result = await new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(
+        makeInput([
+          { Id: '001OLD0', Name: 'R0' },
+          { Id: '001OLD1', Name: 'R1' },
+        ]),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(2);
+      expect(result.mayHaveBeenWritten).toEqual(['001OLD0']);
+      expect(result).toMatchObject({ successCount: 1, failureCount: 1 });
+      expect(result.errorSamples[0]?.recordSummary).toBe(
+        'Account, sent again: 1 record may have been written',
+      );
+    });
   });
 
   it('counts each call in the tally it is given, so a cancel before the next call keeps what the first wrote', async () => {
@@ -1114,7 +1434,7 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     });
   });
 
-  it('leaves it failed, sent no second time, when the rule names no field', async () => {
+  it('leaves it failed, sent no second time, saying the rule named no field it could go without', async () => {
     const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byRule([])]);
     const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }]);
 
@@ -1126,7 +1446,31 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     expect(result.writtenWithoutFields).toBeUndefined();
     expect(result.errorSamples[0]?.messages).toEqual([
       `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+      'A validation rule of the target, or a trigger with its code, refused the row without ' +
+        'naming a field: there was none to send it again without.',
     ]);
+  });
+
+  it('says the rule named no field beside another error, still sending the row once', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
+      refused(
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: RULE, fields: [] },
+        {
+          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+          message: 'Bad phone',
+          fields: ['Phone'],
+        },
+      ),
+    ]);
+    const input = contacts([{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' }]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result.errorSamples[0]?.messages.at(-1)).toBe(
+      'A validation rule of the target, or a trigger with its code, refused the row without ' +
+        'naming a field: there was none to send it again without.',
+    );
   });
 
   it('leaves it failed when the rule names only a field the row gives no value to', async () => {
@@ -1214,7 +1558,9 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     ]);
   });
 
-  it('sends a row no third time when a rule refuses it again on another field', async () => {
+  it('sends a row again without a second field a rule refuses, in a round of its own, and counts both', async () => {
+    // Two rules of a real target refused one contact in turn: the second
+    // speaks only once the first is out of the way.
     const insertRecords = vi
       .fn<InsertImpl>()
       .mockResolvedValueOnce([byRule(['Phone'])])
@@ -1226,8 +1572,93 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
 
     const result = await new BatchWriter({ insertRecords }).writeNode(input);
 
-    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(insertRecords.mock.calls.map((call) => call[2])).toEqual([
+      [{ LastName: 'Doe', Phone: '555-0100', Email: 'm@example.com' }],
+      [{ LastName: 'Doe', Email: 'm@example.com' }],
+      [{ LastName: 'Doe' }],
+    ]);
+    expect(input.waitIfPaused).toHaveBeenCalledTimes(3);
+    expect(input.remapper.get('003OLD1')).toBe('003NEW1');
+    expect(result).toMatchObject({ successCount: 1, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [
+        {
+          field: 'Phone',
+          refusedBy: 'validation-rule',
+          reason: `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE}`,
+          rows: 1,
+        },
+        {
+          field: 'Email',
+          refusedBy: 'validation-rule',
+          reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the company domain',
+          rows: 1,
+        },
+      ],
+    });
+  });
+
+  it('sends a row no fifth time: three rounds without fields at most, each refusal said', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'], 'Phone rule')])
+      .mockResolvedValueOnce([byRule(['Email'], 'Email rule')])
+      .mockResolvedValueOnce([byRule(['Title'], 'Title rule')])
+      .mockResolvedValueOnce([byRule(['Department'], 'Department rule')])
+      .mockResolvedValue([written('003NEW1')]);
+    const input = contacts([
+      {
+        Id: '003OLD1',
+        LastName: 'Doe',
+        Phone: '555-0100',
+        Email: 'm@example.com',
+        Title: 'Lead',
+        Department: 'Ops',
+      },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(4);
+    expect(insertRecords.mock.calls[3]?.[2]).toEqual([{ LastName: 'Doe', Department: 'Ops' }]);
     expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+    expect(result.errorSamples[0]?.messages).toEqual([
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Department rule [Department]',
+      'Sent again without Phone after the first refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone rule [Phone]',
+      'Sent again without Email too after the second refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: Email rule [Email]',
+      'Sent again without Title too after the third refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: Title rule [Title]',
+      'Not sent again: a row goes again without the fields the target refused 3 times at most.',
+    ]);
+  });
+
+  it('leaves a row in its second round a failure, with each refusal, when a cancel comes before it', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone'], 'Phone rule')])
+      .mockResolvedValueOnce([byRule(['Email'], 'Email rule')]);
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = contacts(
+      [{ Id: '003OLD1', LastName: 'Doe', Phone: '555-0100', Email: 'm@example.com' }],
+      { waitIfPaused },
+    );
+    const tally = emptyBatchWriteResult();
+
+    await expect(new BatchWriter({ insertRecords }).writeNode(input, tally)).rejects.toThrow(
+      'cancelled',
+    );
+
+    expect(tally).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(tally.errorSamples[0]?.messages).toEqual([
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Email rule [Email]',
+      'Sent again without Phone after the first refusal: FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone rule [Phone]',
+      'Not written again without Phone, Email: cancelled',
+    ]);
   });
 
   it('leaves out the field the platform named whatever its case, as the payload spells it', async () => {
@@ -1459,7 +1890,7 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     const insertRecords = vi
       .fn<InsertImpl>()
       .mockResolvedValueOnce([byRule(['Phone'])])
-      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockRejectedValueOnce(refusedCall('UNKNOWN_EXCEPTION', 'An unexpected error occurred'))
       .mockResolvedValue([written('003NEW1')]);
     const input = contacts([
       { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
@@ -1471,10 +1902,10 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     expect(insertRecords).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ successCount: 0, failureCount: 2 });
     expect(result.errorSamples.map((s) => s.messages)).toEqual([
-      ['ECONNRESET'],
+      ['UNKNOWN_EXCEPTION: An unexpected error occurred'],
       [
         `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
-        'Not written again without Phone: ECONNRESET',
+        'Not written again without Phone: UNKNOWN_EXCEPTION: An unexpected error occurred',
       ],
     ]);
   });
@@ -1483,7 +1914,7 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
     const insertRecords = vi
       .fn<InsertImpl>()
       .mockResolvedValueOnce([byRule(['Phone']), written('003NEW2')])
-      .mockRejectedValueOnce(new Error('ECONNRESET'));
+      .mockRejectedValueOnce(refusedCall('UNKNOWN_EXCEPTION', 'An unexpected error occurred'));
     const input = contacts([
       { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
       { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
@@ -1493,10 +1924,178 @@ describe('BatchWriter — a row a validation rule refused on fields it named', (
 
     expect(input.remapper.get('003OLD2')).toBe('003NEW2');
     expect(result).toMatchObject({ successCount: 1, failureCount: 1 });
+    expect(result.mayHaveBeenWritten).toBeUndefined();
     expect(result.errorSamples[0]?.messages).toEqual([
       `FIELD_CUSTOM_VALIDATION_EXCEPTION: ${RULE} [Phone]`,
-      'Not written again without Phone: ECONNRESET',
+      'Not written again without Phone: UNKNOWN_EXCEPTION: An unexpected error occurred',
     ]);
+  });
+
+  it('says the target may hold the rows of a call that writes them again and breaks once out, never sending it again', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byRule(['Phone']), written('003NEW2')])
+      .mockRejectedValueOnce(socketError('ECONNRESET', 'socket hang up'));
+    const input = contacts([
+      { Id: '003OLD1', LastName: 'Doe', Phone: '555-0100' },
+      { Id: '003OLD2', LastName: 'Roe', Phone: '+1 555-0101' },
+    ]);
+
+    const result = await new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(input);
+
+    expect(insertRecords).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ successCount: 1, failureCount: 1 });
+    expect(result.mayHaveBeenWritten).toEqual(['003OLD1']);
+    expect(result.errorSamples).toEqual([
+      {
+        recordSummary: 'Contact, sent again: 1 record may have been written',
+        messages: ['socket hang up', MAY_HAVE_BEEN_WRITTEN],
+      },
+    ]);
+  });
+});
+
+describe('BatchWriter — a row the lookup filter of a lookup refused', () => {
+  /** The filter's words, as a real target gives them. */
+  const FILTER = 'Value does not exist or does not match filter criteria.';
+  const REASON = `FIELD_FILTER_VALIDATION_EXCEPTION: ${FILTER}`;
+
+  const byFilter = (field = 'Preferred_Account__c'): InsertResult =>
+    toSaveOutcome(
+      {
+        success: false,
+        errors: [
+          { statusCode: 'FIELD_FILTER_VALIDATION_EXCEPTION', message: FILTER, fields: [field] },
+        ],
+      },
+      'Contact',
+    );
+
+  const written = (id: string): InsertResult => ({ id, success: true, errors: [] });
+
+  /** The target's describe of the contact: whether it lets the lookup be empty. */
+  function describing(nillable: boolean) {
+    return vi.fn<ForgeExecutorDeps['describeFields']>(async () => [
+      { name: 'LastName', queryable: true, createable: true, isReference: false, nillable: false },
+      {
+        name: 'Preferred_Account__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account'],
+        nillable,
+      },
+    ]);
+  }
+
+  function contactsNaming(...accounts: string[]): WriteNodeInput {
+    const rows = accounts.map((account, i) => ({
+      Id: `003OLD${i + 1}`,
+      LastName: `L${i + 1}`,
+      Preferred_Account__c: account,
+    }));
+    return makeInput(rows, {
+      node: makeNode('Contact', rows.length),
+      records: rows.map(({ Id: _id, ...payload }) => payload),
+    });
+  }
+
+  it('writes it again without the lookup when the target lets the lookup be empty, and says a lookup filter refused it', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byFilter(), written('003NEW2')])
+      .mockResolvedValueOnce([written('003NEW1')]);
+    const describeFields = describing(true);
+    const input = contactsNaming('001PROSPECT', '001CUSTOMER');
+
+    const result = await new BatchWriter({ insertRecords, describeFields }).writeNode(input);
+
+    expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ LastName: 'L1' }]);
+    expect(describeFields).toHaveBeenCalledTimes(1);
+    expect(describeFields).toHaveBeenCalledWith('tgt', 'Contact');
+    expect(input.remapper.get('003OLD1')).toBe('003NEW1');
+    expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [
+        { field: 'Preferred_Account__c', refusedBy: 'lookup-filter', reason: REASON, rows: 1 },
+      ],
+    });
+    expect(writtenWithoutFieldsNote(result.writtenWithoutFields)).toBe(
+      `, 1 written without Preferred_Account__c: a lookup filter of the target refused the ` +
+        `record it names, ${REASON}`,
+    );
+    expect(vi.mocked(input.onProgress).mock.calls.map(([event]) => event.message)).toContain(
+      'Writing 1 Contact record again without the fields a lookup filter of the target refused...',
+    );
+  });
+
+  it('leaves it failed, sent once, when the target requires the lookup: left out, it would be missing', async () => {
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byFilter()]);
+
+    const result = await new BatchWriter({
+      insertRecords,
+      describeFields: describing(false),
+    }).writeNode(contactsNaming('001PROSPECT'));
+
+    expect(insertRecords).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ successCount: 0, failureCount: 1 });
+    expect(result.writtenWithoutFields).toBeUndefined();
+  });
+
+  it('leaves it failed, sent once, when the target cannot be described, or is not asked', async () => {
+    const unread = vi.fn<ForgeExecutorDeps['describeFields']>(async () => {
+      throw new Error('INVALID_TYPE: sObject type is not supported');
+    });
+    for (const describeFields of [unread, undefined]) {
+      const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byFilter()]);
+
+      const result = await new BatchWriter({ insertRecords, describeFields }).writeNode(
+        contactsNaming('001PROSPECT'),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(1);
+      expect(result.failureCount).toBe(1);
+    }
+  });
+
+  it('names a validation rule and a lookup filter on the line of a round that leaves out both fields', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([
+        toSaveOutcome(
+          {
+            success: false,
+            errors: [
+              {
+                statusCode: 'FIELD_FILTER_VALIDATION_EXCEPTION',
+                message: FILTER,
+                fields: ['Preferred_Account__c'],
+              },
+              {
+                statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                message: 'Bad phone',
+                fields: ['Phone'],
+              },
+            ],
+          },
+          'Contact',
+        ),
+      ])
+      .mockResolvedValueOnce([written('003NEW1')]);
+    const row = { Id: '003OLD1', LastName: 'L1', Phone: '555-0100', Preferred_Account__c: '001P' };
+    const input = makeInput([row], {
+      node: makeNode('Contact', 1),
+      records: [{ LastName: 'L1', Phone: '555-0100', Preferred_Account__c: '001P' }],
+    });
+
+    await new BatchWriter({ insertRecords, describeFields: describing(true) }).writeNode(input);
+
+    expect(insertRecords.mock.calls[1]?.[2]).toEqual([{ LastName: 'L1' }]);
+    expect(vi.mocked(input.onProgress).mock.calls.map(([event]) => event.message)).toContain(
+      'Writing 1 Contact record again without the fields a validation rule or a lookup filter ' +
+        'of the target refused...',
+    );
   });
 });
 

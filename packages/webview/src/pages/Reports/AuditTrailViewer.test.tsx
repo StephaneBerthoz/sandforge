@@ -144,7 +144,7 @@ describe('AuditTrailViewer', () => {
     );
   });
 
-  it('counts apart, after what was written, the records written without a field a validation rule or a restricted picklist refused', () => {
+  it('counts apart, after what was written, the records written without a field the target refused', () => {
     const clone: AuditLogEntry = {
       ...forgeRun,
       id: 'aud-forge-without',
@@ -164,8 +164,7 @@ describe('AuditTrailViewer', () => {
     // One count for both: the entry keeps how many records, the run's
     // results which refused each field.
     expect(screen.getByTestId('audit-aud-forge-without').querySelector('li')?.textContent).toBe(
-      'Contact 3 created · 2 written without a field a validation rule or a restricted ' +
-        'picklist refused · 1 failed',
+      'Contact 3 created · 2 written without a field the target refused · 1 failed',
     );
   });
 

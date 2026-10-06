@@ -4,6 +4,7 @@ import {
   addWrittenWithoutFields,
   heldKeyOf,
   refusedFields,
+  refusedOnNoField,
   without,
   writtenWithoutFieldsNote,
 } from './refusedFields.js';
@@ -85,6 +86,68 @@ describe('refusedFields', () => {
     expect(refusedFields(undefined, { Phone: '0100' }, undefined)).toBeUndefined();
     expect(refusedFields([], { Phone: '0100' }, undefined)).toBeUndefined();
   });
+
+  describe('a lookup filter', () => {
+    const filter = (field: string): SaveErrorDetail => ({
+      statusCode: 'FIELD_FILTER_VALIDATION_EXCEPTION',
+      message: 'Value does not exist or does not match filter criteria.',
+      fields: [field],
+    });
+    const payload = { LastName: 'Doe', Preferred_Account__c: '001P', Phone: '0100' };
+
+    it('leaves out the lookup it refused when the target lets the lookup be empty', () => {
+      const mayBeEmpty = (field: string): boolean => field === 'Preferred_Account__c';
+
+      expect(
+        refusedFields([filter('preferred_account__c')], payload, undefined, mayBeEmpty),
+      ).toEqual([
+        {
+          field: 'Preferred_Account__c',
+          refusedBy: 'lookup-filter',
+          reason:
+            'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist or does not match filter criteria.',
+        },
+      ]);
+    });
+
+    it('leaves out nothing when the target requires the lookup, or the caller does not say', () => {
+      // Left out, a lookup the target requires has the row refused for want of it.
+      expect(
+        refusedFields([filter('Preferred_Account__c')], payload, undefined, () => false),
+      ).toBeUndefined();
+      expect(refusedFields([filter('Preferred_Account__c')], payload, undefined)).toBeUndefined();
+      // Nor the rule's field beside it: the row would be refused again by the filter.
+      expect(
+        refusedFields([filter('Preferred_Account__c'), rule('Phone')], payload, undefined),
+      ).toBeUndefined();
+    });
+
+    it('leaves out the lookup and the field a rule names beside it', () => {
+      expect(
+        refusedFields(
+          [filter('Preferred_Account__c'), rule('Phone')],
+          payload,
+          undefined,
+          () => true,
+        )?.map((f) => [f.field, f.refusedBy]),
+      ).toEqual([
+        ['Preferred_Account__c', 'lookup-filter'],
+        ['Phone', 'validation-rule'],
+      ]);
+    });
+  });
+});
+
+describe('refusedOnNoField', () => {
+  it('tells a validation rule that named no field from one that named a field, or another error', () => {
+    expect(refusedOnNoField([rule()])).toBe(true);
+    expect(refusedOnNoField([rule('Phone'), rule()])).toBe(true);
+    expect(refusedOnNoField([rule('Phone')])).toBe(false);
+    expect(
+      refusedOnNoField([{ statusCode: 'UNKNOWN_EXCEPTION', message: 'boom', fields: [] }]),
+    ).toBe(false);
+    expect(refusedOnNoField(undefined)).toBe(false);
+  });
 });
 
 describe('heldKeyOf', () => {
@@ -162,6 +225,25 @@ describe('writtenWithoutFieldsNote', () => {
     ).toBe(
       ', 1 written with Tier__c set to "Silver": a restricted picklist of the target refused ' +
         'its value, INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Gold',
+    );
+  });
+
+  it('says a lookup filter refused the record a lookup names', () => {
+    expect(
+      writtenWithoutFieldsNote({
+        rows: 1,
+        fields: [
+          {
+            field: 'Preferred_Account__c',
+            refusedBy: 'lookup-filter',
+            reason: 'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
+            rows: 1,
+          },
+        ],
+      }),
+    ).toBe(
+      ', 1 written without Preferred_Account__c: a lookup filter of the target refused the ' +
+        'record it names, FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
     );
   });
 

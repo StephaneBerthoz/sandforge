@@ -37,6 +37,7 @@ import { countRequests, loadOrg, makeConn } from './sfSession.js';
 
 import type {
   ForgeConfig,
+  ForgeFieldRefusal,
   ForgeFilesReport,
   ForgeGraph,
   ForgePlan,
@@ -274,6 +275,13 @@ const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 
 /** An SObject or field API name — the pattern the ForgeConfig schema enforces. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** What refused a field rows were written again without, as the summary says it. */
+const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'a validation rule refused it',
+  'restricted-picklist': 'a restricted picklist refused its value',
+  'lookup-filter': 'a lookup filter refused the record it names',
+};
 
 /** The flag each ForgeConfig field is read from, to name it in an error. */
 const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
@@ -763,24 +771,22 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${change.objectApiName}  ${describePicklistChange(change)}`);
     }
   }
-  // Refused by a validation rule on the fields it named, or by a restricted
-  // picklist on their value, and written again without them: in the target,
-  // each short of a value the source held. Each field says which refused it;
-  // one recorded before a picklist's refusal was written again is a rule's.
+  // Refused by a validation rule on the fields it named, by a restricted
+  // picklist on their value, or by the lookup filter of a lookup the target
+  // lets be empty, and written again without them: in the target, each short
+  // of a value the source held. Each field says which refused it; one
+  // recorded before a picklist's refusal was written again is a rule's.
   const withoutFields = summary.writtenWithoutFields ?? [];
   if (withoutFields.length > 0) {
     lines.push(
       '',
-      'written again without a field a validation rule or a restricted picklist refused ' +
-        `(${withoutFields.length} object(s)):`,
+      `written again without a field the target refused (${withoutFields.length} object(s)):`,
     );
     for (const { objectApiName, fields } of withoutFields) {
-      for (const { field, refusedBy, reason, rows } of fields) {
-        const by =
-          refusedBy === 'restricted-picklist'
-            ? 'a restricted picklist refused its value'
-            : 'a validation rule refused it';
-        lines.push(`  ${objectApiName}.${field}  ${rows} record(s) — ${by} — ${reason}`);
+      for (const { field, refusedBy = 'validation-rule', reason, rows } of fields) {
+        lines.push(
+          `  ${objectApiName}.${field}  ${rows} record(s) — ${REFUSED_IT[refusedBy]} — ${reason}`,
+        );
       }
     }
   }

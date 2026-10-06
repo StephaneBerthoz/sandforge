@@ -2293,8 +2293,19 @@ describe('ForgeExecutor', () => {
           stage: 'insert',
           failedCount: 1,
           attemptedCount: 3,
+          // Reset once the request was out: the target may hold the contact,
+          // which the run never sends again, and its removal cannot reach.
           samples: [
-            { recordSummary: 'Contact batch 3/3: 1 record not written', messages: ['ECONNRESET'] },
+            {
+              recordSummary: 'Contact batch 3/3: 1 record may have been written',
+              messages: [
+                'ECONNRESET',
+                'The call was sent and its answer never came back: the target may hold any of ' +
+                  'these records, and which of them is unknown. Counted as failed and never sent ' +
+                  'again, they are not among the records the run created, which removing its ' +
+                  'records takes back.',
+              ],
+            },
           ],
         },
       ]);

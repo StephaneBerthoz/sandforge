@@ -1847,8 +1847,8 @@
       "failed_other": "{{count}} failed",
       "notSent_one": "{{count}} not sent",
       "notSent_other": "{{count}} not sent",
-      "writtenWithoutFields_one": "{{count}} written without a field a validation rule or a restricted picklist refused",
-      "writtenWithoutFields_other": "{{count}} written without a field a validation rule or a restricted picklist refused",
+      "writtenWithoutFields_one": "{{count}} written without a field the target refused",
+      "writtenWithoutFields_other": "{{count}} written without a field the target refused",
       "skipped": "skipped",
       "skippedUncounted": "skipped, record count unknown"
     },
@@ -2827,10 +2827,11 @@
       "leftOut": "left out"
     },
     "writtenWithoutFields": {
-      "title": "Written without a field a validation rule or a restricted picklist of the target org refused",
-      "hint": "The target org refused these records on the fields it named: a validation rule of its own, or a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",
+      "title": "Written without a field the target org refused",
+      "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",
       "byValidationRule": "a validation rule refused it",
-      "byRestrictedPicklist": "a restricted picklist refused its value"
+      "byRestrictedPicklist": "a restricted picklist refused its value",
+      "byLookupFilter": "a lookup filter refused the record it names"
     },
     "existingRecords": {
       "title": "Already in the target org",

@@ -128,10 +128,13 @@ ForgeOrchestrator.execute(graph, config)
        │         - apply RecordType mapping (DeveloperName)
        │    7. batch insert into target (never a person account's contact
        │       the target writes with its account: see "Person accounts");
-       │       a row a validation rule or a restricted picklist refuses on
-       │       fields it names is sent once more without them — and so is a
-       │       required parent copied from outside the graph, its picklist
-       │       values checked first
+       │       a row a validation rule, a restricted picklist or the lookup
+       │       filter of a lookup the target lets be empty refuses on fields
+       │       it names is sent again without them, three rounds at most —
+       │       and a required parent copied from outside the graph once, its
+       │       picklist values checked first; a call that never reached the
+       │       target, and a row it could not lock a record for, go again
+       │       after a wait; a call whose answer was lost is never sent again
        │
        ├─ once every node is read, before anything is written: a record the
        │    rows cannot be written without, of an object no node holds, is
@@ -553,32 +556,64 @@ refusal names the value and not the field, and reads
 field: Gold [Rating__c]`. What reads the code still reads it first.
 
 A row a validation rule of the target refuses (`FIELD_CUSTOM_VALIDATION_EXCEPTION`)
-on fields it names, or a restricted picklist refuses for a value the check
-above let through (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`, naming the
-field), is sent once more without them, once the object's calls are through:
-rows of several calls go together, as many to a call as the first write sent,
-through the same insert or upsert and after the same cancel checkpoint, and
-each call counts among the run's. Only a refusal
-whose every error is one of the two, each naming a field the row gives a value
-to — other than the external id an upsert matches on — is retried, and one that
-holds both leaves out every field they name; an error that names no field, or
-only fields the row leaves empty, or an error of another kind beside them,
-leaves the row failed as it was. A row taken that time counts as written and
-its children find it; the object's line says which field it went without, what
-refused it and why (`Completed Contact: 1 succeeded, 0 failed, 1 written
-without Phone: a validation rule of the target refused it,
-FIELD_CUSTOM_VALIDATION_EXCEPTION: …`, or `…, 2 written without Rating__c: a
-restricted picklist of the target refused its value,
+on fields it names, a restricted picklist refuses for a value the check above
+let through (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`, naming the field), or
+the lookup filter of a lookup refuses for the record it names
+(`FIELD_FILTER_VALIDATION_EXCEPTION`), is sent again without them, once the
+object's calls are through: rows of several calls go together, as many to a
+call as the first write sent, through the same insert or upsert and after the
+same cancel checkpoint, and each call counts among the run's. Only a refusal
+whose every error is one of the three, each naming a field the row gives a
+value to — other than the external id an upsert matches on — is retried, and
+one that holds several leaves out every field they name. A lookup a filter
+refused is left out only when the target's describe lets it be empty: one the
+target requires, left out, would have the row refused for want of it
+(`REQUIRED_FIELD_MISSING`), and a describe that cannot be read leaves none
+out. An error that names no field, or only fields the row leaves empty, or an
+error of another kind beside them, leaves the row failed as it was; a
+validation rule's error on no field — the rule, or a trigger with its code,
+put it on the record — says so in the row's sample. A row taken that time
+counts as written and its children find it; the object's line says which
+field it went without, what refused it and why (`Completed Contact: 1
+succeeded, 0 failed, 1 written without Phone: a validation rule of the target
+refused it, FIELD_CUSTOM_VALIDATION_EXCEPTION: …`, `…, 2 written without
+Rating__c: a restricted picklist of the target refused its value,
 INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist
-field: Yes`), the result lists it per object and field under
-`writtenWithoutFields`, each field with what refused it in `refusedBy`
-(`validation-rule` or `restricted-picklist`; a run recorded before a
-picklist's refusal was written again has none, and was a rule's), and the
-audit entry counts the rows so written, never their values. A row refused
-again is never sent a third time: it fails with the second refusal, its sample
-saying what the first was. A cancel before that call, or a call that throws —
-of the first write or of this one — leaves the rows it would have sent failed
-with their first refusal, saying why they were not written again.
+field: Yes`, or `…, 1 written without Preferred_Account__c: a lookup filter of
+the target refused the record it names, FIELD_FILTER_VALIDATION_EXCEPTION: …`),
+the result lists it per object and field under `writtenWithoutFields`, each
+field with what refused it in `refusedBy` (`validation-rule`,
+`restricted-picklist` or `lookup-filter`; a run recorded before a picklist's
+refusal was written again has none, and was a rule's), and the audit entry
+counts the rows so written, never their values. A row refused again on fields
+the refusals before did not name — a second rule speaking once the first is
+out of the way — goes again without them too, in a round of its own, three
+rounds at most: refused otherwise, or a fourth time, it fails with the last
+refusal, its sample saying what each before was. A cancel before such a call,
+or a call that throws — of the first write or of these — leaves the rows it
+would have sent failed with their last refusal, saying why they were not
+written again.
+
+A call is sent again only when the target cannot have written any of its rows.
+One that never reached it — no connection (`ECONNREFUSED`), no address for its
+host (`ENOTFOUND`, `EAI_AGAIN`), the edge answering for the org that it is
+unavailable (503) or asked too soon (429) — goes again after a wait of 1 to 2
+seconds, doubled each time, half of it left to chance, three times at most,
+each after the cancel checkpoint; past that, its rows are failed, not written.
+A row refused for a record the target could not lock (`UNABLE_TO_LOCK_ROW`)
+was not written either, a call committing each of its rows on its own: it goes
+again on the same waits, alone, three times at most, before the object's next
+call. A call whose answer never came back — a timeout, a connection reset once
+the request was out, the edge saying the org failed it (502, 504) — may have
+written any of its rows: the object stops there, as at any call that throws,
+and the call is never sent again, since the rows the target wrote would be
+written twice. Its sample comes first among the object's and says the target
+may hold any of those rows and which is unknown; they are counted failed, are
+not among the records the run created, and removing its records does not reach
+them. A call the target refuses whole for its API request limit
+(`REQUEST_LIMIT_EXCEEDED`) stops the object without a retry, and its sample
+says so; one it refuses for anything else stops it as before, its rows not
+written.
 
 A picklist value the target refused under a record type is kept for the run:
 a later row of the same object holding that value under that record type is
@@ -586,8 +621,8 @@ sent without it from its first call, and counted under `writtenWithoutFields`
 with the refusal, as the rows refused for it were. An API write has its
 restricted picklists checked before any trigger or rule runs, so the value
 would have been refused again: the row ends as it would have, one refusal
-sooner, and keeps its one second call for anything else the target refuses
-it on; a sample of such a row that fails says why it went without the value.
+sooner, and keeps its three rounds for anything else the target refuses it
+on; a sample of such a row that fails says why it went without the value.
 The value is what is kept, not the field: a record type that takes some of a
 field's values refuses only the others. Nothing is kept of a row that names no
 record type — an upsert that matches a record leaves it the one it has — nor of
@@ -595,10 +630,12 @@ a field the target's describe does not list, or makes depend on another, whose
 value the refusal may hang on too.
 
 A required parent copied from outside the graph is written again on the same
-rule, once, and counted under its object in `writtenWithoutFields`; it goes in
-an insert of its own, and neither reads nor adds to the values kept for the
-run. Refused, it is reported in the `__expandOrphanParents__` report with what
-the target answered, and with its first refusal when it was sent again.
+rule, once — without the fields a validation rule or a restricted picklist
+refused, never without a lookup a filter refused — and counted under its object
+in `writtenWithoutFields`; it goes in an insert of its own, and neither reads
+nor adds to the values kept for the run. Refused, it is reported in the
+`__expandOrphanParents__` report with what the target answered, and with its
+first refusal when it was sent again.
 
 The rows held back before the write are counted with the rows the target
 refused on the object's line, as the run's totals and its audit entry count

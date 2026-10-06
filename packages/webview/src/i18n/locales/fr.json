@@ -1847,8 +1847,8 @@
       "failed_other": "{{count}} en échec",
       "notSent_one": "{{count}} non envoyé",
       "notSent_other": "{{count}} non envoyés",
-      "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par une règle de validation ou une liste de sélection restreinte",
-      "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par une règle de validation ou une liste de sélection restreinte",
+      "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par la cible",
+      "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par la cible",
       "skipped": "ignoré",
       "skippedUncounted": "ignoré, nombre d'enregistrements inconnu"
     },
@@ -2827,10 +2827,11 @@
       "leftOut": "laissée de côté"
     },
     "writtenWithoutFields": {
-      "title": "Écrits sans un champ refusé par une règle de validation ou une liste de sélection restreinte de l'org cible",
-      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, ou une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
+      "title": "Écrits sans un champ refusé par l'org cible",
+      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
       "byValidationRule": "refusé par une règle de validation",
-      "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte"
+      "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
+      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
     },
     "existingRecords": {
       "title": "Déjà dans l'org cible",

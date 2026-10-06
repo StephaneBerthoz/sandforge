@@ -1847,8 +1847,8 @@
       "failed_other": "{{count}} com falha",
       "notSent_one": "{{count}} não enviado",
       "notSent_other": "{{count}} não enviados",
-      "writtenWithoutFields_one": "{{count}} gravado sem um campo recusado por uma regra de validação ou uma lista de opções restrita",
-      "writtenWithoutFields_other": "{{count}} gravados sem um campo recusado por uma regra de validação ou uma lista de opções restrita",
+      "writtenWithoutFields_one": "{{count}} gravado sem um campo recusado pelo destino",
+      "writtenWithoutFields_other": "{{count}} gravados sem um campo recusado pelo destino",
       "skipped": "ignorado",
       "skippedUncounted": "ignorado, quantidade de registros desconhecida"
     },
@@ -2827,10 +2827,11 @@
       "leftOut": "deixado de fora"
     },
     "writtenWithoutFields": {
-      "title": "Gravados sem um campo recusado por uma regra de validação ou uma lista de opções restrita da org de destino",
-      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, ou uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",
+      "title": "Gravados sem um campo recusado pela org de destino",
+      "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",
       "byValidationRule": "recusado por uma regra de validação",
-      "byRestrictedPicklist": "valor recusado por uma lista de opções restrita"
+      "byRestrictedPicklist": "valor recusado por uma lista de opções restrita",
+      "byLookupFilter": "registro indicado recusado por um filtro de pesquisa"
     },
     "existingRecords": {
       "title": "Já na org de destino",

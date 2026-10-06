@@ -3108,13 +3108,12 @@ for (const theme of SCANNED_THEMES) {
       await page.getByRole('tab', { name: 'Audit Trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
       // The skipped object's row is scanned with the rest of the entry, and
-      // so are the records written without a field a validation rule or a
-      // restricted picklist refused.
+      // so are the records written without a field the target refused.
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
         'Contract skipped, record count unknown',
       );
       await expect(page.getByTestId('audit-audit-forge')).toContainText(
-        '1 written without a field a validation rule or a restricted picklist refused',
+        '1 written without a field the target refused',
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();

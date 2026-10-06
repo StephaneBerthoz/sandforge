@@ -1847,8 +1847,8 @@
       "failed_other": "{{count}} fehlgeschlagen",
       "notSent_one": "{{count}} nicht gesendet",
       "notSent_other": "{{count}} nicht gesendet",
-      "writtenWithoutFields_one": "{{count}} ohne ein von einer Validierungsregel oder einer eingeschränkten Auswahlliste abgelehntes Feld geschrieben",
-      "writtenWithoutFields_other": "{{count}} ohne ein von einer Validierungsregel oder einer eingeschränkten Auswahlliste abgelehntes Feld geschrieben",
+      "writtenWithoutFields_one": "{{count}} ohne ein vom Ziel abgelehntes Feld geschrieben",
+      "writtenWithoutFields_other": "{{count}} ohne ein vom Ziel abgelehntes Feld geschrieben",
       "skipped": "übersprungen",
       "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt"
     },
@@ -2827,10 +2827,11 @@
       "leftOut": "weggelassen"
     },
     "writtenWithoutFields": {
-      "title": "Ohne ein Feld geschrieben, das eine Validierungsregel oder eine eingeschränkte Auswahlliste der Ziel-Org abgelehnt hat",
-      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
+      "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
+      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
       "byValidationRule": "von einer Validierungsregel abgelehnt",
-      "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt"
+      "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
+      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
     },
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",

@@ -676,7 +676,7 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).picklistValuesChanged).toBeUndefined();
   });
 
-  it('names each field rows were written again without, what refused it — a validation rule or a restricted picklist — and why', () => {
+  it('names each field rows were written again without, what refused it — a validation rule, a restricted picklist or a lookup filter — and why', () => {
     const writtenWithoutFields = [
       {
         objectApiName: 'Contact',
@@ -695,6 +695,12 @@ describe('sandforge-clone summary', () => {
               'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
             rows: 1,
           },
+          {
+            field: 'Preferred_Account__c',
+            refusedBy: 'lookup-filter' as const,
+            reason: 'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
+            rows: 1,
+          },
           // Recorded before a picklist's refusal was written again: a rule's.
           { field: 'Email', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail', rows: 1 },
         ],
@@ -705,10 +711,12 @@ describe('sandforge-clone summary', () => {
 
     expect(lines).toEqual(
       expect.arrayContaining([
-        'written again without a field a validation rule or a restricted picklist refused (1 object(s)):',
+        'written again without a field the target refused (1 object(s)):',
         '  Contact.Phone  2 record(s) — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone',
         '  Contact.Rating__c  1 record(s) — a restricted picklist refused its value — ' +
           'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
+        '  Contact.Preferred_Account__c  1 record(s) — a lookup filter refused the record it ' +
+          'names — FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
         '  Contact.Email  1 record(s) — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad mail',
       ]),
     );

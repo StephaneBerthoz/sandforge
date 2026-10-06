@@ -245,9 +245,10 @@ const RULES: Rule[] = [
             'warning',
             { detail },
           );
-        // Not retried without the field, as a validation rule's refusal is:
-        // the filter refuses the record the lookup names, and a lookup is
-        // what holds the record in its graph.
+        // A lookup the target lets be empty is written again without it, as a
+        // validation rule's field is: what fails with it is a lookup the
+        // target requires — left out, the row would be refused for want of
+        // it — or a row refused for something else as well.
         case 'FIELD_FILTER_VALIDATION_EXCEPTION':
           return mapping(
             ['forge.error.lookupFilter.explanation', 'forge.error.lookupFilter.action'],

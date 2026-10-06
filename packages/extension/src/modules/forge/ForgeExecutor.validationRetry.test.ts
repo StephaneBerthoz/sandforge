@@ -193,6 +193,8 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
           messages: [
             'FIELD_CUSTOM_VALIDATION_EXCEPTION: Give a phone or an email',
             `Sent again without Phone after the first refusal: ${REASON} [Phone]`,
+            'A validation rule of the target, or a trigger with its code, refused the row without ' +
+              'naming a field: there was none to send it again without.',
           ],
         },
       ],
@@ -212,12 +214,12 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
         {
           id: '',
           success: false,
-          errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access'],
+          errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
         },
         {
           id: '',
           success: false,
-          errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access'],
+          errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
         },
       ],
       [{ id: '003NEW1', success: true, errors: [] }],

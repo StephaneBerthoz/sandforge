@@ -63,12 +63,14 @@ export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
 const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
   'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
+  'lookup-filter': 'forge.writtenWithoutFields.byLookupFilter',
 };
 
 /** The same, as the copied report says it, in English as the rest of it. */
 const REFUSED_BY_REPORT: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'validation rule',
   'restricted-picklist': 'restricted picklist',
+  'lookup-filter': 'lookup filter',
 };
 
 /**
@@ -207,7 +209,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
 
-  /** Per object, the rows written again without the fields a validation rule or a restricted picklist refused. */
+  /** Per object, the rows written again without the fields the target refused. */
   const writtenWithoutFields = useMemo(
     () => result?.writtenWithoutFields ?? [],
     [result?.writtenWithoutFields],
@@ -443,12 +445,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }
     }
 
-    // As on the page: the records a validation rule or a restricted picklist
-    // refused that went in without the fields it named, and which refused it.
+    // As on the page: the records the target refused that went in without the
+    // fields it named, and which refused each — a validation rule, a
+    // restricted picklist or a lookup filter.
     if (writtenWithoutFields.length > 0) {
       lines.push(
         '',
-        '## Written Without a Field a Validation Rule or a Restricted Picklist Refused',
+        '## Written Without a Field the Target Refused',
         '',
         '| Object | Field | Records | Refused by | Refusal |',
         '|--------|-------|---------|------------|---------|',
@@ -978,10 +981,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         <ForgePicklistsResult changes={result.picklistValuesChanged} />
       )}
       {/* Refused by a validation rule of the target on the fields it named,
-          or by a restricted picklist on their value, these records went in
-          once written again without them: in the target, each short of a
-          value the source held. Which field, how many records, what refused
-          it, and the refusal's own words. */}
+          by a restricted picklist on their value, or by the lookup filter of
+          a lookup it lets be empty, these records went in once written again
+          without them: in the target, each short of a value the source held.
+          Which field, how many records, what refused it, and the refusal's
+          own words. */}
       {writtenWithoutFields.length > 0 && (
         <div
           className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"

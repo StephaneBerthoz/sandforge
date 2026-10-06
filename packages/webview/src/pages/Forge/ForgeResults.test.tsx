@@ -1585,6 +1585,13 @@ describe('ForgeResults', () => {
               reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
               rows: 1,
             },
+            {
+              field: 'Preferred_Account__c',
+              refusedBy: 'lookup-filter',
+              reason:
+                'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist or does not match filter criteria.',
+              rows: 1,
+            },
           ],
         },
         {
@@ -1605,18 +1612,19 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
 
     const panel = screen.getByTestId('forge-results-written-without').textContent;
-    expect(panel).toContain(
-      'Written without a field a validation rule or a restricted picklist of the target org refused',
-    );
+    expect(panel).toContain('Written without a field the target org refused');
     // Why the check before the write let the value through.
     expect(panel).toContain(
       'one never given values of a field takes none, which nothing read before the write tells',
     );
+    // And which lookup is left out: one the target lets be empty.
+    expect(panel).toContain('the lookup filter of a lookup it lets be empty');
     expect(
       screen.getAllByTestId('forge-results-written-without-row').map((row) => row.textContent),
     ).toEqual([
       'Contact.Phone — 2 records — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format',
       'Contact.Email — 1 record — a validation rule refused it — FIELD_CUSTOM_VALIDATION_EXCEPTION: Use the domain',
+      'Contact.Preferred_Account__c — 1 record — a lookup filter refused the record it names — FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist or does not match filter criteria.',
       'Visit__c.Rating__c — 3 records — a restricted picklist refused its value — INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: Yes',
     ]);
   });
@@ -1636,6 +1644,12 @@ describe('ForgeResults', () => {
           rows: 1,
           fields: [
             { field: 'Phone', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone', rows: 1 },
+            {
+              field: 'Preferred_Account__c',
+              refusedBy: 'lookup-filter',
+              reason: 'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist',
+              rows: 1,
+            },
           ],
         },
         {
@@ -1666,12 +1680,14 @@ describe('ForgeResults', () => {
       });
 
       const report = writeText.mock.calls[0]?.[0] ?? '';
-      expect(report).toContain(
-        '## Written Without a Field a Validation Rule or a Restricted Picklist Refused',
-      );
+      expect(report).toContain('## Written Without a Field the Target Refused');
       expect(report).toContain('| Object | Field | Records | Refused by | Refusal |');
       expect(report).toContain(
         '| Contact | Phone | 1 | validation rule | FIELD_CUSTOM_VALIDATION_EXCEPTION: Bad phone |',
+      );
+      expect(report).toContain(
+        '| Contact | Preferred_Account__c | 1 | lookup filter | ' +
+          'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist |',
       );
       expect(report).toContain(
         '| Visit__c | Rating__c | 2 | restricted picklist | ' +
