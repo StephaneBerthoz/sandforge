@@ -4,6 +4,7 @@ import { m } from 'framer-motion';
 import type {
   GeneratedReport,
   AnalyticsTimeSeries,
+  AuditAction,
   AuditFacets,
   AuditLogEntry,
   DataLineageGraph,
@@ -22,7 +23,7 @@ import { ExecutionReportView } from './ExecutionReportView';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
-import type { AuditFilter } from './AuditTrailViewer';
+import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
 import { LineageGraph } from './LineageGraph';
 import { uiLocale } from '../../utils/formatters';
 
@@ -47,6 +48,10 @@ export interface ReportsPageProps {
   auditFilter?: AuditFilter;
   onAuditFilterChange?: (filter: AuditFilter) => void;
   onShowMoreAudit?: () => void;
+  /** Export the trail as filtered, the action picked on the tab with it. */
+  onExportAudit?: (format: AuditExportFormat, action: AuditAction | undefined) => void;
+  /** Whether an export of the trail is being made. */
+  auditExporting?: boolean;
   /** Why the trail could not be read, when it could not. */
   auditError?: string;
   /** Whether the trail is being read. */
@@ -134,6 +139,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   auditFilter,
   onAuditFilterChange,
   onShowMoreAudit,
+  onExportAudit,
+  auditExporting,
   auditError,
   lineageData,
   lineageRuns,
@@ -365,6 +372,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       filter={auditFilter}
                       onFilterChange={onAuditFilterChange}
                       onShowMore={onShowMoreAudit}
+                      onExport={onExportAudit}
+                      exporting={auditExporting}
                     />
                   ))}
                 {tab.id === 'lineage' &&

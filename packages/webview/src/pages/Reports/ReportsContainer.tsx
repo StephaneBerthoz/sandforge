@@ -1,15 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
+  AuditAction,
   GeneratedReport,
   ReportsAuditResponse,
   ReportsLineageResponse,
 } from '@sandforge/shared';
+import { AUDIT_TRAIL_LIMIT } from '@sandforge/shared';
 
 import { ReportsPage } from './ReportsPage';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
-import type { AuditFilter } from './AuditTrailViewer';
+import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
+import { auditTrailCsv, auditTrailJson } from './auditTrailExport';
+import type { AuditExportFilter } from './auditTrailExport';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useFileSave } from '../../hooks/useFileSave';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 
 /** What `reports:list:response` carries. */
 interface ReportsPayload {
@@ -26,6 +33,12 @@ type LineagePayload = ReportsLineageResponse['payload'];
 /** Audit entries asked for at first, and added by each "show more". */
 const AUDIT_PAGE_SIZE = 100;
 
+/** An export asked for, waiting on the entries it is made of. */
+interface PendingAuditExport {
+  format: AuditExportFormat;
+  filter: AuditExportFilter;
+}
+
 /**
  * Gives {@link ReportsPage} its data sources.
  *
@@ -39,8 +52,16 @@ const AUDIT_PAGE_SIZE = 100;
  * that writes to an org records when its run ends: `reports:audit` pages the
  * trail, filtered on the host by module and org, and `reports:lineage` answers
  * the latest run's graph, or the one picked from the runs it keeps.
+ *
+ * An export of the trail asks for every entry the filters match, as many as
+ * the trail keeps, in a request of its own: the page on screen holds the
+ * first hundred, and a file of those alone would read as the whole trail.
+ * The action picked on the tab, which the host does not filter by, narrows
+ * them here, as it narrows the list.
  */
 export const ReportsContainer: React.FC = () => {
+  const { t } = useTranslation();
+  const addNotification = useNotificationStore((s) => s.addNotification);
   // The hook queries on mount by default; the histories only change when a run
   // finishes, so reopening the panel is what re-reads them.
   const {
@@ -60,6 +81,45 @@ export const ReportsContainer: React.FC = () => {
     ...auditFilter,
     limit: auditLimit,
   });
+
+  // Its own request, apart from the page's: an answer the page's query took
+  // would put every entry on screen, and one the page's filter changed under
+  // would be of another part of the trail.
+  const auditExport = useBridgeMutation<AuditPayload>('reports:audit', {
+    responseType: 'reports:audit:response',
+    errorType: 'reports:error',
+  });
+  const pendingExport = useRef<PendingAuditExport | null>(null);
+  const exportedEntries = auditExport.data;
+  const exportError = auditExport.error;
+
+  /** Export the trail as filtered: every entry the filters match, not the page. */
+  const handleAuditExport = (format: AuditExportFormat, action: AuditAction | undefined): void => {
+    pendingExport.current = { format, filter: { ...auditFilter, ...(action ? { action } : {}) } };
+    auditExport.mutate({ ...auditFilter, limit: AUDIT_TRAIL_LIMIT });
+  };
+
+  useEffect(() => {
+    const pending = pendingExport.current;
+    if (!pending || !exportedEntries) return;
+    pendingExport.current = null;
+    const { action } = pending.filter;
+    const entries = exportedEntries.entries.filter((e) => action === undefined || e.action === action);
+    const now = new Date().toISOString();
+    const name = `sandforge-audit-trail-${now.slice(0, 10)}`;
+    if (pending.format === 'csv') save(`${name}.csv`, auditTrailCsv(entries), ['csv']);
+    else save(`${name}.json`, auditTrailJson(entries, pending.filter, now), ['json']);
+  }, [exportedEntries, save]);
+
+  useEffect(() => {
+    if (!exportError || !pendingExport.current) return;
+    pendingExport.current = null;
+    addNotification({
+      level: 'error',
+      title: t('common.export'),
+      message: t('reports.auditExportUnreadable', { error: exportError }),
+    });
+  }, [exportError, addNotification, t]);
 
   const [lineageRun, setLineageRun] = useState<string | undefined>();
   const lineage = useBridgeQuery<LineagePayload>(
@@ -87,6 +147,8 @@ export const ReportsContainer: React.FC = () => {
     auditFilter,
     onAuditFilterChange: handleAuditFilterChange,
     onShowMoreAudit: () => setAuditLimit((limit) => limit + AUDIT_PAGE_SIZE),
+    onExportAudit: handleAuditExport,
+    auditExporting: auditExport.loading,
     auditError: audit.error ?? undefined,
     // A tab is offered while its producer reads, and says so; one with no
     // producer at all is not offered. Each query is sent on mount, so one that

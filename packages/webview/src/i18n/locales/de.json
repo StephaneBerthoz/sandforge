@@ -1924,7 +1924,54 @@
     "nodeCount_one": "{{count}} Knoten",
     "nodeCount_other": "{{count}} Knoten",
     "edgeCount_one": "{{count}} Kante",
-    "edgeCount_other": "{{count}} Kanten"
+    "edgeCount_other": "{{count}} Kanten",
+    "exportCsv": "Als CSV exportieren",
+    "exportJson": "Als JSON exportieren",
+    "auditExportUnreadable": "Das Audit-Protokoll konnte für den Export nicht gelesen werden: {{error}}",
+    "context": {
+      "anonymized": "Anonymisiert",
+      "notAnonymized": "Nicht anonymisiert",
+      "contactPoints": {
+        "neutralized": "E-Mails und Telefonnummern neutralisiert",
+        "kept": "E-Mails und Telefonnummern wie gelesen behalten"
+      },
+      "reviewSkipped": "Überprüfung übersprungen",
+      "simulatedBefore": "{{minutes}} Min. vorher simuliert",
+      "rehearsedBefore": "{{minutes}} Min. vorher geprobt",
+      "firedOnInsert": "Wird beim Einfügen ausgelöst: {{list}}",
+      "nothingFired": "Beim Einfügen wird nichts ausgelöst",
+      "fired": {
+        "flow_one": "{{count}} Flow",
+        "flow_other": "{{count}} Flows",
+        "trigger_one": "{{count}} Apex-Trigger",
+        "trigger_other": "{{count}} Apex-Trigger",
+        "process_one": "{{count}} Prozess",
+        "process_other": "{{count}} Prozesse",
+        "workflowRule_one": "{{count}} Workflow-Regel",
+        "workflowRule_other": "{{count}} Workflow-Regeln"
+      },
+      "automationUnread": "Automatisierung teilweise nicht gelesen",
+      "confirmed": "Bestätigt: {{list}}",
+      "confirmation": {
+        "automation": "was beim Einfügen ausgelöst wird",
+        "volume": "die zu schreibenden Datensätze"
+      },
+      "decisions": "Entscheidungen: {{list}}",
+      "decisionCount": "{{label}}: {{count}}",
+      "decision": {
+        "map_value": "Werte zugeordnet",
+        "leave_empty": "leer gelassen",
+        "set_default": "Standardwerte gesetzt",
+        "truncate": "auf Länge gekürzt",
+        "map_record_type": "Datensatztypen zugeordnet",
+        "exclude_object": "Objekte ausgelassen",
+        "skip_rows": "Zeilen übersprungen",
+        "ignore": "Abweichungen ignoriert"
+      },
+      "decisionRows_one": "({{count}} Zeile)",
+      "decisionRows_other": "({{count}} Zeilen)",
+      "user": "Benutzer {{user}}"
+    }
   },
   "settings": {
     "title": "Einstellungen",

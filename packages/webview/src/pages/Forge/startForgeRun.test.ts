@@ -151,6 +151,12 @@ describe('startForgeRun', () => {
     expect(useForgeStore.getState().phase).toBe('execution');
   });
 
+  it('tells the extension the review was skipped, for the run’s entry in the audit trail', () => {
+    startForgeRun({ reviewSkipped: true });
+
+    expect(executePayload()).toMatchObject({ reviewSkipped: true });
+  });
+
   it('asks for a simulation through the same request, and says on screen the run is one', () => {
     startForgeRun({ dryRun: true });
 

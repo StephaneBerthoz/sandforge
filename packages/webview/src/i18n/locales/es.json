@@ -1924,7 +1924,54 @@
     "nodeCount_one": "{{count}} nodo",
     "nodeCount_other": "{{count}} nodos",
     "edgeCount_one": "{{count}} arista",
-    "edgeCount_other": "{{count}} aristas"
+    "edgeCount_other": "{{count}} aristas",
+    "exportCsv": "Exportar a CSV",
+    "exportJson": "Exportar a JSON",
+    "auditExportUnreadable": "No se pudo leer el registro de auditoría para la exportación: {{error}}",
+    "context": {
+      "anonymized": "Anonimizado",
+      "notAnonymized": "Sin anonimizar",
+      "contactPoints": {
+        "neutralized": "Correos y teléfonos neutralizados",
+        "kept": "Correos y teléfonos conservados tal como se leyeron"
+      },
+      "reviewSkipped": "Revisión omitida",
+      "simulatedBefore": "Simulado {{minutes}} min antes",
+      "rehearsedBefore": "Ensayado {{minutes}} min antes",
+      "firedOnInsert": "Se ejecuta al insertar: {{list}}",
+      "nothingFired": "Nada se ejecuta al insertar",
+      "fired": {
+        "flow_one": "{{count}} flujo",
+        "flow_other": "{{count}} flujos",
+        "trigger_one": "{{count}} desencadenador de Apex",
+        "trigger_other": "{{count}} desencadenadores de Apex",
+        "process_one": "{{count}} proceso",
+        "process_other": "{{count}} procesos",
+        "workflowRule_one": "{{count}} regla de flujo de trabajo",
+        "workflowRule_other": "{{count}} reglas de flujo de trabajo"
+      },
+      "automationUnread": "automatización leída en parte",
+      "confirmed": "Confirmado: {{list}}",
+      "confirmation": {
+        "automation": "lo que se ejecuta al insertar",
+        "volume": "los registros que se van a escribir"
+      },
+      "decisions": "Decisiones: {{list}}",
+      "decisionCount": "{{label}}: {{count}}",
+      "decision": {
+        "map_value": "valores asignados",
+        "leave_empty": "dejados vacíos",
+        "set_default": "valores predeterminados dados",
+        "truncate": "recortados a la longitud",
+        "map_record_type": "tipos de registro asignados",
+        "exclude_object": "objetos excluidos",
+        "skip_rows": "filas omitidas",
+        "ignore": "discrepancias ignoradas"
+      },
+      "decisionRows_one": "({{count}} fila)",
+      "decisionRows_other": "({{count}} filas)",
+      "user": "Usuario {{user}}"
+    }
   },
   "settings": {
     "title": "Configuración",

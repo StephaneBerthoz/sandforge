@@ -188,6 +188,13 @@ export const SF_CLI_INSTALL_URL = 'https://developer.salesforce.com/tools/salesf
  */
 export const SF_DEVICE_CODE_LIFETIME_MS = 10 * 60_000;
 
+/**
+ * Entries the audit trail keeps, the oldest dropped past it. Shared because
+ * an export of the trail asks for all of them in one request, and the host
+ * pages no further than it keeps.
+ */
+export const AUDIT_TRAIL_LIMIT = 2_000;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

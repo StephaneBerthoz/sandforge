@@ -217,6 +217,20 @@ The Forge page lists your recent runs under **Recent runs**. A run that created 
 - **Records out of reach.** A call whose answer never came back — a timeout, a connection cut once the request was out — may have written its records under ids the run never learned. They count as failed and are never sent again; the run's results and its audit entry count them per object as maybe in the target, and the removal's result says how many it cannot reach.
 - **Older runs.** A run recorded before runs kept what they created says so and offers no removal. `sandforge-cleanup` (below) remains for those.
 
+## The run's audit entry
+
+Every run of the panel that writes, or that a check stops before it writes, is listed in Reports → Audit Trail. Beside what it did per object, a Forge run's entry says how it was set up and let through, in words and counts, never a value of a record:
+
+- whether it anonymized, and whether it neutralized email addresses and phone numbers or kept them as read — said of a run stopped before it wrote too;
+- **Review skipped** for a run **Clone directly** sent;
+- a simulation or a rehearsal of the same case — the same orgs, the same record or query, the same objects discovered, whatever was decided since — that ended in the half hour before the run, and how many minutes before;
+- what fires as it inserts, as its confirmation put it to you, counted by kind (flows, Apex triggers, processes, workflow rules), with what of it could not be read;
+- the questions of its gate you went on from: what fires on insert, and the records it was about to write;
+- the decisions its configuration held, kind by kind, with the rows each kind changed;
+- the user it wrote as: `sha256:` and the first twelve characters of the SHA-256 of that user's username in lower case, never the username. Whoever knows the username can tell it from the entry. The entries of the other modules name their user the same way.
+
+**Export CSV** and **Export JSON**, beside the filters, save the trail as filtered — the module, the org and the action picked — every entry they match, not only the page on screen, up to the 2 000 entries the trail keeps. The CSV has a row per entry and a column per thing it says, every cell quoted, and a cell that would start a formula in a spreadsheet written after a quote mark; the JSON keeps each entry as the trail holds it, with the filters and when the file was made.
+
 ## Headless quickstart (CLI)
 
 When you're scripting (CI, batch sandbox refresh), skip the wizard.

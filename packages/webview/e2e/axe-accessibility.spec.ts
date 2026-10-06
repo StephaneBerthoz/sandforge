@@ -481,7 +481,7 @@ const FROZEN_STATUS_PARTLY_REMOVED = {
 /**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
  * guard asked about, with an object it skipped before counting its records,
- * and a restore the guard refused.
+ * how it was set up and the user it wrote as, and a restore the guard refused.
  */
 const REPORTS_AUDIT = {
   entries: [
@@ -515,6 +515,16 @@ const REPORTS_AUDIT = {
           skipped: 'uncounted',
         },
       ],
+      userId: 'sha256:0123456789ab',
+      context: {
+        anonymized: true,
+        contactPoints: 'neutralized',
+        reviewSkipped: true,
+        simulatedMinutesBefore: 6,
+        firedOnInsert: { flow: 2, trigger: 1, process: 0, workflowRule: 0, unread: [] },
+        confirmed: ['automation', 'volume'],
+        decisions: [{ kind: 'map_value', count: 2, rows: 9 }],
+      },
       details: {},
       timestamp: '2026-09-12T10:00:00.000Z',
     },
@@ -3565,6 +3575,34 @@ for (const theme of SCANNED_THEMES) {
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();
+      // And how the clone was set up, with its export buttons.
+      await expect(page.getByTestId('audit-context-audit-forge')).toContainText(
+        'Review skipped · Simulated 6 min before',
+      );
+      await expect(page.getByTestId('audit-export-csv')).toBeEnabled();
+      expectNoViolations(await checkAccessibility(page));
+
+      // The export asks for every entry the filters match, then saves them.
+      await page.getByTestId('audit-export-csv').click();
+      const exportRequest = await postedMessage(page, 'reports:audit', (m) => m.limit === 2000);
+      await sendExtensionMessage(page, {
+        type: 'reports:audit:response',
+        id: `resp-${exportRequest.id}`,
+        correlationId: exportRequest.id,
+        payload: {
+          ...REPORTS_AUDIT,
+          entries: [
+            ...REPORTS_AUDIT.entries,
+            { ...REPORTS_AUDIT.entries[2], id: 'audit-formula', orgAlias: '=1+1' },
+          ],
+        },
+      });
+      const saved = await postedMessage(page, 'file:save');
+      const content = String(saved.payload.content);
+      expect(saved.payload.suggestedName).toMatch(/^sandforge-audit-trail-.*\.csv$/);
+      expect(content.split('\n')).toHaveLength(5);
+      expect(content).toContain('"sha256:0123456789ab"');
+      expect(content).toContain(`"'=1+1"`);
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByRole('tab', { name: 'Data Lineage' }).click();
@@ -5020,6 +5058,29 @@ const SEED_DESCRIBES: Record<string, Record<string, unknown>> = {
     ],
   },
 };
+
+/**
+ * The latest message of `type` the page posted to the host whose payload
+ * `matches`, waited for: the page posts it on a click, a render later.
+ */
+async function postedMessage(
+  page: Page,
+  type: string,
+  matches: (payload: Record<string, unknown>) => boolean = () => true,
+): Promise<{ id: string; payload: Record<string, unknown> }> {
+  const read = () =>
+    page.evaluate((wanted) => {
+      const posted = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      return posted
+        .map((m) => ((m as Record<string, unknown>).payload ?? m) as Record<string, unknown>)
+        .filter((m) => m.type === wanted)
+        .map((m) => ({ id: String(m.id), payload: (m.payload ?? {}) as Record<string, unknown> }));
+    }, type);
+  await expect.poll(async () => (await read()).some((m) => matches(m.payload))).toBe(true);
+  const found = (await read()).filter((m) => matches(m.payload)).pop();
+  if (!found) throw new Error(`no '${type}' message was posted`);
+  return found;
+}
 
 /**
  * Answer each `seed:describe-object` not answered yet with the describe of the

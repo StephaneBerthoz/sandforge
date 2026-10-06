@@ -102,7 +102,6 @@ async function compose(): Promise<ForgeServices> {
     handlers: { setForgeOrchestrator },
     orgRegistry: {},
     orgManager: {},
-    configStore: { get: vi.fn(), set: vi.fn() },
     piiDetector: { detectPII: () => ({ piiFields: [] }) },
     log: vi.fn(),
   } as unknown as ForgeCompositionDeps);

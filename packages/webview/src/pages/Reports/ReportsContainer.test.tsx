@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import type { BaseMessage } from '@sandforge/shared';
 import '../../i18n';
 
 const mockPostMessage = vi.fn();
@@ -36,10 +37,28 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 }));
 
 import { ReportsContainer } from './ReportsContainer';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 
 const answer = (type: string, data: unknown): void => {
   queries[type] = { data, loading: false, error: null };
 };
+
+/** The messages of one type the page posted to the host, by the bridge rather than a query. */
+const posted = <T,>(type: string): Array<BaseMessage & { payload: T }> =>
+  mockPostMessage.mock.calls
+    .map((call) => (call[0] as { payload: BaseMessage & { payload: T } }).payload)
+    .filter((message) => message.type === type);
+
+/** Answer a posted request on `type`, correlated as a handler does. */
+function reply(request: BaseMessage, type: string, payload: unknown): void {
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { id: `resp-${request.id}`, type, timestamp: Date.now(), correlationId: request.id, payload },
+      }),
+    );
+  });
+}
 
 /** The payload of the latest request of one type. */
 const lastPayload = (type: string): Record<string, unknown> | undefined =>
@@ -243,6 +262,78 @@ describe('ReportsContainer', () => {
 
     expect(screen.getByTestId('reports-audit-error')).toBeDefined();
     expect(screen.queryByTestId('reports-audit-empty')).toBeNull();
+  });
+
+  describe('exporting the audit trail', () => {
+    const seed = { ...entry, id: 'aud-2', action: 'seed_execute', module: 'seed' };
+    const hostile = { ...entry, id: 'aud-3', orgAlias: '=cmd|calc', details: { code: '@SUM(1)' } };
+
+    function openTrail(): void {
+      answer('reports:audit', { entries: [entry, seed], total: 240, offset: 0, facets });
+      render(<ReportsContainer />);
+      fireEvent.click(screen.getByText('Audit Trail'));
+    }
+
+    it('asks for every entry the filters match, not the page, and saves them as a CSV file', () => {
+      openTrail();
+      fireEvent.change(screen.getByTestId('org-filter'), {
+        target: { value: '00D000000000001AAA' },
+      });
+      fireEvent.click(screen.getByTestId('audit-export-csv'));
+
+      const [request] = posted<Record<string, unknown>>('reports:audit');
+      expect(request.payload).toEqual({ orgId: '00D000000000001AAA', limit: 2000 });
+      expect(posted('file:save')).toEqual([]);
+
+      reply(request, 'reports:audit:response', {
+        entries: [entry, seed, hostile],
+        total: 3,
+        offset: 0,
+        facets,
+      });
+
+      const [save] = posted<{ suggestedName: string; content: string; extensions: string[] }>(
+        'file:save',
+      );
+      expect(save.payload.suggestedName).toMatch(/^sandforge-audit-trail-\d{4}-\d{2}-\d{2}\.csv$/);
+      expect(save.payload.extensions).toEqual(['csv']);
+      const lines = save.payload.content.split('\n');
+      expect(lines).toHaveLength(4);
+      expect(lines[3]).toContain(`"'=cmd|calc"`);
+      expect(lines[3]).toContain(`"'@SUM(1)"`);
+    });
+
+    it('narrows the file to the action picked, as the list is, and says so in the JSON', () => {
+      openTrail();
+      fireEvent.change(screen.getByTestId('action-filter'), { target: { value: 'seed_execute' } });
+      fireEvent.click(screen.getByTestId('audit-export-json'));
+
+      const [request] = posted<Record<string, unknown>>('reports:audit');
+      reply(request, 'reports:audit:response', { entries: [entry, seed], total: 2, offset: 0, facets });
+
+      const [save] = posted<{ suggestedName: string; content: string }>('file:save');
+      expect(save.payload.suggestedName).toMatch(/\.json$/);
+      const file = JSON.parse(save.payload.content) as {
+        filter: Record<string, unknown>;
+        entries: Array<{ id: string }>;
+      };
+      expect(file.filter).toEqual({ action: 'seed_execute' });
+      expect(file.entries.map((e) => e.id)).toEqual(['aud-2']);
+    });
+
+    it('says the export could not be made when the trail could not be read for it', () => {
+      useNotificationStore.setState({ notifications: [] });
+      openTrail();
+      fireEvent.click(screen.getByTestId('audit-export-csv'));
+
+      const [request] = posted<Record<string, unknown>>('reports:audit');
+      reply(request, 'reports:error', { message: 'unreadable', code: 'X', retryable: false });
+
+      expect(posted('file:save')).toEqual([]);
+      expect(useNotificationStore.getState().notifications.map((n) => n.message)).toContain(
+        'The audit trail could not be read for the export: unreadable',
+      );
+    });
   });
 
   it('says what the lineage tab will show once a run writes, when none is traced', () => {

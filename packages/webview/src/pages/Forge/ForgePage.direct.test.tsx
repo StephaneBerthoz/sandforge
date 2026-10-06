@@ -172,6 +172,7 @@ describe('ForgePage — Clone directly', () => {
       graph: WIDE_GRAPH,
       config: useForgeStore.getState().config,
       anonymizationRules: useForgeStore.getState().anonymizationRules,
+      reviewSkipped: true,
     });
     host('forge:progress', { objectName: 'Account', status: 'done', progress: 100 }, execute.id);
 

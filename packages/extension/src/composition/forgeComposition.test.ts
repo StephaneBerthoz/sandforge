@@ -142,7 +142,6 @@ async function compose(
     handlers: { setForgeOrchestrator },
     orgRegistry: {},
     orgManager: {},
-    configStore: { get: vi.fn(), set: vi.fn() },
     piiDetector: { detectPII },
     log: vi.fn(),
   } as unknown as ForgeCompositionDeps;

@@ -1924,7 +1924,54 @@
     "nodeCount_one": "{{count}} node",
     "nodeCount_other": "{{count}} nodes",
     "edgeCount_one": "{{count}} edge",
-    "edgeCount_other": "{{count}} edges"
+    "edgeCount_other": "{{count}} edges",
+    "exportCsv": "Export CSV",
+    "exportJson": "Export JSON",
+    "auditExportUnreadable": "The audit trail could not be read for the export: {{error}}",
+    "context": {
+      "anonymized": "Anonymized",
+      "notAnonymized": "Not anonymized",
+      "contactPoints": {
+        "neutralized": "Emails and phones neutralized",
+        "kept": "Emails and phones kept as read"
+      },
+      "reviewSkipped": "Review skipped",
+      "simulatedBefore": "Simulated {{minutes}} min before",
+      "rehearsedBefore": "Rehearsed {{minutes}} min before",
+      "firedOnInsert": "Fires on insert: {{list}}",
+      "nothingFired": "Nothing fires on insert",
+      "fired": {
+        "flow_one": "{{count}} flow",
+        "flow_other": "{{count}} flows",
+        "trigger_one": "{{count}} Apex trigger",
+        "trigger_other": "{{count}} Apex triggers",
+        "process_one": "{{count}} process",
+        "process_other": "{{count}} processes",
+        "workflowRule_one": "{{count}} workflow rule",
+        "workflowRule_other": "{{count}} workflow rules"
+      },
+      "automationUnread": "automation partly unread",
+      "confirmed": "Confirmed: {{list}}",
+      "confirmation": {
+        "automation": "what fires on insert",
+        "volume": "the records to write"
+      },
+      "decisions": "Decisions: {{list}}",
+      "decisionCount": "{{label}}: {{count}}",
+      "decision": {
+        "map_value": "values mapped",
+        "leave_empty": "left empty",
+        "set_default": "defaults given",
+        "truncate": "cut to length",
+        "map_record_type": "record types mapped",
+        "exclude_object": "objects left out",
+        "skip_rows": "rows skipped",
+        "ignore": "gaps ignored"
+      },
+      "decisionRows_one": "({{count}} row)",
+      "decisionRows_other": "({{count}} rows)",
+      "user": "User {{user}}"
+    }
   },
   "settings": {
     "title": "Settings",

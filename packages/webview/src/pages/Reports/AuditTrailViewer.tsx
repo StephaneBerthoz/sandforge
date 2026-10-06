@@ -6,6 +6,7 @@ import type {
   AuditAction,
   AuditObjectCounts,
   AuditOutcome,
+  AuditRunContext,
   GuardDecision,
 } from '@sandforge/shared';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -21,6 +22,9 @@ export interface AuditFilter {
   orgId?: string;
 }
 
+/** The file formats the trail exports to. */
+export type AuditExportFormat = 'csv' | 'json';
+
 /** AuditTrailViewer component props. */
 export interface AuditTrailViewerProps {
   entries?: AuditLogEntry[];
@@ -33,6 +37,14 @@ export interface AuditTrailViewerProps {
   onFilterChange?: (filter: AuditFilter) => void;
   /** Ask the host for the next entries, when `total` says there are more. */
   onShowMore?: () => void;
+  /**
+   * Export the trail as filtered: the host's module and org, and the action
+   * picked here, which the host does not filter by. Without it, no export is
+   * offered.
+   */
+  onExport?: (format: AuditExportFormat, action: AuditAction | undefined) => void;
+  /** Whether an export is being made: its buttons wait for it. */
+  exporting?: boolean;
   className?: string;
 }
 
@@ -82,6 +94,9 @@ const COUNT_COLUMNS = [
   'notSent',
 ] as const;
 
+/** The kinds of automation an entry counts as firing on insert, in the order a line names them. */
+const FIRED_KINDS = ['flow', 'trigger', 'process', 'workflowRule'] as const;
+
 /** Modules and orgs read off the entries themselves, for a caller that gives none. */
 function facetsOf(entries: readonly AuditLogEntry[]): AuditFacets {
   const orgs = new Map<string, string | undefined>();
@@ -97,7 +112,11 @@ function facetsOf(entries: readonly AuditLogEntry[]): AuditFacets {
 /**
  * The runs that wrote to an org, newest first: what each did per object, in
  * counts, the org it wrote, where the records came from, how it ended and what
- * Production Guard decided about it.
+ * Production Guard decided about it — and, for a run that says it, how it was
+ * set up and let through, and the user it wrote as, by a hash.
+ *
+ * The trail leaves the extension as a CSV or a JSON file, filtered as it is
+ * shown (`onExport`): the whole of it the filters match, not the page.
  *
  * Module and org are the host's filters when it takes them (`onFilterChange`),
  * so a filter reaches past the page on screen; the action filter narrows what
@@ -110,6 +129,8 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
   filter,
   onFilterChange,
   onShowMore,
+  onExport,
+  exporting = false,
   className,
 }) => {
   const { t } = useTranslation();
@@ -140,6 +161,9 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
       return true;
     });
   }, [entries, actionFilter, activeFilter, onFilterChange]);
+
+  /** The action picked, which an export narrows to as the list does. */
+  const pickedAction = actions.find((action) => action === actionFilter);
 
   const actionLabel = (action: AuditAction): string => t(`reports.auditActions.${action}`);
 
@@ -177,6 +201,68 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
       ),
     ].join(' · ');
 
+  /**
+   * How a run was set up and let through, a phrase each: anonymized or not,
+   * what became of emails and phones, Review skipped, a simulation or a
+   * rehearsal before it, what fires on insert, what the user confirmed and
+   * decided. Counts and kinds, as the entry keeps them.
+   */
+  const contextLine = (context: AuditRunContext): string[] => {
+    const fired = context.firedOnInsert;
+    const firing = fired
+      ? FIRED_KINDS.filter((kind) => fired[kind] > 0).map((kind) =>
+          t(`reports.context.fired.${kind}`, { count: fired[kind] }),
+        )
+      : [];
+    return [
+      t(context.anonymized ? 'reports.context.anonymized' : 'reports.context.notAnonymized'),
+      t(`reports.context.contactPoints.${context.contactPoints}`),
+      ...(context.reviewSkipped ? [t('reports.context.reviewSkipped')] : []),
+      ...(context.simulatedMinutesBefore !== undefined
+        ? [t('reports.context.simulatedBefore', { minutes: context.simulatedMinutesBefore })]
+        : []),
+      ...(context.rehearsedMinutesBefore !== undefined
+        ? [t('reports.context.rehearsedBefore', { minutes: context.rehearsedMinutesBefore })]
+        : []),
+      ...(fired
+        ? [
+            firing.length > 0
+              ? t('reports.context.firedOnInsert', { list: firing.join(', ') })
+              : t('reports.context.nothingFired'),
+            ...(fired.unread.length > 0 ? [t('reports.context.automationUnread')] : []),
+          ]
+        : []),
+      ...(context.confirmed?.length
+        ? [
+            t('reports.context.confirmed', {
+              list: context.confirmed
+                .map((question) => t(`reports.context.confirmation.${question}`))
+                .join(', '),
+            }),
+          ]
+        : []),
+      ...(context.decisions?.length
+        ? [
+            t('reports.context.decisions', {
+              list: context.decisions
+                .map((decision) =>
+                  [
+                    t('reports.context.decisionCount', {
+                      label: t(`reports.context.decision.${decision.kind}`),
+                      count: decision.count,
+                    }),
+                    ...(decision.rows !== undefined
+                      ? [t('reports.context.decisionRows', { count: decision.rows })]
+                      : []),
+                  ].join(' '),
+                )
+                .join(', '),
+            }),
+          ]
+        : []),
+    ];
+  };
+
   const shown = entries?.length ?? 0;
   const hasMore = total !== undefined && total > shown && onShowMore !== undefined;
 
@@ -206,6 +292,28 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
             onChange={(e) => changeFilter({ ...activeFilter, orgId: e.target.value || undefined })}
             placeholder={t('reports.filterByOrg')}
           />
+          {onExport && (
+            <div className="ml-auto flex gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={exporting}
+                onClick={() => onExport('csv', pickedAction)}
+                data-testid="audit-export-csv"
+              >
+                {t('reports.exportCsv')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={exporting}
+                onClick={() => onExport('json', pickedAction)}
+                data-testid="audit-export-json"
+              >
+                {t('reports.exportJson')}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Entries */}
@@ -215,6 +323,10 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
           <div className="flex flex-col gap-1">
             {filteredEntries.map((entry) => {
               const objects = (entry.objects ?? []).filter((o) => countsLine(o) !== '');
+              const setUp = [
+                ...(entry.context ? contextLine(entry.context) : []),
+                ...(entry.userId ? [t('reports.context.user', { user: entry.userId })] : []),
+              ];
               const target = entry.orgAlias ?? entry.orgId;
               const source = entry.sourceOrgAlias ?? entry.sourceOrgId;
               return (
@@ -278,6 +390,14 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {setUp.length > 0 && (
+                        <div
+                          data-testid={`audit-context-${entry.id}`}
+                          className="mt-1 text-[10px] text-[var(--sf-text-secondary)]"
+                        >
+                          {setUp.join(' · ')}
+                        </div>
                       )}
                       {Object.keys(entry.details).length > 0 && (
                         <div className="mt-1 text-[10px] text-[var(--sf-text-secondary)]">

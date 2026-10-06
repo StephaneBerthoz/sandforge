@@ -85,6 +85,7 @@ describe('directRun — the answer to a Clone directly, page or no page', () => 
       graph: DISCOVERED,
       config: CONFIG,
       anonymizationRules: useForgeStore.getState().anonymizationRules,
+      reviewSkipped: true,
     });
     const state = useForgeStore.getState();
     expect(state.phase).toBe('execution');

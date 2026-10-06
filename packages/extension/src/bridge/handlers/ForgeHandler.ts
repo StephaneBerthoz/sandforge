@@ -1,6 +1,7 @@
 import type {
   AuditObjectCounts,
   AuditOutcome,
+  AuditRunContext,
   BaseMessage,
   ForgeConfig,
   ForgeContactPointsReport,
@@ -59,7 +60,6 @@ import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
-import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
@@ -98,6 +98,7 @@ import {
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { ForgeRunAudit, RecentTrials, forgeCaseKey } from '../../modules/forge/forgeRunAudit.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
@@ -137,6 +138,8 @@ const executePayloadSchema = z.object({
   // The run this one retries, by its id in the history, which holds what it
   // wrote; absent for a run started from Review.
   retryOf: z.string().min(1).max(200).optional(),
+  // Started by Clone directly, with no stop on Review: the audit trail says so.
+  reviewSkipped: z.boolean().optional(),
 });
 
 /**
@@ -342,8 +345,6 @@ export interface ForgeServices {
    * ConfigStore.
    */
   templateStore?: ForgeTemplateStore;
-  /** @deprecated History is now persisted via ConfigStore. Accepted for backward compatibility. */
-  historyStore?: ForgeHistoryStore;
   /**
    * How many requests to Salesforce the executor's deps have sent so far —
    * what a run counts its calls by (`ForgeExecutorDeps.requestsSent`). Read
@@ -815,6 +816,9 @@ export class ForgeHandler implements DomainHandler {
 
   /** The runs whose records are being removed, by `forgeId`: one removal at a time each. */
   private readonly removing = new Set<string>();
+
+  /** The simulations and rehearsals ended lately, for the entry of the run that follows them. */
+  private readonly trials = new RecentTrials();
 
   /**
    * The reads of the target's automation Review asked for, by org and graph
@@ -1360,12 +1364,19 @@ export class ForgeHandler implements DomainHandler {
 
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules, files, retryOf } = parsed;
+    const { graph, config, anonymizationRules, files, retryOf, reviewSkipped } = parsed;
     // A simulation reads what the run reads and writes nothing: no question of
     // the run's gate is put for it, nor of Production Guard, and it is neither
     // a write in the audit trail nor a run of the history. A production target
     // is refused all the same, below.
     const dryRun = config.dryRun === true;
+    // What each entry this run records says of how it was set up and let
+    // through, beside what it wrote: filled in as the run meets its gate.
+    const caseKey = forgeCaseKey(graph, config);
+    const audit = new ForgeRunAudit(config, {
+      reviewSkipped: reviewSkipped === true,
+      ...this.trials.before(caseKey),
+    });
 
     // A run that anonymizes its records copies no file the user has not
     // accepted as it is: a file's content cannot be anonymized. Refused before
@@ -1379,6 +1390,7 @@ export class ForgeHandler implements DomainHandler {
         orgId: config.targetOrgId,
         outcome: 'stopped',
         code: FILES_NOT_ACCEPTED,
+        context: audit.context(),
       });
       sendHandlerError(
         this.deps,
@@ -1406,6 +1418,7 @@ export class ForgeHandler implements DomainHandler {
           orgId: config.targetOrgId,
           outcome: 'stopped',
           code: RETRY_UNAVAILABLE,
+          context: audit.context(),
         });
         sendHandlerError(
           this.deps,
@@ -1437,6 +1450,7 @@ export class ForgeHandler implements DomainHandler {
         orgId: config.targetOrgId,
         outcome: 'stopped',
         code: PRODUCTION_GUARD_MISSING.code,
+        context: audit.context(),
       });
       sendHandlerError(
         this.deps,
@@ -1468,6 +1482,8 @@ export class ForgeHandler implements DomainHandler {
             'scratch org or a Developer Edition org: Forge writes to those only. Nothing was ' +
             'read or written.',
         ),
+        undefined,
+        audit.context(),
       );
       return;
     }
@@ -1509,6 +1525,7 @@ export class ForgeHandler implements DomainHandler {
         orgId: config.targetOrgId,
         outcome: 'stopped',
         guard: decision,
+        context: audit.context(),
       });
     }
     if (decision === 'refused') {
@@ -1550,6 +1567,7 @@ export class ForgeHandler implements DomainHandler {
         outcome: 'stopped',
         guard: decision,
         code: ABORTED_BEFORE_START,
+        context: audit.context(),
       });
       sendHandlerError(
         this.deps,
@@ -1606,6 +1624,7 @@ export class ForgeHandler implements DomainHandler {
         outcome: 'stopped',
         guard: decision,
         code: FORGE_RUNNING,
+        context: audit.context(),
       });
       sendHandlerError(
         this.deps,
@@ -1733,10 +1752,14 @@ export class ForgeHandler implements DomainHandler {
           stoppedBeforeStart = true;
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
         }
-        guardDecision = strongerDecision(
-          guardDecision,
-          await this.confirmAutomation(guard, { org: targetName, orgTier }, automation),
+        audit.automationRead(automation);
+        const automationAnswer = await this.confirmAutomation(
+          guard,
+          { org: targetName, orgTier },
+          automation,
         );
+        if (automationAnswer === 'confirmed') audit.confirm('automation');
+        guardDecision = strongerDecision(guardDecision, automationAnswer);
       }
       if (runController.signal.aborted) {
         stoppedBeforeStart = true;
@@ -1771,6 +1794,7 @@ export class ForgeHandler implements DomainHandler {
           lookup,
           onConfirmed: () => {
             guardDecision = strongerDecision(guardDecision, 'confirmed');
+            audit.confirm('volume');
           },
         }),
       });
@@ -1809,8 +1833,12 @@ export class ForgeHandler implements DomainHandler {
           source: { origin: 'org', orgId: config.sourceOrgId },
           carried: forgeCarried(result),
           ...contactPointsAudit(result.contactPoints),
+          context: audit.context(result.decisionsApplied),
         });
         this.addToHistory(result, config);
+      } else {
+        // The run that follows, of the same case, says it was simulated first.
+        this.trials.note('simulation', caseKey);
       }
       // What the run came to, in the output channel as on the page: a run
       // that ended left "Forge execute started" there and nothing else, and a
@@ -1919,6 +1947,7 @@ export class ForgeHandler implements DomainHandler {
               }
             : {}),
           ...contactPointsAudit(partial?.contactPoints),
+          context: audit.context(partial?.decisionsApplied),
         });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so
@@ -2141,6 +2170,7 @@ export class ForgeHandler implements DomainHandler {
     orgId: string,
     refusal: ForgeRunGateError,
     guard?: GuardDecision,
+    context?: AuditRunContext,
   ): void {
     recordWriteRun(this.deps, {
       action: 'forge_execute',
@@ -2150,6 +2180,7 @@ export class ForgeHandler implements DomainHandler {
       outcome: 'stopped',
       ...(guard ? { guard } : {}),
       code: refusal.code,
+      ...(context ? { context } : {}),
     });
     sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, refusal, {
       code: refusal.code,
@@ -3191,6 +3222,8 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:rehearse:response', { rehearsal }),
       );
+      // The run that follows, of the same case, says it was rehearsed first.
+      this.trials.note('rehearsal', forgeCaseKey(graph, config));
       // Counts and codes only: a refusal's message and field stay out of the log.
       logger.info('Forge rehearsal', {
         rows: rehearsal.rows,

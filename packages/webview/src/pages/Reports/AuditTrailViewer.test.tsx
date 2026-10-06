@@ -345,4 +345,99 @@ describe('AuditTrailViewer', () => {
 
     expect(screen.queryByTestId('audit-show-more')).toBeNull();
   });
+
+  it('says how a run was set up and let through, and the user it wrote as, in words', () => {
+    const setUp: AuditLogEntry = {
+      ...forgeRun,
+      userId: 'sha256:0123456789ab',
+      context: {
+        anonymized: true,
+        contactPoints: 'neutralized',
+        reviewSkipped: true,
+        simulatedMinutesBefore: 6,
+        rehearsedMinutesBefore: 2,
+        firedOnInsert: { flow: 2, trigger: 1, process: 0, workflowRule: 0, unread: ['processes'] },
+        confirmed: ['automation', 'volume'],
+        decisions: [
+          { kind: 'map_value', count: 2, rows: 9 },
+          { kind: 'ignore', count: 1 },
+        ],
+      },
+    };
+
+    render(<AuditTrailViewer entries={[setUp]} />);
+
+    expect(screen.getByTestId('audit-context-aud-forge').textContent).toBe(
+      [
+        'Anonymized',
+        'Emails and phones neutralized',
+        'Review skipped',
+        'Simulated 6 min before',
+        'Rehearsed 2 min before',
+        'Fires on insert: 2 flows, 1 Apex trigger',
+        'automation partly unread',
+        'Confirmed: what fires on insert, the records to write',
+        'Decisions: values mapped: 2 (9 rows), gaps ignored: 1',
+        'User sha256:0123456789ab',
+      ].join(' · '),
+    );
+  });
+
+  it('says nothing fires on insert when nothing did, and what the config kept for a run that never got there', () => {
+    const quiet: AuditLogEntry = {
+      ...forgeRun,
+      context: {
+        anonymized: false,
+        contactPoints: 'kept',
+        reviewSkipped: false,
+        firedOnInsert: { flow: 0, trigger: 0, process: 0, workflowRule: 0, unread: [] },
+      },
+    };
+    const refused: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-refused',
+      context: { anonymized: false, contactPoints: 'neutralized', reviewSkipped: false },
+    };
+
+    render(<AuditTrailViewer entries={[quiet, refused]} />);
+
+    expect(screen.getByTestId('audit-context-aud-forge').textContent).toBe(
+      'Not anonymized · Emails and phones kept as read · Nothing fires on insert',
+    );
+    expect(screen.getByTestId('audit-context-aud-refused').textContent).toBe(
+      'Not anonymized · Emails and phones neutralized',
+    );
+  });
+
+  it('shows no set-up line for an entry that says nothing of it', () => {
+    render(<AuditTrailViewer entries={[forgeRun]} />);
+
+    expect(screen.queryByTestId('audit-context-aud-forge')).toBeNull();
+  });
+
+  it('exports the trail as filtered, with the action picked on the tab', () => {
+    const onExport = vi.fn();
+    render(<AuditTrailViewer entries={entries} onExport={onExport} />);
+
+    fireEvent.click(screen.getByTestId('audit-export-csv'));
+    fireEvent.change(screen.getByTestId('action-filter'), { target: { value: 'seed_execute' } });
+    fireEvent.click(screen.getByTestId('audit-export-json'));
+
+    expect(onExport.mock.calls).toEqual([
+      ['csv', undefined],
+      ['json', 'seed_execute'],
+    ]);
+  });
+
+  it('holds its export buttons while an export is made, and offers none without a host', () => {
+    const { rerender } = render(
+      <AuditTrailViewer entries={entries} onExport={vi.fn()} exporting />,
+    );
+
+    expect((screen.getByTestId('audit-export-csv') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('audit-export-json') as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(<AuditTrailViewer entries={entries} />);
+    expect(screen.queryByTestId('audit-export-csv')).toBeNull();
+  });
 });

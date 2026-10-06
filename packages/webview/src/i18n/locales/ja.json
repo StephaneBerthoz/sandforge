@@ -1812,7 +1812,49 @@
     },
     "object": "オブジェクト",
     "nodeCount_other": "{{count}}個のノード",
-    "edgeCount_other": "{{count}}本のエッジ"
+    "edgeCount_other": "{{count}}本のエッジ",
+    "exportCsv": "CSV にエクスポート",
+    "exportJson": "JSON にエクスポート",
+    "auditExportUnreadable": "エクスポートのために監査証跡を読み取れませんでした: {{error}}",
+    "context": {
+      "anonymized": "匿名化済み",
+      "notAnonymized": "匿名化なし",
+      "contactPoints": {
+        "neutralized": "メールと電話番号を無効化",
+        "kept": "メールと電話番号を読み取ったまま保持"
+      },
+      "reviewSkipped": "確認をスキップ",
+      "simulatedBefore": "{{minutes}}分前にシミュレーション",
+      "rehearsedBefore": "{{minutes}}分前にリハーサル",
+      "firedOnInsert": "挿入時に起動: {{list}}",
+      "nothingFired": "挿入時に起動するものはなし",
+      "fired": {
+        "flow_other": "フロー {{count}}件",
+        "trigger_other": "Apex トリガー {{count}}件",
+        "process_other": "プロセス {{count}}件",
+        "workflowRule_other": "ワークフロールール {{count}}件"
+      },
+      "automationUnread": "自動化の一部を読み取れず",
+      "confirmed": "承認: {{list}}",
+      "confirmation": {
+        "automation": "挿入時に起動するもの",
+        "volume": "書き込むレコード"
+      },
+      "decisions": "決定: {{list}}",
+      "decisionCount": "{{label}}: {{count}}",
+      "decision": {
+        "map_value": "値の置き換え",
+        "leave_empty": "空のまま",
+        "set_default": "デフォルト値の指定",
+        "truncate": "長さに合わせて切り詰め",
+        "map_record_type": "レコードタイプの置き換え",
+        "exclude_object": "オブジェクトの除外",
+        "skip_rows": "行のスキップ",
+        "ignore": "差異の無視"
+      },
+      "decisionRows_other": "({{count}}行)",
+      "user": "ユーザー {{user}}"
+    }
   },
   "settings": {
     "title": "設定",

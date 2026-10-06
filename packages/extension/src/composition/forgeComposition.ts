@@ -8,7 +8,6 @@ import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
-import type { ConfigStore } from '../core/storage/ConfigStore';
 import { personalFieldsByApiName, type PIIDetector } from '../core/precheck/PIIDetector';
 import { forgeWriteHeaders, type ForgeWriteOptions } from '@sandforge/shared';
 import {
@@ -140,7 +139,6 @@ export interface ForgeCompositionDeps {
   handlers: ExtensionHandlers;
   orgRegistry: OrgRegistry;
   orgManager: OrgManager;
-  configStore: ConfigStore;
   piiDetector: PIIDetector;
   log: (msg: string) => void;
 }
@@ -157,7 +155,7 @@ export interface ForgeCompositionDeps {
  * Extracted from `activate()` — behaviour unchanged.
  */
 export function initForgeComposition(deps: ForgeCompositionDeps): void {
-  const { handlers, orgRegistry, orgManager, configStore, piiDetector, log } = deps;
+  const { handlers, orgRegistry, orgManager, piiDetector, log } = deps;
 
   Promise.all([
     import('../modules/forge/GraphDiscoveryService.js'),
@@ -168,7 +166,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/ForgeMetadataDiff.js'),
     import('../modules/forge/ForgeBatchStrategy.js'),
     import('../modules/forge/ForgeTemplateStore.js'),
-    import('../modules/forge/ForgeHistoryStore.js'),
     import('../modules/forge/rehearsal/ForgeRehearser.js'),
     import('../core/connection/ConnectionHelper.js'),
     import('../modules/forge/fileTransfer.js'),
@@ -185,7 +182,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeMetadataDiff },
         { ForgeBatchStrategy: ForgeBatchStrategyService },
         { ForgeTemplateStore },
-        { ForgeHistoryStore },
         { ForgeRehearser },
         { getJsforceConnection },
         fileTransfer,
@@ -626,11 +622,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             })
           : undefined;
 
-        const historyStore = new ForgeHistoryStore({
-          get: (key) => configStore.get(key),
-          update: (key, value) => Promise.resolve(configStore.set(key, value)),
-        });
-
         // A rehearsal reads through the run's own deps, and creates its sample
         // in the target in composite calls that each roll back whole. Its
         // calls are its own to count: they are none of a run's.
@@ -669,7 +660,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           targetAutomation,
           targetGaps,
           templateStore,
-          historyStore,
           rehearser,
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.

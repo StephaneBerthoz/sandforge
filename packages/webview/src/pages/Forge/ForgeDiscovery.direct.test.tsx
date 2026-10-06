@@ -107,7 +107,7 @@ describe('ForgeDiscovery — Clone directly', () => {
     );
   });
 
-  it('starts the run on the answer, sent as Review sends it by default, and draws no graph', () => {
+  it('starts the run on the answer, sent as Review sends it by default with the review said skipped, and draws no graph', () => {
     render(<ForgeDiscovery />);
 
     extensionSays('forge:discover:response', { graph: DISCOVERED });
@@ -118,6 +118,7 @@ describe('ForgeDiscovery — Clone directly', () => {
       graph: DISCOVERED,
       config: CONFIG,
       anonymizationRules: state.anonymizationRules,
+      reviewSkipped: true,
     });
     expect(state.phase).toBe('execution');
     expect(state.executionRequestId).toBe(execute.id);

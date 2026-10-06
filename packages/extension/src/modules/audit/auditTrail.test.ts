@@ -1,7 +1,14 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { AuditLogEntry, SalesforceOrg } from '@sandforge/shared';
 
-import { AUDIT_TRAIL_LIMIT, AuditTrailStore, emptyCounts, recordWriteRun } from './auditTrail.js';
+import {
+  AUDIT_TRAIL_LIMIT,
+  AuditTrailStore,
+  auditUserKey,
+  emptyCounts,
+  recordWriteRun,
+} from './auditTrail.js';
 import type { AuditDeps, WriteRun } from './auditTrail.js';
 import { LineageStore } from './lineage.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -165,6 +172,54 @@ describe('recordWriteRun', () => {
     const [second, first] = new AuditTrailStore(deps.configStore).list().entries;
     expect(first.details).toEqual(details);
     expect(second.details).toEqual({ ...details, code: 'RUN_CANCELLED' });
+  });
+
+  it('names the user the run wrote as by a short hash of the username, never by the username', () => {
+    const deps = makeDeps();
+    deps.orgManager = {
+      getOrg: (id: string) =>
+        ({ id, alias: 'target-sandbox', username: 'Qa.Runner@Example.test' }) as SalesforceOrg,
+    };
+
+    recordWriteRun(deps, run());
+
+    const [recorded] = new AuditTrailStore(deps.configStore).list().entries;
+    const expected = `sha256:${createHash('sha256').update('qa.runner@example.test').digest('hex').slice(0, 12)}`;
+    expect(recorded.userId).toBe(expected);
+    expect(JSON.stringify(recorded)).not.toMatch(/runner|example/i);
+  });
+
+  it('names no user when the registry holds no username for the org', () => {
+    const deps = makeDeps();
+
+    recordWriteRun(deps, run());
+
+    expect(new AuditTrailStore(deps.configStore).list().entries[0]).not.toHaveProperty('userId');
+    expect(auditUserKey('   ')).toBeUndefined();
+  });
+
+  it('gives the same user the same key whatever the case of the username', () => {
+    expect(auditUserKey('Admin@Example.test')).toBe(auditUserKey('admin@example.test'));
+    expect(auditUserKey('admin@example.test')).not.toBe(auditUserKey('other@example.test'));
+  });
+
+  it('keeps how the run was set up, as the path said it, and nothing for a path that says nothing', () => {
+    const deps = makeDeps();
+    const context = {
+      anonymized: true,
+      contactPoints: 'neutralized' as const,
+      reviewSkipped: true,
+      rehearsedMinutesBefore: 4,
+      confirmed: ['automation' as const],
+      decisions: [{ kind: 'map_value' as const, count: 2, rows: 9 }],
+    };
+
+    recordWriteRun(deps, run({ context }));
+    recordWriteRun(deps, run({ operationId: 'op-2', action: 'sync_execute' }));
+
+    const [second, first] = new AuditTrailStore(deps.configStore).list().entries;
+    expect(first.context).toEqual(context);
+    expect(second).not.toHaveProperty('context');
   });
 
   it('says a removal took up what an earlier one left, and when that one ended', () => {

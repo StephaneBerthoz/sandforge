@@ -271,7 +271,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // so these injections resolve AFTER registerAll (handlers guard with
   // NOT_INITIALIZED / AI_NOT_CONFIGURED until then — contract documented in
   // composition/lateServices.ts).
-  initForgeComposition({ handlers, orgRegistry, orgManager, configStore, piiDetector, log });
+  initForgeComposition({ handlers, orgRegistry, orgManager, piiDetector, log });
   context.subscriptions.push(registerForgeGraphViewListener(handlers));
   // The autopilot orchestrator's grappe lifecycle events go straight to the
   // webview (they correlate to no request), so they carry their own id source

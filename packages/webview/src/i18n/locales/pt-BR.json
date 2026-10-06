@@ -1924,7 +1924,54 @@
     "nodeCount_one": "{{count}} nó",
     "nodeCount_other": "{{count}} nós",
     "edgeCount_one": "{{count}} aresta",
-    "edgeCount_other": "{{count}} arestas"
+    "edgeCount_other": "{{count}} arestas",
+    "exportCsv": "Exportar para CSV",
+    "exportJson": "Exportar para JSON",
+    "auditExportUnreadable": "Não foi possível ler a trilha de auditoria para a exportação: {{error}}",
+    "context": {
+      "anonymized": "Anonimizado",
+      "notAnonymized": "Não anonimizado",
+      "contactPoints": {
+        "neutralized": "E-mails e telefones neutralizados",
+        "kept": "E-mails e telefones mantidos como lidos"
+      },
+      "reviewSkipped": "Revisão pulada",
+      "simulatedBefore": "Simulado {{minutes}} min antes",
+      "rehearsedBefore": "Ensaiado {{minutes}} min antes",
+      "firedOnInsert": "Dispara na inserção: {{list}}",
+      "nothingFired": "Nada dispara na inserção",
+      "fired": {
+        "flow_one": "{{count}} fluxo",
+        "flow_other": "{{count}} fluxos",
+        "trigger_one": "{{count}} gatilho Apex",
+        "trigger_other": "{{count}} gatilhos Apex",
+        "process_one": "{{count}} processo",
+        "process_other": "{{count}} processos",
+        "workflowRule_one": "{{count}} regra de fluxo de trabalho",
+        "workflowRule_other": "{{count}} regras de fluxo de trabalho"
+      },
+      "automationUnread": "automação lida em parte",
+      "confirmed": "Confirmado: {{list}}",
+      "confirmation": {
+        "automation": "o que dispara na inserção",
+        "volume": "os registros a gravar"
+      },
+      "decisions": "Decisões: {{list}}",
+      "decisionCount": "{{label}}: {{count}}",
+      "decision": {
+        "map_value": "valores mapeados",
+        "leave_empty": "deixados vazios",
+        "set_default": "valores padrão dados",
+        "truncate": "cortados no comprimento",
+        "map_record_type": "tipos de registro mapeados",
+        "exclude_object": "objetos deixados de fora",
+        "skip_rows": "linhas puladas",
+        "ignore": "divergências ignoradas"
+      },
+      "decisionRows_one": "({{count}} linha)",
+      "decisionRows_other": "({{count}} linhas)",
+      "user": "Usuário {{user}}"
+    }
   },
   "settings": {
     "title": "Configurações",

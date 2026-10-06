@@ -71,6 +71,8 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
           },
         }
       : {}),
+    // The run's entry in the audit trail says it went with no stop on Review.
+    ...(options.reviewSkipped ? { reviewSkipped: true } : {}),
   });
   // Mission control takes only the messages correlated to this request.
   const store = useForgeStore.getState();

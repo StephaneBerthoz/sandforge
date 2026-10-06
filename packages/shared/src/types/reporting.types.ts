@@ -1,4 +1,5 @@
 import type { UUID, ISODateString } from './common.types.js';
+import type { ForgeGapDecisionKind } from './forge.types.js';
 
 /** Report type */
 export type ReportType =
@@ -178,10 +179,100 @@ export interface AuditLogEntry {
    * counts are of those records alone.
    */
   leftBy?: ISODateString;
+  /**
+   * The user the run wrote as, by the username this machine's org registry
+   * holds for the org: `sha256:` and the first twelve hex characters of the
+   * SHA-256 of that username in lower case. Never the username itself, which
+   * often carries a person's name; whoever knows it can tell it from the
+   * entry. Absent when the registry holds no username for the org, and from
+   * entries recorded before it was kept.
+   */
   userId?: string;
+  /** How the run was set up and let through, beside what it wrote; see {@link AuditRunContext}. */
+  context?: AuditRunContext;
   details: Record<string, unknown>;
   timestamp: ISODateString;
   ipAddress?: string;
+}
+
+/** A part of the target's automation a read before a run could not take. */
+export type AuditAutomationPart =
+  'flows' | 'triggers' | 'processes' | 'workflowRules' | 'automation';
+
+/**
+ * What fires in the target as a run inserts its records, by kind, as the run
+ * read it and put it to the user before it read anything: counts, never the
+ * name of a flow or a trigger.
+ */
+export interface AuditFiredOnInsert {
+  flow: number;
+  trigger: number;
+  process: number;
+  workflowRule: number;
+  /**
+   * What the read could not take of what fires on insert, which may hide
+   * more than the counts say; `automation` when none of it could be read.
+   */
+  unread: AuditAutomationPart[];
+}
+
+/**
+ * A kind of decision the run's config held — taken on Review's Gaps tab, or
+ * kept by a template — how many of it, and the rows those changed as the run
+ * wrote them. Never what a decision maps from or to.
+ */
+export interface AuditDecisionCount {
+  kind: ForgeGapDecisionKind;
+  /** Decisions of the kind the config held. */
+  count: number;
+  /**
+   * Rows they changed, as the run counted them. Absent when the run counted
+   * none: a run stopped before it wrote, or a kind it does not count by row.
+   */
+  rows?: number;
+}
+
+/**
+ * A question of a run's gate a person answered by going on: `automation`,
+ * what fires in the target as the run inserts its records; `volume`, the
+ * records the run had read and was about to write — past the volume that
+ * asks, or near the data storage the target has left, or with that storage
+ * unread.
+ */
+export type AuditConfirmation = 'automation' | 'volume';
+
+/**
+ * How a run was set up and let through, beside what it wrote: what a reader of
+ * the trail asks of a run that wrote into an org — whether it anonymized, what
+ * it did with email addresses and phone numbers, whether it was reviewed,
+ * simulated or rehearsed first, what fired as it inserted, what the user
+ * confirmed and decided. Words and counts, never a value of a record.
+ */
+export interface AuditRunContext {
+  /** Whether the run anonymized the personal data of the fields selected for it. */
+  anonymized: boolean;
+  /**
+   * What the run did with the email addresses and phone numbers it wrote, as
+   * its config chose: neutralized, or kept as the source holds them. Said of a
+   * run stopped before it wrote too, which never reports counts.
+   */
+  contactPoints: 'neutralized' | 'kept';
+  /** Started with no stop on the discovery and Review screens (Clone directly). */
+  reviewSkipped: boolean;
+  /**
+   * Minutes between the end of a simulation of the same case — the same orgs,
+   * the same input, the same objects discovered, whatever was decided since —
+   * and the request of the run, when one ended in the half hour before it.
+   */
+  simulatedMinutesBefore?: number;
+  /** As {@link simulatedMinutesBefore}, for a rehearsal. */
+  rehearsedMinutesBefore?: number;
+  /** What fires as the run inserts, as it was put to the user; absent when the run never got there. */
+  firedOnInsert?: AuditFiredOnInsert;
+  /** The questions of the run's gate a person answered by going on, in the order they were put. */
+  confirmed?: AuditConfirmation[];
+  /** The decisions the run's config held, kind by kind; absent when it held none. */
+  decisions?: AuditDecisionCount[];
 }
 
 /** Every module and org an audit trail holds: what its filters can offer. */

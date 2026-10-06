@@ -53,6 +53,12 @@ export interface ForgeExecuteRequest extends BaseMessage {
      * run started from Review.
      */
     retryOf?: string;
+    /**
+     * Started with no stop on the discovery and Review screens (Clone
+     * directly), which the run's entry in the audit trail says. Absent for a
+     * run started from Review.
+     */
+    reviewSkipped?: boolean;
   };
 }
 

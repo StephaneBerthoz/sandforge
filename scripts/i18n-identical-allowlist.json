@@ -24,6 +24,7 @@
     "monitor.jobErrorCount_one",
     "monitor.liveOps.activeCount_one",
     "org.tagsPlaceholder",
+    "reports.context.decisionCount",
     "seed.csv.mapper.incompatible",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",

@@ -1,12 +1,16 @@
+import { createHash } from 'node:crypto';
+
 import type {
   AuditAction,
   AuditFacets,
   AuditLogEntry,
   AuditObjectCounts,
   AuditOutcome,
+  AuditRunContext,
   GuardDecision,
   LineageOrigin,
 } from '@sandforge/shared';
+import { AUDIT_TRAIL_LIMIT } from '@sandforge/shared';
 
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
@@ -15,7 +19,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { buildLineageGraph, LineageStore } from './lineage.js';
 
 /** Entries kept; the oldest are dropped past it. */
-export const AUDIT_TRAIL_LIMIT = 2_000;
+export { AUDIT_TRAIL_LIMIT };
 
 /** Entries a page holds when the request does not say. */
 const DEFAULT_PAGE_SIZE = 100;
@@ -173,6 +177,27 @@ export interface WriteRun {
    * it neutralized. Words and counts only, never a value of a record.
    */
   details?: Readonly<Record<string, string | number | boolean>>;
+  /**
+   * How the run was set up and let through, for a path that says it: a Forge
+   * run's anonymization, review, simulation or rehearsal before it, what fired
+   * as it inserted, and what the user confirmed and decided.
+   */
+  context?: AuditRunContext;
+}
+
+/**
+ * The user a run wrote as, as its entry names them: a short hash of the
+ * username, which Salesforce matches without regard to case. A username often
+ * carries a person's name, and the trail keeps none; whoever knows it can
+ * tell it from the entry.
+ *
+ * @param username - The username the org registry holds for the org.
+ * @returns `sha256:` and twelve hex characters, or undefined for no username.
+ */
+export function auditUserKey(username: string | undefined): string | undefined {
+  const name = username?.trim().toLowerCase();
+  if (!name) return undefined;
+  return `sha256:${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
 }
 
 /** What {@link recordWriteRun} needs from the window. */
@@ -193,9 +218,10 @@ export interface AuditDeps {
  * The one call every path that writes to an org makes, once per run, when
  * the run ends — or when it is stopped before it starts: by Production
  * Guard, or by a check of the path's own, which names itself by `code`. Nothing
- * of the data goes in: object names and counts, the org, the outcome and the
- * guard's decision. Error messages stay out too, because a Salesforce error
- * can quote the value it refused.
+ * of the data goes in: object names and counts, the org, the outcome, the
+ * guard's decision, the user as a hash of the username ({@link auditUserKey})
+ * and, for a path that says it, how the run was set up. Error messages stay
+ * out too, because a Salesforce error can quote the value it refused.
  *
  * Never throws. A run is over by the time it is recorded, and a failure to
  * record it is logged rather than turned into a failure of the run.
@@ -216,7 +242,9 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
     if (!decisionsKept && run.outcome === 'stopped' && run.code === undefined) return;
 
     const timestamp = now.toISOString();
-    const orgAlias = deps.orgManager.getOrg(run.orgId)?.alias;
+    const target = deps.orgManager.getOrg(run.orgId);
+    const orgAlias = target?.alias;
+    const userId = auditUserKey(target?.username);
     const sourceOrgId = run.source?.origin === 'org' ? run.source.orgId : undefined;
     const sourceOrgAlias =
       sourceOrgId !== undefined ? deps.orgManager.getOrg(sourceOrgId)?.alias : undefined;
@@ -235,6 +263,8 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       ...(decisionsKept && run.guard ? { guard: run.guard } : {}),
       objects: [...objects],
       ...(run.leftBy ? { leftBy: run.leftBy } : {}),
+      ...(userId ? { userId } : {}),
+      ...(run.context ? { context: run.context } : {}),
       details: { ...run.details, ...(run.code ? { code: run.code } : {}) },
       timestamp,
     });

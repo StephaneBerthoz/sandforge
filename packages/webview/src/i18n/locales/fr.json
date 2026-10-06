@@ -1924,7 +1924,54 @@
     "nodeCount_one": "{{count}} nœud",
     "nodeCount_other": "{{count}} nœuds",
     "edgeCount_one": "{{count}} lien",
-    "edgeCount_other": "{{count}} liens"
+    "edgeCount_other": "{{count}} liens",
+    "exportCsv": "Exporter en CSV",
+    "exportJson": "Exporter en JSON",
+    "auditExportUnreadable": "La piste d'audit n'a pas pu être lue pour l'export : {{error}}",
+    "context": {
+      "anonymized": "Anonymisé",
+      "notAnonymized": "Non anonymisé",
+      "contactPoints": {
+        "neutralized": "E-mails et téléphones neutralisés",
+        "kept": "E-mails et téléphones gardés tels que lus"
+      },
+      "reviewSkipped": "Revue sautée",
+      "simulatedBefore": "Simulé {{minutes}} min avant",
+      "rehearsedBefore": "Répété {{minutes}} min avant",
+      "firedOnInsert": "Se déclenche à l'insertion : {{list}}",
+      "nothingFired": "Rien ne se déclenche à l'insertion",
+      "fired": {
+        "flow_one": "{{count}} Flow",
+        "flow_other": "{{count}} Flows",
+        "trigger_one": "{{count}} déclencheur Apex",
+        "trigger_other": "{{count}} déclencheurs Apex",
+        "process_one": "{{count}} processus",
+        "process_other": "{{count}} processus",
+        "workflowRule_one": "{{count}} règle de workflow",
+        "workflowRule_other": "{{count}} règles de workflow"
+      },
+      "automationUnread": "automatisation lue en partie",
+      "confirmed": "Confirmé : {{list}}",
+      "confirmation": {
+        "automation": "ce qui se déclenche à l'insertion",
+        "volume": "les enregistrements à écrire"
+      },
+      "decisions": "Décisions : {{list}}",
+      "decisionCount": "{{label}} : {{count}}",
+      "decision": {
+        "map_value": "valeurs remplacées",
+        "leave_empty": "laissés vides",
+        "set_default": "valeurs par défaut données",
+        "truncate": "coupés à la longueur",
+        "map_record_type": "types d'enregistrement remplacés",
+        "exclude_object": "objets laissés de côté",
+        "skip_rows": "lignes ignorées",
+        "ignore": "écarts ignorés"
+      },
+      "decisionRows_one": "({{count}} ligne)",
+      "decisionRows_other": "({{count}} lignes)",
+      "user": "Utilisateur {{user}}"
+    }
   },
   "settings": {
     "title": "Paramètres",
