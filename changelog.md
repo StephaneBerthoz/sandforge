@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.0] - 2026-10-06
+
+Before a clone writes, it can say what the target would refuse, row by row,
+and let you decide.
+
+### Added
+
+- **Simulate** on Review: the run goes through its write stage and writes
+  nothing, then lists what the target would refuse or change.
+- **Rehearse** on Review: a sample of the rows is sent to the target inside
+  transactions that are rolled back, for the platform's own verdict; the
+  clone command rehearses with `--rehearse`.
+- **The Gaps tab**: what the target's metadata, a simulation or a rehearsal
+  found against the rows, each with a decision in one click (map a value,
+  leave it empty, set a default, truncate, map a record type, leave the
+  object out, ignore), kept in the run's config and template.
+- **Review reads the target's metadata** first: active validation rules and
+  their bypasses, duplicate rules that block, fields only the target
+  requires, lookup filters and the day's API budget.
+- **Results acts on the run**: a created record opens in the target, the
+  results save to CSV or JSON, the run can be removed in place, and objects
+  skipped whole can be retried.
+- **Templates** keep the objects left out, the fields anonymized, the file
+  copy and the decisions, and export to and import from a JSON file.
+- **Sync** pauses and resumes from Live Operations.
+
+### Fixed
+
+- **Every REST writer keeps the target's assignment rules off**, Seed,
+  DataOps, Autopilot and Sync included.
+- **The rows of a call that may have committed** are named in the result
+  and the removal.
+- **An expired session and SandForge's own refusals** are translated.
+- **Seed** makes up its companies and usernames; **Frozen** catches text
+  fields named for an email or a phone number.
+- **DataOps** names the template fields it could not find, and says how much
+  of each object the latest backup holds before an Anonymize.
+- **Reports** says when its list could not load; **Compliance** says its
+  status in words; the depth field refuses what discovery refuses.
+
 ## [1.42.0] - 2026-10-06
 
 A clone checks what it is about to do before it writes, and writes no email or
