@@ -33,6 +33,8 @@ import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { estimatedApiCallsOf } from './forgeApiCalls';
+import { translateForgeError } from './forgeErrorTranslator';
+import { ForgeErrorHint } from './ForgeErrorHint';
 import { ForgeExecutionTable } from './ForgeExecutionTable';
 import { ForgeViewToggle } from './ForgeViewToggle';
 
@@ -96,6 +98,15 @@ export const ForgeExecution: React.FC = () => {
   const view = useForgeObjectsView(graph?.nodes.length ?? 0);
   /** Whether an error ended the run: nothing is left to pause or abort. */
   const stopped = Boolean(runError);
+  /**
+   * What the error that ended the run means and what to do about it, as the
+   * results say it of a record's error: the platform's code and its English
+   * words, shown alone, said neither, in any language.
+   */
+  const runErrorHint = useMemo(
+    () => (runError ? translateForgeError(runError.message) : null),
+    [runError],
+  );
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
   const stopping = !stopped && stopRequestedAt !== null;
   /** Whether the run is held paused: its clock stands still until it is resumed. */
@@ -248,7 +259,10 @@ export const ForgeExecution: React.FC = () => {
         >
           <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
           <div className="flex flex-1 flex-col gap-1">
-            <p>{t('forge.runStoppedOn', { message: runError.message })}</p>
+            <p data-testid="forge-execution-error-message">
+              {t('forge.runStoppedOn', { message: runError.message })}
+            </p>
+            {runErrorHint && <ForgeErrorHint hint={runErrorHint} />}
             {runError.stoppedRun && (
               <p data-testid="forge-execution-error-written">
                 {t('forge.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}

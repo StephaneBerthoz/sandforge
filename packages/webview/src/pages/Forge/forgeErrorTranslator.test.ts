@@ -7,7 +7,105 @@ import de from '../../i18n/locales/de.json';
 import es from '../../i18n/locales/es.json';
 import ja from '../../i18n/locales/ja.json';
 import ptBR from '../../i18n/locales/pt-BR.json';
-import { translateForgeError } from './forgeErrorTranslator';
+import { FORGE_GUIDE_URL, guideAnchorOf, translateForgeError } from './forgeErrorTranslator';
+
+/** A file of the repository, read from the package or from the repository root. */
+function repositoryFile(...parts: string[]): string {
+  // Vitest runs from the package or from the repository root.
+  const path = [
+    resolve(process.cwd(), ...parts),
+    resolve(process.cwd(), '..', '..', ...parts),
+  ].find((candidate) => existsSync(candidate));
+  if (!path) throw new Error(`${parts.join('/')} not found from ${process.cwd()}`);
+  return readFileSync(path, 'utf8');
+}
+
+/**
+ * The ten codes a clone met with nothing said under them but "look up this
+ * error code": one message each, as the target words it, with the hint it
+ * gets and how much it costs the clone.
+ */
+const TEN_CODES: ReadonlyArray<{
+  raw: string;
+  code: string;
+  hint: string;
+  severity: 'info' | 'warning' | 'error';
+}> = [
+  {
+    raw: 'FIELD_FILTER_VALIDATION_EXCEPTION: Value does not exist or does not match filter criteria. [AccountId]',
+    code: 'FIELD_FILTER_VALIDATION_EXCEPTION',
+    hint: 'lookupFilter',
+    severity: 'warning',
+  },
+  {
+    raw: 'DUPLICATES_DETECTED: Use one of these records?',
+    code: 'DUPLICATES_DETECTED',
+    hint: 'duplicateRule',
+    severity: 'warning',
+  },
+  {
+    raw: 'INACTIVE_OWNER_OR_USER: operation performed with inactive user [005000000000001AAA] as owner of [case]',
+    code: 'INACTIVE_OWNER_OR_USER',
+    hint: 'inactiveUser',
+    severity: 'error',
+  },
+  {
+    raw: 'ENTITY_IS_DELETED: entity is deleted [ParentId]',
+    code: 'ENTITY_IS_DELETED',
+    hint: 'entityDeleted',
+    severity: 'warning',
+  },
+  {
+    raw: 'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record or 200 records',
+    code: 'UNABLE_TO_LOCK_ROW',
+    hint: 'rowLocked',
+    severity: 'warning',
+  },
+  {
+    raw: 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+    code: 'REQUEST_LIMIT_EXCEEDED',
+    hint: 'requestLimit',
+    severity: 'error',
+  },
+  {
+    raw: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY: insufficient access rights on cross-reference id: 001000000000001AAA',
+    code: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+    hint: 'crossReferenceAccess',
+    severity: 'error',
+  },
+  {
+    raw: 'NUMBER_OUTSIDE_VALID_RANGE: Discount: value outside of valid range on numeric field: 123456 [Discount__c]',
+    code: 'NUMBER_OUTSIDE_VALID_RANGE',
+    hint: 'numberOutOfRange',
+    severity: 'warning',
+  },
+  {
+    raw: 'MALFORMED_ID: Region: id value of incorrect type: North [Region__c]',
+    code: 'MALFORMED_ID',
+    hint: 'malformedId',
+    severity: 'error',
+  },
+  {
+    raw:
+      'CANNOT_EXECUTE_FLOW_TRIGGER: We can’t save this record because the “Case Created” process failed. ' +
+      'Give your Salesforce admin these details. An error occurred when executing a flow interview.',
+    code: 'CANNOT_EXECUTE_FLOW_TRIGGER',
+    hint: 'flowFailed',
+    severity: 'error',
+  },
+];
+
+/** One message per code of the guide's table the translator mapped before the ten. */
+const SAMPLES_WITH_A_ROW: readonly string[] = [
+  'DUPLICATE_VALUE: duplicate value found: ExternalId__c',
+  'INVALID_CROSS_REFERENCE_KEY: Owner ID: cannot be blank',
+  'REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]',
+  'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: X',
+  'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter the phone in international format [Phone]',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: System.NullPointerException',
+  'FIELD_INTEGRITY_EXCEPTION: Every asset needs an account, a contact, or both.',
+];
 
 describe('translateForgeError', () => {
   it('returns null on empty input', () => {
@@ -211,6 +309,104 @@ describe('translateForgeError', () => {
   it('returns null when message has no recognizable format', () => {
     expect(translateForgeError('not a salesforce error')).toBeNull();
   });
+
+  it.each(TEN_CODES)(
+    'says what $code means and what to do about it, as a $severity, with its row in the guide',
+    ({ raw, code, hint, severity }) => {
+      expect(translateForgeError(raw)).toEqual({
+        code,
+        explanationKey: `forge.error.${hint}.explanation`,
+        actionKey: `forge.error.${hint}.action`,
+        vars: undefined,
+        severity,
+        docUrl: `${FORGE_GUIDE_URL}#${guideAnchorOf(code)}`,
+      });
+    },
+  );
+
+  it('tells a duplicate rule that blocks apart from a unique value the target already holds', () => {
+    // Every write saves past a rule set to Allow: a rule that still refuses
+    // is set to Block, and the way out is in its settings, not in --upsert.
+    expect(translateForgeError('DUPLICATES_DETECTED: Use one of these records?')?.actionKey).toBe(
+      'forge.error.duplicateRule.action',
+    );
+    expect(en.forge.error.duplicateRule.explanation).toContain('set to Block');
+    expect(en.forge.error.duplicateRule.action).not.toContain('--upsert');
+    expect(
+      translateForgeError('DUPLICATE_VALUE: duplicate value found: ExternalId__c')?.actionKey,
+    ).toBe('forge.error.duplicateValue.action');
+  });
+
+  it('says a failed Flow may be a Send Email action the sandbox cannot send, and warns off opening every email', () => {
+    const { explanation, action } = en.forge.error.flowFailed;
+    expect(explanation).toContain('No access');
+    expect(explanation).toContain('email template or logs the email');
+    expect(explanation).toContain('System email only');
+    expect(action).toContain('Deactivate that Flow');
+    expect(action).toContain('the people on the cloned records');
+  });
+
+  it('says a lock is transient, and that retrying is the way through', () => {
+    expect(en.forge.error.rowLocked.explanation).toContain('transient');
+    expect(en.forge.error.rowLocked.action).toMatch(/^Retry the failed objects/);
+  });
+
+  it('names the inactive user as one of the target, since every record the clone creates is its running user', () => {
+    expect(en.forge.error.inactiveUser.explanation).toContain(
+      'The clone leaves each record it creates to the user it writes as',
+    );
+  });
+});
+
+describe('the way from a hint to the Forge guide', () => {
+  /** The anchors of the rows of the guide's table of common errors. */
+  const guideAnchors = (): string[] => {
+    const guide = repositoryFile('docs', 'forge-quickstart.md');
+    const table = guide.split('## Common errors and what they mean')[1]?.split('\n## ')[0] ?? '';
+    return [...table.matchAll(/<a name="([^"]+)"><\/a>/g)].map((m) => m[1]);
+  };
+
+  it('links each hint whose code the table lists to that row, and every row has a hint linking to it', () => {
+    const anchors = guideAnchors();
+    // Positive control: the walk reads the table's anchors.
+    expect(anchors.length).toBeGreaterThanOrEqual(17);
+    const linked = new Set<string>();
+    for (const raw of [...SAMPLES_WITH_A_ROW, ...TEN_CODES.map((c) => c.raw)]) {
+      const docUrl = translateForgeError(raw)?.docUrl;
+      expect({ raw, docUrl }).toEqual({ raw, docUrl: expect.any(String) });
+      const [base, anchor] = (docUrl as string).split('#');
+      expect(base).toBe(FORGE_GUIDE_URL);
+      expect(anchors).toContain(anchor);
+      linked.add(anchor);
+    }
+    expect([...linked].sort()).toEqual([...new Set(anchors)].sort());
+  });
+
+  it('gives each row an anchor of its own', () => {
+    const anchors = guideAnchors();
+    expect(anchors).toHaveLength(new Set(anchors).size);
+  });
+
+  it('links no hint whose code the table has no row for', () => {
+    for (const raw of [
+      'SOMETHING_NEW: details about the new error',
+      'STRING_TOO_LONG: Name: data value too large',
+      "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
+      'Object is not createable on target org',
+      "Cycle FK 'ParentId' could not be resolved",
+    ]) {
+      const result = translateForgeError(raw);
+      expect(result).not.toBeNull();
+      expect({ raw, docUrl: result?.docUrl }).toEqual({ raw, docUrl: undefined });
+    }
+  });
+
+  it('links the guide at the address the Marketplace README gives it, which the public-links check fetches', () => {
+    // scripts/check-public-links.mjs fetches every link of that README
+    // anonymously before a release: the address the hints open is one of them.
+    const readme = repositoryFile('packages', 'extension', 'README.md');
+    expect(readme).toContain(`](${FORGE_GUIDE_URL})`);
+  });
 });
 
 /*
@@ -248,6 +444,7 @@ describe('forge.error hint keys', () => {
     'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
     'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
     'Object is not createable on target org',
+    ...TEN_CODES.map(({ raw }) => raw),
   ];
 
   /** Walk a dotted key through a locale object. */

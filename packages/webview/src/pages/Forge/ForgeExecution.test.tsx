@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
 import type { ForgeLogEntry, ForgeRunClock, ForgeRunError } from '../../stores/useForgeStore';
 import { ForgeExecution, STOP_ANSWER_WAIT_MS } from './ForgeExecution';
+import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
 import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 
 /* ---- Mocks ---- */
@@ -738,6 +739,43 @@ describe('ForgeExecution', () => {
       expect(screen.queryByTestId('forge-pause-button')).toBeNull();
       expect(screen.queryByTestId('forge-abort-button')).toBeNull();
       expect(screen.queryByTestId('forge-execution-eta')).toBeNull();
+    });
+
+    it('says what the error that stopped it means and what to do, with its row in the guide', () => {
+      // The platform's code and its English words were all the screen said.
+      mockRunError = {
+        message: 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+        code: 'EXECUTE_ERROR',
+        stoppedRun: null,
+      };
+      render(<ForgeExecution />);
+
+      const alert = screen.getByRole('alert');
+      expect(within(alert).getByTestId('forge-execution-error-message').textContent).toBe(
+        'The run stopped before its end: REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+      );
+      const hint = within(alert).getByTestId('forge-error-translation');
+      expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.explanation'));
+      expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.action'));
+      expect(
+        within(hint)
+          .getByRole('link', { name: 'REQUEST_LIMIT_EXCEEDED in the Forge guide' })
+          .getAttribute('href'),
+      ).toBe(`${FORGE_GUIDE_URL}#error-request-limit-exceeded`);
+    });
+
+    it('says the error alone when nothing is known of what it means', () => {
+      mockRunError = {
+        message: 'Forge execution was aborted before it started. Nothing was written.',
+        code: 'EXECUTE_ERROR',
+        stoppedRun: null,
+      };
+      render(<ForgeExecution />);
+
+      expect(screen.getByRole('alert').textContent).toContain(
+        'Forge execution was aborted before it started.',
+      );
+      expect(screen.queryByTestId('forge-error-translation')).toBeNull();
     });
 
     it('goes back to the Review when its error says nothing of what it wrote', () => {

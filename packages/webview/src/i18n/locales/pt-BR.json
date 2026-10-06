@@ -2734,6 +2734,47 @@
         "explanation": "Um valor excede o tamanho permitido pelo campo: {{detail}}.",
         "action": "Encurte o valor de origem, ou dê ao campo o mesmo tamanho nas duas orgs."
       },
+      "lookupFilter": {
+        "explanation": "Um filtro de pesquisa da org de destino recusou o registro para o qual este aponta: lá, esse registro não atende aos critérios do filtro — um campo que o filtro verifica tem outro valor, ou nenhum — ou o filtro verifica o usuário com que o clone grava.",
+        "action": "No Setup da org de destino, torne o filtro de pesquisa opcional ou desative-o durante a clonagem, ou dê ao registro apontado os valores que o filtro pede; então tente de novo os objetos com falha."
+      },
+      "duplicateRule": {
+        "explanation": "Uma regra de duplicidade da org de destino configurada para Bloquear recusou o registro. O clone já salva passando por cima de toda regra configurada para Permitir, e vincula uma linha ao registro que ela duplica quando a regra nomeia só um; esta regra não nomeou nenhum deste objeto, ou nomeou vários.",
+        "action": "No Setup da org de destino, desative esta regra de duplicidade durante a clonagem, ou configure a ação dela na criação como Permitir; então tente de novo os objetos com falha."
+      },
+      "inactiveUser": {
+        "explanation": "O Salesforce recusou o registro porque ele pertenceria, ou seria atribuído, a um usuário inativo na org de destino. O clone deixa cada registro que cria com o usuário com que grava, então esse usuário vem da org de destino — uma regra de atribuição, ou um Flow que define o proprietário ou atribui uma tarefa — ou de um mapeamento de proprietário passado na linha de comando.",
+        "action": "Na org de destino, faça essa regra ou esse Flow apontar para um usuário ativo ou uma fila, ou reative o usuário; com --owner-map, mapeie o proprietário para um usuário ativo. Então tente de novo os objetos com falha."
+      },
+      "entityDeleted": {
+        "explanation": "O registro, ou um registro para o qual ele aponta, foi excluído na org de destino: um que uma execução anterior gravou, excluído desde então e vinculado por uma nova tentativa dessa execução, ou um excluído enquanto a execução andava, manualmente ou pela automação da org de destino.",
+        "action": "Restaure-o da Lixeira da org de destino e então tente de novo os objetos com falha, ou rode a clonagem de novo a partir da revisão, e não como nova tentativa, para que ela grave esse registro outra vez."
+      },
+      "rowLocked": {
+        "explanation": "A org de destino não conseguiu bloquear o registro, ou aquele do qual ele depende, porque outra operação o segurava naquele momento: um job, uma integração ou a própria automação da org de destino, ainda trabalhando em registros que o clone tinha acabado de gravar. Costuma ser passageiro.",
+        "action": "Tente de novo os objetos com falha. Se o bloqueio voltar, espere terminarem os jobs e as integrações que gravam esses registros na org de destino, e então tente de novo."
+      },
+      "requestLimit": {
+        "explanation": "O Salesforce recusou a solicitação: a org para a qual ela ia esgotou as solicitações de API que lhe são permitidas em 24 horas, ou está executando muitas solicitações longas ao mesmo tempo. O clone grava até 200 registros por solicitação, e as leituras e descrições dele consomem solicitações próprias.",
+        "action": "Espere até que o contador dessa org libere solicitações — a página Monitor mostra o uso de API dela — e então tente de novo; uma profundidade menor ou menos registros por objeto consomem menos solicitações."
+      },
+      "crossReferenceAccess": {
+        "explanation": "O usuário com que o clone grava não tem acesso a um registro para o qual este aponta na org de destino — de leitura ou, para o principal de um relacionamento mestre-detalhes, de edição: um registro que esse usuário não possui nem tem compartilhado, como um que a org de destino já tinha e que o clone vinculou em vez de gravar.",
+        "action": "Na org de destino, compartilhe esse registro com o usuário, ou dê a ele Ver tudo ou Modificar tudo no objeto dele, ou conecte a org de destino com um usuário que tenha esse acesso, como um administrador; então tente de novo os objetos com falha."
+      },
+      "numberOutOfRange": {
+        "explanation": "Um número é maior do que o campo aceita na org de destino: lá o campo permite menos dígitos antes da vírgula decimal do que o valor de origem tem.",
+        "action": "Dê ao campo o mesmo tamanho e as mesmas casas decimais na org de destino que na origem, ou altere o valor no registro de origem; então tente de novo os objetos com falha."
+      },
+      "malformedId": {
+        "explanation": "Um campo que espera um ID na org de destino recebeu outra coisa: lá o campo é uma pesquisa e na origem é de outro tipo — um campo de texto, por exemplo — ou um mapeamento de campos grava nele o valor de outro campo.",
+        "action": "Dê ao campo o mesmo tipo nas duas orgs. Pela linha de comando, exclua-o com --exclude Objeto.Campo, ou corrija o --map que o preenche; então tente de novo os objetos com falha."
+      },
+      "flowFailed": {
+        "explanation": "Um Flow da org de destino — um Flow acionado por registro, ou um processo, que roda como tal — falhou quando o registro foi salvo, e a org de destino o recusou; a mensagem nomeia o Flow e o que deu errado. Uma causa frequente num sandbox é uma ação Enviar email: com a capacidade de entrega de email da org em Sem acesso, a ação falha assim que usa um modelo de email ou registra o email. Um sandbox novo ou atualizado fica em Somente email do sistema.",
+        "action": "Desative esse Flow na org de destino durante a clonagem, ou corrija-o, e então tente de novo os objetos com falha; a aba Automação da revisão nomeia as permissões personalizadas que silenciam um Flow para o usuário que as tem. Não coloque a capacidade de entrega da org de destino em Todos os emails para deixar passar uma ação Enviar email: o Flow poderia então enviar emails às pessoas dos registros clonados."
+      },
+      "guideLink": "{{code}} no guia do Forge",
       "cycleFkUnresolved": {
         "explanation": "O campo '{{fieldName}}' aponta para um registro que esta execução não gravou (ID de origem {{sourceRefId}}): o registro falhou, ou seu objeto falhou, foi ignorado ou não pode ser gravado na org de destino. O registro foi gravado sem esse vínculo.",
         "action": "Corrija o que deixou esse registro de fora — o erro dele, ou o do objeto dele, está nesta lista — e então tente de novo os objetos com falha: a nova tentativa o grava e preenche este vínculo. Se não, preencha o campo manualmente depois."

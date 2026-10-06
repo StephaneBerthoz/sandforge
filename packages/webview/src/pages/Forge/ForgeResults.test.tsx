@@ -6,6 +6,7 @@ import ja from '../../i18n/locales/ja.json';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
+import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
 
 /* ---- Mocks ---- */
 
@@ -315,11 +316,30 @@ describe('ForgeResults', () => {
     };
     render(<ForgeResults />);
 
-    expect(screen.getByTestId('forge-results-stopped').textContent).toBe(
+    expect(screen.getByTestId('forge-results-stopped-message').textContent).toBe(
       'The run stopped before its end: INVALID_SESSION_ID: Session expired or invalid',
     );
     expect(screen.getByTestId('forge-results-status').textContent).toBe(
       'Forge stopped before its end. Written: 28 of 35.',
+    );
+  });
+
+  it('says under the error that stopped the run what it means and what to do, with its row in the guide', () => {
+    // Said on the execution screen, and gone from the results of what the
+    // run wrote, where the reader is when the time comes to do it.
+    mockResult = Object.assign(makeMockResult(), { forgeId: 'forge-stopped' });
+    mockRunError = {
+      message: 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+      stoppedRun: { forgeId: 'forge-stopped' },
+    };
+    render(<ForgeResults />);
+
+    const stopped = screen.getByTestId('forge-results-stopped');
+    const hint = within(stopped).getByTestId('forge-error-translation');
+    expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.explanation'));
+    expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.action'));
+    expect(within(hint).getByRole('link').getAttribute('href')).toBe(
+      `${FORGE_GUIDE_URL}#error-request-limit-exceeded`,
     );
   });
 
@@ -1887,6 +1907,32 @@ describe('ForgeResults', () => {
       const hint = screen.getByTestId('forge-error-translation');
       expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.explanation'));
       expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.action'));
+    });
+
+    it("links a refused row's hint to its code's row in the guide", () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [refused] });
+      render(<ForgeResults />);
+
+      fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
+
+      const hint = screen.getByTestId('forge-error-translation');
+      const link = within(hint).getByRole('link', {
+        name: 'FIELD_CUSTOM_VALIDATION_EXCEPTION in the Forge guide',
+      });
+      expect(link.getAttribute('href')).toBe(
+        `${FORGE_GUIDE_URL}#error-field-custom-validation-exception`,
+      );
+      expect(link.getAttribute('target')).toBe('_blank');
+    });
+
+    it('links no hint whose code the guide has no row for', () => {
+      mockResult = Object.assign(makeMockResult(), { errors: [notInTarget, lookupsLeftEmpty] });
+      render(<ForgeResults />);
+
+      fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
+
+      expect(screen.getAllByTestId('forge-error-translation')).toHaveLength(2);
+      expect(screen.queryByTestId('forge-error-guide-link')).toBeNull();
     });
 
     it('offers no retry for a run whose only reports are notes', () => {

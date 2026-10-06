@@ -1779,6 +1779,120 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge run an error stopped, said with what it means, what to do and its row in the guide, on the run and in its results', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      // The org's API requests ran out once the account was written: the
+      // contacts' call was refused, and so was the run's next request.
+      const limit = 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.';
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-request-limit',
+        correlationId: request,
+        payload: {
+          message: limit,
+          code: 'EXECUTE_ERROR',
+          retryable: true,
+          result: {
+            forgeId: 'forge-run-request-limit',
+            status: 'partial',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 2_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            idRemapCreated: [{ objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] }],
+            readByObject: [
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'Contact', read: 2 },
+            ],
+            failedReads: [],
+            errors: [
+              {
+                objectApiName: 'Contact',
+                stage: 'insert',
+                failedCount: 2,
+                attemptedCount: 2,
+                samples: [
+                  { recordSummary: 'Contact batch 1/1: 2 records not written', messages: [limit] },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      const alert = page.getByTestId('forge-execution-error');
+      const guide = alert.getByRole('link', { name: 'REQUEST_LIMIT_EXCEEDED in the Forge guide' });
+      await guide.waitFor({ timeout: 10_000 });
+      await expect(guide).toHaveAttribute(
+        'href',
+        /\/docs\/forge-quickstart\.md#error-request-limit-exceeded$/,
+      );
+      // The screen comes scrolled to where Review's Execute was, and the
+      // alert above the fold is clipped: axe measures nothing it cannot see.
+      const runHint = alert.getByTestId('forge-error-translation');
+      await runHint.scrollIntoViewIfNeeded();
+      const stopped = await checkAccessibility(page);
+      expectNoViolations(stopped);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          stopped,
+          '[data-testid="forge-execution-error"] [data-testid="forge-error-translation"]',
+        ),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          stopped,
+          '[data-testid="forge-execution-error"] [data-testid="forge-error-guide-link"]',
+        ),
+      ).toBeGreaterThan(0);
+
+      // The results of what it wrote say it again, and so does the hint of
+      // the rows the refused call took down.
+      await page.getByTestId('forge-execution-see-stopped').click();
+      const banner = page.getByTestId('forge-results-stopped');
+      const bannerGuide = banner.getByTestId('forge-error-guide-link');
+      await bannerGuide.waitFor({ timeout: 10_000 });
+      await bannerGuide.scrollIntoViewIfNeeded();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-results-stopped"] [data-testid="forge-error-translation"]',
+        ),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-results-stopped"] [data-testid="forge-error-guide-link"]',
+        ),
+      ).toBeGreaterThan(0);
+
+      const errors = page.getByTestId('forge-errors-panel');
+      await errors.getByTestId('forge-errors-row').getByRole('button').click();
+      const rowGuide = errors.getByTestId('forge-error-guide-link');
+      await expect(rowGuide).toHaveCount(1);
+      await rowGuide.scrollIntoViewIfNeeded();
+      const opened = await checkAccessibility(page);
+      expectNoViolations(opened);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          opened,
+          '[data-testid="forge-errors-panel"] [data-testid="forge-error-guide-link"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge run an error stopped before it wrote, and the way back to its Review', async ({
       page,
     }) => {

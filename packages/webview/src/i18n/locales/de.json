@@ -2734,6 +2734,47 @@
         "explanation": "Ein Wert ist länger, als das Feld erlaubt: {{detail}}.",
         "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
       },
+      "lookupFilter": {
+        "explanation": "Ein Suchfilter der Ziel-Org hat den Datensatz abgelehnt, auf den dieser verweist: Dort erfüllt dieser Datensatz die Kriterien des Filters nicht — ein Feld, das der Filter prüft, hat einen anderen Wert oder keinen —, oder der Filter prüft den Benutzer, unter dem der Klon schreibt.",
+        "action": "Machen Sie den Suchfilter im Setup der Ziel-Org optional oder deaktivieren Sie ihn für die Dauer des Klonens, oder geben Sie dem Datensatz, auf den verwiesen wird, die Werte, die der Filter verlangt; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "duplicateRule": {
+        "explanation": "Eine Duplikatregel der Ziel-Org, die auf Blockieren steht, hat den Datensatz abgelehnt. Der Klon speichert bereits über jede Regel hinweg, die auf Zulassen steht, und verknüpft eine Zeile mit dem Datensatz, den sie dupliziert, wenn die Regel genau einen nennt; diese Regel hat keinen dieses Objekts genannt, oder mehrere.",
+        "action": "Deaktivieren Sie diese Duplikatregel im Setup der Ziel-Org für die Dauer des Klonens, oder stellen Sie ihre Aktion beim Erstellen auf Zulassen; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "inactiveUser": {
+        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Der Klon überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt: Dieser Benutzer kommt also aus der Ziel-Org — eine Zuweisungsregel oder ein Flow, der den Inhaber setzt oder eine Aufgabe zuweist — oder aus einer Inhaberzuordnung in der Befehlszeile.",
+        "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; ordnen Sie mit --owner-map den Inhaber einem aktiven Benutzer zu. Wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "entityDeleted": {
+        "explanation": "Der Datensatz oder ein Datensatz, auf den er verweist, wurde in der Ziel-Org gelöscht: einer, den ein früherer Lauf geschrieben hat, seitdem gelöscht und von einer Wiederholung dieses Laufs verknüpft, oder einer, der während des Laufs gelöscht wurde, von Hand oder von der Automatisierung der Ziel-Org.",
+        "action": "Stellen Sie ihn aus dem Papierkorb der Ziel-Org wieder her und wiederholen Sie dann die fehlgeschlagenen Objekte, oder starten Sie den Klon erneut aus der Überprüfung statt als Wiederholung, damit er diesen Datensatz neu schreibt."
+      },
+      "rowLocked": {
+        "explanation": "Die Ziel-Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt: ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Das ist meist vorübergehend.",
+        "action": "Wiederholen Sie die fehlgeschlagenen Objekte. Kommt die Sperre wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze in der Ziel-Org schreiben, fertig sind, und wiederholen Sie dann."
+      },
+      "requestLimit": {
+        "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org, an die sie ging, hat die API-Anfragen aufgebraucht, die ihr in 24 Stunden zustehen, oder führt zu viele lange Anfragen gleichzeitig aus. Der Klon schreibt bis zu 200 Datensätze pro Anfrage, und seine Lese- und Describe-Vorgänge brauchen eigene Anfragen.",
+        "action": "Warten Sie, bis der Zähler dieser Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und wiederholen Sie dann; eine geringere Tiefe oder weniger Datensätze pro Objekt brauchen weniger Anfragen."
+      },
+      "crossReferenceAccess": {
+        "explanation": "Dem Benutzer, unter dem der Klon schreibt, fehlt der Zugriff auf einen Datensatz, auf den dieser in der Ziel-Org verweist — Lesezugriff oder, beim Master-Datensatz einer Master-Detail-Beziehung, Bearbeitungszugriff: ein Datensatz, den dieser Benutzer weder besitzt noch freigegeben bekommen hat, etwa einer, den die Ziel-Org schon hatte und den der Klon verknüpft statt geschrieben hat.",
+        "action": "Geben Sie diesen Datensatz in der Ziel-Org für den Benutzer frei, oder geben Sie ihm „Alle anzeigen“ oder „Alle ändern“ für sein Objekt, oder verbinden Sie die Ziel-Org mit einem Benutzer, der diesen Zugriff hat, etwa einem Administrator; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "numberOutOfRange": {
+        "explanation": "Eine Zahl ist größer, als das Feld in der Ziel-Org zulässt: Das Feld erlaubt dort weniger Stellen vor dem Komma, als der Quellwert hat.",
+        "action": "Geben Sie dem Feld in der Ziel-Org dieselbe Länge und dieselben Nachkommastellen wie in der Quelle, oder ändern Sie den Wert im Quelldatensatz; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "malformedId": {
+        "explanation": "Ein Feld, das in der Ziel-Org eine ID erwartet, hat etwas anderes erhalten: Das Feld ist dort eine Nachschlagebeziehung und in der Quelle von anderem Typ — etwa ein Textfeld —, oder eine Feldzuordnung schreibt den Wert eines anderen Felds hinein.",
+        "action": "Geben Sie dem Feld in beiden Orgs denselben Typ. Schließen Sie es über die Befehlszeile mit --exclude Objekt.Feld aus, oder korrigieren Sie das --map, das es füllt; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "flowFailed": {
+        "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Eine Ursache, der eine Sandbox oft begegnet, ist eine Aktion „E-Mail senden“: Steht die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“, schlägt die Aktion fehl, sobald sie eine E-Mail-Vorlage verwendet oder die E-Mail protokolliert. Eine neue oder aktualisierte Sandbox steht auf „Nur System-E-Mail“.",
+        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Stellen Sie die Zustellbarkeit der Ziel-Org nicht auf „Alle E-Mails“, um eine Aktion „E-Mail senden“ durchzulassen: Der Flow könnte dann den Personen der geklonten Datensätze E-Mails senden."
+      },
+      "guideLink": "{{code}} im Forge-Leitfaden",
       "cycleFkUnresolved": {
         "explanation": "Das Feld '{{fieldName}}' verweist auf einen Datensatz, den dieser Lauf nicht geschrieben hat (Quell-ID {{sourceRefId}}): Der Datensatz ist fehlgeschlagen, oder sein Objekt ist fehlgeschlagen, wurde übersprungen oder kann nicht in die Ziel-Org geschrieben werden. Der Datensatz wurde ohne diese Verknüpfung geschrieben.",
         "action": "Beheben Sie, was diesen Datensatz ferngehalten hat — sein Fehler oder der seines Objekts steht in dieser Liste —, und wiederholen Sie dann die fehlgeschlagenen Objekte: Die Wiederholung schreibt ihn und füllt diese Verknüpfung. Andernfalls setzen Sie das Feld danach von Hand."

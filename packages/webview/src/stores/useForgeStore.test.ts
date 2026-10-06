@@ -1019,6 +1019,7 @@ describe('useForgeStore', () => {
 
       expect(getState().runError).toEqual({
         message: 'INVALID_SESSION_ID: Session expired or invalid',
+        code: 'EXECUTE_ERROR',
         stoppedRun: null,
       });
       // One object of two had settled: the page says so.
@@ -1039,6 +1040,29 @@ describe('useForgeStore', () => {
       });
       stopped('INVALID_SESSION_ID', kept);
       expect(getState().runError?.stoppedRun).toEqual(kept);
+    });
+
+    it('keeps the code a refusal before the run gave its error, whatever its words', () => {
+      // The message alone was kept: nothing past the store could tell a run
+      // refused before it started from one that failed as it went.
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'Operation cancelled by user (production confirmation declined).',
+        code: 'GUARD_DECLINED',
+        retryable: true,
+      });
+      expect(getState().runError).toEqual({
+        message: 'Operation cancelled by user (production confirmation declined).',
+        code: 'GUARD_DECLINED',
+        stoppedRun: null,
+      });
+    });
+
+    it('keeps no code when the error carries none', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', { message: 'Insert failed', code: '' });
+      expect(getState().runError).toEqual({ message: 'Insert failed', stoppedRun: null });
+      expect(getState().runError).not.toHaveProperty('code');
     });
 
     it('says the run failed when its error has no words', () => {

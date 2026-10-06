@@ -2734,6 +2734,47 @@
         "explanation": "A value is longer than the field allows: {{detail}}.",
         "action": "Shorten the source value, or give the field the same length in both orgs."
       },
+      "lookupFilter": {
+        "explanation": "A lookup filter of the target org refused the record this one points at: there, that record does not meet the filter's criteria — a field the filter checks holds another value, or none — or the filter checks the user the clone writes as.",
+        "action": "In the target org's Setup, make the lookup filter optional or deactivate it while you clone, or give the record pointed at the values the filter asks for; then retry the failed objects."
+      },
+      "duplicateRule": {
+        "explanation": "A duplicate rule of the target org set to Block refused the record. The clone already saves past every rule set to Allow, and links a row to the record it duplicates when the rule names just one; this rule named none of this object, or several.",
+        "action": "In the target org's Setup, deactivate this duplicate rule while you clone, or set its action on create to Allow; then retry the failed objects."
+      },
+      "inactiveUser": {
+        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. The clone leaves each record it creates to the user it writes as, so that user comes from the target — an assignment rule, or a Flow that sets the owner or assigns a task — or from an owner mapping given on the command line.",
+        "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; with --owner-map, map the owner to an active user. Then retry the failed objects."
+      },
+      "entityDeleted": {
+        "explanation": "The record, or a record it points at, has been deleted in the target org: one an earlier run wrote, deleted since and linked to by a retry of that run, or one deleted while the run went on, by hand or by the target's automation.",
+        "action": "Restore it from the target org's Recycle Bin, then retry the failed objects; or run the clone again from Review rather than as a retry, so it writes that record anew."
+      },
+      "rowLocked": {
+        "explanation": "The target org could not lock the record, or the record it hangs from, because another operation held it at that moment: a job, an integration, or the target's own automation still at work on records the clone had just written. It is usually transient.",
+        "action": "Retry the failed objects. If the lock comes back, wait until the jobs and integrations writing those records in the target org have finished, then retry."
+      },
+      "requestLimit": {
+        "explanation": "Salesforce refused the request: the org it went to has used the API requests it is allowed over 24 hours, or is running too many long requests at once. The clone writes up to 200 records a request, and its reads and describes take requests of their own.",
+        "action": "Wait until that org's count frees requests — the Monitor page shows its API usage — then retry; a lower depth or fewer records per object takes fewer requests."
+      },
+      "crossReferenceAccess": {
+        "explanation": "The user the clone writes as lacks access to a record this one points at in the target org — read access or, to the master of a master-detail relationship, edit access: a record that user neither owns nor is shared, such as one the target already held, which the clone linked to rather than wrote.",
+        "action": "In the target org, share that record with the user, or give the user View All or Modify All on its object, or connect the target org with a user who has that access, such as an administrator; then retry the failed objects."
+      },
+      "numberOutOfRange": {
+        "explanation": "A number is larger than the field takes in the target org: the field there allows fewer digits before the decimal point than the source value has.",
+        "action": "Give the field the same length and decimal places in the target org as in the source, or change the value on the source record; then retry the failed objects."
+      },
+      "malformedId": {
+        "explanation": "A field that takes an ID in the target org was given something else: the field is a lookup there and of another type in the source — a text field, say — or a field mapping writes another field's value into it.",
+        "action": "Give the field the same type in both orgs. From the command line, leave it out with --exclude Object.Field, or correct the --map that fills it; then retry the failed objects."
+      },
+      "flowFailed": {
+        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. A cause a sandbox often meets is a Send Email action: with the org's email deliverability set to No access, the action fails as soon as it uses an email template or logs the email. A new or refreshed sandbox is set to System email only.",
+        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Do not set the target's deliverability to All email to get a Send Email action through: the Flow could then email the people on the cloned records."
+      },
+      "guideLink": "{{code}} in the Forge guide",
       "cycleFkUnresolved": {
         "explanation": "Field '{{fieldName}}' points to a record this run did not write (source ID {{sourceRefId}}): the record failed, or its object failed, was skipped or cannot be written to the target org. The record went in without that link.",
         "action": "Fix what kept that record out — its error, or its object's, is listed here — then retry the failed objects: the retry writes it and fills in this link. Otherwise set the field by hand afterwards."

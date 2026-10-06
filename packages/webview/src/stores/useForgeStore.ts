@@ -65,6 +65,13 @@ export interface ForgeRunError {
   /** What went wrong, as the extension said it. */
   message: string;
   /**
+   * The kind of failure, as the extension keys it rather than by its English
+   * text: `EXECUTE_ERROR` for a run that failed or was cancelled once it had
+   * started, a refusal's own code — `GUARD_DECLINED`, `FORGE_RUNNING`… — for
+   * a run stopped before it started. Absent when the error carried none.
+   */
+  code?: string;
+  /**
    * The run as the extension keeps it in its history, when it had created
    * records before it stopped; null when the error said nothing of them.
    */
@@ -350,11 +357,13 @@ export interface ForgeState {
    * @param requestId - The request the error correlates to.
    * @param message - What went wrong.
    * @param stoppedRun - What the run had written, when the error carries it.
+   * @param code - The kind of failure, when the error carries it.
    */
   failRun: (
     requestId: unknown,
     message: string,
     stoppedRun: ForgeExecutionResult | undefined,
+    code?: string,
   ) => void;
   /** Show the results of what the run that stopped had written, when its error said. */
   showStoppedRun: () => void;
@@ -802,11 +811,16 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     }));
   },
 
-  failRun(requestId: unknown, message: string, stoppedRun: ForgeExecutionResult | undefined): void {
+  failRun(
+    requestId: unknown,
+    message: string,
+    stoppedRun: ForgeExecutionResult | undefined,
+    code?: string,
+  ): void {
     set((state) => {
       if (!ofRunOnScreen(state, requestId) || state.runError) return state;
       return {
-        runError: { message, stoppedRun: stoppedRun ?? null },
+        runError: { message, ...(code ? { code } : {}), stoppedRun: stoppedRun ?? null },
         // Said by the page, whose region outlives the screen: where it stopped.
         stoppedAt: settledPercent(state.graph?.nodes ?? []),
         logs: withLogLine(state.logs, forgeLogEntry('error', message)),
@@ -1189,7 +1203,7 @@ function takeRunMessage(event: MessageEvent): void {
     const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
     store.finishRun(data.correlationId, payload?.result);
   } else {
-    const payload = (data.payload ?? {}) as { message?: unknown; result?: unknown };
+    const payload = (data.payload ?? {}) as { message?: unknown; code?: unknown; result?: unknown };
     const message =
       typeof payload.message === 'string' && payload.message !== ''
         ? payload.message
@@ -1198,7 +1212,11 @@ function takeRunMessage(event: MessageEvent): void {
       payload.result && typeof payload.result === 'object'
         ? (payload.result as ForgeExecutionResult)
         : undefined;
-    store.failRun(data.correlationId, message, stoppedRun);
+    // The code says what kind of failure it was, whatever words the message
+    // has: dropped here, nothing past the store could tell a refusal before
+    // the run from a failure during it.
+    const code = typeof payload.code === 'string' && payload.code !== '' ? payload.code : undefined;
+    store.failRun(data.correlationId, message, stoppedRun, code);
   }
 }
 

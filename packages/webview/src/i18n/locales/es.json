@@ -2734,6 +2734,47 @@
         "explanation": "Un valor supera la longitud que permite el campo: {{detail}}.",
         "action": "Acorte el valor de origen, o dé al campo la misma longitud en ambas orgs."
       },
+      "lookupFilter": {
+        "explanation": "Un filtro de búsqueda de la org de destino rechazó el registro al que apunta este: allí, ese registro no cumple los criterios del filtro — un campo que el filtro comprueba tiene otro valor, o ninguno — o el filtro comprueba el usuario con el que escribe el clon.",
+        "action": "En el Setup de la org de destino, haga opcional el filtro de búsqueda o desactívelo mientras clona, o dé al registro apuntado los valores que pide el filtro; luego reintente los objetos fallidos."
+      },
+      "duplicateRule": {
+        "explanation": "Una regla de duplicados de la org de destino configurada para Bloquear rechazó el registro. El clon ya guarda por encima de toda regla configurada para Permitir, y vincula una fila al registro que duplica cuando la regla nombra solo uno; esta regla no nombró ninguno de este objeto, o nombró varios.",
+        "action": "En el Setup de la org de destino, desactive esta regla de duplicados mientras clona, o configure su acción al crear en Permitir; luego reintente los objetos fallidos."
+      },
+      "inactiveUser": {
+        "explanation": "Salesforce rechazó el registro porque pertenecería, o estaría asignado, a un usuario inactivo en la org de destino. El clon deja cada registro que crea al usuario con el que escribe, así que ese usuario viene de la org de destino — una regla de asignación, o un Flow que fija el propietario o asigna una tarea — o de una asignación de propietario dada en la línea de comandos.",
+        "action": "En la org de destino, haga que esa regla o ese Flow apunte a un usuario activo o a una cola, o reactive al usuario; con --owner-map, asigne el propietario a un usuario activo. Luego reintente los objetos fallidos."
+      },
+      "entityDeleted": {
+        "explanation": "El registro, o un registro al que apunta, se eliminó en la org de destino: uno que escribió una ejecución anterior, eliminado desde entonces y vinculado por un reintento de esa ejecución, o uno eliminado mientras la ejecución avanzaba, a mano o por la automatización de la org de destino.",
+        "action": "Restáurelo desde la Papelera de reciclaje de la org de destino y luego reintente los objetos fallidos, o vuelva a lanzar la clonación desde la revisión en lugar de como reintento, para que escriba de nuevo ese registro."
+      },
+      "rowLocked": {
+        "explanation": "La org de destino no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento: un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Suele ser pasajero.",
+        "action": "Reintente los objetos fallidos. Si el bloqueo vuelve, espere a que terminen los trabajos y las integraciones que escriben esos registros en la org de destino, y luego reintente."
+      },
+      "requestLimit": {
+        "explanation": "Salesforce rechazó la solicitud: la org a la que iba ha agotado las solicitudes de API que tiene permitidas en 24 horas, o ejecuta demasiadas solicitudes largas a la vez. El clon escribe hasta 200 registros por solicitud, y sus lecturas y descripciones consumen solicitudes propias.",
+        "action": "Espere a que el contador de esa org libere solicitudes — la página Monitor muestra su uso de API — y luego reintente; una profundidad menor o menos registros por objeto consumen menos solicitudes."
+      },
+      "crossReferenceAccess": {
+        "explanation": "El usuario con el que escribe el clon no tiene acceso a un registro al que apunta este en la org de destino — de lectura o, para el principal de una relación principal-detalle, de edición: un registro que ese usuario no posee ni tiene compartido, como uno que la org de destino ya tenía y que el clon vinculó en lugar de escribirlo.",
+        "action": "En la org de destino, comparta ese registro con el usuario, o dele Ver todo o Modificar todo en su objeto, o conecte la org de destino con un usuario que tenga ese acceso, como un administrador; luego reintente los objetos fallidos."
+      },
+      "numberOutOfRange": {
+        "explanation": "Un número supera lo que el campo admite en la org de destino: allí el campo permite menos dígitos antes del separador decimal que los que tiene el valor de origen.",
+        "action": "Dé al campo la misma longitud y las mismas posiciones decimales en la org de destino que en el origen, o cambie el valor en el registro de origen; luego reintente los objetos fallidos."
+      },
+      "malformedId": {
+        "explanation": "Un campo que espera un ID en la org de destino recibió otra cosa: allí el campo es una búsqueda y en el origen es de otro tipo — un campo de texto, por ejemplo — o una asignación de campos escribe en él el valor de otro campo.",
+        "action": "Dé al campo el mismo tipo en ambas orgs. Desde la línea de comandos, exclúyalo con --exclude Objeto.Campo, o corrija el --map que lo rellena; luego reintente los objetos fallidos."
+      },
+      "flowFailed": {
+        "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. Una causa frecuente en un sandbox es una acción Enviar email: con la capacidad de entrega de email de la org en Sin acceso, la acción falla en cuanto usa una plantilla de email o registra el email. Un sandbox nuevo o actualizado está en Solo email del sistema.",
+        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. No ponga la capacidad de entrega de la org de destino en Todos los emails para que pase una acción Enviar email: el Flow podría entonces enviar emails a las personas de los registros clonados."
+      },
+      "guideLink": "{{code}} en la guía de Forge",
       "cycleFkUnresolved": {
         "explanation": "El campo '{{fieldName}}' apunta a un registro que esta ejecución no escribió (ID de origen {{sourceRefId}}): el registro falló, o su objeto falló, se omitió o no se puede escribir en la org de destino. El registro se escribió sin ese vínculo.",
         "action": "Corrija lo que dejó fuera ese registro — su error, o el de su objeto, aparece en esta lista — y luego reintente los objetos fallidos: el reintento lo escribe y completa este vínculo. Si no, complete el campo a mano después."

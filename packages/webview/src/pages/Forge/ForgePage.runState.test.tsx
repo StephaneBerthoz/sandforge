@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import type { ForgeExecutionResult, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { STOP_ANSWER_WAIT_MS } from './ForgeExecution';
 import { ForgePage } from './ForgePage';
@@ -175,11 +175,36 @@ describe('ForgePage — a run that stops on an error', () => {
 
     const results = await screen.findByTestId('forge-results');
     expect(within(results).getAllByTestId('kpi-value')[0].textContent).toBe('2');
-    expect(within(results).getByTestId('forge-results-stopped').textContent).toBe(
+    expect(within(results).getByTestId('forge-results-stopped-message').textContent).toBe(
       `The run stopped before its end: ${SESSION_EXPIRED}`,
     );
     expect(within(results).getAllByTestId('forge-id-mapping-row')).toHaveLength(2);
     expect(useForgeStore.getState().result).toEqual(STOPPED_RUN);
+  });
+
+  it('says what the error means and what to do, with its row in the guide, on the run and in what it wrote', async () => {
+    render(<ForgePage />);
+    host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+
+    stopped('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.', STOPPED_RUN);
+
+    // The kind of failure is kept with the words, as the extension keyed it.
+    expect(useForgeStore.getState().runError?.code).toBe('EXECUTE_ERROR');
+    const explanation = i18n.t('forge.error.requestLimit.explanation');
+    const onTheRun = within(screen.getByTestId('forge-execution-error'));
+    expect(onTheRun.getByTestId('forge-error-translation').textContent).toContain(explanation);
+    expect(onTheRun.getByRole('link').getAttribute('href')).toMatch(
+      /forge-quickstart\.md#error-request-limit-exceeded$/,
+    );
+
+    fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
+
+    const results = await screen.findByTestId('forge-results');
+    const stoppedBanner = within(within(results).getByTestId('forge-results-stopped'));
+    expect(stoppedBanner.getByTestId('forge-error-translation').textContent).toContain(explanation);
+    expect(stoppedBanner.getByRole('link').getAttribute('href')).toMatch(
+      /forge-quickstart\.md#error-request-limit-exceeded$/,
+    );
   });
 
   it('goes back to the Review of a run that said nothing of what it wrote', async () => {

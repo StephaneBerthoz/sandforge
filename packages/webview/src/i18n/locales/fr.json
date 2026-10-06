@@ -2734,6 +2734,47 @@
         "explanation": "Une valeur dépasse la longueur autorisée par le champ : {{detail}}.",
         "action": "Raccourcissez la valeur source, ou donnez au champ la même longueur dans les deux orgs."
       },
+      "lookupFilter": {
+        "explanation": "Un filtre de recherche de l'org cible a refusé l'enregistrement vers lequel celui-ci pointe : là-bas, cet enregistrement ne remplit pas les critères du filtre — un champ que le filtre vérifie y a une autre valeur, ou aucune — ou le filtre vérifie l'utilisateur sous lequel le clone écrit.",
+        "action": "Dans le Setup de l'org cible, rendez le filtre de recherche facultatif ou désactivez-le le temps du clonage, ou donnez à l'enregistrement pointé les valeurs que le filtre demande ; puis relancez les objets en échec."
+      },
+      "duplicateRule": {
+        "explanation": "Une règle de doublons de l'org cible réglée sur Bloquer a refusé l'enregistrement. Le clone passe déjà outre toute règle réglée sur Autoriser, et relie une ligne à l'enregistrement dont elle est le doublon quand la règle n'en désigne qu'un ; cette règle n'en a désigné aucun de cet objet, ou plusieurs.",
+        "action": "Dans le Setup de l'org cible, désactivez cette règle de doublons le temps du clonage, ou réglez son action à la création sur Autoriser ; puis relancez les objets en échec."
+      },
+      "inactiveUser": {
+        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Le clone laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit : cet utilisateur vient donc de l'org cible — une règle d'attribution, ou un Flow qui fixe le propriétaire ou attribue une tâche — ou d'une correspondance de propriétaire passée en ligne de commande.",
+        "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; avec --owner-map, associez le propriétaire à un utilisateur actif. Puis relancez les objets en échec."
+      },
+      "entityDeleted": {
+        "explanation": "L'enregistrement, ou un enregistrement vers lequel il pointe, a été supprimé dans l'org cible : un enregistrement écrit par une exécution précédente, supprimé depuis et relié par une relance de cette exécution, ou un enregistrement supprimé pendant l'exécution, à la main ou par l'automatisation de l'org cible.",
+        "action": "Restaurez-le depuis la Corbeille de l'org cible, puis relancez les objets en échec ; ou lancez un nouveau clonage depuis la revue, et non une relance, pour qu'il écrive cet enregistrement à nouveau."
+      },
+      "rowLocked": {
+        "explanation": "L'org cible n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment : un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. C'est en général passager.",
+        "action": "Relancez les objets en échec. Si le verrou revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements dans l'org cible soient terminés, puis relancez."
+      },
+      "requestLimit": {
+        "explanation": "Salesforce a refusé la requête : l'org à laquelle elle s'adressait a épuisé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois. Le clone écrit jusqu'à 200 enregistrements par requête, et ses lectures et ses descriptions prennent des requêtes à part.",
+        "action": "Attendez que le compteur de cette org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez ; une profondeur plus faible ou moins d'enregistrements par objet demandent moins de requêtes."
+      },
+      "crossReferenceAccess": {
+        "explanation": "L'utilisateur sous lequel le clone écrit n'a pas accès à un enregistrement vers lequel celui-ci pointe dans l'org cible — en lecture ou, pour le principal d'une relation principal-détails, en modification : un enregistrement que cet utilisateur ne possède pas et qui ne lui est pas partagé, comme un enregistrement que l'org cible avait déjà et que le clone a relié au lieu de l'écrire.",
+        "action": "Dans l'org cible, partagez cet enregistrement avec l'utilisateur, ou donnez-lui Afficher tout ou Modifier tout sur son objet, ou connectez l'org cible avec un utilisateur qui a cet accès, comme un administrateur ; puis relancez les objets en échec."
+      },
+      "numberOutOfRange": {
+        "explanation": "Un nombre dépasse ce que le champ accepte dans l'org cible : le champ y admet moins de chiffres avant la virgule que la valeur source n'en a.",
+        "action": "Donnez au champ la même longueur et le même nombre de décimales dans l'org cible que dans la source, ou modifiez la valeur sur l'enregistrement source ; puis relancez les objets en échec."
+      },
+      "malformedId": {
+        "explanation": "Un champ qui attend un ID dans l'org cible a reçu autre chose : le champ y est une recherche et, dans la source, d'un autre type — un champ texte, par exemple — ou une correspondance de champs y écrit la valeur d'un autre champ.",
+        "action": "Donnez au champ le même type dans les deux orgs. En ligne de commande, excluez-le avec --exclude Objet.Champ, ou corrigez le --map qui le remplit ; puis relancez les objets en échec."
+      },
+      "flowFailed": {
+        "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. Une cause fréquente dans une sandbox est une action Envoyer un e-mail : quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès, l'action échoue dès qu'elle utilise un modèle d'e-mail ou consigne l'e-mail. Une sandbox nouvelle ou actualisée est réglée sur E-mail système uniquement.",
+        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Ne réglez pas la délivrabilité de l'org cible sur Tous les e-mails pour faire passer une action Envoyer un e-mail : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements clonés."
+      },
+      "guideLink": "{{code}} dans le guide Forge",
       "cycleFkUnresolved": {
         "explanation": "Le champ '{{fieldName}}' pointe vers un enregistrement que cette exécution n'a pas écrit (ID source {{sourceRefId}}) : l'enregistrement a échoué, ou son objet a échoué, a été ignoré ou ne peut pas être écrit dans l'org cible. L'enregistrement a été écrit sans ce lien.",
         "action": "Corrigez ce qui a tenu cet enregistrement à l'écart — son erreur, ou celle de son objet, figure dans cette liste — puis relancez les objets en échec : la relance l'écrit et renseigne ce lien. Sinon, renseignez le champ à la main ensuite."

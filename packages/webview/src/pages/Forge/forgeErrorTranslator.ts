@@ -20,6 +20,55 @@ export interface TranslatedError {
   vars?: Record<string, string | number>;
   /** Severity hint for the UI badge. */
   severity: 'info' | 'warning' | 'error';
+  /**
+   * The row of the Forge guide's table of common errors that explains the
+   * code, when the table has one.
+   */
+  docUrl?: string;
+}
+
+/**
+ * The Forge guide, at the address the Marketplace README links it by: the
+ * public-links check fetches that address anonymously before every release,
+ * as a reader would. The anchor after it is read by the browser alone, and
+ * never reaches the server.
+ */
+export const FORGE_GUIDE_URL =
+  'https://github.com/StephaneBerthoz/sandforge/blob/master/docs/forge-quickstart.md';
+
+/**
+ * The codes the guide's table of common errors has a row for, each row under
+ * an anchor of its own (`guideAnchorOf`). The Errors panel and the execution
+ * screen link a hint to its row; a code with no row gets no link, never one
+ * to a row about something else.
+ */
+const CODES_IN_THE_GUIDE: ReadonlySet<string> = new Set([
+  'DUPLICATE_VALUE',
+  'INVALID_CROSS_REFERENCE_KEY',
+  'REQUIRED_FIELD_MISSING',
+  'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+  'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+  'FIELD_INTEGRITY_EXCEPTION',
+  'FIELD_FILTER_VALIDATION_EXCEPTION',
+  'DUPLICATES_DETECTED',
+  'INACTIVE_OWNER_OR_USER',
+  'ENTITY_IS_DELETED',
+  'UNABLE_TO_LOCK_ROW',
+  'REQUEST_LIMIT_EXCEEDED',
+  'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+  'NUMBER_OUTSIDE_VALID_RANGE',
+  'MALFORMED_ID',
+  'CANNOT_EXECUTE_FLOW_TRIGGER',
+]);
+
+/**
+ * The anchor of a code's row in the guide's table: the code in lower case,
+ * hyphenated, after `error-` — never a heading's slug, which a renamed
+ * heading would change.
+ */
+export function guideAnchorOf(code: string): string {
+  return `error-${code.toLowerCase().replace(/_/g, '-')}`;
 }
 
 interface Rule {
@@ -196,6 +245,88 @@ const RULES: Rule[] = [
             'warning',
             { detail },
           );
+        // Not retried without the field, as a validation rule's refusal is:
+        // the filter refuses the record the lookup names, and a lookup is
+        // what holds the record in its graph.
+        case 'FIELD_FILTER_VALIDATION_EXCEPTION':
+          return mapping(
+            ['forge.error.lookupFilter.explanation', 'forge.error.lookupFilter.action'],
+            code,
+            'warning',
+          );
+        // Every write sends the header that saves past a rule set to Allow,
+        // and a row refused by one that names a single record of its object
+        // is linked to that record. What still comes back is a rule set to
+        // Block that named none, or several.
+        case 'DUPLICATES_DETECTED':
+          return mapping(
+            ['forge.error.duplicateRule.explanation', 'forge.error.duplicateRule.action'],
+            code,
+            'warning',
+          );
+        // The clone leaves OwnerId out unless an owner mapping sets it
+        // (`--owner-map`): the inactive user comes from that mapping, or from
+        // the target's own assignment rules and Flows.
+        case 'INACTIVE_OWNER_OR_USER':
+          return mapping(
+            ['forge.error.inactiveUser.explanation', 'forge.error.inactiveUser.action'],
+            code,
+            'error',
+          );
+        case 'ENTITY_IS_DELETED':
+          return mapping(
+            ['forge.error.entityDeleted.explanation', 'forge.error.entityDeleted.action'],
+            code,
+            'warning',
+          );
+        // Another transaction held the row or its parent: the same write goes
+        // through once it lets go.
+        case 'UNABLE_TO_LOCK_ROW':
+          return mapping(
+            ['forge.error.rowLocked.explanation', 'forge.error.rowLocked.action'],
+            code,
+            'warning',
+          );
+        // Refused for the whole call, not for a row: every row of the call
+        // fails with it, and every request after it is refused alike until
+        // the org's count frees some.
+        case 'REQUEST_LIMIT_EXCEEDED':
+          return mapping(
+            ['forge.error.requestLimit.explanation', 'forge.error.requestLimit.action'],
+            code,
+            'error',
+          );
+        case 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY':
+          return mapping(
+            [
+              'forge.error.crossReferenceAccess.explanation',
+              'forge.error.crossReferenceAccess.action',
+            ],
+            code,
+            'error',
+          );
+        case 'NUMBER_OUTSIDE_VALID_RANGE':
+          return mapping(
+            ['forge.error.numberOutOfRange.explanation', 'forge.error.numberOutOfRange.action'],
+            code,
+            'warning',
+          );
+        case 'MALFORMED_ID':
+          return mapping(
+            ['forge.error.malformedId.explanation', 'forge.error.malformedId.action'],
+            code,
+            'error',
+          );
+        // A Flow of the target failing on save. One a sandbox often meets is
+        // a Send Email action: with the org's deliverability at No access, the
+        // action fails once it uses an email template or logs the email, and
+        // the save fails with it (Salesforce Help, Send Email action).
+        case 'CANNOT_EXECUTE_FLOW_TRIGGER':
+          return mapping(
+            ['forge.error.flowFailed.explanation', 'forge.error.flowFailed.action'],
+            code,
+            'error',
+          );
         default:
           return {
             code,
@@ -294,6 +425,9 @@ function mapping(
     actionKey,
     vars,
     severity,
+    ...(CODES_IN_THE_GUIDE.has(code)
+      ? { docUrl: `${FORGE_GUIDE_URL}#${guideAnchorOf(code)}` }
+      : {}),
   };
 }
 

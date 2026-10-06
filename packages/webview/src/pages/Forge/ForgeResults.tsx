@@ -14,7 +14,6 @@ import {
   FileText,
   AlertTriangle,
   Info,
-  Lightbulb,
 } from 'lucide-react';
 import type {
   ForgeExecuteRequest,
@@ -27,6 +26,7 @@ import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { translateForgeError } from './forgeErrorTranslator';
 import type { TranslatedError } from './forgeErrorTranslator';
+import { ForgeErrorHint } from './ForgeErrorHint';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { Button } from '../../components/ui/Button';
@@ -151,6 +151,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     runError?.stoppedRun && result && runError.stoppedRun.forgeId === result.forgeId
       ? runError.message
       : null;
+
+  /**
+   * What that error means and what to do about it, as the execution screen
+   * said it: the results of what the run wrote are where the reader is when
+   * the time comes to do it.
+   */
+  const stoppedHint = useMemo(
+    () => (stoppedOn === null ? null : translateForgeError(stoppedOn)),
+    [stoppedOn],
+  );
 
   /**
    * Whether the run shown stopped before its end: an error ended it, or a
@@ -625,7 +635,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           data-testid="forge-results-stopped"
         >
           <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
-          <p>{t('forge.runStoppedOn', { message: stoppedOn })}</p>
+          <div className="flex flex-1 flex-col gap-1">
+            <p data-testid="forge-results-stopped-message">
+              {t('forge.runStoppedOn', { message: stoppedOn })}
+            </p>
+            {stoppedHint && <ForgeErrorHint hint={stoppedHint} />}
+          </div>
         </div>
       )}
       {/* KPI row */}
@@ -1345,7 +1360,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                               <div className="text-status-error wrap-break-word font-mono">
                                 └ {msg}
                               </div>
-                              {translated && <ForgeErrorHint hint={translated} />}
+                              {translated && <ForgeErrorHint hint={translated} className="ml-4" />}
                             </li>
                           );
                         })}
@@ -1359,35 +1374,6 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
         })}
       </ul>
     </m.div>
-  );
-};
-
-/**
- * What the translator makes of one message of a report: what it means, and
- * what to do about it, tinted by how much it costs the clone.
- */
-const ForgeErrorHint: React.FC<{ hint: TranslatedError }> = ({ hint }) => {
-  const { t } = useTranslation();
-  return (
-    <div
-      data-testid="forge-error-translation"
-      className={cn(
-        'ml-4 px-2 py-1 rounded-sm border text-text-primary',
-        hint.severity === 'error' && 'border-status-error/30 bg-status-error/5',
-        hint.severity === 'warning' && 'border-status-warning/30 bg-status-warning/5',
-        hint.severity === 'info' && 'border-status-info/30 bg-status-info/5',
-      )}
-    >
-      <div className="flex items-start gap-1.5">
-        <Lightbulb size={12} className="mt-0.5 shrink-0 text-hue-yellow" />
-        <div>
-          <div className="text-text-primary">{t(hint.explanationKey, hint.vars ?? {})}</div>
-          <div className="text-text-primary mt-1 italic">
-            → {t(hint.actionKey, hint.vars ?? {})}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 };
 
@@ -1462,7 +1448,7 @@ const ForgeNotesPanel: React.FC<{ notes: readonly ForgeExecutionError[] }> = ({ 
                         <span aria-hidden="true">└ </span>
                         {text}
                       </div>
-                      {hint && <ForgeErrorHint hint={hint} />}
+                      {hint && <ForgeErrorHint hint={hint} className="ml-4" />}
                     </div>
                   ))}
                 </li>
