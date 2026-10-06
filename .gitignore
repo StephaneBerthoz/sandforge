@@ -52,7 +52,10 @@ CLAUDE.md
 .confidential-names
 
 # Generated reports (audit-disposables, soak-test, stryker). Regenerate, do not commit.
-reports/
+# Anchored to the root: core.ignorecase is on, and an unanchored `reports/`
+# also matched packages/webview/src/pages/Reports/, so a new file there was
+# silently left out of every commit.
+/reports/
 
 # Compiled smoke suite and the VS Code the smoke run downloads.
 packages/extension/out-smoke/
