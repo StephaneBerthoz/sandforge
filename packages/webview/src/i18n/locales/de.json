@@ -1993,6 +1993,10 @@
     "whatsNew": {
       "newMark1411": "Ein neues Logo",
       "newMark1411Desc": "SandForge hat ein neues Logo: das Feuer der Schmiede, das aus einer Sandbox aufsteigt. Es erscheint auf dem Marketplace-Symbol, in der Aktivitätsleiste und im Seitenbereich.",
+      "safety1420": "Ein Klon prüft, bevor er schreibt",
+      "safety1420Desc": "E-Mail-Adressen und Telefonnummern werden standardmäßig neutralisiert. Ein Lauf fragt zuerst, wenn das Ziel beim Einfügen Automatisierung ausführt oder das Volumen groß ist, lehnt ein Produktionsziel ab, und der Automatisierungs-Tab zeigt jetzt Prozesse, Workflow-Regeln und alles, was Nachrichten sendet.",
+      "fixRound1420": "Jede Zeile anonymisiert, niemand erreicht",
+      "fixRound1420Desc": "DataOps-Anonymisierung maskiert jede Zeile eines Objekts. Seed schreibt reservierte E-Mail-Domains und fiktive Telefonnummern. Forge-Schreibvorgänge überstehen vorübergehende Fehler, und Sync lässt sich simulieren, pausieren und abbrechen.",
       "forgeAutomation1410": "Was das Ziel ausführt, bevor Sie klonen",
       "forgeAutomation1410Desc": "Review hat einen Tab Automatisierung: pro Objekt die datensatzausgelösten Flows und Apex-Trigger des Ziels, die bei den Schreibvorgängen auslösen, und die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, stumm halten. Der Klonbefehl gibt dies aus, bevor er schreibt.",
       "fixRound1410": "Bulk-Schreibvorgänge behalten jedes Feld",

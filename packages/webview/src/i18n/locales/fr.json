@@ -1993,6 +1993,10 @@
     "whatsNew": {
       "newMark1411": "Une nouvelle marque",
       "newMark1411Desc": "SandForge a une nouvelle marque : le feu de la forge qui monte d'une sandbox. Elle figure sur l'icône du Marketplace, la barre d'activité et le panneau latéral.",
+      "safety1420": "Un clone vérifie avant d'écrire",
+      "safety1420Desc": "Les e-mails et les numéros de téléphone sont neutralisés par défaut. Un run demande d'abord quand la cible lance une automatisation à l'insertion ou quand le volume est important, refuse une cible de production, et l'onglet Automatisation voit désormais les processus, les règles de workflow et ce qui envoie des messages.",
+      "fixRound1420": "Toutes les lignes anonymisées, personne de joint",
+      "fixRound1420Desc": "L'anonymisation DataOps masque toutes les lignes d'un objet. Seed écrit des domaines e-mail réservés et des numéros fictifs. Les écritures de Forge résistent aux pannes passagères, et Sync peut être simulé, mis en pause et annulé.",
       "forgeAutomation1410": "Ce que la cible exécute, avant de cloner",
       "forgeAutomation1410Desc": "Review a un onglet Automatisation : par objet, les Flows déclenchés par enregistrement et les triggers Apex de la cible qui se déclenchent sur les écritures, et les permissions personnalisées qui empêchent un Flow de démarrer pour l'utilisateur qui les détient. La commande de clone l'affiche avant d'écrire.",
       "fixRound1410": "Les écritures Bulk gardent chaque champ",

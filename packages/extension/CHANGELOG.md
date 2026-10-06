@@ -5,6 +5,45 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.42.0] - 2026-10-06
+
+A clone checks what it is about to do before it writes, and writes no email or
+phone number that reaches anyone.
+
+### Added
+
+- **No deliverable email or phone number by default**: Forge writes addresses
+  under `.invalid` and phone numbers in a fictional range; **Keep emails and
+  phone numbers as they are** turns it off.
+- **A run's checks before it writes**: a production target is refused (a
+  Developer Edition org and a scratch org are not production); automation that
+  fires on insert, and a run above `sandforge.safety.confirmAboveRecords`, are
+  put to you first; a run the target's data storage cannot hold is refused. The
+  clone command needs `--accept-automation`, and stops past `--max-total`.
+- **The Automation tab sees more**: processes, workflow rules and their email
+  alerts, after-commit and scheduled paths, assignment and duplicate rules,
+  bypasses in Decisions and custom settings, and what sends messages. Forge's
+  writes keep assignment rules off unless `--apply-assignment-rules`.
+- **Sync can be simulated, paused and cancelled** from its page.
+
+### Fixed
+
+- **DataOps Anonymize masks every row** of an object, and a run that leaves
+  rows says how many.
+- **Seed's data reaches nobody**: reserved email domains, fictional or
+  unassigned phone ranges, a company's name on an account.
+- **A Forge write survives a transient failure** without writing a row twice,
+  retries locked rows, and leaves out up to three refused fields.
+- **Ten more errors are explained**, each with a link to the guide.
+- **No dead button or "coming soon"**: Seed exports its results; Reports and
+  Automation offer only what runs; Compliance follows the run's real
+  anonymization.
+
+### Removed
+
+- **Sync's `manual` conflict strategy**, which applied the source's values; a
+  draft that holds it reopens on target wins.
+
 ## [1.41.1] - 2026-10-02
 
 SandForge has a new mark: the forge's fire rising out of a sandbox.

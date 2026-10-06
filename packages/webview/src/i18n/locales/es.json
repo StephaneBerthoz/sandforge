@@ -1993,6 +1993,10 @@
     "whatsNew": {
       "newMark1411": "Un nuevo logotipo",
       "newMark1411Desc": "SandForge tiene un nuevo logotipo: el fuego de la forja que surge de un sandbox. Aparece en el icono del Marketplace, la barra de actividad y el panel lateral.",
+      "safety1420": "Un clon comprueba antes de escribir",
+      "safety1420Desc": "Los correos y los números de teléfono se neutralizan por defecto. Una ejecución pregunta primero cuando el destino ejecuta automatizaciones al insertar o el volumen es grande, rechaza un destino de producción, y la pestaña Automatización ahora ve procesos, reglas de flujo de trabajo y lo que envía mensajes.",
+      "fixRound1420": "Cada fila anonimizada, nadie contactado",
+      "fixRound1420Desc": "La anonimización de DataOps enmascara cada fila de un objeto. Seed escribe dominios de correo reservados y números ficticios. Las escrituras de Forge resisten fallos transitorios, y Sync se puede simular, pausar y cancelar.",
       "forgeAutomation1410": "Lo que ejecuta el destino, antes de clonar",
       "forgeAutomation1410Desc": "Review tiene una pestaña Automatización: por objeto, los flujos desencadenados por registro y los desencadenadores Apex del destino que se ejecutan con las escrituras, y los permisos personalizados que impiden que un flujo se inicie para el usuario que los tiene. El comando de clonación lo muestra antes de escribir.",
       "fixRound1410": "Las escrituras Bulk conservan cada campo",

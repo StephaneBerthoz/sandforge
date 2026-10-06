@@ -1993,6 +1993,10 @@
     "whatsNew": {
       "newMark1411": "Um novo logotipo",
       "newMark1411Desc": "O SandForge tem um novo logotipo: o fogo da forja saindo de uma sandbox. Ele aparece no ícone do Marketplace, na barra de atividades e no painel lateral.",
+      "safety1420": "Um clone verifica antes de gravar",
+      "safety1420Desc": "E-mails e números de telefone são neutralizados por padrão. Uma execução pergunta antes quando o destino executa automações na inserção ou o volume é grande, recusa um destino de produção, e a aba Automação agora vê processos, regras de fluxo de trabalho e o que envia mensagens.",
+      "fixRound1420": "Todas as linhas anonimizadas, ninguém contatado",
+      "fixRound1420Desc": "A anonimização do DataOps mascara todas as linhas de um objeto. O Seed grava domínios de e-mail reservados e números fictícios. As gravações do Forge resistem a falhas temporárias, e o Sync pode ser simulado, pausado e cancelado.",
       "forgeAutomation1410": "O que o destino executa, antes de clonar",
       "forgeAutomation1410Desc": "A revisão tem uma aba Automação: por objeto, os fluxos acionados por registro e os gatilhos Apex do destino que disparam nas gravações, e as permissões personalizadas que impedem um fluxo de iniciar para o usuário que as possui. O comando de clonagem mostra isso antes de gravar.",
       "fixRound1410": "As gravações Bulk mantêm cada campo",

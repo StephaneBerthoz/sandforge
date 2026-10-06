@@ -1993,6 +1993,10 @@
     "whatsNew": {
       "newMark1411": "A new mark",
       "newMark1411Desc": "SandForge has a new mark: the forge's fire rising out of a sandbox. It is on the Marketplace icon, the activity bar and the side panel.",
+      "safety1420": "A clone checks before it writes",
+      "safety1420Desc": "Emails and phone numbers are neutralized by default. A run asks first when the target runs automation on insert or the volume is large, refuses a production target, and the Automation tab now sees processes, workflow rules and what sends messages.",
+      "fixRound1420": "Every row anonymized, nobody reached",
+      "fixRound1420Desc": "DataOps Anonymize masks every row of an object. Seed writes reserved email domains and fictional phone numbers. Forge writes survive transient failures, and Sync can be simulated, paused and cancelled.",
       "forgeAutomation1410": "What the target runs, before you clone",
       "forgeAutomation1410Desc": "Review has an Automation tab: per object, the target's record-triggered flows and Apex triggers that fire on the writes, and the custom permissions that keep a flow quiet for the user who holds them. The clone command prints it before it writes.",
       "fixRound1410": "Bulk writes keep every field",
