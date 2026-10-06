@@ -1258,7 +1258,6 @@ describe('SyncOpsHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: true,
         requiresConfirmation: false,
-        requiresApproval: false,
         warnings: [],
         impactSummary: 'summary',
       });
@@ -1456,7 +1455,6 @@ describe('SyncOpsHandler', () => {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: 'upsert 1 object on a production org',
           }),

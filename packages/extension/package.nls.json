@@ -49,6 +49,7 @@
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
   "config.safety.auditLogging.description": "Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.",
+  "config.safety.confirmAboveRecords.description": "Before a Forge clone writes, ask for confirmation when it is about to write more than this many records (0: never ask about the volume). A clone near the target org's data storage, or whose storage cannot be read, is still asked about; one past it is refused.",
   "config.grappe.enabled.description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode. At or above sandforge.grappe.autoActivateThreshold records, seed reports each partition as it completes in the Grappe view, sync reports one partition per object, and autopilot reports only the start and the end of the run.",
   "config.grappe.autoActivateThreshold.description": "Record count at or above which grappe mode activates (seed, sync and autopilot). Ignored when sandforge.grappe.enabled is off.",
   "config.grappe.grappeSize.description": "Records per grappe partition."

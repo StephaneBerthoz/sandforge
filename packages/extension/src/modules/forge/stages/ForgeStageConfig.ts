@@ -67,6 +67,8 @@ export interface ForgeStageConfig {
    * the target; empty for a run that retries none.
    */
   readonly writtenBefore: ReadonlyMap<string, string>;
+  /** Handed every row before the first is written; absent, nothing looks at them first. */
+  readonly beforeWrite?: ExecuteOptions['beforeWrite'];
 }
 
 /**
@@ -108,5 +110,6 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
         }
       : undefined,
     writtenBefore: new Map(Object.entries(options?.writtenBefore ?? {})),
+    beforeWrite: options?.beforeWrite,
   };
 }

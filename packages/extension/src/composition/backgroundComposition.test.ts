@@ -24,12 +24,17 @@ import * as vscode from 'vscode';
 import {
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
+  runQuestionDetail,
   wireBackgroundNotifications,
   wireOfflineNotifications,
   wireOfflineReplay,
 } from './backgroundComposition';
 import type { Services } from '../services';
-import type { SafetyCheckResult } from '../core/precheck/ProductionGuard';
+import type {
+  AutomationConfirmation,
+  SafetyCheckResult,
+  WriteConfirmation,
+} from '../core/precheck/ProductionGuard';
 import { OfflineManager } from '../core/connection/OfflineManager';
 import { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { ConfigStore } from '../core/storage/ConfigStore';
@@ -161,7 +166,6 @@ describe('production confirmation modal (localized)', () => {
   const needsConfirmation: SafetyCheckResult = {
     allowed: true,
     requiresConfirmation: true,
-    requiresApproval: false,
     impactSummary: '1 200 records on Account',
     warnings: [],
   };
@@ -249,6 +253,147 @@ describe('production confirmation modal (localized)', () => {
       '1 200 records on Account\n\nThis operation needs your confirmation before it runs.',
     );
     expect(`${title} ${options.detail}`).not.toMatch(/production/i);
+  });
+});
+
+describe("a run's questions, in the production confirmation's modal (localized)", () => {
+  const services = {
+    getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+  } as unknown as Services;
+
+  const automation: AutomationConfirmation = {
+    stage: 'automation',
+    org: 'DEV',
+    orgTier: 'development',
+    fired: [
+      { objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' },
+      { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' },
+    ],
+    unread: [],
+    bypass: ['Load_Data'],
+  };
+
+  const write: WriteConfirmation = {
+    stage: 'write',
+    org: 'DEV',
+    orgTier: 'development',
+    objects: [
+      { objectApiName: 'Contact', rows: 2_400 },
+      { objectApiName: 'Account', rows: 1 },
+    ],
+    total: 2_401,
+    aboveRecords: 2_000,
+    storage: { estimateMB: 4.69, maxMB: 200, remainingMB: 150, near: false },
+  };
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('names each flow and trigger that fires as the clone inserts, and what keeps flows quiet', () => {
+    expect(runQuestionDetail(automation).split('\n')).toEqual([
+      'DEV runs automation on the records this clone inserts:',
+      '• Contact: Apex trigger ContactTrigger',
+      '• Contact: Flow "Contact welcome"',
+      'They run on every record the clone inserts, and what they send goes out as it would for a record created by hand.',
+      'A user who holds Load_Data does not start some of these Flows: assign it to the user the clone writes as to keep them quiet.',
+      'Nothing has been read or written yet.',
+    ]);
+  });
+
+  it('says what could not be read, and that what fires is then not known', () => {
+    expect(
+      runQuestionDetail({
+        ...automation,
+        fired: [],
+        bypass: [],
+        unread: [
+          { part: 'triggers', reason: 'INSUFFICIENT_ACCESS' },
+          { part: 'automation', reason: 'session expired' },
+        ],
+      }).split('\n'),
+    ).toEqual([
+      'The Apex triggers of DEV could not be read (INSUFFICIENT_ACCESS).',
+      'The automation of DEV could not be read (session expired).',
+      'What fires as the clone inserts its records is not known.',
+      'Nothing has been read or written yet.',
+    ]);
+  });
+
+  it('lists the records per object, the setting the total is past, and the storage they take', () => {
+    expect(runQuestionDetail(write).split('\n')).toEqual([
+      'This clone is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+  });
+
+  it("warns near what is left, of a large volume, and when the target's storage could not be read", () => {
+    const near = runQuestionDetail({
+      ...write,
+      largeVolume: 50_000,
+      storage: { estimateMB: 9, maxMB: 200, remainingMB: 10, near: true },
+    });
+    expect(near).toContain('More than 50000 records is a large volume for this org.');
+    expect(near).toContain(
+      'That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.',
+    );
+    expect(
+      runQuestionDetail({ ...write, storage: { estimateMB: 4.69, unread: 'INSUFFICIENT_ACCESS' } }),
+    ).toContain(
+      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+    );
+  });
+
+  it('lists no more than a dozen entries, and says how many more there are', () => {
+    const objects = Array.from({ length: 15 }, (_, i) => ({ objectApiName: `O${i}__c`, rows: 10 }));
+    const lines = runQuestionDetail({ ...write, objects, total: 150 }).split('\n');
+    expect(lines.filter((line) => line.startsWith('• O'))).toHaveLength(12);
+    expect(lines).toContain('• and 3 more objects, 30 records');
+  });
+
+  it('asks in a modal and lets the run go only when its translated button is pressed', async () => {
+    l10nBundle.current = {
+      Execute: 'Exécuter',
+      'SandForge: confirm this clone': 'SandForge : confirmer ce clonage',
+      '{0} runs automation on the records this clone inserts:':
+        "{0} exécute de l'automatisation sur les enregistrements que ce clonage insère :",
+    };
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmRun(automation)).resolves.toBe('confirmed');
+    const [title, options, button] = vi.mocked(vscode.window.showWarningMessage).mock
+      .calls[0] as unknown as [string, { modal: boolean; detail: string }, string];
+    expect(title).toBe('SandForge : confirmer ce clonage');
+    expect(options.modal).toBe(true);
+    expect(options.detail.split('\n')[0]).toBe(
+      "DEV exécute de l'automatisation sur les enregistrements que ce clonage insère :",
+    );
+    expect(button).toBe('Exécuter');
+  });
+
+  it('declines when the user dismisses it, whatever the production setting says', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+    const { productionGuard } = createBackgroundComposition({
+      services: {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          (key === 'safety.requireProdConfirmation' ? false : fallback) as T,
+      } as unknown as Services,
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmRun(write)).resolves.toBe('declined');
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
   });
 });
 

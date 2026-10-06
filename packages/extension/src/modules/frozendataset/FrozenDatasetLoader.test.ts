@@ -235,7 +235,6 @@ describe('FrozenDatasetLoader — guards', () => {
     vi.spyOn(guard, 'check').mockReturnValue({
       allowed: true,
       requiresConfirmation: true,
-      requiresApproval: false,
       warnings: [],
       impactSummary: 'INSERT 1 Account record(s)',
     });
@@ -4873,7 +4872,6 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
         ? {
             allowed: false,
             requiresConfirmation: false,
-            requiresApproval: false,
             blockedReason: 'not on this org',
             warnings: [],
             impactSummary: '',
@@ -6043,7 +6041,6 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
         ? {
             allowed: false,
             requiresConfirmation: false,
-            requiresApproval: false,
             blockedReason: 'not on this org',
             warnings: [],
             impactSummary: '',
@@ -8212,7 +8209,6 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
           ? {
               allowed: false,
               requiresConfirmation: false,
-              requiresApproval: false,
               blockedReason: 'not on this org',
               warnings: [],
               impactSummary: '',

@@ -681,7 +681,6 @@ describe('FrozenDatasetLoader — a record the target refused on fields it named
           ? {
               allowed: false,
               requiresConfirmation: false,
-              requiresApproval: false,
               blockedReason: 'not on this org',
               warnings: [],
               impactSummary: '',

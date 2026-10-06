@@ -2441,9 +2441,16 @@
     "graphView": "Graph-Ansicht",
     "direct": {
       "action": "Direkt klonen",
-      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Ebenso wenig werden die Flows und Apex-Trigger gelesen, die die Ziel-Org für die geschriebenen Datensätze ausführt.",
+      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, werden trotzdem vor dem Lauf gelesen, und was davon ausgelöst wird, wird Ihnen zuerst vorgelegt.",
       "discovering": "Das Klonen beginnt, sobald die Ermittlung antwortet.",
-      "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt. Ebenso wenig wurden die Flows und Apex-Trigger gelesen, die die Ziel-Org für die geschriebenen Datensätze ausführt."
+      "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, wurden vorher gelesen, und was davon ausgelöst wird, wurde Ihnen zuerst vorgelegt."
+    },
+    "gate": {
+      "productionTarget": "Der Lauf wurde nicht gestartet: Die Ziel-Org ist eine Produktions-Org oder eine, von der SandForge nicht sagen kann, dass sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org ist. Forge schreibt nur in solche, und es wurde nichts gelesen oder geschrieben. Wählen Sie eine davon als Ziel.",
+      "automationDeclined": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben.",
+      "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben.",
+      "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
+      "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden."
     },
     "executionTable": {
       "leftOut": "ausgelassen",

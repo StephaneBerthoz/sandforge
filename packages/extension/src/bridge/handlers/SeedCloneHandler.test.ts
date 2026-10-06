@@ -1914,7 +1914,6 @@ describe('SeedCloneHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: behavior.allowed,
         requiresConfirmation: behavior.requiresConfirmation ?? false,
-        requiresApproval: false,
         blockedReason: behavior.blockedReason,
         warnings: [],
         impactSummary:

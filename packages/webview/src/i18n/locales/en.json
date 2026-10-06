@@ -2441,9 +2441,16 @@
     "graphView": "Graph View",
     "direct": {
       "action": "Clone directly",
-      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. Nor is the read of the flows and Apex triggers the target org runs on the records it writes.",
+      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first.",
       "discovering": "The clone starts as soon as discovery answers.",
-      "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. Nor was the read of the flows and Apex triggers the target org runs on the records it writes."
+      "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. The flows and Apex triggers the target org runs as the records are inserted were read before it, and any that fires was put to you first."
+    },
+    "gate": {
+      "productionTarget": "The run did not start: the target org is a production org, or one SandForge cannot tell is a sandbox, a scratch org or a Developer Edition org. Forge writes to those only, and nothing was read or written. Pick one of them as the target.",
+      "automationDeclined": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.",
+      "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
+      "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
+      "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
     },
     "executionTable": {
       "leftOut": "left out",

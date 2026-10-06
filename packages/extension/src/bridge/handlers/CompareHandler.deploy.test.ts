@@ -456,7 +456,6 @@ describe('CompareHandler deployments', () => {
         check: vi.fn(() => ({
           allowed: true,
           requiresConfirmation: true,
-          requiresApproval: false,
           warnings: [],
           impactSummary: 'DEPLOY 2 component(s)',
         })),

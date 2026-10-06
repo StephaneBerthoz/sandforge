@@ -123,6 +123,17 @@ To take a run back later, by hand: download the clone report, put `clone-summary
 
 `sandforge-cleanup.ts` remains for a run whose summary you did not keep, or one printed before the summary said which records the run created. It knows nothing of the clone, and `--since today` selects every record the user created today on the target, whether a clone wrote it or not: preview it with `--dry-run`, then narrow the delete with `--objects`.
 
+### Automation on insert, and volume
+
+A real clone writes nothing when the target runs a record-triggered flow or an Apex trigger as the records are inserted, or could not say what it runs: the job fails with exit code `1`, and the clone's output names each one. To clone all the same — after assigning the custom permission its output names to the CI user, say, or turning that automation off in the sandbox — ask for it:
+
+- **GitHub Actions**: `workflow_dispatch` input `accept_automation` (default `false`)
+- **GitLab CI**: `ACCEPT_AUTOMATION` variable (default `"false"`)
+- **Jenkins**: `ACCEPT_AUTOMATION` parameter (default unchecked)
+- **Azure DevOps**: `acceptAutomation` parameter (default `false`)
+
+A dry run says what fires and goes on. Before its first write, a real clone also refuses a run of more than 10 000 records in all, and one whose records take more data storage than the target has left: nothing is written, and the job fails with exit code `1`. Add `--max-total <n>` to the clone call to set another ceiling.
+
 ### Scheduling
 
 Pipelines are scheduled every Monday at 6 AM UTC. Adjust the cron expression to your needs.

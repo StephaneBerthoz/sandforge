@@ -39,6 +39,11 @@ pipeline {
             defaultValue: false,
             description: 'Once a real clone is done, remove the records it created at the end of the Clone stage'
         )
+        booleanParam(
+            name: 'ACCEPT_AUTOMATION',
+            defaultValue: false,
+            description: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
+        )
         string(
             name: 'SF_CLONE_RECORD_ID',
             defaultValue: '',
@@ -100,6 +105,7 @@ pipeline {
                     '''
                     script {
                         def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
+                        def automationFlag = params.ACCEPT_AUTOMATION ? '--accept-automation' : ''
                         sh """
                             pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
                                 --record "${params.SF_CLONE_RECORD_ID}" \\
@@ -107,6 +113,7 @@ pipeline {
                                 --target ci-target \\
                                 --upsert \\
                                 ${dryRunFlag} \\
+                                ${automationFlag} \\
                                 --json \\
                                 --remap-csv remap.csv \\
                                 > clone-summary.json

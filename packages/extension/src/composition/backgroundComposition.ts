@@ -3,7 +3,13 @@ import { PerformanceTracker } from '../core/engine/PerformanceTracker';
 import { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import { OfflineManager } from '../core/connection/OfflineManager';
 import { ProductionGuard } from '../core/precheck/ProductionGuard';
+import type {
+  AutomationConfirmation,
+  RunConfirmation,
+  WriteConfirmation,
+} from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
+import { formatMB } from '../modules/forge/ForgeRunGate';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
@@ -60,6 +66,147 @@ export async function confirmRestoreIntoReplacedOrg(
     restoreAnyway,
   );
   return choice === restoreAnyway;
+}
+
+/** The most entries a run's question lists before it says how many more there are. */
+const LISTED_IN_A_QUESTION = 12;
+
+/** What a run's question says of what fires in the target as the run inserts. */
+function automationQuestion(question: AutomationConfirmation): string[] {
+  const lines: string[] = [];
+  if (question.fired.length > 0) {
+    lines.push(
+      vscode.l10n.t('{0} runs automation on the records this clone inserts:', question.org),
+    );
+    for (const fired of question.fired.slice(0, LISTED_IN_A_QUESTION)) {
+      lines.push(
+        fired.kind === 'flow'
+          ? vscode.l10n.t('• {0}: Flow "{1}"', fired.objectApiName, fired.name)
+          : vscode.l10n.t('• {0}: Apex trigger {1}', fired.objectApiName, fired.name),
+      );
+    }
+    if (question.fired.length > LISTED_IN_A_QUESTION) {
+      lines.push(vscode.l10n.t('• and {0} more', question.fired.length - LISTED_IN_A_QUESTION));
+    }
+    lines.push(
+      vscode.l10n.t(
+        'They run on every record the clone inserts, and what they send goes out as it would for a record created by hand.',
+      ),
+    );
+    if (question.bypass.length > 0) {
+      lines.push(
+        vscode.l10n.t(
+          'A user who holds {0} does not start some of these Flows: assign it to the user the clone writes as to keep them quiet.',
+          question.bypass.join(', '),
+        ),
+      );
+    }
+  }
+  for (const { part, reason } of question.unread) {
+    lines.push(
+      part === 'flows'
+        ? vscode.l10n.t('The Flows of {0} could not be read ({1}).', question.org, reason)
+        : part === 'triggers'
+          ? vscode.l10n.t('The Apex triggers of {0} could not be read ({1}).', question.org, reason)
+          : vscode.l10n.t('The automation of {0} could not be read ({1}).', question.org, reason),
+    );
+  }
+  if (question.unread.length > 0) {
+    lines.push(vscode.l10n.t('What fires as the clone inserts its records is not known.'));
+  }
+  lines.push(vscode.l10n.t('Nothing has been read or written yet.'));
+  return lines;
+}
+
+/** What a run's question says of the rows it is about to write, and their storage. */
+function writeQuestion(question: WriteConfirmation): string[] {
+  const lines = [
+    vscode.l10n.t('This clone is about to write {0} records to {1}:', question.total, question.org),
+  ];
+  // Names and counts alone: nothing in them to translate.
+  for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
+    lines.push(`• ${objectApiName}: ${rows}`);
+  }
+  const rest = question.objects.slice(LISTED_IN_A_QUESTION);
+  if (rest.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '• and {0} more objects, {1} records',
+        rest.length,
+        rest.reduce((sum, object) => sum + object.rows, 0),
+      ),
+    );
+  }
+  if (question.aboveRecords !== undefined) {
+    lines.push(
+      vscode.l10n.t(
+        'That is more than {0} records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+        question.aboveRecords,
+      ),
+    );
+  }
+  if (question.largeVolume !== undefined) {
+    lines.push(
+      vscode.l10n.t('More than {0} records is a large volume for this org.', question.largeVolume),
+    );
+  }
+  const { storage } = question;
+  if ('unread' in storage) {
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.',
+        formatMB(storage.estimateMB),
+        question.org,
+        storage.unread,
+      ),
+    );
+  } else {
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.',
+        formatMB(storage.estimateMB),
+        question.org,
+        storage.remainingMB,
+        storage.maxMB,
+      ),
+    );
+    if (storage.near) {
+      lines.push(
+        vscode.l10n.t(
+          'That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.',
+        ),
+      );
+    }
+  }
+  lines.push(vscode.l10n.t('The records have been read, and nothing has been written yet.'));
+  return lines;
+}
+
+/**
+ * What the modal says of a run's question, in the user's language: before
+ * it reads, what fires in the target as it inserts; before it writes, the
+ * records per object and the storage they take. Exported so it can be tested.
+ */
+export function runQuestionDetail(question: RunConfirmation): string {
+  return (
+    question.stage === 'automation' ? automationQuestion(question) : writeQuestion(question)
+  ).join('\n');
+}
+
+/**
+ * Put a run's question to the user, in the modal the production confirmation
+ * uses: the run goes on only when the user presses its button.
+ */
+export async function confirmRun(question: RunConfirmation): Promise<boolean> {
+  // Compared against the same localized value it is shown with (see the
+  // production confirmation below).
+  const execute = vscode.l10n.t('Execute');
+  const choice = await vscode.window.showWarningMessage(
+    vscode.l10n.t('SandForge: confirm this clone'),
+    { modal: true, detail: runQuestionDetail(question) },
+    execute,
+  );
+  return choice === execute;
 }
 
 /**
@@ -204,6 +351,10 @@ export function createBackgroundComposition(
       );
       return choice === execute;
     },
+    // A run's own questions — what fires as a clone inserts, what it is
+    // about to write — go through the same kind of modal. No setting turns
+    // them off: `safety.requireProdConfirmation` is the production one's.
+    requestRunConfirmation: confirmRun,
   });
   const offlineManager = new OfflineManager(configStore);
   const piiDetector = new PIIDetector();

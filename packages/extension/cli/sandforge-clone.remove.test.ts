@@ -408,8 +408,9 @@ describe('sandforge-clone --remove', () => {
       expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBe(1);
 
       expect(stderr.join('')).toContain(
-        'TGT is a production org (its Organization record says IsSandbox false): ' +
-          'sandforge-clone removes records from sandboxes only. Nothing was deleted.',
+        'TGT is a production org (its Organization record says IsSandbox false, and no ' +
+          'edition): sandforge-clone removes records from sandboxes and Developer Edition orgs ' +
+          'only. Nothing was deleted.',
       );
       expect(removalOrg).not.toHaveBeenCalled();
       expect(removeRunRecords).not.toHaveBeenCalled();
@@ -814,12 +815,12 @@ describe('sandforge-clone removal lines', () => {
 });
 
 describe('sandforge-clone production guard', () => {
-  it('reads an org that does not say it is a sandbox as a production org', async () => {
-    const answering = (records: unknown[]) =>
-      ({
-        query: async () => ({ totalSize: records.length, done: true, records }),
-      }) as unknown as Connection;
+  const answering = (records: unknown[]) =>
+    ({
+      query: async () => ({ totalSize: records.length, done: true, records }),
+    }) as unknown as Connection;
 
+  it('reads an org that does not say it is a sandbox as a production org', async () => {
     expect(await typeOrg(answering([{ Id: TARGET_ORG, IsSandbox: true }]))).toEqual({
       id: TARGET_ORG,
       sandbox: true,
@@ -831,11 +832,54 @@ describe('sandforge-clone production guard', () => {
     await expect(typeOrg(answering([]))).rejects.toThrow('gave no Organization record');
   });
 
+  it('reads the edition of an org that is not a sandbox, and none when its answer says none', async () => {
+    const asked: string[] = [];
+    const conn = {
+      query: async (soql: string) => {
+        asked.push(soql);
+        return soql.includes('OrganizationType')
+          ? { totalSize: 1, done: true, records: [{ OrganizationType: 'Developer Edition' }] }
+          : { totalSize: 1, done: true, records: [{ Id: TARGET_ORG, IsSandbox: false }] };
+      },
+    } as unknown as Connection;
+
+    expect(await typeOrg(conn)).toEqual({
+      id: TARGET_ORG,
+      sandbox: false,
+      edition: 'Developer Edition',
+    });
+    expect(asked).toEqual([
+      'SELECT Id, IsSandbox FROM Organization LIMIT 1',
+      'SELECT OrganizationType FROM Organization LIMIT 1',
+    ]);
+    const refusing = {
+      query: async (soql: string) => {
+        if (soql.includes('OrganizationType')) throw new Error('INVALID_FIELD');
+        return { totalSize: 1, done: true, records: [{ Id: TARGET_ORG, IsSandbox: false }] };
+      },
+    } as unknown as Connection;
+    expect(await typeOrg(refusing)).toEqual({ id: TARGET_ORG, sandbox: false });
+  });
+
   it('refuses a production org for a clone and a removal, and lets a sandbox through', () => {
     const production = { id: TARGET_ORG, sandbox: false };
 
     expect(productionRefusal('TGT', { id: TARGET_ORG, sandbox: true }, 'clone')).toBeUndefined();
     expect(productionRefusal('TGT', production, 'clone')).toContain('Nothing was written');
     expect(productionRefusal('TGT', production, 'remove')).toContain('Nothing was deleted');
+  });
+
+  it('lets a Developer Edition org through, and still refuses an Enterprise Edition one', () => {
+    // A Trailhead playground says IsSandbox false, and is a Developer Edition org.
+    const developer = { id: TARGET_ORG, sandbox: false, edition: 'Developer Edition' };
+    const enterprise = { id: TARGET_ORG, sandbox: false, edition: 'Enterprise Edition' };
+
+    expect(productionRefusal('TGT', developer, 'clone')).toBeUndefined();
+    expect(productionRefusal('TGT', developer, 'remove')).toBeUndefined();
+    expect(productionRefusal('TGT', enterprise, 'clone')).toBe(
+      'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+        'Enterprise Edition): sandforge-clone writes to sandboxes and Developer Edition orgs ' +
+        'only. Nothing was written; --dry-run, which only reads, runs against it.',
+    );
   });
 });

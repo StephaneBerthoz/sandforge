@@ -899,7 +899,6 @@ describe('frozen:remove', () => {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: 'DELETE 3 records',
           }),

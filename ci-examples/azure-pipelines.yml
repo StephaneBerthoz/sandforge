@@ -46,6 +46,10 @@ parameters:
     displayName: 'Once a real clone is done, remove the records it created at the end of the job'
     type: boolean
     default: false
+  - name: acceptAutomation
+    displayName: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
+    type: boolean
+    default: false
 
 variables:
   - group: SandForge-Credentials
@@ -54,6 +58,11 @@ variables:
   - name: dryRunFlag
     ${{ if eq(parameters.dryRun, true) }}:
       value: '--dry-run'
+    ${{ else }}:
+      value: ''
+  - name: automationFlag
+    ${{ if eq(parameters.acceptAutomation, true) }}:
+      value: '--accept-automation'
     ${{ else }}:
       value: ''
 
@@ -138,6 +147,7 @@ stages:
                 --target ci-target \
                 --upsert \
                 $(dryRunFlag) \
+                $(automationFlag) \
                 --json \
                 --remap-csv remap.csv \
                 > clone-summary.json

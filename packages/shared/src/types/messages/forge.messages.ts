@@ -12,6 +12,7 @@ import type {
 } from '../forge.types.js';
 import type { AnonymizationMethod } from '../common.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
+import type { ForgeRunGateStop } from '../../utils/forge-run-gate.js';
 
 /** `forge:preview`. WebView -> Extension. Preview records for a single source record. */
 export interface ForgePreviewRequest extends BaseMessage {
@@ -241,6 +242,11 @@ export interface ForgeExecuteErrorMessage extends BaseMessage {
      * it stopped before it started writing.
      */
     result?: ForgeExecutionResult;
+    /**
+     * Why the run stopped at its gate, before it wrote anything: refused, or
+     * cancelled at a confirmation. Its code is the error's `code` too.
+     */
+    gate?: ForgeRunGateStop;
   };
 }
 

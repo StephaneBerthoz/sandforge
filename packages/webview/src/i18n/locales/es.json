@@ -2441,9 +2441,16 @@
     "graphView": "Vista de grafo",
     "direct": {
       "action": "Clonar directamente",
-      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Tampoco se leen los flujos y desencadenadores de Apex que la org de destino ejecuta en los registros escritos.",
+      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leen igualmente antes de la ejecución, y los que se activan se le presentan primero.",
       "discovering": "La clonación empieza en cuanto responde el descubrimiento.",
-      "reviewSkipped": "Revisión omitida: esta ejecución empezó en cuanto respondió el descubrimiento, con los objetos que incluyó, y no se ejecutó la comparación de metadatos entre las dos orgs. Tampoco se leyeron los flujos y desencadenadores de Apex que la org de destino ejecuta en los registros escritos."
+      "reviewSkipped": "Revisión omitida: esta ejecución empezó en cuanto respondió el descubrimiento, con los objetos que incluyó, y no se ejecutó la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leyeron antes, y los que se activan se le presentaron primero."
+    },
+    "gate": {
+      "productionTarget": "La ejecución no empezó: la org de destino es una org de producción, o una que SandForge no puede confirmar que sea un sandbox, una scratch org o una org Developer Edition. Forge solo escribe en esas, y no se leyó ni escribió nada. Elija una de ellas como destino.",
+      "automationDeclined": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada.",
+      "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino.",
+      "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
+      "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir."
     },
     "executionTable": {
       "leftOut": "excluido",

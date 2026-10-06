@@ -330,7 +330,6 @@ describe('DataOpsHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: true,
         requiresConfirmation: false,
-        requiresApproval: false,
         warnings: [],
         impactSummary: '',
       });
@@ -366,7 +365,6 @@ describe('DataOpsHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: true,
         requiresConfirmation: false,
-        requiresApproval: false,
         warnings: [],
         impactSummary: '',
       });
@@ -1081,7 +1079,6 @@ describe('DataOpsHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: false,
         requiresConfirmation: false,
-        requiresApproval: false,
         blockedReason: 'Production writes are blocked',
         warnings: [],
         impactSummary: '',
@@ -1117,7 +1114,6 @@ describe('DataOpsHandler', () => {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: 'upsert 1 record',
           }),

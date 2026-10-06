@@ -10,7 +10,9 @@ import type {
   ForgeTemplate,
   ForgeUndoResult,
   ForgeRunObjectRecords,
+  ForgeTargetAutomation,
   ComplianceFrameworkType,
+  GuardDecision,
 } from '@sandforge/shared';
 import {
   fileCopyRefusal,
@@ -20,8 +22,8 @@ import {
   forgeGraphSchema,
   forgeRunRecordsLeft,
   forgeTemplateSchema,
+  leftOutByTheUser,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
@@ -63,8 +65,32 @@ import {
   parseRecordTypeRows,
   type RecordTypeMapping,
 } from '../../modules/sync/RecordTypeMapper.js';
-import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
-import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
+import {
+  consultProductionGuard,
+  strongerDecision,
+} from '../../core/precheck/consultProductionGuard.js';
+import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
+import type {
+  OperationRequest,
+  ProductionGuard,
+  SafetyTier,
+} from '../../core/precheck/ProductionGuard.js';
+import {
+  DEFAULT_CONFIRM_ABOVE_RECORDS,
+  ForgeRunGateError,
+  automationUnreadOf,
+  confirmationStorageOf,
+  firedOnInsertOf,
+  forgeTargetTier,
+  formatMB,
+  insertBypassesOf,
+  isForgeRunGateError,
+  readDataStorage,
+  storageCheckOf,
+  storageRefusal,
+  writePlanOf,
+  type DataStorage,
+} from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
 import {
@@ -74,7 +100,11 @@ import {
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
 import { finishedRunStatus, forgeRunResult } from '../../modules/forge/runResult.js';
-import type { ExecutionSummary, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
+import type {
+  ExecutionSummary,
+  ForgeProgressEvent,
+  ForgeWriteBoundary,
+} from '../../modules/forge/ForgeExecutor.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
@@ -313,6 +343,19 @@ const METADATA_DIFF_TIMEOUT_MS = 60_000;
 
 /** Timeout for reading the target's automation, in milliseconds. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
+
+/**
+ * How long a read of the target's automation Review asked for stands for the
+ * run its Execute starts, in milliseconds. Past it, a flow switched on in the
+ * meantime would go unsaid: the run reads again.
+ */
+const AUTOMATION_REUSE_MS = 10 * 60_000;
+
+/** The reads of the target's automation kept for the runs Execute starts. */
+const AUTOMATION_READS_KEPT = 8;
+
+/** Timeout for reading the target's data storage before the first write, in milliseconds. */
+const LIMITS_TIMEOUT_MS = 30_000;
 
 /** Timeout for reading both orgs' record types before a run, in milliseconds. */
 const RECORD_TYPES_TIMEOUT_MS = 30_000;
@@ -589,6 +632,36 @@ function guardedWrites(
 }
 
 /**
+ * What tells one read of the target's automation from another: the org, and
+ * the objects and required lookups of the graph it was read for, which say
+ * the objects the run writes (`objectsTheRunWrites`). An object the user left
+ * out counts as written, as Review reads it: the run reads the same, and
+ * says nothing of what fires on an object it leaves out.
+ */
+function automationKey(targetOrgId: string, graph: Pick<ForgeGraph, 'nodes' | 'edges'>): string {
+  const nodes = graph.nodes
+    .map((node) => `${node.objectApiName}:${node.included || node.leftOutByUser === true ? 1 : 0}`)
+    .sort();
+  const edges = graph.edges
+    .map((edge) => `${edge.sourceObject}>${edge.targetObject}:${edge.required === true ? 1 : 0}`)
+    .sort();
+  return JSON.stringify([targetOrgId, nodes, edges]);
+}
+
+/** What the target runs, without the objects the user left out. */
+function withoutObjects(
+  automation: ForgeTargetAutomation,
+  leftOut: ReadonlySet<string>,
+): ForgeTargetAutomation {
+  if (leftOut.size === 0) return automation;
+  return {
+    ...automation,
+    objectsRead: automation.objectsRead.filter((name) => !leftOut.has(name)),
+    objects: automation.objects.filter((object) => !leftOut.has(object.objectApiName)),
+  };
+}
+
+/**
  * A run's result, with the calls made for it before the executor had it —
  * the record types read from both orgs — among the calls it counts. A result
  * that counts none is left so: the lookup's alone would read as the run's.
@@ -674,6 +747,17 @@ export class ForgeHandler implements DomainHandler {
   private readonly removing = new Set<string>();
 
   /**
+   * The reads of the target's automation Review asked for, by org and graph
+   * (`automationKey`), kept for the run its Execute starts: read once as
+   * Review opens, it is read again only when it failed, is too old, or was
+   * for another graph. One still under way is waited for.
+   */
+  private readonly automationReads = new Map<
+    string,
+    { orgId: string; at: number; read: Promise<ForgeTargetAutomation> }
+  >();
+
+  /**
    * The tracker the Monitor's Live Operations panel lists, where a removal
    * shows with a Cancel that reaches it through the background registry.
    */
@@ -717,6 +801,9 @@ export class ForgeHandler implements DomainHandler {
   forgetOrg(orgId: string): void {
     this.describeGlobalCache.invalidate(orgId);
     this.orchestrator?.clearDiscoveryCache([orgId]);
+    for (const [key, kept] of this.automationReads) {
+      if (kept.orgId === orgId) this.automationReads.delete(key);
+    }
   }
 
   /**
@@ -1265,9 +1352,31 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
+    const orgTier = forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition);
+    /** The target as the user knows it: its alias, or its id when the registry has none. */
+    const targetName = targetOrg?.alias ?? config.targetOrgId;
+    // A clone writes to sandboxes, scratch orgs and Developer Edition orgs
+    // only, as the command-line clone does: the panel wrote to production
+    // behind a modal that `sandforge.safety.requireProdConfirmation` turned
+    // off. An org of a type or an edition the registry does not know counts
+    // as production, as it does to Production Guard. Refused before anything
+    // is read.
+    if (orgTier === 'production') {
+      this.refuseAtGate(
+        msg,
+        config.targetOrgId,
+        new ForgeRunGateError(
+          'PRODUCTION_TARGET',
+          `${targetName} is a production org, or an org SandForge cannot tell is a sandbox, a ` +
+            'scratch org or a Developer Edition org: Forge writes to those only. Nothing was ' +
+            'read or written.',
+        ),
+      );
+      return;
+    }
     const guardRequest = {
       orgId: config.targetOrgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      orgTier,
       operation: 'insert' as const,
       ...guardedWrites(graph, config),
       module: 'forge',
@@ -1279,8 +1388,16 @@ export class ForgeHandler implements DomainHandler {
     const { check, decision } = await consultProductionGuard(guard, guardRequest).finally(() =>
       this.runsAwaitingGuard.delete(runController),
     );
-    /** What the guard decided, recorded with the run it let through. */
-    const guardDecision = decision;
+    /**
+     * What the guard decided, recorded with the run it let through: made
+     * `confirmed` by a person's answer to a question of the run's gate.
+     */
+    let guardDecision: GuardDecision = decision;
+    // Said of a count taken before the run, which the gate counts again once
+    // it holds the rows: kept in the log, where it was dropped.
+    if (check.warnings.length > 0) {
+      logger.warn('Forge run: Production Guard warnings', { warnings: check.warnings });
+    }
     if (decision === 'refused' || decision === 'declined') {
       // No run started, so no operation id was minted: the request's stands in.
       recordWriteRun(this.deps, {
@@ -1502,6 +1619,24 @@ export class ForgeHandler implements DomainHandler {
         source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? 'unknown org',
         target: this.deps.orgManager.getOrg(config.targetOrgId)?.alias ?? 'unknown org',
       });
+      // What the target runs as the run inserts its records, put to the user
+      // before anything is read: Review's read of this graph while it stands,
+      // a read of the run's own otherwise. Run into a sandbox, a clone fired
+      // the target's flows on every record it created, emails and text
+      // messages among them, and the preview that said so stopped nothing.
+      const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+      if (runController.signal.aborted) {
+        stoppedBeforeStart = true;
+        throw new Error(ABORTED_BEFORE_START_MESSAGE);
+      }
+      guardDecision = strongerDecision(
+        guardDecision,
+        await this.confirmAutomation(guard, { org: targetName, orgTier }, automation),
+      );
+      if (runController.signal.aborted) {
+        stoppedBeforeStart = true;
+        throw new Error(ABORTED_BEFORE_START_MESSAGE);
+      }
       // RecordType Ids differ between orgs. Without this table every cloned
       // record kept the source org's RecordTypeId, which the target rejects.
       const recordTypeMappings = await this.loadRecordTypeMappings(
@@ -1523,6 +1658,16 @@ export class ForgeHandler implements DomainHandler {
         anonymizationRules,
         files,
         writtenBefore,
+        beforeWrite: this.writeGate({
+          guard,
+          targetOrgId: config.targetOrgId,
+          org: targetName,
+          orgTier,
+          lookup,
+          onConfirmed: () => {
+            guardDecision = strongerDecision(guardDecision, 'confirmed');
+          },
+        }),
       });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
@@ -1580,15 +1725,22 @@ export class ForgeHandler implements DomainHandler {
         this.liveTracker?.complete(operationId);
       }
     } catch (error: unknown) {
+      // Stopped at its gate — refused, or cancelled at one of its questions —
+      // before the first record was written: no failure, whatever the reads
+      // had met, and nothing for the history to keep.
+      const gate = isForgeRunGateError(error) ? error : undefined;
+      if (gate?.code === 'AUTOMATION_DECLINED' || gate?.code === 'WRITE_DECLINED') {
+        guardDecision = strongerDecision(guardDecision, 'declined');
+      }
       // A cancel, not a failure: stopped before the executor started, or by
       // the executor's own abort. Any other error thrown while the cancel is
       // pending is still the run's failure.
-      const cancelled = stoppedBeforeStart || isForgeAbort(error);
+      const cancelled = stoppedBeforeStart || isForgeAbort(error) || gate !== undefined;
       if (!cancelled) runError = error;
       // What the run wrote before it threw travels with the error: an abort
       // after the first objects, or a failure further on, is recorded with
       // the rows it created and lost, not as a run that wrote nothing.
-      const partial = partialSummaryOf(error);
+      const partial = gate ? undefined : partialSummaryOf(error);
       const tallies = partial
         ? {
             idRemapByObject: partial.remapByObject,
@@ -1606,16 +1758,19 @@ export class ForgeHandler implements DomainHandler {
        * `cancelledRunOutcome`), where the trail read it as a run that failed.
        * Any other error is the run's failure.
        */
-      const outcome: AuditOutcome = stoppedBeforeStart
-        ? 'stopped'
-        : cancelled
-          ? cancelledRunOutcome(partial, objects)
-          : 'failure';
-      const code = stoppedBeforeStart
-        ? ABORTED_BEFORE_START
-        : outcome === 'stopped'
-          ? RUN_CANCELLED
-          : undefined;
+      const outcome: AuditOutcome =
+        stoppedBeforeStart || gate
+          ? 'stopped'
+          : cancelled
+            ? cancelledRunOutcome(partial, objects)
+            : 'failure';
+      const code = gate
+        ? gate.code
+        : stoppedBeforeStart
+          ? ABORTED_BEFORE_START
+          : outcome === 'stopped'
+            ? RUN_CANCELLED
+            : undefined;
       // A failure is logged by the error it posts; a cancel posts none.
       logger.info('Forge execute stopped', {
         outcome,
@@ -1667,9 +1822,13 @@ export class ForgeHandler implements DomainHandler {
       // the history goes with it: the error alone said nothing of the records
       // the run had left in the target, and the screen had nothing to show.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
-        code: 'EXECUTE_ERROR',
+        code: gate ? gate.code : 'EXECUTE_ERROR',
         retryable: true,
-        ...(stoppedRun ? { extraPayload: { result: stoppedRun } } : {}),
+        ...(stoppedRun
+          ? { extraPayload: { result: stoppedRun } }
+          : gate?.stop
+            ? { extraPayload: { gate: gate.stop } }
+            : {}),
       });
       if (cancelled) {
         // Aborted in the registry already when the cancel came through it,
@@ -1861,6 +2020,258 @@ export class ForgeHandler implements DomainHandler {
     this.abortController = null;
     this.orchestrator?.abort();
     logger.info('Forge aborted');
+  }
+
+  /**
+   * Refuse a run at its gate before it starts: recorded as stopped under the
+   * gate's code, and answered with that code and the stop, for the page to
+   * say why and go back to Review — never as a failed run.
+   */
+  private refuseAtGate(
+    msg: InboundRequest,
+    orgId: string,
+    refusal: ForgeRunGateError,
+    guard?: GuardDecision,
+  ): void {
+    recordWriteRun(this.deps, {
+      action: 'forge_execute',
+      module: 'forge',
+      operationId: msg.id,
+      orgId,
+      outcome: 'stopped',
+      ...(guard ? { guard } : {}),
+      code: refusal.code,
+    });
+    sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, refusal, {
+      code: refusal.code,
+      retryable: true,
+      ...(refusal.stop ? { extraPayload: { gate: refusal.stop } } : {}),
+    });
+  }
+
+  /**
+   * Keep a read of the target's automation for the run of the same graph:
+   * see `automationReads`. One that fails is dropped, and the run reads
+   * again.
+   */
+  private keepAutomationRead(
+    targetOrgId: string,
+    graph: Pick<ForgeGraph, 'nodes' | 'edges'>,
+    read: Promise<ForgeTargetAutomation>,
+  ): void {
+    const key = automationKey(targetOrgId, graph);
+    this.automationReads.delete(key);
+    this.automationReads.set(key, { orgId: targetOrgId, at: Date.now(), read });
+    for (const oldest of this.automationReads.keys()) {
+      if (this.automationReads.size <= AUTOMATION_READS_KEPT) break;
+      this.automationReads.delete(oldest);
+    }
+    read.catch(() => {
+      if (this.automationReads.get(key)?.read === read) this.automationReads.delete(key);
+    });
+  }
+
+  /**
+   * What the target runs on the objects the run writes, for the question put
+   * before it reads anything: Review's read of the same graph while it
+   * stands, a read of its own otherwise — or why it could not be read, which
+   * the question says rather than taking it for nothing firing.
+   */
+  private async automationBeforeTheRun(
+    targetOrgId: string,
+    graph: ForgeGraph,
+  ): Promise<{ automation: ForgeTargetAutomation; reused: boolean } | { unread: string }> {
+    const notWritten = new Set(
+      graph.nodes.filter((node) => !node.included).map((node) => node.objectApiName),
+    );
+    const kept = this.automationReads.get(automationKey(targetOrgId, graph));
+    if (kept && Date.now() - kept.at < AUTOMATION_REUSE_MS) {
+      try {
+        return { automation: withoutObjects(await kept.read, notWritten), reused: true };
+      } catch {
+        // Review's read failed: the run reads again, below.
+      }
+    }
+    const reader = this.targetAutomation;
+    if (!reader) return { unread: "no reader of the target org's automation is set up" };
+    const leftOut = new Set(graph.nodes.filter(leftOutByTheUser).map((node) => node.objectApiName));
+    try {
+      const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
+        'forge:automation',
+        () => reader.readForGraph(targetOrgId, graph, leftOut),
+      );
+      return { automation, reused: false };
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
+  /**
+   * Put what fires as the run inserts its records to the user, before the run
+   * reads anything. Nothing is asked when nothing fires and all of it was
+   * read; what could not be read is said and asked about, never passed over.
+   *
+   * @returns The decision recorded with the run: `confirmed` once a person
+   *   answered, `allowed` when nothing was asked.
+   * @throws ForgeRunGateError when the user declines, or nobody can be asked.
+   */
+  private async confirmAutomation(
+    guard: ProductionGuard,
+    target: { org: string; orgTier: SafetyTier },
+    read: { automation: ForgeTargetAutomation; reused: boolean } | { unread: string },
+  ): Promise<GuardDecision> {
+    const known = 'automation' in read ? read.automation : undefined;
+    const fired = known ? firedOnInsertOf(known) : [];
+    const unread = known
+      ? automationUnreadOf(known)
+      : [{ part: 'automation' as const, reason: 'unread' in read ? read.unread : '' }];
+    // Counts and parts only: what the confirmation names stays out of the log.
+    logger.info('Forge target automation before the run', {
+      ...('reused' in read ? { reused: read.reused } : {}),
+      firedOnInsert: fired.length,
+      unread: unread.map((u) => u.part),
+    });
+    if (fired.length === 0 && unread.length === 0) return 'allowed';
+    const answer = await guard.confirmRun({
+      stage: 'automation',
+      org: target.org,
+      orgTier: target.orgTier,
+      fired,
+      unread,
+      bypass: known ? insertBypassesOf(known) : [],
+    });
+    if (answer === 'confirmed') return 'confirmed';
+    throw answer === 'declined'
+      ? new ForgeRunGateError(
+          'AUTOMATION_DECLINED',
+          'Forge execution was cancelled at the confirmation of what the target org runs as ' +
+            'it inserts the records. Nothing was read or written.',
+        )
+      : new ForgeRunGateError(
+          'CONFIRMATION_UNAVAILABLE',
+          'Forge execution needed a confirmation of what the target org runs as it inserts the ' +
+            'records, and there was no one to ask. Nothing was read or written.',
+        );
+  }
+
+  /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks before it writes; 0 never asks. */
+  private confirmAboveRecords(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'safety.confirmAboveRecords',
+      DEFAULT_CONFIRM_ABOVE_RECORDS,
+    );
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : DEFAULT_CONFIRM_ABOVE_RECORDS;
+  }
+
+  /** The data storage the target has, or why it could not be read. */
+  private async readTargetDataStorage(
+    targetOrgId: string,
+  ): Promise<DataStorage | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
+        readDataStorage(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
+  /**
+   * What the executor hands every row it is about to write, before the first
+   * goes (`ExecuteOptions.beforeWrite`): the run's gate on what it writes.
+   *
+   * Rows that take more data storage than the target has left are refused.
+   * Past `sandforge.safety.confirmAboveRecords`, near what the target has
+   * left, or when the target would not say what it has left, the user is
+   * asked, with the records per object; the guard's large-volume warning goes
+   * in that question, and in the log. What is refused or declined throws, and
+   * the run stops with nothing written.
+   *
+   * @param run.lookup - The requests made for the run besides the executor's:
+   *   the read of the target's limits is one of them.
+   * @param run.onConfirmed - Called once a person confirmed the run.
+   */
+  private writeGate(run: {
+    guard: ProductionGuard;
+    targetOrgId: string;
+    org: string;
+    orgTier: SafetyTier;
+    lookup: { requests: number };
+    onConfirmed: () => void;
+  }): (boundary: ForgeWriteBoundary) => Promise<void> {
+    return async (boundary) => {
+      // The panel runs no dry run, and one writes nothing to hold back.
+      if (boundary.dryRun) return;
+      const plan = writePlanOf(boundary.objects);
+      if (plan.totalRows === 0) return;
+      run.lookup.requests++;
+      const storage = storageCheckOf(plan, await this.readTargetDataStorage(run.targetOrgId));
+      const threshold = this.confirmAboveRecords();
+      const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
+      const line = largeVolumeThreshold(run.orgTier);
+      const largeVolume = line !== undefined && plan.totalRows > line ? line : undefined;
+      logger.info('Forge write gate', {
+        records: plan.totalRows,
+        objects: Object.fromEntries(
+          plan.objects.slice(0, 20).map((object) => [object.objectApiName, object.rows]),
+        ),
+        storageEstimateMB: formatMB(storage.estimateMB),
+        ...(storage.verdict === 'unread'
+          ? { storageUnread: storage.unread }
+          : { storageRemainingMB: storage.remainingMB, storageMaxMB: storage.maxMB }),
+        storage: storage.verdict,
+      });
+      const refusal = storageRefusal(storage, run.org);
+      if (refusal && storage.verdict === 'exceeds') {
+        throw new ForgeRunGateError('STORAGE_EXCEEDED', `${refusal} Nothing was written.`, {
+          estimateMB: Number(formatMB(storage.estimateMB)),
+          remainingMB: storage.remainingMB,
+        });
+      }
+      if (storage.verdict === 'near') {
+        logger.warn(
+          'Forge write gate: the records take more than 80 % of the data storage the target has left',
+        );
+      } else if (storage.verdict === 'unread') {
+        logger.warn('Forge write gate: the data storage the target has left could not be read');
+      }
+      if (largeVolume !== undefined) {
+        logger.warn(`Forge write gate: more than ${largeVolume} records, a large volume`);
+      }
+      if (aboveRecords === undefined && storage.verdict === 'fits') return;
+      const answer = await run.guard.confirmRun({
+        stage: 'write',
+        org: run.org,
+        orgTier: run.orgTier,
+        objects: plan.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+        total: plan.totalRows,
+        ...(aboveRecords !== undefined ? { aboveRecords } : {}),
+        ...(largeVolume !== undefined ? { largeVolume } : {}),
+        storage: confirmationStorageOf(storage),
+      });
+      if (answer === 'confirmed') {
+        run.onConfirmed();
+        return;
+      }
+      throw answer === 'declined'
+        ? new ForgeRunGateError(
+            'WRITE_DECLINED',
+            'Forge execution was cancelled before it wrote the records it had read. ' +
+              'Nothing was written.',
+          )
+        : new ForgeRunGateError(
+            'CONFIRMATION_UNAVAILABLE',
+            'Forge execution needed a confirmation before it wrote the records it had read, ' +
+              'and there was no one to ask. Nothing was written.',
+          );
+    };
   }
 
   /**
@@ -2117,7 +2528,9 @@ export class ForgeHandler implements DomainHandler {
     const targetOrg = this.deps.orgManager.getOrg(targetOrgId);
     const { check, decision } = await consultProductionGuard(guard, {
       orgId: targetOrgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      // The tier the run that wrote them took the org for: a Developer
+      // Edition org it may write to is one it may take its records back from.
+      orgTier: forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition),
       operation: 'delete',
       objectName: plan.map((o) => o.objectApiName).join(', '),
       recordCount: total,
@@ -2463,8 +2876,9 @@ export class ForgeHandler implements DomainHandler {
    * Read what the target runs on the objects a run of the graph writes — its
    * record-triggered flows and Apex triggers, and the custom permissions their
    * start conditions name — for Review to say before the run writes. Read
-   * only; a part the org refuses comes back named in the answer, and nothing
-   * here stops a run.
+   * only; a part the org refuses comes back named in the answer. The read is
+   * kept for the run Review's Execute starts, which puts what fires on insert
+   * to the user before it reads anything.
    */
   private async handleAutomationRequest(msg: InboundRequest): Promise<void> {
     if (!this.targetAutomation) {
@@ -2489,10 +2903,11 @@ export class ForgeHandler implements DomainHandler {
     const operationId = `forge-automation-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', "Reading the target org's automation");
     try {
-      const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
-        'forge:automation',
-        () => this.targetAutomation!.readForGraph(targetOrgId, graph),
+      const read = new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('forge:automation', () =>
+        this.targetAutomation!.readForGraph(targetOrgId, graph),
       );
+      this.keepAutomationRead(targetOrgId, graph, read);
+      const automation = await read;
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:automation:response', { automation }),
       );

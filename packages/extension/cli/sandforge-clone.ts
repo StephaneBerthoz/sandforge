@@ -77,6 +77,7 @@ import type {
   ExecutionSummary,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  ForgeWriteBoundary,
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
@@ -104,6 +105,19 @@ import {
   answerOf,
   automationLines,
 } from '../src/modules/forge/TargetAutomationReader.js';
+import {
+  DEFAULT_MAX_TOTAL,
+  ForgeRunGateError,
+  automationRefusal,
+  isDeveloperEdition,
+  readDataStorage,
+  storageCheckOf,
+  storageRefusal,
+  writePlanLines,
+  writePlanOf,
+  type DataStorage,
+} from '../src/modules/forge/ForgeRunGate.js';
+import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 
 export interface CliArgs {
   record: string;
@@ -149,6 +163,13 @@ export interface CliArgs {
    * (`--files-as-is`). undefined = no file is read.
    */
   files: { maxFileSizeMB: number; acceptedAsIs: boolean } | undefined;
+  /**
+   * Write although the target runs automation as the clone inserts its
+   * records, or could not say what it runs (`--accept-automation`).
+   */
+  acceptAutomation: boolean;
+  /** The most records a run may write in all; past it, nothing is written (`--max-total`). */
+  maxTotal: number;
 }
 
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox,
@@ -163,15 +184,23 @@ Usage:
   Run from the repository root of a checkout, after pnpm install and
   pnpm build:shared.
 
-  The target must be a sandbox. Its Organization record says whether it is
-  one, and a production org (a Developer Edition org is one) is refused
-  before anything is written or deleted. --dry-run and --list-objects only
-  read, and run against any org.
+  The target must be a sandbox or a Developer Edition org (a Trailhead
+  playground is one). Its Organization record says which, and any other
+  org, an org whose edition it does not say included, is refused as a
+  production org before anything is written or deleted. --dry-run and
+  --list-objects only read, and run against any org.
 
   Before it reads a row, the clone says what the target runs on the objects
   it writes: its active record-triggered flows and Apex triggers, per object
   and write, and the custom permissions that keep a flow from starting for
-  the user who holds them (with --json, under targetAutomation).
+  the user who holds them (with --json, under targetAutomation). When any of
+  them fires as the clone inserts its records, or the target would not say
+  what it runs, nothing is written unless --accept-automation is given.
+
+  Once every row is read and before the first is written, the clone counts
+  the records it is about to write, per object, and the data storage they
+  take by the sizes Salesforce documents. It writes nothing past --max-total,
+  nor more than the target's data storage has left.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically)
@@ -204,6 +233,14 @@ Options:
                          email alerts reach no one. On, they may reach the
                          real people the records name.
   --dry-run              skip writes, surface scoped queries    (default: off)
+                         It reads the automation and counts the records as a
+                         real run does, and says what would stop that run.
+  --accept-automation    write although the target runs flows or Apex
+                         triggers as the clone inserts, or could not say what
+                         it runs                                (default: off)
+  --max-total <n>        most records the run may write in all  (default: 10000)
+                         Counted once every row is read: past it, nothing is
+                         written. --max caps each object, this the whole run.
   --upsert               use external Id upsert when available  (default: insert)
                          Skips DUPLICATE_VALUE on re-runs of the same source records.
   --expand-orphans       single-hop expand orphan parent FKs    (default: off)
@@ -276,7 +313,10 @@ Remove what a run created:
 Exit codes:
   0  the clone ran; the removal took every record it set out to take
   1  the clone or the removal could not run; the clone produced only failures,
-     or its files were refused; the target is a production org
+     or its files were refused; the target is a production org; the target
+     runs automation on insert and --accept-automation was not given; the
+     run would write more than --max-total records, or more than the
+     target's data storage has left (nothing is written then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
   3  the removal left records of the run in the org: kept, or refused
@@ -341,6 +381,7 @@ export function parseArgs(argv: string[]): CliArgs {
   const customDepthRaw = get('--custom-depth', '5');
   const maxRaw = get('--max');
   const maxNodesRaw = get('--max-nodes');
+  const maxTotalRaw = get('--max-total');
   // Repeatable flags: scan all positions for matches.
   const collectRepeated = (flag: string): string[] => {
     const out: string[] = [];
@@ -446,6 +487,13 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--max-nodes takes a whole number of objects, 1 or more.\n');
     process.exit(2);
   }
+  // A run of one record whose scope widened wrote 34 216 records into a
+  // sandbox where its dry run had said 37: no run writes past this many.
+  const maxTotal = maxTotalRaw === undefined ? DEFAULT_MAX_TOTAL : Number(maxTotalRaw);
+  if (!Number.isInteger(maxTotal) || maxTotal < 1) {
+    process.stderr.write('--max-total takes a whole number of records, 1 or more.\n');
+    process.exit(2);
+  }
   const files = fileCopyArgs(args);
 
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
@@ -501,6 +549,8 @@ export function parseArgs(argv: string[]): CliArgs {
     fieldMappings,
     remapCsv: get('--remap-csv'),
     files,
+    acceptAutomation: has('--accept-automation'),
+    maxTotal,
   };
 }
 
@@ -1142,6 +1192,11 @@ export interface TypedOrg {
   id: string;
   /** Whether the org says it is a sandbox. */
   sandbox: boolean;
+  /**
+   * The edition an org that is not a sandbox says it is,
+   * `Organization.OrganizationType`; absent when it said none.
+   */
+  edition?: string;
 }
 
 /**
@@ -1160,7 +1215,21 @@ export async function typeOrg(conn: Connection): Promise<TypedOrg> {
   if (typeof row?.Id !== 'string') {
     throw new Error('The org gave no Organization record: whether it is a sandbox cannot be told.');
   }
-  return { id: row.Id, sandbox: row.IsSandbox === true };
+  if (row.IsSandbox === true) return { id: row.Id, sandbox: true };
+  // A Developer Edition org says IsSandbox false and holds nobody's business:
+  // its edition tells it from a production org. Asked of an org that is not a
+  // sandbox alone; an answer that does not say leaves it a production org.
+  try {
+    const typed = await conn.query<{ OrganizationType?: string }>(
+      'SELECT OrganizationType FROM Organization LIMIT 1',
+    );
+    const edition = typed.records[0]?.OrganizationType;
+    return typeof edition === 'string' && edition !== ''
+      ? { id: row.Id, sandbox: false, edition }
+      : { id: row.Id, sandbox: false };
+  } catch {
+    return { id: row.Id, sandbox: false };
+  }
 }
 
 /**
@@ -1172,7 +1241,10 @@ export async function typeOrg(conn: Connection): Promise<TypedOrg> {
  * refuses a delete on a production org and asks before any write there; the
  * command has no one to ask, and the Frozen command refuses such an org for
  * both, its load at its entry guards and its removal at Production Guard. So
- * this one refuses it too. Exported so it can be tested.
+ * this one refuses it too — but a Developer Edition org, which says IsSandbox
+ * false: refused, it left those who try SandForge with a Trailhead playground
+ * and no sandbox nowhere to clone into, as the panel does not. Exported so it
+ * can be tested.
  *
  * @param action - What was about to happen: a clone writes, a removal deletes.
  */
@@ -1181,12 +1253,15 @@ export function productionRefusal(
   org: TypedOrg,
   action: 'clone' | 'remove',
 ): string | undefined {
-  if (org.sandbox) return undefined;
+  if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;
   const what =
     action === 'clone'
-      ? 'sandforge-clone writes to sandboxes only. Nothing was written; --dry-run, which only reads, runs against it.'
-      : 'sandforge-clone removes records from sandboxes only. Nothing was deleted.';
-  return `${alias} is a production org (its Organization record says IsSandbox false): ${what}`;
+      ? 'sandforge-clone writes to sandboxes and Developer Edition orgs only. Nothing was written; --dry-run, which only reads, runs against it.'
+      : 'sandforge-clone removes records from sandboxes and Developer Edition orgs only. Nothing was deleted.';
+  const said = org.edition
+    ? `IsSandbox false, edition ${org.edition}`
+    : 'IsSandbox false, and no edition';
+  return `${alias} is a production org (its Organization record says ${said}): ${what}`;
 }
 
 /** What `--remove` was given. */
@@ -1959,6 +2034,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ? 'contact points: written as read (--keep-contact-points)'
       : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)',
   );
+  // What fires as the clone inserts its records is no longer only said: the
+  // panel puts it to the user before it reads anything, and the command,
+  // with no one to ask, writes nothing unless told to go on regardless. A
+  // target that would not say what it runs is taken the same way. A dry run
+  // writes nothing, and says what a real one would need.
+  const automationStop = automationRefusal(targetAutomation, args.target);
+  if (automationStop && !args.acceptAutomation) {
+    if (!args.dryRun) {
+      process.stderr.write(`${automationStop}\n`);
+      process.exit(1);
+    }
+    say(
+      '  a real run writes nothing without --accept-automation: see what fires as it inserts, ' +
+        'or could not be read, above',
+    );
+  }
 
   say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
@@ -2117,6 +2208,44 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
   }
 
+  // Every row in hand and none written: the records the run is about to
+  // write, per object, and the data storage they take, held to --max-total
+  // and to what the target has left. A dry run says what a real run would
+  // meet there, and writes nothing.
+  const targetConn = conns.get(args.target)!;
+  const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
+    const plan = writePlanOf(boundary.objects);
+    let storage: DataStorage | { unread: string };
+    try {
+      storage = await readDataStorage(targetConn);
+    } catch (err: unknown) {
+      storage = { unread: extractErrorMessage(err) };
+    }
+    const check = storageCheckOf(plan, storage);
+    say('');
+    for (const line of writePlanLines(plan, check, args.target)) say(line);
+    const overTotal =
+      plan.totalRows > args.maxTotal
+        ? `The run would write ${plan.totalRows} records, more than --max-total ` +
+          `${args.maxTotal}: narrow the clone (--max, --exclude-object, --filter), or raise ` +
+          '--max-total.'
+        : undefined;
+    const overStorage = storageRefusal(check, args.target);
+    const reasons = [overTotal, overStorage].filter(
+      (reason): reason is string => reason !== undefined,
+    );
+    if (boundary.dryRun) {
+      for (const reason of reasons) say(`  a real run would be refused: ${reason}`);
+      return;
+    }
+    if (reasons.length > 0) {
+      throw new ForgeRunGateError(
+        overTotal ? 'MAX_TOTAL_EXCEEDED' : 'STORAGE_EXCEEDED',
+        `${reasons.join(' ')} Nothing was written.`,
+      );
+    }
+  };
+
   say(
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.files ? ', FILES' : ''})`,
   );
@@ -2131,7 +2260,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         const line = outcomeLine(event);
         if (line) say(line);
       },
-      executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
+      {
+        ...executeOptions(args, graph, recordTypeMappings, (fields) =>
+          discovery.personalFields(fields),
+        ),
+        beforeWrite,
+      },
     );
     // The record types were read for the run, before the executor had it:
     // the extension counts them among its calls. A summary that counts none
@@ -2144,8 +2278,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   } catch (err: unknown) {
     // Refused before anything was written — the files do not fit in the
     // target, its storage could not be read, or the files could not all be
-    // looked up in the source: said as it is, not as a crash.
-    if (err instanceof ForgeFilesRefusedError) {
+    // looked up in the source; the records are more than --max-total, or
+    // more than the target's data storage has left: said as it is, not as a
+    // crash.
+    if (err instanceof ForgeFilesRefusedError || err instanceof ForgeRunGateError) {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
     }

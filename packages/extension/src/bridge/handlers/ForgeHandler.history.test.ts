@@ -101,7 +101,10 @@ function createDeps(configStore: HandlerDeps['configStore']): HandlerDeps {
     log: vi.fn(),
     broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
     stateSync: {} as HandlerDeps['stateSync'],
-    orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
+    // A sandbox: a clone refuses a production org before anything is read.
+    orgManager: {
+      getOrg: vi.fn(() => ({ orgType: 'Sandbox' })),
+    } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
     configStore,
     secretVault: {} as unknown as HandlerDeps['secretVault'],
@@ -110,7 +113,8 @@ function createDeps(configStore: HandlerDeps['configStore']): HandlerDeps {
     // A run refuses to write without a Production Guard, and the extension
     // always injects one.
     infraServices: {
-      productionGuard: new ProductionGuard(),
+      // Its run's questions, answered yes.
+      productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
     } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };

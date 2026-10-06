@@ -267,7 +267,8 @@ describe('forge:undo', () => {
       authProvider: {} as HandlerDeps['authProvider'],
       sfdxBridge: {} as HandlerDeps['sfdxBridge'],
       infraServices: {
-        productionGuard: new ProductionGuard(),
+        // Its run's questions, answered yes.
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
         backgroundRegistry: registry,
       } as unknown as HandlerDeps['infraServices'],
       nextId: () => String(++n),
@@ -794,7 +795,6 @@ describe('forge:undo', () => {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: 'DELETE 3 records',
           }),
@@ -857,13 +857,43 @@ describe('forge:undo', () => {
       ]);
     });
 
+    it('takes back from a Developer Edition org what a run wrote there, as from the development org it is', async () => {
+      // It says IsSandbox false and is registered as production, which the
+      // guard refuses a delete on: a clone may write there, so its records
+      // may be taken back.
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+        alias: 'DEV',
+        metadata: { apiVersion: '66.0', edition: 'Developer Edition', features: [] },
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+      const check = vi.spyOn(ProductionGuard.prototype, 'check');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['development']);
+      expect(errors()).toEqual([]);
+      expect(org.rows.get('Account')).toEqual([]);
+      check.mockRestore();
+    });
+
+    it('still refuses an Enterprise Edition production org', async () => {
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+        metadata: { apiVersion: '66.0', edition: 'Enterprise Edition', features: [] },
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(errors().map((e) => e.payload.code)).toEqual(['GUARD_BLOCKED']);
+    });
+
     it('deletes nothing when the confirmation is declined', async () => {
       deps.infraServices = {
         productionGuard: {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: 'DELETE 3 records',
           }),

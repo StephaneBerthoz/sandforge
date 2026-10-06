@@ -373,6 +373,12 @@
           "default": true,
           "description": "%config.safety.auditLogging.description%"
         },
+        "sandforge.safety.confirmAboveRecords": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 0,
+          "description": "%config.safety.confirmAboveRecords.description%"
+        },
         "sandforge.grappe.enabled": {
           "type": "boolean",
           "default": false,

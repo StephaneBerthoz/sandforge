@@ -45,6 +45,14 @@ on:
         options:
           - 'true'
           - 'false'
+      accept_automation:
+        description: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
   schedule:
     - cron: '0 6 * * 1'
 
@@ -52,6 +60,7 @@ env:
   NODE_VERSION: '24'
   DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
   REMOVE_AFTER: ${{ github.event.inputs.remove_after || 'false' }}
+  ACCEPT_AUTOMATION: ${{ github.event.inputs.accept_automation || 'false' }}
 
 jobs:
   quality:
@@ -128,12 +137,17 @@ jobs:
         run: |
           DRY_FLAG=""
           [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+          # A real clone writes nothing while the target runs flows or triggers
+          # on insert, unless told to go on: see ci-examples/README.md.
+          AUTOMATION_FLAG=""
+          [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
           pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
             --record "$SF_CLONE_RECORD_ID" \
             --source ci-source \
             --target ci-target \
             --upsert \
             $DRY_FLAG \
+            $AUTOMATION_FLAG \
             --json \
             --remap-csv remap.csv \
             > clone-summary.json

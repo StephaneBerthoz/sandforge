@@ -49,6 +49,7 @@
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les opérations sur les orgs de production",
   "config.safety.auditLogging.description": "Enregistrer chaque décision de contrôle de sécurité de Production Guard avec l’exécution qu’elle concerne dans le journal d’audit (Rapports → Journal d’audit). Désactivé, les exécutions restent enregistrées, sans les décisions.",
+  "config.safety.confirmAboveRecords.description": "Avant qu'un clonage Forge n'écrive, demander une confirmation lorsqu'il s'apprête à écrire plus que ce nombre d'enregistrements (0 : ne jamais demander pour le volume). Un clonage proche du stockage de données de l'org cible, ou dont le stockage ne peut pas être lu, est toujours soumis à confirmation ; un clonage qui le dépasse est refusé.",
   "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe). À partir de sandforge.grappe.autoActivateThreshold enregistrements, Seed signale chaque partition à sa fin dans la vue Grappe, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution.",
   "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed, sync et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
   "config.grappe.grappeSize.description": "Nombre d'enregistrements par partition de grappe."

@@ -6,6 +6,7 @@ import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
 import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
+import { useForgeRunGateStore } from './runGate';
 
 /* ---- Mocks ---- */
 
@@ -227,6 +228,20 @@ describe('ForgeReview', () => {
     } finally {
       mockAnonymizationRules.phone = 'mask';
     }
+  });
+
+  it('says why the last run stopped at its gate, and forgets it once the next run starts', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' }));
+    render(<ForgeReview />);
+
+    expect(screen.getByTestId('forge-run-gate-notice').textContent).toContain(
+      'You cancelled the run before it wrote anything.',
+    );
+
+    fireEvent.click(screen.getByTestId('execute-button'));
+
+    expect(useForgeRunGateStore.getState().stop).toBeNull();
+    expect(screen.queryByTestId('forge-run-gate-notice')).toBeNull();
   });
 
   it('says before the run what the objects the user left out cost it', () => {

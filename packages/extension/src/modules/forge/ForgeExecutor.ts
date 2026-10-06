@@ -487,6 +487,25 @@ export interface ExecuteOptions {
    * run writes what they name. Absent for a run that retries none.
    */
   writtenBefore?: Readonly<Record<string, string>>;
+  /**
+   * Handed every row the run is about to write, once all are read and before
+   * the first is written — on a dry run too, which then writes none. What it
+   * throws stops the run there, with nothing written. A run given it reads
+   * every node before writing any, as one that copies files does: see
+   * `readsBeforeWriting`.
+   */
+  beforeWrite?: (boundary: ForgeWriteBoundary) => Promise<void>;
+}
+
+/** What a run is about to write, as {@link ExecuteOptions.beforeWrite} is handed it. */
+export interface ForgeWriteBoundary {
+  /**
+   * Per object, the rows read to write. A row a retried run already wrote is
+   * left out: the run links to it and writes nothing of it.
+   */
+  objects: ReadonlyArray<{ objectApiName: string; rows: readonly Record<string, unknown>[] }>;
+  /** Whether the run is a dry run, which writes none of them. */
+  dryRun: boolean;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -2030,11 +2049,12 @@ function requiredLookupsOf(objectApiName: string, fieldInfos: readonly FieldInfo
 
 /**
  * Whether a run reads every node before it writes one: a record-scoped run,
- * whose scope is only known outwards from the root, and a run that copies
- * files, whose size is checked before anything is written.
+ * whose scope is only known outwards from the root, a run that copies files,
+ * whose size is checked before anything is written, and a run whose caller
+ * is to see every row before the first is written (`beforeWrite`).
  */
 function readsBeforeWriting(config: ForgeStageConfig): boolean {
-  return config.isScoped === true || config.files !== undefined;
+  return config.isScoped === true || config.files !== undefined || config.beforeWrite !== undefined;
 }
 
 /** What an object's progress says of `count` emails waiting for the task each names. */
@@ -2611,8 +2631,11 @@ export class ForgeExecutor {
      * A full-table run has no scope to resolve, so it keeps the single pass:
      * two would hold every row of every object in memory to no purpose —
      * unless it copies files, whose size is checked against the target's
-     * storage before anything is written, which needs every record read.
-     * A single pass's one order is the one writing needs.
+     * storage before anything is written, which needs every record read; or
+     * unless its caller is to see every row before the first is written
+     * (`beforeWrite`), which a single pass that writes each object as it
+     * reads it never lets it do. A single pass's one order is the one writing
+     * needs.
      */
     const twoPhase = readsBeforeWriting(config);
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
@@ -2892,6 +2915,25 @@ export class ForgeExecutor {
     // The files of what was read, chosen and measured while nothing is
     // written yet: a run whose files do not fit in the target stops here.
     const filesToCopy = config.files ? await this.prepareFiles(state) : [];
+
+    // Every row the run writes is in hand, and none is written: the caller
+    // sees them all before the first goes, and what it throws stops the run
+    // here. A run whose dry run said 37 records wrote 34 216 into a sandbox,
+    // with nothing between its reads and its writes to look at how many.
+    if (twoPhase && config.beforeWrite) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      await config.beforeWrite({
+        objects: [...state.preread].map(([objectApiName, read]) => ({
+          objectApiName,
+          rows: read.records.filter((row) => !wasWrittenBefore(config, row)),
+        })),
+        dryRun: config.dryRun,
+      });
+    }
 
     // The write pass. Every row is in hand, so the order is free to be the
     // one writing needs: parents first, the root no longer pulled to the

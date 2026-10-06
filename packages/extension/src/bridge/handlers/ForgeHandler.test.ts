@@ -171,7 +171,11 @@ function createMockDeps(): HandlerDeps {
     log: vi.fn(),
     broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
     stateSync: {} as HandlerDeps['stateSync'],
-    orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
+    // A sandbox: a clone refuses a production org, and an org of no known
+    // type, before anything is read.
+    orgManager: {
+      getOrg: vi.fn(() => ({ orgType: 'Sandbox' })),
+    } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
     configStore: {
       get: vi.fn().mockReturnValue(undefined),
@@ -181,9 +185,10 @@ function createMockDeps(): HandlerDeps {
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
     // A run refuses to write without a Production Guard, and the extension
-    // always injects one.
+    // always injects one, with someone to answer its run's questions: here
+    // they are answered yes, unless a test says otherwise.
     infraServices: {
-      productionGuard: new ProductionGuard(),
+      productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
     } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
@@ -493,6 +498,7 @@ describe('ForgeHandler', () => {
       expect(source.query.mock.calls[0][0]).toContain('FROM RecordType WHERE IsActive = true');
       expect(target.query.mock.calls[0][0]).toContain('FROM RecordType WHERE IsActive = true');
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        beforeWrite: expect.any(Function),
         recordTypeMappings: [
           { sourceId: '012SRCACC000001', targetId: '012TGTACC000001', developerName: 'Business' },
           { sourceId: '012SRCOPP000001', targetId: '012TGTOPP000001', developerName: 'Business' },
@@ -508,6 +514,7 @@ describe('ForgeHandler', () => {
       );
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        beforeWrite: expect.any(Function),
         recordTypeMappings: undefined,
       });
       const responses = vi
@@ -528,6 +535,7 @@ describe('ForgeHandler', () => {
         await executePromise;
 
         expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+          beforeWrite: expect.any(Function),
           recordTypeMappings: undefined,
         });
       } finally {
@@ -544,6 +552,7 @@ describe('ForgeHandler', () => {
       );
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        beforeWrite: expect.any(Function),
         recordTypeMappings: undefined,
       });
     });
@@ -1173,6 +1182,7 @@ describe('ForgeHandler', () => {
       // No connection in this suite, so no record type table could be built.
       expect(orchestrator.execute).toHaveBeenCalledWith(graph, config, {
         recordTypeMappings: undefined,
+        beforeWrite: expect.any(Function),
       });
       expect(unsubscribe).toHaveBeenCalled();
 
@@ -1202,6 +1212,7 @@ describe('ForgeHandler', () => {
       );
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        beforeWrite: expect.any(Function),
         recordTypeMappings: undefined,
         anonymizationRules: { email: 'hash', phone: 'redact' },
       });
@@ -1455,7 +1466,7 @@ describe('ForgeHandler', () => {
       // way composition supplies it, beside the guard every run passes.
       deps.infraServices = {
         backgroundRegistry: registry,
-        productionGuard: new ProductionGuard(),
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
     });
 
@@ -1756,7 +1767,7 @@ describe('ForgeHandler', () => {
       registry = new BackgroundOperationRegistry();
       deps.infraServices = {
         backgroundRegistry: registry,
-        productionGuard: new ProductionGuard(),
+        productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
     });
 
@@ -2440,15 +2451,16 @@ describe('ForgeHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: behavior.allowed,
         requiresConfirmation: behavior.requiresConfirmation ?? false,
-        requiresApproval: false,
         blockedReason: behavior.blockedReason,
         warnings: [],
         impactSummary: 'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
       });
       const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
+      // The run's own questions, answered yes: the guard's are under test.
+      const confirmRun = vi.fn().mockResolvedValue('confirmed');
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
-        productionGuard: { check, confirmIfNeeded },
+        productionGuard: { check, confirmIfNeeded, confirmRun },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -2493,13 +2505,37 @@ describe('ForgeHandler', () => {
       ]);
     });
 
-    it('asks for production confirmation before executing on a production target', async () => {
-      const guard = wireGuard({
-        allowed: true,
-        requiresConfirmation: true,
-        confirmed: true,
+    /** The `forge:execute:error`s the page was sent. */
+    function executeErrors(): Array<
+      BaseMessage & { payload: { message: string; code: string; gate?: unknown } }
+    > {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          ([m]) =>
+            m as BaseMessage & { payload: { message: string; code: string; gate?: unknown } },
+        )
+        .filter((m) => m.type === 'forge:execute:error');
+    }
+
+    it('refuses a production target before anything is read, whatever the production setting says', async () => {
+      // The panel wrote to production behind a modal the setting turned off;
+      // the command line and the Frozen load refuse such an org outright.
+      const requestConfirmation = vi.fn().mockResolvedValue(true);
+      const requestRunConfirmation = vi.fn().mockResolvedValue(true);
+      const guard = new ProductionGuard({
+        isProdConfirmationRequired: () => false,
+        requestConfirmation,
+        requestRunConfirmation,
       });
-      mockTargetOrgType('Production');
+      const check = vi.spyOn(guard, 'check');
+      deps.infraServices = {
+        productionGuard: guard,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+        alias: 'PROD',
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
 
       const msg = buildMsg('forge:execute', {
         graph: createMockGraph(),
@@ -2507,22 +2543,50 @@ describe('ForgeHandler', () => {
       });
       await handler.handle(msg);
 
-      // The tier is resolved from the target org of the forge config.
-      expect(guard.check).toHaveBeenCalledTimes(1);
-      expect(guard.check.mock.calls[0][0]).toMatchObject({
-        orgId: 'tgt-org',
-        orgTier: 'production',
-        operation: 'insert',
-        module: 'forge',
+      expect(check).not.toHaveBeenCalled();
+      expect(requestConfirmation).not.toHaveBeenCalled();
+      expect(requestRunConfirmation).not.toHaveBeenCalled();
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = executeErrors();
+      expect(errors).toHaveLength(1);
+      expect(errors[0].correlationId).toBe(msg.id);
+      expect(errors[0].payload).toMatchObject({
+        code: 'PRODUCTION_TARGET',
+        gate: { code: 'PRODUCTION_TARGET' },
       });
-      expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
-      expect(guard.check).toHaveBeenCalledTimes(1);
-      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
-      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
-      const responses = postCalls.filter(
-        (call) => (call[0] as BaseMessage).type === 'forge:execute:response',
+      expect(errors[0].payload.message).toBe(
+        'PROD is a production org, or an org SandForge cannot tell is a sandbox, a scratch org ' +
+          'or a Developer Edition org: Forge writes to those only. Nothing was read or written.',
       );
-      expect(responses).toHaveLength(1);
+      // Stopped, not failed: no run started, so none is ended either.
+      const types = vi.mocked(deps.broker.postToWebview).mock.calls.map(([m]) => m.type);
+      expect(types).not.toContain('operation:started');
+      expect(types).not.toContain('operation:failed');
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          details: { code: 'PRODUCTION_TARGET' },
+        }),
+      ]);
+    });
+
+    it('refuses an org the registry does not know as it refuses a production org', async () => {
+      // Nothing shows 'tgt-org' is a sandbox. It was classed as development
+      // once, and the run started without a word to the user.
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue(undefined);
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(executeErrors().map((e) => e.payload.code)).toEqual(['PRODUCTION_TARGET']);
+      expect(executeErrors()[0].payload.message).toMatch(/^tgt-org is a production org/);
     });
 
     it('blocks the execution when the guard refuses — no write, forge:execute:error', async () => {
@@ -2530,7 +2594,7 @@ describe('ForgeHandler', () => {
         allowed: false,
         blockedReason: 'insert is not allowed on production org tgt-org',
       });
-      mockTargetOrgType('Production');
+      mockTargetOrgType('Sandbox');
 
       const msg = buildMsg('forge:execute', {
         graph: createMockGraph(),
@@ -2555,13 +2619,13 @@ describe('ForgeHandler', () => {
       expect(errPayload.code).toBe('GUARD_BLOCKED');
     });
 
-    it('cancels the execution when the user declines the production confirmation', async () => {
+    it('cancels the execution when the user declines the confirmation the guard asks for', async () => {
       const guard = wireGuard({
         allowed: true,
         requiresConfirmation: true,
         confirmed: false,
       });
-      mockTargetOrgType('Production');
+      mockTargetOrgType('Sandbox');
 
       const msg = buildMsg('forge:execute', {
         graph: createMockGraph(),
@@ -2585,53 +2649,25 @@ describe('ForgeHandler', () => {
       expect(errPayload.code).toBe('GUARD_DECLINED');
     });
 
-    it('asks before executing on an org the registry does not know, and runs nothing when declined', async () => {
-      // A real guard, and getOrg left unstubbed: nothing shows 'tgt-org' is a
-      // sandbox. It was classed as development, so the run started without a
-      // word to the user.
-      const requestConfirmation = vi.fn().mockResolvedValue(false);
-      const guard = new ProductionGuard({ requestConfirmation });
+    /**
+     * A real guard judging a run into a sandbox, its check spied on: what it
+     * is told the run writes is what its summary says.
+     */
+    function judgedOnSandbox(): () => string | undefined {
+      const guard = new ProductionGuard({ requestRunConfirmation: async () => true });
       const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
-        performanceTracker: { start: vi.fn(), complete: vi.fn() },
         productionGuard: guard,
-        offlineManager: undefined,
-        piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
-
-      await handler.handle(
-        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
-      );
-
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT at most 10 Account record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
-      );
-      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
-      expect(orchestrator.execute).not.toHaveBeenCalled();
-      const errors = vi
-        .mocked(deps.broker.postToWebview)
-        .mock.calls.map((call) => call[0] as BaseMessage & { payload: { code?: string } })
-        .filter((m) => m.type === 'forge:execute:error');
-      expect(errors).toHaveLength(1);
-      expect(errors[0].payload.code).toBe('GUARD_DECLINED');
-    });
-
-    /** A real guard on a production target, whose question is declined; its spy. */
-    function askedOnProduction(): ReturnType<typeof vi.fn> {
-      const requestConfirmation = vi.fn().mockResolvedValue(false);
-      deps.infraServices = {
-        productionGuard: new ProductionGuard({ requestConfirmation }),
-      } as unknown as NonNullable<HandlerDeps['infraServices']>;
-      mockTargetOrgType('Production');
-      return requestConfirmation;
+      mockTargetOrgType('Sandbox');
+      return () => check.mock.results[0]?.value.impactSummary;
     }
 
-    it('asks about a starter template as an unknown number of records, naming every object it writes', async () => {
+    it('tells the guard of a starter template as an unknown number of records, naming every object it writes', async () => {
       // Its graph skips discovery and holds each count at a placeholder zero:
-      // the question read "INSERT 0 Account record(s)" of a run that reads and
+      // the guard read "INSERT 0 Account record(s)" of a run that reads and
       // writes the four objects of the template.
-      const requestConfirmation = askedOnProduction();
+      const summary = judgedOnSandbox();
 
       await handler.handle(
         buildMsg('forge:execute', {
@@ -2640,15 +2676,13 @@ describe('ForgeHandler', () => {
         }),
       );
 
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT an unknown number of Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
+      expect(summary()).toBe(
+        'INSERT an unknown number of Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on development org tgt-org [module: forge]',
       );
-      expect(orchestrator.execute).not.toHaveBeenCalled();
     });
 
-    it('asks about the objects the run writes and their records, none of an object left out', async () => {
-      const requestConfirmation = askedOnProduction();
+    it('tells the guard of the objects the run writes and their records, none of an object left out', async () => {
+      const summary = judgedOnSandbox();
       const account = createMockGraph().nodes[0];
       const graph: ForgeGraph = {
         ...createMockGraph(),
@@ -2668,9 +2702,8 @@ describe('ForgeHandler', () => {
 
       await handler.handle(buildMsg('forge:execute', { graph, config: createMockConfig() }));
 
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT at most 14 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
+      expect(summary()).toBe(
+        'INSERT at most 14 Account, Case record(s), plus the related records the run adds, on development org tgt-org [module: forge]',
       );
     });
 
@@ -2684,11 +2717,11 @@ describe('ForgeHandler', () => {
       };
     }
 
-    it('asks about a clone of one record as at most its tables, each counted no further than the cap on each object', async () => {
-      // Discovery counts whole tables, and the question read them as what a
+    it('tells the guard of a clone of one record as at most its tables, each counted no further than the cap on each object', async () => {
+      // Discovery counts whole tables, and the guard read them as what a
       // clone of one account writes: "INSERT 4010 Account, Case record(s)",
       // of a run that reads no more than fifty rows of any object.
-      const requestConfirmation = askedOnProduction();
+      const summary = judgedOnSandbox();
 
       await handler.handle(
         buildMsg('forge:execute', {
@@ -2697,14 +2730,13 @@ describe('ForgeHandler', () => {
         }),
       );
 
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT at most 60 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
+      expect(summary()).toBe(
+        'INSERT at most 60 Account, Case record(s), plus the related records the run adds, on development org tgt-org [module: forge]',
       );
     });
 
-    it('asks about a run of whole tables as the rows it reads of each, no more than the cap', async () => {
-      const requestConfirmation = askedOnProduction();
+    it('tells the guard of a run of whole tables as the rows it reads of each, no more than the cap', async () => {
+      const summary = judgedOnSandbox();
 
       await handler.handle(
         buildMsg('forge:execute', {
@@ -2718,15 +2750,14 @@ describe('ForgeHandler', () => {
         }),
       );
 
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT 60 Account, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
+      expect(summary()).toBe(
+        'INSERT 60 Account, Case record(s), plus the related records the run adds, on development org tgt-org [module: forge]',
       );
     });
 
-    it('asks about a capped starter template as at most the cap on each of its objects', async () => {
+    it('tells the guard of a capped starter template as at most the cap on each of its objects', async () => {
       // Nobody counted its objects, and no run reads more of one than the cap.
-      const requestConfirmation = askedOnProduction();
+      const summary = judgedOnSandbox();
 
       await handler.handle(
         buildMsg('forge:execute', {
@@ -2740,9 +2771,8 @@ describe('ForgeHandler', () => {
         }),
       );
 
-      expect(requestConfirmation).toHaveBeenCalledWith(
-        'INSERT at most 100 Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on production org tgt-org [module: forge]',
-        'production',
+      expect(summary()).toBe(
+        'INSERT at most 100 Account, Contact, Opportunity, Case record(s), plus the related records the run adds, on development org tgt-org [module: forge]',
       );
     });
 
@@ -3002,7 +3032,6 @@ describe('ForgeHandler', () => {
           check: vi.fn().mockReturnValue({
             allowed: false,
             requiresConfirmation: false,
-            requiresApproval: false,
             blockedReason: 'insert is not allowed on production org tgt-org',
             warnings: [],
             impactSummary: '',
@@ -3027,12 +3056,12 @@ describe('ForgeHandler', () => {
           check: vi.fn().mockReturnValue({
             allowed: true,
             requiresConfirmation: true,
-            requiresApproval: false,
             warnings: [],
             impactSummary: '',
           }),
           confirmIfNeeded: vi.fn().mockResolvedValue(true),
           canAskForConfirmation: true,
+          confirmRun: vi.fn().mockResolvedValue('confirmed'),
         },
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
 
@@ -3790,7 +3819,11 @@ describe('ForgeHandler', () => {
           ]);
         });
 
-        it('names it with no count in a run of whole tables, which skipped it before its read', async () => {
+        it('records as failed the rows a run of whole tables had read of it, as it reads them all before writing', async () => {
+          // A run of whole tables wrote each table as it read it, and skipped
+          // the tasks before their read, with no count. It now reads every
+          // table first, for its gate to see every row before the first
+          // write, and knows how many rows it lost.
           const store = recordingStore();
 
           await runWithProjectsRefused(
@@ -3811,8 +3844,8 @@ describe('ForgeHandler', () => {
                   created: 0,
                   updated: 0,
                   deleted: 0,
-                  failed: 0,
-                  skipped: 'uncounted',
+                  failed: 2,
+                  skipped: 'counted',
                 },
               ],
             }),
@@ -4279,7 +4312,6 @@ describe('ForgeHandler', () => {
             check: vi.fn().mockReturnValue({
               allowed: true,
               requiresConfirmation: true,
-              requiresApproval: false,
               warnings: [],
               impactSummary:
                 'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
@@ -4291,6 +4323,7 @@ describe('ForgeHandler', () => {
                 }),
             ),
             canAskForConfirmation: true,
+            confirmRun: vi.fn().mockResolvedValue('confirmed'),
           },
         } as unknown as NonNullable<HandlerDeps['infraServices']>;
       });

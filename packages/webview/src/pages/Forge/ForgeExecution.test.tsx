@@ -237,12 +237,12 @@ describe('ForgeExecution', () => {
   });
 
   describe('a run Clone directly started', () => {
-    it('says the review was skipped, and the metadata diff and the read of the target automation with it', () => {
+    it('says the review was skipped, and the metadata diff with it, the target automation having been read all the same', () => {
       mockReviewSkipped = true;
       render(<ForgeExecution />);
 
       expect(screen.getByTestId('forge-execution-review-skipped').textContent).toBe(
-        'Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. Nor was the read of the flows and Apex triggers the target org runs on the records it writes.',
+        'Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. The flows and Apex triggers the target org runs as the records are inserted were read before it, and any that fires was put to you first.',
       );
     });
 

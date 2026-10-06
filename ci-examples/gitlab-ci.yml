@@ -35,6 +35,9 @@ variables:
   DRY_RUN: 'true'
   # "true" removes what a real clone created at the end of the clone job.
   REMOVE_AFTER: 'false'
+  # "true" clones for real although flows or Apex triggers of the target fire
+  # as the records are inserted: without it, such a clone writes nothing.
+  ACCEPT_AUTOMATION: 'false'
 
 stages:
   - quality
@@ -85,12 +88,15 @@ clone:
     - |
       DRY_FLAG=""
       [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+      AUTOMATION_FLAG=""
+      [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
       pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
         --record "$SF_CLONE_RECORD_ID" \
         --source ci-source \
         --target ci-target \
         --upsert \
         $DRY_FLAG \
+        $AUTOMATION_FLAG \
         --json \
         --remap-csv remap.csv \
         > clone-summary.json

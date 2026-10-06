@@ -49,6 +49,7 @@
   "config.pipeline.timeout.description": "パイプライン実行のタイムアウト（ミリ秒）",
   "config.safety.requireProdConfirmation.description": "本番組織の操作に確認ダイアログを要求する",
   "config.safety.auditLogging.description": "Production Guard の安全性チェックの判定を、対象の実行とともに監査ログ（レポート → 監査ログ）に記録します。オフにすると、実行は判定なしで記録されます。",
+  "config.safety.confirmAboveRecords.description": "Forge のクローンが書き込む前に、この件数を超えるレコードを書き込もうとしている場合は確認を求めます (0: 件数については確認しません)。ターゲット組織のデータストレージに近い場合や、ストレージを読み取れない場合は引き続き確認し、超える場合は拒否します。",
   "config.grappe.enabled.description": "大規模な Seed / Sync / Autopilot 操作をパーティション分割（grappe）モードで実行します。レコード数が sandforge.grappe.autoActivateThreshold 以上になると、Seed は各パーティションの完了を Grappe ビューに報告し、Sync はオブジェクトごとに1パーティションを報告し、Autopilot は実行の開始と終了のみを報告します。",
   "config.grappe.autoActivateThreshold.description": "grappe モードが有効になるレコード件数のしきい値（seed、sync、autopilot）。sandforge.grappe.enabled がオフの場合は無視されます。",
   "config.grappe.grappeSize.description": "grappe パーティションあたりのレコード件数。"

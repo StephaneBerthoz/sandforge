@@ -24,6 +24,7 @@ import { ReviewAutomationTab } from './ReviewAutomationTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
+import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { startForgeRun } from './startForgeRun';
 
 /** Tabs available in the Review phase right panel. */
@@ -235,6 +236,9 @@ export const ForgeReview: React.FC = () => {
 
   return (
     <div data-testid="forge-review" className="flex flex-col gap-4">
+      {/* Why the last run stopped before it wrote anything, when it did:
+          refused, or cancelled at one of its questions, it came back here. */}
+      <ForgeRunGateNotice />
       {graph && (
         <ForgePreviewCard
           graph={graph}

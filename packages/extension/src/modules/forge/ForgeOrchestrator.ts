@@ -221,13 +221,14 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * @param runOptions - Execution inputs that are not part of the user's
    *   config: the RecordType translation table the bridge builds by querying
    *   both orgs before a run, the method per PII category Review holds,
-   *   whether Review asked for the files of the records to be copied, and,
-   *   for a retry, what the run it retries wrote.
+   *   whether Review asked for the files of the records to be copied, for a
+   *   retry, what the run it retries wrote, and what is to see every row
+   *   before the first is written.
    */
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
-    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings' | 'writtenBefore'> & {
+    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings' | 'writtenBefore' | 'beforeWrite'> & {
       anonymizationRules?: ForgeAnonymizationMethods;
       files?: ForgeFileCopyOption;
     },
@@ -254,6 +255,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
           }
         : undefined;
       const writtenBefore = runOptions?.writtenBefore;
+      const beforeWrite = runOptions?.beforeWrite;
       // The objects unchecked on the Forge page leave the run as objects
       // excluded by name: the rows that cannot be written without one of
       // their records are held back and said, not sent for the target to
@@ -281,6 +283,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               keepContactPoints,
               files,
               writtenBefore,
+              beforeWrite,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
@@ -292,7 +295,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               anonymization ||
               keepContactPoints ||
               files ||
-              writtenBefore
+              writtenBefore ||
+              beforeWrite
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
@@ -305,6 +309,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 keepContactPoints,
                 files,
                 writtenBefore,
+                beforeWrite,
               }
             : undefined;
 

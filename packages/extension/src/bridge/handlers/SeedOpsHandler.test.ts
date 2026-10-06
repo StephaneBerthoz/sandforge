@@ -2739,12 +2739,10 @@ describe('SeedOpsHandler', () => {
       expect(summary).toContain('INSERT 200000 SeedData record(s)');
       expect(summary).not.toContain('INSERT 1 SeedData');
 
-      // 200 000 is above the 1 000-record production threshold: the audited
-      // decision must flag approval instead of reading as a one-row insert.
+      // The guard judges the 200 000 records, not a one-row insert.
       const [request] = check.mock.calls[0];
       const result = check.mock.results[0]?.value;
       expect(request.recordCount).toBe(200_000);
-      expect(result?.requiresApproval).toBe(true);
       expect(result?.warnings.join(' ')).toContain('200000 records');
     });
   });

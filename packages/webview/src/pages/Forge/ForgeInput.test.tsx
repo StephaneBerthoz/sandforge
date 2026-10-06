@@ -743,7 +743,7 @@ describe('ForgeInput', () => {
 
   /* ---- Clone directly ---- */
   describe('Clone directly', () => {
-    it('says, where it is chosen, that it stops on neither screen and runs no metadata diff nor read of the target automation', () => {
+    it('says, where it is chosen, that it stops on neither screen and runs no metadata diff, though what fires on insert is still put to the user', () => {
       render(<ForgeInput />);
 
       const button = screen.getByTestId('forge-clone-directly-btn');
@@ -752,7 +752,7 @@ describe('ForgeInput', () => {
       expect(hint.textContent).toContain('without stopping on the graph or on Review');
       expect(hint.textContent).toContain('The metadata diff between the two orgs is not run.');
       expect(hint.textContent).toContain(
-        'Nor is the read of the flows and Apex triggers the target org runs on the records it writes.',
+        'The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first.',
       );
     });
 

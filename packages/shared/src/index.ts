@@ -163,6 +163,13 @@ export {
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,
 } from './utils/forge-target-automation.js';
+export {
+  FORGE_RUN_GATE_CODES,
+  forgeRunGateStopOf,
+  isForgeRunGateCode,
+  type ForgeRunGateCode,
+  type ForgeRunGateStop,
+} from './utils/forge-run-gate.js';
 export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
 
 // Barrel exports — Templates

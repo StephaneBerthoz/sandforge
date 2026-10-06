@@ -921,7 +921,6 @@ describe('AutopilotHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: behavior.allowed,
         requiresConfirmation: behavior.requiresConfirmation ?? false,
-        requiresApproval: false,
         blockedReason: behavior.blockedReason,
         warnings: [],
         impactSummary: 'INSERT 5 Account record(s) on production org tgt [module: autopilot]',

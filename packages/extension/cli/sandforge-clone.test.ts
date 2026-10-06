@@ -114,6 +114,9 @@ describe('sandforge-clone flag validation', () => {
     ['a --max-file-size one call cannot carry', argv('--files', '--max-file-size', '36')],
     ['a --max-file-size that is not a size', argv('--files', '--max-file-size', 'big')],
     ['--include-changed, which goes with --remove', argv('--include-changed')],
+    ['a --max-total that is not a number', argv('--max-total', 'lots')],
+    ['a --max-total of no record', argv('--max-total', '0')],
+    ['a --max-total that is not a whole number', argv('--max-total', '2.5')],
   ])('exits 2 on %s before any org is loaded', async (_label, args) => {
     expect(await run(args)).toBe(2);
     expect(mockExecFileSync).not.toHaveBeenCalled();
@@ -134,6 +137,14 @@ describe('sandforge-clone flag validation', () => {
     );
 
     expect((result as Error).message).toBe('sf org display reached');
+  });
+
+  it('takes --accept-automation and --max-total, and caps a run at 10 000 records unless told', () => {
+    expect(parseArgs(argv())).toMatchObject({ acceptAutomation: false, maxTotal: 10_000 });
+    expect(parseArgs(argv('--accept-automation', '--max-total', '25'))).toMatchObject({
+      acceptAutomation: true,
+      maxTotal: 25,
+    });
   });
 
   it('reaches the org lookup when every flag is valid', async () => {
@@ -1203,11 +1214,19 @@ describe('sandforge-clone describes', () => {
           const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
           if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, records: [] };
           if (soql.includes(' FROM RecordType ')) return { totalSize: 0, records: [] };
+          // No flow runs on its objects, and no trigger: a run need not be
+          // told to go on regardless.
+          if (soql.includes(' FROM FlowDefinitionView ')) return { totalSize: 0, records: [] };
           const records = selectRows(ROWS, soql);
           return { totalSize: records.length, records };
         },
+        tooling: {
+          query: async () => ({ totalSize: 0, done: true, records: [] }),
+          queryMore: async () => ({ totalSize: 0, done: true, records: [] }),
+        },
         // Where a real connection sends every call, which the run counts.
-        // These methods answer without it.
+        // These methods answer without it, and the limits it is asked for
+        // say nothing of the data storage.
         request: async () => ({}),
       };
       return { conn: conn as unknown as Connection, asked, written };
@@ -1307,8 +1326,9 @@ describe('sandforge-clone describes', () => {
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
       expect(sent.length).toBeGreaterThan(recordTypes.length + reads.length);
+      // And the target's limits, read once every row is in hand.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
       );
     });
 
@@ -1366,8 +1386,9 @@ describe('sandforge-clone describes', () => {
       );
       expect(recordTypes).toHaveLength(4);
       expect(printed).toContain('record-types: 2 mappings');
+      // And the target's limits, read once every row is in hand.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
       );
     });
 
@@ -1472,8 +1493,16 @@ describe('sandforge-clone describes', () => {
             }
             const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
             if (counted) return { totalSize: (rows[counted[1]] ?? []).length, records: [] };
+            // No flow and no trigger of the target fires as the account goes in.
+            if (soql.includes(' FROM FlowDefinitionView ')) {
+              return { totalSize: 0, done: true, records: [] };
+            }
             const records = selectRows(rows, soql);
             return { totalSize: records.length, done: true, records };
+          },
+          tooling: {
+            query: async () => ({ totalSize: 0, done: true, records: [] }),
+            queryMore: async () => ({ totalSize: 0, done: true, records: [] }),
           },
           request: async (url: unknown) => {
             if (typeof url === 'string' && url.includes('/ui-api/')) {
@@ -1649,8 +1678,9 @@ describe('sandforge-clone describes', () => {
       expect(await run(argv('--skip-preflight'))).toBe(1);
 
       expect(stderr.join('')).toContain(
-        'TGT is a production org (its Organization record says IsSandbox false): ' +
-          'sandforge-clone writes to sandboxes only. Nothing was written',
+        'TGT is a production org (its Organization record says IsSandbox false, and no ' +
+          'edition): sandforge-clone writes to sandboxes and Developer Edition orgs only. ' +
+          'Nothing was written',
       );
       expect(orgs.TGT.written).toEqual([]);
       // Refused before discovery described anything.

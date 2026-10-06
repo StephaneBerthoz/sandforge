@@ -39,7 +39,6 @@ export interface OperationRequest {
 export interface SafetyCheckResult {
   allowed: boolean;
   requiresConfirmation: boolean;
-  requiresApproval: boolean;
   blockedReason?: string;
   warnings: string[];
   impactSummary: string;
@@ -48,9 +47,95 @@ export interface SafetyCheckResult {
 const DESTRUCTIVE_OPERATIONS = new Set<string>(['delete', 'hardDelete']);
 
 /** Volume thresholds that trigger safety gates per tier */
-const PRODUCTION_APPROVAL_THRESHOLD = 1_000;
 const STAGING_CONFIRMATION_THRESHOLD = 10_000;
 const DEV_WARNING_THRESHOLD = 50_000;
+
+/**
+ * The volume past which a write to an org of `tier` is a large one, as the
+ * guard's warning says it: 10 000 records on staging, which then asks, and
+ * 50 000 on a sandbox or a scratch org, which never asks. A production write
+ * is warned about whatever its volume, so it has none.
+ *
+ * The guard's check says it in `warnings`, which every write path dropped: a
+ * run of 50 000 records into a sandbox went ahead without a word. A path that
+ * puts a confirmation to the user says it there, against the volume it has
+ * counted.
+ */
+export function largeVolumeThreshold(tier: SafetyTier): number | undefined {
+  switch (tier) {
+    case 'production':
+      return undefined;
+    case 'staging':
+      return STAGING_CONFIRMATION_THRESHOLD;
+    case 'development':
+    case 'scratch':
+      return DEV_WARNING_THRESHOLD;
+  }
+}
+
+/** One flow or Apex trigger of the target that fires as a run inserts its records. */
+export interface FiredOnInsert {
+  objectApiName: string;
+  kind: 'flow' | 'trigger';
+  /** The flow's label, or the trigger's name. */
+  name: string;
+}
+
+/**
+ * What a run asks before it reads anything: what the target org runs as the
+ * run inserts its records.
+ */
+export interface AutomationConfirmation {
+  stage: 'automation';
+  /** The org the run writes to, as the user knows it. */
+  org: string;
+  orgTier: SafetyTier;
+  /** What fires on insert, per object; empty when none was found in what could be read. */
+  fired: FiredOnInsert[];
+  /**
+   * What could not be read of the target's automation, and why: what fires
+   * is then not known. `automation` when none of it could be read.
+   */
+  unread: Array<{ part: 'flows' | 'triggers' | 'automation'; reason: string }>;
+  /** Custom permissions that keep some of those flows from starting for the user who holds them. */
+  bypass: string[];
+}
+
+/** The data storage a run's rows take, and what the target has: read, or not. */
+export type WriteConfirmationStorage =
+  | {
+      estimateMB: number;
+      maxMB: number;
+      remainingMB: number;
+      /** Whether the rows take more than 80 % of what is left. */
+      near: boolean;
+    }
+  | { estimateMB: number; unread: string };
+
+/**
+ * What a run asks once it has read every row it writes, before it writes the
+ * first: how many, and the storage they take.
+ */
+export interface WriteConfirmation {
+  stage: 'write';
+  /** The org the run writes to, as the user knows it. */
+  org: string;
+  orgTier: SafetyTier;
+  /** The rows to write, per object, the most first. */
+  objects: Array<{ objectApiName: string; rows: number }>;
+  total: number;
+  /** The `sandforge.safety.confirmAboveRecords` value the total is past; absent when it is not. */
+  aboveRecords?: number;
+  /** The guard's large-volume line the total is past ({@link largeVolumeThreshold}); absent when it is not. */
+  largeVolume?: number;
+  storage: WriteConfirmationStorage;
+}
+
+/** A question a run puts to the user through the guard's confirmation channel. */
+export type RunConfirmation = AutomationConfirmation | WriteConfirmation;
+
+/** What came of a run's question: answered, or never put, for want of anyone to ask. */
+export type RunConfirmationAnswer = 'confirmed' | 'declined' | 'unavailable';
 
 /** Optional runtime configuration for {@link ProductionGuard}. */
 export interface ProductionGuardOptions {
@@ -70,6 +155,14 @@ export interface ProductionGuardOptions {
    * question that it wrote to a production org.
    */
   requestConfirmation?: (impactSummary: string, orgTier: SafetyTier) => Promise<boolean>;
+  /**
+   * Puts a run's question ({@link RunConfirmation}) to the user: what the
+   * target runs as the run inserts, before it reads; how much it writes and
+   * the storage that takes, before it writes. Resolves to the user's consent.
+   * Wired in the extension to the same modal as {@link requestConfirmation};
+   * absent, there is nobody to ask, and {@link confirmRun} says so.
+   */
+  requestRunConfirmation?: (question: RunConfirmation) => Promise<boolean>;
 }
 
 /**
@@ -140,6 +233,16 @@ export class ProductionGuard {
     return this.options.requestConfirmation(result.impactSummary, orgTier);
   }
 
+  /**
+   * Put a run's question to the user. Unlike {@link confirmIfNeeded}, a host
+   * with nobody to ask does not let the run through: the answer says so, and
+   * a run that needed it does not go on without it.
+   */
+  async confirmRun(question: RunConfirmation): Promise<RunConfirmationAnswer> {
+    if (!this.options.requestRunConfirmation) return 'unavailable';
+    return (await this.options.requestRunConfirmation(question)) ? 'confirmed' : 'declined';
+  }
+
   /** Whether production operations require an explicit confirmation (setting-backed). */
   private requireProdConfirmation(): boolean {
     return this.options.isProdConfirmationRequired?.() ?? true;
@@ -164,7 +267,6 @@ export class ProductionGuard {
       return {
         allowed: false,
         requiresConfirmation: false,
-        requiresApproval: false,
         blockedReason:
           `deploy is not allowed on production org ${request.orgId}: ` +
           'SandForge deploys metadata to sandboxes only',
@@ -177,14 +279,11 @@ export class ProductionGuard {
       return {
         allowed: false,
         requiresConfirmation: false,
-        requiresApproval: false,
         blockedReason: `${request.operation} is not allowed on production org ${request.orgId}`,
         warnings,
         impactSummary: buildImpactSummary(request),
       };
     }
-
-    const requiresApproval = countForThreshold(request.recordCount) > PRODUCTION_APPROVAL_THRESHOLD;
 
     if (isDestructive && isOverridden) {
       warnings.push('Production override is active — destructive operation permitted');
@@ -193,7 +292,6 @@ export class ProductionGuard {
     return {
       allowed: true,
       requiresConfirmation: this.requireProdConfirmation(),
-      requiresApproval,
       warnings,
       impactSummary: buildImpactSummary(request),
     };
@@ -227,7 +325,6 @@ export class ProductionGuard {
     return {
       allowed: true,
       requiresConfirmation,
-      requiresApproval: false,
       warnings,
       impactSummary: buildImpactSummary(request),
     };
@@ -246,7 +343,6 @@ export class ProductionGuard {
     return {
       allowed: true,
       requiresConfirmation: false,
-      requiresApproval: false,
       warnings,
       impactSummary: buildImpactSummary(request),
     };

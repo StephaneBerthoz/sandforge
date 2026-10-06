@@ -2441,9 +2441,16 @@
     "graphView": "Visualização em grafo",
     "direct": {
       "action": "Clonar diretamente",
-      "hint": "Descobre o grafo e depois clona o que ele contém como a revisão envia por padrão, sem parar no grafo nem na revisão. A comparação de metadados entre as duas orgs não é executada. Nem são lidos os fluxos e gatilhos Apex que a org de destino executa nos registros gravados.",
+      "hint": "Descobre o grafo e depois clona o que ele contém como a revisão envia por padrão, sem parar no grafo nem na revisão. A comparação de metadados entre as duas orgs não é executada. Os Flows e gatilhos Apex que a org de destino executa ao inserir os registros ainda são lidos antes da execução, e os que forem disparados são apresentados a você primeiro.",
       "discovering": "A clonagem começa assim que a descoberta responde.",
-      "reviewSkipped": "Revisão pulada: esta execução começou assim que a descoberta respondeu, com os objetos que ela incluiu, e a comparação de metadados entre as duas orgs não foi executada. Nem foram lidos os fluxos e gatilhos Apex que a org de destino executa nos registros gravados."
+      "reviewSkipped": "Revisão pulada: esta execução começou assim que a descoberta respondeu, com os objetos que ela incluiu, e a comparação de metadados entre as duas orgs não foi executada. Os Flows e gatilhos Apex que a org de destino executa ao inserir os registros foram lidos antes, e os que forem disparados foram apresentados a você primeiro."
+    },
+    "gate": {
+      "productionTarget": "A execução não começou: a org de destino é uma org de produção, ou uma que o SandForge não consegue dizer que é um sandbox, uma scratch org ou uma org Developer Edition. O Forge grava apenas nessas, e nada foi lido nem gravado. Escolha uma delas como destino.",
+      "automationDeclined": "Você cancelou a execução na confirmação do que a org de destino executa ao inserir os registros. Nada foi lido nem gravado.",
+      "writeDeclined": "Você cancelou a execução antes que ela gravasse qualquer coisa. Os registros de origem foram lidos; nada foi gravado na org de destino.",
+      "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
+      "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida."
     },
     "executionTable": {
       "leftOut": "excluído",

@@ -180,6 +180,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`          |
 | `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`            |
 | `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`            |
+| `sandforge.safety.confirmAboveRecords`     | Ask before a Forge clone writes more than this many records (0: never); one near the target org's data storage is asked about too    | `2000`            |
 | `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false`           |
 | `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                     | `10000`           |
 | `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                         | `5000`            |

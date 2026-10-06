@@ -88,10 +88,14 @@ const WELCOME_FLOW = {
 
 /**
  * An org holding an account and its contact. Its automation is the target's
- * welcome flow; what it is asked over each API is recorded, and a refusal of
- * the flows can be set.
+ * welcome flow, or none; what it is asked over each API is recorded, and a
+ * refusal of the flows can be set, and what its limits say.
  */
-function fakeOrg({ refuseFlows }: { refuseFlows?: Error } = {}) {
+function fakeOrg({
+  refuseFlows,
+  noFlows = false,
+  limits = {},
+}: { refuseFlows?: Error; noFlows?: boolean; limits?: unknown } = {}) {
   const regular: string[] = [];
   const tooling: string[] = [];
   const written: string[] = [];
@@ -119,7 +123,7 @@ function fakeOrg({ refuseFlows }: { refuseFlows?: Error } = {}) {
       }
       if (soql.includes(' FROM FlowDefinitionView ')) {
         if (refuseFlows) throw refuseFlows;
-        return page([WELCOME_FLOW]);
+        return page(noFlows ? [] : [WELCOME_FLOW]);
       }
       const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
       if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, done: true, records: [] };
@@ -135,7 +139,10 @@ function fakeOrg({ refuseFlows }: { refuseFlows?: Error } = {}) {
       },
       queryMore: async () => page([]),
     },
-    request: async () => ({}),
+    request: async (request: unknown) => {
+      const url = typeof request === 'string' ? request : (request as { url?: string }).url;
+      return url === '/limits' ? limits : {};
+    },
   };
   return { conn: conn as unknown as Connection, regular, tooling, written };
 }
@@ -144,6 +151,7 @@ describe('sandforge-clone target automation', () => {
   let printed: string[];
   let errored: string[];
   let stdout: string;
+  let stderr: string;
   let orgs: { SRC: ReturnType<typeof fakeOrg>; TGT: ReturnType<typeof fakeOrg> };
 
   /** Both fake orgs answering for the aliases of `argv`. */
@@ -173,6 +181,7 @@ describe('sandforge-clone target automation', () => {
     printed = [];
     errored = [];
     stdout = '';
+    stderr = '';
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
       printed.push(String(line));
     });
@@ -181,6 +190,10 @@ describe('sandforge-clone target automation', () => {
     });
     vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
       stdout += String(chunk);
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
       return true;
     });
     vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
@@ -195,7 +208,7 @@ describe('sandforge-clone target automation', () => {
   it('says what the target runs on the objects it writes, and the permission that keeps a flow quiet, before it writes', async () => {
     withOrgs();
 
-    expect(await run(argv('--skip-preflight'))).toBeUndefined();
+    expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
 
     const said = printed.indexOf(
       'target automation: what TGT runs on the 2 object(s) the run writes',
@@ -265,23 +278,148 @@ describe('sandforge-clone target automation', () => {
     });
   });
 
-  it('says what it could not read, and the run goes on', async () => {
-    withOrgs(
-      fakeOrg({
-        refuseFlows: Object.assign(new Error('insufficient access rights on object id'), {
-          name: 'INSUFFICIENT_ACCESS',
-          errorCode: 'INSUFFICIENT_ACCESS',
-        }),
+  /** A target that refuses its flows to the user the run reads as. */
+  const flowsRefused = () =>
+    fakeOrg({
+      refuseFlows: Object.assign(new Error('insufficient access rights on object id'), {
+        name: 'INSUFFICIENT_ACCESS',
+        errorCode: 'INSUFFICIENT_ACCESS',
       }),
-    );
+    });
 
-    expect(await run(argv('--skip-preflight'))).toBeUndefined();
+  it('says what it could not read, and goes on when told to', async () => {
+    withOrgs(flowsRefused());
+
+    expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
 
     expect(printed).toContain(
       '  the flows could not be read: INSUFFICIENT_ACCESS: insufficient access rights on object id',
     );
     expect(printed).toContain('  nothing found in what could be read');
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  it('writes nothing when a flow of the target fires on insert, naming it, unless told to go on', async () => {
+    // It printed the flow, then wrote anyway, and the flow ran on each record.
+    withOrgs();
+
+    expect(await run(argv('--skip-preflight'))).toBe(1);
+
+    expect(stderr).toBe(
+      'TGT runs automation on the records this clone inserts: Contact: flow "Contact welcome". ' +
+        'Nothing was written. Add --accept-automation to clone all the same, or turn that ' +
+        'automation off in TGT first.\n',
+    );
+    expect(orgs.TGT.written).toEqual([]);
+    // Refused before it read a row of the source: discovery counted them only.
+    expect(
+      orgs.SRC.regular.some((soql) => /^SELECT (?!COUNT\(\)).* FROM Contact\b/.test(soql)),
+    ).toBe(false);
+    expect(printed).not.toContain('record-type mapping…');
+  });
+
+  it('writes nothing when it could not read what fires, unless told to go on', async () => {
+    withOrgs(flowsRefused());
+
+    expect(await run(argv('--skip-preflight'))).toBe(1);
+
+    expect(stderr).toContain(
+      'The flows of TGT could not be read (INSUFFICIENT_ACCESS: insufficient access rights on ' +
+        'object id), so what fires as the clone inserts is not known. Nothing was written.',
+    );
+    expect(orgs.TGT.written).toEqual([]);
+  });
+
+  it('runs a dry run all the same, saying what a real run would need', async () => {
+    withOrgs();
+
+    expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
+
+    expect(printed).toContain(
+      '  a real run writes nothing without --accept-automation: see what fires as it inserts, ' +
+        'or could not be read, above',
+    );
+    expect(stderr).toBe('');
+    expect(orgs.TGT.written).toEqual([]);
+  });
+
+  it('writes when nothing fires on insert, without being told to', async () => {
+    withOrgs(fakeOrg({ noFlows: true }));
+
+    expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+    expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  describe('before the first write', () => {
+    const STORAGE = { DataStorageMB: { Max: 200, Remaining: 150 } };
+
+    it('says the records it is about to write per object, and the data storage they take', async () => {
+      withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+      const at = printed.indexOf(
+        'write gate: 2 record(s) to write to TGT, about 0.01 MB of data storage',
+      );
+      expect(at).toBeGreaterThan(-1);
+      expect(printed.slice(at + 1, at + 4)).toEqual([
+        `  ${'Account'.padEnd(42)}${'1'.padStart(8)}`,
+        `  ${'Contact'.padEnd(42)}${'1'.padStart(8)}`,
+        '  data storage of TGT: 150 MB left of 200 MB',
+      ]);
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it('refuses a run past --max-total before it writes anything', async () => {
+      withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+      expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
+
+      expect(stderr).toBe(
+        'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
+          '--exclude-object, --filter), or raise --max-total. Nothing was written.\n',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('refuses records the target has no data storage left for, before it writes anything', async () => {
+      withOrgs(fakeOrg({ noFlows: true, limits: { DataStorageMB: { Max: 200, Remaining: 0 } } }));
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(stderr).toBe(
+        'The records to write take about 0.01 MB of data storage, and TGT has 0 MB left of ' +
+          '200 MB: leave objects out, lower the records per object, or free data storage in ' +
+          'TGT. Nothing was written.\n',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('says when it could not read what the target has left, and writes all the same', async () => {
+      withOrgs(fakeOrg({ noFlows: true }));
+
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+      expect(
+        printed.some((line) =>
+          line.startsWith('  the data storage TGT has left could not be read ('),
+        ),
+      ).toBe(true);
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it('says on a dry run what would stop a real one there, and writes nothing', async () => {
+      withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+      expect(await run(argv('--skip-preflight', '--dry-run', '--max-total', '1'))).toBe(undefined);
+
+      expect(printed).toContain(
+        '  a real run would be refused: The run would write 2 records, more than --max-total 1: ' +
+          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total.',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+    });
   });
 
   it('reads nothing of it when it only lists the objects of the graph', async () => {

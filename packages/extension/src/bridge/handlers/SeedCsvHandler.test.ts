@@ -702,7 +702,6 @@ describe('SeedCsvHandler', () => {
       const check = vi.fn().mockReturnValue({
         allowed: behavior.allowed,
         requiresConfirmation: behavior.requiresConfirmation ?? false,
-        requiresApproval: false,
         blockedReason: behavior.blockedReason,
         warnings: [],
         impactSummary: 'INSERT 1 Account record(s) on production org tgt-org [module: seed]',

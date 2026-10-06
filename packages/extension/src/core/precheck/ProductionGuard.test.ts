@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProductionGuard } from './ProductionGuard';
-import type { OperationRequest } from './ProductionGuard';
+import { ProductionGuard, largeVolumeThreshold } from './ProductionGuard';
+import type { OperationRequest, RunConfirmation } from './ProductionGuard';
 
 function createRequest(overrides?: Partial<OperationRequest>): OperationRequest {
   return {
@@ -83,30 +83,19 @@ describe('ProductionGuard', () => {
       expect(result.requiresConfirmation).toBe(true);
     });
 
-    it('should require approval for > 1000 records on production', () => {
-      const request = createRequest({
-        orgTier: 'production',
-        operation: 'insert',
-        recordCount: 1001,
-      });
+    // A second person's approval above 1 000 records was computed and read
+    // nowhere: no write path asked for it, and the check no longer claims it.
+    it('asks for the same confirmation of a production write whatever its volume', () => {
+      const small = guard.check(
+        createRequest({ orgTier: 'production', operation: 'insert', recordCount: 1 }),
+      );
+      const large = guard.check(
+        createRequest({ orgTier: 'production', operation: 'insert', recordCount: 200_000 }),
+      );
 
-      const result = guard.check(request);
-
-      expect(result.allowed).toBe(true);
-      expect(result.requiresConfirmation).toBe(true);
-      expect(result.requiresApproval).toBe(true);
-    });
-
-    it('should not require approval for <= 1000 records on production', () => {
-      const request = createRequest({
-        orgTier: 'production',
-        operation: 'insert',
-        recordCount: 1000,
-      });
-
-      const result = guard.check(request);
-
-      expect(result.requiresApproval).toBe(false);
+      expect(large.allowed).toBe(true);
+      expect(large.requiresConfirmation).toBe(small.requiresConfirmation);
+      expect(large).not.toHaveProperty('requiresApproval');
     });
 
     it('should always add a production warning', () => {
@@ -215,7 +204,6 @@ describe('ProductionGuard', () => {
 
       expect(result.allowed).toBe(true);
       expect(result.requiresConfirmation).toBe(false);
-      expect(result.requiresApproval).toBe(false);
     });
 
     it('should allow all operations on scratch without confirmation', () => {
@@ -374,14 +362,6 @@ describe('ProductionGuard', () => {
       expect(result.warnings[0]).toContain('(0 records)');
     });
 
-    it('keeps an uncounted request below the production approval threshold', () => {
-      const result = guard.check(
-        createRequest({ orgTier: 'production', operation: 'insert', recordCount: 'unknown' }),
-      );
-
-      expect(result.requiresApproval).toBe(false);
-    });
-
     it('does not warn about volume on staging or development when the count is unknown', () => {
       const staging = guard.check(createRequest({ orgTier: 'staging', recordCount: 'unknown' }));
       const dev = guard.check(createRequest({ orgTier: 'development', recordCount: 'unknown' }));
@@ -450,7 +430,7 @@ describe('ProductionGuard', () => {
       expect(dev.warnings).toEqual([
         'Large volume operation: at most 60000 records on development org',
       ]);
-      expect(production.requiresApproval).toBe(true);
+      expect(production.warnings[0]).toContain('at most 1500 records');
     });
 
     it('asks nothing of a staging run whose most stays under the threshold', () => {
@@ -533,6 +513,59 @@ describe('ProductionGuard', () => {
       const uiGuard = new ProductionGuard({ requestConfirmation: confirm });
       const result = uiGuard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
       await expect(uiGuard.confirmIfNeeded(result, 'production')).resolves.toBe(true);
+    });
+  });
+
+  describe('largeVolumeThreshold', () => {
+    it('is the line past which the check warns of a large volume, per tier', () => {
+      expect(largeVolumeThreshold('development')).toBe(50_000);
+      expect(largeVolumeThreshold('scratch')).toBe(50_000);
+      expect(largeVolumeThreshold('staging')).toBe(10_000);
+      // Warned about whatever its volume.
+      expect(largeVolumeThreshold('production')).toBeUndefined();
+    });
+
+    it('matches the warnings the check gives', () => {
+      const line = largeVolumeThreshold('development') ?? 0;
+      expect(guard.check(createRequest({ recordCount: line })).warnings).toEqual([]);
+      expect(guard.check(createRequest({ recordCount: line + 1 })).warnings).toEqual([
+        'Large volume operation: 50001 records on development org',
+      ]);
+    });
+  });
+
+  describe('confirmRun', () => {
+    const question: RunConfirmation = {
+      stage: 'automation',
+      org: 'DEV',
+      orgTier: 'development',
+      fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' }],
+      unread: [],
+      bypass: [],
+    };
+
+    it('puts the question to the user and says what they answered', async () => {
+      const ask = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      const uiGuard = new ProductionGuard({ requestRunConfirmation: ask });
+
+      await expect(uiGuard.confirmRun(question)).resolves.toBe('confirmed');
+      await expect(uiGuard.confirmRun(question)).resolves.toBe('declined');
+      expect(ask).toHaveBeenCalledWith(question);
+    });
+
+    it('never lets a run through when there is nobody to ask', async () => {
+      // confirmIfNeeded proceeds on such a host; a run's own question does not.
+      await expect(guard.confirmRun(question)).resolves.toBe('unavailable');
+    });
+
+    it('is not the production confirmation: the setting that removes that one leaves it', async () => {
+      const ask = vi.fn().mockResolvedValue(false);
+      const uiGuard = new ProductionGuard({
+        isProdConfirmationRequired: () => false,
+        requestRunConfirmation: ask,
+      });
+
+      await expect(uiGuard.confirmRun(question)).resolves.toBe('declined');
     });
   });
 });
