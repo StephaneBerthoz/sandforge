@@ -86,20 +86,15 @@ describe('AnonymizePanel', () => {
     expect(screen.getByTestId('template-rule-count').textContent).toBe('1 rule');
   });
 
-  it('should leave the preview button inert instead of masking data for real', () => {
+  it('offers no Preview button, and no "coming soon" in its place', () => {
     // Preview and Apply were wired to one handler, so "Preview" ran the
-    // irreversible org write. No dry-run exists in the message contract.
-    const onApply = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
-    const preview = screen.getByTestId('preview-btn') as HTMLButtonElement;
-    expect(preview.disabled).toBe(true);
-    fireEvent.click(preview);
-    expect(onApply).not.toHaveBeenCalled();
-  });
-
-  it('should say the preview is not built yet', () => {
+    // irreversible org write; then it sat disabled under "Coming soon", since
+    // no dry run exists in the message contract. Apply is all there is.
     render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
-    expect(screen.getByTestId('preview-unavailable').textContent).toBe('Coming soon');
+    expect(screen.getByTestId('apply-btn')).toBeDefined();
+    expect(screen.queryByTestId('preview-btn')).toBeNull();
+    expect(screen.queryByText('Preview')).toBeNull();
+    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
   it('should not anonymize on the apply click alone', () => {

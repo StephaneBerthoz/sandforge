@@ -134,6 +134,9 @@ const complianceRequestPayloadSchema = z.object({
   framework: z.string().min(1).max(50),
   graph: forgeGraphSchema,
   config: forgeConfigSchema,
+  // The method Review holds per PII category, as the run is sent it: the
+  // report describes what the run would write.
+  anonymizationRules: forgeAnonymizationRulesSchema.optional(),
 });
 const metadataDiffRequestPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
@@ -2349,7 +2352,7 @@ export class ForgeHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const { framework, graph, config } = parsed;
+    const { framework, graph, config, anonymizationRules } = parsed;
     const operationId = `forge-compliance-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Generating compliance report');
     try {
@@ -2361,8 +2364,8 @@ export class ForgeHandler implements DomainHandler {
             this.complianceService!.generate(
               framework as ComplianceFrameworkType,
               graph,
-              config.sourceOrgId,
-              config.targetOrgId,
+              config,
+              anonymizationRules,
             ),
           ),
       );

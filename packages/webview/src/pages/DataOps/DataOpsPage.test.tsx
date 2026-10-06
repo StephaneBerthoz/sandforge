@@ -544,15 +544,14 @@ describe('DataOpsPage', () => {
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
     };
 
-    it('should not send dataops:anonymize when Preview is clicked', () => {
+    it('offers no Preview, whose click once masked the org for real', () => {
       openTemplate();
 
       // onPreview and onApply were the same handler, so the button labelled
-      // "Preview" masked the org's records irreversibly.
-      const preview = screen.getByTestId('preview-btn') as HTMLButtonElement;
-      expect(preview.disabled).toBe(true);
-      fireEvent.click(preview);
-
+      // "Preview" masked the org's records irreversibly; it stayed on screen,
+      // disabled, under "Coming soon".
+      expect(screen.getByTestId('apply-btn')).toBeDefined();
+      expect(screen.queryByTestId('preview-btn')).toBeNull();
       expect(mockAnonymizeMutate).not.toHaveBeenCalled();
     });
 

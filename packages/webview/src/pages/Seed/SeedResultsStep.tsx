@@ -6,6 +6,7 @@ import type {
   SeedTemplateSaveResponse,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useFileSave } from '../../hooks/useFileSave';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -16,6 +17,39 @@ const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   partial: 'warning',
   failure: 'error',
 };
+
+/**
+ * The CSV of a run's results, one row per object: the records the run asked
+ * for, the ones it created and the ones it failed, then the ids of the records
+ * it created.
+ *
+ * The host posts at most the first 1,000 ids of an object, however many it
+ * created (SeedOpsHandler caps the lists it sends to the webview), so the last
+ * column counts the created records whose id the file does not hold: a cut
+ * list is not read as the whole run. "Requested" is the count the run's
+ * template asked for, which a relation sets for its child object; it is empty
+ * when the step has no template.
+ */
+export function buildSeedResultsCsv(
+  result: SeedExecutionResult,
+  template: SeedTemplate | null,
+): string {
+  const requested = new Map(
+    (template?.objects ?? []).map((object) => [object.objectApiName, object.recordCount]),
+  );
+  const rows = [
+    ['Object', 'Requested', 'Created', 'Failed', 'Created IDs', 'Created IDs not listed'],
+    ...result.objectResults.map((object) => [
+      object.objectApiName,
+      String(requested.get(object.objectApiName) ?? ''),
+      String(object.recordsCreated),
+      String(object.recordsFailed),
+      object.createdIds.join(' '),
+      String(Math.max(0, object.recordsCreated - object.createdIds.length)),
+    ]),
+  ];
+  return rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+}
 
 /** Props for the SeedResultsStep section. */
 export interface SeedResultsStepProps {
@@ -59,6 +93,17 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
     };
     saveTemplate.mutate({ template: named as unknown as Record<string, unknown> });
   }, [template, saveTemplate]);
+
+  // The button had no handler: it was shown on every results step and saved
+  // nothing. The host writes the file, as every export in the panel does.
+  const { save, saving } = useFileSave();
+  const handleExportCsv = useCallback(() => {
+    if (!executionResult) return;
+    const date = new Date().toISOString().slice(0, 10);
+    save(`sandforge-seed-results-${date}.csv`, buildSeedResultsCsv(executionResult, template), [
+      'csv',
+    ]);
+  }, [executionResult, template, save]);
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-results-content">
@@ -148,7 +193,13 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             >
               {t('seed.saveAsTemplate')}
             </Button>
-            <Button variant="secondary" size="sm" data-testid="btn-export-csv">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={saving}
+              onClick={handleExportCsv}
+              data-testid="btn-export-csv"
+            >
               {t('seed.exportCsv')}
             </Button>
             <Button variant="primary" size="sm" onClick={onSeedAgain} data-testid="btn-seed-again">

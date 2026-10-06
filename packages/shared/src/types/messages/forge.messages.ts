@@ -115,10 +115,20 @@ export interface ForgePlanRequest extends BaseMessage {
   payload: { graph: ForgeGraph; config: ForgeConfig };
 }
 
-/** `forge:compliance:request`. WebView -> Extension. Produce a PII compliance report. */
+/**
+ * `forge:compliance:request`. WebView -> Extension. Produce a PII compliance
+ * report on what the run would write: the config's anonymize toggle, the
+ * fields selected on the graph's nodes, and the method per category Review
+ * holds, as `forge:execute` sends them.
+ */
 export interface ForgeComplianceRequest extends BaseMessage {
   type: 'forge:compliance:request';
-  payload: { framework: string; graph: ForgeGraph; config: ForgeConfig };
+  payload: {
+    framework: string;
+    graph: ForgeGraph;
+    config: ForgeConfig;
+    anonymizationRules?: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+  };
 }
 
 /** `forge:metadata-diff:request`. WebView -> Extension. Diff object metadata between two orgs (max 100 objects). */

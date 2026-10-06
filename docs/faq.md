@@ -54,7 +54,7 @@ Yes. SandForge detects self-referential relationships and uses a two-pass insert
 
 ### Can I automate recurring operations?
 
-Partly. The **Automation** module provides a visual pipeline builder where you compose and save pipelines from 15 step types (seed, sync, backup, restore, anonymize, delete, compare, precheck, script, notification, approval, delay, condition, loop, parallel) and start them by hand, on a cron schedule, or when SandForge notices a refresh of a sandbox you choose. A schedule and a refresh trigger start a saved pipeline only while VS Code is open, one run at a time, and a start that falls due while VS Code is closed is written to the history as missed, never made late. Six of them run: `backup` takes a DataOps snapshot into local storage, `compare` diffs the metadata of two orgs, `precheck` reads an org's API usage, storage, error logs or failed jobs, `notification` shows a VS Code notification, and `delay` and `condition` wait and branch. No pipeline step writes to your org: a pipeline holding `seed`, `sync`, `restore`, `anonymize`, `delete`, `script`, `approval`, `loop` or `parallel` is refused before its first step and recorded as failed. Event, webhook and deployment triggers are not wired yet: nothing fires them — see the [Automation guide](modules/automation.md).
+Partly. The **Automation** module provides a visual pipeline builder where you compose and save pipelines and start them by hand, on a cron schedule, or when SandForge notices a refresh of a sandbox you choose. A schedule and a refresh trigger start a saved pipeline only while VS Code is open, one run at a time, and a start that falls due while VS Code is closed is written to the history as missed, never made late. Six step types run: `backup` takes a DataOps snapshot into local storage, `compare` diffs the metadata of two orgs, `precheck` reads an org's API usage, storage, error logs or failed jobs, `notification` shows a VS Code notification, and `delay` and `condition` wait and branch; the palette offers all of them but `condition`, which comes with a Marketplace template. No pipeline step writes to your org: a pipeline holding a `seed`, `sync`, `restore`, `anonymize`, `delete`, `script`, `approval`, `loop` or `parallel` step — from a template or a draft — is refused before its first step and recorded as failed. Event, webhook and deployment triggers start nothing, and the panel does not offer them — see the [Automation guide](modules/automation.md).
 
 ### Does SandForge support Salesforce DX and scratch orgs?
 
@@ -107,7 +107,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 
 1. Check the Monitor dashboard for current API usage -- high consumption slows API responses
 2. Reduce concurrent operations if multiple are running simultaneously
-3. Split very large loads into several smaller runs — SandForge executes a run sequentially, so splitting is what actually shortens it. (Grappe, when enabled, reports progress per partition; it does not run the partitions concurrently.)
+3. Split very large loads into several smaller runs — SandForge executes a run sequentially, so splitting is what actually shortens it. (The Grappe page shows such a run's progress partition by partition once `sandforge.grappe.enabled` is on; it does not run the partitions concurrently, so it shortens nothing.)
 4. Org tier matters: Developer sandboxes have lower API limits than Full sandboxes
 5. Close unused VSCode extension panels to free memory
 

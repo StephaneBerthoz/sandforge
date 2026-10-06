@@ -44,16 +44,21 @@ export interface TriggerConfigPanelProps {
   onUpdateTriggerConfig?: (triggerId: string, config: Partial<TriggerConfig>) => void;
 }
 
-const TRIGGER_TYPES: TriggerType[] = [
-  'manual',
-  'schedule',
-  'event',
-  'webhook',
-  'sandbox_refresh',
-  'deployment_complete',
-];
+/**
+ * The trigger types the panel adds: the ones that start a run.
+ *
+ * It offered all six, the three that start nothing marked "Coming soon" in
+ * the list and on their cards: an event trigger has no event source, a webhook
+ * no port to reach, a deployment trigger nothing watching an org's
+ * deployments. A trigger added from the list now starts the pipeline.
+ */
+const OFFERED_TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'sandbox_refresh'];
 
-/** The types that start nothing yet; each card says why. */
+/**
+ * The types that start nothing. The panel adds none, but a pipeline saved by
+ * an older release, imported with a profile or installed from a template can
+ * hold one: its card stays, and says why it starts nothing.
+ */
 type IdleTriggerType = 'event' | 'webhook' | 'deployment_complete';
 
 function startsNothing(type: TriggerType): type is IdleTriggerType {
@@ -169,9 +174,10 @@ const TriggerState: React.FC<{
 /**
  * Panel for configuring pipeline triggers.
  *
- * Three types start a run: Manual from the Run button, Schedule and Sandbox
- * Refresh from the extension, once the pipeline is saved. The other three
- * start nothing, and their cards say why.
+ * Three types start a run, and they are the three it adds: Manual from the Run
+ * button, Schedule and Sandbox Refresh from the extension, once the pipeline
+ * is saved. A trigger of another type, held by a pipeline the panel did not
+ * build, starts nothing, and its card says why.
  */
 export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   triggers = [],
@@ -221,13 +227,9 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
           <Select
             value={newTriggerType}
             onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
-            // The list says which choice starts nothing before it is made,
-            // not after the trigger is added.
-            options={TRIGGER_TYPES.map((type) => ({
+            options={OFFERED_TRIGGER_TYPES.map((type) => ({
               value: type,
-              label: startsNothing(type)
-                ? `${t(`automation.triggerTypes.${type}`)} (${t('common.comingSoon')})`
-                : t(`automation.triggerTypes.${type}`),
+              label: t(`automation.triggerTypes.${type}`),
             }))}
             aria-label={t('a11y.triggerType')}
             data-testid="trigger-type-select"
@@ -269,11 +271,6 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                 title={t(`automation.triggerTypes.${trigger.type}`)}
                 action={
                   <div className="flex items-center gap-2">
-                    {startsNothing(trigger.type) && (
-                      <span data-testid={`trigger-coming-soon-${trigger.id}`}>
-                        <Badge variant="info">{t('common.comingSoon')}</Badge>
-                      </span>
-                    )}
                     <Badge variant={TRIGGER_VARIANT[trigger.type]}>
                       {trigger.enabled ? t('common.active') : t('common.disabled')}
                     </Badge>

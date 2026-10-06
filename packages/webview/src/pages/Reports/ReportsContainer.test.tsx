@@ -94,13 +94,29 @@ describe('ReportsContainer', () => {
     mockPostMessage.mockClear();
   });
 
-  it('says the executions tab is unwired while nothing has answered', () => {
-    // `undefined` is "no producer supplied this" — the state the module was
-    // shipped in. It must not be confused with an empty history.
+  it('says each tab is loading while nothing has answered, not that it is coming', () => {
+    // An answer not in yet left every prop undefined, which the page read as
+    // "no producer": all four tabs said "Coming soon" about features it had.
     render(<ReportsContainer />);
 
     expect(screen.getByTestId('reports-page')).toBeDefined();
     expect(screen.queryByTestId('reports-kpi-row')).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getByTestId('reports-executions-loading')).toBeDefined();
+    expect(screen.queryByText('Coming soon')).toBeNull();
+  });
+
+  it('says a tab is loading before the first query has even been sent', () => {
+    // `loading` turns on in the effect that sends the query, a render after
+    // the first: until then nothing has answered, and nothing has failed.
+    queries['reports:list'] = { data: null, loading: false, error: null };
+    queries['reports:audit'] = { data: null, loading: false, error: null };
+    queries['reports:lineage'] = { data: null, loading: false, error: null };
+
+    render(<ReportsContainer />);
+
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getByTestId('reports-executions-loading')).toBeDefined();
   });
 
   it('renders the KPI row once the host answers, even with no runs yet', () => {

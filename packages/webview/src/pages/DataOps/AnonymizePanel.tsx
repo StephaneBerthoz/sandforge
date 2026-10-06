@@ -155,22 +155,12 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 </div>
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="flex flex-wrap gap-2">
-                    {/* Preview ran the very same irreversible mutation as
-                        Apply: one handler was wired to both. `dataops:anonymize`
-                        carries no dry-run flag, so no simulation is possible
-                        today. The button stays visible and inert, the way the
-                        gdpr and cleanup tabs stay visible — a missing
-                        control does not tell the reader the capability is
-                        planned, and a live one here masked real records. */}
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled
-                      title={t('common.comingSoon')}
-                      data-testid="preview-btn"
-                    >
-                      {t('dataops.previewAnonymization')}
-                    </Button>
+                    {/* No Preview button. One ran the very same irreversible
+                        mutation as Apply, through one handler wired to both,
+                        and was then left disabled under "Coming soon":
+                        `dataops:anonymize` carries no dry-run flag, so there
+                        is nothing a preview could run. Apply, behind its typed
+                        confirmation, is the one way to run a template. */}
                     <Button
                       variant="primary"
                       size="sm"
@@ -215,9 +205,6 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         </Button>
                       ))}
                   </div>
-                  <span className="text-xs text-text-secondary" data-testid="preview-unavailable">
-                    {t('common.comingSoon')}
-                  </span>
                 </div>
               </div>
             </CardBody>

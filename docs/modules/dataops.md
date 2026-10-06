@@ -105,9 +105,9 @@ your own:
   the same pseudonym on a contact and on a lead. GDPR Standard makes up an
   email at `example.invalid` too, as the Fake method does for every address
   it writes
-- **No preview.** The Preview button is disabled: the preview it used to run
-  applied the mask to the org for real, so it was inerted rather than left in
-  place. Apply is the only path, and it is irreversible -- back up first.
+- **No preview.** The panel offers no Preview: the one it used to show
+  applied the mask to the org for real, and nothing can run a template without
+  writing. Apply is the only path, and it is irreversible -- back up first.
 - **Your own templates.** **Create Template** opens an editor on the rules of
   the template on screen, or on none: change a rule's field or method, add or
   remove rules, name the set and save it. A rule names its field as

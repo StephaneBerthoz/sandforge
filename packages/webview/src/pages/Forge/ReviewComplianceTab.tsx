@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
-import { buildMessage } from '../../bridge/messageHelpers';
-import type { BaseMessage, ComplianceReport } from '@sandforge/shared';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import type { ComplianceReport } from '@sandforge/shared';
+import { Button } from '../../components/ui/Button';
+import { ErrorBanner } from '../../components/ui/ErrorBanner';
+
+/** What `forge:compliance:response` carries: no report for the framework `none`. */
+interface CompliancePayload {
+  report: ComplianceReport | null;
+}
 
 /** Supported compliance frameworks. */
 const FRAMEWORKS = ['none', 'gdpr', 'ccpa', 'hipaa', 'pci_dss'] as const;
@@ -20,47 +26,54 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 /**
  * Compliance tab within the Forge Review phase.
  *
- * Allows the user to select a regulatory framework and displays
- * the compliance report when available. Sends a compliance request
- * to the backend when a non-none framework is selected.
+ * Allows the user to select a regulatory framework and displays the report
+ * the extension makes of the run as it stands: its anonymize toggle, the
+ * fields selected on each object and the method Review holds per category,
+ * sent as the run itself sends them. A change to any of them, or to the
+ * framework, asks for the report again.
+ *
+ * It listened for the report alone: a refusal or a failure, which the handler
+ * answers on `forge:compliance:error`, left the tab on "Analyzing
+ * compliance..." for good. It says what went wrong now, with a retry.
  */
 export const ReviewComplianceTab: React.FC = () => {
   const { t } = useTranslation();
   const [framework, setFramework] = useState<string>('none');
-  const [loading, setLoading] = useState(false);
   const complianceReport = useForgeStore((s) => s.complianceReport);
   const graph = useForgeStore((s) => s.graph);
   const config = useForgeStore((s) => s.config);
+  const anonymizationRules = useForgeStore((s) => s.anonymizationRules);
   const setComplianceReport = useForgeStore((s) => s.setComplianceReport);
-  const sendMessage = useSendMessage();
+  const compliance = useBridgeMutation<CompliancePayload>('forge:compliance:request', {
+    responseType: 'forge:compliance:response',
+    errorType: 'forge:compliance:error',
+  });
+  const { mutate, reset } = compliance;
 
-  // Send compliance request when framework changes to a non-none value
-  useEffect(() => {
+  const requestReport = useCallback(() => {
     if (framework === 'none' || !graph || !config) {
-      setLoading(false);
+      reset();
       return;
     }
-    setLoading(true);
-    sendMessage(
-      buildMessage('forge:compliance:request', {
-        framework,
-        graph,
-        config,
-      }),
-    );
-  }, [framework, graph, config, sendMessage]);
+    mutate({ framework, graph, config, anonymizationRules });
+  }, [framework, graph, config, anonymizationRules, mutate, reset]);
 
-  // Listen for compliance response from backend
-  useMessageListener<BaseMessage & { payload: { report: ComplianceReport } }>(
-    'forge:compliance:response',
-    useCallback(
-      (msg) => {
-        setComplianceReport(msg.payload.report);
-        setLoading(false);
-      },
-      [setComplianceReport],
-    ),
-  );
+  useEffect(() => {
+    requestReport();
+  }, [requestReport]);
+
+  useEffect(() => {
+    if (compliance.data) setComplianceReport(compliance.data.report);
+  }, [compliance.data, setComplianceReport]);
+
+  const loading = framework !== 'none' && compliance.loading;
+  const error = framework !== 'none' && !compliance.loading ? compliance.error : null;
+  // A report on another framework, or kept from an earlier run, is not shown
+  // as this one's.
+  const report =
+    framework !== 'none' && !loading && !error && complianceReport?.framework === framework
+      ? complianceReport
+      : null;
 
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">
@@ -89,13 +102,31 @@ export const ReviewComplianceTab: React.FC = () => {
         </p>
       )}
 
-      {framework !== 'none' && loading && !complianceReport && (
+      {loading && (
         <p data-testid="compliance-loading" className="text-xs text-text-secondary py-4">
           {t('forge.review.complianceLoading', 'Analyzing compliance...')}
         </p>
       )}
 
-      {framework !== 'none' && !loading && !complianceReport && (
+      {error && (
+        <div data-testid="compliance-error" className="flex flex-col gap-2 py-2">
+          <ErrorBanner
+            data-testid="compliance-error-message"
+            message={t('forge.review.complianceError', { error })}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            onClick={requestReport}
+            data-testid="compliance-retry"
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
+
+      {framework !== 'none' && !loading && !error && !report && (
         <p data-testid="compliance-waiting" className="text-xs text-text-secondary py-4">
           {t(
             'forge.review.complianceWaiting',
@@ -104,31 +135,29 @@ export const ReviewComplianceTab: React.FC = () => {
         </p>
       )}
 
-      {complianceReport && (
+      {report && (
         <div data-testid="compliance-report" className="rounded-lg border border-subtle p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text-primary">
-              {t('forge.review.complianceStatus', 'Status')}: {complianceReport.overallStatus}
+              {t('forge.review.complianceStatus', 'Status')}: {report.overallStatus}
             </span>
             <span
               className={`text-[10px] px-2 py-0.5 rounded ${
-                complianceReport.overallStatus === 'pass'
+                report.overallStatus === 'pass'
                   ? 'bg-status-success/10 text-status-success'
-                  : complianceReport.overallStatus === 'partial'
+                  : report.overallStatus === 'partial'
                     ? 'bg-status-warning/10 text-status-warning'
                     : 'bg-status-error/10 text-status-error'
               }`}
             >
-              {complianceReport.overallStatus.toUpperCase()}
+              {report.overallStatus.toUpperCase()}
             </span>
           </div>
           <div className="text-[10px] text-text-secondary space-y-0.5">
             {/* English whatever the language, and "1 fields anonymized". */}
-            <p>{t('forge.piiWarning', { count: complianceReport.piiFieldsDetected })}</p>
-            <p>
-              {t('forge.review.fieldsAnonymized', { count: complianceReport.piiFieldsAnonymized })}
-            </p>
-            <p>{t('forge.review.fieldsScanned', { count: complianceReport.totalFieldsScanned })}</p>
+            <p>{t('forge.piiWarning', { count: report.piiFieldsDetected })}</p>
+            <p>{t('forge.review.fieldsAnonymized', { count: report.piiFieldsAnonymized })}</p>
+            <p>{t('forge.review.fieldsScanned', { count: report.totalFieldsScanned })}</p>
           </div>
         </div>
       )}

@@ -112,12 +112,21 @@ describe('ReportsPage', () => {
     expect(screen.getByText('Reports & Analytics')).toBeDefined();
   });
 
-  it('should show tabs', () => {
-    render(<ReportsPage />);
-    expect(screen.getByText('Executions')).toBeDefined();
-    expect(screen.getByText('Analytics')).toBeDefined();
-    expect(screen.getByText('Audit Trail')).toBeDefined();
-    expect(screen.getByText('Data Lineage')).toBeDefined();
+  it('should show a tab for each producer', () => {
+    render(
+      <ReportsPage
+        reports={reports}
+        analyticsSummary={summary}
+        auditEntries={auditEntries}
+        lineageData={lineageData}
+      />,
+    );
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Executions',
+      'Analytics',
+      'Audit Trail',
+      'Data Lineage',
+    ]);
   });
 
   it('should show executions tab by default', () => {
@@ -139,7 +148,7 @@ describe('ReportsPage', () => {
 
   it('should switch to lineage tab', () => {
     render(<ReportsPage lineageData={lineageData} />);
-    fireEvent.click(screen.getByText('Data Lineage'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
     expect(screen.getByTestId('lineage-graph')).toBeDefined();
   });
 
@@ -169,12 +178,11 @@ describe('ReportsPage', () => {
   });
 
   /*
-   * PanelRouter mounts the page with no props, so this is what every user
-   * actually sees. Four tiles reading 0 / 0 / 0.0 % / 0 are not an empty
-   * state — nothing produced them, and "0.0 % success" in amber reads as a
-   * failing org rather than as an unbuilt feature.
+   * The page with no producer at all. Four tiles reading 0 / 0 / 0.0 % / 0
+   * are not an empty state — nothing produced them, and "0.0 % success" in
+   * amber reads as a failing org rather than as an absent feature.
    */
-  describe('with no data source (the shipped state)', () => {
+  describe('with no data source', () => {
     it('should print no KPI figures', () => {
       render(<ReportsPage />);
 
@@ -183,46 +191,65 @@ describe('ReportsPage', () => {
       expect(screen.queryByText('0.0%')).toBeNull();
     });
 
-    it('should say the executions tab is not wired yet', () => {
+    it('offers no tab, rather than four that say "Coming soon"', () => {
+      // A tab with no producer said "Coming soon"; and since an answer not in
+      // yet leaves its prop undefined too, every tab of the shipped page said
+      // it until the host answered, about features it already had.
       render(<ReportsPage />);
 
-      expect(screen.getByTestId('reports-executions-soon')).toBeDefined();
-      expect(screen.queryByTestId('execution-report-view')).toBeNull();
-      expect(screen.getByText('Coming soon')).toBeDefined();
+      expect(screen.queryAllByRole('tab')).toHaveLength(0);
+      expect(screen.queryByText('Coming soon')).toBeNull();
     });
 
-    it('should say the analytics tab is not wired yet', () => {
-      render(<ReportsPage />);
-      fireEvent.click(screen.getByText('Analytics'));
+    it('offers only the tabs a producer feeds, opening on the first of them', () => {
+      render(<ReportsPage auditEntries={auditEntries} lineageData={lineageData} />);
 
-      expect(screen.getByTestId('reports-analytics-soon')).toBeDefined();
-      expect(screen.queryByTestId('analytics-dashboard')).toBeNull();
-    });
-
-    it('should say the audit tab is not wired yet', () => {
-      render(<ReportsPage />);
-      fireEvent.click(screen.getByText('Audit Trail'));
-
-      expect(screen.getByTestId('reports-audit-soon')).toBeDefined();
-      expect(screen.queryByTestId('audit-trail-viewer')).toBeNull();
-    });
-
-    it('should say the lineage tab is not wired yet', () => {
-      render(<ReportsPage />);
-      fireEvent.click(screen.getByText('Data Lineage'));
-
-      expect(screen.getByTestId('reports-lineage-soon')).toBeDefined();
-      expect(screen.queryByTestId('lineage-graph')).toBeNull();
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'Audit Trail',
+        'Data Lineage',
+      ]);
+      expect(screen.getByTestId('audit-trail-viewer')).toBeDefined();
     });
   });
 
-  it('should render a measured empty list rather than a coming-soon notice', () => {
-    // `[]` is a producer saying "nothing to report"; `undefined` is no
-    // producer at all. Only the second is a coming-soon state.
+  describe('while a producer reads', () => {
+    it('says the executions and analytics tabs are loading, not coming', () => {
+      render(<ReportsPage reportsLoading />);
+
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'Executions',
+        'Analytics',
+      ]);
+      expect(screen.getByTestId('reports-executions-loading').textContent).toContain('Loading');
+      expect(screen.queryByTestId('execution-report-view')).toBeNull();
+      fireEvent.click(screen.getByText('Analytics'));
+      expect(screen.getByTestId('reports-analytics-loading')).toBeDefined();
+      expect(screen.queryByText('Coming soon')).toBeNull();
+    });
+
+    it('says the audit trail and the lineage are loading', () => {
+      render(<ReportsPage auditLoading lineageLoading />);
+
+      expect(screen.getByTestId('reports-audit-loading')).toBeDefined();
+      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+      expect(screen.getByTestId('reports-lineage-loading')).toBeDefined();
+    });
+
+    it('keeps the tab of a read that failed, to say why', () => {
+      render(<ReportsPage auditError="timed out" />);
+
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Audit Trail']);
+      expect(screen.getByTestId('reports-audit-error').textContent).toContain('timed out');
+    });
+  });
+
+  it('should render a measured empty list rather than a loading notice', () => {
+    // `[]` is a producer saying "nothing to report"; `undefined` is an answer
+    // not in yet, or no producer at all.
     render(<ReportsPage reports={[]} />);
 
     expect(screen.getByTestId('execution-report-view')).toBeDefined();
-    expect(screen.queryByTestId('reports-executions-soon')).toBeNull();
+    expect(screen.queryByTestId('reports-executions-loading')).toBeNull();
   });
 
   describe('once the host answers for the audit trail and the lineage', () => {
@@ -267,7 +294,7 @@ describe('ReportsPage', () => {
           onSelectLineageRun={onSelectLineageRun}
         />,
       );
-      fireEvent.click(screen.getByText('Data Lineage'));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
       expect(screen.queryByTestId('lineage-run')).toBeNull();
       unmount();
 
@@ -278,7 +305,7 @@ describe('ReportsPage', () => {
           onSelectLineageRun={onSelectLineageRun}
         />,
       );
-      fireEvent.click(screen.getByText('Data Lineage'));
+      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
       // Each run is named by what it was, where it wrote and when.
       expect(
         screen.getAllByRole('option', { name: 'Forge Clone · target-sandbox · 2026-02-20 10:00' }),

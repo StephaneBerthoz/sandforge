@@ -54,7 +54,7 @@ Clone records from one Salesforce org to another with a 4-step wizard:
 
 ### Forge (Graph-Based Discovery)
 
-The Forge page provides a richer workflow with three input modes, and a fourth shown as coming soon:
+The Forge page provides a richer workflow with four input modes:
 
 - **Record** -- Paste a Record ID or Salesforce URL, preview the record live, then discover its full dependency graph
 - **SOQL** -- Write a query to pick the root object. Its WHERE clause filters the
@@ -70,9 +70,13 @@ The Forge page provides a richer workflow with three input modes, and a fourth s
   alike: its WHERE clause filters the object after FROM, every object is capped at
   200 records or fewer, and a clause that cannot be sent keeps Discover disabled and
   Reuse last graph hidden.
-- **AI** _(coming soon)_ -- The tab is shown but cannot be opened: nothing turns a
-  prompt into a seed plan yet. A past AI run reopened from the history opens on
-  **Record**.
+- **AI** -- Describe the records to clone, and the model drafts the SOQL query
+  discovery starts from -- NL2SOQL's draft, from the same context, so it needs AI
+  on and an Anthropic key. The draft is checked against the source org, its
+  object, fields and relationships, and stays editable; Discover runs it once the
+  query as it reads has passed the check, as the SOQL run it is. A run from this
+  tab is kept in the history as that SOQL run; one stored as an AI run by an
+  older release reopens on **Record**.
 
 After input, the Discovery phase renders an interactive dependency graph in a split view. Click any node to inspect fields, toggle inclusion, and configure anonymization per field.
 
@@ -90,13 +94,13 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 - Automatic topological sort of parent-child relationships before insert
 - Cycle detection with clear error messages
 - Lookup fields point at records their target object inserted earlier in the same run, picked at random; a relation places each child under a parent instead -- one this run creates or one already in the org -- with the number of children per parent it sets
-- Configurable depth: Direct (1 level), Full (all levels), or Custom (N levels)
+- Configurable depth: Direct (1 level), Full (5 levels), or Custom (1 to 10 levels -- the most discovery accepts)
 - An insert of more than 200 records goes in one Bulk API 2.0 job, its rows with every field any of them carries, and each record's id comes back whatever fields it carries and whatever form the platform writes its values back in: the lookups of the objects inserted after it, and a clone's ID mapping table, can name every record it created
 
 ### Templates and Export
 
 - **Save as template** on the results step stores the configuration the run just used -- its objects, record counts, field rules and relations -- under the objects and the date. It is added to the gallery, next to the pre-built templates, and never overwrites one already there. A save the host refuses shows its reason next to the button
-- Export results to CSV for external reporting
+- **Export CSV** on the results step saves, per object, the records requested, created and failed, with the ids of the records created -- the first 1,000 of an object that created more, and a count of the ones not listed
 - Template Engine supports JSON/CSV with variable interpolation
 
 ## Tips

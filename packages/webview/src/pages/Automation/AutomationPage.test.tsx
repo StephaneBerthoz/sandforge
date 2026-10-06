@@ -238,32 +238,29 @@ describe('AutomationPage', () => {
     expect(screen.getByText('Pipeline validation failed')).toBeDefined();
   });
 
-  it('says on the canvas which steps run and which are refused, before anyone runs a pipeline', () => {
+  it('puts no "coming soon" over the canvas, whose palette offers only the steps that run', () => {
+    // A banner read "Coming soon" above the canvas, about the steps the
+    // palette listed disabled beside it.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
-    const notice = screen.getByTestId('automation-steps-soon');
-    expect(notice.textContent).toContain('Coming soon');
+    expect(screen.getByTestId('step-palette')).toBeDefined();
+    expect(screen.queryByTestId('automation-steps-soon')).toBeNull();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+  });
+
+  it('says on the Marketplace tab which steps of a template run, and promises none for later', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByText('Marketplace'));
+    const notice = screen.getByTestId('automation-marketplace-steps-note');
     expect(notice.textContent).toContain(
-      'Script, Approval, Loop and Parallel steps cannot run in a pipeline yet',
+      'Backup, Compare, Pre-Check, Notification, Delay and Condition steps run in a pipeline',
     );
     expect(notice.textContent).toContain(
       'Seed, Sync, Restore, Anonymize and Delete write to an org, so they run only from their own pages',
     );
-    expect(notice.textContent).toContain(
-      'Backup, Compare, Pre-Check, Notification, Delay and Condition steps run',
-    );
-    // The refused steps are refused; nothing reports a success it did not earn.
-    expect(notice.textContent).not.toMatch(/report success/i);
-  });
-
-  it('says on the Marketplace tab that the steps of a template cannot run yet', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<AutomationPage />);
-    fireEvent.click(screen.getByText('Marketplace'));
-    const notice = screen.getByTestId('automation-marketplace-steps-soon');
-    expect(notice.textContent).toContain('Coming soon');
-    expect(notice.textContent).toContain('cannot run in a pipeline yet');
-    expect(notice.textContent).not.toMatch(/report success/i);
+    expect(notice.textContent).toContain('Script, Approval, Loop and Parallel steps do not run');
+    expect(notice.textContent).not.toMatch(/Coming soon|\byet\b|report success/i);
   });
 
   describe('a pipeline that cannot run', () => {

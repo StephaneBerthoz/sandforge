@@ -32,7 +32,8 @@ const AUDIT_PAGE_SIZE = 100;
  * The page has always been presentational, and `PanelRouter` mounted it with
  * no props at all — so every tab said "not wired yet", correctly. The data it
  * needed was never missing: Forge and Sync have each been storing their runs
- * since they shipped, and `reports:list` reads them.
+ * since they shipped, and `reports:list` reads them. Each read says whether it
+ * is still going, so a tab waiting for its answer says it is loading.
  *
  * The audit trail and the lineage are read the same way, from what every path
  * that writes to an org records when its run ends: `reports:audit` pages the
@@ -42,7 +43,7 @@ const AUDIT_PAGE_SIZE = 100;
 export const ReportsContainer: React.FC = () => {
   // The hook queries on mount by default; the histories only change when a run
   // finishes, so reopening the panel is what re-reads them.
-  const { data, error } = useBridgeQuery<ReportsPayload>('reports:list', undefined, {
+  const { data, error, loading } = useBridgeQuery<ReportsPayload>('reports:list', undefined, {
     responseType: 'reports:list:response',
   });
   const { save } = useFileSave();
@@ -82,15 +83,21 @@ export const ReportsContainer: React.FC = () => {
     onAuditFilterChange: handleAuditFilterChange,
     onShowMoreAudit: () => setAuditLimit((limit) => limit + AUDIT_PAGE_SIZE),
     auditError: audit.error ?? undefined,
+    // A tab is offered while its producer reads, and says so; one with no
+    // producer at all is not offered. Each query is sent on mount, so one that
+    // has neither answered nor failed is reading — `loading` itself only turns
+    // on once the effect that sends it has run, a render after the first.
+    auditLoading: audit.loading || (!audit.data && !audit.error),
     // `undefined` until the host answers; `null` once it says nothing is traced.
     lineageData: lineage.data ? lineage.data.lineage : undefined,
     lineageRuns: lineage.data?.runs,
     onSelectLineageRun: setLineageRun,
     lineageError: lineage.error ?? undefined,
+    lineageLoading: lineage.loading || (!lineage.data && !lineage.error),
   };
 
   // A failed read is not an absent producer: leaving `reports` undefined here
-  // would make the page say "not wired yet" about a feature that is wired and
+  // would take the executions tab away from a feature that is wired and
   // simply did not answer.
   if (error) {
     return <ReportsPage reports={[]} analyticsSummary={data?.summary} {...auditProps} />;
@@ -99,6 +106,7 @@ export const ReportsContainer: React.FC = () => {
   return (
     <ReportsPage
       reports={data?.reports}
+      reportsLoading={loading || !data}
       analyticsSummary={data?.summary}
       onExportReport={handleExportReport}
       {...auditProps}

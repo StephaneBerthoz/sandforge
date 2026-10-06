@@ -1,59 +1,50 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
+import { useForgeStore } from '../../stores/useForgeStore';
 import type { ComplianceReport, ForgeGraph, ForgeConfig } from '@sandforge/shared';
 
-/* ---- Mocks ---- */
+/* ---- The bridge, answered through window messages ---- */
 
-let mockComplianceReport: ComplianceReport | null = null;
-let mockGraph: ForgeGraph | null = null;
-let mockConfig: ForgeConfig | null = null;
-const mockSetComplianceReport = vi.fn();
-const mockSendMessage = vi.fn();
-
-vi.mock('../../stores/useForgeStore', () => {
-  const store = Object.assign(
-    (selector: (state: Record<string, unknown>) => unknown) =>
-      selector({
-        get complianceReport() {
-          return mockComplianceReport;
-        },
-        get graph() {
-          return mockGraph;
-        },
-        get config() {
-          return mockConfig;
-        },
-        get setComplianceReport() {
-          return mockSetComplianceReport;
-        },
-      }),
-    {
-      getState: () => ({
-        complianceReport: mockComplianceReport,
-        graph: mockGraph,
-        config: mockConfig,
-        setComplianceReport: mockSetComplianceReport,
-      }),
-    },
-  );
-  return { useForgeStore: store };
-});
-
-vi.mock('../../hooks/useMessageBus', () => ({
-  useSendMessage: () => mockSendMessage,
-  useMessageListener: vi.fn(),
+const mockVSCodeApi = vi.hoisted(() => ({
+  postMessage: vi.fn(),
+  getState: () => undefined,
+  setState: () => undefined,
 }));
 
-vi.mock('../../bridge/messageHelpers', () => ({
-  buildMessage: vi.fn((type: string, payload: unknown) => ({
-    id: `test-${Date.now()}`,
-    type,
-    timestamp: Date.now(),
-    payload,
-  })),
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => mockVSCodeApi,
+  useVSCodeApi: () => mockVSCodeApi,
 }));
+
+/** The compliance requests the tab sent, envelope-unwrapped, oldest first. */
+function sentRequests(): Array<{ id: string; payload: Record<string, unknown> }> {
+  return mockVSCodeApi.postMessage.mock.calls
+    .map(([envelope]) => (envelope as { payload: { id: string; type: string } }).payload)
+    .filter((message) => message.type === 'forge:compliance:request') as unknown as Array<{
+    id: string;
+    payload: Record<string, unknown>;
+  }>;
+}
+
+/** The latest compliance request the tab sent. */
+function lastRequest(): { id: string; payload: Record<string, unknown> } {
+  const requests = sentRequests();
+  expect(requests.length).toBeGreaterThan(0);
+  return requests[requests.length - 1];
+}
+
+/** Answer a request as the extension does, on the type given. */
+function answer(type: string, correlationId: string, payload: unknown): void {
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { id: `ext-${type}`, type, timestamp: Date.now(), correlationId, payload },
+      }),
+    );
+  });
+}
 
 /* ---- Helpers ---- */
 
@@ -82,8 +73,8 @@ const makeGraph = (): ForgeGraph => ({
       status: 'idle',
       progress: 0,
       included: true,
-      piiFields: [],
-      anonymizeFields: [],
+      piiFields: ['Phone'],
+      anonymizeFields: ['Phone'],
       errors: [],
       level: 0,
       successCount: 0,
@@ -102,22 +93,30 @@ const makeGraph = (): ForgeGraph => ({
 
 const makeConfig = (): ForgeConfig => ({
   inputMode: 'record',
-  recordId: '001XXXXXXXXXX',
+  recordId: '001000000000001',
   depth: 'direct',
   sourceOrgId: 'src-org',
   targetOrgId: 'tgt-org',
-  anonymizePII: false,
+  anonymizePII: true,
   skipEmpty: false,
   batchSize: 'auto',
 });
 
+/** Pick a framework on the tab. */
+function pick(framework: string): void {
+  fireEvent.change(screen.getByTestId('framework-select'), { target: { value: framework } });
+}
+
 /* ---- Tests ---- */
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  mockComplianceReport = null;
-  mockGraph = null;
-  mockConfig = null;
+  mockVSCodeApi.postMessage.mockClear();
+  useForgeStore.setState({
+    graph: makeGraph(),
+    config: makeConfig(),
+    complianceReport: null,
+    anonymizationRules: { ...useForgeStore.getState().anonymizationRules, phone: 'nullify' },
+  });
 });
 
 describe('ReviewComplianceTab', () => {
@@ -132,74 +131,106 @@ describe('ReviewComplianceTab', () => {
     expect(select.options.length).toBe(5);
   });
 
-  it('should show no-compliance message when framework is none', () => {
+  it('should show no-compliance message, and ask for nothing, when framework is none', () => {
     render(<ReviewComplianceTab />);
     expect(screen.getByTestId('no-compliance')).toBeDefined();
+    expect(sentRequests()).toHaveLength(0);
   });
 
-  it('should show loading message when framework selected with graph and config', () => {
-    mockGraph = makeGraph();
-    mockConfig = makeConfig();
+  it('asks for a report on the run as it stands: its toggle, its fields and its methods', () => {
+    // The methods Review holds were never sent: the report described every
+    // personal field as faked.
     render(<ReviewComplianceTab />);
-    const select = screen.getByTestId('framework-select');
-    fireEvent.change(select, { target: { value: 'gdpr' } });
+    pick('gdpr');
+
     expect(screen.getByTestId('compliance-loading')).toBeDefined();
     expect(screen.queryByTestId('no-compliance')).toBeNull();
+    const { payload } = lastRequest();
+    expect(payload.framework).toBe('gdpr');
+    expect(payload.graph).toEqual(makeGraph());
+    expect(payload.config).toEqual(makeConfig());
+    expect(payload.anonymizationRules).toEqual(useForgeStore.getState().anonymizationRules);
+    expect((payload.anonymizationRules as Record<string, string>).phone).toBe('nullify');
   });
 
-  it('should send forge:compliance:request when framework is not none and graph+config exist', () => {
-    mockGraph = makeGraph();
-    mockConfig = makeConfig();
+  it('shows the report the extension answers', () => {
     render(<ReviewComplianceTab />);
-    const select = screen.getByTestId('framework-select');
-    fireEvent.change(select, { target: { value: 'gdpr' } });
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'forge:compliance:request',
-        payload: expect.objectContaining({
-          framework: 'gdpr',
-          graph: mockGraph,
-          config: mockConfig,
-        }),
-      }),
-    );
-  });
+    pick('gdpr');
+    answer('forge:compliance:response', lastRequest().id, { report: makeReport() });
 
-  it('should NOT send request when framework is none', () => {
-    mockGraph = makeGraph();
-    mockConfig = makeConfig();
-    render(<ReviewComplianceTab />);
-    // Framework starts as 'none', so no request should be sent
-    expect(mockSendMessage).not.toHaveBeenCalled();
-  });
-
-  it('should NOT send request when graph is null', () => {
-    mockGraph = null;
-    mockConfig = makeConfig();
-    render(<ReviewComplianceTab />);
-    const select = screen.getByTestId('framework-select');
-    fireEvent.change(select, { target: { value: 'gdpr' } });
-    expect(mockSendMessage).not.toHaveBeenCalled();
-  });
-
-  it('should show compliance report when available', () => {
-    mockComplianceReport = makeReport();
-    render(<ReviewComplianceTab />);
-    // Select a framework to trigger report display
-    const select = screen.getByTestId('framework-select');
-    fireEvent.change(select, { target: { value: 'gdpr' } });
-    expect(screen.getByTestId('compliance-report')).toBeDefined();
     const report = screen.getByTestId('compliance-report');
     expect(report.textContent).toContain('15 PII fields detected');
     expect(report.textContent).toContain('12 fields anonymized');
+    expect(screen.queryByTestId('compliance-loading')).toBeNull();
   });
 
   it('should display correct status badge for partial compliance', () => {
-    mockComplianceReport = makeReport({ overallStatus: 'partial' });
     render(<ReviewComplianceTab />);
-    const select = screen.getByTestId('framework-select');
-    fireEvent.change(select, { target: { value: 'gdpr' } });
-    const report = screen.getByTestId('compliance-report');
-    expect(report.textContent).toContain('PARTIAL');
+    pick('gdpr');
+    answer('forge:compliance:response', lastRequest().id, {
+      report: makeReport({ overallStatus: 'partial' }),
+    });
+
+    expect(screen.getByTestId('compliance-report').textContent).toContain('PARTIAL');
+  });
+
+  it('says why the report could not be made, instead of analyzing for good, and retries', () => {
+    // `forge:compliance:error` had no listener: the tab read "Analyzing
+    // compliance..." forever.
+    render(<ReviewComplianceTab />);
+    pick('gdpr');
+    answer('forge:compliance:error', lastRequest().id, {
+      message: 'Compliance service not configured',
+      code: 'NOT_INITIALIZED',
+      retryable: false,
+    });
+
+    expect(screen.queryByTestId('compliance-loading')).toBeNull();
+    expect(screen.getByTestId('compliance-error-message').textContent).toBe(
+      'The compliance report could not be made: Compliance service not configured',
+    );
+
+    fireEvent.click(screen.getByTestId('compliance-retry'));
+    expect(sentRequests()).toHaveLength(2);
+    expect(screen.getByTestId('compliance-loading')).toBeDefined();
+    expect(screen.queryByTestId('compliance-error')).toBeNull();
+
+    answer('forge:compliance:response', lastRequest().id, { report: makeReport() });
+    expect(screen.getByTestId('compliance-report')).toBeDefined();
+  });
+
+  it('asks again on another framework, and does not show the last one’s report as its own', () => {
+    render(<ReviewComplianceTab />);
+    pick('gdpr');
+    answer('forge:compliance:response', lastRequest().id, { report: makeReport() });
+
+    pick('hipaa');
+    expect(lastRequest().payload.framework).toBe('hipaa');
+    expect(screen.queryByTestId('compliance-report')).toBeNull();
+    expect(screen.getByTestId('compliance-loading')).toBeDefined();
+
+    answer('forge:compliance:response', lastRequest().id, {
+      report: makeReport({ framework: 'hipaa', overallStatus: 'fail' }),
+    });
+    expect(screen.getByTestId('compliance-report').textContent).toContain('FAIL');
+  });
+
+  it('asks again when a method of the run changes', () => {
+    render(<ReviewComplianceTab />);
+    pick('gdpr');
+    answer('forge:compliance:response', lastRequest().id, { report: makeReport() });
+
+    act(() => {
+      useForgeStore.getState().setAnonymizationRule('email', 'hash');
+    });
+    expect(sentRequests()).toHaveLength(2);
+    expect((lastRequest().payload.anonymizationRules as Record<string, string>).email).toBe('hash');
+  });
+
+  it('should NOT send request when graph is null', () => {
+    useForgeStore.setState({ graph: null });
+    render(<ReviewComplianceTab />);
+    pick('gdpr');
+    expect(sentRequests()).toHaveLength(0);
   });
 });

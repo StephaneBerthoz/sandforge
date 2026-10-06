@@ -5,9 +5,12 @@ import '../../i18n';
 import { SeedResultsStep } from './SeedResultsStep';
 
 const saveTemplateMutate = vi.hoisted(() => vi.fn());
+const fileSaveMutate = vi.hoisted(() => vi.fn());
 const saveTemplateState = vi.hoisted(() => ({
   data: null as Record<string, unknown> | null,
   loading: false,
+  /** Whether a file save is waiting on the host's dialog. */
+  saving: false,
   /** Use the real request hook, answered through window messages. */
   real: false,
 }));
@@ -15,17 +18,28 @@ const saveTemplateState = vi.hoisted(() => ({
 vi.mock('../../hooks/useBridgeMutation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useBridgeMutation')>();
   return {
-    useBridgeMutation: (...args: Parameters<typeof actual.useBridgeMutation>) =>
-      saveTemplateState.real
-        ? actual.useBridgeMutation(...args)
-        : {
-            mutate: saveTemplateMutate,
-            data: saveTemplateState.data,
-            loading: saveTemplateState.loading,
-            error: null,
-            reset: vi.fn(),
-            requestId: null,
-          },
+    useBridgeMutation: (...args: Parameters<typeof actual.useBridgeMutation>) => {
+      if (saveTemplateState.real) return actual.useBridgeMutation(...args);
+      // The export goes through `file:save`, the template through its own route.
+      if (args[0] === 'file:save') {
+        return {
+          mutate: fileSaveMutate,
+          data: null,
+          loading: saveTemplateState.saving,
+          error: null,
+          reset: vi.fn(),
+          requestId: null,
+        };
+      }
+      return {
+        mutate: saveTemplateMutate,
+        data: saveTemplateState.data,
+        loading: saveTemplateState.loading,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    },
   };
 });
 
@@ -90,10 +104,84 @@ function executionResult(objectResults: SeedObjectResult[]): SeedExecutionResult
 describe('SeedResultsStep', () => {
   beforeEach(() => {
     saveTemplateMutate.mockClear();
+    fileSaveMutate.mockClear();
     saveTemplateState.data = null;
     saveTemplateState.loading = false;
+    saveTemplateState.saving = false;
     saveTemplateState.real = false;
     mockVSCodeApi.postMessage.mockClear();
+  });
+
+  it('exports, per object, the records asked for, created and failed, and the ids created', () => {
+    // The button had no handler: every results step offered an export that
+    // saved nothing.
+    const template = seedTemplate();
+    template.objects.push({ ...template.objects[0], objectApiName: 'Account', recordCount: 5 });
+    render(
+      <SeedResultsStep
+        executionResult={executionResult([
+          objectResult({
+            recordsCreated: 8,
+            recordsFailed: 2,
+            createdIds: ['003000000000001AAA', '003000000000002AAA'],
+            truncated: true,
+          }),
+          objectResult({
+            objectApiName: 'Account',
+            recordsCreated: 5,
+            createdIds: [1, 2, 3, 4, 5].map((n) => `00100000000000${n}AAA`),
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={template}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('btn-export-csv'));
+
+    expect(fileSaveMutate).toHaveBeenCalledTimes(1);
+    const sent = fileSaveMutate.mock.calls[0][0] as {
+      suggestedName: string;
+      content: string;
+      extensions: string[];
+    };
+    expect(sent.suggestedName).toMatch(/^sandforge-seed-results-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(sent.extensions).toEqual(['csv']);
+    expect(sent.content.split('\n')).toEqual([
+      '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+      // Only the first ids of a long list reach the step; the rest are counted.
+      '"Contact","10","8","2","003000000000001AAA 003000000000002AAA","6"',
+      '"Account","5","5","0","001000000000001AAA 001000000000002AAA 001000000000003AAA 001000000000004AAA 001000000000005AAA","0"',
+    ]);
+    expect(saveTemplateMutate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the requested count empty when the step has no template', () => {
+    render(
+      <SeedResultsStep
+        executionResult={executionResult([objectResult({ createdIds: [] })])}
+        onSeedAgain={vi.fn()}
+        template={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('btn-export-csv'));
+
+    const { content } = fileSaveMutate.mock.calls[0][0] as { content: string };
+    expect(content.split('\n')[1]).toBe('"Contact","","10","0","","10"');
+  });
+
+  it('cannot export twice while the host’s save dialog is open', () => {
+    saveTemplateState.saving = true;
+    render(
+      <SeedResultsStep
+        executionResult={executionResult([objectResult()])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect((screen.getByTestId('btn-export-csv') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('calls a seed a cancel stopped cancelled, not partially complete, with what it created', () => {

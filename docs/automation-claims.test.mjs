@@ -340,7 +340,7 @@ test('no run can be paused, since nothing takes a paused run up again', () => {
   );
 });
 
-test('the Marketplace says its steps do not do the work yet', () => {
+test('the Marketplace says which of its steps do no work', () => {
   const branchAt = automationPage.indexOf("activeTab === 'marketplace'");
   assert.ok(
     branchAt >= 0,
@@ -348,10 +348,10 @@ test('the Marketplace says its steps do not do the work yet', () => {
   );
   const marketplaceView = automationPage.slice(branchAt);
   const notice =
-    /data-testid="automation-marketplace-steps-soon"[\s\S]*?t\('automation\.soon\.steps'\)/.test(
+    /data-testid="automation-marketplace-steps-note"[\s\S]*?t\('automation\.marketplaceStepsNote'\)/.test(
       marketplaceView,
     ) ||
-    /t\('automation\.soon\.steps'\)[\s\S]*?data-testid="automation-marketplace-steps-soon"/.test(
+    /t\('automation\.marketplaceStepsNote'\)[\s\S]*?data-testid="automation-marketplace-steps-note"/.test(
       marketplaceView,
     );
 
@@ -432,13 +432,38 @@ test('no step that writes to an org runs in a pipeline', () => {
     'a step that writes to an org runs in a pipeline now: it runs unattended, with no Production ' +
       'Guard confirmation. Re-read the module page, both READMEs and the listing before relaxing this.',
   );
-  // And the palette says why each of them is refused, in the note its buttons point to.
+  // And the palette, which offers none of them, says where they run instead.
   const note = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.runnability
     .paletteNote;
   for (const label of ['Seed', 'Sync', 'Restore', 'Anonymize', 'Delete']) {
     assert.match(note, new RegExp(label), `the palette note does not name ${label}`);
   }
   assert.match(note, /write to an org/, 'the palette note does not say why they are refused');
+});
+
+test('the Step Palette offers only the step types a pipeline runs', () => {
+  // It listed all fifteen, the ten it could not add disabled under "Not in
+  // pipelines" or "Coming soon". It offers what `paletteBlocker` lets
+  // through, and that is never a type the executor refuses.
+  const palette = read(webviewSrc, 'pages', 'Automation', 'StepPalette.tsx');
+  assert.match(
+    palette,
+    /STEP_ENTRIES\.filter\(\(entry\) => paletteBlocker\(entry\.type\) === undefined\)/,
+    'the palette no longer keeps to the step types paletteBlocker lets through',
+  );
+  assert.doesNotMatch(palette, /comingSoon|disabled=/, 'the palette offers a step it cannot add');
+  const runnability = read(webviewSrc, 'pages', 'Automation', 'stepRunnability.ts');
+  const runnable = runnability.match(
+    /const RUNNABLE_STEP_TYPES[^=]*= new Set<PipelineStepType>\(\[([^\]]*)\]/,
+  );
+  assert.ok(runnable, 'RUNNABLE_STEP_TYPES not found in stepRunnability.ts');
+  const offered = [...runnable[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  const refused = refusedStepTypes();
+  assert.deepEqual(
+    offered.filter((type) => refused.includes(type)),
+    [],
+    'the page lets through a step type the executor refuses',
+  );
 });
 
 /** Body of the section opened by `heading`, up to the next heading of the same or a higher level. */

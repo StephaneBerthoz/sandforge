@@ -497,7 +497,11 @@ test.describe('Automation page — canvas editing', () => {
     await expect(page.getByTestId(`canvas-step-${secondId}`)).toHaveCount(0);
   });
 
-  test('a step type that cannot run is disabled in the palette, and says why', async ({ page }) => {
+  test('the palette offers only the step types a pipeline runs, and says where the others run', async ({
+    page,
+  }) => {
+    // It listed all fifteen, ten of them disabled under "Not in pipelines" or
+    // "Coming soon".
     await openAutomation(page);
     await answerMountQueries(page);
     await page.getByTestId('create-pipeline-btn').click();
@@ -505,20 +509,28 @@ test.describe('Automation page — canvas editing', () => {
     await expect(page.getByTestId('palette-runnable-note')).toContainText(
       'Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages',
     );
-    for (const type of ['seed', 'sync', 'delete', 'script', 'condition']) {
-      await expect(page.getByTestId(`palette-${type}`)).toBeDisabled();
-    }
-    for (const type of ['backup', 'compare', 'precheck', 'notification']) {
+    await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(5);
+    for (const type of ['backup', 'compare', 'precheck', 'delay', 'notification']) {
       await expect(page.getByTestId(`palette-${type}`)).toBeEnabled();
     }
-    await expect(page.getByTestId('palette-seed')).toHaveAttribute(
-      'title',
-      'This step writes to an org, so a pipeline does not run it: run it from its own page, ' +
-        'where Production Guard asks before a write to a production org.',
-    );
+    for (const type of ['seed', 'sync', 'delete', 'script', 'condition']) {
+      await expect(page.getByTestId(`palette-${type}`)).toHaveCount(0);
+    }
+    await expect(page.getByTestId('automation-content')).not.toContainText('Coming soon');
 
-    await page.getByTestId('palette-seed').click({ force: true });
-    await expect(canvasSteps(page)).toHaveCount(0);
+    await page.getByTestId('palette-backup').click();
+    await expect(canvasSteps(page)).toHaveCount(1);
+  });
+
+  test('the trigger panel adds only the trigger types that start a run', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('page-tab-triggers').click();
+
+    const options = page.getByTestId('trigger-type-select').locator('option');
+    await expect(options).toHaveText(['Manual', 'Schedule', 'Sandbox Refresh']);
+    await expect(page.getByTestId('trigger-config')).not.toContainText('Coming soon');
   });
 
   test('a Delay step runs once its seconds are set, and a failed run says why', async ({
@@ -698,8 +710,8 @@ test.describe('Automation page — triggers', () => {
     await expect(page.getByTestId('trigger-armed-trig-r')).toHaveText(
       'Watching for a refresh of DevSandbox.',
     );
-    // Neither of them is coming soon: both start runs.
-    await expect(page.locator('[data-testid^="trigger-coming-soon-"]')).toHaveCount(0);
+    // Nothing on the tab is called coming soon.
+    await expect(page.getByTestId('trigger-config')).not.toContainText('Coming soon');
 
     // An edit waits for the save: the next run shown is the saved one's, so it goes.
     await page.getByTestId('cron-input-trig-s').fill('30 3 * * *');

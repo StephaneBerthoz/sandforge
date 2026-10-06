@@ -11,11 +11,11 @@ import type {
 } from '@sandforge/shared';
 import { Tabs } from '../../components/ui/Tabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
-import { ComingSoon } from '../../components/ui/ComingSoon';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
 import { Select } from '../../components/ui/Select';
+import { Spinner } from '../../components/ui/Spinner';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
@@ -29,6 +29,8 @@ import { uiLocale } from '../../utils/formatters';
 export interface ReportsPageProps {
   /** Reports to display — the page has no data source of its own. */
   reports?: GeneratedReport[];
+  /** Whether the reports and their summary are being read: their two tabs wait for them. */
+  reportsLoading?: boolean;
   analyticsSummary?: AnalyticsSummary;
   operationsOverTime?: AnalyticsTimeSeries;
   errorTimeSeries?: AnalyticsTimeSeries;
@@ -42,6 +44,8 @@ export interface ReportsPageProps {
   onShowMoreAudit?: () => void;
   /** Why the trail could not be read, when it could not. */
   auditError?: string;
+  /** Whether the trail is being read. */
+  auditLoading?: boolean;
   /** `null` is a producer saying no run has been traced yet. */
   lineageData?: DataLineageGraph | null;
   /** The runs a lineage is kept for, newest first. */
@@ -49,9 +53,21 @@ export interface ReportsPageProps {
   onSelectLineageRun?: (operationId: string) => void;
   /** Why the lineage could not be read, when it could not. */
   lineageError?: string;
+  /** Whether the lineage is being read. */
+  lineageLoading?: boolean;
   onSelectReport?: (id: string) => void;
   onExportReport?: (id: string) => void;
 }
+
+/** What a tab shows while its producer reads what it will show. */
+const Loading: React.FC<{ testId: string }> = ({ testId }) => {
+  const { t } = useTranslation();
+  return (
+    <div data-testid={testId} className="py-8">
+      <Spinner size="sm" label={t('common.loading')} />
+    </div>
+  );
+};
 
 /**
  * Main reports and analytics page with tabbed navigation.
@@ -64,11 +80,15 @@ export interface ReportsPageProps {
  * A prop left `undefined` means no producer supplied it. Rendering the panels
  * anyway once printed four KPI tiles reading 0 / 0 / 0.0 % / 0 — figures with
  * no source behind them, which a reader takes for measurements ("this org ran
- * nothing and fails every operation") rather than for an absent feature. A
- * tab whose data has no producer says so, through the same {@link ComingSoon}
- * notice DataOps uses; the KPI row only appears once every figure it prints
- * has a source. A producer that answered with nothing — no run recorded, no
- * lineage traced — gets an empty state that says what will appear, and when.
+ * nothing and fails every operation") rather than for an absent feature. The
+ * KPI row only appears once every figure it prints has a source, and a tab
+ * whose data has no producer is not offered at all. It used to stay, saying
+ * "Coming soon" — and since a producer that has not answered yet leaves its
+ * prop undefined too, every tab of the shipped page said "Coming soon" until
+ * the host answered, about features it already had. A tab its producer is
+ * still reading says so. A producer that answered with nothing — no run
+ * recorded, no lineage traced — gets an empty state that says what will
+ * appear, and when.
  */
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
@@ -88,17 +108,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   lineageError,
   onSelectReport,
   onExportReport,
+  reportsLoading = false,
+  auditLoading = false,
+  lineageLoading = false,
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('executions');
   const [selectedReportId, setSelectedReportId] = useState<string | undefined>();
-
-  const tabs = [
-    { id: 'executions', label: t('reports.executions') },
-    { id: 'analytics', label: t('reports.analytics') },
-    { id: 'audit', label: t('reports.audit') },
-    { id: 'lineage', label: t('reports.lineage') },
-  ];
 
   const handleSelectReport = (id: string): void => {
     setSelectedReportId(id);
@@ -133,6 +149,30 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
    */
   const auditNothingRecorded =
     hasAudit && auditEntries.length === 0 && (auditFacets?.modules.length ?? 0) === 0;
+
+  /**
+   * The tabs a producer feeds: one that has answered, is reading, or said why
+   * it could not. The reports and their summary come in one answer, so the
+   * executions and analytics tabs wait on the same read.
+   */
+  const tabs = [
+    { id: 'executions', label: t('reports.executions'), fed: hasReports || reportsLoading },
+    { id: 'analytics', label: t('reports.analytics'), fed: hasAnalytics || reportsLoading },
+    {
+      id: 'audit',
+      label: t('reports.audit'),
+      fed: hasAudit || auditLoading || auditError !== undefined,
+    },
+    {
+      id: 'lineage',
+      label: t('reports.lineage'),
+      fed: hasLineage || lineageLoading || lineageError !== undefined,
+    },
+  ]
+    .filter((tab) => tab.fed)
+    .map(({ id, label }) => ({ id, label }));
+  /** The tab picked, or the first one offered when the one picked is gone. */
+  const shownTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? '');
 
   /**
    * Every KPI tile needs its OWN source — a tile with no source behind it is
@@ -207,7 +247,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </m.div>
       )}
 
-      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+      {tabs.length > 0 && <Tabs tabs={tabs} activeTab={shownTab} onTabChange={setActiveTab} />}
 
       <BentoTile className="p-0">
         {tabs.map((tab) => (
@@ -216,13 +256,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             id={`tabpanel-${tab.id}`}
             role="tabpanel"
             aria-labelledby={`tab-${tab.id}`}
-            hidden={activeTab !== tab.id}
+            hidden={shownTab !== tab.id}
           >
-            {activeTab === tab.id && (
+            {shownTab === tab.id && (
               <div className="p-4">
-                {/* Each panel either shows data it was given, or says the
-                    capability is not wired. An empty list here would read as
-                    "the report ran and found nothing" — it never ran. */}
+                {/* Each panel shows the data it was given, or says its producer
+                    is still reading it. An empty list here would read as "the
+                    report ran and found nothing" before anything was read. */}
                 {tab.id === 'executions' &&
                   (hasReports ? (
                     <ExecutionReportView
@@ -232,10 +272,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       onExport={handleExportReport}
                     />
                   ) : (
-                    <ComingSoon
-                      data-testid="reports-executions-soon"
-                      description={t('reports.executionsDesc')}
-                    />
+                    <Loading testId="reports-executions-loading" />
                   ))}
                 {tab.id === 'analytics' &&
                   (hasAnalytics ? (
@@ -245,10 +282,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       errorTimeSeries={errorTimeSeries}
                     />
                   ) : (
-                    <ComingSoon
-                      data-testid="reports-analytics-soon"
-                      description={t('reports.analyticsDesc')}
-                    />
+                    <Loading testId="reports-analytics-loading" />
                   ))}
                 {tab.id === 'audit' &&
                   (auditError ? (
@@ -257,10 +291,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       message={t('reports.auditUnreadable', { error: auditError })}
                     />
                   ) : !hasAudit ? (
-                    <ComingSoon
-                      data-testid="reports-audit-soon"
-                      description={t('reports.auditDesc')}
-                    />
+                    <Loading testId="reports-audit-loading" />
                   ) : auditNothingRecorded ? (
                     <div data-testid="reports-audit-empty">
                       <EmptyState
@@ -285,10 +316,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       message={t('reports.lineageUnreadable', { error: lineageError })}
                     />
                   ) : !hasLineage ? (
-                    <ComingSoon
-                      data-testid="reports-lineage-soon"
-                      description={t('reports.lineageDesc')}
-                    />
+                    <Loading testId="reports-lineage-loading" />
                   ) : lineageData === null ? (
                     <div data-testid="reports-lineage-empty">
                       <EmptyState

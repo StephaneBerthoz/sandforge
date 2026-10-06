@@ -4758,7 +4758,7 @@ describe('ForgeHandler', () => {
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(complianceService.generate).toHaveBeenCalledWith('gdpr', graph, 'src-org', 'tgt-org');
+      expect(complianceService.generate).toHaveBeenCalledWith('gdpr', graph, config, undefined);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
       const responseCalls = postCalls.filter(
@@ -4769,6 +4769,56 @@ describe('ForgeHandler', () => {
         correlationId?: string;
       };
       expect(response.correlationId).toBe(msg.id);
+    });
+
+    it('hands the report the run’s anonymize toggle and the methods Review holds', async () => {
+      // It was handed the two orgs and nothing else, and reported on a run
+      // that anonymized every personal field, whatever the run would do.
+      const complianceService = {
+        generate: vi.fn().mockReturnValue({ id: 'r-1', framework: 'gdpr' }),
+      } as unknown as ForgeComplianceService;
+      handler.setForgeOrchestrator(orchestrator, { complianceService });
+
+      const graph = createMockGraph();
+      await handler.handle(
+        buildMsg('forge:compliance:request', {
+          framework: 'gdpr',
+          graph,
+          config: createMockConfig({ anonymizePII: true }),
+          anonymizationRules: { email: 'hash', phone: 'nullify' },
+        }),
+      );
+
+      expect(complianceService.generate).toHaveBeenCalledWith(
+        'gdpr',
+        graph,
+        expect.objectContaining({
+          sourceOrgId: 'src-org',
+          targetOrgId: 'tgt-org',
+          anonymizePII: true,
+        }),
+        { email: 'hash', phone: 'nullify' },
+      );
+    });
+
+    it('refuses a request naming a method no anonymizer has', async () => {
+      const complianceService = { generate: vi.fn() } as unknown as ForgeComplianceService;
+      handler.setForgeOrchestrator(orchestrator, { complianceService });
+
+      await handler.handle(
+        buildMsg('forge:compliance:request', {
+          framework: 'gdpr',
+          graph: createMockGraph(),
+          config: createMockConfig({ anonymizePII: true }),
+          anonymizationRules: { email: 'scramble' },
+        }),
+      );
+
+      expect(complianceService.generate).not.toHaveBeenCalled();
+      const types = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => (m as BaseMessage).type);
+      expect(types).toContain('forge:compliance:error');
     });
 
     it('shows one error and ends the operation as failed when the report cannot be made', async () => {

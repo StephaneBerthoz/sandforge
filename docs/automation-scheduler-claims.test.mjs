@@ -16,8 +16,9 @@
  * promises a cron job.
  *
  * So the gate reads the code for which trigger types fire, and holds the
- * module page, the FAQ, the getting-started list and both READMEs to it: the
- * trigger list marks coming soon exactly the types that start nothing, and
+ * panel, the module page, the FAQ, the getting-started list and both READMEs
+ * to it: the panel offers exactly the types that start a run, the module page
+ * lists those and calls none of them, or of the others, coming soon, and
  * every region that sells a schedule says it runs while VS Code is open.
  *
  *   node --test docs/automation-scheduler-claims.test.mjs
@@ -98,6 +99,19 @@ function startingTriggerTypes() {
 /** The label the panel shows for a trigger type. */
 const label = (type) => en.automation.triggerTypes[type];
 
+/** The trigger types the Trigger Config Panel adds, in its order. */
+function offeredTriggerTypes() {
+  const panel = read('packages', 'webview', 'src', 'pages', 'Automation', 'TriggerConfigPanel.tsx');
+  const list = panel.match(/const OFFERED_TRIGGER_TYPES: TriggerType\[\] = \[([^\]]*)\]/);
+  assert.ok(list, 'OFFERED_TRIGGER_TYPES not found in TriggerConfigPanel.tsx');
+  assert.match(
+    panel,
+    /options=\{OFFERED_TRIGGER_TYPES\.map\(/,
+    'the add list no longer offers OFFERED_TRIGGER_TYPES',
+  );
+  return [...list[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
+
 test('anchor: the extension fires the schedule and sandbox refresh triggers, and no other', () => {
   const starting = startingTriggerTypes();
   // Positive control: the walk sees the schedule, which fires.
@@ -105,47 +119,45 @@ test('anchor: the extension fires the schedule and sandbox refresh triggers, and
   assert.deepEqual(
     starting.filter((type) => ['event', 'webhook', 'deployment_complete'].includes(type)),
     [],
-    'an event, webhook or deployment trigger fires now — the docs below call it coming soon. ' +
-      'Re-read the Triggers section, the FAQ and both READMEs before relaxing this.',
+    'an event, webhook or deployment trigger fires now — the panel does not offer it, and the ' +
+      'docs below say it starts nothing. Re-read the Triggers section, the FAQ and both READMEs ' +
+      'before relaxing this.',
   );
+});
+
+test('the panel offers exactly the trigger types that start a run', () => {
+  // It offered all six, the three that start nothing marked "Coming soon".
+  assert.deepEqual([...offeredTriggerTypes()].sort(), [...startingTriggerTypes()].sort());
+  // Positive control: the union holds more types than the panel offers.
+  assert.ok(triggerTypes().length > offeredTriggerTypes().length);
 });
 
 test('the Triggers section lists exactly the trigger types the panel offers', () => {
-  const ids = triggerTypes();
   const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
   assert.deepEqual(
     listed.map((m) => m[1]),
-    ids.map(label),
+    offeredTriggerTypes().map(label),
   );
 });
 
-test('the Triggers section marks coming soon exactly the types that start nothing', () => {
-  const starting = startingTriggerTypes();
-  const byLabel = new Map(triggerTypes().map((type) => [label(type), type]));
-  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
-  for (const [, name, rest] of listed) {
-    const marked = /_\(coming soon\)_/.test(rest);
-    if (starting.includes(byLabel.get(name))) {
-      assert.equal(marked, false, `${name} starts runs, and is listed as coming soon`);
-    } else {
-      assert.equal(marked, true, `${name} starts nothing, and is listed without its marker`);
-    }
-  }
+test('the Triggers section calls no trigger coming soon', () => {
+  const triggers = section(automation, '### Triggers');
+  assert.doesNotMatch(triggers, /coming soon/i, 'the Triggers section promises a trigger again');
 });
 
-test('the Triggers banner names every type that starts nothing, and no release', () => {
+test('the Triggers section names every type that starts nothing, says so, and pins no release', () => {
   const starting = startingTriggerTypes();
-  const banner = section(automation, '### Triggers')
-    .split('\n')
-    .filter((line) => line.startsWith('>'))
-    .join('\n');
-  assert.match(banner, /> \*\*Coming soon:\*\*/, 'the Triggers section lost its banner');
-  for (const type of triggerTypes().filter((type) => !starting.includes(type))) {
-    assert.match(banner, new RegExp(label(type)), `the banner does not name ${label(type)}`);
-  }
+  const triggers = section(automation, '### Triggers');
+  const idle = triggerTypes().filter((type) => !starting.includes(type));
+  assert.ok(idle.length > 0, 'every trigger type starts a run now — re-read this gate');
+  const paragraph = triggers
+    .split('\n\n')
+    .find((block) => idle.every((type) => block.includes(`**${label(type)}**`)));
+  assert.ok(paragraph, 'no paragraph of the Triggers section names every type that starts nothing');
+  assert.match(paragraph, /start nothing/, 'the Triggers section does not say they start nothing');
   // "as of v1.3.0" sat in a banner of a v1.22 product: one that names a
   // version goes stale.
-  assert.doesNotMatch(banner, /\bv\d+\.\d+/, 'the Triggers banner pins a version');
+  assert.doesNotMatch(triggers, /\bv\d+\.\d+/, 'the Triggers section pins a version');
   assert.doesNotMatch(automation, /\bas of v\d/i);
 });
 
@@ -211,7 +223,7 @@ test('the FAQ answers "recurring operations" with what starts a pipeline, and na
   assert.match(answer, /never made late/);
   assert.match(
     answer,
-    /Event, webhook and deployment triggers are not wired yet/,
+    /Event, webhook and deployment triggers start nothing/,
     'the FAQ must name the triggers that start nothing, not merely stop short of claiming them',
   );
 });

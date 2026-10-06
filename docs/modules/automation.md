@@ -9,9 +9,10 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 > **No pipeline step writes to an org:** Seed, Sync, Restore, Anonymize and
 > Delete run only from their own pages, where Production Guard stops a write to
 > a production org or asks you first, and a pipeline runs unattended. Script,
-> Approval, Loop and Parallel cannot run yet. A pipeline that holds a step it
-> cannot run is refused before its first step: nothing runs, and the run is
-> written to the history as failed, with the reason.
+> Approval, Loop and Parallel do not run. The Step Palette offers only steps a
+> pipeline runs; a pipeline that holds one it cannot run -- from a template, an
+> AI draft or an older save -- is refused before its first step: nothing runs,
+> and the run is written to the history as failed, with the reason.
 
 ## Quick Start
 
@@ -29,18 +30,18 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 The visual builder for composing automation workflows:
 
 - **Canvas** -- Steps run in the order they are listed; a step that cannot run is marked where it sits, with the reason
-- **Step Palette** -- A sidebar listing all 15 step types. Click to add a step to the canvas; a type that cannot run in a pipeline is shown disabled, with the reason.
+- **Step Palette** -- A sidebar listing the five step types it can add and a pipeline runs: Backup, Compare, Pre-Check, Delay and Notification. Click to add a step to the canvas. A note above the list says where the steps that write to an org run instead
 - **Step Config Panel** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
 - **Pipeline Execution View** -- While a run lasts, the canvas shows each step's status as the extension reports it, what each finished step did, and a Cancel button that stops the run
 - **AI Pipeline Generator** -- Describe what you want in natural language and let the AI draft the pipeline; its steps are marked when they cannot run
 
 ### Step Types
 
-15 step types, grouped the way the Step Palette groups them:
+A pipeline step is one of 15 types, and the Step Palette offers the five it can add and a pipeline runs, grouped:
 
-- **Data** -- Seed, Sync, Backup, Restore, Anonymize, Delete
+- **Data** -- Backup
 - **Quality** -- Compare, Pre-Check
-- **Control Flow** -- Condition, Loop, Parallel, Delay, Approval, Script
+- **Control Flow** -- Delay
 - **Notification** -- Notification
 
 Six of them run in a pipeline:
@@ -50,27 +51,24 @@ Six of them run in a pipeline:
 - **Pre-Check** -- reads the Monitor's health signals you choose on an org: API usage, data storage, the Apex error logs of the last 24 hours, the failed Apex jobs. A reading the Monitor calls critical, or one it cannot read, fails the step and stops the run. It hands what it read on to the steps after it (`apiUsagePercent`, `storageUsagePercent`, `recentErrorCount`, `failedJobCount`), for a Condition to test.
 - **Notification** -- shows its message as a VS Code notification, to whoever runs the pipeline. It sends nothing anywhere else: SandForge talks to no chat, mail or incident tool.
 - **Delay** -- waits the seconds set in its config panel, from 0 up to 24 days. A run cut short stops its wait where it is.
-- **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. This page cannot set a condition yet, so the palette offers Condition disabled; a Condition step from a Marketplace template carries its own, and runs.
+- **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. The page cannot set a condition, so the palette does not offer Condition; a Condition step from a Marketplace template carries its own, and runs.
 
-The other nine are refused before a pipeline's first step, and the palette says why:
+The other nine are not offered by the palette, and a pipeline that holds one -- from a template, an AI draft or an older save -- is refused before its first step, with the step marked on the canvas and the reason:
 
 - **Seed, Sync, Restore, Anonymize, Delete** write to an org. Each runs from its own page, where Production Guard stops a write to a production org or asks you first; a pipeline runs unattended, with nobody there to answer.
-- **Script, Approval, Loop, Parallel** have no handler yet: a Parallel step would run no branch, and an Approval would hold nothing back.
+- **Script, Approval, Loop, Parallel** have no handler: a Parallel step would run no branch, and an Approval would hold nothing back.
 
 Every step is read before the run the way its module's own request is read: a Backup with no org or with an object that is not an API name, a Compare of an org with itself, a Pre-Check naming a check SandForge does not have, a Notification with no message, a timeout longer than 24 days. The page marks such a step, and the extension refuses it with the same reason.
 
 ### Triggers
 
-> **Coming soon:** the **Event**, **Webhook** and **Deployment Complete** triggers start nothing. No event source feeds an event trigger, SandForge opens no port a webhook could reach, and it reads an org's deployments only when the Monitor asks for them. The panel marks each of them coming soon, and says why on its card.
-
-The Trigger Config Panel offers these trigger types:
+The Trigger Config Panel offers the trigger types that start a pipeline:
 
 - **Manual** -- Run on demand from the Run Pipeline button
 - **Schedule** -- Starts the pipeline at each time a five-field cron expression names (minute, hour, day of the month, month, day of the week), in the time zone chosen on the trigger, while VS Code is open
-- **Event** _(coming soon)_ -- no event source feeds it
-- **Webhook** _(coming soon)_ -- nothing outside VS Code can reach one
 - **Sandbox Refresh** -- Starts the pipeline when SandForge notices that the sandbox the trigger names was refreshed (see [Monitor](monitor.md#sandbox-refreshes)), provided every step of the pipeline can run
-- **Deployment Complete** _(coming soon)_ -- nothing watches an org's deployments
+
+A pipeline saved by an older release, imported with a profile or installed from a template can hold an **Event**, a **Webhook** or a **Deployment Complete** trigger. Those start nothing: no event source feeds an event trigger, SandForge opens no port a webhook could reach, and it reads an org's deployments only when the Monitor asks for them. The panel does not add them, and the card of one a pipeline holds says why it starts nothing.
 
 A trigger starts the pipeline as it was last saved: an edit on the Triggers tab takes effect when the pipeline is saved, and the tab says so until then. For each saved trigger the tab shows what it will do -- the next run of a schedule, in its time zone, the sandbox a refresh trigger waits for, and when it last fired -- or why it starts nothing: switched off, a cron expression it cannot read or that no date of the coming year matches (the 31st of February or April never comes), a sandbox SandForge no longer knows, a step of the pipeline that cannot run.
 

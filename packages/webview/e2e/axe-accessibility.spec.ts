@@ -875,6 +875,41 @@ async function openPanel(
  * Answer every pending request of a type. StrictMode mounts each query twice,
  * and only the live request's correlationId reaches the page.
  */
+/** A compliance report as the extension answers it: one personal field written as it is. */
+const FORGE_COMPLIANCE_REPORT = {
+  id: 'rpt-axe',
+  framework: 'gdpr',
+  generatedAt: '2026-10-01T10:00:00.000Z',
+  sourceOrgId: 'org-src-1',
+  targetOrgId: 'org-tgt-1',
+  totalFieldsScanned: 24,
+  piiFieldsDetected: 3,
+  piiFieldsAnonymized: 2,
+  entries: [],
+  objectSummaries: [],
+  overallStatus: 'partial',
+  checksumSha256: 'a'.repeat(64),
+};
+
+/**
+ * A pipeline an older release saved with a webhook trigger, which the panel no
+ * longer adds and which starts nothing.
+ */
+const PIPELINE_WITH_A_WEBHOOK_TRIGGER = {
+  id: 'pipe-webhook',
+  name: 'Refresh QA on a webhook',
+  description: '',
+  version: 1,
+  steps: [
+    { id: 'step-w', name: 'Wait', type: 'delay', config: { seconds: 0 }, continueOnError: false },
+  ],
+  triggers: [{ id: 'trig-webhook', type: 'webhook', enabled: true, config: {} }],
+  variables: [],
+  tags: [],
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
+
 async function answerAll(
   page: Page,
   requestType: string,
@@ -1259,6 +1294,19 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Forge custom depth, capped at what discovery accepts, with the reason under it', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-depth-custom').click();
+      // The field went up to 20, and discovery refused anything past 10.
+      const input = page.getByTestId('forge-depth-custom-input');
+      await input.fill('15');
+      await expect(input).toHaveValue('10');
+      await expect(page.getByTestId('forge-depth-custom-hint')).toContainText('Up to 10 levels');
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge AI tab with no provider set up', async ({ page }) => {
@@ -2443,6 +2491,44 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge Review compliance while it is analyzed, after a refusal with its retry, then the report', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-compliance').click();
+      await page.getByTestId('framework-select').selectOption('gdpr');
+      const request = await bridge.waitForMessage('forge:compliance:request', { timeout: 10_000 });
+      // The report is asked on the run as it stands, its methods included.
+      expect(
+        (request.payload as { anonymizationRules?: Record<string, string> }).anonymizationRules,
+      ).toMatchObject({ email: expect.any(String) });
+      await page.getByTestId('compliance-loading').waitFor({ state: 'visible', timeout: 5000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      // The tab never listened for the error, and read "Analyzing compliance..." for good.
+      await answerAll(page, 'forge:compliance:request', 'forge:compliance:error', {
+        message: 'Compliance service not configured',
+        code: 'NOT_INITIALIZED',
+        retryable: false,
+      });
+      await expect(page.getByTestId('compliance-error-message')).toContainText(
+        'The compliance report could not be made: Compliance service not configured',
+      );
+      await expect(page.getByTestId('compliance-loading')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('compliance-retry').click();
+      await expect(page.getByTestId('compliance-loading')).toBeVisible();
+      // Every request sent so far is answered; the first one is no longer awaited.
+      await answerAll(page, 'forge:compliance:request', 'forge:compliance:response', {
+        report: FORGE_COMPLIANCE_REPORT,
+      });
+      await expect(page.getByTestId('compliance-report')).toContainText('PARTIAL');
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Forge Review of a starter template, saying its record counts come with discovery', async ({
       page,
     }) => {
@@ -3005,6 +3091,11 @@ for (const theme of SCANNED_THEMES) {
 
     test('Reports page', async ({ page }) => {
       await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
+      // Nothing has answered yet: each tab says it is loading. All four said
+      // "Coming soon" until the host answered, about features it already had.
+      await expect(page.getByRole('tab')).toHaveCount(4);
+      await expect(page.getByTestId('reports-executions-loading')).toBeVisible();
+      await expect(page.getByTestId('reports-page')).not.toContainText('Coming soon');
       const results = await checkAccessibility(page);
       expectNoViolations(results);
     });
@@ -3526,13 +3617,19 @@ for (const theme of SCANNED_THEMES) {
       expect(measured, 'axe did not measure the noticed refresh').toBe(true);
     });
 
-    test('Automation schedule, sandbox refresh and webhook triggers saying what they will do', async ({
+    test('Automation schedule and sandbox refresh triggers saying what they will do, and a saved webhook trigger why it starts nothing', async ({
       page,
     }) => {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
-      await page.getByTestId('create-pipeline-btn').click();
+      // The panel adds no webhook trigger; a pipeline an older release saved
+      // can hold one, and its card says why it starts nothing.
+      await answerAll(page, 'pipeline:list', 'pipeline:list:response', {
+        pipelines: [PIPELINE_WITH_A_WEBHOOK_TRIGGER],
+        triggers: [],
+      });
+      await page.getByTestId(`saved-pipeline-${PIPELINE_WITH_A_WEBHOOK_TRIGGER.id}`).click();
       await page.getByRole('tab', { name: 'Triggers' }).click();
-      for (const type of ['schedule', 'sandbox_refresh', 'webhook']) {
+      for (const type of ['schedule', 'sandbox_refresh']) {
         await page.getByTestId('trigger-type-select').selectOption(type);
         await page.getByTestId('add-trigger-btn').click();
       }
@@ -3540,6 +3637,7 @@ for (const theme of SCANNED_THEMES) {
         .locator('[data-testid^="trigger-soon-reason-"]')
         .first()
         .waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByTestId('trigger-config')).not.toContainText('Coming soon');
       // The time zone and sandbox pickers are named, the notes are measured.
       await expect(page.getByLabel('Time zone')).toBeVisible();
       await expect(page.getByLabel('Sandbox')).toBeVisible();
@@ -3806,7 +3904,9 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
       await page.getByTestId('create-pipeline-btn').click();
       // A Delay step with no seconds: the notice, the canvas marker and the
-      // disabled palette entries are all on screen for the scan.
+      // palette, which offers only the steps a pipeline runs, are all on
+      // screen for the scan.
+      await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(5);
       await page.getByTestId('palette-delay').click();
       await page.getByTestId('pipeline-blocked').waitFor({ state: 'visible', timeout: 5000 });
 
@@ -4480,6 +4580,34 @@ async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateThe
  * it: the configure step skipped, both objects described, the banner saying
  * the run uses the default rules, and a relation added on the step itself.
  */
+/** What the host answers to the run `openSeedExecuteSkipped` starts: the ids posted are capped. */
+const SEED_RUN_RESULT = {
+  templateId: 'tpl-axe',
+  operationId: 'op-axe',
+  status: 'partial',
+  objectResults: [
+    {
+      objectApiName: 'Account',
+      recordsCreated: 100,
+      recordsFailed: 0,
+      createdIds: ['001000000000001AAA', '001000000000002AAA'],
+      errors: [],
+      truncated: true,
+    },
+    {
+      objectApiName: 'Contact',
+      recordsCreated: 290,
+      recordsFailed: 10,
+      createdIds: [],
+      errors: ['REQUIRED_FIELD_MISSING: LastName'],
+    },
+  ],
+  totalRecordsCreated: 390,
+  totalRecordsFailed: 10,
+  duration: 4200,
+  timestamp: '2026-10-01T10:00:00.000Z',
+};
+
 async function openSeedExecuteSkipped(
   bridge: MockBridge,
   page: Page,
@@ -5097,6 +5225,10 @@ for (const theme of STATE_THEMES) {
       );
       await page.getByTestId('page-tab-anonymize').click();
       await page.getByTestId('template-select').selectOption('tpl-saved-1');
+      // No Preview beside Apply: one sat there disabled, under "Coming soon".
+      await expect(page.getByTestId('apply-btn')).toBeVisible();
+      await expect(page.getByTestId('preview-btn')).toHaveCount(0);
+      await expect(page.getByTestId('anonymize-panel')).not.toContainText('Coming soon');
       await page.getByTestId('delete-template-btn').click();
       await expect(page.getByTestId('confirm-delete-template-btn')).toBeVisible();
 
@@ -5257,6 +5389,28 @@ for (const theme of STATE_THEMES) {
       await openSeedExecuteSkipped(bridge, page, theme);
 
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
+    });
+
+    test('Seed results of a run, and the CSV of them the host saves', async ({ page }) => {
+      await openSeedExecuteSkipped(bridge, page, theme);
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('seed-wizard-finish').click();
+      await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:execute', 'seed:execute:response', SEED_RUN_RESULT);
+      await page.getByTestId('seed-step-results-content').waitFor({ timeout: 10_000 });
+
+      // The button had no handler.
+      await page.getByTestId('btn-export-csv').click();
+      const saved = await bridge.waitForMessage('file:save', { timeout: 10_000 });
+      const lines = (saved.payload as { content: string }).content.split('\n');
+      expect(lines[0]).toBe(
+        '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+      );
+      expect(lines[1]).toBe(
+        '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98"',
+      );
+
+      await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
     });
 
     test('AI chat saying where a question awaits its answer, then where the answer went', async ({

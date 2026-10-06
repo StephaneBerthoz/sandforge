@@ -14,7 +14,6 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
 import { Badge } from '../../components/ui/Badge';
-import { ComingSoon } from '../../components/ui/ComingSoon';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { PipelineCanvas } from './PipelineCanvas';
 import { StepPalette } from './StepPalette';
@@ -280,14 +279,11 @@ export const AutomationPage: React.FC = () => {
         <div className="p-4" data-testid="automation-content">
           {activeTab === 'canvas' && (
             <div className="flex flex-col gap-(--sf-space-4)">
-              {/* The steps that write to an org, and the control steps not
-                  built yet, are refused before a pipeline's first step. Say so
-                  before anyone builds one. */}
-              <ComingSoon
-                variant="banner"
-                data-testid="automation-steps-soon"
-                description={t('automation.soon.steps')}
-              />
+              {/* No banner over the canvas: the palette offers only the steps
+                  a pipeline runs. One read "Coming soon" above it, about the
+                  steps the palette then listed disabled. A step that cannot
+                  run reaches the canvas only from a template, a draft or a
+                  saved pipeline, and is marked where it sits. */}
               <div className="flex items-center gap-(--sf-space-2)">
                 <Button
                   variant="secondary"
@@ -353,11 +349,13 @@ export const AutomationPage: React.FC = () => {
                   promises work its steps do not do: the steps only show up on
                   the canvas after Install. Say it here, before the button, and
                   on each card whose steps cannot run. */}
-              <ComingSoon
-                variant="banner"
-                data-testid="automation-marketplace-steps-soon"
-                description={t('automation.soon.steps')}
-              />
+              <p
+                role="note"
+                className="rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2 text-xs text-text-secondary"
+                data-testid="automation-marketplace-steps-note"
+              >
+                {t('automation.marketplaceStepsNote')}
+              </p>
               {marketplaceLoading && (
                 <div className="flex gap-3" data-testid="marketplace-loading">
                   {Array.from({ length: 3 }, (_, i) => (

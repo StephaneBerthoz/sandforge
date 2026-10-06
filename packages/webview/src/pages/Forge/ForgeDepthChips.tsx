@@ -1,8 +1,18 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import type { ForgeDepth } from '../../stores/useForgeStore';
 import { DEPTH_OPTIONS, DEPTH_KEYS, DEPTH_TOOLTIP_KEYS } from './useForgeForm';
+
+/**
+ * The deepest custom depth a discovery accepts: `forgeConfigSchema` caps
+ * `customDepth` at 10, and discovery walks no further whatever it is sent.
+ * The field let a user type up to 20, and anything past 10 had discovery
+ * refused outright. Past ten levels a CRM org's graph runs into thousands of
+ * describes, spending its API limits without producing a graph anyone can
+ * use, which is why the cap is there; the hint under the field says so.
+ */
+export const MAX_CUSTOM_DEPTH = 10;
 
 /** Props for the ForgeDepthChips component. */
 export interface ForgeDepthChipsProps {
@@ -30,6 +40,7 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
   depthRefs,
 }) => {
   const { t } = useTranslation();
+  const hintId = useId();
 
   return (
     <div>
@@ -69,10 +80,15 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
           <input
             type="number"
             min={1}
-            max={20}
+            max={MAX_CUSTOM_DEPTH}
             value={customDepth}
-            onChange={(e) => onCustomDepthChange(Number(e.target.value))}
+            // A number typed past the cap is brought down to it: `max` only
+            // bounds the spinner arrows, not what is typed.
+            onChange={(e) =>
+              onCustomDepthChange(Math.min(MAX_CUSTOM_DEPTH, Number(e.target.value)))
+            }
             aria-label={t('forge.depthCustom')}
+            aria-describedby={hintId}
             data-testid="forge-depth-custom-input"
             className={cn(
               'w-16 px-2 py-1.5 rounded-full text-xs text-center',
@@ -83,6 +99,15 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
           />
         )}
       </div>
+      {depth === 'custom' && (
+        <p
+          id={hintId}
+          className="mt-1.5 text-[10px] text-text-secondary"
+          data-testid="forge-depth-custom-hint"
+        >
+          {t('forge.depthCustomHint', { max: MAX_CUSTOM_DEPTH })}
+        </p>
+      )}
     </div>
   );
 };

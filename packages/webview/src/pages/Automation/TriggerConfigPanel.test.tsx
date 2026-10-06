@@ -38,7 +38,8 @@ function scheduleStatus(overrides: Partial<PipelineTriggerStatus> = {}): Pipelin
 }
 
 describe('TriggerConfigPanel', () => {
-  it('marks the trigger types that start nothing as coming soon, and no other', () => {
+  it('calls no trigger "coming soon", whatever its type', () => {
+    // The three that start nothing were badged "Coming soon" on their cards.
     const types: TriggerType[] = [
       'manual',
       'schedule',
@@ -52,12 +53,8 @@ describe('TriggerConfigPanel', () => {
         triggers={types.map((type) => ({ id: type, type, enabled: true, config: {} }))}
       />,
     );
-    for (const type of ['manual', 'schedule', 'sandbox_refresh']) {
-      expect(screen.queryByTestId(`trigger-coming-soon-${type}`)).toBeNull();
-    }
-    for (const type of ['event', 'webhook', 'deployment_complete']) {
-      expect(screen.getByTestId(`trigger-coming-soon-${type}`).textContent).toBe('Coming soon');
-    }
+    for (const type of types) expect(screen.getByTestId(`trigger-${type}`)).toBeDefined();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
   });
 
   it('says on each trigger that starts nothing why it does not', () => {
@@ -77,19 +74,20 @@ describe('TriggerConfigPanel', () => {
     );
   });
 
-  it('says on the options of the add list which types start nothing, before one is added', () => {
-    render(<TriggerConfigPanel />);
-    const options = [
-      ...screen.getByTestId('trigger-type-select').querySelectorAll('option'),
-    ] as HTMLOptionElement[];
-    const label = (value: string): string | null | undefined =>
-      options.find((option) => option.value === value)?.textContent;
-    expect(label('manual')).toBe('Manual');
-    expect(label('schedule')).toBe('Schedule');
-    expect(label('sandbox_refresh')).toBe('Sandbox Refresh');
-    for (const value of ['event', 'webhook', 'deployment_complete']) {
-      expect(label(value)).toContain('Coming soon');
-    }
+  it('adds only the trigger types that start a run', () => {
+    // It offered all six, the three that start nothing labelled "(Coming soon)".
+    const onAdd = vi.fn();
+    render(<TriggerConfigPanel onAddTrigger={onAdd} />);
+    const select = screen.getByTestId('trigger-type-select') as HTMLSelectElement;
+    expect([...select.options].map((option) => [option.value, option.textContent])).toEqual([
+      ['manual', 'Manual'],
+      ['schedule', 'Schedule'],
+      ['sandbox_refresh', 'Sandbox Refresh'],
+    ]);
+
+    fireEvent.change(select, { target: { value: 'sandbox_refresh' } });
+    fireEvent.click(screen.getByTestId('add-trigger-btn'));
+    expect(onAdd).toHaveBeenCalledWith('sandbox_refresh');
   });
 
   it('names the trigger type list for a screen reader', () => {
@@ -105,7 +103,9 @@ describe('TriggerConfigPanel', () => {
     expect(note).toMatch(/Run Pipeline button, on a schedule, or on a sandbox refresh/);
     expect(note).toMatch(/while VS Code is open, one run at a time/);
     expect(note).toMatch(/written to History as missed, never made late/);
-    expect(note).toMatch(/Event, webhook and deployment triggers start nothing yet/);
+    // The types that start nothing are not offered, so the note no longer
+    // promises them for later.
+    expect(note).not.toMatch(/Event|webhook|deployment|yet/);
   });
 
   describe('a schedule', () => {
