@@ -733,6 +733,7 @@ type Refusals = {
   assignmentRules?: Error;
   duplicateRules?: Error;
   userPermissions?: Error;
+  permissionSets?: Error;
   conditions?: Record<string, Error>;
 };
 
@@ -751,6 +752,9 @@ function fakeTarget({
   assignmentRules = [],
   duplicateRules = [],
   userPermissions = [],
+  customPermissions = [],
+  holdings = [],
+  sizes = {},
   variables = [],
   entities = [],
   starts = {},
@@ -764,6 +768,12 @@ function fakeTarget({
   assignmentRules?: Array<Record<string, unknown>>;
   duplicateRules?: Array<Record<string, unknown>>;
   userPermissions?: Array<Record<string, unknown>>;
+  /** The custom permissions of the org, as `CustomPermission` gives them. */
+  customPermissions?: Array<Record<string, unknown>>;
+  /** The permission sets that include them, as `SetupEntityAccess` gives them. */
+  holdings?: Array<Record<string, unknown>>;
+  /** What each permission set grants, by its id: setup entities, then objects. */
+  sizes?: Record<string, [number, number]>;
   variables?: Array<Record<string, unknown>>;
   entities?: Array<Record<string, unknown>>;
   starts?: Record<string, unknown>;
@@ -800,6 +810,22 @@ function fakeTarget({
       }
       if (soql === USER_PERMISSIONS_SOQL) {
         return answering(part(refuse.userPermissions, userPermissions));
+      }
+      if (soql.includes(' FROM CustomPermission ')) {
+        return answering(part(refuse.permissionSets, customPermissions));
+      }
+      if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' ")) {
+        return answering(part(refuse.permissionSets, holdings));
+      }
+      const counted = / FROM (SetupEntityAccess|ObjectPermissions) WHERE ParentId IN /.exec(soql);
+      if (counted) {
+        const at = counted[1] === 'SetupEntityAccess' ? 0 : 1;
+        return answering(
+          part(
+            refuse.permissionSets,
+            Object.entries(sizes).map(([ParentId, n]) => ({ ParentId, n: n[at] })),
+          ),
+        );
       }
       if (soql.includes(' FROM FlowVariableView ')) return answering(part(undefined, variables));
       if (soql.includes(' FROM EntityDefinition ')) return answering(part(undefined, entities));
@@ -928,9 +954,11 @@ describe('TargetAutomationReader', () => {
       conditionsBound: CONDITIONS_BOUND,
       definitionsNotRead: 0,
       definitionsBound: DEFINITIONS_BOUND,
-      // Six parts, one start condition per flow of the run, and the permissions
-      // of the user the read runs as.
-      requests: 10,
+      // The org has no such custom permission: no permission set can hold it.
+      bypassGrants: [{ permission: 'Case_BypassFlow', permissionSets: [] }],
+      // Six parts, one start condition per flow of the run, the permissions of
+      // the user the read runs as, and the custom permission it does not hold.
+      requests: 11,
     });
     // The Lead flow's condition was never asked: Lead is not written.
     expect(target.asked).not.toContain(conditionSoql('301000000000004AAA'));
@@ -1084,8 +1112,8 @@ describe('TargetAutomationReader', () => {
     expect(automation.unread).toEqual([
       { part: 'conditions', reason: 'INSUFFICIENT_ACCESS: no access' },
     ]);
-    // Six parts, two conditions, the user's permissions.
-    expect(automation.requests).toBe(9);
+    // Six parts, two conditions, the user's permissions, the bypass not held.
+    expect(automation.requests).toBe(10);
   });
 
   it('sends no request for a flow version that is not an id, and says its condition unreadable', async () => {
@@ -1449,6 +1477,89 @@ describe('TargetAutomationReader', () => {
       expect(target.asked).not.toContain(USER_PERMISSIONS_SOQL);
     });
 
+    it('finds the permission sets that hold a bypass the user does not, the smallest first', async () => {
+      const target = fakeTarget({
+        flows: [flowRow('Case', 'Case_Flow', 'RecordAfterSave', 'Create', '301000000000001AAA')],
+        starts: {
+          '301000000000001AAA': {
+            filterFormula: 'AND(NOT({!$Permission.Load_Data}), NOT({!$Permission.ns__Skip}))',
+          },
+        },
+        customPermissions: [
+          { Id: '0CP000000000001AAA', DeveloperName: 'Load_Data', NamespacePrefix: null },
+          { Id: '0CP000000000002AAA', DeveloperName: 'Skip', NamespacePrefix: 'ns' },
+          // Another namespace's permission of the same name is not the one named.
+          { Id: '0CP000000000003AAA', DeveloperName: 'Load_Data', NamespacePrefix: 'other' },
+        ],
+        holdings: [
+          {
+            SetupEntityId: '0CP000000000001AAA',
+            ParentId: '0PS000000000001AAA',
+            Parent: { Name: 'Integration', Label: 'Integration user', NamespacePrefix: null },
+          },
+          {
+            SetupEntityId: '0CP000000000001AAA',
+            ParentId: '0PS000000000002AAA',
+            Parent: { Name: 'Data_Load', Label: 'Data load', NamespacePrefix: null },
+          },
+          {
+            SetupEntityId: '0CP000000000003AAA',
+            ParentId: '0PS000000000003AAA',
+            Parent: { Name: 'Other', Label: 'Other', NamespacePrefix: 'other' },
+          },
+        ],
+        sizes: { '0PS000000000001AAA': [40, 25], '0PS000000000002AAA': [1, 0] },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+      expect(automation.bypassGrants).toEqual([
+        {
+          permission: 'Load_Data',
+          permissionSets: [
+            { name: 'Data_Load', label: 'Data load', grants: 1 },
+            { name: 'Integration', label: 'Integration user', grants: 65 },
+          ],
+        },
+        { permission: 'ns__Skip', permissionSets: [] },
+      ]);
+      expect(target.regular).toContain(
+        "SELECT Id, DeveloperName, NamespacePrefix FROM CustomPermission WHERE DeveloperName IN ('Load_Data', 'Skip')",
+      );
+      // A profile's own permission set, and a group's, cannot be assigned.
+      expect(target.regular.find((soql) => soql.includes('SetupEntityType'))).toContain(
+        'Parent.IsOwnedByProfile = false AND Parent.PermissionSetGroupId = null',
+      );
+    });
+
+    it('looks up no permission set for a bypass the user holds', async () => {
+      const target = fakeTarget({
+        flows: [flowRow('Case', 'Case_Flow', 'RecordAfterSave', 'Create', '301000000000001AAA')],
+        starts: { '301000000000001AAA': { filterFormula: 'NOT({!$Permission.Load_Data})' } },
+        userPermissions: [{ DeveloperName: 'Load_Data', NamespacePrefix: null }],
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+      expect(automation.bypassGrants).toBeUndefined();
+      expect(target.regular.some((soql) => soql.includes('CustomPermission'))).toBe(false);
+    });
+
+    it('says the permission sets could not be read, and says nothing of one', async () => {
+      const target = fakeTarget({
+        flows: [flowRow('Case', 'Case_Flow', 'RecordAfterSave', 'Create', '301000000000001AAA')],
+        starts: { '301000000000001AAA': { filterFormula: 'NOT({!$Permission.Load_Data})' } },
+        refuse: { permissionSets: refusal('INVALID_TYPE', 'sObject type is not supported') },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+      expect(automation.bypassGrants).toBeUndefined();
+      expect(automation.unread).toEqual([
+        { part: 'permissionSets', reason: 'INVALID_TYPE: sObject type is not supported' },
+      ]);
+    });
+
     it("says the user's permissions could not be read, and leaves whether one is held unsaid", async () => {
       const target = fakeTarget({
         flows: [flowRow('Case', 'Case_Flow', 'RecordAfterSave', 'Create', '301000000000001AAA')],
@@ -1596,6 +1707,47 @@ describe('automationLines', () => {
       '  the start conditions of some flows could not be read: INSUFFICIENT_ACCESS: no access',
       '  read in 27 request(s) to TGT',
     ]);
+  });
+
+  it('gives under a bypass the permission set that holds it and the command that assigns it, or says none does', () => {
+    const lines = automationLines(
+      {
+        ...automation,
+        objects: [
+          {
+            ...automation.objects[0],
+            flows: [
+              {
+                ...automation.objects[0].flows[0],
+                permissions: [
+                  { name: 'Case_BypassFlow', bypass: true, held: false },
+                  { name: 'Skip_All', bypass: true, held: false },
+                ],
+              },
+            ],
+          },
+        ],
+        bypassGrants: [
+          {
+            permission: 'Case_BypassFlow',
+            permissionSets: [
+              { name: 'Bypass_Flows', label: 'Bypass flows', grants: 1 },
+              { name: 'Admin_Tools', label: 'Admin tools', grants: 300 },
+            ],
+          },
+          { permission: 'Skip_All', permissionSets: [] },
+        ],
+      },
+      'TGT',
+      { username: 'loader@example.com' },
+    );
+    expect(lines).toContain(
+      '    Case_BypassFlow: held by permission set Bypass_Flows, the smallest; also held by ' +
+        'Admin_Tools: sf org assign permset --name Bypass_Flows --target-org TGT --on-behalf-of loader@example.com',
+    );
+    expect(lines).toContain(
+      '    Skip_All: no permission set of TGT holds it: an admin creates one that includes it',
+    );
   });
 
   it('says nothing runs when it read everything and found nothing', () => {

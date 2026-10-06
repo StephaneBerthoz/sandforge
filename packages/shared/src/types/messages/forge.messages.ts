@@ -209,6 +209,17 @@ export interface ForgeAutomationRequest extends BaseMessage {
 }
 
 /**
+ * `forge:undo-automation:request`. WebView -> Extension. Read what the target
+ * org runs on the objects whose records a past run's removal deletes, for the
+ * removal's confirmation. The run is named, never its objects: the extension
+ * reads them from its own history, as the removal does.
+ */
+export interface ForgeUndoAutomationRequest extends BaseMessage {
+  type: 'forge:undo-automation:request';
+  payload: { forgeId: string };
+}
+
+/**
  * `forge:gaps:request`. WebView -> Extension. Read from the target org's
  * metadata what will refuse or surprise a run of the graph under the config,
  * before any row is read: its validation and duplicate rules, the fields only
@@ -489,6 +500,22 @@ export interface ForgeRehearseErrorMessage extends BaseMessage {
 export interface ForgeAutomationResponse extends BaseMessage {
   type: 'forge:automation:response';
   payload: { automation: ForgeTargetAutomation };
+}
+
+/**
+ * `forge:undo-automation:response`. Extension -> WebView. What the target runs
+ * on the objects the removal deletes records of, and those whose records past
+ * Draft it sets back to Draft before deleting them, whose updates fire too.
+ */
+export interface ForgeUndoAutomationResponse extends BaseMessage {
+  type: 'forge:undo-automation:response';
+  payload: { forgeId: string; automation: ForgeTargetAutomation; drafted: string[] };
+}
+
+/** `forge:undo-automation:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeUndoAutomationErrorMessage extends BaseMessage {
+  type: 'forge:undo-automation:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** `forge:automation:error`. Extension -> WebView (emitted via sendHandlerError). */

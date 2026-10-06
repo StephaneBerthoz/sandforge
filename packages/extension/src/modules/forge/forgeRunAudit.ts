@@ -7,6 +7,8 @@
  * into a sandbox whether it anonymized, whether anyone looked at it before it
  * went, what fired as it inserted and what the user said yes to found none of
  * it: those were the page's and the run's, and gone once the panel closed.
+ * What fires as the run updates the records it inserted is kept beside what
+ * fires as it inserts them: the gate asks about both.
  * Words and counts only, as the rest of the entry: never a value of a record,
  * the name of a flow, or what a decision maps from or to.
  *
@@ -18,6 +20,7 @@ import type {
   AuditConfirmation,
   AuditDecisionCount,
   AuditFiredOnInsert,
+  AuditFiredOnUpdate,
   AuditRunContext,
   ForgeConfig,
   ForgeDecisionApplied,
@@ -25,7 +28,12 @@ import type {
   ForgeGraph,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
-import { automationUnreadOf, firedOnInsertOf } from './ForgeRunGate.js';
+import {
+  automationUnreadOf,
+  firedOnInsertOf,
+  firedOnUpdateOf,
+  type UpdatedAfterInsert,
+} from './ForgeRunGate.js';
 
 /**
  * How long a simulation or a rehearsal stands as one that came before a run of
@@ -144,6 +152,22 @@ export function firedOnInsertCounts(
 }
 
 /**
+ * What fires as the run updates the records it inserted, on the objects it
+ * updates, by kind, as the gate put it to the user with what fires on insert:
+ * none when the read failed, which {@link firedOnInsertCounts} says.
+ */
+export function firedOnUpdateCounts(
+  read: { automation: ForgeTargetAutomation } | { unread: string },
+  updated: readonly UpdatedAfterInsert[],
+): AuditFiredOnUpdate {
+  const counts: AuditFiredOnUpdate = { flow: 0, trigger: 0, process: 0, workflowRule: 0 };
+  if (!('automation' in read)) return counts;
+  const names = updated.map((object) => object.objectApiName);
+  for (const fired of firedOnUpdateOf(read.automation, names)) counts[fired.kind]++;
+  return counts;
+}
+
+/**
  * The decisions a run's config holds, kind by kind, with the rows those the run
  * applied changed. A picklist value mapped to none and a field left out are
  * both left empty; a kind the config does not hold is not listed.
@@ -191,6 +215,7 @@ export function decisionCounts(
 export class ForgeRunAudit {
   private readonly confirmed: AuditConfirmation[] = [];
   private fired?: AuditFiredOnInsert;
+  private firedOnUpdate?: AuditFiredOnUpdate;
 
   /**
    * @param config - The run's config, as the request sent it.
@@ -205,9 +230,16 @@ export class ForgeRunAudit {
     >,
   ) {}
 
-  /** What fires as the run inserts, as the gate is about to put it to the user. */
-  automationRead(read: { automation: ForgeTargetAutomation } | { unread: string }): void {
+  /**
+   * What fires as the run inserts, and as it updates the records of
+   * `updated`, as the gate is about to put it to the user.
+   */
+  automationRead(
+    read: { automation: ForgeTargetAutomation } | { unread: string },
+    updated: readonly UpdatedAfterInsert[] = [],
+  ): void {
     this.fired = firedOnInsertCounts(read);
+    this.firedOnUpdate = firedOnUpdateCounts(read, updated);
   }
 
   /** A person answered a question of the run's gate by going on. */
@@ -227,6 +259,7 @@ export class ForgeRunAudit {
       contactPoints: this.config.keepContactPoints === true ? 'kept' : 'neutralized',
       ...this.before,
       ...(this.fired ? { firedOnInsert: { ...this.fired, unread: [...this.fired.unread] } } : {}),
+      ...(this.firedOnUpdate ? { firedOnUpdate: { ...this.firedOnUpdate } } : {}),
       ...(this.confirmed.length > 0 ? { confirmed: [...this.confirmed] } : {}),
       ...(decisions.length > 0 ? { decisions } : {}),
     };

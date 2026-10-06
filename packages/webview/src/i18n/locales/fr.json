@@ -1940,6 +1940,7 @@
       "simulatedBefore": "Simulé {{minutes}} min avant",
       "rehearsedBefore": "Répété {{minutes}} min avant",
       "firedOnInsert": "Se déclenche à l'insertion : {{list}}",
+      "firedOnUpdate": "Se déclenche à la mise à jour : {{list}}",
       "nothingFired": "Rien ne se déclenche à l'insertion",
       "fired": {
         "flow_one": "{{count}} Flow",
@@ -1954,7 +1955,7 @@
       "automationUnread": "automatisation lue en partie",
       "confirmed": "Confirmé : {{list}}",
       "confirmation": {
-        "automation": "ce qui se déclenche à l'insertion",
+        "automation": "ce qui se déclenche à l'insertion et à la mise à jour",
         "volume": "les enregistrements à écrire"
       },
       "decisions": "Décisions : {{list}}",
@@ -2874,7 +2875,17 @@
         "unreadAssignmentRules": "Les règles d'attribution de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadDuplicateRules": "Les règles de doublons de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadUserPermissions": "Les autorisations personnalisées de l'utilisateur sous lequel l'exécution écrit n'ont pas pu être lues : {{reason}}",
-        "rules": "Règles d'attribution et de doublons"
+        "rules": "Règles d'attribution et de doublons",
+        "unreadPermissionSets": "Les ensembles d'autorisations qui détiennent un contournement que l'utilisateur sous lequel l'exécution écrit ne détient pas n'ont pas pu être lus : {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} est le plus petit ensemble d'autorisations de l'org cible qui détient {{permission}}. Attribué à l'utilisateur sous lequel l'exécution écrit, il rend muet ce que {{permission}} exclut.",
+          "others_one": "{{names}} le détient aussi.",
+          "others_other": "{{names}} le détiennent aussi.",
+          "copy": "Copier la commande qui attribue {{permissionSet}}",
+          "copied": "Commande copiée",
+          "none": "Aucun ensemble d'autorisations de l'org cible ne détient {{permission}} : un administrateur en crée un qui l'inclut, et l'attribue à l'utilisateur sous lequel l'exécution écrit.",
+          "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider."
+        }
       },
       "gapsTab": "Écarts"
     },
@@ -2927,7 +2938,15 @@
       "resultNotReached_one": "{{formatted}} non atteint avant l'annulation",
       "resultNotReached_other": "{{formatted}} non atteints avant l'annulation",
       "resultMayHaveBeenWritten_one": "{{formatted}} enregistrement qu'un appel du clonage a peut-être écrit avant que sa réponse ne se perde peut se trouver dans {{org}} : aucun identifiant n'en est connu, et la suppression ne peut pas l'atteindre.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} enregistrements qu'un appel du clonage a peut-être écrits avant que sa réponse ne se perde peuvent se trouver dans {{org}} : aucun de leurs identifiants n'est connu, et la suppression ne peut pas les atteindre."
+      "resultMayHaveBeenWritten_other": "{{formatted}} enregistrements qu'un appel du clonage a peut-être écrits avant que sa réponse ne se perde peuvent se trouver dans {{org}} : aucun de leurs identifiants n'est connu, et la suppression ne peut pas les atteindre.",
+      "removalAutomation": {
+        "title": "Ce que {{org}} exécute quand ces enregistrements partent",
+        "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont supprimés…",
+        "intro": "Quand ces enregistrements sont supprimés, {{org}} exécute :",
+        "drafted": "quand la suppression le remet en Brouillon pour le supprimer",
+        "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
+        "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

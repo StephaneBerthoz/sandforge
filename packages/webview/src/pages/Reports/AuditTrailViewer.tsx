@@ -204,14 +204,20 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
   /**
    * How a run was set up and let through, a phrase each: anonymized or not,
    * what became of emails and phones, Review skipped, a simulation or a
-   * rehearsal before it, what fires on insert, what the user confirmed and
-   * decided. Counts and kinds, as the entry keeps them.
+   * rehearsal before it, what fires on insert and on update, what the user
+   * confirmed and decided. Counts and kinds, as the entry keeps them.
    */
   const contextLine = (context: AuditRunContext): string[] => {
     const fired = context.firedOnInsert;
     const firing = fired
       ? FIRED_KINDS.filter((kind) => fired[kind] > 0).map((kind) =>
           t(`reports.context.fired.${kind}`, { count: fired[kind] }),
+        )
+      : [];
+    const onUpdate = context.firedOnUpdate;
+    const firingOnUpdate = onUpdate
+      ? FIRED_KINDS.filter((kind) => onUpdate[kind] > 0).map((kind) =>
+          t(`reports.context.fired.${kind}`, { count: onUpdate[kind] }),
         )
       : [];
     return [
@@ -231,6 +237,11 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
               : t('reports.context.nothingFired'),
             ...(fired.unread.length > 0 ? [t('reports.context.automationUnread')] : []),
           ]
+        : []),
+      // Said only of what fires: a run that updates nothing, or whose updates
+      // fire nothing, has nothing more to say than what fires on insert.
+      ...(firingOnUpdate.length > 0
+        ? [t('reports.context.firedOnUpdate', { list: firingOnUpdate.join(', ') })]
         : []),
       ...(context.confirmed?.length
         ? [

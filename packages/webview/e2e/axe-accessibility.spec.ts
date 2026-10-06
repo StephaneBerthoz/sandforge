@@ -2922,6 +2922,44 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge Review offering the permission set that keeps a flow quiet, and the command that assigns it', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('forge:automation:request', { timeout: 10_000 });
+      await page.getByTestId('tab-automation').click();
+      await answerAll(page, 'forge:automation:request', 'forge:automation:response', {
+        automation: {
+          ...FORGE_TARGET_AUTOMATION,
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [
+                { name: 'Data_Load', label: 'Data load', grants: 1 },
+                { name: 'Integration_User', label: 'Integration user', grants: 120 },
+              ],
+            },
+          ],
+        },
+      });
+      const assistant = page.getByTestId('bypass-assistant');
+      await assistant.waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('bypass-assistant-command')).toHaveText(
+        `sf org assign permset --name Data_Load --target-org ${QA_SANDBOX.alias} --on-behalf-of ${QA_SANDBOX.username}`,
+      );
+      await expect(
+        page.getByRole('button', { name: 'Copy the command that assigns Data_Load' }),
+      ).toBeVisible();
+      await expect(assistant).toContainText('Integration_User holds it too.');
+      const read = await checkAccessibility(page);
+      expectNoViolations(read);
+      expect(
+        await contrastMeasuredIn(page, read, '[data-testid="bypass-assistant"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge Review saying what it read from the target’s metadata against the rows, and what the target would not give', async ({
       page,
     }) => {
@@ -4598,6 +4636,52 @@ for (const theme of SCANNED_THEMES) {
       await dialog.waitFor({ state: 'visible', timeout: 5000 });
       await expect(dialog.getByTestId('forge-removal-plan')).toBeVisible();
       await expect(dialog.getByTestId('forge-removal-linked')).toBeVisible();
+      // Reading what the target runs as the records go, then what it found.
+      await expect(dialog.getByTestId('forge-removal-automation-loading')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await bridge.waitForMessage('forge:undo-automation:request', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo-automation:request', 'forge:undo-automation:response', {
+        forgeId: FORGE_REMOVABLE_RUN.forgeId,
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+            },
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Quietly', label: 'Delete quietly', grants: 1 }],
+            },
+          ],
+          requests: 7,
+        },
+        drafted: [],
+      });
+      await expect(dialog.getByTestId('forge-removal-automation-delete-Account')).toHaveText(
+        'Account: Apex trigger: AccountCleanup · before and after delete',
+      );
+      await expect(dialog.getByTestId('bypass-assistant-command')).toBeVisible();
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);

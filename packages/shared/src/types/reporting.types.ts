@@ -223,6 +223,20 @@ export interface AuditFiredOnInsert {
 }
 
 /**
+ * What fires in the target as a run updates the records it inserted — a
+ * lookup filled in once its record exists, an order given back its status —
+ * by kind, put to the user in the same question as what fires on insert:
+ * counts, never the name of a flow or a trigger. What could not be read is
+ * said with what fires on insert.
+ */
+export interface AuditFiredOnUpdate {
+  flow: number;
+  trigger: number;
+  process: number;
+  workflowRule: number;
+}
+
+/**
  * A kind of decision the run's config held — taken on Review's Gaps tab, or
  * kept by a template — how many of it, and the rows those changed as the run
  * wrote them. Never what a decision maps from or to.
@@ -240,7 +254,8 @@ export interface AuditDecisionCount {
 
 /**
  * A question of a run's gate a person answered by going on: `automation`,
- * what fires in the target as the run inserts its records; `volume`, the
+ * what fires in the target as the run inserts its records and updates those
+ * it writes a second time; `volume`, the
  * records the run had read and was about to write — past the volume that
  * asks, or near the data storage the target has left, or with that storage
  * unread.
@@ -251,8 +266,8 @@ export type AuditConfirmation = 'automation' | 'volume';
  * How a run was set up and let through, beside what it wrote: what a reader of
  * the trail asks of a run that wrote into an org — whether it anonymized, what
  * it did with email addresses and phone numbers, whether it was reviewed,
- * simulated or rehearsed first, what fired as it inserted, what the user
- * confirmed and decided. Words and counts, never a value of a record.
+ * simulated or rehearsed first, what fired as it inserted and updated, what
+ * the user confirmed and decided. Words and counts, never a value of a record.
  */
 export interface AuditRunContext {
   /** Whether the run anonymized the personal data of the fields selected for it. */
@@ -275,6 +290,11 @@ export interface AuditRunContext {
   rehearsedMinutesBefore?: number;
   /** What fires as the run inserts, as it was put to the user; absent when the run never got there. */
   firedOnInsert?: AuditFiredOnInsert;
+  /**
+   * What fires as the run updates the records it inserted, put to the user
+   * with what fires on insert; absent when the run never got there.
+   */
+  firedOnUpdate?: AuditFiredOnUpdate;
   /** The questions of the run's gate a person answered by going on, in the order they were put. */
   confirmed?: AuditConfirmation[];
   /** The decisions the run's config held, kind by kind; absent when it held none. */

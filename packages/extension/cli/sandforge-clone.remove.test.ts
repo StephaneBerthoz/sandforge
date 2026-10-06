@@ -201,8 +201,31 @@ describe('sandforge-clone --remove', () => {
   let stderr: string[];
   /** The target as the command reaches it: what its Organization record says. */
   let organization: { Id: string; IsSandbox: boolean };
+  /** What the target runs on the objects the removal deletes: nothing, unless a test says. */
+  let targetFlows: Array<Record<string, unknown>>;
+  let targetTriggers: Array<Record<string, unknown>>;
+  const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const targetConn = {
-    query: vi.fn(async () => ({ totalSize: 1, done: true, records: [organization] })),
+    query: vi.fn(async (soql: string) => {
+      if (soql.includes(' FROM Organization ')) return page([organization]);
+      if (soql.includes(' FROM FlowDefinitionView ') && !soql.includes("'Workflow'")) {
+        return page(targetFlows);
+      }
+      return page([]);
+    }),
+    queryMore: vi.fn(async () => page([])),
+    tooling: {
+      query: vi.fn(async (soql: string) => {
+        if (soql.includes(' FROM ApexTrigger ')) return page(targetTriggers);
+        if (soql.includes(' FROM Flow WHERE Id ')) {
+          return page([
+            { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
+          ]);
+        }
+        return page([]);
+      }),
+      queryMore: vi.fn(async () => page([])),
+    },
   } as unknown as Connection;
   const session = { label: 'the removal session' } as unknown as RemovalOrg;
 
@@ -223,6 +246,8 @@ describe('sandforge-clone --remove', () => {
     stdout = [];
     stderr = [];
     organization = { Id: TARGET_ORG, IsSandbox: true };
+    targetFlows = [];
+    targetTriggers = [];
     vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new ExitCalled(typeof code === 'number' ? code : undefined);
     });
@@ -555,6 +580,89 @@ describe('sandforge-clone --remove', () => {
 
       expect(printed).toContain('removal: CANCELLED');
       expect(process.listenerCount('SIGINT')).toBe(listening);
+    });
+  });
+
+  describe('what the target runs as the records go', () => {
+    /** A trigger of the target before an account is deleted, and a flow as a contact is. */
+    function firing(): void {
+      targetTriggers = [
+        {
+          Name: 'AccountCleanup',
+          NamespacePrefix: null,
+          EntityDefinition: { QualifiedApiName: 'Account' },
+          UsageBeforeDelete: true,
+          UsageAfterDelete: false,
+        },
+      ];
+      targetFlows = [
+        {
+          ApiName: 'Contact_Gone',
+          Label: 'Contact gone',
+          TriggerType: 'RecordBeforeDelete',
+          RecordTriggerType: 'Delete',
+          TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+          ActiveVersionId: '301000000000009AAA',
+        },
+      ];
+    }
+
+    it('says what fires on delete, before or after, and deletes nothing without --accept-automation', async () => {
+      firing();
+      const summaryPath = file(runSummary());
+
+      expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBe(1);
+
+      expect(printed).toContain(
+        'removal automation: what TGT runs as the removal takes the records back',
+      );
+      expect(printed).toContain('  Account: before delete: Apex trigger AccountCleanup');
+      expect(printed).toContain('  Contact: before delete: flow "Contact gone"');
+      expect(stderr.join('')).toContain(
+        'TGT runs automation on the records this removal deletes: Contact: flow "Contact gone" ' +
+          '(before delete); Account: Apex trigger AccountCleanup (before delete).',
+      );
+      expect(stderr.join('')).toContain(
+        'No permission set of TGT holds Load_Data: an admin creates one that includes it, and ' +
+          'assigns it to the user the removal writes as. Nothing was deleted. Add ' +
+          '--accept-automation to remove all the same',
+      );
+      expect(removeRunRecords).not.toHaveBeenCalled();
+    });
+
+    it('removes all the same with --accept-automation, having said what fires', async () => {
+      firing();
+      const summaryPath = file(runSummary());
+
+      expect(
+        await run(['--remove', summaryPath, '--target', 'TGT', '--accept-automation']),
+      ).toBeUndefined();
+
+      expect(printed).toContain('  Account: before delete: Apex trigger AccountCleanup');
+      expect(removeRunRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing fires, and asks for nothing, when nothing does', async () => {
+      const summaryPath = file(runSummary());
+
+      expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBeUndefined();
+
+      expect(printed).toContain('  nothing fires on the 2 object(s) it deletes records of');
+      expect(removeRunRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
+      vi.mocked(targetConn.tooling.query).mockRejectedValueOnce(
+        Object.assign(new Error('the Tooling API is off'), { name: 'API_DISABLED' }),
+      );
+      const summaryPath = file(runSummary());
+
+      expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBe(1);
+
+      expect(stderr.join('')).toContain(
+        'so what fires as the removal deletes is not known. Nothing was deleted.',
+      );
+      expect(removeRunRecords).not.toHaveBeenCalled();
     });
   });
 

@@ -21,7 +21,7 @@
  *     [--depth direct|full|custom] [--custom-depth <n>]
  *     [--max <n>] [--anonymize] [--dry-run]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
- *     --remove <summary.json> --target <alias> [--include-changed] [--json]
+ *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --verify <summary.json> --target <alias> [--source <alias>] [--json]
  *
@@ -59,6 +59,7 @@ import {
   forgeConfigSchemaStrict,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
+  removalBypassesOf,
   forgeWriteHeaders,
   formatFileSize,
   leftOutAsEmptyTable,
@@ -102,6 +103,7 @@ import {
 import {
   removalOrg,
   removeRunRecords,
+  setBackToDraftOf,
   type RunRemovalOutcome,
 } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatus } from '../src/modules/forge/removalOutcome.js';
@@ -115,7 +117,12 @@ import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
   automationRefusal,
+  bypassesToAssign,
   isDeveloperEdition,
+  objectsUpdatedAfterInsert,
+  removalAutomationLines,
+  removalAutomationRefusal,
+  runBypassesOf,
   readDataStorage,
   storageCheckOf,
   storageRefusal,
@@ -207,7 +214,7 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --record <id> --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--json]
+    --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json]
 
@@ -227,8 +234,12 @@ Usage:
   and duplicate rules; and what keeps a flow from starting for the user the
   run writes as, and whether that user holds it (with --json, under
   targetAutomation). When any of them fires as the clone inserts its
-  records, or the target would not say what it runs, nothing is written
-  unless --accept-automation is given.
+  records, or as it updates those it writes a second time — a lookup
+  filled in once its record exists, an order or a contract given back its
+  status — or the target would not say what it runs, nothing is written
+  unless --accept-automation is given. A bypass the user does not hold is
+  given with the permission set of the target that holds it and the
+  sf org assign permset command that would assign it, never run.
 
   It then says what the target holds against the rows, read from its
   metadata: its active validation rules and what keeps them quiet, its
@@ -294,8 +305,9 @@ Options:
                          target runs automation on insert. Not with --dry-run,
                          --upsert, --files, --remap-csv or --list-objects.
   --accept-automation    write although the target runs flows or Apex
-                         triggers as the clone inserts, or could not say what
-                         it runs                                (default: off)
+                         triggers as the clone inserts, or as it updates the
+                         records it inserted, or could not say what it runs
+                                                                (default: off)
   --max-total <n>        most records the run may write in all  (default: 10000)
                          Counted once every row is read: past it, nothing is
                          written. --max caps each object, this the whole run.
@@ -371,6 +383,11 @@ Remove what a run created:
                          since the run. Keep that file with the summary.
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
+  --accept-automation    delete although the target runs flows, Apex triggers,
+                         processes or workflow rules as the records go —
+                         before or after a delete, or as an activated order
+                         is set back to Draft for its delete — or could not
+                         say what it runs                       (default: off)
   --json                 print what became of the records as JSON on stdout,
                          every other line on stderr
 
@@ -400,9 +417,11 @@ Exit codes:
      took every record it set out to take
   1  the clone or the removal could not run; the clone produced only failures,
      or its files were refused; the target is a production org; the target
-     runs automation on insert and --accept-automation was not given; the
-     run would write more than --max-total records, or more than the
-     target's data storage has left (nothing is written then)
+     runs automation on insert or on the updates the clone makes after its
+     inserts, or the removal's deletes fire automation, and
+     --accept-automation was not given; the run would write more than
+     --max-total records, or more than the target's data storage has left
+     (nothing is written or deleted then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
   3  the removal left records of the run in the org: kept, or refused
@@ -1572,6 +1591,8 @@ export interface RemoveArgs {
   includeChanged: boolean;
   /** Print the outcome as JSON on stdout, and every other line on stderr. */
   json: boolean;
+  /** Delete although the target runs automation as the records go, or could not say what it runs. */
+  acceptAutomation: boolean;
 }
 
 /** The flags a removal reads. */
@@ -1580,6 +1601,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--target',
   '--include-changed',
   '--json',
+  '--accept-automation',
 ]);
 
 /** The flags of a removal that take a value. */
@@ -1612,7 +1634,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed and --json, not "${arg}". ` +
+        `--remove takes --target, --include-changed, --accept-automation and --json, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -1632,6 +1654,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     target,
     includeChanged: has('--include-changed'),
     json: has('--json'),
+    acceptAutomation: has('--accept-automation'),
   };
 }
 
@@ -2119,7 +2142,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
-  const conn = makeConn(await loadOrg(args.target));
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
   const org = await typeOrg(conn);
   const refusal = productionRefusal(args.target, org, 'remove');
   if (refusal) {
@@ -2134,6 +2158,29 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   for (const line of removalPlanLines(summary, plan, args)) say(line);
+  // What the target runs as the records go, said before the first delete,
+  // and asked as the clone asks about what fires as it inserts: a removal
+  // deletes, and what runs before or after a delete runs then, with what
+  // fires as an activated order is set back to Draft for its delete.
+  const removed = plan.map((object) => object.objectApiName);
+  const drafted = setBackToDraftOf(removed);
+  const automation = await targetAutomationReader(conn).read(args.target, removed);
+  say('');
+  for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
+    say(line);
+  }
+  const automationStop = removalAutomationRefusal(automation, args.target, {
+    drafted,
+    assign: bypassesToAssign(
+      automation,
+      removalBypassesOf(automation, drafted),
+      session.username ? { alias: args.target, username: session.username } : undefined,
+    ),
+  });
+  if (automationStop && !args.acceptAutomation) {
+    process.stderr.write(`${automationStop}\n`);
+    process.exit(1);
+  }
   if (before.earlier) {
     say(
       `what earlier removals of this summary left on the run's records, read from ` +
@@ -2638,6 +2685,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   say('');
   for (const line of automationLines(targetAutomation, args.target, {
     applyAssignmentRules: args.applyAssignmentRules,
+    username: targetOrg.username,
   })) {
     say(line);
   }
@@ -2671,15 +2719,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // with no one to ask, writes nothing unless told to go on regardless. A
   // target that would not say what it runs is taken the same way. A dry run
   // writes nothing, and says what a real one would need.
-  const automationStop = automationRefusal(targetAutomation, args.target);
+  // What fires as it updates the records it inserted is asked with it: in a
+  // client's sandbox, a flow on orders sent each to an external system as the
+  // clone gave it back its status.
+  const updated = objectsUpdatedAfterInsert(graph, {
+    leftOut: new Set(args.excludedObjects),
+    upsert: args.upsert,
+  });
+  const automationStop = automationRefusal(targetAutomation, args.target, {
+    updated,
+    assign: bypassesToAssign(
+      targetAutomation,
+      runBypassesOf(
+        targetAutomation,
+        updated.map((object) => object.objectApiName),
+      ),
+      targetOrg.username ? { alias: args.target, username: targetOrg.username } : undefined,
+    ),
+  });
   if (automationStop && !args.acceptAutomation) {
     if (!args.dryRun) {
       process.stderr.write(`${automationStop}\n`);
       process.exit(1);
     }
     say(
-      '  a real run writes nothing without --accept-automation: see what fires as it inserts, ' +
-        'or could not be read, above',
+      '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
+        'and updates, or could not be read, above',
     );
   }
 

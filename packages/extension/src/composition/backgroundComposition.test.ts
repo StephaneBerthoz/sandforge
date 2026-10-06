@@ -12,6 +12,7 @@ vi.mock('vscode', () => ({
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
   },
+  env: { clipboard: { writeText: vi.fn() } },
   l10n: {
     t: (message: string, ...args: unknown[]): string =>
       (l10nBundle.current[message] ?? message).replace(/\{(\d+)\}/g, (_m, i: string) =>
@@ -270,8 +271,11 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       { objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' },
       { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' },
     ],
+    firedOnUpdate: [],
+    updateSteps: [],
     unread: [],
     bypass: ['Load_Data'],
+    assign: [],
   };
 
   const write: WriteConfirmation = {
@@ -346,6 +350,73 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'What fires as the clone inserts its records is not known.',
       'Nothing has been read or written yet.',
     ]);
+  });
+
+  it('names what fires as the clone updates the records it inserted, and why it updates them', () => {
+    expect(
+      runQuestionDetail({
+        ...automation,
+        fired: [],
+        bypass: [],
+        firedOnUpdate: [{ objectApiName: 'Order', kind: 'flow', name: 'Order sync' }],
+        updateSteps: ['lookups', 'statuses'],
+      }).split('\n'),
+    ).toEqual([
+      'DEV runs automation as this clone updates records it inserted (a lookup filled in once its record exists; an order or a contract given back its status after it went in as a draft):',
+      '• Order: Flow "Order sync"',
+      'Nothing has been read or written yet.',
+    ]);
+  });
+
+  it('gives the command that assigns the smallest permission set holding a bypass, and says when none holds one', () => {
+    const lines = runQuestionDetail({
+      ...automation,
+      bypass: ['Load_Data', 'Skip_Rules'],
+      assign: [
+        {
+          permission: 'Load_Data',
+          permissionSet: 'Data_Load',
+          others: ['Integration'],
+          command:
+            'sf org assign permset --name Data_Load --target-org DEV --on-behalf-of user@example.com',
+        },
+        { permission: 'Skip_Rules', others: [], noneHolds: true },
+      ],
+    }).split('\n');
+    expect(lines).toContain(
+      'Data_Load is the smallest permission set of DEV that holds Load_Data (Integration hold it too). Assigned to the user the clone writes as, it keeps quiet what Load_Data excludes:',
+    );
+    expect(lines).toContain(
+      'sf org assign permset --name Data_Load --target-org DEV --on-behalf-of user@example.com',
+    );
+    expect(lines).toContain(
+      'No permission set of DEV holds Skip_Rules: an admin creates one that includes it, and assigns it to the user the clone writes as.',
+    );
+    expect(lines).toContain(
+      'Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.',
+    );
+  });
+
+  it('copies the command from a button of its own, which cancels the clone and runs nothing', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const command =
+      'sf org assign permset --name Data_Load --target-org DEV --on-behalf-of user@example.com';
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(
+      productionGuard.confirmRun({
+        ...automation,
+        assign: [{ permission: 'Load_Data', permissionSet: 'Data_Load', others: [], command }],
+      }),
+    ).resolves.toBe('declined');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call.slice(2)).toEqual(['Execute', 'Copy the command']);
+    expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith(command);
   });
 
   it('lists the records per object, the setting the total is past, and the storage they take', () => {

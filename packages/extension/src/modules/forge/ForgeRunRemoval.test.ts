@@ -3,6 +3,7 @@ import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/sh
 
 import {
   removeRunRecords,
+  setBackToDraftOf,
   takenAlong,
   type RemovalOrg,
   type RunRemovalOptions,
@@ -2790,5 +2791,11 @@ describe('takenAlong', () => {
     );
 
     expect(readBack).toEqual({ gone: [refused[0]], unchecked: [refused[1]] });
+  });
+});
+
+describe('setBackToDraftOf', () => {
+  it('names the objects whose records past Draft a removal sets back to Draft, and not a contract, deleted as it stands', () => {
+    expect(setBackToDraftOf(['Account', 'Order', 'Contract', 'OrderItem'])).toEqual(['Order']);
   });
 });

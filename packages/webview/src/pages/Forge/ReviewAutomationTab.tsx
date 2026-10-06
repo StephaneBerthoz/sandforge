@@ -12,11 +12,13 @@ import type {
 import {
   automationByWrite,
   blindedBy,
+  bypassAssignmentsOf,
   bypassPermissionsOf,
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { uiLocale } from '../../utils/formatters';
+import { BypassAssistant, type BypassTarget } from './BypassAssistant';
 
 /** The heading of each write, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeAutomationWrite, string>> = {
@@ -68,6 +70,7 @@ const UNREAD_KEYS: Readonly<Record<ForgeTargetAutomationUnread['part'], string>>
   assignmentRules: 'forge.review.automation.unreadAssignmentRules',
   duplicateRules: 'forge.review.automation.unreadDuplicateRules',
   userPermissions: 'forge.review.automation.unreadUserPermissions',
+  permissionSets: 'forge.review.automation.unreadPermissionSets',
 };
 
 /** The units a scheduled path's offset is set in, as `Intl` names them. */
@@ -92,6 +95,12 @@ export interface ReviewAutomationTabProps {
   leftOut?: ReadonlySet<string>;
   /** Whether the run lets the target's assignment rules apply (`ForgeConfig.applyAssignmentRules`). */
   applyAssignmentRules?: boolean;
+  /**
+   * The target org and the user the run writes as, whom the command that
+   * assigns a bypass names; without them, the permission set is named and no
+   * command is shown.
+   */
+  target?: BypassTarget;
 }
 
 /**
@@ -99,7 +108,8 @@ export interface ReviewAutomationTabProps {
  * the records the run writes, write by write — its record-triggered flows,
  * Apex triggers, processes and workflow rules, what of them sends messages
  * or runs once the save is committed — its assignment and duplicate rules,
- * and what keeps a flow from starting for the user the run writes as.
+ * and what keeps a flow from starting for the user the run writes as, with
+ * the permission set that would give that user a bypass it does not hold.
  *
  * A clone fired the target's flows on every record it created, emails and
  * text messages among them, and nothing said so before the run. The request
@@ -111,6 +121,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   error = null,
   leftOut = new Set<string>(),
   applyAssignmentRules = false,
+  target,
 }) => {
   const { t } = useTranslation();
 
@@ -153,15 +164,21 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             : t('forge.review.automation.none', { count: written })}
       </p>
       {toAssign.length > 0 && (
-        <p
+        <div
           data-testid="automation-bypass"
           className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
         >
-          {t('forge.review.automation.bypassHint', {
-            count: toAssign.length,
-            names: toAssign.join(', '),
-          })}
-        </p>
+          <p>
+            {t('forge.review.automation.bypassHint', {
+              count: toAssign.length,
+              names: toAssign.join(', '),
+            })}
+          </p>
+          <BypassAssistant
+            assignments={bypassAssignmentsOf(automation, toAssign)}
+            {...(target ? { target } : {})}
+          />
+        </div>
       )}
       {held.length > 0 && (
         <p

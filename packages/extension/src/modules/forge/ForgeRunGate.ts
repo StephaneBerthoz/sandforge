@@ -1,7 +1,8 @@
 /**
  * What a Forge run is held to before it writes into an org: what the target
- * runs as the run inserts its records, how many records it writes, and the
- * data storage they take there.
+ * runs as the run inserts its records and updates those it writes a second
+ * time, how many records it writes, and the data storage they take there;
+ * and what a removal of its records sets off as it deletes them.
  *
  * Run for real, a clone whose dry run said 37 records wrote 34 216 into a
  * client sandbox — a parent added to its graph widened what was read of its
@@ -18,21 +19,42 @@
  */
 
 import { z } from 'zod';
-import { BYTES_PER_MB, automationByWrite, orgTypeToGuardTier } from '@sandforge/shared';
-import type { ForgeRunGateCode, ForgeRunGateStop, ForgeTargetAutomation } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  assignPermsetCommand,
+  bypassAssignmentsOf,
+  bypassesOfWrites,
+  firedOnRemovalOf,
+  firedOnWriteOf,
+  heldBypassPermissionsOf,
+  orgTypeToGuardTier,
+} from '@sandforge/shared';
+import type {
+  ForgeFiredOnWrite,
+  ForgeGraph,
+  ForgeRunGateCode,
+  ForgeRunGateStop,
+  ForgeTargetAutomation,
+} from '@sandforge/shared';
 import {
   ACCOUNT,
   CONTACT,
   EMAIL_MESSAGE,
+  FLAGS_THE_PLATFORM_LEAVES,
+  STATUS_LIFECYCLES,
   isPersonAccountRow,
 } from '../../core/common/platformRecords.js';
 import type {
   AutomationConfirmation,
+  BypassToAssign,
   FiredOnInsert,
+  RunUpdateStep,
   SafetyTier,
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
+import { ordersTheWrite } from './stages/ScopeResolver.js';
+import { objectsTheRunWrites } from './TargetAutomationReader.js';
 
 /**
  * Whether an org's edition, as `Organization.OrganizationType` gives it, is a
@@ -246,34 +268,189 @@ export function formatMB(megabytes: number): string {
   return (Math.ceil(megabytes * factor - 1e-9) / factor).toString();
 }
 
+/**
+ * The entries of `fired` as a run's question names them, without the write
+ * or when each runs. What a bypass the run's user holds keeps quiet is not
+ * among them: it does not fire for the run's records.
+ */
+function named(fired: readonly ForgeFiredOnWrite[]): FiredOnInsert[] {
+  return fired.map(({ objectApiName, kind, name }) => ({ objectApiName, kind, name }));
+}
+
 /** What fires in the target as a run inserts its records, per object. */
 export function firedOnInsertOf(
   automation: Pick<ForgeTargetAutomation, 'objects'>,
 ): FiredOnInsert[] {
-  return automation.objects.flatMap((object) =>
-    (automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? [])
-      // What a bypass the run's user holds keeps quiet does not fire for its
-      // records, as the Automation tab counts it.
-      .filter((fired) => fired.keptQuiet !== true)
-      .map((fired) => ({
-        objectApiName: object.objectApiName,
-        kind: fired.kind,
-        name: fired.name,
-      })),
+  return named(firedOnWriteOf(automation, 'insert'));
+}
+
+/**
+ * What fires in the target as a run updates the records it inserted, on the
+ * objects it updates ({@link objectsUpdatedAfterInsert}), per object.
+ */
+export function firedOnUpdateOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  updated: readonly string[],
+): FiredOnInsert[] {
+  const updating = new Set(updated);
+  return named(firedOnWriteOf(automation, 'update', (name) => updating.has(name)));
+}
+
+/** An object whose records a run writes a second time after inserting them, and why. */
+export interface UpdatedAfterInsert {
+  objectApiName: string;
+  steps: RunUpdateStep[];
+}
+
+/** The steps of {@link RunUpdateStep}, in the order it lists them. */
+const UPDATE_STEPS: readonly RunUpdateStep[] = [
+  'lookups',
+  'statuses',
+  'invitees',
+  'retry',
+  'upsert',
+];
+
+/**
+ * The objects whose records a run of `graph` writes a second time after it
+ * inserted them, and why, as far as the graph tells before a row is read —
+ * when the run's question is put. Each step is the executor's own
+ * ({@link RunUpdateStep}):
+ *
+ * - `lookups`: an object holding a lookup at itself, or at another object of a
+ *   cycle among those the run writes. The run writes a cycle in an order that
+ *   puts one of its records first, and leaves its lookup at a record written
+ *   later empty for the second pass: which member that is, is the write
+ *   order's — read from the fields the run describes, after the question — so
+ *   every member that holds such a lookup is counted. A lookup outside a cycle
+ *   points at a record written before its own and goes with its insert; one a
+ *   record cannot be written without is never left empty, nor one only an
+ *   insert sets, nor one no write sets.
+ * - `statuses`: the orders and contracts the run writes.
+ * - `invitees`: the invitees of events the run writes.
+ * - `retry`: on a retry, every object holding a lookup at another the run
+ *   writes: the run it retries may have left that lookup empty.
+ * - `upsert`: with `--upsert`, every object the run writes.
+ *
+ * What only a describe tells is not counted: a lookup the user the run writes
+ * as may update and not create, which the second pass fills in wherever its
+ * record is.
+ *
+ * @param options - The objects the run leaves out by name, and whether it
+ *   retries a run or upserts.
+ */
+export function objectsUpdatedAfterInsert(
+  graph: Pick<ForgeGraph, 'nodes' | 'edges'>,
+  options: { leftOut?: ReadonlySet<string>; retry?: boolean; upsert?: boolean } = {},
+): UpdatedAfterInsert[] {
+  const written = objectsTheRunWrites(graph, options.leftOut);
+  const writing = new Set(written);
+  const steps = new Map<string, Set<RunUpdateStep>>();
+  const add = (objectApiName: string, step: RunUpdateStep): void => {
+    if (!writing.has(objectApiName)) return;
+    const set = steps.get(objectApiName) ?? new Set<RunUpdateStep>();
+    set.add(step);
+    steps.set(objectApiName, set);
+  };
+  // A lookup only an insert sets, or one a record cannot be written without,
+  // makes a cycle as any other does, and is never filled in by an update.
+  const lookups = graph.edges.filter(
+    (edge) =>
+      ordersTheWrite(edge) && writing.has(edge.sourceObject) && writing.has(edge.targetObject),
+  );
+  // Edges run from parent to child: an object reaches, down them, the objects under it.
+  const children = new Map<string, string[]>();
+  for (const { sourceObject, targetObject } of lookups) {
+    if (sourceObject === targetObject) continue;
+    children.set(sourceObject, [...(children.get(sourceObject) ?? []), targetObject]);
+  }
+  const reaches = (from: string, to: string): boolean => {
+    const seen = new Set<string>([from]);
+    const queue = [from];
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      for (const child of children.get(next) ?? []) {
+        if (child === to) return true;
+        if (!seen.has(child)) {
+          seen.add(child);
+          queue.push(child);
+        }
+      }
+    }
+    return false;
+  };
+  const updatable = lookups.filter((edge) => edge.required !== true && edge.insertOnly !== true);
+  for (const { sourceObject: parent, targetObject: child } of updatable) {
+    if (parent === child || reaches(child, parent)) add(child, 'lookups');
+  }
+  for (const object of Object.keys(STATUS_LIFECYCLES)) add(object, 'statuses');
+  for (const object of Object.keys(FLAGS_THE_PLATFORM_LEAVES)) add(object, 'invitees');
+  if (options.retry === true) {
+    for (const { sourceObject, targetObject } of updatable) {
+      if (sourceObject !== targetObject) add(targetObject, 'retry');
+    }
+  }
+  if (options.upsert === true) {
+    for (const object of written) add(object, 'upsert');
+  }
+  return written.flatMap((objectApiName) => {
+    const of = steps.get(objectApiName);
+    return of ? [{ objectApiName, steps: UPDATE_STEPS.filter((step) => of.has(step)) }] : [];
+  });
+}
+
+/** The steps that update the objects of `updated`, each once, in the order {@link RunUpdateStep} lists them. */
+export function updateStepsOf(updated: readonly UpdatedAfterInsert[]): RunUpdateStep[] {
+  const taken = new Set(updated.flatMap((object) => object.steps));
+  return UPDATE_STEPS.filter((step) => taken.has(step));
+}
+
+/**
+ * The custom permissions that keep from starting, for the user who holds
+ * them, a flow firing as the run inserts its records, or as it updates those
+ * of the objects `updated`, each once.
+ */
+export function runBypassesOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  updated: readonly string[] = [],
+): string[] {
+  const updating = new Set(updated);
+  return bypassesOfWrites(
+    automation,
+    (objectApiName, write) =>
+      write === 'insert' || (write === 'update' && updating.has(objectApiName)),
   );
 }
 
 /**
- * The custom permissions that keep a flow firing on insert from starting for
- * the user who holds them, each once.
+ * Those of `bypasses` the user the run writes as does not hold, with the
+ * permission set that would give each and the command that assigns it, as
+ * the read found them. A bypass whose permission sets the read could not look
+ * up is listed without either: the question still names it.
+ *
+ * @param target - The target org by the alias the Salesforce CLI knows it by,
+ *   and the user the run writes as; without them, no command is written.
  */
-export function insertBypassesOf(automation: Pick<ForgeTargetAutomation, 'objects'>): string[] {
-  const names = automation.objects.flatMap((object) =>
-    (automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? []).flatMap(
-      (fired) => (fired.flow?.permissions ?? []).filter((p) => p.bypass).map((p) => p.name),
-    ),
-  );
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+export function bypassesToAssign(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'>,
+  bypasses: readonly string[],
+  target?: { alias: string; username: string },
+): BypassToAssign[] {
+  const held = new Set(heldBypassPermissionsOf(automation).map((name) => name.toLowerCase()));
+  const toAssign = bypasses.filter((name) => !held.has(name.toLowerCase()));
+  const found = bypassAssignmentsOf(automation, toAssign);
+  return toAssign.map((permission) => {
+    const assignment = found.find((a) => a.permission.toLowerCase() === permission.toLowerCase());
+    const permissionSet = assignment?.permissionSet?.name;
+    return {
+      permission,
+      ...(permissionSet ? { permissionSet } : {}),
+      others: assignment?.others.map((other) => other.name) ?? [],
+      ...(assignment && !permissionSet ? { noneHolds: true as const } : {}),
+      ...(permissionSet && target?.alias && target.username
+        ? { command: assignPermsetCommand(permissionSet, target.alias, target.username) }
+        : {}),
+    };
+  });
 }
 
 /**
@@ -418,32 +595,193 @@ function firedWords({ kind, name }: Pick<FiredOnInsert, 'kind' | 'name'>): strin
   return `Apex trigger ${name}`;
 }
 
+/** How the command line says why a run updates the records it inserted. */
+const UPDATE_STEP_WORDS: Readonly<Record<RunUpdateStep, string>> = {
+  lookups: 'a lookup filled in once its record exists',
+  statuses: 'an order or a contract given back its status after it went in as a draft',
+  invitees: "an event's invitee given its answer",
+  retry: 'a lookup the run it retries left empty filled in',
+  upsert: 'a record the target holds written over by --upsert',
+};
+
+/** `Object: what fires` for each entry, as the command line lists them. */
+function namedList(fired: readonly FiredOnInsert[]): string {
+  return fired.map((entry) => `${entry.objectApiName}: ${firedWords(entry)}`).join('; ');
+}
+
+/**
+ * What the command line says of each bypass the user the run writes as does
+ * not hold: the permission set that holds it and the command that assigns
+ * it, or that none holds it. A bypass whose permission sets were not read is
+ * named by the lines of the automation already.
+ *
+ * @param who - The user the command names: "the clone", "the removal".
+ */
+export function bypassAssistantSentences(
+  assign: readonly BypassToAssign[],
+  target: string,
+  who: string,
+): string[] {
+  return assign.flatMap((entry) => {
+    if (entry.command) {
+      const others =
+        entry.others.length > 0
+          ? `; ${entry.others.join(', ')} hold${entry.others.length === 1 ? 's' : ''} it too`
+          : '';
+      return [
+        `${entry.permissionSet} is the smallest permission set of ${target} that holds ` +
+          `${entry.permission}${others}. Assigned to the user ${who} writes as, it keeps quiet ` +
+          `what ${entry.permission} excludes: ${entry.command}`,
+      ];
+    }
+    if (entry.noneHolds) {
+      return [
+        `No permission set of ${target} holds ${entry.permission}: an admin creates one that ` +
+          `includes it, and assigns it to the user ${who} writes as.`,
+      ];
+    }
+    return [];
+  });
+}
+
 /**
  * Why the command line will not write without `--accept-automation`: what the
- * target runs as the clone inserts its records, named, or what of it could not
- * be read. Nothing when nothing fires and everything was read.
+ * target runs as the clone inserts its records, and as it updates those of
+ * `updated`, named, or what of it could not be read; then, for a bypass the
+ * user does not hold, the permission set and the command that would assign
+ * it. Nothing when nothing fires and everything was read.
+ *
+ * @param options - The objects the clone updates after inserting them, and
+ *   the bypasses to assign ({@link bypassesToAssign}).
  */
 export function automationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
+  options: { updated?: readonly UpdatedAfterInsert[]; assign?: readonly BypassToAssign[] } = {},
 ): string | undefined {
+  const updated = options.updated ?? [];
   const fired = firedOnInsertOf(automation);
+  const firedOnUpdate = firedOnUpdateOf(
+    automation,
+    updated.map((object) => object.objectApiName),
+  );
   const unread = automationUnreadOf(automation);
-  if (fired.length === 0 && unread.length === 0) return undefined;
+  if (fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0) return undefined;
   const parts: string[] = [];
   if (fired.length > 0) {
-    const named = fired.map((entry) => `${entry.objectApiName}: ${firedWords(entry)}`);
-    parts.push(`${target} runs automation on the records this clone inserts: ${named.join('; ')}.`);
+    parts.push(`${target} runs automation on the records this clone inserts: ${namedList(fired)}.`);
   }
+  if (firedOnUpdate.length > 0) {
+    const why = updateStepsOf(
+      updated.filter((object) =>
+        firedOnUpdate.some((f) => f.objectApiName === object.objectApiName),
+      ),
+    ).map((step) => UPDATE_STEP_WORDS[step]);
+    parts.push(
+      `${target} runs automation as this clone updates records it inserted (${why.join('; ')}): ` +
+        `${namedList(firedOnUpdate)}.`,
+    );
+  }
+  const writes = updated.length > 0 ? 'inserts and updates' : 'inserts';
   for (const { part, reason } of unread) {
     parts.push(
       `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
-        `could not be read (${reason}), so what fires as the clone inserts is not known.`,
+        `could not be read (${reason}), so what fires as the clone ${writes} is not known.`,
     );
   }
+  parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the clone'));
   parts.push(
     `Nothing was written. Add --accept-automation to clone all the same, or turn that ` +
       `automation off in ${target} first.`,
   );
   return parts.join(' ');
+}
+
+/**
+ * Why the command line will not remove a run's records without
+ * `--accept-automation`: what the target runs as the removal deletes them,
+ * and as it sets the records of `drafted` back to Draft before deleting them,
+ * named, or what of it could not be read; then the bypasses to assign.
+ * Nothing when nothing fires and everything was read.
+ *
+ * @param options - The objects the removal sets back to Draft, and the
+ *   bypasses to assign ({@link bypassesToAssign}).
+ */
+export function removalAutomationRefusal(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  target: string,
+  options: { drafted?: readonly string[]; assign?: readonly BypassToAssign[] } = {},
+): string | undefined {
+  const fired = firedOnRemovalOf(automation, options.drafted ?? []);
+  const unread = automationUnreadOf(automation);
+  if (fired.length === 0 && unread.length === 0) return undefined;
+  const parts: string[] = [];
+  const updates = fired.filter((entry) => entry.write === 'update');
+  const deletes = fired.filter((entry) => entry.write === 'delete');
+  if (deletes.length > 0) {
+    const named = deletes.map(
+      (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
+    );
+    parts.push(
+      `${target} runs automation on the records this removal deletes: ${named.join('; ')}.`,
+    );
+  }
+  if (updates.length > 0) {
+    parts.push(
+      `${target} runs automation as this removal sets activated records back to Draft, the ` +
+        `only way the platform deletes them: ${namedList(updates)}.`,
+    );
+  }
+  for (const { part, reason } of unread) {
+    parts.push(
+      `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
+        `could not be read (${reason}), so what fires as the removal deletes is not known.`,
+    );
+  }
+  parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  parts.push(
+    `Nothing was deleted. Add --accept-automation to remove all the same, or turn that ` +
+      `automation off in ${target} first.`,
+  );
+  return parts.join(' ');
+}
+
+/** When what fires on a delete runs, as the command line says it. */
+const DELETE_WHEN_WORDS: Readonly<Record<ForgeFiredOnWrite['when'], string>> = {
+  before: 'before delete',
+  after: 'after delete',
+  beforeAndAfter: 'before and after delete',
+};
+
+/**
+ * What the command line says, before a removal deletes anything, of what the
+ * target runs as it does: per object, what its deletes fire, before or after,
+ * and what its updates fire on the records it sets back to Draft; or that
+ * nothing does; and what could not be read.
+ *
+ * @param objects - How many objects the removal deletes records of.
+ * @param drafted - The objects whose records past Draft it sets back to Draft first.
+ */
+export function removalAutomationLines(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  target: string,
+  objects: number,
+  drafted: readonly string[],
+): string[] {
+  const lines = [`removal automation: what ${target} runs as the removal takes the records back`];
+  for (const entry of firedOnRemovalOf(automation, drafted)) {
+    lines.push(
+      entry.write === 'delete'
+        ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
+        : `  ${entry.objectApiName}: set back to Draft before its delete: ${firedWords(entry)}`,
+    );
+  }
+  const unread = automationUnreadOf(automation);
+  if (lines.length === 1 && unread.length === 0) {
+    lines.push(`  nothing fires on the ${objects} object(s) it deletes records of`);
+  }
+  for (const { part, reason } of unread) {
+    lines.push(`  ${UNREAD_WORDS[part]} could not be read: ${reason}`);
+  }
+  return lines;
 }

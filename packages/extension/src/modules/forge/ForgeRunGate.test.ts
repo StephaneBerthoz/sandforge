@@ -1,22 +1,33 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
+import type {
+  ForgeGraphEdge,
+  ForgeGraphNode,
+  ForgeTargetAutomation,
+  ForgeTargetFlow,
+} from '@sandforge/shared';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
   automationRefusal,
   automationUnreadOf,
+  bypassesToAssign,
   confirmationStorageOf,
   firedOnInsertOf,
+  firedOnUpdateOf,
   forgeTargetTier,
   formatMB,
-  insertBypassesOf,
   isDeveloperEdition,
   isForgeRunGateError,
+  objectsUpdatedAfterInsert,
   readDataStorage,
+  removalAutomationLines,
+  removalAutomationRefusal,
   rowStorageBytes,
+  runBypassesOf,
   storageCheckOf,
   storageRefusal,
+  updateStepsOf,
   writePlanLines,
   writePlanOf,
 } from './ForgeRunGate.js';
@@ -225,7 +236,7 @@ describe('what fires as a run inserts', () => {
   });
 
   it('names the permissions that keep a flow firing on insert quiet, and no other', () => {
-    expect(insertBypassesOf(automation)).toEqual(['Load_Data']);
+    expect(runBypassesOf(automation)).toEqual(['Load_Data']);
   });
 
   it('says what could not be read of what fires, a start condition aside', () => {
@@ -318,6 +329,407 @@ describe('what fires as a run inserts', () => {
         'TGT',
       ),
     ).toBeUndefined();
+  });
+});
+
+/** A node of a discovered graph, included unless told. */
+function graphNode(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
+  return {
+    objectApiName,
+    recordCount: 1,
+    fieldCount: 5,
+    status: 'idle',
+    progress: 0,
+    included: true,
+    piiFields: [],
+    anonymizeFields: [],
+    level: 0,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: 5,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 1,
+    batchStrategy: 'auto',
+    ...overrides,
+  };
+}
+
+/** A lookup of `child` at `parent`, one the child may be written without unless told. */
+function lookup(
+  parent: string,
+  child: string,
+  overrides: Partial<ForgeGraphEdge> = {},
+): ForgeGraphEdge {
+  return {
+    sourceObject: parent,
+    targetObject: child,
+    relationshipName: `${parent}To${child}`,
+    type: 'lookup',
+    ...overrides,
+  };
+}
+
+describe('the objects a run updates after inserting them', () => {
+  it('counts an object holding a lookup at itself: the second pass fills it in', () => {
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes: [graphNode('Account')],
+        edges: [lookup('Account', 'Account')],
+      }),
+    ).toEqual([{ objectApiName: 'Account', steps: ['lookups'] }]);
+  });
+
+  it('counts every member of a cycle holding a lookup at another, whichever the write order puts first', () => {
+    // Contact.AccountId and Account.Primary_Contact__c: one of the two is left
+    // empty at insert, and which is the write order's.
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes: [graphNode('Account'), graphNode('Contact')],
+        edges: [lookup('Account', 'Contact'), lookup('Contact', 'Account')],
+      }),
+    ).toEqual([
+      { objectApiName: 'Account', steps: ['lookups'] },
+      { objectApiName: 'Contact', steps: ['lookups'] },
+    ]);
+  });
+
+  it('counts no update for a lookup at a parent written before its child', () => {
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes: [graphNode('Account'), graphNode('Contact'), graphNode('Case')],
+        edges: [lookup('Account', 'Contact'), lookup('Contact', 'Case'), lookup('Account', 'Case')],
+      }),
+    ).toEqual([]);
+  });
+
+  it('counts no update for a lookup never left for the second pass: required, insert-only, or set by no write', () => {
+    const nodes = [graphNode('Account'), graphNode('Contact')];
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes,
+        edges: [lookup('Account', 'Contact', { required: true }), lookup('Contact', 'Account')],
+      }),
+    ).toEqual([{ objectApiName: 'Account', steps: ['lookups'] }]);
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes,
+        edges: [lookup('Account', 'Contact', { insertOnly: true }), lookup('Contact', 'Account')],
+      }),
+    ).toEqual([{ objectApiName: 'Account', steps: ['lookups'] }]);
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes,
+        edges: [lookup('Contact', 'Account', { settable: false }), lookup('Account', 'Contact')],
+      }),
+    ).toEqual([]);
+  });
+
+  it('counts no update on an object the run does not write', () => {
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes: [
+          graphNode('Account'),
+          graphNode('Contact', { included: false, leftOutByUser: true }),
+        ],
+        edges: [
+          lookup('Account', 'Contact'),
+          lookup('Contact', 'Account'),
+          lookup('Contact', 'Contact'),
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('counts the orders and contracts the run writes: those past Draft get their status back', () => {
+    expect(
+      objectsUpdatedAfterInsert({ nodes: [graphNode('Order'), graphNode('Contract')], edges: [] }),
+    ).toEqual([
+      { objectApiName: 'Order', steps: ['statuses'] },
+      { objectApiName: 'Contract', steps: ['statuses'] },
+    ]);
+    expect(
+      objectsUpdatedAfterInsert(
+        { nodes: [graphNode('Order'), graphNode('Contract')], edges: [] },
+        { leftOut: new Set(['Order']) },
+      ),
+    ).toEqual([{ objectApiName: 'Contract', steps: ['statuses'] }]);
+  });
+
+  it("counts an event's invitees, given back their answer", () => {
+    expect(
+      objectsUpdatedAfterInsert({
+        nodes: [graphNode('Event'), graphNode('EventRelation')],
+        edges: [lookup('Event', 'EventRelation', { required: true })],
+      }),
+    ).toEqual([{ objectApiName: 'EventRelation', steps: ['invitees'] }]);
+  });
+
+  it('counts, on a retry, every object holding a lookup at another the run writes', () => {
+    expect(
+      objectsUpdatedAfterInsert(
+        {
+          nodes: [graphNode('Account'), graphNode('Contact')],
+          edges: [lookup('Account', 'Contact')],
+        },
+        { retry: true },
+      ),
+    ).toEqual([{ objectApiName: 'Contact', steps: ['retry'] }]);
+  });
+
+  it('counts, with an upsert, every object the run writes', () => {
+    expect(
+      objectsUpdatedAfterInsert(
+        {
+          nodes: [graphNode('Account'), graphNode('Contract')],
+          edges: [lookup('Account', 'Contract', { required: true })],
+        },
+        { upsert: true },
+      ),
+    ).toEqual([
+      { objectApiName: 'Account', steps: ['upsert'] },
+      { objectApiName: 'Contract', steps: ['statuses', 'upsert'] },
+    ]);
+  });
+
+  it('says each step once, in its order', () => {
+    expect(
+      updateStepsOf([
+        { objectApiName: 'Order', steps: ['statuses', 'upsert'] },
+        { objectApiName: 'Account', steps: ['lookups', 'upsert'] },
+      ]),
+    ).toEqual(['lookups', 'statuses', 'upsert']);
+  });
+});
+
+describe('what fires as a run updates the records it inserted', () => {
+  const flow = (over: Partial<ForgeTargetFlow>): ForgeTargetFlow => ({
+    apiName: 'F',
+    label: 'F',
+    timing: 'afterSave',
+    startsOn: 'update',
+    condition: 'read',
+    permissions: [],
+    ...over,
+  });
+  const automation: ForgeTargetAutomation = {
+    objectsRead: ['Order', 'Account'],
+    objects: [
+      {
+        objectApiName: 'Order',
+        flows: [
+          flow({ label: 'Order sync', permissions: [{ name: 'Skip_Sync', bypass: true }] }),
+          flow({ label: 'Order created', startsOn: 'create' }),
+        ],
+        triggers: [],
+      },
+      {
+        objectApiName: 'Account',
+        flows: [flow({ label: 'Account rollup' })],
+        triggers: [{ name: 'AccountTrigger', events: ['afterUpdate'] }],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 5,
+  };
+
+  it('names what fires on update on the objects the run updates, and on no other', () => {
+    expect(firedOnUpdateOf(automation, ['Order'])).toEqual([
+      { objectApiName: 'Order', kind: 'flow', name: 'Order sync' },
+    ]);
+    expect(firedOnUpdateOf(automation, [])).toEqual([]);
+  });
+
+  it('names the bypasses of what fires on insert, and on update of the objects updated', () => {
+    expect(runBypassesOf(automation, [])).toEqual([]);
+    expect(runBypassesOf(automation, ['Order'])).toEqual(['Skip_Sync']);
+  });
+
+  it('refuses the command line a clone whose updates fire automation, naming it and why', () => {
+    const refusal = automationRefusal(automation, 'TGT', {
+      updated: [{ objectApiName: 'Order', steps: ['statuses'] }],
+    });
+    expect(refusal).toBe(
+      'TGT runs automation on the records this clone inserts: Order: flow "Order created". ' +
+        'TGT runs automation as this clone updates records it inserted (an order or a contract ' +
+        'given back its status after it went in as a draft): Order: flow "Order sync". ' +
+        'Nothing was written. Add --accept-automation to clone all the same, or turn that ' +
+        'automation off in TGT first.',
+    );
+  });
+
+  it('refuses a clone where only an update fires automation', () => {
+    const onlyUpdates: ForgeTargetAutomation = { ...automation, objects: [automation.objects[1]] };
+    expect(automationRefusal(onlyUpdates, 'TGT')).toBeUndefined();
+    expect(
+      automationRefusal(onlyUpdates, 'TGT', {
+        updated: [{ objectApiName: 'Account', steps: ['lookups'] }],
+      }),
+    ).toContain(
+      'TGT runs automation as this clone updates records it inserted (a lookup filled in once ' +
+        'its record exists): Account: Apex trigger AccountTrigger; Account: flow "Account rollup".',
+    );
+  });
+
+  it('gives the command that assigns the smallest permission set holding a bypass, or says none holds it', () => {
+    expect(
+      automationRefusal(automation, 'TGT', {
+        updated: [{ objectApiName: 'Order', steps: ['statuses'] }],
+        assign: [
+          {
+            permission: 'Skip_Sync',
+            permissionSet: 'Sync_Off',
+            others: ['Integration'],
+            command:
+              'sf org assign permset --name Sync_Off --target-org TGT --on-behalf-of u@x.test',
+          },
+          { permission: 'Skip_Rules', others: [], noneHolds: true },
+        ],
+      }),
+    ).toContain(
+      'Sync_Off is the smallest permission set of TGT that holds Skip_Sync; Integration holds it ' +
+        'too. Assigned to the user the clone writes as, it keeps quiet what Skip_Sync excludes: ' +
+        'sf org assign permset --name Sync_Off --target-org TGT --on-behalf-of u@x.test ' +
+        'No permission set of TGT holds Skip_Rules: an admin creates one that includes it, and ' +
+        'assigns it to the user the clone writes as. Nothing was written.',
+    );
+  });
+});
+
+describe('the bypasses to assign', () => {
+  const flow: ForgeTargetFlow = {
+    apiName: 'F',
+    label: 'F',
+    timing: 'afterSave',
+    startsOn: 'create',
+    condition: 'read',
+    permissions: [
+      { name: 'Held_One', bypass: true, held: true },
+      { name: 'Load_Data', bypass: true, held: false },
+      { name: 'Skip_Rules', bypass: true, held: false },
+      { name: 'Never_Read', bypass: true },
+    ],
+  };
+  const automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'> = {
+    objects: [{ objectApiName: 'Contact', flows: [flow], triggers: [] }],
+    bypassGrants: [
+      {
+        permission: 'Load_Data',
+        permissionSets: [
+          { name: 'Data_Load', label: 'Data load', grants: 1 },
+          { name: 'Integration', label: 'Integration', grants: 90 },
+        ],
+      },
+      { permission: 'Skip_Rules', permissionSets: [] },
+    ],
+  };
+  const bypasses = ['Held_One', 'Load_Data', 'Never_Read', 'Skip_Rules'];
+
+  it('leaves out what the user holds, gives the smallest permission set and its command, and says when none holds it', () => {
+    expect(
+      bypassesToAssign(automation, bypasses, { alias: 'TGT', username: 'u@example.com' }),
+    ).toEqual([
+      {
+        permission: 'Load_Data',
+        permissionSet: 'Data_Load',
+        others: ['Integration'],
+        command:
+          'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of u@example.com',
+      },
+      { permission: 'Never_Read', others: [] },
+      { permission: 'Skip_Rules', others: [], noneHolds: true },
+    ]);
+  });
+
+  it('writes no command without the user the run writes as', () => {
+    expect(bypassesToAssign(automation, ['Load_Data'])).toEqual([
+      { permission: 'Load_Data', permissionSet: 'Data_Load', others: ['Integration'] },
+    ]);
+  });
+});
+
+describe('what fires as a removal takes the run back', () => {
+  const automation: ForgeTargetAutomation = {
+    objectsRead: ['Order', 'Account'],
+    objects: [
+      {
+        objectApiName: 'Order',
+        flows: [
+          {
+            apiName: 'Order_Sync',
+            label: 'Order sync',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+          },
+        ],
+        triggers: [{ name: 'OrderTrigger', events: ['beforeDelete'] }],
+      },
+      {
+        objectApiName: 'Account',
+        flows: [],
+        triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 5,
+  };
+
+  it('names what fires on delete, with when, and on update of what it sets back to Draft', () => {
+    expect(removalAutomationRefusal(automation, 'TGT', { drafted: ['Order'] })).toBe(
+      'TGT runs automation on the records this removal deletes: Order: Apex trigger OrderTrigger ' +
+        '(before delete); Account: Apex trigger AccountCleanup (before and after delete). TGT runs ' +
+        'automation as this removal sets activated records back to Draft, the only way the ' +
+        'platform deletes them: Order: flow "Order sync". Nothing was deleted. Add ' +
+        '--accept-automation to remove all the same, or turn that automation off in TGT first.',
+    );
+  });
+
+  it('says, before a removal deletes, per object what fires and when, and that nothing does when nothing does', () => {
+    expect(removalAutomationLines(automation, 'TGT', 2, ['Order'])).toEqual([
+      'removal automation: what TGT runs as the removal takes the records back',
+      '  Order: set back to Draft before its delete: flow "Order sync"',
+      '  Order: before delete: Apex trigger OrderTrigger',
+      '  Account: before and after delete: Apex trigger AccountCleanup',
+    ]);
+    expect(removalAutomationLines({ ...automation, objects: [] }, 'TGT', 2, [])).toEqual([
+      'removal automation: what TGT runs as the removal takes the records back',
+      '  nothing fires on the 2 object(s) it deletes records of',
+    ]);
+    expect(
+      removalAutomationLines(
+        { objects: [], unread: [{ part: 'triggers', reason: 'NO_ACCESS' }] },
+        'TGT',
+        2,
+        [],
+      ),
+    ).toEqual([
+      'removal automation: what TGT runs as the removal takes the records back',
+      '  the Apex triggers could not be read: NO_ACCESS',
+    ]);
+  });
+
+  it('says nothing of an update when nothing is set back to Draft', () => {
+    expect(removalAutomationRefusal(automation, 'TGT')).not.toContain('Draft');
+  });
+
+  it('gives none when nothing fires on delete and everything was read', () => {
+    expect(
+      removalAutomationRefusal({ ...automation, objects: [] }, 'TGT', { drafted: ['Order'] }),
+    ).toBeUndefined();
+    expect(
+      removalAutomationRefusal(
+        { ...automation, objects: [], unread: [{ part: 'flows', reason: 'NO_ACCESS' }] },
+        'TGT',
+      ),
+    ).toContain(
+      'The flows of TGT could not be read (NO_ACCESS), so what fires as the removal deletes is not known.',
+    );
   });
 });
 

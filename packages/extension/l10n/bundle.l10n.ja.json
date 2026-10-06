@@ -134,5 +134,16 @@
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "これらはデータストレージを約 {0} MB 使用します。{1} の残り容量を読み取れなかったため ({2})、収まるかどうかはわかりません。",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "これらはデータストレージを約 {0} MB 使用します。{1} の残りは {3} MB 中 {2} MB です。",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "残りの 80% を超えています。Salesforce はロード後しばらくしてからストレージを集計するため、実際の残りは表示より少ない場合があります。",
-  "The records have been read, and nothing has been written yet.": "レコードは読み取り済みで、まだ何も書き込んでいません。"
+  "The records have been read, and nothing has been written yet.": "レコードは読み取り済みで、まだ何も書き込んでいません。",
+  "a lookup filled in once its record exists": "参照先のレコードが書き込まれた後に入力される参照",
+  "an order or a contract given back its status after it went in as a draft": "ドラフトとして挿入された後にステータスを戻される注文または契約",
+  "an invitee of an event given its answer": "回答を戻される行動の招待者",
+  "a lookup the run it retries left empty filled in": "再試行した実行が空のままにした参照の入力",
+  "a record the target holds written over": "ターゲットに既にあるレコードの上書き",
+  "{0} is the smallest permission set of {1} that holds {2} ({3} hold it too). Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} は、{1} で {2} を含む最小の権限セットです ({3} にも含まれています)。このクローンが書き込みに使うユーザーに割り当てると、{2} が除外するものは起動しなくなります:",
+  "{0} is the smallest permission set of {1} that holds {2}. Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} は、{1} で {2} を含む最小の権限セットです。このクローンが書き込みに使うユーザーに割り当てると、{2} が除外するものは起動しなくなります:",
+  "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "{0} には {1} を含む権限セットがありません。管理者がそれを含む権限セットを作成し、このクローンが書き込みに使うユーザーに割り当てます。",
+  "{0} runs automation as this clone updates records it inserted ({1}):": "{0} では、このクローンが挿入したレコードを更新するときに自動化が実行されます ({1}):",
+  "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "「コマンドをコピー」はコマンドをコピーしてクローンをキャンセルします。SandForge がコマンドを実行することはありません。実行してから、クローンをもう一度実行してください。",
+  "Copy the command": "コマンドをコピー"
 }

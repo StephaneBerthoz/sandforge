@@ -331,6 +331,8 @@ const AutomationMessages = [
   msg('forge:rehearse:request'),
   // Reads what the target org runs on the objects a run writes.
   msg('forge:automation:request'),
+  // Reads what the target org runs on the objects a past run's removal deletes.
+  msg('forge:undo-automation:request'),
   // Reads from the target org's metadata what will refuse or surprise a run.
   msg('forge:gaps:request'),
   // Forge responses / progress events / error channels (Extension -> WebView).
@@ -365,6 +367,8 @@ const AutomationMessages = [
   msg('forge:rehearse:error'),
   msg('forge:automation:response'),
   msg('forge:automation:error'),
+  msg('forge:undo-automation:response'),
+  msg('forge:undo-automation:error'),
   msg('forge:gaps:response'),
   msg('forge:gaps:error'),
 ] as const;

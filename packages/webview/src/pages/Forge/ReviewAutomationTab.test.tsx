@@ -137,6 +137,45 @@ describe('ReviewAutomationTab', () => {
     );
   });
 
+  it('gives under a bypass the user does not hold the permission set that holds it and the command that assigns it', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [
+                flow({
+                  permissions: [
+                    { name: 'Case_BypassFlow', bypass: true, held: false },
+                    { name: 'Skip_All', bypass: true, held: false },
+                  ],
+                }),
+              ],
+              triggers: [],
+            },
+          ],
+          bypassGrants: [
+            {
+              permission: 'Case_BypassFlow',
+              permissionSets: [{ name: 'Bypass_Flows', label: 'Bypass flows', grants: 1 }],
+            },
+            { permission: 'Skip_All', permissionSets: [] },
+          ],
+        })}
+        target={{ alias: 'DEV-SANDBOX', username: 'loader@example.com.dev' }}
+      />,
+    );
+
+    const bypass = screen.getByTestId('automation-bypass');
+    expect(within(bypass).getByTestId('bypass-assistant-command').textContent).toBe(
+      'sf org assign permset --name Bypass_Flows --target-org DEV-SANDBOX --on-behalf-of loader@example.com.dev',
+    );
+    expect(within(bypass).getByTestId('bypass-assistant-Skip_All').textContent).toContain(
+      'No permission set of the target org holds Skip_All',
+    );
+  });
+
   it('names a permission a start condition names any other way, without saying to assign it', () => {
     render(
       <ReviewAutomationTab

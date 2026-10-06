@@ -357,6 +357,7 @@ describe('AuditTrailViewer', () => {
         simulatedMinutesBefore: 6,
         rehearsedMinutesBefore: 2,
         firedOnInsert: { flow: 2, trigger: 1, process: 0, workflowRule: 0, unread: ['processes'] },
+        firedOnUpdate: { flow: 1, trigger: 0, process: 0, workflowRule: 0 },
         confirmed: ['automation', 'volume'],
         decisions: [
           { kind: 'map_value', count: 2, rows: 9 },
@@ -376,7 +377,8 @@ describe('AuditTrailViewer', () => {
         'Rehearsed 2 min before',
         'Fires on insert: 2 flows, 1 Apex trigger',
         'automation partly unread',
-        'Confirmed: what fires on insert, the records to write',
+        'Fires on update: 1 flow',
+        'Confirmed: what fires on insert and update, the records to write',
         'Decisions: values mapped: 2 (9 rows), gaps ignored: 1',
         'User sha256:0123456789ab',
       ].join(' · '),

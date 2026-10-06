@@ -1828,6 +1828,7 @@
       "simulatedBefore": "{{minutes}}分前にシミュレーション",
       "rehearsedBefore": "{{minutes}}分前にリハーサル",
       "firedOnInsert": "挿入時に起動: {{list}}",
+      "firedOnUpdate": "更新時に起動: {{list}}",
       "nothingFired": "挿入時に起動するものはなし",
       "fired": {
         "flow_other": "フロー {{count}}件",
@@ -1838,7 +1839,7 @@
       "automationUnread": "自動化の一部を読み取れず",
       "confirmed": "承認: {{list}}",
       "confirmation": {
-        "automation": "挿入時に起動するもの",
+        "automation": "挿入時と更新時に起動するもの",
         "volume": "書き込むレコード"
       },
       "decisions": "決定: {{list}}",
@@ -2721,7 +2722,16 @@
         "unreadAssignmentRules": "ターゲット組織の割り当てルールを読み取れませんでした: {{reason}}",
         "unreadDuplicateRules": "ターゲット組織の重複ルールを読み取れませんでした: {{reason}}",
         "unreadUserPermissions": "この実行が書き込みに使うユーザーのカスタム権限を読み取れませんでした: {{reason}}",
-        "rules": "割り当てルールと重複ルール"
+        "rules": "割り当てルールと重複ルール",
+        "unreadPermissionSets": "この実行が書き込みに使うユーザーが持たないバイパスを含む権限セットを読み取れませんでした: {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} は、ターゲット組織で {{permission}} を含む最小の権限セットです。この実行が書き込みに使うユーザーに割り当てると、{{permission}} が除外するものは起動しなくなります。",
+          "others_other": "{{names}} にも含まれています。",
+          "copy": "{{permissionSet}} を割り当てるコマンドをコピー",
+          "copied": "コマンドをコピーしました",
+          "none": "ターゲット組織には {{permission}} を含む権限セットがありません。管理者がそれを含む権限セットを作成し、この実行が書き込みに使うユーザーに割り当てます。",
+          "neverRun": "SandForge はこのコマンドを表示するだけで、実行することはありません。実行するかどうかはターゲット組織の管理者が決めます。"
+        }
       },
       "gapsTab": "差異"
     },
@@ -2762,7 +2772,15 @@
       "resultKept_other": "{{formatted}} 件を残しました",
       "resultRefused_other": "{{formatted}} 件は拒否されました",
       "resultNotReached_other": "{{formatted}} 件はキャンセルまでに処理されませんでした",
-      "resultMayHaveBeenWritten_other": "実行の呼び出しが応答を失う前に書き込んだ可能性のある{{formatted}}件のレコードが{{org}}にある可能性があります。そのIDは不明で、削除では到達できません。"
+      "resultMayHaveBeenWritten_other": "実行の呼び出しが応答を失う前に書き込んだ可能性のある{{formatted}}件のレコードが{{org}}にある可能性があります。そのIDは不明で、削除では到達できません。",
+      "removalAutomation": {
+        "title": "これらのレコードを削除するときに {{org}} が実行するもの",
+        "loading": "これらのレコードを削除するときに {{org}} が実行するものを読み取っています…",
+        "intro": "これらのレコードを削除するとき、{{org}} は次を実行します:",
+        "drafted": "削除のためにドラフトに戻すとき",
+        "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
+        "error": "これらのレコードを削除するときに {{org}} が実行するものを読み取れませんでした: {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

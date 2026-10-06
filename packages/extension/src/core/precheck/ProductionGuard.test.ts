@@ -540,8 +540,11 @@ describe('ProductionGuard', () => {
       org: 'DEV',
       orgTier: 'development',
       fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' }],
+      firedOnUpdate: [],
+      updateSteps: [],
       unread: [],
       bypass: [],
+      assign: [],
     };
 
     it('puts the question to the user and says what they answered', async () => {

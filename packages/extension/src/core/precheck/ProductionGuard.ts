@@ -73,7 +73,10 @@ export function largeVolumeThreshold(tier: SafetyTier): number | undefined {
   }
 }
 
-/** One flow or Apex trigger of the target that fires as a run inserts its records. */
+/**
+ * One flow or Apex trigger of the target that fires as a run inserts its
+ * records — or, in a question's `firedOnUpdate`, as it updates them.
+ */
 export interface FiredOnInsert {
   objectApiName: string;
   kind: 'flow' | 'trigger' | 'process' | 'workflowRule';
@@ -82,8 +85,43 @@ export interface FiredOnInsert {
 }
 
 /**
+ * Why a run writes a record it inserted a second time, as the executor's
+ * steps do it:
+ * - `lookups`: the second pass fills in a lookup left empty at insert, its
+ *   record written after it — a lookup of a cycle, a record's lookup at
+ *   another record of its object — once that record exists;
+ * - `statuses`: an order or a contract past Draft goes in as a draft, so that
+ *   its items can go under it, and is given its status back last;
+ * - `invitees`: an event's invitee the platform wrote for its who is given the
+ *   answer the source holds;
+ * - `retry`: a retry fills in the lookups the run it retries left empty at the
+ *   records it writes now;
+ * - `upsert`: an upsert by an external id writes over a record the target
+ *   holds (the clone command's `--upsert`).
+ */
+export type RunUpdateStep = 'lookups' | 'statuses' | 'invitees' | 'retry' | 'upsert';
+
+/**
+ * A custom permission that keeps quiet some of what fires, which the user the
+ * run writes as does not hold, and what would give it to that user: the
+ * smallest permission set of the target that includes it, the command that
+ * assigns it — shown, never run — and the others that include it.
+ */
+export interface BypassToAssign {
+  permission: string;
+  /** The smallest permission set that includes it; absent when none does, or they were not read. */
+  permissionSet?: string;
+  /** The other permission sets that include it, the smallest first. */
+  others: string[];
+  /** True when the permission sets were read and none a user can be assigned includes it: an admin creates one. */
+  noneHolds?: true;
+  /** `sf org assign permset …` for `permissionSet`; absent without one, or without the user's name. */
+  command?: string;
+}
+
+/**
  * What a run asks before it reads anything: what the target org runs as the
- * run inserts its records.
+ * run inserts its records, and as it updates those it writes a second time.
  */
 export interface AutomationConfirmation {
   stage: 'automation';
@@ -92,6 +130,13 @@ export interface AutomationConfirmation {
   orgTier: SafetyTier;
   /** What fires on insert, per object; empty when none was found in what could be read. */
   fired: FiredOnInsert[];
+  /**
+   * What fires on update, per object, on the objects whose records the run
+   * updates after inserting them; empty when none fires there.
+   */
+  firedOnUpdate: FiredOnInsert[];
+  /** Why the run updates records after inserting them: the steps that will, each once. */
+  updateSteps: RunUpdateStep[];
   /**
    * What could not be read of the target's automation, and why: what fires
    * is then not known. `automation` when none of it could be read.
@@ -102,6 +147,8 @@ export interface AutomationConfirmation {
   }>;
   /** Custom permissions that keep some of those flows from starting for the user who holds them. */
   bypass: string[];
+  /** Those of `bypass` the user the run writes as does not hold, with what would assign each. */
+  assign: BypassToAssign[];
 }
 
 /** The data storage a run's rows take, and what the target has: read, or not. */

@@ -134,5 +134,16 @@
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "Eles ocupam cerca de {0} MB de armazenamento de dados. Não foi possível ler quanto resta em {1} ({2}), então não se sabe se cabem.",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "Eles ocupam cerca de {0} MB de armazenamento de dados; {1} tem {2} MB livres de {3} MB.",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "É mais de 80% do que resta. O Salesforce conta o armazenamento algum tempo depois de uma carga, então pode restar menos do que ele indica.",
-  "The records have been read, and nothing has been written yet.": "Os registros foram lidos, e nada foi gravado ainda."
+  "The records have been read, and nothing has been written yet.": "Os registros foram lidos, e nada foi gravado ainda.",
+  "a lookup filled in once its record exists": "uma pesquisa preenchida assim que seu registro existe",
+  "an order or a contract given back its status after it went in as a draft": "um pedido ou um contrato que recupera seu status depois de entrar como rascunho",
+  "an invitee of an event given its answer": "um convidado de um evento que recupera sua resposta",
+  "a lookup the run it retries left empty filled in": "uma pesquisa que a execução repetida deixou vazia, preenchida",
+  "a record the target holds written over": "um registro que o destino já tem, sobrescrito",
+  "{0} is the smallest permission set of {1} that holds {2} ({3} hold it too). Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} é o menor conjunto de permissões de {1} que contém {2} ({3} também o contêm). Atribuído ao usuário com o qual a clonagem grava, deixa em silêncio o que {2} exclui:",
+  "{0} is the smallest permission set of {1} that holds {2}. Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} é o menor conjunto de permissões de {1} que contém {2}. Atribuído ao usuário com o qual a clonagem grava, deixa em silêncio o que {2} exclui:",
+  "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "Nenhum conjunto de permissões de {0} contém {1}: um administrador cria um que a inclua e o atribui ao usuário com o qual a clonagem grava.",
+  "{0} runs automation as this clone updates records it inserted ({1}):": "{0} executa automações quando esta clonagem atualiza registros que inseriu ({1}):",
+  "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Copiar o comando o copia e cancela a clonagem: o SandForge nunca o executa. Execute-o e depois execute a clonagem novamente.",
+  "Copy the command": "Copiar o comando"
 }

@@ -39,7 +39,11 @@
  * - the assignment rules from `AssignmentRule` (Case and Lead only), the
  *   duplicate rules from `DuplicateRule`, and the custom permissions of the
  *   user the read runs as — the user the run writes as — from
- *   `UserSetupEntityAccess`, all over the regular API.
+ *   `UserSetupEntityAccess`, all over the regular API;
+ * - for a bypass that user does not hold, the permission sets that include
+ *   it, from `SetupEntityAccess` joined to `PermissionSet`, and what each
+ *   grants, counted from `SetupEntityAccess` and `ObjectPermissions`: the
+ *   command that would assign the smallest is shown, never run.
  *
  * A part the org refuses — no access, an API turned off — is said, and the
  * others are read all the same: the read never stops a run.
@@ -48,6 +52,7 @@
 import type {
   ForgeAutomationFired,
   ForgeAutomationWrite,
+  ForgeBypassGrant,
   ForgeFlowPath,
   ForgeFlowPermission,
   ForgeFlowStart,
@@ -55,6 +60,7 @@ import type {
   ForgeFlowTiming,
   ForgeGraph,
   ForgeMessageAction,
+  ForgePermissionSetGrant,
   ForgeTargetAssignmentRule,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
@@ -70,8 +76,10 @@ import {
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
   STATUS_NEEDS_CHILDREN,
+  assignPermsetCommand,
   automationByWrite,
   blindedBy,
+  bypassAssignmentsOf,
   bypassPermissionsOf,
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
@@ -182,6 +190,40 @@ export function processObjectsSoql(versionIds: readonly string[]): string {
 export function customObjectIdsSoql(objectApiNames: readonly string[]): string {
   const names = objectApiNames.map((name) => `'${name}'`).join(', ');
   return `SELECT DurableId, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName IN (${names})`;
+}
+
+/** The custom permissions of these names, whatever their namespace: their ids and namespaces. */
+export function customPermissionsSoql(developerNames: readonly string[]): string {
+  const names = developerNames.map((name) => `'${name}'`).join(', ');
+  return `SELECT Id, DeveloperName, NamespacePrefix FROM CustomPermission WHERE DeveloperName IN (${names})`;
+}
+
+/**
+ * The permission sets that include these custom permissions and a user can be
+ * assigned: a profile's own permission set, and one a permission set group
+ * owns, cannot be.
+ */
+export function permissionSetsHoldingSoql(customPermissionIds: readonly string[]): string {
+  const ids = customPermissionIds.map((id) => `'${id}'`).join(', ');
+  return (
+    'SELECT SetupEntityId, ParentId, Parent.Name, Parent.Label, Parent.NamespacePrefix ' +
+    "FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission' " +
+    `AND SetupEntityId IN (${ids}) AND Parent.IsOwnedByProfile = false ` +
+    'AND Parent.PermissionSetGroupId = null'
+  );
+}
+
+/**
+ * How much these permission sets grant, one count per object of `from`: the
+ * setup entities they give access to (`SetupEntityAccess`), or the objects
+ * they give permissions on (`ObjectPermissions`).
+ */
+export function permissionSetSizesSoql(
+  from: 'SetupEntityAccess' | 'ObjectPermissions',
+  permissionSetIds: readonly string[],
+): string {
+  const ids = permissionSetIds.map((id) => `'${id}'`).join(', ');
+  return `SELECT ParentId, COUNT(Id) n FROM ${from} WHERE ParentId IN (${ids}) GROUP BY ParentId`;
 }
 
 /** A 15- or 18-character Salesforce id, as a flow version's must be before it goes in a query. */
@@ -1336,6 +1378,21 @@ export class TargetAutomationReader {
       }
     }
 
+    // The permission sets that would give the user the bypasses it does not
+    // hold, for the command that assigns the smallest of them: four requests
+    // at most, sent only when such a bypass is named.
+    const missing = [
+      ...new Set(named.filter((p) => p.bypass && p.held !== true).map((p) => p.name)),
+    ];
+    const bypassGrants =
+      missing.length > 0
+        ? await readBypassGrants(
+            missing,
+            (soql) => ask('permissionSets', query(soql))(),
+            () => unread.some((u) => u.part === 'permissionSets'),
+          )
+        : undefined;
+
     const assignmentRules = (object: string): ForgeTargetAssignmentRule[] =>
       assignmentRows
         .filter((row) => text(row.SobjectType).toLowerCase() === object.toLowerCase())
@@ -1388,9 +1445,99 @@ export class TargetAutomationReader {
       conditionsBound: CONDITIONS_BOUND,
       definitionsNotRead: definitionsToRead.length - definitionsReading.length,
       definitionsBound: DEFINITIONS_BOUND,
+      ...(bypassGrants ? { bypassGrants } : {}),
       requests,
     };
   }
+}
+
+/** The same record whichever length its id is written in. */
+function idKey(id: string): string {
+  return id.slice(0, 15);
+}
+
+/**
+ * The permission sets of the target that include each of `bypasses`, the
+ * smallest first: the custom permissions by name, the permission sets a user
+ * can be assigned that include them (`SetupEntityAccess` joined to
+ * `PermissionSet`), and what each grants — the setup entities it gives access
+ * to and the objects it gives permissions on — by which the smallest is the
+ * one that gives the least beside the bypass. Undefined when one of the
+ * queries failed, which `failed` says once it is recorded: nothing is said
+ * then of a permission set that may hold it.
+ *
+ * @param read - Runs one query on the target, every page.
+ * @param failed - Whether a query of this read failed.
+ */
+export async function readBypassGrants(
+  bypasses: readonly string[],
+  read: (soql: string) => Promise<Array<Record<string, unknown>>>,
+  failed: () => boolean,
+): Promise<ForgeBypassGrant[] | undefined> {
+  // `ns__Name` names the custom permission `Name` of the namespace `ns`.
+  const named = bypasses.flatMap((name) => {
+    const at = name.indexOf('__');
+    const namespace = at > 0 ? name.slice(0, at) : '';
+    const developerName = at > 0 ? name.slice(at + 2) : name;
+    const safe = API_NAME_RE.test(developerName) && (!namespace || API_NAME_RE.test(namespace));
+    return safe ? [{ name, developerName }] : [];
+  });
+  if (named.length === 0) return undefined;
+  const permissions = await read(
+    customPermissionsSoql([...new Set(named.map((p) => p.developerName))]),
+  );
+  if (failed()) return undefined;
+  const idOf = new Map<string, string>();
+  for (const row of permissions) {
+    const id = text(row.Id);
+    if (SF_ID_RE.test(id)) {
+      idOf.set(permissionKey(text(row.NamespacePrefix), text(row.DeveloperName)), id);
+    }
+  }
+  const ids = named.flatMap((p) => {
+    const id = idOf.get(p.name.toLowerCase());
+    return id ? [id] : [];
+  });
+  const holding = ids.length > 0 ? await read(permissionSetsHoldingSoql(ids)) : [];
+  if (failed()) return undefined;
+  const setIds = [
+    ...new Set(holding.map((row) => text(row.ParentId)).filter((id) => SF_ID_RE.test(id))),
+  ];
+  const grants = new Map<string, number>();
+  // One after the other: a failure is said once, and the next is not sent.
+  for (const from of ['SetupEntityAccess', 'ObjectPermissions'] as const) {
+    if (setIds.length === 0) break;
+    const counts = await read(permissionSetSizesSoql(from, setIds));
+    if (failed()) return undefined;
+    for (const row of counts) {
+      const key = idKey(text(row.ParentId));
+      const n = typeof row.n === 'number' ? row.n : Number(row.n);
+      grants.set(key, (grants.get(key) ?? 0) + (Number.isFinite(n) ? n : 0));
+    }
+  }
+  return named.map(({ name }) => {
+    const id = idOf.get(name.toLowerCase());
+    const sets = new Map<string, ForgePermissionSetGrant>();
+    for (const row of holding) {
+      if (!id || idKey(text(row.SetupEntityId)) !== idKey(id)) continue;
+      const setId = idKey(text(row.ParentId));
+      const parent = row.Parent;
+      const apiName = text(field(parent, 'Name'));
+      if (!apiName || sets.has(setId)) continue;
+      const namespace = text(field(parent, 'NamespacePrefix'));
+      sets.set(setId, {
+        name: namespace ? `${namespace}__${apiName}` : apiName,
+        label: text(field(parent, 'Label')) || apiName,
+        grants: grants.get(setId) ?? 0,
+      });
+    }
+    return {
+      permission: name,
+      permissionSets: [...sets.values()].sort(
+        (a, b) => a.grants - b.grants || a.name.localeCompare(b.name),
+      ),
+    };
+  });
 }
 
 /** How each write and timing reads in the command's lines. */
@@ -1420,6 +1567,7 @@ const PART_WORDS: Readonly<Record<ForgeTargetAutomationUnread['part'], string>> 
   assignmentRules: 'the assignment rules',
   duplicateRules: 'the duplicate rules',
   userPermissions: 'the custom permissions of the user the run writes as',
+  permissionSets: 'the permission sets that hold a bypass the user the run writes as does not',
 };
 const MESSAGE_WORDS: Readonly<Record<ForgeMessageAction['kind'], string>> = {
   email: 'email',
@@ -1502,12 +1650,13 @@ function firedNotes(fired: ForgeAutomationFired, write: ForgeAutomationWrite): s
  * read could not read or left unread, and what it cost.
  *
  * @param target - The alias of the target, as the command names it.
- * @param options - Whether the run applies the target's assignment rules.
+ * @param options - Whether the run applies the target's assignment rules, and
+ *   the user the run writes as, whom a bypass's command assigns it to.
  */
 export function automationLines(
   automation: ForgeTargetAutomation,
   target: string,
-  options: { applyAssignmentRules?: boolean } = {},
+  options: { applyAssignmentRules?: boolean; username?: string } = {},
 ): string[] {
   const lines = [
     `target automation: what ${target} runs on the ${automation.objectsRead.length} object(s) the run writes`,
@@ -1549,6 +1698,24 @@ export function automationLines(
       `  bypass: assign ${toAssign.join(', ')} to the user the run writes as, and the flows ` +
         'whose start condition excludes them stay quiet',
     );
+    // What would assign each, as the read found it: shown, never run.
+    for (const { permission, permissionSet, others } of bypassAssignmentsOf(automation, toAssign)) {
+      if (!permissionSet) {
+        lines.push(
+          `    ${permission}: no permission set of ${target} holds it: an admin creates one ` +
+            'that includes it',
+        );
+        continue;
+      }
+      const also =
+        others.length > 0 ? `; also held by ${others.map((o) => o.name).join(', ')}` : '';
+      const command = options.username
+        ? `: ${assignPermsetCommand(permissionSet.name, target, options.username)}`
+        : '';
+      lines.push(
+        `    ${permission}: held by permission set ${permissionSet.name}, the smallest${also}${command}`,
+      );
+    }
   }
   if (held.length > 0) {
     lines.push(

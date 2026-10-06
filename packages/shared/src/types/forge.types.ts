@@ -1643,8 +1643,10 @@ export interface ForgeTargetAutomationUnread {
   /**
    * `flows`, `triggers`, `conditions` — the start conditions of flows —,
    * `processes`, `workflowRules`, `definitions` — those of processes and
-   * workflow rules —, `assignmentRules`, `duplicateRules`, or
-   * `userPermissions`: the custom permissions of the user the read ran as.
+   * workflow rules —, `assignmentRules`, `duplicateRules`,
+   * `userPermissions` — the custom permissions of the user the read ran as —
+   * or `permissionSets`: the permission sets that hold a bypass that user
+   * does not.
    */
   part:
     | 'flows'
@@ -1655,9 +1657,42 @@ export interface ForgeTargetAutomationUnread {
     | 'definitions'
     | 'assignmentRules'
     | 'duplicateRules'
-    | 'userPermissions';
+    | 'userPermissions'
+    | 'permissionSets';
   /** The org's answer, or what kept the read from it. */
   reason: string;
+}
+
+/**
+ * A permission set of the target that includes a custom permission
+ * (`SetupEntityAccess` joined to `PermissionSet`): one a user can be
+ * assigned, neither a profile's own nor a permission set group's.
+ */
+export interface ForgePermissionSetGrant {
+  /**
+   * Its API name, as `sf org assign permset --name` takes it: after its
+   * namespace's prefix and two underscores when a package installed it.
+   */
+  name: string;
+  /** Its label, as Setup shows it. */
+  label: string;
+  /**
+   * How much it grants: the custom permissions, Apex classes, pages, tabs
+   * and other setup entities it gives access to, and the objects it gives
+   * permissions on. The smallest gives the least beside the bypass.
+   */
+  grants: number;
+}
+
+/**
+ * A custom permission that keeps a flow quiet for the user who holds it, and
+ * the permission sets of the target that include it, the smallest first;
+ * none when no permission set a user can be assigned holds it.
+ */
+export interface ForgeBypassGrant {
+  /** The custom permission, as `$Permission.<name>` names it. */
+  permission: string;
+  permissionSets: ForgePermissionSetGrant[];
 }
 
 /**
@@ -1683,6 +1718,12 @@ export interface ForgeTargetAutomation {
   definitionsNotRead?: number;
   /** The most definitions of processes and workflow rules the read reads, one request each. */
   definitionsBound?: number;
+  /**
+   * For each bypass the user the run writes as does not hold, the permission
+   * sets that include it: what to assign to keep its flows quiet. Absent
+   * when no such bypass was named, or the permission sets could not be read.
+   */
+  bypassGrants?: ForgeBypassGrant[];
   /** The requests the read sent to the target. */
   requests: number;
 }

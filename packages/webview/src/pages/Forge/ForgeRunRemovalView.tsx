@@ -12,6 +12,7 @@ import { forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
+import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
 
 /**
  * What a removal takes back — a Forge run, or a Frozen load — which is all
@@ -144,7 +145,11 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
   );
 };
 
-/** A run as its removal's confirmation reads it. */
+/**
+ * A run as its removal's confirmation reads it: what it created, and, to read
+ * what the target runs as the records go, which run of the history it is and
+ * the org it wrote to.
+ */
 type RemovableRun = Pick<
   ForgeExecutionResult,
   | 'idRemapTable'
@@ -153,7 +158,8 @@ type RemovableRun = Pick<
   | 'idRemapWithTheirRecord'
   | 'undo'
   | 'removalLeft'
->;
+> &
+  Partial<Pick<ForgeExecutionResult, 'forgeId' | 'targetOrgId'>>;
 
 /** Props for {@link ForgeRunRemovalConfirm}. */
 export interface ForgeRunRemovalConfirmProps {
@@ -172,8 +178,9 @@ export interface ForgeRunRemovalConfirmProps {
  * The confirmation of a removal of a run's records, wherever it is asked for
  * — the history of runs, or the results of the run: the org named and typed,
  * the records it takes per object and the linked ones it keeps, what an
- * earlier removal left when one did, and whether the records changed since
- * the run go too. One confirmation, so the two places never say two things.
+ * earlier removal left when one did, what the target runs as the records go,
+ * and whether the records changed since the run go too. One confirmation, so
+ * the two places never say two things.
  */
 export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   run,
@@ -211,6 +218,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
             }
           : {})}
       />
+      <ForgeRemovalAutomation forgeId={run?.forgeId} org={org} targetOrgId={run?.targetOrgId} />
       <label className="flex items-center gap-2 mt-2 cursor-pointer">
         <input
           type="checkbox"

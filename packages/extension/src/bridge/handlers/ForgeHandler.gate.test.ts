@@ -520,14 +520,152 @@ describe('forge:execute, the gate before the first write', () => {
             { objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' },
             { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' },
           ],
+          // A contact under its account is written after it: nothing updates it.
+          firedOnUpdate: [],
+          updateSteps: [],
           unread: [],
           bypass: ['Load_Data'],
+          // Whether a permission set holds it was not read: named, with no command.
+          assign: [{ permission: 'Load_Data', others: [] }],
         },
       ]);
       // Asked before either org was read.
       expect(calls[0]).toBe('asked automation');
       expect(calls).toContain('written');
       expect(runs()).toEqual([expect.objectContaining({ outcome: 'success', guard: 'confirmed' })]);
+    });
+
+    it('asks, in the same question, about what fires as the run gives an order back its status', async () => {
+      // In a client's sandbox, a flow on orders sent each to an external system
+      // as the clone gave it back the status it had past Draft.
+      const ORDERS: ForgeTargetAutomation = {
+        ...QUIET,
+        objectsRead: ['Account', 'Order'],
+        objects: [
+          {
+            objectApiName: 'Order',
+            flows: [
+              {
+                apiName: 'Order_Sync',
+                label: 'Order sync',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      };
+      const graph: ForgeGraph = {
+        ...graphOf(),
+        nodes: [node('Account', 0), node('Order', 1)],
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Order',
+            relationshipName: 'Orders',
+            type: 'lookup',
+            required: true,
+          },
+        ],
+      };
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(ORDERS) });
+
+      await execute(graph);
+
+      expect(questions).toEqual([
+        expect.objectContaining({
+          stage: 'automation',
+          fired: [],
+          firedOnUpdate: [{ objectApiName: 'Order', kind: 'flow', name: 'Order sync' }],
+          updateSteps: ['statuses'],
+        }),
+      ]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(runs()[0]?.context).toMatchObject({
+        firedOnUpdate: { flow: 1, trigger: 0, process: 0, workflowRule: 0 },
+        confirmed: ['automation'],
+      });
+    });
+
+    it('stops a run whose updates fire automation when the user declines, under the same code', async () => {
+      answers = [false];
+      const LOOPS: ForgeTargetAutomation = {
+        ...QUIET,
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [],
+            triggers: [{ name: 'AccountTrigger', events: ['afterUpdate'] }],
+          },
+        ],
+      };
+      // An account's parent account: left empty at insert, filled in by an update.
+      const graph: ForgeGraph = {
+        ...graphOf(),
+        edges: [
+          ...graphOf().edges,
+          {
+            sourceObject: 'Account',
+            targetObject: 'Account',
+            relationshipName: 'ChildAccounts',
+            type: 'lookup',
+          },
+        ],
+      };
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(LOOPS) });
+
+      await execute(graph);
+
+      expect(questions[0]).toMatchObject({
+        firedOnUpdate: [{ objectApiName: 'Account', kind: 'trigger', name: 'AccountTrigger' }],
+        updateSteps: ['lookups'],
+      });
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expectStoppedAtTheGate('AUTOMATION_DECLINED');
+    });
+
+    it('puts with a bypass the command that assigns the smallest permission set holding it, to the user the run writes as', async () => {
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        (id: string) =>
+          ({
+            orgType: 'Sandbox',
+            alias: id === 'tgt-org' ? 'DEV' : 'UAT',
+            username: 'loader@example.com.dev',
+          }) as never,
+      );
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        targetAutomation: readerOf({
+          ...FIRES,
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [
+                { name: 'Data_Load', label: 'Data load', grants: 1 },
+                { name: 'Integration', label: 'Integration', grants: 80 },
+              ],
+            },
+          ],
+        }),
+      });
+
+      await execute();
+
+      expect(questions[0]).toMatchObject({
+        assign: [
+          {
+            permission: 'Load_Data',
+            permissionSet: 'Data_Load',
+            others: ['Integration'],
+            command:
+              'sf org assign permset --name Data_Load --target-org DEV --on-behalf-of loader@example.com.dev',
+          },
+        ],
+      });
     });
 
     it('reads it for the run when Review read nothing of this graph', async () => {
@@ -574,7 +712,7 @@ describe('forge:execute, the gate before the first write', () => {
       expectStoppedAtTheGate('AUTOMATION_DECLINED');
       expect(posted('forge:execute:error')[0].payload.message).toBe(
         'Forge execution was cancelled at the confirmation of what the target org runs as it ' +
-          'inserts the records. Nothing was read or written.',
+          'inserts and updates the records. Nothing was read or written.',
       );
       expect(runs()).toEqual([
         expect.objectContaining({

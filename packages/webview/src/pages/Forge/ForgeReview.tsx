@@ -13,6 +13,7 @@ import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
@@ -74,6 +75,8 @@ export const ForgeReview: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ReviewTab>('plan');
   const graph = useForgeStore((s) => s.graph);
   const config = useForgeStore((s) => s.config);
+  /** The target org as the bypass assistant names it, and the user the run writes as. */
+  const targetOrg = useOrgStore((s) => s.orgs.find((o) => o.id === config?.targetOrgId));
   const plan = useForgeStore((s) => s.plan);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
@@ -354,6 +357,9 @@ export const ForgeReview: React.FC = () => {
                 error={automationError}
                 leftOut={leftOut}
                 applyAssignmentRules={config?.applyAssignmentRules === true}
+                {...(targetOrg?.alias && targetOrg.username
+                  ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
+                  : {})}
               />
             )}
             {activeTab === 'gaps' && <ReviewGapsTab />}

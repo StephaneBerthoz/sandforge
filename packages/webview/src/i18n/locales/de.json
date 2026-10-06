@@ -1940,6 +1940,7 @@
       "simulatedBefore": "{{minutes}} Min. vorher simuliert",
       "rehearsedBefore": "{{minutes}} Min. vorher geprobt",
       "firedOnInsert": "Wird beim Einfügen ausgelöst: {{list}}",
+      "firedOnUpdate": "Wird beim Aktualisieren ausgelöst: {{list}}",
       "nothingFired": "Beim Einfügen wird nichts ausgelöst",
       "fired": {
         "flow_one": "{{count}} Flow",
@@ -1954,7 +1955,7 @@
       "automationUnread": "Automatisierung teilweise nicht gelesen",
       "confirmed": "Bestätigt: {{list}}",
       "confirmation": {
-        "automation": "was beim Einfügen ausgelöst wird",
+        "automation": "was beim Einfügen und Aktualisieren ausgelöst wird",
         "volume": "die zu schreibenden Datensätze"
       },
       "decisions": "Entscheidungen: {{list}}",
@@ -2874,7 +2875,17 @@
         "unreadAssignmentRules": "Die Zuweisungsregeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadDuplicateRules": "Die Duplikatsregeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadUserPermissions": "Die benutzerdefinierten Berechtigungen des Benutzers, als der der Durchlauf schreibt, konnten nicht gelesen werden: {{reason}}",
-        "rules": "Zuweisungs- und Duplikatsregeln"
+        "rules": "Zuweisungs- und Duplikatsregeln",
+        "unreadPermissionSets": "Die Berechtigungssätze, die eine Umgehung enthalten, die der Benutzer, als der der Durchlauf schreibt, nicht besitzt, konnten nicht gelesen werden: {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} ist der kleinste Berechtigungssatz der Ziel-Org, der {{permission}} enthält. Dem Benutzer zugewiesen, als der der Durchlauf schreibt, hält er still, was {{permission}} ausschließt.",
+          "others_one": "{{names}} enthält sie ebenfalls.",
+          "others_other": "{{names}} enthalten sie ebenfalls.",
+          "copy": "Befehl kopieren, der {{permissionSet}} zuweist",
+          "copied": "Befehl kopiert",
+          "none": "Kein Berechtigungssatz der Ziel-Org enthält {{permission}}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Durchlauf schreibt.",
+          "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org."
+        }
       },
       "gapsTab": "Abweichungen"
     },
@@ -2927,7 +2938,15 @@
       "resultNotReached_one": "{{formatted}} vor dem Abbruch nicht erreicht",
       "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht",
       "resultMayHaveBeenWritten_one": "{{formatted}} Datensatz, den ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, kann sich in {{org}} befinden: Keine seiner IDs ist bekannt, und das Entfernen erreicht ihn nicht.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} Datensätze, die ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, können sich in {{org}} befinden: Keine ihrer IDs ist bekannt, und das Entfernen erreicht sie nicht."
+      "resultMayHaveBeenWritten_other": "{{formatted}} Datensätze, die ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, können sich in {{org}} befinden: Keine ihrer IDs ist bekannt, und das Entfernen erreicht sie nicht.",
+      "removalAutomation": {
+        "title": "Was {{org}} ausführt, wenn diese Datensätze entfernt werden",
+        "loading": "Es wird gelesen, was {{org}} beim Löschen dieser Datensätze ausführt…",
+        "intro": "Beim Löschen dieser Datensätze führt {{org}} aus:",
+        "drafted": "wenn das Entfernen ihn zum Löschen auf Entwurf zurücksetzt",
+        "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze.",
+        "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

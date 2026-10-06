@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 
 import type { ForgeTargetFlow, ForgeTargetObjectAutomation } from '../types/forge.types.js';
 import {
+  assignPermsetCommand,
   automationByWrite,
   blindedBy,
+  bypassAssignmentsOf,
   bypassPermissionsOf,
   firedOnInsert,
   heldBypassPermissionsOf,
@@ -282,5 +284,71 @@ describe('firedOnInsert', () => {
     };
     // The process and the rule of an insert; the flow is quiet for this run.
     expect(firedOnInsert(automation)).toBe(2);
+  });
+});
+
+describe('bypassAssignmentsOf', () => {
+  const grants = {
+    bypassGrants: [
+      {
+        permission: 'Bypass_Flows',
+        permissionSets: [
+          { name: 'Bypass_Automation', label: 'Bypass automation', grants: 1 },
+          { name: 'Integration_User', label: 'Integration user', grants: 140 },
+        ],
+      },
+      { permission: 'Skip_Rules', permissionSets: [] },
+    ],
+  };
+
+  it('gives the smallest permission set that holds a bypass, and the others after it', () => {
+    expect(bypassAssignmentsOf(grants, ['Bypass_Flows'])).toEqual([
+      {
+        permission: 'Bypass_Flows',
+        permissionSet: { name: 'Bypass_Automation', label: 'Bypass automation', grants: 1 },
+        others: [{ name: 'Integration_User', label: 'Integration user', grants: 140 }],
+      },
+    ]);
+  });
+
+  it('gives no permission set for a bypass none holds', () => {
+    expect(bypassAssignmentsOf(grants, ['Skip_Rules'])).toEqual([
+      { permission: 'Skip_Rules', others: [] },
+    ]);
+  });
+
+  it('says nothing of a bypass whose permission sets were not looked up', () => {
+    expect(bypassAssignmentsOf(grants, ['Never_Read'])).toEqual([]);
+    expect(bypassAssignmentsOf({}, ['Bypass_Flows'])).toEqual([]);
+  });
+
+  it('matches a bypass whatever its case', () => {
+    expect(bypassAssignmentsOf(grants, ['bypass_flows'])[0]?.permissionSet?.name).toBe(
+      'Bypass_Automation',
+    );
+  });
+});
+
+describe('assignPermsetCommand', () => {
+  it('writes the Salesforce CLI command that assigns the permission set to the user', () => {
+    expect(assignPermsetCommand('Bypass_Automation', 'TARGET-DEV', 'user@example.com.dev')).toBe(
+      'sf org assign permset --name Bypass_Automation --target-org TARGET-DEV ' +
+        '--on-behalf-of user@example.com.dev',
+    );
+  });
+
+  it('keeps a namespaced permission set under its prefix, as the CLI reads it', () => {
+    expect(assignPermsetCommand('ns__Bypass', 'dev', 'u@example.com')).toContain(
+      '--name ns__Bypass ',
+    );
+  });
+
+  it('quotes a word a shell would split or expand', () => {
+    expect(assignPermsetCommand('Bypass', 'My dev org', 'u@example.com')).toContain(
+      '--target-org "My dev org" ',
+    );
+    expect(assignPermsetCommand('Bypass', 'a$b', 'u@example.com')).toContain(
+      '--target-org "a\\$b" ',
+    );
   });
 });

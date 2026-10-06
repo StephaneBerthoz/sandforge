@@ -86,15 +86,29 @@ const WELCOME_FLOW = {
   ActiveVersionId: WELCOME_VERSION,
 };
 
+/** A flow of the target that starts after a contact is updated, unless its writer holds `Load_Data`. */
+const SYNC_FLOW = {
+  ApiName: 'Contact_Sync',
+  Label: 'Contact sync',
+  TriggerType: 'RecordAfterSave',
+  RecordTriggerType: 'Update',
+  TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+  ActiveVersionId: '301000000000002AAA',
+};
+
 /**
  * An org holding an account and its contact. Its automation is the target's
- * welcome flow, or none, and, unless told, a duplicate rule on contacts; what
- * it is asked over each API is recorded, with the headers each write sent, a
- * refusal of the flows can be set, and what its limits say.
+ * welcome flow, or none, with `moreFlows`, and, unless told, a duplicate rule
+ * on contacts; the custom permission `Load_Data` is held by `permissionSets`,
+ * none unless told. What it is asked over each API is recorded, with the
+ * headers each write sent, a refusal of the flows can be set, and what its
+ * limits say.
  */
 function fakeOrg({
   refuseFlows,
   noFlows = false,
+  moreFlows = [],
+  permissionSets = [],
   limits = {},
   duplicateRules = [
     { DeveloperName: 'Contact_Rule', MasterLabel: 'Contact rule', SobjectType: 'Contact' },
@@ -104,6 +118,9 @@ function fakeOrg({
 }: {
   refuseFlows?: Error;
   noFlows?: boolean;
+  moreFlows?: Array<Record<string, unknown>>;
+  /** The permission sets that include `Load_Data`: their API names, and what each grants. */
+  permissionSets?: Array<{ name: string; grants: number }>;
   limits?: unknown;
   duplicateRules?: Array<Record<string, unknown>>;
   /** Its active validation rules, each with a formula a permission keeps quiet. */
@@ -141,10 +158,33 @@ function fakeOrg({
       if (soql.includes(" ProcessType = 'Workflow'")) return page([]);
       if (soql.includes(' FROM FlowDefinitionView ')) {
         if (refuseFlows) throw refuseFlows;
-        return page(noFlows ? [] : [WELCOME_FLOW]);
+        return page([...(noFlows ? [] : [WELCOME_FLOW]), ...moreFlows]);
       }
       if (soql.includes(' FROM DuplicateRule ')) return page(duplicateRules);
       if (soql.includes(' FROM UserSetupEntityAccess ')) return page([]);
+      if (soql.includes(' FROM CustomPermission ')) {
+        return page([
+          { Id: '0CP000000000001AAA', DeveloperName: 'Load_Data', NamespacePrefix: null },
+        ]);
+      }
+      if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' ")) {
+        return page(
+          permissionSets.map(({ name }, i) => ({
+            SetupEntityId: '0CP000000000001AAA',
+            ParentId: `0PS00000000000${i}AAA`,
+            Parent: { Name: name, Label: name, NamespacePrefix: null },
+          })),
+        );
+      }
+      if (/ FROM (SetupEntityAccess|ObjectPermissions) WHERE ParentId IN /.test(soql)) {
+        const objects = soql.includes('FROM ObjectPermissions');
+        return page(
+          permissionSets.map(({ grants }, i) => ({
+            ParentId: `0PS00000000000${i}AAA`,
+            n: objects ? 0 : grants,
+          })),
+        );
+      }
       const counted = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
       if (counted) return { totalSize: (ROWS[counted[1]] ?? []).length, done: true, records: [] };
       if (soql.includes(' FROM RecordType ')) return page([]);
@@ -249,15 +289,18 @@ describe('sandforge-clone target automation', () => {
       'target automation: what TGT runs on the 2 object(s) the run writes',
     );
     expect(said).toBeGreaterThan(-1);
-    expect(printed.slice(said, said + 6)).toEqual([
+    expect(printed.slice(said, said + 7)).toEqual([
       'target automation: what TGT runs on the 2 object(s) the run writes',
       '  Contact',
       '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data (not held))',
       '    duplicate rules: "Contact rule": the run saves a record a rule only alerts on; a rule that blocks still refuses it',
       '  bypass: assign Load_Data to the user the run writes as, and the flows whose start condition excludes them stay quiet',
+      '    Load_Data: no permission set of TGT holds it: an admin creates one that includes it',
       // Flows, triggers, processes, workflow rules and duplicate rules; the
-      // start condition; the permissions of the user the run writes as.
-      '  read in 7 request(s) to TGT',
+      // start condition; the permissions of the user the run writes as; the
+      // custom permission it does not hold, and the permission sets that hold
+      // it: none.
+      '  read in 9 request(s) to TGT',
     ]);
     // Said before the run read a row, and before it wrote one.
     expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
@@ -345,7 +388,8 @@ describe('sandforge-clone target automation', () => {
       conditionsBound: 25,
       definitionsNotRead: 0,
       definitionsBound: 15,
-      requests: 7,
+      bypassGrants: [{ permission: 'Load_Data', permissionSets: [] }],
+      requests: 9,
     });
   });
 
@@ -379,8 +423,9 @@ describe('sandforge-clone target automation', () => {
 
     expect(stderr).toBe(
       'TGT runs automation on the records this clone inserts: Contact: flow "Contact welcome". ' +
-        'Nothing was written. Add --accept-automation to clone all the same, or turn that ' +
-        'automation off in TGT first.\n',
+        'No permission set of TGT holds Load_Data: an admin creates one that includes it, and ' +
+        'assigns it to the user the clone writes as. Nothing was written. Add ' +
+        '--accept-automation to clone all the same, or turn that automation off in TGT first.\n',
     );
     expect(orgs.TGT.written).toEqual([]);
     // Refused before it read a row of the source: discovery counted them only.
@@ -388,6 +433,64 @@ describe('sandforge-clone target automation', () => {
       orgs.SRC.regular.some((soql) => /^SELECT (?!COUNT\(\)).* FROM Contact\b/.test(soql)),
     ).toBe(false);
     expect(printed).not.toContain('record-type mapping…');
+  });
+
+  it('writes nothing when what fires as it updates the records it inserted would run, naming it, unless told to go on', async () => {
+    // With --upsert, a record the target holds is written over: an update.
+    withOrgs(fakeOrg({ noFlows: true, moreFlows: [SYNC_FLOW] }));
+
+    expect(await run(argv('--skip-preflight', '--upsert'))).toBe(1);
+
+    expect(stderr).toContain(
+      'TGT runs automation as this clone updates records it inserted (a record the target holds ' +
+        'written over by --upsert): Contact: flow "Contact sync".',
+    );
+    expect(orgs.TGT.written).toEqual([]);
+
+    withOrgs(fakeOrg({ noFlows: true, moreFlows: [SYNC_FLOW] }));
+    expect(await run(argv('--skip-preflight', '--upsert', '--accept-automation'))).toBeUndefined();
+    expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  it('asks nothing of a flow on update when the clone updates nothing', async () => {
+    withOrgs(fakeOrg({ noFlows: true, moreFlows: [SYNC_FLOW] }));
+
+    expect(await run(argv('--skip-preflight'))).toBeUndefined();
+
+    expect(stderr).toBe('');
+    expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+  });
+
+  it('gives in its refusal the command that assigns the smallest permission set holding the bypass, and runs none', async () => {
+    withOrgs(
+      fakeOrg({
+        permissionSets: [
+          { name: 'Integration', grants: 120 },
+          { name: 'Data_Load', grants: 1 },
+        ],
+      }),
+    );
+    vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+      alias,
+      username: alias === 'TGT' ? 'loader@example.com.dev' : '',
+      instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+      accessToken: 'token',
+    }));
+
+    expect(await run(argv('--skip-preflight'))).toBe(1);
+
+    expect(stderr).toContain(
+      'Data_Load is the smallest permission set of TGT that holds Load_Data; Integration holds ' +
+        'it too. Assigned to the user the clone writes as, it keeps quiet what Load_Data ' +
+        'excludes: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
+        'loader@example.com.dev',
+    );
+    expect(printed).toContain(
+      '    Load_Data: held by permission set Data_Load, the smallest; also held by Integration: ' +
+        'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of loader@example.com.dev',
+    );
+    // Shown, never run: nothing was assigned, nor written.
+    expect(orgs.TGT.written).toEqual([]);
   });
 
   it('writes nothing when it could not read what fires, unless told to go on', async () => {
@@ -408,8 +511,8 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
 
     expect(printed).toContain(
-      '  a real run writes nothing without --accept-automation: see what fires as it inserts, ' +
-        'or could not be read, above',
+      '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
+        'and updates, or could not be read, above',
     );
     expect(stderr).toBe('');
     expect(orgs.TGT.written).toEqual([]);

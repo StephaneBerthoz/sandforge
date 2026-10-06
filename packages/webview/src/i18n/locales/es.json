@@ -1940,6 +1940,7 @@
       "simulatedBefore": "Simulado {{minutes}} min antes",
       "rehearsedBefore": "Ensayado {{minutes}} min antes",
       "firedOnInsert": "Se ejecuta al insertar: {{list}}",
+      "firedOnUpdate": "Se ejecuta al actualizar: {{list}}",
       "nothingFired": "Nada se ejecuta al insertar",
       "fired": {
         "flow_one": "{{count}} flujo",
@@ -1954,7 +1955,7 @@
       "automationUnread": "automatización leída en parte",
       "confirmed": "Confirmado: {{list}}",
       "confirmation": {
-        "automation": "lo que se ejecuta al insertar",
+        "automation": "lo que se ejecuta al insertar y al actualizar",
         "volume": "los registros que se van a escribir"
       },
       "decisions": "Decisiones: {{list}}",
@@ -2874,7 +2875,17 @@
         "unreadAssignmentRules": "No se pudieron leer las reglas de asignación de la org de destino: {{reason}}",
         "unreadDuplicateRules": "No se pudieron leer las reglas de duplicados de la org de destino: {{reason}}",
         "unreadUserPermissions": "No se pudieron leer los permisos personalizados del usuario con el que la ejecución escribe: {{reason}}",
-        "rules": "Reglas de asignación y de duplicados"
+        "rules": "Reglas de asignación y de duplicados",
+        "unreadPermissionSets": "No se pudieron leer los conjuntos de permisos que contienen una omisión que el usuario con el que la ejecución escribe no tiene: {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} es el conjunto de permisos más pequeño de la org de destino que contiene {{permission}}. Asignado al usuario con el que la ejecución escribe, deja en silencio lo que {{permission}} excluye.",
+          "others_one": "{{names}} también lo contiene.",
+          "others_other": "{{names}} también lo contienen.",
+          "copy": "Copiar el comando que asigna {{permissionSet}}",
+          "copied": "Comando copiado",
+          "none": "Ningún conjunto de permisos de la org de destino contiene {{permission}}: un administrador crea uno que lo incluya y lo asigna al usuario con el que la ejecución escribe.",
+          "neverRun": "SandForge muestra este comando y nunca lo ejecuta: lo decide un administrador de la org de destino."
+        }
       },
       "gapsTab": "Discrepancias"
     },
@@ -2927,7 +2938,15 @@
       "resultNotReached_one": "{{formatted}} no alcanzado antes de la cancelación",
       "resultNotReached_other": "{{formatted}} no alcanzados antes de la cancelación",
       "resultMayHaveBeenWritten_one": "{{formatted}} registro que una llamada de la ejecución quizá escribió antes de perderse su respuesta puede estar en {{org}}: no se conoce ningún identificador suyo, y la eliminación no puede alcanzarlo.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} registros que una llamada de la ejecución quizá escribió antes de perderse su respuesta pueden estar en {{org}}: no se conoce ningún identificador suyo, y la eliminación no puede alcanzarlos."
+      "resultMayHaveBeenWritten_other": "{{formatted}} registros que una llamada de la ejecución quizá escribió antes de perderse su respuesta pueden estar en {{org}}: no se conoce ningún identificador suyo, y la eliminación no puede alcanzarlos.",
+      "removalAutomation": {
+        "title": "Lo que {{org}} ejecuta cuando se van estos registros",
+        "loading": "Leyendo lo que {{org}} ejecuta al eliminar estos registros…",
+        "intro": "Al eliminar estos registros, {{org}} ejecuta:",
+        "drafted": "cuando la eliminación lo devuelve a Borrador para eliminarlo",
+        "none": "Nada de lo que {{org}} automatiza se ejecuta al eliminar estos registros.",
+        "error": "No se pudo leer lo que {{org}} ejecuta cuando se van estos registros: {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

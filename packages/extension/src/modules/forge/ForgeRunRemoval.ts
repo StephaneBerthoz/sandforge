@@ -924,6 +924,18 @@ interface Drafted {
 }
 
 /**
+ * Those of `objects` whose records past Draft a removal sets back to Draft
+ * before it deletes them ({@link backToDraft}), and gives back their status
+ * when it keeps them: what fires on their update fires then too.
+ */
+export function setBackToDraftOf(objects: readonly string[]): string[] {
+  return objects.filter(
+    (objectApiName) =>
+      STATUS_LIFECYCLES[objectApiName] !== undefined && !DELETED_PAST_DRAFT.has(objectApiName),
+  );
+}
+
+/**
  * Return to a Draft status, before anything is deleted, the run's records of
  * an object with a status lifecycle — an order — that are past Draft and set
  * to go. A contract is left as it stands: the org deletes an activated one,

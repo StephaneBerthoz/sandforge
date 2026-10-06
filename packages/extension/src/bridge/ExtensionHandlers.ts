@@ -765,6 +765,7 @@ export class ExtensionHandlers {
         'forge:metadata-diff:request',
         'forge:rehearse:request',
         'forge:automation:request',
+        'forge:undo-automation:request',
         'forge:gaps:request',
       ],
       this.forgeHandler,

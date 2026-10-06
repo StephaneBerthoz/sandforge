@@ -291,6 +291,7 @@ import type {
   ForgeMetadataDiffRequest,
   ForgeRehearseRequest,
   ForgeAutomationRequest,
+  ForgeUndoAutomationRequest,
   ForgeGapsRequest,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
@@ -323,6 +324,8 @@ import type {
   ForgeRehearseErrorMessage,
   ForgeAutomationResponse,
   ForgeAutomationErrorMessage,
+  ForgeUndoAutomationResponse,
+  ForgeUndoAutomationErrorMessage,
   ForgeGapsResponse,
   ForgeGapsErrorMessage,
 } from './forge.messages.js';
@@ -587,6 +590,7 @@ export type WebViewToExtensionMessage =
   | ForgeMetadataDiffRequest
   | ForgeRehearseRequest
   | ForgeAutomationRequest
+  | ForgeUndoAutomationRequest
   | ForgeGapsRequest
   // AI
   | AIChatRequest
@@ -806,6 +810,8 @@ export type ExtensionToWebViewMessage =
   | ForgeRehearseErrorMessage
   | ForgeAutomationResponse
   | ForgeAutomationErrorMessage
+  | ForgeUndoAutomationResponse
+  | ForgeUndoAutomationErrorMessage
   | ForgeGapsResponse
   | ForgeGapsErrorMessage
   // AI

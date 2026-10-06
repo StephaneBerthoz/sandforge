@@ -167,6 +167,38 @@ describe('ForgeResultsRemoval', () => {
     expect(sentAll('forge:undo')).toEqual([]);
   });
 
+  it('lists in the confirmation what the target runs as the records go, read for the run on screen', () => {
+    render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+
+    fireEvent.click(screen.getByTestId('forge-results-remove'));
+    expect(sentAll('forge:undo-automation:request').map((message) => message.payload)).toEqual([
+      { forgeId: 'forge-on-screen' },
+    ]);
+    answer('forge:undo-automation:request', 'forge:undo-automation:response', {
+      forgeId: 'forge-on-screen',
+      automation: {
+        objectsRead: ['Contact', 'Account'],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [],
+            triggers: [{ name: 'AccountCleanup', events: ['afterDelete'] }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 5,
+      },
+      drafted: [],
+    });
+
+    expect(screen.getByTestId('forge-removal-automation-delete-Account').textContent).toBe(
+      'Account: Apex trigger: AccountCleanup · after delete',
+    );
+    expect(sentAll('forge:undo')).toEqual([]);
+  });
+
   it('sends the run, never its records, once the org name is typed', () => {
     render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
 

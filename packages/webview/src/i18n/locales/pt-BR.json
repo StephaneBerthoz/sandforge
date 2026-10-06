@@ -1940,6 +1940,7 @@
       "simulatedBefore": "Simulado {{minutes}} min antes",
       "rehearsedBefore": "Ensaiado {{minutes}} min antes",
       "firedOnInsert": "Dispara na inserção: {{list}}",
+      "firedOnUpdate": "Dispara na atualização: {{list}}",
       "nothingFired": "Nada dispara na inserção",
       "fired": {
         "flow_one": "{{count}} fluxo",
@@ -1954,7 +1955,7 @@
       "automationUnread": "automação lida em parte",
       "confirmed": "Confirmado: {{list}}",
       "confirmation": {
-        "automation": "o que dispara na inserção",
+        "automation": "o que dispara na inserção e na atualização",
         "volume": "os registros a gravar"
       },
       "decisions": "Decisões: {{list}}",
@@ -2874,7 +2875,17 @@
         "unreadAssignmentRules": "Não foi possível ler as regras de atribuição da org de destino: {{reason}}",
         "unreadDuplicateRules": "Não foi possível ler as regras de duplicidade da org de destino: {{reason}}",
         "unreadUserPermissions": "Não foi possível ler as permissões personalizadas do usuário com o qual a execução grava: {{reason}}",
-        "rules": "Regras de atribuição e de duplicidade"
+        "rules": "Regras de atribuição e de duplicidade",
+        "unreadPermissionSets": "Não foi possível ler os conjuntos de permissões que contêm uma exceção que o usuário com o qual a execução grava não tem: {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} é o menor conjunto de permissões da org de destino que contém {{permission}}. Atribuído ao usuário com o qual a execução grava, deixa em silêncio o que {{permission}} exclui.",
+          "others_one": "{{names}} também o contém.",
+          "others_other": "{{names}} também o contêm.",
+          "copy": "Copiar o comando que atribui {{permissionSet}}",
+          "copied": "Comando copiado",
+          "none": "Nenhum conjunto de permissões da org de destino contém {{permission}}: um administrador cria um que a inclua e o atribui ao usuário com o qual a execução grava.",
+          "neverRun": "O SandForge mostra este comando e nunca o executa: quem decide é um administrador da org de destino."
+        }
       },
       "gapsTab": "Divergências"
     },
@@ -2927,7 +2938,15 @@
       "resultNotReached_one": "{{formatted}} não alcançado antes do cancelamento",
       "resultNotReached_other": "{{formatted}} não alcançados antes do cancelamento",
       "resultMayHaveBeenWritten_one": "{{formatted}} registro que uma chamada da execução talvez tenha gravado antes de sua resposta se perder pode estar em {{org}}: nenhum identificador dele é conhecido, e a remoção não pode alcançá-lo.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} registros que uma chamada da execução talvez tenha gravado antes de sua resposta se perder podem estar em {{org}}: nenhum identificador deles é conhecido, e a remoção não pode alcançá-los."
+      "resultMayHaveBeenWritten_other": "{{formatted}} registros que uma chamada da execução talvez tenha gravado antes de sua resposta se perder podem estar em {{org}}: nenhum identificador deles é conhecido, e a remoção não pode alcançá-los.",
+      "removalAutomation": {
+        "title": "O que {{org}} executa quando estes registros saem",
+        "loading": "Lendo o que {{org}} executa ao excluir estes registros…",
+        "intro": "Ao excluir estes registros, {{org}} executa:",
+        "drafted": "quando a remoção o volta para Rascunho para excluí-lo",
+        "none": "Nada do que {{org}} automatiza é executado ao excluir estes registros.",
+        "error": "Não foi possível ler o que {{org}} executa quando estes registros saem: {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

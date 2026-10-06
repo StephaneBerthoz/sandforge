@@ -1269,3 +1269,101 @@ describe('forge:undo', () => {
     expect(tracker.getAll()[0]).toMatchObject({ status: 'failed' });
   });
 });
+
+describe('forge:undo-automation', () => {
+  let deps: HandlerDeps;
+  let store: ConfigStore;
+  let handler: ForgeHandler;
+
+  const posted = <T extends BaseMessage>(type: string): T[] =>
+    vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as T)
+      .filter((m) => m.type === type);
+
+  /** A reader of the target's automation answering with nothing for the objects it is given. */
+  const reader = {
+    read: vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 5,
+    })),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    store.set(
+      'forge:history',
+      [
+        runEntry({
+          idRemapTable: { ...runEntry().idRemapTable, [src('801', 1)]: id('801', 1) },
+          idRemapCreated: [
+            ...(runEntry().idRemapCreated ?? []),
+            { objectApiName: 'Order', sourceIds: [src('801', 1)] },
+          ],
+        }),
+      ],
+      'forge',
+    );
+    deps = {
+      log: vi.fn(),
+      broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
+      stateSync: {} as HandlerDeps['stateSync'],
+      orgManager: {} as HandlerDeps['orgManager'],
+      orgRegistry: {} as HandlerDeps['orgRegistry'],
+      configStore: store,
+      secretVault: {} as HandlerDeps['secretVault'],
+      authProvider: {} as HandlerDeps['authProvider'],
+      sfdxBridge: {} as HandlerDeps['sfdxBridge'],
+      nextId: () => '1',
+    };
+    handler = new ForgeHandler(deps);
+    handler.setForgeOrchestrator({ on: vi.fn() } as unknown as ForgeOrchestrator, {
+      targetAutomation: reader as never,
+    });
+  });
+
+  it('reads what the target runs on the objects the removal deletes, as the history names them, and which it sets back to Draft', async () => {
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    const objects = reader.read.mock.calls[0]?.[1];
+    expect([...(objects ?? [])].sort()).toEqual(['Account', 'Contact', 'Order']);
+    const [response] = posted<
+      BaseMessage & { payload: { forgeId: string; drafted: string[]; automation: unknown } }
+    >('forge:undo-automation:response');
+    expect(response?.payload).toMatchObject({ forgeId: 'forge-1', drafted: ['Order'] });
+    // Read only: nothing was removed.
+    expect(mockGetConn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a run the history no longer holds, and reads nothing', async () => {
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'gone' }));
+
+    expect(reader.read).not.toHaveBeenCalled();
+    expect(
+      posted<BaseMessage & { payload: { code: string } }>('forge:undo-automation:error')[0]?.payload
+        .code,
+    ).toBe('NOT_FOUND');
+  });
+
+  it('says the read failed rather than taking it for nothing firing', async () => {
+    reader.read.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    expect(posted('forge:undo-automation:response')).toEqual([]);
+    expect(
+      posted<BaseMessage & { payload: { code: string; message: string } }>(
+        'forge:undo-automation:error',
+      )[0]?.payload,
+    ).toMatchObject({
+      code: 'AUTOMATION_ERROR',
+      message: expect.stringContaining('INVALID_SESSION_ID'),
+    });
+  });
+});

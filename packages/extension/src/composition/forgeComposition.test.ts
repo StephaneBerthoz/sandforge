@@ -1135,6 +1135,8 @@ describe('initForgeComposition', () => {
       ['tgt', 'regular', 'DuplicateRule'],
       ['tgt', 'tooling', 'Flow'],
       ['tgt', 'regular', 'UserSetupEntityAccess'],
+      // The bypass the user does not hold: what would give it, over the regular API too.
+      ['tgt', 'regular', 'CustomPermission'],
     ]);
     expect(automation?.objects).toEqual([
       {
@@ -1159,7 +1161,7 @@ describe('initForgeComposition', () => {
         duplicateRules: [],
       },
     ]);
-    expect(automation?.requests).toBe(7);
+    expect(automation?.requests).toBe(8);
   });
 
   it('copies the file of a cloned record through the connection, one request each way', async () => {

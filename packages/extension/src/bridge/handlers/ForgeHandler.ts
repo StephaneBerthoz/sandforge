@@ -85,12 +85,17 @@ import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   ForgeRunGateError,
   automationUnreadOf,
+  bypassesToAssign,
   confirmationStorageOf,
   firedOnInsertOf,
+  firedOnUpdateOf,
   forgeTargetTier,
   formatMB,
-  insertBypassesOf,
   isForgeRunGateError,
+  objectsUpdatedAfterInsert,
+  runBypassesOf,
+  updateStepsOf,
+  type UpdatedAfterInsert,
   readDataStorage,
   storageCheckOf,
   storageRefusal,
@@ -99,7 +104,11 @@ import {
 } from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { ForgeRunAudit, RecentTrials, forgeCaseKey } from '../../modules/forge/forgeRunAudit.js';
-import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  removalOrg,
+  removeRunRecords,
+  setBackToDraftOf,
+} from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -187,6 +196,9 @@ const undoPayloadSchema = z.object({
   forgeId: z.string().min(1).max(200),
   includeChanged: z.boolean().optional(),
 });
+// The run alone: what its removal deletes is read from the history, as the
+// removal reads it.
+const undoAutomationPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) });
 // The run and the record, never an address: the page opened is built here,
 // from the org the run's entry names, for a record it says the run created.
 const openRecordPayloadSchema = z
@@ -384,6 +396,7 @@ const FORGE_TYPES = new Set([
   'forge:metadata-diff:request',
   'forge:rehearse:request',
   'forge:automation:request',
+  'forge:undo-automation:request',
   'forge:gaps:request',
 ]);
 
@@ -1049,6 +1062,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:automation:request':
         await this.handleAutomationRequest(msg);
+        return true;
+      case 'forge:undo-automation:request':
+        await this.handleUndoAutomation(msg);
         return true;
       case 'forge:gaps:request':
         await this.handleGapsRequest(msg);
@@ -1762,17 +1778,25 @@ export class ForgeHandler implements DomainHandler {
       // a read of the run's own otherwise. Run into a sandbox, a clone fired
       // the target's flows on every record it created, emails and text
       // messages among them, and the preview that said so stopped nothing.
+      // What fires as it updates them is put with it: in a client's sandbox,
+      // a flow on orders sent each to an external system as the clone gave
+      // it back its status.
       if (!dryRun) {
         const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
         if (runController.signal.aborted) {
           stoppedBeforeStart = true;
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
         }
-        audit.automationRead(automation);
+        const updated = objectsUpdatedAfterInsert(graph, {
+          leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+          retry: retryOf !== undefined,
+        });
+        audit.automationRead(automation, updated);
         const automationAnswer = await this.confirmAutomation(
           guard,
-          { org: targetName, orgTier },
+          { org: targetName, orgTier, username: targetOrg?.username },
           automation,
+          updated,
         );
         if (automationAnswer === 'confirmed') audit.confirm('automation');
         guardDecision = strongerDecision(guardDecision, automationAnswer);
@@ -2265,21 +2289,29 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
-   * Put what fires as the run inserts its records to the user, before the run
-   * reads anything. Nothing is asked when nothing fires and all of it was
-   * read; what could not be read is said and asked about, never passed over.
+   * Put what fires as the run inserts its records, and as it updates those it
+   * writes a second time (`updated`), to the user, before the run reads
+   * anything. Nothing is asked when nothing fires and all of it was read;
+   * what could not be read is said and asked about, never passed over. A
+   * bypass the user the run writes as does not hold is put with the command
+   * that would assign the permission set holding it.
    *
+   * @param target - The org as the user knows it, its tier, and the user the
+   *   run writes as, whom a bypass's command assigns it to.
    * @returns The decision recorded with the run: `confirmed` once a person
    *   answered, `allowed` when nothing was asked.
    * @throws ForgeRunGateError when the user declines, or nobody can be asked.
    */
   private async confirmAutomation(
     guard: ProductionGuard,
-    target: { org: string; orgTier: SafetyTier },
+    target: { org: string; orgTier: SafetyTier; username?: string },
     read: { automation: ForgeTargetAutomation; reused: boolean } | { unread: string },
+    updated: readonly UpdatedAfterInsert[],
   ): Promise<GuardDecision> {
     const known = 'automation' in read ? read.automation : undefined;
+    const updatedNames = updated.map((object) => object.objectApiName);
     const fired = known ? firedOnInsertOf(known) : [];
+    const firedOnUpdate = known ? firedOnUpdateOf(known, updatedNames) : [];
     const unread = known
       ? automationUnreadOf(known)
       : [{ part: 'automation' as const, reason: 'unread' in read ? read.unread : '' }];
@@ -2287,28 +2319,43 @@ export class ForgeHandler implements DomainHandler {
     logger.info('Forge target automation before the run', {
       ...('reused' in read ? { reused: read.reused } : {}),
       firedOnInsert: fired.length,
+      firedOnUpdate: firedOnUpdate.length,
       unread: unread.map((u) => u.part),
     });
-    if (fired.length === 0 && unread.length === 0) return 'allowed';
+    if (fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0) return 'allowed';
+    const bypass = known ? runBypassesOf(known, updatedNames) : [];
     const answer = await guard.confirmRun({
       stage: 'automation',
       org: target.org,
       orgTier: target.orgTier,
       fired,
+      firedOnUpdate,
+      updateSteps: updateStepsOf(
+        updated.filter((object) =>
+          firedOnUpdate.some((f) => f.objectApiName === object.objectApiName),
+        ),
+      ),
       unread,
-      bypass: known ? insertBypassesOf(known) : [],
+      bypass,
+      assign: known
+        ? bypassesToAssign(
+            known,
+            bypass,
+            target.username ? { alias: target.org, username: target.username } : undefined,
+          )
+        : [],
     });
     if (answer === 'confirmed') return 'confirmed';
     throw answer === 'declined'
       ? new ForgeRunGateError(
           'AUTOMATION_DECLINED',
           'Forge execution was cancelled at the confirmation of what the target org runs as ' +
-            'it inserts the records. Nothing was read or written.',
+            'it inserts and updates the records. Nothing was read or written.',
         )
       : new ForgeRunGateError(
           'CONFIRMATION_UNAVAILABLE',
-          'Forge execution needed a confirmation of what the target org runs as it inserts the ' +
-            'records, and there was no one to ask. Nothing was read or written.',
+          'Forge execution needed a confirmation of what the target org runs as it inserts and ' +
+            'updates the records, and there was no one to ask. Nothing was read or written.',
         );
   }
 
@@ -3488,6 +3535,74 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
   }
+
+  /**
+   * Read what the target runs on the objects whose records a past run's
+   * removal deletes, for the removal's confirmation to list before the user
+   * types the org's name: what fires before and after a delete, and as an
+   * activated order is set back to Draft for its delete. The objects are the
+   * ones the run's entry in the history says are left, as the removal takes
+   * them; the request names the run alone. Read only.
+   */
+  private async handleUndoAutomation(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(
+      undoAutomationPayloadSchema,
+      msg,
+      'forge:undo-automation:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const refuse = (error: Error, code: string): void =>
+      sendHandlerError(
+        this.deps,
+        'forge:undo-automation',
+        'forge:undo-automation:error',
+        msg,
+        error,
+        {
+          code,
+        },
+      );
+    const reader = this.targetAutomation;
+    if (!reader) {
+      refuse(new Error('Target automation reader not configured'), 'NOT_INITIALIZED');
+      return;
+    }
+    const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
+    if (!entry?.targetOrgId) {
+      refuse(new Error('This run is no longer in the Forge history.'), 'NOT_FOUND');
+      return;
+    }
+    const objects = forgeRunRecordsLeft(entry).map((object) => object.objectApiName);
+    const targetOrgId = entry.targetOrgId;
+    try {
+      const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
+        'forge:undo-automation',
+        () => reader.read(targetOrgId, objects),
+      );
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:undo-automation:response', {
+          forgeId: parsed.forgeId,
+          automation,
+          drafted: setBackToDraftOf(objects),
+        }),
+      );
+    } catch (error: unknown) {
+      const isTimeout = error instanceof TimeoutError;
+      sendHandlerError(
+        this.deps,
+        'forge:undo-automation',
+        'forge:undo-automation:error',
+        msg,
+        error,
+        {
+          code: isTimeout ? 'TIMEOUT' : 'AUTOMATION_ERROR',
+          retryable: isTimeout,
+        },
+      );
+    }
+  }
+
   /**
    * Read from the target's metadata what will refuse or surprise a run of the
    * graph — its validation and duplicate rules, the fields only it requires,

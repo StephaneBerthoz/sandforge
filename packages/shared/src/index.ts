@@ -163,14 +163,22 @@ export {
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
 export { forgeGapId, mergeGaps } from './utils/forge-gaps.js';
 export {
+  assignPermsetCommand,
   automationByWrite,
   blindedBy,
+  bypassAssignmentsOf,
+  bypassesOfWrites,
   bypassPermissionsOf,
   firedOnInsert,
+  firedOnRemovalOf,
+  firedOnWriteOf,
   heldBypassPermissionsOf,
+  removalBypassesOf,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,
+  type ForgeBypassAssignment,
+  type ForgeFiredOnWrite,
 } from './utils/forge-target-automation.js';
 export {
   FORGE_RUN_GATE_CODES,

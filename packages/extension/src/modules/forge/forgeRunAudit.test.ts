@@ -7,6 +7,7 @@ import {
   TRIED_WITHIN_MS,
   decisionCounts,
   firedOnInsertCounts,
+  firedOnUpdateCounts,
   forgeCaseKey,
 } from './forgeRunAudit.js';
 
@@ -145,6 +146,67 @@ describe('firedOnInsertCounts', () => {
       process: 0,
       workflowRule: 0,
       unread: ['automation'],
+    });
+  });
+});
+
+describe('firedOnUpdateCounts', () => {
+  const UPDATES: ForgeTargetAutomation = {
+    ...FIRES,
+    objects: [
+      {
+        objectApiName: 'Order',
+        flows: [
+          {
+            apiName: 'Order_Sync',
+            label: 'Order sync',
+            timing: 'afterSave',
+            startsOn: 'createAndUpdate',
+            condition: 'read',
+            permissions: [],
+          },
+        ],
+        triggers: [{ name: 'OrderTrigger', events: ['afterUpdate'] }],
+      },
+      {
+        objectApiName: 'Account',
+        flows: [],
+        triggers: [{ name: 'AccountTrigger', events: ['beforeUpdate'] }],
+      },
+    ],
+  };
+
+  it('counts by kind what fires on update of the objects the run updates, and of no other', () => {
+    expect(
+      firedOnUpdateCounts({ automation: UPDATES }, [
+        { objectApiName: 'Order', steps: ['statuses'] },
+      ]),
+    ).toEqual({ flow: 1, trigger: 1, process: 0, workflowRule: 0 });
+    expect(firedOnUpdateCounts({ automation: UPDATES }, [])).toEqual({
+      flow: 0,
+      trigger: 0,
+      process: 0,
+      workflowRule: 0,
+    });
+  });
+
+  it('counts none when the read failed, which what fires on insert says', () => {
+    expect(
+      firedOnUpdateCounts({ unread: 'timed out' }, [
+        { objectApiName: 'Order', steps: ['statuses'] },
+      ]),
+    ).toEqual({ flow: 0, trigger: 0, process: 0, workflowRule: 0 });
+  });
+
+  it('is kept in the entry beside what fires on insert', () => {
+    const audit = new ForgeRunAudit(CONFIG, { reviewSkipped: false });
+    audit.automationRead({ automation: UPDATES }, [
+      { objectApiName: 'Order', steps: ['statuses'] },
+    ]);
+
+    expect(audit.context()).toMatchObject({
+      firedOnInsert: { flow: 1, trigger: 0, unread: ['processes'] },
+      firedOnUpdate: { flow: 1, trigger: 1, process: 0, workflowRule: 0 },
     });
   });
 });

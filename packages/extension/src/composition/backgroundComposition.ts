@@ -8,6 +8,7 @@ import type {
   FiredOnInsert,
   RehearsalConfirmation,
   RunConfirmation,
+  RunUpdateStep,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
@@ -111,7 +112,70 @@ function unreadLines(unread: AutomationConfirmation['unread'], org: string): str
   );
 }
 
-/** What a run's question says of what fires in the target as the run inserts. */
+/** Why the clone writes a record it inserted a second time, as a question says it. */
+function updateStepWords(step: RunUpdateStep): string {
+  switch (step) {
+    case 'lookups':
+      return vscode.l10n.t('a lookup filled in once its record exists');
+    case 'statuses':
+      return vscode.l10n.t(
+        'an order or a contract given back its status after it went in as a draft',
+      );
+    case 'invitees':
+      return vscode.l10n.t('an invitee of an event given its answer');
+    case 'retry':
+      return vscode.l10n.t('a lookup the run it retries left empty filled in');
+    case 'upsert':
+      return vscode.l10n.t('a record the target holds written over');
+  }
+}
+
+/**
+ * What a question says of each bypass the user the clone writes as does not
+ * hold: the permission set that holds it and the command that assigns it,
+ * which the modal's button copies; or that none holds it.
+ */
+function assignLines(question: AutomationConfirmation): string[] {
+  return question.assign.flatMap((entry) => {
+    if (entry.command && entry.permissionSet) {
+      return [
+        entry.others.length > 0
+          ? vscode.l10n.t(
+              '{0} is the smallest permission set of {1} that holds {2} ({3} hold it too). Assigned to the user the clone writes as, it keeps quiet what {2} excludes:',
+              entry.permissionSet,
+              question.org,
+              entry.permission,
+              entry.others.join(', '),
+            )
+          : vscode.l10n.t(
+              '{0} is the smallest permission set of {1} that holds {2}. Assigned to the user the clone writes as, it keeps quiet what {2} excludes:',
+              entry.permissionSet,
+              question.org,
+              entry.permission,
+            ),
+        entry.command,
+      ];
+    }
+    return entry.noneHolds
+      ? [
+          vscode.l10n.t(
+            'No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.',
+            question.org,
+            entry.permission,
+          ),
+        ]
+      : [];
+  });
+}
+
+/** The commands a question's button copies: one per bypass a permission set holds. */
+function assignCommands(question: RunConfirmation): string[] {
+  return question.stage === 'automation'
+    ? question.assign.flatMap((entry) => (entry.command ? [entry.command] : []))
+    : [];
+}
+
+/** What a run's question says of what fires in the target as the run inserts and updates. */
 function automationQuestion(question: AutomationConfirmation): string[] {
   const lines: string[] = [];
   if (question.fired.length > 0) {
@@ -124,18 +188,36 @@ function automationQuestion(question: AutomationConfirmation): string[] {
         'They run on every record the clone inserts, and what they send goes out as it would for a record created by hand.',
       ),
     );
-    if (question.bypass.length > 0) {
-      lines.push(
-        vscode.l10n.t(
-          'A user who holds {0} does not start some of these Flows: assign it to the user the clone writes as to keep them quiet.',
-          question.bypass.join(', '),
-        ),
-      );
-    }
+  }
+  if (question.firedOnUpdate.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} runs automation as this clone updates records it inserted ({1}):',
+        question.org,
+        question.updateSteps.map(updateStepWords).join('; '),
+      ),
+    );
+    lines.push(...firedLines(question.firedOnUpdate));
+  }
+  if (question.bypass.length > 0 && question.fired.length + question.firedOnUpdate.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'A user who holds {0} does not start some of these Flows: assign it to the user the clone writes as to keep them quiet.',
+        question.bypass.join(', '),
+      ),
+    );
+    lines.push(...assignLines(question));
   }
   lines.push(...unreadLines(question.unread, question.org));
   if (question.unread.length > 0) {
     lines.push(vscode.l10n.t('What fires as the clone inserts its records is not known.'));
+  }
+  if (assignCommands(question).length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.',
+      ),
+    );
   }
   lines.push(vscode.l10n.t('Nothing has been read or written yet.'));
   return lines;
@@ -274,13 +356,22 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   // production confirmation below).
   const rehearsal = question.stage === 'rehearsal';
   const go = rehearsal ? vscode.l10n.t('Rehearse') : vscode.l10n.t('Execute');
+  // A modal's text cannot be selected everywhere: the command that would
+  // assign a bypass goes to the clipboard from a button of its own. It
+  // cancels the clone, which the user runs again once the command ran.
+  const commands = assignCommands(question);
+  const copy = vscode.l10n.t('Copy the command');
   const choice = await vscode.window.showWarningMessage(
     rehearsal
       ? vscode.l10n.t('SandForge: confirm this rehearsal')
       : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
-    go,
+    ...(commands.length > 0 ? [go, copy] : [go]),
   );
+  if (choice === copy) {
+    await vscode.env.clipboard.writeText(commands.join('\n'));
+    return false;
+  }
   return choice === go;
 }
 

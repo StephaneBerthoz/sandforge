@@ -32,6 +32,7 @@ const forgeRun: AuditLogEntry = {
     reviewSkipped: false,
     simulatedMinutesBefore: 6,
     firedOnInsert: { flow: 2, trigger: 1, process: 0, workflowRule: 0, unread: ['processes'] },
+    firedOnUpdate: { flow: 1, trigger: 0, process: 0, workflowRule: 1 },
     confirmed: ['automation', 'volume'],
     decisions: [
       { kind: 'map_value', count: 2, rows: 9 },
@@ -87,6 +88,9 @@ describe('auditTrailCsv', () => {
       'Rehearsed (min before)': '',
       'Flows on insert': '2',
       'Triggers on insert': '1',
+      'Flows on update': '1',
+      'Triggers on update': '0',
+      'Workflow rules on update': '1',
       'Automation unread': 'processes',
       Confirmed: 'automation; volume',
       Decisions: 'map_value 2 (9 rows); ignore 1',

@@ -1,4 +1,5 @@
 import type {
+  ForgePermissionSetGrant,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetFlow,
@@ -180,5 +181,158 @@ export function firedOnInsert(automation: Pick<ForgeTargetAutomation, 'objects'>
         .find((entry) => entry.write === 'insert')
         ?.fired.filter((fired) => fired.keptQuiet !== true).length ?? 0),
     0,
+  );
+}
+
+/** One flow, trigger, process or rule that fires as a write writes a record of its object. */
+export interface ForgeFiredOnWrite {
+  objectApiName: string;
+  write: ForgeAutomationWrite;
+  kind: ForgeAutomationFired['kind'];
+  /** The flow's, process's or rule's label, or the trigger's name. */
+  name: string;
+  when: ForgeAutomationFired['when'];
+}
+
+/**
+ * What fires in the target as `write` writes the records of the objects `on`
+ * keeps — every object unless told — per object. What a bypass the user the
+ * run writes as holds keeps quiet does not fire for its records, and is left
+ * out, as the Automation tab counts it.
+ */
+export function firedOnWriteOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  write: ForgeAutomationWrite,
+  on: (objectApiName: string) => boolean = () => true,
+): ForgeFiredOnWrite[] {
+  return automation.objects
+    .filter((object) => on(object.objectApiName))
+    .flatMap((object) =>
+      (automationByWrite(object).find((entry) => entry.write === write)?.fired ?? [])
+        .filter((fired) => fired.keptQuiet !== true)
+        .map((fired) => ({
+          objectApiName: object.objectApiName,
+          write,
+          kind: fired.kind,
+          name: fired.name,
+          when: fired.when,
+        })),
+    );
+}
+
+/**
+ * The custom permissions that keep quiet, for the user who holds them, a
+ * flow, a process or a rule firing on the writes `writes` keeps, each once,
+ * in name order.
+ */
+export function bypassesOfWrites(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+): string[] {
+  const names = automation.objects.flatMap((object) =>
+    automationByWrite(object)
+      .filter(({ write }) => writes(object.objectApiName, write))
+      .flatMap(({ fired }) => fired)
+      .flatMap((fired) =>
+        (fired.flow?.permissions ?? []).filter((p) => p.bypass).map((p) => p.name),
+      ),
+  );
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * What fires in the target as a removal takes a run's records back: as it
+ * sets the records of the objects `drafted` back to Draft before deleting
+ * them — an activated order, which the platform deletes no other way — then
+ * as it deletes the records of every object, in that order.
+ */
+export function firedOnRemovalOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  drafted: readonly string[],
+): ForgeFiredOnWrite[] {
+  const drafting = new Set(drafted);
+  return [
+    ...firedOnWriteOf(automation, 'update', (name) => drafting.has(name)),
+    ...firedOnWriteOf(automation, 'delete'),
+  ];
+}
+
+/**
+ * The custom permissions that keep quiet, for the user who holds them, what a
+ * removal fires ({@link firedOnRemovalOf}), each once, in name order.
+ */
+export function removalBypassesOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  drafted: readonly string[],
+): string[] {
+  const drafting = new Set(drafted);
+  return bypassesOfWrites(
+    automation,
+    (objectApiName, write) =>
+      write === 'delete' || (write === 'update' && drafting.has(objectApiName)),
+  );
+}
+
+/**
+ * What it takes to keep quiet the flows a bypass the user the run writes as
+ * does not hold excludes: the smallest permission set of the target that
+ * includes it, to assign to that user, and the others that do; none when no
+ * permission set a user can be assigned holds it, and an admin creates one.
+ */
+export interface ForgeBypassAssignment {
+  /** The custom permission, as `$Permission.<name>` names it. */
+  permission: string;
+  /** The smallest permission set that includes it; absent when none does. */
+  permissionSet?: ForgePermissionSetGrant;
+  /** The other permission sets that include it, the smallest first. */
+  others: ForgePermissionSetGrant[];
+}
+
+/**
+ * The assignments of the bypasses among `permissions` whose permission sets
+ * the read looked up, in the order given. A bypass it did not look up — the
+ * read could not, or the user holds it — has none: nothing is said of it
+ * that the read did not find.
+ */
+export function bypassAssignmentsOf(
+  automation: Pick<ForgeTargetAutomation, 'bypassGrants'>,
+  permissions: readonly string[],
+): ForgeBypassAssignment[] {
+  const grants = automation.bypassGrants ?? [];
+  return permissions.flatMap((permission) => {
+    const grant = grants.find((g) => g.permission.toLowerCase() === permission.toLowerCase());
+    if (!grant) return [];
+    const [smallest, ...others] = grant.permissionSets;
+    return [
+      { permission: grant.permission, ...(smallest ? { permissionSet: smallest } : {}), others },
+    ];
+  });
+}
+
+/**
+ * A word of a command line as a shell takes it whole: bare when it holds
+ * nothing a shell reads, quoted otherwise — an alias may hold a space.
+ */
+function shellWord(value: string): string {
+  return /^[\w.@+:-]+$/.test(value) ? value : `"${value.replace(/["\\$`]/g, '\\$&')}"`;
+}
+
+/**
+ * The command that assigns a permission set to the user a run writes as,
+ * with the Salesforce CLI. SandForge shows it and never runs it: assigning a
+ * permission is the org's admin's to decide, and to do.
+ *
+ * @param permissionSet - The permission set's API name, after its namespace's prefix when it has one.
+ * @param targetOrg - The target org, by the alias the Salesforce CLI knows it by.
+ * @param username - The user the run writes as.
+ */
+export function assignPermsetCommand(
+  permissionSet: string,
+  targetOrg: string,
+  username: string,
+): string {
+  return (
+    `sf org assign permset --name ${shellWord(permissionSet)} ` +
+    `--target-org ${shellWord(targetOrg)} --on-behalf-of ${shellWord(username)}`
   );
 }

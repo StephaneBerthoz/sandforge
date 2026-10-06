@@ -1940,6 +1940,7 @@
       "simulatedBefore": "Simulated {{minutes}} min before",
       "rehearsedBefore": "Rehearsed {{minutes}} min before",
       "firedOnInsert": "Fires on insert: {{list}}",
+      "firedOnUpdate": "Fires on update: {{list}}",
       "nothingFired": "Nothing fires on insert",
       "fired": {
         "flow_one": "{{count}} flow",
@@ -1954,7 +1955,7 @@
       "automationUnread": "automation partly unread",
       "confirmed": "Confirmed: {{list}}",
       "confirmation": {
-        "automation": "what fires on insert",
+        "automation": "what fires on insert and update",
         "volume": "the records to write"
       },
       "decisions": "Decisions: {{list}}",
@@ -2874,7 +2875,17 @@
         "unreadAssignmentRules": "The assignment rules of the target org could not be read: {{reason}}",
         "unreadDuplicateRules": "The duplicate rules of the target org could not be read: {{reason}}",
         "unreadUserPermissions": "The custom permissions of the user the run writes as could not be read: {{reason}}",
-        "rules": "Assignment and duplicate rules"
+        "rules": "Assignment and duplicate rules",
+        "unreadPermissionSets": "The permission sets that hold a bypass the user the run writes as does not hold could not be read: {{reason}}",
+        "assistant": {
+          "smallest": "{{permissionSet}} is the smallest permission set of the target org that holds {{permission}}. Assigned to the user the run writes as, it keeps quiet what {{permission}} excludes.",
+          "others_one": "{{names}} holds it too.",
+          "others_other": "{{names}} hold it too.",
+          "copy": "Copy the command that assigns {{permissionSet}}",
+          "copied": "Command copied",
+          "none": "No permission set of the target org holds {{permission}}: an admin creates one that includes it, and assigns it to the user the run writes as.",
+          "neverRun": "SandForge shows this command and never runs it: an admin of the target org decides whether to."
+        }
       },
       "gapsTab": "Gaps"
     },
@@ -2927,7 +2938,15 @@
       "resultNotReached_one": "{{formatted}} not reached before the cancel",
       "resultNotReached_other": "{{formatted}} not reached before the cancel",
       "resultMayHaveBeenWritten_one": "{{formatted}} record a call of the run may have written before its answer was lost may be in {{org}}: no id of it is known, and the removal cannot reach it.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} records a call of the run may have written before its answer was lost may be in {{org}}: no id of theirs is known, and the removal cannot reach them."
+      "resultMayHaveBeenWritten_other": "{{formatted}} records a call of the run may have written before its answer was lost may be in {{org}}: no id of theirs is known, and the removal cannot reach them.",
+      "removalAutomation": {
+        "title": "What {{org}} runs as these records go",
+        "loading": "Reading what {{org}} runs as these records are deleted…",
+        "intro": "As it deletes these records, {{org}} runs:",
+        "drafted": "as the removal sets it back to Draft to delete it",
+        "none": "Nothing {{org}} automates runs as these records are deleted.",
+        "error": "What {{org}} runs as these records go could not be read: {{reason}}"
+      }
     },
     "error": {
       "duplicateValue": {

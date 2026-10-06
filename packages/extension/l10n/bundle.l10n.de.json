@@ -134,5 +134,16 @@
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "Sie belegen etwa {0} MB Datenspeicher. Wie viel {1} noch frei hat, konnte nicht gelesen werden ({2}), daher ist unbekannt, ob sie passen.",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "Sie belegen etwa {0} MB Datenspeicher; {1} hat noch {2} MB von {3} MB frei.",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "Das sind mehr als 80 % des verbleibenden Speichers. Salesforce zählt den Speicher erst eine Weile nach einem Ladevorgang, daher kann weniger übrig sein als angegeben.",
-  "The records have been read, and nothing has been written yet.": "Die Datensätze wurden gelesen, und es wurde noch nichts geschrieben."
+  "The records have been read, and nothing has been written yet.": "Die Datensätze wurden gelesen, und es wurde noch nichts geschrieben.",
+  "a lookup filled in once its record exists": "eine Referenz, die ausgefüllt wird, sobald ihr Datensatz existiert",
+  "an order or a contract given back its status after it went in as a draft": "ein Auftrag oder Vertrag, der seinen Status zurückerhält, nachdem er als Entwurf eingefügt wurde",
+  "an invitee of an event given its answer": "ein Teilnehmer eines Ereignisses, der seine Antwort zurückerhält",
+  "a lookup the run it retries left empty filled in": "eine Referenz, die der wiederholte Durchlauf leer ließ, wird ausgefüllt",
+  "a record the target holds written over": "ein Datensatz des Ziels, der überschrieben wird",
+  "{0} is the smallest permission set of {1} that holds {2} ({3} hold it too). Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} ist der kleinste Berechtigungssatz von {1}, der {2} enthält ({3} enthalten sie ebenfalls). Dem Benutzer zugewiesen, als der der Klon schreibt, hält er still, was {2} ausschließt:",
+  "{0} is the smallest permission set of {1} that holds {2}. Assigned to the user the clone writes as, it keeps quiet what {2} excludes:": "{0} ist der kleinste Berechtigungssatz von {1}, der {2} enthält. Dem Benutzer zugewiesen, als der der Klon schreibt, hält er still, was {2} ausschließt:",
+  "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "Kein Berechtigungssatz von {0} enthält {1}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Klon schreibt.",
+  "{0} runs automation as this clone updates records it inserted ({1}):": "{0} führt Automatisierungen aus, wenn dieser Klon eingefügte Datensätze aktualisiert ({1}):",
+  "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Befehl kopieren kopiert ihn und bricht den Klon ab: SandForge führt ihn nie aus. Führen Sie ihn aus und starten Sie den Klon dann erneut.",
+  "Copy the command": "Befehl kopieren"
 }

@@ -43,6 +43,10 @@ const HEADER = [
   'Triggers on insert',
   'Processes on insert',
   'Workflow rules on insert',
+  'Flows on update',
+  'Triggers on update',
+  'Processes on update',
+  'Workflow rules on update',
   'Automation unread',
   'Confirmed',
   'Decisions',
@@ -90,6 +94,7 @@ function detailsCell(details: Record<string, unknown>): string {
 function row(entry: AuditLogEntry): Array<string | number | undefined> {
   const context = entry.context;
   const fired = context?.firedOnInsert;
+  const firedOnUpdate = context?.firedOnUpdate;
   const code = entry.details['code'];
   return [
     entry.timestamp,
@@ -113,6 +118,10 @@ function row(entry: AuditLogEntry): Array<string | number | undefined> {
     fired?.trigger,
     fired?.process,
     fired?.workflowRule,
+    firedOnUpdate?.flow,
+    firedOnUpdate?.trigger,
+    firedOnUpdate?.process,
+    firedOnUpdate?.workflowRule,
     fired?.unread.join('; '),
     context?.confirmed?.join('; '),
     context?.decisions
