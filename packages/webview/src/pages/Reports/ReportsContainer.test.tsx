@@ -54,7 +54,13 @@ function reply(request: BaseMessage, type: string, payload: unknown): void {
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: { id: `resp-${request.id}`, type, timestamp: Date.now(), correlationId: request.id, payload },
+        data: {
+          id: `resp-${request.id}`,
+          type,
+          timestamp: Date.now(),
+          correlationId: request.id,
+          payload,
+        },
       }),
     );
   });
@@ -309,7 +315,12 @@ describe('ReportsContainer', () => {
       fireEvent.click(screen.getByTestId('audit-export-json'));
 
       const [request] = posted<Record<string, unknown>>('reports:audit');
-      reply(request, 'reports:audit:response', { entries: [entry, seed], total: 2, offset: 0, facets });
+      reply(request, 'reports:audit:response', {
+        entries: [entry, seed],
+        total: 2,
+        offset: 0,
+        facets,
+      });
 
       const [save] = posted<{ suggestedName: string; content: string }>('file:save');
       expect(save.payload.suggestedName).toMatch(/\.json$/);

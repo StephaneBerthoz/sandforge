@@ -104,7 +104,9 @@ export const ReportsContainer: React.FC = () => {
     if (!pending || !exportedEntries) return;
     pendingExport.current = null;
     const { action } = pending.filter;
-    const entries = exportedEntries.entries.filter((e) => action === undefined || e.action === action);
+    const entries = exportedEntries.entries.filter(
+      (e) => action === undefined || e.action === action,
+    );
     const now = new Date().toISOString();
     const name = `sandforge-audit-trail-${now.slice(0, 10)}`;
     if (pending.format === 'csv') save(`${name}.csv`, auditTrailCsv(entries), ['csv']);

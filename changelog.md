@@ -5,6 +5,39 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.0] - 2026-10-06
+
+After a clone writes, it can be checked, kept removable and accounted for;
+before it writes, Review exposes every control a run takes.
+
+### Added
+
+- **Verify** on Results and `--verify` in the CLI: what the run created is
+  there, its links point at the parents it wrote, and what changed since is
+  named, once the target has settled.
+- **Review's Controls tab**: fields to leave out, a filter and renames per
+  object, the record cap and owner mappings, with a graph search and a
+  branch left out in one click; the CLI takes `--config` and `--template`.
+- **What fires on update** — a lookup filled in later, an order given back
+  its status — is put to you with what fires on insert, and a removal lists
+  what fires as it deletes.
+- **A bypass assistant** shows the command that assigns a permission set
+  holding a flow's bypass; SandForge never runs it.
+- **The audit trail** says how each run was set up and exports to CSV or
+  JSON.
+- **Rows a gap names exactly** can be skipped.
+
+### Fixed
+
+- **A run stays removable** past the last 20 runs, a CLI clone interrupted
+  with Ctrl-C leaves a summary `--remove` can use (`--summary`), and a
+  record neither found nor in the recycle bin is said not visible, never
+  removed.
+- **Before a run**, the user is told what may refuse taking it back.
+- **A simulation** says what a real run would do with emails and phones.
+- **The README and the Marketplace page** show the current product and how
+  to start safely; Forge refuses a production org rather than asking twice.
+
 ## [1.43.0] - 2026-10-06
 
 Before a clone writes, it can say what the target would refuse, row by row,
