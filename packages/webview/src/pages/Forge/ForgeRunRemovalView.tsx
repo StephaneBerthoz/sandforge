@@ -1,14 +1,17 @@
-import React, { useId } from 'react';
+import React, { useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
+  ForgeExecutionResult,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoResult,
   ForgeUndoStatus,
 } from '@sandforge/shared';
+import { forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 
 /**
  * What a removal takes back — a Forge run, or a Frozen load — which is all
@@ -138,6 +141,86 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
         <p data-testid="forge-removal-linked">{counted(t, 'forge.history.removeLinked', linked)}</p>
       )}
     </div>
+  );
+};
+
+/** A run as its removal's confirmation reads it. */
+type RemovableRun = Pick<
+  ForgeExecutionResult,
+  | 'idRemapTable'
+  | 'idRemapExisting'
+  | 'idRemapCreated'
+  | 'idRemapWithTheirRecord'
+  | 'undo'
+  | 'removalLeft'
+>;
+
+/** Props for {@link ForgeRunRemovalConfirm}. */
+export interface ForgeRunRemovalConfirmProps {
+  /** The run whose removal is being confirmed; null while none is. */
+  run: RemovableRun | null;
+  /** The org it wrote to, as the user knows it: the word typed to confirm. */
+  org: string;
+  /** Whether the records changed since the run go too. */
+  includeChanged: boolean;
+  onIncludeChangedChange: (includeChanged: boolean) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+/**
+ * The confirmation of a removal of a run's records, wherever it is asked for
+ * — the history of runs, or the results of the run: the org named and typed,
+ * the records it takes per object and the linked ones it keeps, what an
+ * earlier removal left when one did, and whether the records changed since
+ * the run go too. One confirmation, so the two places never say two things.
+ */
+export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
+  run,
+  org,
+  includeChanged,
+  onIncludeChangedChange,
+  onClose,
+  onConfirm,
+}) => {
+  const { t } = useTranslation();
+  const plan = useMemo(
+    () =>
+      (run ? forgeRunRecordsLeft(run) : []).map(({ objectApiName, ids }) => ({
+        objectApiName,
+        count: ids.length,
+      })),
+    [run],
+  );
+  return (
+    <DangerConfirm
+      open={run !== null}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      title={t('forge.history.removeTitle', { org })}
+      description={t('forge.history.removeDescription', { org })}
+      confirmText={org}
+    >
+      <ForgeRunRemovalPlan
+        plan={plan}
+        linked={run ? forgeRunLinkedKept(run).length : 0}
+        {...(run?.undo
+          ? {
+              leftBy:
+                formatStoredDate(run.undo.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+            }
+          : {})}
+      />
+      <label className="flex items-center gap-2 mt-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={includeChanged}
+          onChange={(e) => onIncludeChangedChange(e.target.checked)}
+          data-testid="forge-removal-include-changed"
+        />
+        {t('forge.history.removeIncludeChanged')}
+      </label>
+    </DangerConfirm>
   );
 };
 

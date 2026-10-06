@@ -179,6 +179,26 @@ describe('forge:execute, retrying a run', () => {
     ]);
   });
 
+  it('runs a retry that fetches the missing parents with that setting, against what the run it retries wrote', async () => {
+    // The results page's fix for a required lookup left empty: the same run,
+    // retried with the parents its rows point at read by id and written.
+    data.set('forge:history', [pastRun()]);
+
+    await handler.handle(
+      buildMsg('wv-fix', {
+        graph: createGraph(),
+        config: { ...createConfig(), expandOrphanParents: true },
+        retryOf: 'forge-partial',
+      }),
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][1]).toMatchObject({ expandOrphanParents: true });
+    expect(execute.mock.calls[0][2]).toMatchObject({ writtenBefore: WRITTEN });
+    const history = data.get('forge:history') as ForgeExecutionResult[];
+    expect(history[0].config).toMatchObject({ expandOrphanParents: true });
+  });
+
   it('runs a clone from Review with nothing written before', async () => {
     await handler.handle(buildMsg('wv-run', { graph: createGraph(), config: createConfig() }));
 

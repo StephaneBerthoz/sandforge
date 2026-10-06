@@ -757,6 +757,7 @@ export class ExtensionHandlers {
         'forge:templates:delete',
         'forge:history:list',
         'forge:undo',
+        'forge:open-record',
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',

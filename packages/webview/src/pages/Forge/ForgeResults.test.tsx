@@ -3,8 +3,16 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import ja from '../../i18n/locales/ja.json';
-import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeConfig,
+  ForgeExecutionError,
+  ForgeGraph,
+  ForgeGraphNode,
+  SalesforceOrg,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
 
@@ -234,6 +242,12 @@ const mockResetNodeStatuses = vi.fn(() => {
   };
 });
 const mockSetExecutionRequestId = vi.fn();
+/** The configuration of the run on screen. */
+let mockConfig: ForgeConfig = RUN_CONFIG;
+/** What the screen wrote into the store directly: a retry's fix, into its config. */
+const mockSetState = vi.fn((partial: { config?: ForgeConfig }) => {
+  if (partial.config) mockConfig = partial.config;
+});
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -257,7 +271,9 @@ vi.mock('../../stores/useForgeStore', () => {
         setPhase: (...args: unknown[]) => mockSetPhase(...args),
         setGraph: (...args: unknown[]) => mockSetGraph(...args),
         logs: mockLogs,
-        config: RUN_CONFIG,
+        get config() {
+          return mockConfig;
+        },
         anonymizationRules: RUN_RULES,
         anonymizationPresetId: 'preset:gdpr-default',
         upsertTemplate: (...args: unknown[]) => mockUpsertTemplate(...args),
@@ -276,6 +292,7 @@ vi.mock('../../stores/useForgeStore', () => {
         resetNodeStatuses: mockResetNodeStatuses,
         setExecutionRequestId: mockSetExecutionRequestId,
       }),
+      setState: (partial: { config?: ForgeConfig }) => mockSetState(partial),
     },
   );
   return { useForgeStore: store };
@@ -291,6 +308,7 @@ describe('ForgeResults', () => {
     mockStatusesBeyondGraph = {};
     mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
     mockRunError = null;
+    mockConfig = RUN_CONFIG;
   });
 
   it('should render with forge-results test id', () => {
@@ -1186,6 +1204,453 @@ describe('ForgeResults', () => {
         render(<ForgeResults />);
         expect(screen.getByTestId('forge-retry-failed').textContent).toBe('Write the rest');
       });
+    });
+  });
+
+  describe('Retry, for what no object row shows failed', () => {
+    /** An object the target does not have, skipped whole: its row reads skipped. */
+    const skippedWhole: ForgeExecutionError = {
+      objectApiName: 'Invoice__c',
+      stage: 'scope',
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [
+        {
+          recordSummary: '(node-level skip)',
+          messages: [
+            'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
+          ],
+        },
+      ],
+    };
+
+    it('retries a run whose only casualty is an object it skipped whole, and says what it writes', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-skipped',
+        errors: [skippedWhole],
+      });
+      render(<ForgeResults />);
+
+      const button = screen.getByTestId('forge-retry-failed');
+      expect(button.textContent).toBe('Retry skipped objects');
+      expect(screen.getByTestId('forge-retry-failed-hint').textContent).toBe(
+        'Retry skipped objects runs the clone again once what skipped them is fixed: the objects this run skipped whole are written, linked to what it did write, which is not written a second time.',
+      );
+      fireEvent.click(button);
+      expect(sent<Record<string, unknown>>('forge:execute')[0]).toMatchObject({
+        config: RUN_CONFIG,
+        retryOf: 'forge-skipped',
+      });
+      expect(mockSetState).not.toHaveBeenCalled();
+    });
+
+    it('retries the rows the target refused in an object most of whose rows went in', () => {
+      // The object's row reads done: the run wrote most of it.
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-refused',
+        errors: [
+          {
+            objectApiName: 'Contact',
+            stage: 'insert',
+            failedCount: 2,
+            attemptedCount: 20,
+            samples: [],
+          },
+        ],
+      });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-retry-failed').textContent).toBe('Retry Failed');
+    });
+  });
+
+  describe('Fetch the missing parents and retry', () => {
+    /** Contacts refused for a required lookup left empty. */
+    const requiredMissing: ForgeExecutionError = {
+      objectApiName: 'Contact',
+      stage: 'insert',
+      failedCount: 2,
+      attemptedCount: 20,
+      samples: [
+        {
+          recordSummary: 'LastName=Doe',
+          messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]'],
+        },
+      ],
+    };
+
+    it('retries with Auto-fetch parents on, for a run refused for a required field left empty', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-orphans',
+        errors: [requiredMissing],
+      });
+      render(<ForgeResults />);
+
+      const button = screen.getByTestId('forge-retry-parents');
+      expect(button.textContent).toBe('Fetch the missing parents and retry');
+      const hint = screen.getByTestId('forge-retry-parents-hint');
+      expect(button.getAttribute('aria-describedby')).toBe(hint.id);
+      expect(hint.textContent).toContain('with Auto-fetch parents on');
+      fireEvent.click(button);
+
+      const fixed = { ...RUN_CONFIG, expandOrphanParents: true };
+      expect(sent<Record<string, unknown>>('forge:execute')).toEqual([
+        expect.objectContaining({ config: fixed, retryOf: 'forge-orphans' }),
+      ]);
+      // The run's configuration from then on: a template saved from the
+      // retry's results, or a retry of it, carries the fix.
+      expect(mockSetState).toHaveBeenCalledWith({ config: fixed });
+      expect(mockSetPhase).toHaveBeenCalledWith('execution');
+    });
+
+    it('leaves the plain retry as the run was configured', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-orphans',
+        errors: [requiredMissing],
+      });
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+
+      expect(sent<Record<string, unknown>>('forge:execute')[0].config).toEqual(RUN_CONFIG);
+      expect(mockSetState).not.toHaveBeenCalled();
+    });
+
+    it('is not offered to a run that fetched the parents already', () => {
+      mockConfig = { ...RUN_CONFIG, expandOrphanParents: true };
+      mockResult = Object.assign(makeMockResult(), { errors: [requiredMissing] });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+      expect(screen.queryByTestId('forge-retry-parents')).toBeNull();
+    });
+
+    it('is not offered for a refusal fetching the parents does not fix', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        errors: [
+          {
+            ...requiredMissing,
+            samples: [
+              {
+                recordSummary: 'LastName=Doe',
+                messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Region is required'],
+              },
+            ],
+          },
+        ],
+      });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+      expect(screen.queryByTestId('forge-retry-parents')).toBeNull();
+    });
+  });
+
+  describe('saving the results to a file', () => {
+    /** A run that created an account and linked to one the target held. */
+    function mappedRun(): void {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-mapped',
+        idRemapTable: {
+          '001000000000001SRC': '001000000000001AAA',
+          '001000000000002SRC': '001000000000002AAA',
+        },
+        idRemapExisting: ['001000000000002SRC'],
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+        idRemapByObject: [{ objectApiName: 'Account', created: 1, linked: 1 }],
+      });
+    }
+
+    /** The one file the screen asked the host to save. */
+    function saved(): { suggestedName: string; content: string; extensions: string[] } {
+      const requests = sent<{ suggestedName: string; content: string; extensions: string[] }>(
+        'file:save',
+      );
+      expect(requests).toHaveLength(1);
+      return requests[0];
+    }
+
+    it('saves the Id map as a CSV file: object, source id, target id, outcome', () => {
+      mappedRun();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-save-id-map'));
+
+      const file = saved();
+      expect(file.suggestedName).toMatch(/^sandforge-forge-id-map-\d{4}-\d{2}-\d{2}\.csv$/);
+      expect(file.extensions).toEqual(['csv']);
+      expect(file.content.split('\n')).toEqual([
+        '"Object","Source Id","Target Id","Outcome"',
+        '"Account","001000000000001SRC","001000000000001AAA","created"',
+        '"Account","001000000000002SRC","001000000000002AAA","linked to existing"',
+      ]);
+    });
+
+    it('saves the per-object results as a CSV file, the rows of the table', () => {
+      mappedRun();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-save-results-csv'));
+
+      const file = saved();
+      expect(file.suggestedName).toMatch(/^sandforge-forge-results-\d{4}-\d{2}-\d{2}\.csv$/);
+      expect(file.extensions).toEqual(['csv']);
+      expect(file.content.split('\n')).toEqual([
+        '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+        '"Account","10","done","1","1","0",""',
+        '"Contact","20","done","0","0","0","FIELD_INTEGRITY_EXCEPTION"',
+        '"Case","5","skipped","0","0","0",""',
+      ]);
+    });
+
+    it('saves the whole result as a JSON file', () => {
+      mappedRun();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-save-result-json'));
+
+      const file = saved();
+      expect(file.suggestedName).toMatch(/^sandforge-forge-result-\d{4}-\d{2}-\d{2}\.json$/);
+      expect(file.extensions).toEqual(['json']);
+      expect(JSON.parse(file.content)).toEqual(mockResult);
+    });
+
+    it('offers no Id map file for a run that mapped no record', () => {
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-save-id-map')).toBeNull();
+      expect(screen.getByTestId('forge-save-results-csv')).toBeDefined();
+    });
+
+    it('keeps the copy of the result to the clipboard, named for what it does', async () => {
+      const writeText = vi.fn((_text: string) => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      try {
+        mappedRun();
+        render(<ForgeResults />);
+        const copy = screen.getByTestId('forge-export-json');
+        expect(copy.textContent).toBe('Copy JSON');
+        await act(async () => {
+          fireEvent.click(copy);
+        });
+
+        expect(JSON.parse(writeText.mock.calls[0]?.[0] ?? '')).toEqual(mockResult);
+        expect(sent('file:save')).toEqual([]);
+      } finally {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    });
+  });
+
+  describe('opening a record the run created', () => {
+    /** A run that created an account and a contact, and linked to an account. */
+    function createdRun(): void {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-created',
+        idRemapTable: {
+          '001000000000001SRC': '001000000000001AAA',
+          '003000000000001SRC': '003000000000001AAA',
+          '001000000000002SRC': '001000000000002AAA',
+        },
+        idRemapExisting: ['001000000000002SRC'],
+        idRemapCreated: [
+          { objectApiName: 'Account', sourceIds: ['001000000000001SRC'] },
+          { objectApiName: 'Contact', sourceIds: ['003000000000001SRC'] },
+        ],
+      });
+    }
+
+    it('asks the extension to open it, naming the run and the record, never an address', () => {
+      createdRun();
+      render(<ForgeResults />);
+
+      const open = screen.getByRole('button', {
+        name: 'Open Contact 003000000000001AAA in the target org',
+      });
+      expect(open.textContent).toBe('003000000000001AAA');
+      fireEvent.click(open);
+
+      expect(sent('forge:open-record')).toEqual([
+        { forgeId: 'forge-created', recordId: '003000000000001AAA' },
+      ]);
+      expect(screen.getByTestId('forge-id-mapping').textContent).toContain(
+        'Select the Id of a record this run created to open it in the target org.',
+      );
+    });
+
+    it('offers no link to a record the run linked to rather than created', () => {
+      createdRun();
+      render(<ForgeResults />);
+
+      expect(screen.getAllByTestId('forge-id-mapping-open').map((b) => b.textContent)).toEqual([
+        '001000000000001AAA',
+        '003000000000001AAA',
+      ]);
+      const linkedRow = screen.getAllByTestId('forge-id-mapping-row')[2];
+      expect(within(linkedRow).queryByRole('button')).toBeNull();
+    });
+
+    it('says why the record did not open, where it was asked for', () => {
+      createdRun();
+      render(<ForgeResults />);
+      fireEvent.click(screen.getAllByTestId('forge-id-mapping-open')[0]);
+
+      replyTo('forge:open-record', 'forge:open-record:response', {
+        status: 'error',
+        message: 'VS Code did not open the page.',
+      });
+
+      expect(screen.getByTestId('forge-id-mapping-open-status').textContent).toBe(
+        'The record could not be opened: VS Code did not open the page.',
+      );
+    });
+
+    it('says why the extension refused to open it', () => {
+      createdRun();
+      render(<ForgeResults />);
+      fireEvent.click(screen.getAllByTestId('forge-id-mapping-open')[0]);
+
+      replyTo('forge:open-record', 'forge:open-record:error', {
+        message: 'This run is no longer in the Forge history.',
+        code: 'NOT_FOUND',
+        retryable: false,
+      });
+
+      expect(screen.getByTestId('forge-id-mapping-open-status').textContent).toBe(
+        'The record could not be opened: This run is no longer in the Forge history.',
+      );
+    });
+
+    it('links the records the run created in a map long enough to be windowed', () => {
+      const table: Record<string, string> = {};
+      const sourceIds: string[] = [];
+      for (let i = 0; i < ID_REMAP_VIRTUALIZE_THRESHOLD + 5; i++) {
+        const n = String(i).padStart(12, '0');
+        table[`001${n}SRC`] = `001${n}AAA`;
+        sourceIds.push(`001${n}SRC`);
+      }
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-large',
+        idRemapTable: table,
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds }],
+      });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-id-mapping-virtual')).toBeDefined();
+      fireEvent.click(screen.getAllByTestId('forge-id-mapping-open')[0]);
+      expect(sent('forge:open-record')).toEqual([
+        { forgeId: 'forge-large', recordId: '001000000000000AAA' },
+      ]);
+    });
+  });
+
+  describe('removing the run from its results', () => {
+    const TARGET = { id: 'org-target', alias: 'QA-SANDBOX' } as SalesforceOrg;
+
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [TARGET] });
+    });
+
+    it('offers no removal, no record to open and no retry for a simulation, which wrote nothing', () => {
+      mockGraph = makeMockGraphWithError();
+      mockResult = Object.assign(makeMockResult(), {
+        graph: mockGraph,
+        forgeId: 'forge-simulated',
+        dryRun: true,
+        idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+        errors: [
+          {
+            objectApiName: 'Contact',
+            stage: 'insert',
+            failedCount: 2,
+            attemptedCount: 20,
+            samples: [
+              {
+                recordSummary: 'LastName=Doe',
+                messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]'],
+              },
+            ],
+          },
+        ],
+      });
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-results-removal')).toBeNull();
+      expect(screen.queryByTestId('forge-id-mapping-open')).toBeNull();
+      expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+      expect(screen.queryByTestId('forge-retry-parents')).toBeNull();
+      // What it found can still be saved.
+      expect(screen.getByTestId('forge-save-results-csv')).toBeDefined();
+    });
+
+    it('offers the removal of the records the run created, and no retry once it took some', () => {
+      mockGraph = makeMockGraphWithError();
+      mockResult = Object.assign(makeMockResult(), {
+        graph: mockGraph,
+        forgeId: 'forge-removable',
+        idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+      });
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'QA-SANDBOX' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(sent('forge:undo')).toEqual([{ forgeId: 'forge-removable', includeChanged: false }]);
+
+      replyTo('forge:undo', 'forge:undo:response', {
+        result: {
+          forgeId: 'forge-removable',
+          status: 'success',
+          includeChanged: false,
+          finishedAt: '2026-10-01T09:00:00.000Z',
+          objects: [
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 1,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+        operationId: 'forge-undo-1',
+      });
+      replyTo('forge:history:list', 'forge:history:list:response', {
+        history: [
+          {
+            ...mockResult,
+            targetOrgId: 'org-target',
+            undo: {
+              removedAt: '2026-10-01T09:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+            },
+            removalLeft: [],
+          },
+        ],
+      });
+
+      expect(screen.getByTestId('forge-removal-result').textContent).toContain(
+        'No record this run created is left in QA-SANDBOX.',
+      );
+      // The extension refuses a retry of a run whose records were removed.
+      expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+      expect(screen.queryByTestId('forge-results-remove')).toBeNull();
     });
   });
 

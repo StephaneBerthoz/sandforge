@@ -1837,6 +1837,87 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-execution-status')).toHaveText('FORGING...');
     });
 
+    test('Forge results acting on the run: opening a record, retrying, removing its records', async ({
+      page,
+    }) => {
+      await startForgeRun(bridge, page, theme, FORGE_RUN_GRAPH);
+      const acted = { ...FORGE_REMOVABLE_RUN, forgeId: 'forge-run-acted' };
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          ...acted,
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
+          errors: [
+            {
+              objectApiName: 'Invoice__c',
+              stage: 'scope',
+              failedCount: 0,
+              attemptedCount: 0,
+              skipped: true,
+              samples: [
+                {
+                  recordSummary: '(node-level skip)',
+                  messages: ['Object is not createable on target org'],
+                },
+              ],
+            },
+            {
+              objectApiName: 'Contact',
+              stage: 'insert',
+              failedCount: 1,
+              attemptedCount: 3,
+              samples: [
+                {
+                  recordSummary: 'LastName=Doe',
+                  messages: ['REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]'],
+                },
+              ],
+            },
+          ],
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-id-mapping-open').first()).toBeVisible();
+      await expect(page.getByTestId('forge-save-id-map')).toBeVisible();
+      await expect(page.getByTestId('forge-retry-parents')).toBeVisible();
+      await expect(page.getByTestId('forge-results-remove')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-id-mapping-open').first().click();
+      await bridge.waitForMessage('forge:open-record', { timeout: 10_000 });
+      await answerAll(page, 'forge:open-record', 'forge:open-record:response', {
+        status: 'error',
+        message: 'VS Code did not open the page.',
+      });
+      await expect(page.getByTestId('forge-id-mapping-open-status')).toContainText(
+        'VS Code did not open the page.',
+      );
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-results-remove').click();
+      await page
+        .getByRole('dialog', { name: `Remove this run's records from ${QA_SANDBOX.alias}` })
+        .waitFor({ state: 'visible', timeout: 5000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo', 'forge:undo:response', {
+        result: { ...FORGE_REMOVAL_RESULT, forgeId: acted.forgeId },
+        operationId: 'forge-undo-1',
+      });
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [{ ...FORGE_PARTLY_REMOVED_RUN, forgeId: acted.forgeId }],
+      });
+      await expect(page.getByTestId('forge-results-remove')).toHaveText(
+        "Remove what is left of this run's records",
+      );
+      await expect(page.getByTestId('forge-removal-result')).toBeVisible();
+      await expect(page.getByTestId('forge-retry-failed')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Forge results telling the notes of the run from its errors, each with what it means', async ({
       page,
     }) => {

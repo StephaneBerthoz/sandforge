@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRunRecordsLeft } from '@sandforge/shared';
 import type { ForgeUndoResult } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatStoredDate } from '../../utils/formatters';
@@ -9,14 +9,13 @@ import type { ForgeExecutionResult } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
-import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { ForgeRunConfig } from './useForgeForm';
 import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
 import {
+  ForgeRunRemovalConfirm,
   ForgeRunRemovalMark,
-  ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from './ForgeRunRemovalView';
 
@@ -115,14 +114,6 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   const removable = useMemo(
     () => new Set(entries.filter((e) => forgeRunRecordsLeft(e).length > 0).map((e) => e.forgeId)),
     [entries],
-  );
-  const confirmingPlan = useMemo(
-    () =>
-      (confirming ? forgeRunRecordsLeft(confirming) : []).map(({ objectApiName, ids }) => ({
-        objectApiName,
-        count: ids.length,
-      })),
-    [confirming],
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';
 
@@ -302,31 +293,14 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         </p>
       )}
 
-      <DangerConfirm
-        open={confirming !== null}
+      <ForgeRunRemovalConfirm
+        run={confirming}
+        org={confirmingOrg}
+        includeChanged={includeChanged}
+        onIncludeChangedChange={setIncludeChanged}
         onClose={() => setConfirming(null)}
         onConfirm={confirmRemoval}
-        title={t('forge.history.removeTitle', { org: confirmingOrg })}
-        description={t('forge.history.removeDescription', { org: confirmingOrg })}
-        confirmText={confirmingOrg}
-      >
-        <ForgeRunRemovalPlan
-          plan={confirmingPlan}
-          linked={confirming ? forgeRunLinkedKept(confirming).length : 0}
-          {...(confirming?.undo
-            ? { leftBy: shown(confirming.undo.removedAt) ?? t('common.dateUnknown') }
-            : {})}
-        />
-        <label className="flex items-center gap-2 mt-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={includeChanged}
-            onChange={(e) => setIncludeChanged(e.target.checked)}
-            data-testid="forge-removal-include-changed"
-          />
-          {t('forge.history.removeIncludeChanged')}
-        </label>
-      </DangerConfirm>
+      />
     </div>
   );
 };

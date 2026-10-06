@@ -12,18 +12,24 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  FileDown,
+  ExternalLink,
   AlertTriangle,
   Info,
 } from 'lucide-react';
 import type {
+  ForgeConfig,
   ForgeExecuteRequest,
   ForgeExecutionError,
+  ForgeExecutionResult,
   ForgeFieldRefusal,
   ForgeGraphNode,
   ForgeNodeStatus,
+  ForgeOpenRecordResponse,
 } from '@sandforge/shared';
 import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { translateForgeError } from './forgeErrorTranslator';
 import type { TranslatedError } from './forgeErrorTranslator';
 import { ForgeErrorHint } from './ForgeErrorHint';
@@ -44,6 +50,32 @@ import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
+import { ForgeResultsRemoval } from './ForgeResultsRemoval';
+import { createdTargets, idMapCsv, idMapRows, objectResultsCsv } from './forgeResultsExport';
+
+/**
+ * Whether a failure's samples name a required field left empty: the refusal
+ * fetching the missing parents can fix, when the field is a lookup.
+ */
+function namesARequiredFieldMissing(error: ForgeExecutionError): boolean {
+  return error.samples.some((sample) =>
+    sample.messages.some((message) => /^REQUIRED_FIELD_MISSING\b/.test(message)),
+  );
+}
+
+/**
+ * Whether a result is a simulation's (`ForgeConfig.dryRun`): it took every
+ * row through the write stage and wrote nothing, and no history keeps it, so
+ * it has no record to open, remove or retry against.
+ */
+function ranAsSimulation(result: ForgeExecutionResult | null): boolean {
+  return result !== null && 'dryRun' in result && result.dryRun === true;
+}
+
+/** Today, as an export's file name carries it. */
+function exportDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /**
  * Above this many source -> target pairs the Id map switches from a plain
@@ -131,7 +163,7 @@ interface ObjectRow {
  * copying reports, exporting JSON, or starting a new forge.
  */
 export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
-  const { save } = useFileSave();
+  const { save, saving } = useFileSave();
   const { t } = useTranslation();
   const result = useForgeStore((s) => s.result);
   const graph = useForgeStore((s) => s.graph);
@@ -362,6 +394,46 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // retry against. Review runs it, once the gaps are decided.
   const retryable = !simulation && (failedObjects || stoppedBeforeItsEnd);
 
+  /** Whether the run on screen was a simulation, which wrote nothing. */
+  const simulated = ranAsSimulation(result);
+
+  /** Set once a removal took records of the run back: a retry has nothing left to link to. */
+  const [removed, setRemoved] = useState(false);
+  const handleRemoved = useCallback(() => setRemoved(true), []);
+
+  /*
+   * Nor does a row show the objects the run skipped whole — not createable in
+   * the target, not there, or short of a parent that failed or was skipped —
+   * or the rows the target refused in an object most of whose rows went in:
+   * each is a failure the run reported, and a run whose only casualties they
+   * were was offered no retry. A simulation wrote nothing to retry against,
+   * and once a removal took the run's records, the extension refuses one.
+   */
+  const retryOffered = !simulated && !removed && (retryable || failures.length > 0);
+
+  /** Whether the run's only casualties are the objects it skipped whole. */
+  const onlySkippedWhole =
+    !failedObjects && failures.length > 0 && failures.every((report) => report.skipped === true);
+
+  /** What the retry button says it does, and the hint under it. */
+  const [retryLabel, retryHint] = stoppedBeforeItsEnd
+    ? ['forge.retryStopped', 'forge.retryStoppedHint']
+    : onlySkippedWhole
+      ? ['forge.retrySkipped', 'forge.retrySkippedHint']
+      : ['forge.retryFailed', 'forge.retryFailedHint'];
+
+  /*
+   * A row refused for a required field left empty is the refusal the run's
+   * "Auto-fetch parents" fixes when the field is a lookup, as the hint under
+   * the refusal says: offered as a retry of its own, with the setting on, for
+   * a run that ran without it.
+   */
+  const missingParents =
+    retryOffered &&
+    !!config &&
+    config.expandOrphanParents !== true &&
+    failures.some(namesARequiredFieldMissing);
+
   /** Sorted and filtered rows for the results table. */
   const sortedFilteredRows = useMemo(() => {
     let filtered = rows;
@@ -520,31 +592,82 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * execution screen without asking the extension for anything: mission
    * control waited on a run that was never started.
    */
-  const handleRetryFailed = useCallback(() => {
-    if (!graph || !config || !result) return;
-    // A new run, from the statuses up, as Review starts one.
-    useForgeStore.getState().resetNodeStatuses();
-    const { graph: retried, anonymizationRules, fileCopy } = useForgeStore.getState();
-    if (!retried) return;
-    // What Review sends, and the run it retries: the extension's history holds
-    // what that run wrote.
-    const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
-      graph: retried,
-      config,
-      anonymizationRules,
-      ...(fileCopy.enabled
-        ? {
-            files: {
-              maxFileSizeMB: fileCopy.maxFileSizeMB,
-              acceptedAsIs: fileCopy.acceptedAsIs,
-            },
-          }
-        : {}),
-      retryOf: result.forgeId,
-    });
-    useForgeStore.getState().setExecutionRequestId(requestId);
-    setPhase('execution');
-  }, [graph, config, result, setPhase]);
+  const handleRetryFailed = useCallback(
+    (fix?: Pick<ForgeConfig, 'expandOrphanParents'>) => {
+      if (!graph || !config || !result) return;
+      // A new run, from the statuses up, as Review starts one.
+      useForgeStore.getState().resetNodeStatuses();
+      const { graph: retried, anonymizationRules, fileCopy } = useForgeStore.getState();
+      if (!retried) return;
+      // A fix the retry runs with is the run's configuration from then on: its
+      // results, a template saved from them and a retry of it carry the fix.
+      const retriedConfig = fix ? { ...config, ...fix } : config;
+      if (fix) useForgeStore.setState({ config: retriedConfig });
+      // What Review sends, and the run it retries: the extension's history holds
+      // what that run wrote.
+      const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
+        graph: retried,
+        config: retriedConfig,
+        anonymizationRules,
+        ...(fileCopy.enabled
+          ? {
+              files: {
+                maxFileSizeMB: fileCopy.maxFileSizeMB,
+                acceptedAsIs: fileCopy.acceptedAsIs,
+              },
+            }
+          : {}),
+        retryOf: result.forgeId,
+      });
+      useForgeStore.getState().setExecutionRequestId(requestId);
+      setPhase('execution');
+    },
+    [graph, config, result, setPhase],
+  );
+
+  /* ---- Export to a file ---- */
+  /** The Id map's rows, each with its object and what became of it. */
+  const idMap = useMemo(() => (result ? idMapRows(result) : []), [result]);
+
+  /** The Id map as a CSV file: object, source id, target id, outcome. */
+  const handleSaveIdMap = useCallback(() => {
+    save(`sandforge-forge-id-map-${exportDate()}.csv`, idMapCsv(idMap), ['csv']);
+  }, [idMap, save]);
+
+  /** The per-object results as a CSV file, the rows of the table. */
+  const handleSaveResultsCsv = useCallback(() => {
+    save(`sandforge-forge-results-${exportDate()}.csv`, objectResultsCsv(rows, result), ['csv']);
+  }, [rows, result, save]);
+
+  /** The whole result as a JSON file, as the clipboard copy holds it. */
+  const handleSaveResultJson = useCallback(() => {
+    save(`sandforge-forge-result-${exportDate()}.json`, JSON.stringify(result, null, 2), ['json']);
+  }, [result, save]);
+
+  /* ---- Open a created record in the target ---- */
+  /** The records the run created, by target id, with their object. */
+  const created = useMemo(
+    () => (result && !simulated ? createdTargets(result) : new Map<string, string>()),
+    [result, simulated],
+  );
+  const opener = useBridgeMutation<ForgeOpenRecordResponse['payload']>('forge:open-record', {
+    responseType: 'forge:open-record:response',
+    errorType: 'forge:open-record:error',
+  });
+  const openRecordRequest = opener.mutate;
+  /*
+   * The page names the run and the record; the extension finds the org and
+   * the object in the run's history entry, and builds the address.
+   */
+  const openRecord = useCallback(
+    (recordId: string) => {
+      if (result) openRecordRequest({ forgeId: result.forgeId, recordId });
+    },
+    [result, openRecordRequest],
+  );
+  /** Why the last record asked for did not open, or null. */
+  const openFailure =
+    opener.error ?? (opener.data?.status === 'error' ? opener.data.message : null);
 
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
@@ -913,6 +1036,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             {t('forge.idMapping.subtitle', { count: idRemapRows.length })}
             {existingSourceIds.size > 0 &&
               ` ${t('forge.idMapping.existingNote', { count: existingSourceIds.size })}`}
+            {created.size > 0 && ` ${t('forge.idMapping.openNote')}`}
           </p>
           {idRemapRows.length > ID_REMAP_VIRTUALIZE_THRESHOLD ? (
             <div data-testid="forge-id-mapping-virtual">
@@ -931,7 +1055,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                       {sourceId}
                     </span>
                     <span className="w-1/2 py-1 font-mono text-text-primary truncate">
-                      {targetId}
+                      <TargetId id={targetId} object={created.get(targetId)} onOpen={openRecord} />
                       {existingSourceIds.has(sourceId) && <ExistingBadge />}
                     </span>
                   </div>
@@ -952,7 +1076,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     <tr key={sourceId} data-testid="forge-id-mapping-row">
                       <td className="py-1 pr-3 font-mono text-text-secondary">{sourceId}</td>
                       <td className="py-1 font-mono text-text-primary">
-                        {targetId}
+                        <TargetId
+                          id={targetId}
+                          object={created.get(targetId)}
+                          onOpen={openRecord}
+                        />
                         {existingSourceIds.has(sourceId) && <ExistingBadge />}
                       </td>
                     </tr>
@@ -961,6 +1089,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               </table>
             </div>
           )}
+          {/* Said where the record was asked for: VS Code may decline to
+              open the page, and the extension refuses a record the run's
+              history does not name as created. */}
+          <p
+            role="status"
+            data-testid="forge-id-mapping-open-status"
+            className="mt-1 text-xs text-status-error"
+          >
+            {openFailure ? t('forge.idMapping.openFailed', { message: openFailure }) : ''}
+          </p>
         </div>
       )}
 
@@ -1141,16 +1279,61 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forge.exportJson')}
         </Button>
-        {retryable && result && (
+        {/* Saved by the host as files, beside the clipboard copies above. */}
+        {idMap.length > 0 && (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<FileDown size={14} />}
+            onClick={handleSaveIdMap}
+            disabled={saving}
+            data-testid="forge-save-id-map"
+          >
+            {t('forge.saveIdMapCsv')}
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="md"
+          icon={<FileDown size={14} />}
+          onClick={handleSaveResultsCsv}
+          disabled={saving}
+          data-testid="forge-save-results-csv"
+        >
+          {t('forge.saveResultsCsv')}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          icon={<FileDown size={14} />}
+          onClick={handleSaveResultJson}
+          disabled={saving || !result}
+          data-testid="forge-save-result-json"
+        >
+          {t('forge.saveResultJson')}
+        </Button>
+        {retryOffered && result && (
           <Button
             variant="secondary"
             size="md"
             icon={<RefreshCw size={14} />}
-            onClick={handleRetryFailed}
+            onClick={() => handleRetryFailed()}
             aria-describedby="forge-retry-failed-hint"
             data-testid="forge-retry-failed"
           >
-            {t(stoppedBeforeItsEnd ? 'forge.retryStopped' : 'forge.retryFailed')}
+            {t(retryLabel)}
+          </Button>
+        )}
+        {missingParents && result && (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<RefreshCw size={14} />}
+            onClick={() => handleRetryFailed({ expandOrphanParents: true })}
+            aria-describedby="forge-retry-parents-hint"
+            data-testid="forge-retry-parents"
+          >
+            {t('forge.retryWithParents')}
           </Button>
         )}
         <Button
@@ -1165,14 +1348,32 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       </m.div>
       {/* What the retry writes, and what it does not write twice: a clone run
           again would otherwise be read as writing everything a second time. */}
-      {retryable && result && (
+      {retryOffered && result && (
         <p
           id="forge-retry-failed-hint"
           className="text-xs text-text-secondary"
           data-testid="forge-retry-failed-hint"
         >
-          {t(stoppedBeforeItsEnd ? 'forge.retryStoppedHint' : 'forge.retryFailedHint')}
+          {t(retryHint)}
         </p>
+      )}
+      {missingParents && result && (
+        <p
+          id="forge-retry-parents-hint"
+          className="text-xs text-text-secondary"
+          data-testid="forge-retry-parents-hint"
+        >
+          {t('forge.retryWithParentsHint')}
+        </p>
+      )}
+      {/* The removal the history of runs offers, of the run on screen, and
+          what it did said in place. */}
+      {result && !simulated && (
+        <ForgeResultsRemoval
+          run={result}
+          targetOrgId={config?.targetOrgId}
+          onRemoved={handleRemoved}
+        />
       )}
 
       {saveOpen && (
@@ -1299,6 +1500,35 @@ const ExistingBadge: React.FC = () => {
     >
       {t('forge.idMapping.existingBadge')}
     </span>
+  );
+};
+
+/**
+ * A target id of the Id map: for a record the run created, a button that has
+ * the extension open it in the target org, named for what it opens; any other
+ * id as text. The run linked to a record the target already held, and found
+ * the others there: its history names neither as created, and the extension
+ * opens only a record it does.
+ */
+const TargetId: React.FC<{
+  id: string;
+  /** The object of the record, when the run created it. */
+  object: string | undefined;
+  onOpen: (id: string) => void;
+}> = ({ id, object, onOpen }) => {
+  const { t } = useTranslation();
+  if (object === undefined) return <>{id}</>;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(id)}
+      aria-label={t('forge.idMapping.openRecord', { object, id })}
+      data-testid="forge-id-mapping-open"
+      className="inline-flex items-center gap-1 font-mono text-text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
+    >
+      {id}
+      <ExternalLink size={10} aria-hidden="true" className="shrink-0" />
+    </button>
   );
 };
 

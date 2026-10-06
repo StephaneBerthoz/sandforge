@@ -318,6 +318,8 @@ const AutomationMessages = [
   msg('forge:history:list'),
   // Removes from its target org the records a past run created.
   msg('forge:undo'),
+  // Opens in the browser a record a past run created, in the org it wrote to.
+  msg('forge:open-record'),
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
@@ -342,6 +344,8 @@ const AutomationMessages = [
   msg('forge:history:list:response'),
   msg('forge:undo:response'),
   msg('forge:undo:error'),
+  msg('forge:open-record:response'),
+  msg('forge:open-record:error'),
   msg('forge:plan:response'),
   msg('forge:plan:error'),
   msg('forge:compliance:response'),

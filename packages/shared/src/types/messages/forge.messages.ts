@@ -111,6 +111,24 @@ export interface ForgeUndoRequest extends BaseMessage {
   };
 }
 
+/**
+ * `forge:open-record`. WebView -> Extension. Open in the browser the page of a
+ * record a past run created, in the org it wrote to.
+ *
+ * The request names the run and the record, never an address: the extension
+ * takes the object and the org from the run's entry in its history, and opens
+ * only a record that entry says the run created.
+ */
+export interface ForgeOpenRecordRequest extends BaseMessage {
+  type: 'forge:open-record';
+  payload: {
+    /** `forgeId` of the history entry. */
+    forgeId: string;
+    /** The record's id in the target org. */
+    recordId: string;
+  };
+}
+
 /** `forge:plan:request`. WebView -> Extension. Generate a wave-based execution plan. */
 export interface ForgePlanRequest extends BaseMessage {
   type: 'forge:plan:request';
@@ -319,6 +337,21 @@ export interface ForgeUndoResponse extends BaseMessage {
 /** `forge:undo:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeUndoErrorMessage extends BaseMessage {
   type: 'forge:undo:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:open-record:response`. Extension -> WebView. What the browser did:
+ * VS Code may decline to open the page.
+ */
+export interface ForgeOpenRecordResponse extends BaseMessage {
+  type: 'forge:open-record:response';
+  payload: { status: 'opened' } | { status: 'error'; message: string };
+}
+
+/** `forge:open-record:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeOpenRecordErrorMessage extends BaseMessage {
+  type: 'forge:open-record:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

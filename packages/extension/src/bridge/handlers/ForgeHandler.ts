@@ -20,6 +20,7 @@ import {
   forgeConfigSchema,
   forgeFileCopyOptionSchema,
   forgeGraphSchema,
+  forgeRunCreatedRecords,
   forgeRunRecordsLeft,
   forgeTemplateSchema,
   leftOutByTheUser,
@@ -59,6 +60,8 @@ import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
+import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
+import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 import { partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import {
   RECORD_TYPES_SOQL,
@@ -172,6 +175,14 @@ const undoPayloadSchema = z.object({
   forgeId: z.string().min(1).max(200),
   includeChanged: z.boolean().optional(),
 });
+// The run and the record, never an address: the page opened is built here,
+// from the org the run's entry names, for a record it says the run created.
+const openRecordPayloadSchema = z
+  .object({
+    forgeId: z.string().min(1).max(200),
+    recordId: z.string().regex(SF_ID_RE, 'Invalid Salesforce record ID'),
+  })
+  .strict();
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
 const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
 const complianceRequestPayloadSchema = z.object({
@@ -344,6 +355,7 @@ const FORGE_TYPES = new Set([
   'forge:templates:delete',
   'forge:history:list',
   'forge:undo',
+  'forge:open-record',
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
@@ -817,8 +829,19 @@ export class ForgeHandler implements DomainHandler {
   /** Maximum number of history entries to retain. */
   private static readonly MAX_HISTORY = 20;
 
-  /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  /** Opens a record a run created in the system browser (see {@link handleOpenRecord}). */
+  private readonly externalBrowser: ExternalBrowserAdapter;
+
+  /**
+   * @param deps - Injected handler dependencies.
+   * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
+   */
+  constructor(
+    private readonly deps: HandlerDeps,
+    externalBrowser?: ExternalBrowserAdapter,
+  ) {
+    this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
+  }
 
   /**
    * Drop what Forge holds about an org that is no longer the org it was.
@@ -961,6 +984,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:undo':
         await this.handleUndo(msg);
+        return true;
+      case 'forge:open-record':
+        await this.handleOpenRecord(msg);
         return true;
       case 'forge:plan:request':
         await this.handlePlanRequest(msg);
@@ -2547,6 +2573,87 @@ export class ForgeHandler implements DomainHandler {
     sendHandlerError(this.deps, 'forge:undo', 'forge:undo:error', msg, new Error(message), {
       code,
     });
+  }
+
+  /**
+   * Open in the browser the page of a record a past run created, in the org
+   * the run wrote to.
+   *
+   * The results page names the run and the record, and nothing else: the
+   * schema refuses any other key, so no address comes from the page. The run's
+   * entry in the history says what it created, of which object, and where:
+   * a record it does not name as created — one the target already held, which
+   * the run linked to, or any other id — is refused, and the address is built
+   * from the org's stored instance URL behind the HTTPS gate, with the id the
+   * entry holds. Refusals leave on `forge:open-record:error`; the response
+   * carries what the browser did.
+   *
+   * @param msg - The incoming open-record request.
+   */
+  private async handleOpenRecord(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(openRecordPayloadSchema, msg, 'forge:open-record:error', this.deps);
+    if (!parsed) return;
+    const refuse = (message: string, code: string): void => {
+      sendHandlerError(
+        this.deps,
+        'forge:open-record',
+        'forge:open-record:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    };
+
+    const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
+    if (!entry) {
+      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      return;
+    }
+    if (!entry.targetOrgId) {
+      refuse('This run was recorded before Forge kept the org it wrote to.', 'NOT_RECORDED');
+      return;
+    }
+    // The same record whichever length its id is written in.
+    const wanted = parsed.recordId.slice(0, 15);
+    let created: { objectApiName: string; id: string } | undefined;
+    for (const { objectApiName, ids } of forgeRunCreatedRecords(entry)) {
+      const id = ids.find((candidate) => candidate.slice(0, 15) === wanted);
+      if (id) {
+        created = { objectApiName, id };
+        break;
+      }
+    }
+    if (!created) {
+      refuse('This record is not one this run created.', 'NOT_CREATED');
+      return;
+    }
+    const org = this.deps.orgManager.getOrg(entry.targetOrgId);
+    if (!org) {
+      refuse('The org this run wrote to is no longer registered.', 'ORG_NOT_FOUND');
+      return;
+    }
+    const target = recordPageUrl(org.instanceUrl, created.objectApiName, created.id);
+    if (!target.ok) {
+      const why =
+        target.reason === 'not-https'
+          ? `its instance URL must use HTTPS, got "${target.protocol}"`
+          : target.reason === 'invalid'
+            ? 'its instance URL is not a valid URL'
+            : 'the record is not one an address can be built for';
+      refuse(
+        `Cannot open the record in "${org.alias}": ${why}.`,
+        target.reason === 'not-a-record' ? 'NOT_CREATED' : 'INVALID_INSTANCE_URL',
+      );
+      return;
+    }
+    try {
+      const outcome = await this.externalBrowser.open(target.url);
+      const response = buildResponse(this.deps, msg, 'forge:open-record:response', outcome);
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'forge:open-record', 'forge:open-record:error', msg, err);
+    }
   }
 
   /**

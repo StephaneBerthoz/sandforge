@@ -282,6 +282,7 @@ import type {
   ForgeTemplatesDeleteRequest,
   ForgeHistoryListRequest,
   ForgeUndoRequest,
+  ForgeOpenRecordRequest,
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
@@ -303,6 +304,8 @@ import type {
   ForgeHistoryListResponse,
   ForgeUndoResponse,
   ForgeUndoErrorMessage,
+  ForgeOpenRecordResponse,
+  ForgeOpenRecordErrorMessage,
   ForgePlanResponse,
   ForgePlanErrorMessage,
   ForgeComplianceResponse,
@@ -567,6 +570,7 @@ export type WebViewToExtensionMessage =
   | ForgeTemplatesDeleteRequest
   | ForgeHistoryListRequest
   | ForgeUndoRequest
+  | ForgeOpenRecordRequest
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
@@ -774,6 +778,8 @@ export type ExtensionToWebViewMessage =
   | ForgeHistoryListResponse
   | ForgeUndoResponse
   | ForgeUndoErrorMessage
+  | ForgeOpenRecordResponse
+  | ForgeOpenRecordErrorMessage
   | ForgePlanResponse
   | ForgePlanErrorMessage
   | ForgeComplianceResponse
