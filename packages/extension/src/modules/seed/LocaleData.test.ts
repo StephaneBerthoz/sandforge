@@ -3,6 +3,10 @@ import {
   getLocaleData,
   formatPhone,
   formatZipCode,
+  isReservedEmailDomain,
+  isReservedPhone,
+  localeOfPhone,
+  reservedPhone,
   LOCALE_DATA,
   type SupportedLocale,
 } from './LocaleData';
@@ -76,6 +80,12 @@ describe('LocaleData', () => {
       it(`should have email domains for ${locale}`, () => {
         expect(LOCALE_DATA[locale].emailDomains.length).toBeGreaterThan(0);
       });
+
+      it(`gives ${locale} only email domains no mailbox can be at`, () => {
+        for (const domain of LOCALE_DATA[locale].emailDomains) {
+          expect(isReservedEmailDomain(domain), domain).toBe(true);
+        }
+      });
     }
   });
 
@@ -98,6 +108,113 @@ describe('LocaleData', () => {
       const xRemaining = result.replace(/[0-9+\- ]/g, '');
       expect(xRemaining).toBe('');
     });
+
+    it('gives each index below the capacity of its X digits a number of its own', () => {
+      // The digits used to depend on the index modulo 10: every tenth record
+      // shared its number with the first.
+      const numbers = Array.from({ length: 100 }, (_, i) => formatPhone('+1 212-555-01XX', i));
+      expect(new Set(numbers).size).toBe(100);
+    });
+  });
+
+  describe('isReservedEmailDomain', () => {
+    it('accepts the domains RFC 2606 and RFC 6761 reserve, and the names under them', () => {
+      for (const domain of [
+        'example.com',
+        'example.net',
+        'example.org',
+        'mail.example.com',
+        'acme.example',
+        'courriel.test',
+        'acme.com.invalid',
+        'EXAMPLE.ORG.',
+      ]) {
+        expect(isReservedEmailDomain(domain), domain).toBe(true);
+      }
+    });
+
+    it('refuses a domain somebody can register, however much it looks like an example', () => {
+      for (const domain of [
+        'mail.com',
+        'test.com',
+        'exemple.fr',
+        'example.fr',
+        'example.com.br',
+        'example.company',
+        'mytest',
+      ]) {
+        expect(isReservedEmailDomain(domain), domain).toBe(false);
+      }
+    });
+  });
+
+  describe('isReservedPhone', () => {
+    it('recognises a number nobody holds, however it is written', () => {
+      for (const written of [
+        '+1 212-555-0142',
+        '(212) 555-0142',
+        '1-212-555-0142',
+        '555-0142',
+        '+33 6 39 98 12 34',
+        '06 39 98 12 34',
+        '+33 (0)1 99 00 12 34',
+        '0033 5 36 49 12 34',
+        '+49 30 23125 123',
+        '0221 4710123',
+        '+34 312 345 678',
+        '+81 90-0123-4567',
+        '090-0123-4567',
+        '+55 11 90123-4567',
+        '(85) 90123-4567',
+      ]) {
+        expect(isReservedPhone(written), written).toBe(true);
+      }
+    });
+
+    it('refuses a number someone may hold', () => {
+      for (const written of [
+        '+1 415-867-5309',
+        '+1 212-555-1234',
+        '+33 6 12 34 56 78',
+        '01 99 01 12 34',
+        '+49 30 1234567',
+        '+34 612 345 678',
+        '+81 90-1234-5678',
+        '+55 11 91234-5678',
+        '+44 7700 900123',
+      ]) {
+        expect(isReservedPhone(written), written).toBe(false);
+      }
+    });
+
+    it("refuses another locale's reserved number when a locale is named", () => {
+      expect(isReservedPhone('+33 6 39 98 12 34', 'fr_FR')).toBe(true);
+      expect(isReservedPhone('+33 6 39 98 12 34', 'en_US')).toBe(false);
+    });
+  });
+
+  describe('localeOfPhone', () => {
+    it('reads the locale from the country code of a number in international form', () => {
+      expect(localeOfPhone('+33 6 12 34 56 78')).toBe('fr_FR');
+      expect(localeOfPhone('0049 30 1234567')).toBe('de_DE');
+      expect(localeOfPhone('+1 (415) 867-5309')).toBe('en_US');
+      expect(localeOfPhone('06 12 34 56 78')).toBeUndefined();
+      expect(localeOfPhone('+44 20 7946 0123')).toBeUndefined();
+    });
+  });
+
+  describe('reservedPhone', () => {
+    const locales: SupportedLocale[] = ['en_US', 'fr_FR', 'de_DE', 'es_ES', 'ja_JP', 'pt_BR'];
+
+    for (const locale of locales) {
+      it(`gives each of the first thousand ${locale} records its own number nobody holds`, () => {
+        const numbers = Array.from({ length: 1000 }, (_, i) => reservedPhone(locale, i));
+        expect(new Set(numbers).size).toBe(1000);
+        for (const number of numbers) {
+          expect(isReservedPhone(number, locale), number).toBe(true);
+        }
+      });
+    }
   });
 
   describe('formatZipCode', () => {

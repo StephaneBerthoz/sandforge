@@ -81,6 +81,8 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
       length: number;
       /** Digits a number field holds before its decimal point; 0 for other types. */
       integerDigits: number;
+      /** The object described, which decides whose name a name field holds. */
+      objectApiName: string;
     }>;
   };
 }

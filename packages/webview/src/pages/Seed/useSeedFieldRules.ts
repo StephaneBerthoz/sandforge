@@ -24,16 +24,24 @@ function lengthOf(field: FieldConfig): { maxLength?: number } {
 
 /**
  * The config a field starts with under a newly chosen rule type. A faker rule
- * names its default method: SeedValidator refuses one that names none.
+ * names its default method: SeedValidator refuses one that names none. The
+ * object decides whose name a `…Name` field holds — a person's on a contact, a
+ * company's on an account — as it does for the rule the describe gave.
  */
-function configForRuleType(field: FieldConfig, ruleType: FieldRuleType): Record<string, unknown> {
+function configForRuleType(
+  field: FieldConfig,
+  ruleType: FieldRuleType,
+  objectApiName: string,
+): Record<string, unknown> {
   // A random pick names the values it picks from, as the described rule did:
   // SeedValidator refuses one that names none.
   if (ruleType === 'picklist_random' && (field.picklistValues?.length ?? 0) > 0) {
     return { picklistValues: [...(field.picklistValues ?? [])], ...lengthOf(field) };
   }
   const fakerMethod =
-    ruleType === 'faker' ? defaultFakerMethod(field.type, field.fieldApiName) : undefined;
+    ruleType === 'faker'
+      ? defaultFakerMethod(field.type, field.fieldApiName, objectApiName)
+      : undefined;
   return fakerMethod ? { fakerMethod, ...lengthOf(field) } : { ...lengthOf(field) };
 }
 
@@ -238,7 +246,7 @@ export function useSeedFieldRules(
                 ...obj,
                 fields: obj.fields.map((f) =>
                   f.fieldApiName === fieldApiName
-                    ? { ...f, ruleType, config: configForRuleType(f, ruleType) }
+                    ? { ...f, ruleType, config: configForRuleType(f, ruleType, objectApiName) }
                     : f,
                 ),
               }

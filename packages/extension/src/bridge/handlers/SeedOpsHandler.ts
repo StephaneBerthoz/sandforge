@@ -535,6 +535,10 @@ export class SeedOpsHandler implements DomainHandler {
           referenceTo: f.referenceTo ?? [],
           length: f.length,
           integerDigits: integerDigitsOf(f),
+          // The wizard gives each field its first rule from this description
+          // alone, and a name field holds a person's name on a contact and a
+          // company's on an account.
+          objectApiName: payload.objectApiName,
         }));
 
       const response = buildResponse(this.deps, msg, 'seed:describe-object:response', {

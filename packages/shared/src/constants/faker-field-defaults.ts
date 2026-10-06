@@ -26,8 +26,9 @@ export const FAKER_METHOD_BY_FIELD_TYPE: Readonly<Record<string, FakerMethodName
 
 /**
  * Method by field name, for text fields, checked in order against the API
- * name without its `__c` suffix. A text field no pattern matches gets a
- * sentence.
+ * name without its `__c` or `__pc` suffix. A field these leave unanswered and
+ * whose name ends in `Name` holds the name its object gives it (see
+ * {@link defaultFakerMethod}); any other text field gets a sentence.
  */
 export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
   pattern: RegExp;
@@ -35,26 +36,59 @@ export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
 }> = [
   { pattern: /first_?name$/i, method: 'firstName' },
   { pattern: /last_?name$/i, method: 'lastName' },
-  { pattern: /name$/i, method: 'name' },
+  // A middle name is a given name: a full name written in it reads as two people.
+  { pattern: /middle_?name$/i, method: 'firstName' },
+  // Where the field says whose name it holds, its object does not decide: a
+  // web case's supplied name and a contact's name kept on another object are
+  // a person's, a lead's company and a user's company name are a company's.
+  { pattern: /(contact|person|assistant|supplied)_?name$/i, method: 'name' },
+  { pattern: /(company|account)_?name$|company$/i, method: 'company' },
 ];
 
 /** Describe types read by field name. */
 const TEXT_FIELD_TYPES: ReadonlySet<string> = new Set(['string', 'textarea']);
 
 /**
+ * Objects whose records are people, compared in lower case. Their `…Name`
+ * fields hold a person's name; the `…Name` fields of every other object hold a
+ * company's: an account named like a person reads as a contact everywhere it
+ * appears.
+ */
+const PERSON_OBJECTS: ReadonlySet<string> = new Set(['contact', 'lead', 'user', 'individual']);
+
+/**
+ * A field of the person half of a person account, on the account itself: a
+ * standard one is prefixed `Person` (`PersonAssistantName`), a custom one ends
+ * in `__pc`.
+ */
+const PERSON_ACCOUNT_FIELD = /^Person[A-Z]|__pc$/;
+
+/**
  * The faker method a field of this type and name gets by default, or
  * undefined for a type no method fills sensibly (boolean, id, base64, …).
+ *
+ * A `…Name` text field whose name says no more is a person's name on a person
+ * — Contact, Lead, User, or a person account's own fields — and a company's
+ * name on any other object. Without an object it is a company's: the standard
+ * name fields of a person say whose name they hold (first, last, middle,
+ * assistant), and the `Name` of a contact, a lead or a user is a compound no
+ * insert writes, so a `Name` a seed fills belongs to something else.
  */
 export function defaultFakerMethod(
   fieldType: string,
   fieldApiName: string,
+  objectApiName?: string,
 ): FakerMethodName | undefined {
   const type = fieldType.toLowerCase();
   if (TEXT_FIELD_TYPES.has(type)) {
-    const name = fieldApiName.replace(/__c$/i, '');
-    return (
-      FAKER_METHOD_BY_FIELD_NAME.find(({ pattern }) => pattern.test(name))?.method ?? 'sentence'
-    );
+    const name = fieldApiName.replace(/__p?c$/i, '');
+    const byName = FAKER_METHOD_BY_FIELD_NAME.find(({ pattern }) => pattern.test(name))?.method;
+    if (byName) return byName;
+    if (!/name$/i.test(name)) return 'sentence';
+    const person =
+      PERSON_ACCOUNT_FIELD.test(fieldApiName) ||
+      (objectApiName !== undefined && PERSON_OBJECTS.has(objectApiName.toLowerCase()));
+    return person ? 'name' : 'company';
   }
   // Own keys only: a describe type is data from the org.
   return Object.prototype.hasOwnProperty.call(FAKER_METHOD_BY_FIELD_TYPE, type)
@@ -72,6 +106,11 @@ export interface DescribedSeedField {
   length: number;
   /** Digits a number field holds before its decimal point; 0 or absent when unknown. */
   integerDigits?: number;
+  /**
+   * The object the field belongs to, which decides whose name a `…Name` field
+   * holds: a person's on a contact, a company's on an account.
+   */
+  objectApiName?: string;
 }
 
 /**
@@ -127,7 +166,7 @@ export function describedFieldRule(field: DescribedSeedField): {
   if (field.type === 'double' && COORDINATE_FIELD.test(field.fieldApiName)) {
     return { ruleType: 'static', config: {} };
   }
-  const fakerMethod = defaultFakerMethod(field.type, field.fieldApiName);
+  const fakerMethod = defaultFakerMethod(field.type, field.fieldApiName, field.objectApiName);
   // A whole number is drawn up to 1000, which a field of fewer digits refuses:
   // a two-digit score on a real sandbox's accounts turned every one of them
   // down. It is drawn within what the field holds, and a percentage within

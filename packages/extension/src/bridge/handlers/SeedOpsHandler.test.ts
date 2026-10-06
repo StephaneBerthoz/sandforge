@@ -298,6 +298,46 @@ describe('SeedOpsHandler', () => {
     ).toEqual({ Score__c: 2, NumberOfEmployees: 8, AnnualRevenue: 16, Name: 0 });
   });
 
+  it("names the object on each field, so the wizard gives a contact's name field a person's name", async () => {
+    // The wizard builds a field's first rule from the field this answers and
+    // nothing else; without its object, a contact's nickname got a company.
+    mockGetConn.mockResolvedValue({
+      describe: vi.fn().mockResolvedValue({
+        label: 'Contact',
+        fields: [
+          {
+            name: 'Nickname__c',
+            label: 'Nickname',
+            type: 'string',
+            nillable: true,
+            defaultedOnCreate: false,
+            length: 40,
+            createable: true,
+          },
+        ],
+      }),
+    } as never);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-object',
+        type: 'seed:describe-object',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', objectApiName: 'Contact' },
+      }),
+    );
+
+    const response = vi.mocked(deps.broker.postToWebview).mock.calls[0][0] as BaseMessage & {
+      payload: { fields: DescribedSeedField[] };
+    };
+    const [nickname] = response.payload.fields;
+    expect(nickname.objectApiName).toBe('Contact');
+    expect(describedFieldRule(nickname)).toEqual({
+      ruleType: 'faker',
+      config: { fakerMethod: 'name', maxLength: 40 },
+    });
+  });
+
   it('error path sends error response via sendHandlerError', async () => {
     mockGetConn.mockRejectedValue(new Error('connection failed'));
 

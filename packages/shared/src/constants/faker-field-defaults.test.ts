@@ -42,9 +42,43 @@ describe('faker field defaults', () => {
   it('reads the field name of a text field', () => {
     expect(defaultFakerMethod('string', 'FirstName')).toBe('firstName');
     expect(defaultFakerMethod('string', 'LastName')).toBe('lastName');
-    expect(defaultFakerMethod('string', 'Name')).toBe('name');
     expect(defaultFakerMethod('string', 'Contact_Name__c')).toBe('name');
     expect(defaultFakerMethod('textarea', 'Description')).toBe('sentence');
+  });
+
+  it("gives the name fields of an object that is not a person a company's name", () => {
+    // An account named like a person reads as a contact wherever it is listed.
+    expect(defaultFakerMethod('string', 'Name', 'Account')).toBe('company');
+    expect(defaultFakerMethod('string', 'Name', 'Opportunity')).toBe('company');
+    expect(defaultFakerMethod('string', 'Brand_Name__c', 'Account')).toBe('company');
+    expect(defaultFakerMethod('string', 'Name', 'Project__c')).toBe('company');
+  });
+
+  it("keeps a person's name on contacts, leads, users and a person account's own fields", () => {
+    expect(defaultFakerMethod('string', 'Preferred_Name__c', 'Contact')).toBe('name');
+    expect(defaultFakerMethod('string', 'Maiden_Name__c', 'lead')).toBe('name');
+    expect(defaultFakerMethod('string', 'CommunityNickname', 'User')).toBe('name');
+    expect(defaultFakerMethod('string', 'Spouse_Name__pc', 'Account')).toBe('name');
+    expect(defaultFakerMethod('string', 'PersonAssistantName', 'Account')).toBe('name');
+  });
+
+  it('reads whose name a field holds from its own name before its object', () => {
+    expect(defaultFakerMethod('string', 'SuppliedName', 'Case')).toBe('name');
+    expect(defaultFakerMethod('string', 'Contact_Name__c', 'Opportunity')).toBe('name');
+    expect(defaultFakerMethod('string', 'Company', 'Lead')).toBe('company');
+    expect(defaultFakerMethod('string', 'CompanyName', 'User')).toBe('company');
+    expect(defaultFakerMethod('string', 'Account_Name__c', 'Contact')).toBe('company');
+    // A middle name is a given name, on a contact and on a person account alike.
+    expect(defaultFakerMethod('string', 'MiddleName', 'Contact')).toBe('firstName');
+    expect(defaultFakerMethod('string', 'MiddleName', 'Account')).toBe('firstName');
+  });
+
+  it("gives a name field of an object nobody named a company's name", () => {
+    // The wizard asks for a default knowing the field alone when a field's
+    // rule is switched back to faker.
+    expect(defaultFakerMethod('string', 'Name')).toBe('company');
+    expect(defaultFakerMethod('string', 'Brand_Name__c')).toBe('company');
+    expect(defaultFakerMethod('string', 'Spouse_Name__pc')).toBe('name');
   });
 
   it('names no method for a type no generator fills sensibly', () => {
@@ -55,9 +89,21 @@ describe('faker field defaults', () => {
 
   describe('describedFieldRule', () => {
     it('gives a text field a faker rule with a method and the field length', () => {
-      expect(describedFieldRule(described('Name', 'string', { length: 80 }))).toEqual({
+      expect(describedFieldRule(described('LastName', 'string', { length: 80 }))).toEqual({
         ruleType: 'faker',
-        config: { fakerMethod: 'name', maxLength: 80 },
+        config: { fakerMethod: 'lastName', maxLength: 80 },
+      });
+    });
+
+    it("names its method from the object the field belongs to, a company's name on an account", () => {
+      const name = described('Nickname__c', 'string', { length: 40 });
+      expect(describedFieldRule({ ...name, objectApiName: 'Account' })).toEqual({
+        ruleType: 'faker',
+        config: { fakerMethod: 'company', maxLength: 40 },
+      });
+      expect(describedFieldRule({ ...name, objectApiName: 'Contact' })).toEqual({
+        ruleType: 'faker',
+        config: { fakerMethod: 'name', maxLength: 40 },
       });
     });
 

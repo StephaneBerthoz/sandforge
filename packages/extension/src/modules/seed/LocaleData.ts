@@ -1,11 +1,22 @@
 /**
  * Locale-aware datasets for deterministic data generation.
  * Provides culturally-appropriate names, cities, companies, phone/zip formats
- * for 6 locales: en_US, fr_FR, de_DE, es_ES, ja_JP, pt_BR.
+ * for 6 locales: en_US, fr_FR, de_DE, es_ES, ja_JP, pt_BR. Its email domains
+ * and phone numbers look real and reach nobody.
  */
 
 /** Supported locale identifiers */
 export type SupportedLocale = 'en_US' | 'fr_FR' | 'de_DE' | 'es_ES' | 'ja_JP' | 'pt_BR';
+
+/** How a locale's phone numbers are written, and which of them nobody holds. */
+export interface PhoneRange {
+  /** Country calling code, without its '+'. */
+  readonly countryCode: string;
+  /** Digit a national number is dialled with inside the country, '' where there is none. */
+  readonly trunkPrefix: string;
+  /** National numbers nobody holds, without country code or trunk prefix. */
+  readonly nationalNumber: RegExp;
+}
 
 /** Dataset for a single locale with culturally-appropriate data */
 export interface LocaleDataSet {
@@ -17,11 +28,23 @@ export interface LocaleDataSet {
   readonly cities: readonly string[];
   /** Company names appropriate for this locale (at least 10 entries) */
   readonly companies: readonly string[];
-  /** Phone format where X is replaced by digits (e.g. '+33 X XX XX XX XX') */
-  readonly phoneFormat: string;
+  /**
+   * Phone formats where X is replaced by digits, all inside {@link phoneRange}:
+   * the range the regulator keeps for fiction where it publishes one, and a
+   * range the numbering plan leaves unassigned where it does not. A number
+   * that rings reaches whoever holds it, and a flow that texts new contacts
+   * texts them.
+   */
+  readonly phoneFormats: readonly string[];
+  /** The national numbers `phoneFormats` draws from, and how the locale writes a number. */
+  readonly phoneRange: PhoneRange;
   /** Zip code format where # is replaced by digits (e.g. '#####') */
   readonly zipFormat: string;
-  /** Email domains appropriate for this locale */
+  /**
+   * Email domains no mailbox can be at: see {@link isReservedEmailDomain}. A
+   * sandbox whose flows mail new contacts writes to whatever domain the
+   * address names, and `mail.com` or `test.com` are somebody's.
+   */
   readonly emailDomains: readonly string[];
 }
 
@@ -86,9 +109,36 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'LexCorp',
       'Massive Dynamic',
     ] as const,
-    phoneFormat: '+1 XXX-XXX-XXXX',
+    // NANPA keeps 555-0100 to 555-0199 for fiction, behind any area code: "The
+    // fictitious, non-working numbers, 555-0100 through 555-0199, will remain
+    // reserved for entertainment/advertising"
+    // (https://nanpa.com/numbering/555-line-numbers). The area codes are those
+    // of the cities above.
+    phoneFormats: [
+      '+1 212-555-01XX',
+      '+1 213-555-01XX',
+      '+1 312-555-01XX',
+      '+1 713-555-01XX',
+      '+1 602-555-01XX',
+      '+1 215-555-01XX',
+      '+1 210-555-01XX',
+      '+1 619-555-01XX',
+      '+1 214-555-01XX',
+      '+1 512-555-01XX',
+    ] as const,
+    phoneRange: {
+      countryCode: '1',
+      trunkPrefix: '1',
+      nationalNumber: /^(?:[2-9]\d{2})?55501\d{2}$/,
+    },
     zipFormat: '#####',
-    emailDomains: ['example.com', 'mail.com', 'test.com'] as const,
+    emailDomains: [
+      'example.com',
+      'example.net',
+      'example.org',
+      'company.example',
+      'mail.test',
+    ] as const,
   },
   fr_FR: {
     firstNames: [
@@ -149,9 +199,32 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Michelin',
       'Capgemini',
     ] as const,
-    phoneFormat: '+33 X XX XX XX XX',
+    // Arcep keeps six blocks of 10,000 numbers for audiovisual works, numbers
+    // that can neither call nor be called: those starting 01 99 00, 02 61 91,
+    // 03 53 01, 04 65 71, 05 36 49 and 06 39 98 (plan national de numérotation,
+    // décision n° 2018-0881 modifiée, "Numéros pour œuvres audiovisuelles",
+    // https://www.arcep.fr/uploads/tx_gsavis/18-0881.pdf).
+    phoneFormats: [
+      '+33 1 99 00 XX XX',
+      '+33 2 61 91 XX XX',
+      '+33 3 53 01 XX XX',
+      '+33 4 65 71 XX XX',
+      '+33 5 36 49 XX XX',
+      '+33 6 39 98 XX XX',
+    ] as const,
+    phoneRange: {
+      countryCode: '33',
+      trunkPrefix: '0',
+      nationalNumber: /^(?:19900|26191|35301|46571|53649|63998)\d{4}$/,
+    },
     zipFormat: '#####',
-    emailDomains: ['exemple.fr', 'mail.fr', 'test.fr'] as const,
+    emailDomains: [
+      'example.com',
+      'example.org',
+      'example.net',
+      'entreprise.example',
+      'courriel.test',
+    ] as const,
   },
   de_DE: {
     firstNames: [
@@ -212,9 +285,32 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Bayer AG',
       'DHL Deutsche Post',
     ] as const,
-    phoneFormat: '+49 XXX XXXXXXX',
+    // The Bundesnetzagentur keeps 1,000 "Drama Numbers" in each of five cities,
+    // assigned to no subscriber for good: Berlin (0)30 23125, Frankfurt am Main
+    // (0)69 90009, Hamburg (0)40 66969, Köln (0)221 4710 and München
+    // (0)89 99998, each followed by 000 to 999 (Rufnummern für
+    // Medienproduktionen, https://www.bundesnetzagentur.de/DE/Fachthemen/
+    // Telekommunikation/Nummerierung/DramaNumbers/artikel.html).
+    phoneFormats: [
+      '+49 30 23125 XXX',
+      '+49 69 90009 XXX',
+      '+49 40 66969 XXX',
+      '+49 221 4710 XXX',
+      '+49 89 99998 XXX',
+    ] as const,
+    phoneRange: {
+      countryCode: '49',
+      trunkPrefix: '0',
+      nationalNumber: /^(?:3023125|6990009|4066969|2214710|8999998)\d{3}$/,
+    },
     zipFormat: '#####',
-    emailDomains: ['beispiel.de', 'mail.de', 'test.de'] as const,
+    emailDomains: [
+      'example.com',
+      'example.net',
+      'example.org',
+      'firma.example',
+      'post.test',
+    ] as const,
   },
   es_ES: {
     firstNames: [
@@ -275,9 +371,22 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Mapfre',
       'Ferrovial',
     ] as const,
-    phoneFormat: '+34 XXX XXX XXX',
+    // Spain publishes no numbers for fiction. Its numbering plan leaves every
+    // nine-digit number starting with 3 pending attribution, so no subscriber
+    // has one: "N=3. Pendiente de atribución" (plan nacional de numeración
+    // telefónica, 4.4, annexed to Real Decreto 2296/2004,
+    // https://www.boe.es/diario_boe/txt.php?id=BOE-A-2004-21841). Not 0 or 1,
+    // which lead to short numbers such as 112.
+    phoneFormats: ['+34 3XX XXX XXX'] as const,
+    phoneRange: { countryCode: '34', trunkPrefix: '', nationalNumber: /^3\d{8}$/ },
     zipFormat: '#####',
-    emailDomains: ['ejemplo.es', 'correo.es', 'test.es'] as const,
+    emailDomains: [
+      'example.com',
+      'example.org',
+      'example.net',
+      'empresa.example',
+      'correo.test',
+    ] as const,
   },
   ja_JP: {
     firstNames: [
@@ -338,9 +447,20 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Canon Inc',
       'Fujitsu',
     ] as const,
-    phoneFormat: '+81 XX-XXXX-XXXX',
+    // Japan publishes no numbers for fiction. Its numbering plan, as the
+    // Ministry of Internal Affairs and Communications notified it to the ITU
+    // on 19 May 2014, leaves unused the mobile numbers whose digit after 090
+    // is 0: "90AXXXXXXX A=0 not in use" (https://www.itu.int/oth/T020200006D/en).
+    phoneFormats: ['+81 90-0XXX-XXXX'] as const,
+    phoneRange: { countryCode: '81', trunkPrefix: '0', nationalNumber: /^900\d{7}$/ },
     zipFormat: '###-####',
-    emailDomains: ['example.jp', 'mail.jp', 'test.jp'] as const,
+    emailDomains: [
+      'example.com',
+      'example.net',
+      'example.org',
+      'kaisha.example',
+      'yubin.test',
+    ] as const,
   },
   pt_BR: {
     firstNames: [
@@ -401,11 +521,115 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Natura Co',
       'Embraer',
     ] as const,
-    phoneFormat: '+55 XX XXXXX-XXXX',
+    // Brazil publishes no numbers for fiction. Anatel's Resolution 553 of
+    // 14 December 2010, which gave every mobile number its leading 9, reserves
+    // the series "90N7N6N5" (art. 19): no mobile number starts with 90. The
+    // area codes are those of the cities above.
+    phoneFormats: [
+      '+55 11 90XXX-XXXX',
+      '+55 21 90XXX-XXXX',
+      '+55 61 90XXX-XXXX',
+      '+55 71 90XXX-XXXX',
+      '+55 85 90XXX-XXXX',
+      '+55 31 90XXX-XXXX',
+      '+55 92 90XXX-XXXX',
+      '+55 41 90XXX-XXXX',
+      '+55 81 90XXX-XXXX',
+      '+55 51 90XXX-XXXX',
+    ] as const,
+    phoneRange: { countryCode: '55', trunkPrefix: '0', nationalNumber: /^(?:[1-9]{2})?90\d{7}$/ },
     zipFormat: '#####-###',
-    emailDomains: ['exemplo.com.br', 'mail.com.br', 'test.com.br'] as const,
+    emailDomains: [
+      'example.com',
+      'example.org',
+      'example.net',
+      'empresa.example',
+      'correio.test',
+    ] as const,
   },
 } as const;
+
+/**
+ * The second-level domains RFC 2606 reserves for examples, and the top-level
+ * domains RFC 2606 and RFC 6761 reserve so that they are never delegated: no
+ * mailbox under any of them belongs to anybody.
+ */
+const RESERVED_SECOND_LEVEL_DOMAINS: readonly string[] = [
+  'example.com',
+  'example.net',
+  'example.org',
+];
+const RESERVED_TOP_LEVEL_DOMAINS: readonly string[] = ['example', 'invalid', 'test'];
+
+/**
+ * Whether mail to this domain reaches nobody: it is one of the reserved
+ * second-level domains or under one, or it ends in a reserved top-level domain.
+ */
+export function isReservedEmailDomain(domain: string): boolean {
+  const host = domain.toLowerCase().replace(/\.$/, '');
+  return (
+    RESERVED_SECOND_LEVEL_DOMAINS.some(
+      (reserved) => host === reserved || host.endsWith(`.${reserved}`),
+    ) || RESERVED_TOP_LEVEL_DOMAINS.some((tld) => host.endsWith(`.${tld}`))
+  );
+}
+
+/**
+ * The digits after the country code's '+', or after the international prefix
+ * '00', of a number written in international form; undefined for a number
+ * written the national way.
+ */
+function internationalDigits(value: string): string | undefined {
+  const written = value.trim();
+  const digits = written.replace(/\D/g, '');
+  if (written.startsWith('+')) return digits;
+  return digits.startsWith('00') ? digits.slice(2) : undefined;
+}
+
+/** The supported locale whose country code an international number starts with. */
+export function localeOfPhone(value: string): SupportedLocale | undefined {
+  const international = internationalDigits(value);
+  if (international === undefined) return undefined;
+  return (Object.keys(LOCALE_DATA) as SupportedLocale[]).find((locale) =>
+    international.startsWith(LOCALE_DATA[locale].phoneRange.countryCode),
+  );
+}
+
+/**
+ * Whether the number, however it is spaced or punctuated, is one nobody holds
+ * in `locale`'s {@link PhoneRange}, or in any supported locale's when none is
+ * given. A number in international form must carry the locale's country code;
+ * one in national form may keep its trunk prefix.
+ */
+export function isReservedPhone(value: string, locale?: string): boolean {
+  const international = internationalDigits(value);
+  const digits = value.replace(/\D/g, '');
+  const datasets = locale === undefined ? Object.values(LOCALE_DATA) : [getLocaleData(locale)];
+  return datasets.some(({ phoneRange: { countryCode, trunkPrefix, nationalNumber } }) => {
+    let national = digits;
+    if (international !== undefined) {
+      if (!international.startsWith(countryCode)) return false;
+      national = international.slice(countryCode.length);
+    }
+    // A trunk prefix can follow the country code too, written '+33 (0)6 39 98 …'.
+    const withoutTrunk =
+      trunkPrefix !== '' && national.startsWith(trunkPrefix)
+        ? national.slice(trunkPrefix.length)
+        : national;
+    return nationalNumber.test(national) || nationalNumber.test(withoutTrunk);
+  });
+}
+
+/**
+ * The phone number of record `index` in `locale`: its formats take turns, and
+ * each gives a record a number of its own until its digits run out — a
+ * hundred per American area code, a thousand per German city, ten thousand per
+ * French block.
+ */
+export function reservedPhone(locale: string, index: number): string {
+  const formats = getLocaleData(locale).phoneFormats;
+  return formatPhone(formats[index % formats.length], Math.floor(index / formats.length));
+}
 
 /** Prefix map for locale matching (e.g. 'fr' -> 'fr_FR') */
 const LOCALE_PREFIX_MAP: Record<string, SupportedLocale> = {
@@ -446,17 +670,22 @@ export function getLocaleData(locale: string): LocaleDataSet {
  * Format a phone number from a format template.
  * Replaces each 'X' character with a deterministic digit derived from the index.
  *
- * @param format - Phone format string (e.g. '+33 X XX XX XX XX')
+ * The X's spell `index` multiplied by a number prime to ten, modulo ten to the
+ * power of their count. That product takes every value once, so each index
+ * below that power gets a number of its own; the digits used to depend on the
+ * index modulo 10 alone, and every tenth record shared a number.
+ *
+ * @param format - Phone format string (e.g. '+33 6 39 98 XX XX')
  * @param index - Record index for deterministic digit generation
  * @returns Formatted phone number string
  */
 export function formatPhone(format: string, index: number): string {
+  const slots = format.split('X').length - 1;
+  const modulus = 10 ** slots;
+  const position = ((index % modulus) + modulus) % modulus;
+  const digits = String((position * 7919 + 4027) % modulus).padStart(slots, '0');
   let digitIndex = 0;
-  return format.replace(/X/g, () => {
-    const digit = (index * 7 + digitIndex * 3 + 1) % 10;
-    digitIndex++;
-    return String(digit);
-  });
+  return format.replace(/X/g, () => digits[digitIndex++]);
 }
 
 /**

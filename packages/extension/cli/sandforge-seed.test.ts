@@ -349,11 +349,17 @@ describe('rulesFromDescribe', () => {
     ]);
 
     expect(Object.fromEntries(rules.map((r) => [r.fieldApiName, r.config]))).toEqual({
-      Name: { fakerMethod: 'name', maxLength: 80 },
+      Name: { fakerMethod: 'company', maxLength: 80 },
       Score__c: { fakerMethod: 'integer', maxValue: 99 },
       Rate__c: { fakerMethod: 'integer', maxValue: 100 },
       Units__c: { fakerMethod: 'integer', maxValue: 999 },
     });
+  });
+
+  it("gives a required name the object's kind of name: a person's on a contact, a company's on an account", () => {
+    const required = [field('Nickname__c', 'string', { nillable: false })];
+    expect(rulesFromDescribe(required, 'Contact')[0].config.fakerMethod).toBe('name');
+    expect(rulesFromDescribe(required, 'Account')[0].config.fakerMethod).toBe('company');
   });
 
   it('picks a required picklist among its active values, and leaves a lookup to a relation', () => {

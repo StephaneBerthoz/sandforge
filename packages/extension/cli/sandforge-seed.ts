@@ -335,7 +335,9 @@ export function prebuiltTemplate(templateId: string | undefined): SeedTemplate |
  *
  * Only what the platform insists on, plus `Name`: a seed is meant to make an
  * org usable, not to fill every column it has. A lookup is filled by a
- * relation the command line names, never by a rule of its own.
+ * relation the command line names, never by a rule of its own. The object
+ * decides whose name a name field holds, as in the panel: a person's on a
+ * contact, a company's on an account.
  */
 export function rulesFromDescribe(
   fields: Array<{
@@ -350,6 +352,7 @@ export function rulesFromDescribe(
     digits?: number;
     picklistValues?: Array<{ value?: string | null; active?: boolean }>;
   }>,
+  objectApiName?: string,
 ): SeedTemplate['objects'][number]['fieldRules'] {
   const wanted = fields.filter(
     (f) => f.createable && (f.name === 'Name' || (!f.nillable && f.defaultedOnCreate !== true)),
@@ -365,6 +368,7 @@ export function rulesFromDescribe(
       referenceTo: [],
       length: field.length ?? 0,
       integerDigits: integerDigitsOf(field),
+      objectApiName,
     });
     // Nothing to fill it with: the platform answers for the field.
     if (rule.ruleType === 'static' && rule.config.staticValue === undefined) continue;
@@ -421,6 +425,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const described = await conn.sobject(spec.objectApiName).describe();
       const rules = rulesFromDescribe(
         described.fields as unknown as Parameters<typeof rulesFromDescribe>[0],
+        spec.objectApiName,
       );
       log(`  ${spec.objectApiName}: ${rules.map((r) => r.fieldApiName).join(', ') || '(none)'}`);
       objects.push({

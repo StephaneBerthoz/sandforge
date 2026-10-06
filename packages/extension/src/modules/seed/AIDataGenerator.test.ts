@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AIDataGenerator, buildPrompt, parseAIResponse } from './AIDataGenerator';
 import type { CallAIFn } from './AIDataGenerator';
+import { isReservedPhone } from './LocaleData';
 import type { FieldRule } from '@sandforge/shared';
 
 function createFieldRule(overrides?: Partial<FieldRule>): FieldRule {
@@ -147,6 +148,95 @@ describe('AIDataGenerator', () => {
     it('should request JSON array output format', () => {
       const prompt = buildPrompt([createFieldRule()], 1);
       expect(prompt).toContain('JSON array');
+    });
+
+    it('asks for email addresses on reserved domains and phone numbers nobody holds', () => {
+      const prompt = buildPrompt([createFieldRule()], 1);
+
+      expect(prompt).toContain('example.com, example.net, example.org');
+      expect(prompt).toContain('.example, .invalid or .test');
+      for (const format of ['+1 212-555-01XX', '+33 1 99 00 XX XX', '+49 30 23125 XXX']) {
+        expect(prompt).toContain(format);
+      }
+    });
+  });
+
+  describe('the contact details of an answer', () => {
+    /** The records the generator keeps from a model answering `rows`. */
+    async function kept(
+      rows: Record<string, unknown>[],
+      rules: FieldRule[] = [createFieldRule({ fieldApiName: 'Description' })],
+    ): Promise<Record<string, unknown>[]> {
+      const generator = new AIDataGenerator(async () => JSON.stringify(rows));
+      return generator.generate(rules, rows.length);
+    }
+
+    it('moves an email address off a domain somebody owns, keeping the name the model chose', async () => {
+      const [record] = await kept([
+        { Email__c: 'jane.doe@acme.com', Description: 'Write to Sales@Globex.co.uk today.' },
+      ]);
+
+      expect(record['Email__c']).toBe('jane.doe@acme.example');
+      expect(record['Description']).toBe('Write to Sales@Globex.co.example today.');
+    });
+
+    it('keeps an address already on a reserved domain as the model wrote it', async () => {
+      const addresses = ['a@example.org', 'b@mail.example.com', 'c@corp.example', 'd@x.invalid'];
+      const records = await kept(addresses.map((address) => ({ Email__c: address })));
+
+      expect(records.map((r) => r['Email__c'])).toEqual(addresses);
+    });
+
+    it('replaces a phone number someone may hold, in a field the rule or the name says holds one', async () => {
+      const [record] = await kept(
+        [{ Line__c: '+33 6 12 34 56 78', MobilePhone: '+49 30 1234567', Fax: 4158675309 }],
+        [createFieldRule({ fieldApiName: 'Line__c', fieldType: 'phone' })],
+      );
+
+      // The country the model wrote is kept, inside the range nobody holds.
+      expect(record['Line__c']).toMatch(/^\+33 [1-6] \d{2} \d{2} \d{2} \d{2}$/);
+      expect(isReservedPhone(String(record['Line__c']), 'fr_FR')).toBe(true);
+      expect(isReservedPhone(String(record['MobilePhone']), 'de_DE')).toBe(true);
+      // A number with no country becomes one of the default locale's.
+      expect(isReservedPhone(String(record['Fax']), 'en_US')).toBe(true);
+    });
+
+    it('keeps a phone number nobody holds as the model wrote it', async () => {
+      const [record] = await kept([{ Phone: '+1 (212) 555-0142', MobilePhone: '06 39 98 12 34' }]);
+
+      expect(record).toEqual({ Phone: '+1 (212) 555-0142', MobilePhone: '06 39 98 12 34' });
+    });
+
+    it('replaces the numbers written in free text, and leaves amounts, dates and identifiers alone', async () => {
+      const untouched = [
+        '12 345 678 EUR',
+        '01/02/2024',
+        'FR76 3000 6000 0112 3456 7890 189',
+        '123 456 789 00012',
+        '+1 212-555-0187',
+      ];
+      const [record] = await kept([
+        {
+          Description:
+            'Call (415) 867-5309, +44 20 7123 4567 or 06 12 34 56 78. ' + untouched.join('; '),
+          Mobile_Plan__c: 'Unlimited 5G',
+        },
+      ]);
+      const description = String(record['Description']);
+
+      for (const dialable of ['(415) 867-5309', '+44 20 7123 4567', '06 12 34 56 78']) {
+        expect(description).not.toContain(dialable);
+      }
+      // None names a supported country, so each becomes one of the default locale's.
+      const replaced = /^Call (.+), (.+) or (.+?)\. /.exec(description)?.slice(1) ?? [];
+      expect(replaced).toHaveLength(3);
+      for (const number of replaced) {
+        expect(isReservedPhone(number, 'en_US'), number).toBe(true);
+      }
+      for (const value of untouched) {
+        expect(description).toContain(value);
+      }
+      expect(record['Mobile_Plan__c']).toBe('Unlimited 5G');
     });
   });
 

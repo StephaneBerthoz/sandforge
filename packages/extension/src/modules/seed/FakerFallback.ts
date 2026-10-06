@@ -1,6 +1,6 @@
 import { resolveFakerMethod } from '@sandforge/shared';
 import type { FieldRule } from '@sandforge/shared';
-import { getLocaleData, formatPhone, fillDigitMask } from './LocaleData';
+import { getLocaleData, fillDigitMask, reservedPhone } from './LocaleData';
 import type { LocaleDataSet, SupportedLocale } from './LocaleData';
 import { GeoCoherentGenerator, resolveLocale } from './GeoCoherentGenerator';
 
@@ -258,8 +258,9 @@ export class FakerFallback {
     return `${first}.${last}${index}@${domain}`;
   }
 
+  /** A number nobody holds, in the locale's range: see {@link reservedPhone}. */
   private generatePhone(index: number): string {
-    return formatPhone(this.localeData.phoneFormat, index);
+    return reservedPhone(this.locale, index);
   }
 
   private generateAddress(index: number): string {

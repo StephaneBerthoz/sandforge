@@ -345,6 +345,24 @@ describe('useSeedFieldRules', () => {
     });
   });
 
+  it("gives a contact's own name field a person's name when its rule comes back to faker", () => {
+    bridge.data = {
+      objectApiName: 'Contact',
+      objectLabel: 'Contact',
+      fields: [describedField('Preferred_Name__c', 'string')],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contact'], 1));
+
+    act(() => {
+      result.current.handleChangeFieldRule('Contact', 'Preferred_Name__c', 'static');
+    });
+    act(() => {
+      result.current.handleChangeFieldRule('Contact', 'Preferred_Name__c', 'faker');
+    });
+
+    expect(result.current.fieldConfigs[0].fields[0].config).toMatchObject({ fakerMethod: 'name' });
+  });
+
   it('restores the described picklist values when the rule comes back to a random pick', () => {
     bridge.data = {
       objectApiName: 'Contract__c',
