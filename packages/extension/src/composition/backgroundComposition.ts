@@ -5,6 +5,8 @@ import { OfflineManager } from '../core/connection/OfflineManager';
 import { ProductionGuard } from '../core/precheck/ProductionGuard';
 import type {
   AutomationConfirmation,
+  FiredOnInsert,
+  RehearsalConfirmation,
   RunConfirmation,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
@@ -71,6 +73,44 @@ export async function confirmRestoreIntoReplacedOrg(
 /** The most entries a run's question lists before it says how many more there are. */
 const LISTED_IN_A_QUESTION = 12;
 
+/** One line per Flow, process, workflow rule and trigger that fires, as many as a question lists. */
+function firedLines(fired: readonly FiredOnInsert[]): string[] {
+  const lines = fired
+    .slice(0, LISTED_IN_A_QUESTION)
+    .map((entry) =>
+      entry.kind === 'flow'
+        ? vscode.l10n.t('• {0}: Flow "{1}"', entry.objectApiName, entry.name)
+        : entry.kind === 'process'
+          ? vscode.l10n.t('• {0}: process "{1}"', entry.objectApiName, entry.name)
+          : entry.kind === 'workflowRule'
+            ? vscode.l10n.t('• {0}: workflow rule "{1}"', entry.objectApiName, entry.name)
+            : vscode.l10n.t('• {0}: Apex trigger {1}', entry.objectApiName, entry.name),
+    );
+  if (fired.length > LISTED_IN_A_QUESTION) {
+    lines.push(vscode.l10n.t('• and {0} more', fired.length - LISTED_IN_A_QUESTION));
+  }
+  return lines;
+}
+
+/** What could not be read of the target's automation, one line per part. */
+function unreadLines(unread: AutomationConfirmation['unread'], org: string): string[] {
+  return unread.map(({ part, reason }) =>
+    part === 'flows'
+      ? vscode.l10n.t('The Flows of {0} could not be read ({1}).', org, reason)
+      : part === 'triggers'
+        ? vscode.l10n.t('The Apex triggers of {0} could not be read ({1}).', org, reason)
+        : part === 'processes'
+          ? vscode.l10n.t(
+              'The Process Builder processes of {0} could not be read ({1}).',
+              org,
+              reason,
+            )
+          : part === 'workflowRules'
+            ? vscode.l10n.t('The workflow rules of {0} could not be read ({1}).', org, reason)
+            : vscode.l10n.t('The automation of {0} could not be read ({1}).', org, reason),
+  );
+}
+
 /** What a run's question says of what fires in the target as the run inserts. */
 function automationQuestion(question: AutomationConfirmation): string[] {
   const lines: string[] = [];
@@ -78,20 +118,7 @@ function automationQuestion(question: AutomationConfirmation): string[] {
     lines.push(
       vscode.l10n.t('{0} runs automation on the records this clone inserts:', question.org),
     );
-    for (const fired of question.fired.slice(0, LISTED_IN_A_QUESTION)) {
-      lines.push(
-        fired.kind === 'flow'
-          ? vscode.l10n.t('• {0}: Flow "{1}"', fired.objectApiName, fired.name)
-          : fired.kind === 'process'
-            ? vscode.l10n.t('• {0}: process "{1}"', fired.objectApiName, fired.name)
-            : fired.kind === 'workflowRule'
-              ? vscode.l10n.t('• {0}: workflow rule "{1}"', fired.objectApiName, fired.name)
-              : vscode.l10n.t('• {0}: Apex trigger {1}', fired.objectApiName, fired.name),
-      );
-    }
-    if (question.fired.length > LISTED_IN_A_QUESTION) {
-      lines.push(vscode.l10n.t('• and {0} more', question.fired.length - LISTED_IN_A_QUESTION));
-    }
+    lines.push(...firedLines(question.fired));
     lines.push(
       vscode.l10n.t(
         'They run on every record the clone inserts, and what they send goes out as it would for a record created by hand.',
@@ -106,31 +133,7 @@ function automationQuestion(question: AutomationConfirmation): string[] {
       );
     }
   }
-  for (const { part, reason } of question.unread) {
-    lines.push(
-      part === 'flows'
-        ? vscode.l10n.t('The Flows of {0} could not be read ({1}).', question.org, reason)
-        : part === 'triggers'
-          ? vscode.l10n.t('The Apex triggers of {0} could not be read ({1}).', question.org, reason)
-          : part === 'processes'
-            ? vscode.l10n.t(
-                'The Process Builder processes of {0} could not be read ({1}).',
-                question.org,
-                reason,
-              )
-            : part === 'workflowRules'
-              ? vscode.l10n.t(
-                  'The workflow rules of {0} could not be read ({1}).',
-                  question.org,
-                  reason,
-                )
-              : vscode.l10n.t(
-                  'The automation of {0} could not be read ({1}).',
-                  question.org,
-                  reason,
-                ),
-    );
-  }
+  lines.push(...unreadLines(question.unread, question.org));
   if (question.unread.length > 0) {
     lines.push(vscode.l10n.t('What fires as the clone inserts its records is not known.'));
   }
@@ -203,13 +206,62 @@ function writeQuestion(question: WriteConfirmation): string[] {
 }
 
 /**
+ * What a rehearsal's question says: the records it creates and the calls it
+ * costs, what the target runs as they are created, and what a rollback takes
+ * back and what it does not.
+ */
+function rehearsalQuestion(question: RehearsalConfirmation): string[] {
+  const lines = [
+    vscode.l10n.t(
+      'This rehearsal creates {0} of the {1} records this clone would create in {2}, and rolls each call back whole.',
+      question.sampled,
+      question.rows,
+      question.org,
+    ),
+    vscode.l10n.t(
+      'It costs {0} composite API calls, {1} at most if a call stops at a refused record.',
+      question.calls,
+      question.maxCalls,
+    ),
+  ];
+  if (question.fired.length > 0) {
+    lines.push(
+      vscode.l10n.t('{0} runs automation on the records this rehearsal creates:', question.org),
+    );
+    lines.push(...firedLines(question.fired));
+  }
+  lines.push(...unreadLines(question.unread, question.org));
+  if (question.unread.length > 0) {
+    lines.push(vscode.l10n.t('What fires as the rehearsal creates its records is not known.'));
+  }
+  lines.push(
+    vscode.l10n.t(
+      'Rolled back with each call, and never sent: emails, @future and Queueable jobs, platform events published after commit, and the asynchronous paths of Flows.',
+    ),
+    vscode.l10n.t(
+      'Not rolled back: platform events published immediately, and callouts already made.',
+    ),
+    vscode.l10n.t(
+      'The records have been read, and nothing has been sent to {0} yet.',
+      question.org,
+    ),
+  );
+  return lines;
+}
+
+/**
  * What the modal says of a run's question, in the user's language: before
  * it reads, what fires in the target as it inserts; before it writes, the
- * records per object and the storage they take. Exported so it can be tested.
+ * records per object and the storage they take; before a rehearsal's first
+ * call, what it creates and what still goes out. Exported so it can be tested.
  */
 export function runQuestionDetail(question: RunConfirmation): string {
   return (
-    question.stage === 'automation' ? automationQuestion(question) : writeQuestion(question)
+    question.stage === 'automation'
+      ? automationQuestion(question)
+      : question.stage === 'rehearsal'
+        ? rehearsalQuestion(question)
+        : writeQuestion(question)
   ).join('\n');
 }
 
@@ -220,13 +272,16 @@ export function runQuestionDetail(question: RunConfirmation): string {
 export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   // Compared against the same localized value it is shown with (see the
   // production confirmation below).
-  const execute = vscode.l10n.t('Execute');
+  const rehearsal = question.stage === 'rehearsal';
+  const go = rehearsal ? vscode.l10n.t('Rehearse') : vscode.l10n.t('Execute');
   const choice = await vscode.window.showWarningMessage(
-    vscode.l10n.t('SandForge: confirm this clone'),
+    rehearsal
+      ? vscode.l10n.t('SandForge: confirm this rehearsal')
+      : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
-    execute,
+    go,
   );
-  return choice === execute;
+  return choice === go;
 }
 
 /**

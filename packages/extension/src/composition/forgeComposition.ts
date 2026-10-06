@@ -4,6 +4,7 @@ import type { Connection } from 'jsforce';
 import { SchemaCache } from '../core/metadata/SchemaCache';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
+import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
@@ -168,6 +169,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/ForgeBatchStrategy.js'),
     import('../modules/forge/ForgeTemplateStore.js'),
     import('../modules/forge/ForgeHistoryStore.js'),
+    import('../modules/forge/rehearsal/ForgeRehearser.js'),
     import('../core/connection/ConnectionHelper.js'),
     import('../modules/forge/fileTransfer.js'),
     import('../modules/forge/TargetAutomationReader.js'),
@@ -184,6 +186,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeBatchStrategy: ForgeBatchStrategyService },
         { ForgeTemplateStore },
         { ForgeHistoryStore },
+        { ForgeRehearser },
         { getJsforceConnection },
         fileTransfer,
         { TargetAutomationReader, answerOf },
@@ -370,7 +373,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
          */
         let runWrites: ForgeWriteOptions = { applyAssignmentRules: false };
 
-        const executor = new ForgeExecutor({
+        const executorDeps: ForgeExecutorDeps = {
           queryRecords: async (orgId, soql, onTruncated) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             // `conn.query` returns only the FIRST page (2 000 records
@@ -529,7 +532,8 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           // executor keys an anonymizer of its own to each run. The one wired
           // here was handed an empty field list, so every record was written
           // as the source held it whatever the page said.
-        });
+        };
+        const executor = new ForgeExecutor(executorDeps);
 
         const planGenerator = new ForgePlanGenerator();
         const complianceService = new ForgeComplianceService();
@@ -627,6 +631,27 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           update: (key, value) => Promise.resolve(configStore.set(key, value)),
         });
 
+        // A rehearsal reads through the run's own deps, and creates its sample
+        // in the target in composite calls that each roll back whole. Its
+        // calls are its own to count: they are none of a run's.
+        const rehearser = new ForgeRehearser({
+          reads: executorDeps,
+          discoveryService,
+          composite: async (orgId, body, headers) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return conn.request({
+              method: 'POST',
+              url: '/composite',
+              body: JSON.stringify(body),
+              headers: { 'Content-Type': 'application/json', ...headers },
+            });
+          },
+          apiPath: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return `/services/data/v${conn.version}`;
+          },
+        });
+
         const forgeOrchestrator = new ForgeOrchestrator({
           discoveryService,
           executor,
@@ -645,6 +670,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           targetGaps,
           templateStore,
           historyStore,
+          rehearser,
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.
           requestsSent: () => executorRequests,

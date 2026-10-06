@@ -2317,6 +2317,19 @@
     "deviceCancel": "Cancelar o login"
   },
   "forge": {
+    "rehearsal": {
+      "action": "Ensaiar",
+      "hint": "Faz o destino julgar uma amostra das linhas: elas são criadas nele e cada gravação é revertida. Primeiro você confirma no VS Code as chamadas que isso custa.",
+      "reading": "Ensaio: lendo as linhas como a execução faria…",
+      "readingObject": "Ensaio: lendo as linhas como a execução faria ({{object}})…",
+      "confirming_one": "Ensaio: confirme no VS Code a {{count}} chamada composite que ele custa.",
+      "confirming_other": "Ensaio: confirme no VS Code as {{count}} chamadas composite que ele custa.",
+      "rehearsing": "Ensaio: chamada {{call}} de {{calls}}, revertida ao terminar…",
+      "done": "Ensaio concluído, cada gravação revertida. Julgadas: {{judged}}; seriam salvas: {{passed}}; recusadas: {{refused}}; não julgadas: {{notJudged}}; chamadas composite: {{calls}}.",
+      "nothing": "Ensaio concluído: a execução não cria nenhuma linha, e nada foi enviado.",
+      "declined": "Ensaio cancelado na confirmação. Nada foi enviado ao destino.",
+      "error": "Não foi possível fazer o ensaio: {{error}}"
+    },
     "subtitle": "Clone registros com resolução completa de dependências",
     "recordTab": "Registro",
     "soqlTab": "SOQL",

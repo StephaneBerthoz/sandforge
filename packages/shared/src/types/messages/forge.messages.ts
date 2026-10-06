@@ -6,6 +6,8 @@ import type {
   ForgeFileCopyOption,
   ForgeGraph,
   ForgePlan,
+  ForgeRehearsal,
+  ForgeRehearsalProgress,
   ForgeTargetAutomation,
   ForgeTargetGaps,
   ForgeTemplate,
@@ -155,6 +157,21 @@ export interface ForgeComplianceRequest extends BaseMessage {
 export interface ForgeMetadataDiffRequest extends BaseMessage {
   type: 'forge:metadata-diff:request';
   payload: { sourceOrgId: string; targetOrgId: string; objectApiNames: string[] };
+}
+
+/**
+ * `forge:rehearse:request`. WebView -> Extension. Rehearse the run of the
+ * graph: read and prepare its rows as the run would, then create a sample of
+ * them in the target inside transactions every one of which is rolled back,
+ * for the platform's own verdict on each. Sent as `forge:execute` sends a run.
+ */
+export interface ForgeRehearseRequest extends BaseMessage {
+  type: 'forge:rehearse:request';
+  payload: {
+    graph: ForgeGraph;
+    config: ForgeConfig;
+    anonymizationRules?: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+  };
 }
 
 /**
@@ -402,6 +419,27 @@ export interface ForgeMetadataDiffResponse extends BaseMessage {
 /** `forge:metadata-diff:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeMetadataDiffErrorMessage extends BaseMessage {
   type: 'forge:metadata-diff:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/** `forge:rehearse:progress`. Extension -> WebView. How far the rehearsal has got. */
+export interface ForgeRehearseProgressMessage extends BaseMessage {
+  type: 'forge:rehearse:progress';
+  payload: ForgeRehearsalProgress;
+}
+
+/**
+ * `forge:rehearse:response`. Extension -> WebView. The verdicts of a
+ * rehearsal: the refusals as gaps, and what was judged, passed and not judged.
+ */
+export interface ForgeRehearseResponse extends BaseMessage {
+  type: 'forge:rehearse:response';
+  payload: { rehearsal: ForgeRehearsal };
+}
+
+/** `forge:rehearse:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeRehearseErrorMessage extends BaseMessage {
+  type: 'forge:rehearse:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

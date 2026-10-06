@@ -26,6 +26,7 @@ import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
+import { ForgeRehearseAction } from './ForgeRehearseAction';
 import { startForgeRun } from './startForgeRun';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
@@ -372,6 +373,9 @@ export const ForgeReview: React.FC = () => {
           {t('forge.review.back', '\u2190 Back to Discovery')}
         </button>
         <div className="flex items-center gap-3">
+          {/* The platform's own verdict on a sample of the rows, every write
+              rolled back: beside Simulate, which checks them here. */}
+          <ForgeRehearseAction />
           {filesBlocked && (
             <p
               id="forge-files-execute-hint"

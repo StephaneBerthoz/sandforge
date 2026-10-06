@@ -11,6 +11,7 @@ import type {
   ForgeUndoResult,
   ForgeRunObjectRecords,
   ForgeTargetAutomation,
+  ForgeRehearsalProgress,
   ComplianceFrameworkType,
   GuardDecision,
 } from '@sandforge/shared';
@@ -59,6 +60,7 @@ import type { TargetAutomationReader } from '../../modules/forge/TargetAutomatio
 import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
+import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
@@ -208,6 +210,13 @@ const metadataDiffRequestPayloadSchema = z.object({
     )
     .max(100),
 });
+// What `forge:execute` is sent, but the files and a retry: a rehearsal judges
+// the rows a run creates, and copies no file.
+const rehearseRequestPayloadSchema = z.object({
+  graph: forgeGraphSchema,
+  config: forgeConfigSchema,
+  anonymizationRules: forgeAnonymizationRulesSchema.optional(),
+});
 // The graph, not a list of objects: the objects a run writes are told from it
 // as the run tells them, the catalog it adds past the graph included.
 const automationRequestPayloadSchema = z.object({
@@ -321,6 +330,8 @@ export interface ForgeServices {
   complianceService?: ForgeComplianceService;
   /** Optional metadata diff service for schema comparison. */
   metadataDiff?: ForgeMetadataDiff;
+  /** What rehearses a run: its rows created in the target, every write rolled back. */
+  rehearser?: ForgeRehearser;
   /** What reads the automation the target runs on the objects a run writes. */
   targetAutomation?: TargetAutomationReader;
   /** What reads from the target's metadata what will refuse or surprise a run. */
@@ -359,6 +370,7 @@ const FORGE_TYPES = new Set([
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
+  'forge:rehearse:request',
   'forge:automation:request',
   'forge:gaps:request',
 ]);
@@ -723,6 +735,17 @@ function isForgeAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'ForgeAbortedError';
 }
 
+/** A rehearsal stopped at its question: declined, or nobody to ask. Nothing was sent. */
+class RehearsalStoppedError extends Error {
+  constructor(
+    readonly code: 'REHEARSAL_DECLINED' | 'CONFIRMATION_UNAVAILABLE',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RehearsalStoppedError';
+  }
+}
+
 /**
  * Domain handler for forge-related webview-to-extension messages.
  *
@@ -754,6 +777,9 @@ export class ForgeHandler implements DomainHandler {
   private targetGaps?: TargetGapReader;
   /** The requests the executor's deps have sent so far, when they count them. */
   private requestsSent?: () => number;
+  private rehearser?: ForgeRehearser;
+  /** The operation of the rehearsal under way, when one is: one at a time. */
+  private rehearseOperationId: string | null = null;
   /**
    * Workspace-file template store, present only when a folder is open.
    *
@@ -880,6 +906,7 @@ export class ForgeHandler implements DomainHandler {
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
       this.requestsSent = services.requestsSent;
+      this.rehearser = services.rehearser;
     }
   }
 
@@ -996,6 +1023,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:metadata-diff:request':
         await this.handleMetadataDiffRequest(msg);
+        return true;
+      case 'forge:rehearse:request':
+        await this.handleRehearseRequest(msg);
         return true;
       case 'forge:automation:request':
         await this.handleAutomationRequest(msg);
@@ -3036,6 +3066,161 @@ export class ForgeHandler implements DomainHandler {
         retryable: isTimeout,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+    }
+  }
+
+  /**
+   * Rehearse a run of the graph: read and prepare its rows as the run would,
+   * then, once the user has confirmed the calls it costs, create a sample of
+   * them in the target, each call rolled back whole, for the platform's own
+   * verdict on every row. Refused against a production target, as a run is;
+   * one at a time, and never while a run is under way.
+   */
+  private async handleRehearseRequest(msg: InboundRequest): Promise<void> {
+    const rehearser = this.rehearser;
+    const refuse = (error: Error, code: string, retryable = false): void =>
+      sendHandlerError(this.deps, 'forge:rehearse', 'forge:rehearse:error', msg, error, {
+        code,
+        retryable,
+      });
+    if (!rehearser) {
+      refuse(new Error('Forge rehearsal is not initialized'), 'NOT_INITIALIZED');
+      return;
+    }
+    const parsed = parsePayload(
+      rehearseRequestPayloadSchema,
+      msg,
+      'forge:rehearse:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { graph, config, anonymizationRules } = parsed;
+    // The rehearsal's question goes through the guard's channel: without the
+    // guard there is nobody to ask, and nothing is sent.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      refuse(new Error(PRODUCTION_GUARD_MISSING.message), PRODUCTION_GUARD_MISSING.code);
+      return;
+    }
+    const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
+    const orgTier = forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition);
+    const targetName = targetOrg?.alias ?? config.targetOrgId;
+    // Rolled back or not, the records go through the target's automation: a
+    // platform event it publishes at once, a callout it makes, are not taken
+    // back. A production org is never rehearsed against.
+    if (orgTier === 'production') {
+      refuse(
+        new Error(
+          `${targetName} is a production org, or an org SandForge cannot tell is a sandbox, a ` +
+            'scratch org or a Developer Edition org: a rehearsal creates records in those only. ' +
+            'Nothing was read or sent.',
+        ),
+        'PRODUCTION_TARGET',
+      );
+      return;
+    }
+    if (this.rehearseOperationId !== null) {
+      refuse(
+        new Error('A rehearsal is already under way in this window: rehearse once it has ended.'),
+        'REHEARSAL_RUNNING',
+        true,
+      );
+      return;
+    }
+    if (this.executeOperationId !== null) {
+      refuse(
+        new Error('A Forge run is under way in this window: rehearse once it has ended.'),
+        FORGE_RUNNING,
+        true,
+      );
+      return;
+    }
+    const operationId = `forge-rehearse-${this.deps.nextId()}`;
+    this.rehearseOperationId = operationId;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Rehearsing a forge run');
+    const post = (progress: ForgeRehearsalProgress): void =>
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:rehearse:progress', { ...progress }),
+      );
+    // The reading phase says each object as the executor moves on: throttled,
+    // as a run's progress is. The question and each call are said at once.
+    const reading = throttle(post, 100);
+    try {
+      const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+      const known = 'automation' in automation ? automation.automation : undefined;
+      const recordTypeMappings = await this.loadRecordTypeMappings(
+        config,
+        new AbortController().signal,
+        { requests: 0 },
+      );
+      const rehearsal = await rehearser.rehearse(graph, config, {
+        recordTypeMappings,
+        anonymizationRules,
+        onProgress: (progress) => {
+          if (progress.phase === 'reading') {
+            reading(progress);
+            return;
+          }
+          reading.flush();
+          post(progress);
+        },
+        confirm: async (plan) => {
+          const answer = await guard.confirmRun({
+            stage: 'rehearsal',
+            org: targetName,
+            orgTier,
+            rows: plan.rows,
+            sampled: plan.sampled,
+            calls: plan.calls,
+            maxCalls: plan.maxCalls,
+            fired: known ? firedOnInsertOf(known) : [],
+            unread: known
+              ? automationUnreadOf(known)
+              : [{ part: 'automation', reason: 'unread' in automation ? automation.unread : '' }],
+          });
+          if (answer === 'confirmed') return;
+          throw new RehearsalStoppedError(
+            answer === 'declined' ? 'REHEARSAL_DECLINED' : 'CONFIRMATION_UNAVAILABLE',
+            answer === 'declined'
+              ? 'The rehearsal was cancelled at its confirmation. Nothing was sent to the target.'
+              : 'The rehearsal needed a confirmation, and there was no one to ask. Nothing was ' +
+                  'sent to the target.',
+          );
+        },
+      });
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:rehearse:response', { rehearsal }),
+      );
+      // Counts and codes only: a refusal's message and field stay out of the log.
+      logger.info('Forge rehearsal', {
+        rows: rehearsal.rows,
+        sampled: rehearsal.sampled,
+        judged: rehearsal.judged,
+        passed: rehearsal.passed,
+        notJudged: rehearsal.notJudged,
+        calls: rehearsal.calls,
+        plannedCalls: rehearsal.plannedCalls,
+        codes: [
+          ...new Set(
+            rehearsal.gaps.flatMap((gap) =>
+              typeof gap.detail?.statusCode === 'string' ? [gap.detail.statusCode] : [],
+            ),
+          ),
+        ],
+      });
+      sendOperationCompleted(this.deps, operationId, { status: 'success' });
+    } catch (error: unknown) {
+      const stopped = error instanceof RehearsalStoppedError ? error : undefined;
+      refuse(
+        error instanceof Error ? error : new Error(extractErrorMessage(error)),
+        stopped?.code ?? 'REHEARSAL_ERROR',
+        true,
+      );
+      if (stopped) sendOperationCompleted(this.deps, operationId, { aborted: true });
+      else sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
+    } finally {
+      reading.flush();
+      if (this.rehearseOperationId === operationId) this.rehearseOperationId = null;
     }
   }
 

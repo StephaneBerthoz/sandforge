@@ -2317,6 +2317,19 @@
     "deviceCancel": "Anmeldung abbrechen"
   },
   "forge": {
+    "rehearsal": {
+      "action": "Proben",
+      "hint": "Lässt das Ziel eine Stichprobe der Zeilen beurteilen: Sie werden dort angelegt, und jeder Schreibvorgang wird zurückgesetzt. Die Aufrufe, die das kostet, bestätigen Sie zuerst in VS Code.",
+      "reading": "Generalprobe: Die Zeilen werden gelesen, wie der Lauf sie liest…",
+      "readingObject": "Generalprobe: Die Zeilen werden gelesen, wie der Lauf sie liest ({{object}})…",
+      "confirming_one": "Generalprobe: Bestätigen Sie in VS Code den {{count}} Composite-Aufruf, den sie kostet.",
+      "confirming_other": "Generalprobe: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die sie kostet.",
+      "rehearsing": "Generalprobe: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
+      "done": "Generalprobe beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
+      "nothing": "Generalprobe beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
+      "declined": "Generalprobe bei ihrer Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
+      "error": "Die Generalprobe konnte nicht laufen: {{error}}"
+    },
     "subtitle": "Datensätze mit vollständiger Abhängigkeitsauflösung klonen",
     "recordTab": "Datensatz",
     "soqlTab": "SOQL",

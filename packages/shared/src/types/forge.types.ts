@@ -255,6 +255,66 @@ export interface ForgeGap {
   defaultDecision?: ForgeGapDecisionKind;
 }
 
+/**
+ * Why a row sent to a rehearsal got no verdict:
+ * - `parent_refused`: a record it names, which the run creates, was refused;
+ * - `beyond_a_call`: the records it needs before it are more, or deeper, than
+ *   one transaction holds;
+ * - `call_budget`: the rehearsal used the calls it said it might before the
+ *   row's turn came.
+ */
+export type ForgeRehearsalNotJudgedReason = 'parent_refused' | 'beyond_a_call' | 'call_budget';
+
+/**
+ * The platform's own verdict on the rows a run would write, from a rehearsal:
+ * a sample of them created in the target inside one transaction per call,
+ * which the call then fails on purpose, so that every write is rolled back.
+ */
+export interface ForgeRehearsal {
+  /** Each refusal, as a gap (`source: 'rehearsal'`): the status code, the field, how many rows. */
+  gaps: ForgeGap[];
+  /** Rows the run would create. */
+  rows: number;
+  /** Rows sent: the sample, with the records the run creates that its rows name. */
+  sampled: number;
+  /** Rows sent that got a verdict. */
+  judged: number;
+  /** Rows judged that would save. */
+  passed: number;
+  /** Rows sent that got no verdict. */
+  notJudged: number;
+  /** Per object, the rows that got no verdict and why. */
+  notJudgedWhy: Array<{
+    objectApiName: string;
+    rows: number;
+    reason: ForgeRehearsalNotJudgedReason;
+  }>;
+  /**
+   * Updates the run makes after its inserts — the lookups a second pass fills
+   * in, the statuses it gives back — which a rehearsal does not send.
+   */
+  updatesNotRehearsed: number;
+  /** Composite calls sent. */
+  calls: number;
+  /** Composite calls planned before the first was sent. */
+  plannedCalls: number;
+}
+
+/** How far a rehearsal has got, for the line Review shows under its action. */
+export interface ForgeRehearsalProgress {
+  /**
+   * `reading`: reading and preparing the rows as the run would, nothing sent
+   * to the target; `confirming`: waiting on the user's answer; `rehearsing`:
+   * sending the calls.
+   */
+  phase: 'reading' | 'confirming' | 'rehearsing';
+  /** The object being read, while reading. */
+  objectApiName?: string;
+  /** The call under way, and the calls planned, while rehearsing. */
+  call?: number;
+  calls?: number;
+}
+
 /** What a read of the target's gaps found, and what it could not read. */
 export interface ForgeTargetGaps {
   gaps: ForgeGap[];

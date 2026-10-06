@@ -134,8 +134,31 @@ export interface WriteConfirmation {
   storage: WriteConfirmationStorage;
 }
 
+/**
+ * What a rehearsal asks once it has prepared the rows, before its first call:
+ * how many records it creates in the target and in how many calls, rolled
+ * back with each call, and what the target runs as they are created.
+ */
+export interface RehearsalConfirmation {
+  stage: 'rehearsal';
+  /** The org the rehearsal creates its records in, as the user knows it. */
+  org: string;
+  orgTier: SafetyTier;
+  /** Records the run would create. */
+  rows: number;
+  /** Records the rehearsal creates of them: a sample, and the records its rows name. */
+  sampled: number;
+  /** Composite calls planned, and the most it sends when calls stop at refused records. */
+  calls: number;
+  maxCalls: number;
+  /** What fires on insert, per object, as the run's own question says it. */
+  fired: FiredOnInsert[];
+  /** What could not be read of the target's automation, and why. */
+  unread: AutomationConfirmation['unread'];
+}
+
 /** A question a run puts to the user through the guard's confirmation channel. */
-export type RunConfirmation = AutomationConfirmation | WriteConfirmation;
+export type RunConfirmation = AutomationConfirmation | WriteConfirmation | RehearsalConfirmation;
 
 /** What came of a run's question: answered, or never put, for want of anyone to ask. */
 export type RunConfirmationAnswer = 'confirmed' | 'declined' | 'unavailable';

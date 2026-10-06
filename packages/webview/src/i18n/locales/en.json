@@ -2317,6 +2317,19 @@
     "deviceCancel": "Cancel sign-in"
   },
   "forge": {
+    "rehearsal": {
+      "action": "Rehearse",
+      "hint": "Has the target judge a sample of the rows: they are created there and every write is rolled back. You confirm the calls it costs in VS Code first.",
+      "reading": "Rehearsal: reading the rows as the run would…",
+      "readingObject": "Rehearsal: reading the rows as the run would ({{object}})…",
+      "confirming_one": "Rehearsal: confirm in VS Code the {{count}} composite call it costs.",
+      "confirming_other": "Rehearsal: confirm in VS Code the {{count}} composite calls it costs.",
+      "rehearsing": "Rehearsal: call {{call}} of {{calls}}, rolled back as it ends…",
+      "done": "Rehearsal done, every write rolled back. Judged: {{judged}}; would save: {{passed}}; refused: {{refused}}; not judged: {{notJudged}}; composite calls: {{calls}}.",
+      "nothing": "Rehearsal done: the run creates no row, and nothing was sent.",
+      "declined": "Rehearsal cancelled at its confirmation. Nothing was sent to the target.",
+      "error": "The rehearsal could not run: {{error}}"
+    },
     "subtitle": "Clone records with full dependency resolution",
     "recordTab": "Record",
     "soqlTab": "SOQL",

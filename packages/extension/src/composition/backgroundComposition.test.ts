@@ -32,6 +32,7 @@ import {
 import type { Services } from '../services';
 import type {
   AutomationConfirmation,
+  RehearsalConfirmation,
   SafetyCheckResult,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
@@ -420,6 +421,64 @@ describe("a run's questions, in the production confirmation's modal (localized)"
 
     await expect(productionGuard.confirmRun(write)).resolves.toBe('declined');
     expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+  });
+
+  const rehearsal: RehearsalConfirmation = {
+    stage: 'rehearsal',
+    org: 'DEV',
+    orgTier: 'development',
+    rows: 340,
+    sampled: 12,
+    calls: 2,
+    maxCalls: 10,
+    fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' }],
+    unread: [],
+  };
+
+  it('says what a rehearsal creates, what it costs, what fires, and what its rollback does not take back', () => {
+    expect(runQuestionDetail(rehearsal).split('\n')).toEqual([
+      'This rehearsal creates 12 of the 340 records this clone would create in DEV, and rolls each call back whole.',
+      'It costs 2 composite API calls, 10 at most if a call stops at a refused record.',
+      'DEV runs automation on the records this rehearsal creates:',
+      '• Contact: Flow "Contact welcome"',
+      'Rolled back with each call, and never sent: emails, @future and Queueable jobs, platform events published after commit, and the asynchronous paths of Flows.',
+      'Not rolled back: platform events published immediately, and callouts already made.',
+      'The records have been read, and nothing has been sent to DEV yet.',
+    ]);
+  });
+
+  it('says when what fires as a rehearsal creates its records could not be read', () => {
+    const lines = runQuestionDetail({
+      ...rehearsal,
+      fired: [],
+      unread: [{ part: 'flows', reason: 'INSUFFICIENT_ACCESS' }],
+    }).split('\n');
+    expect(lines).toContain('The Flows of DEV could not be read (INSUFFICIENT_ACCESS).');
+    expect(lines).toContain('What fires as the rehearsal creates its records is not known.');
+    expect(lines.some((line) => line.includes('runs automation'))).toBe(false);
+  });
+
+  it('asks a rehearsal under its own title, and lets it go only on its own translated button', async () => {
+    l10nBundle.current = {
+      Rehearse: 'Répéter',
+      'SandForge: confirm this rehearsal': 'SandForge : confirmer cette répétition',
+    };
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmRun(rehearsal)).resolves.toBe('confirmed');
+    const [title, , button] = vi.mocked(vscode.window.showWarningMessage).mock
+      .calls[0] as unknown as [string, { modal: boolean; detail: string }, string];
+    expect(title).toBe('SandForge : confirmer cette répétition');
+    expect(button).toBe('Répéter');
+
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Exécuter' as never);
+    await expect(productionGuard.confirmRun(rehearsal)).resolves.toBe('declined');
   });
 });
 

@@ -122,6 +122,13 @@ import {
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
+import type { ForgeRehearsal } from '@sandforge/shared';
+import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
+import {
+  RehearsalNotRolledBackError,
+  rehearse,
+  type RehearsalPlan,
+} from '../src/modules/forge/rehearsal/rehearse.js';
 
 export interface CliArgs {
   record: string;
@@ -176,6 +183,12 @@ export interface CliArgs {
   acceptAutomation: boolean;
   /** The most records a run may write in all; past it, nothing is written (`--max-total`). */
   maxTotal: number;
+  /**
+   * Rehearse the clone instead of writing it (`--rehearse`): a sample of its
+   * rows created in the target in calls each rolled back whole, for the
+   * platform's verdict on every one. Nothing stays in the target.
+   */
+  rehearse: boolean;
 }
 
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox,
@@ -252,6 +265,23 @@ Options:
   --dry-run              skip writes, surface scoped queries    (default: off)
                          It reads the automation and counts the records as a
                          real run does, and says what would stop that run.
+  --rehearse             have the target judge the rows, keep none (default: off)
+                         Reads and prepares every row as a real run would,
+                         then creates a sample of them in the target — every
+                         row up to 200, one per object, record type and set of
+                         fields given a value past it, with the records they
+                         name — in composite calls that each fail on purpose,
+                         so that every write is rolled back. Prints each
+                         refusal (status code, field, rows) and what could not
+                         be judged (with --json, under rehearsal). The target's
+                         automation runs inside each call: emails, @future and
+                         Queueable jobs, platform events published after
+                         commit and the asynchronous paths of Flows never
+                         leave it; platform events published immediately and
+                         callouts do. Refused against a production org, and,
+                         like a real run, without --accept-automation when the
+                         target runs automation on insert. Not with --dry-run,
+                         --upsert, --files, --remap-csv or --list-objects.
   --accept-automation    write although the target runs flows or Apex
                          triggers as the clone inserts, or could not say what
                          it runs                                (default: off)
@@ -334,7 +364,8 @@ Remove what a run created:
                          every other line on stderr
 
 Exit codes:
-  0  the clone ran; the removal took every record it set out to take
+  0  the clone ran; the rehearsal ran, whatever it found refused; the removal
+     took every record it set out to take
   1  the clone or the removal could not run; the clone produced only failures,
      or its files were refused; the target is a production org; the target
      runs automation on insert and --accept-automation was not given; the
@@ -397,6 +428,16 @@ export function parseArgs(argv: string[]): CliArgs {
   // refused rather than ignored.
   if (has('--include-changed')) {
     process.stderr.write('--include-changed goes with --remove.\n');
+    process.exit(2);
+  }
+  // A rehearsal creates rows and keeps none: a dry run writes none to judge,
+  // an upsert writes over records a rehearsal cannot judge, and there is no
+  // file copied nor id kept to export.
+  const withRehearse = ['--dry-run', '--upsert', '--files', '--remap-csv', '--list-objects'].filter(
+    (flag) => has(flag),
+  );
+  if (has('--rehearse') && withRehearse.length > 0) {
+    process.stderr.write(`--rehearse does not go with ${withRehearse.join(', ')}.\n`);
     process.exit(2);
   }
 
@@ -575,6 +616,7 @@ export function parseArgs(argv: string[]): CliArgs {
     files,
     acceptAutomation: has('--accept-automation'),
     maxTotal,
+    rehearse: has('--rehearse'),
   };
 }
 
@@ -1427,6 +1469,65 @@ export function productionRefusal(
     ? `IsSandbox false, edition ${org.edition}`
     : 'IsSandbox false, and no edition';
   return `${alias} is a production org (its Organization record says ${said}): ${what}`;
+}
+
+/** Why a row got no verdict, as a rehearsal's lines say it. */
+const NOT_JUDGED_WORDS: Readonly<Record<ForgeRehearsal['notJudgedWhy'][number]['reason'], string>> =
+  {
+    parent_refused: 'a record it names was refused',
+    beyond_a_call: 'the records it needs are more, or deeper, than one call holds',
+    call_budget: 'the calls ran out before its turn',
+  };
+
+/**
+ * What a rehearsal says before its first call: the records it creates, of
+ * those the run would, and the calls it costs. Exported so it can be tested.
+ */
+export function rehearsalPlanLines(plan: RehearsalPlan, target: string): string[] {
+  return [
+    `rehearsal: ${plan.sampled} of the ${plan.rows} record(s) the run would create, created in ` +
+      `${target} and rolled back with each call`,
+    `  ${plan.calls} composite call(s), ${plan.maxCalls} at most if a call stops at a refused record`,
+    ...plan.objects.map(({ objectApiName, rows }) => `  ${objectApiName.padEnd(40)} ${rows}`),
+  ];
+}
+
+/**
+ * The verdicts of a rehearsal: what was judged, what passed, each refusal with
+ * its status code, field and rows, and what could not be judged. Exported so
+ * it can be tested.
+ */
+export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): string[] {
+  const lines = [
+    `rehearsed in ${target}: ${rehearsal.judged} judged, ${rehearsal.passed} would save, ` +
+      `${rehearsal.judged - rehearsal.passed} refused, ${rehearsal.notJudged} not judged ` +
+      `(${rehearsal.calls} call(s), every write rolled back)`,
+  ];
+  for (const gap of rehearsal.gaps) {
+    const code = typeof gap.detail?.statusCode === 'string' ? gap.detail.statusCode : gap.value;
+    const field = gap.field ? `.${gap.field}` : '';
+    const value = gap.kind === 'picklist_value_refused' && gap.value ? ` "${gap.value}"` : '';
+    const recordType = gap.recordType ? ` (record type ${gap.recordType})` : '';
+    const runRows = gap.detail?.rowsOfTheRun;
+    const standsFor =
+      typeof runRows === 'number' && runRows > gap.rows ? `, ${runRows} in the run` : '';
+    lines.push(
+      `  ${gap.severity === 'blocking' ? 'REFUSED' : 'refused'}  ${gap.objectApiName}${field}${value}${recordType}: ` +
+        `${code}, ${gap.rows} row(s)${standsFor}` +
+        (gap.detail?.writtenWithoutTheField === true
+          ? ' (a real run writes it again without the field)'
+          : ''),
+    );
+  }
+  for (const { objectApiName, rows, reason } of rehearsal.notJudgedWhy) {
+    lines.push(`  not judged  ${objectApiName}: ${rows} row(s), ${NOT_JUDGED_WORDS[reason]}`);
+  }
+  if (rehearsal.updatesNotRehearsed > 0) {
+    lines.push(
+      `  not rehearsed: the ${rehearsal.updatesNotRehearsed} update(s) the run makes after its inserts`,
+    );
+  }
+  return lines;
 }
 
 /** What `--remove` was given. */
@@ -2392,6 +2493,92 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
     requestsSent,
   };
+
+  // A rehearsal instead of the run: every row read and prepared by the run's
+  // own executor, with a writer that keeps the rows instead of writing them,
+  // then a sample created in the target in calls each rolled back whole.
+  if (args.rehearse) {
+    const target = conns.get(args.target)!;
+    const headers = forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules });
+    say(
+      '\nrehearsing… (the rows are read and prepared as the run would; nothing stays in the target)',
+    );
+    let rehearsal: ForgeRehearsal;
+    try {
+      rehearsal = await rehearse({
+        prepare: async (writer) => {
+          await new ForgeExecutor(rehearsalExecutorDeps(executorDeps, writer)).execute(
+            graph,
+            args.source,
+            args.target,
+            () => {},
+            {
+              ...executeOptions(args, graph, recordTypeMappings, (fields) =>
+                discovery.personalFields(fields),
+              ),
+              dryRun: false,
+              files: undefined,
+            },
+          );
+        },
+        keyPrefixOf: async (name) => (await describeObjectInfo(target, name)).keyPrefix,
+        composite: (body) =>
+          target.request({
+            method: 'POST',
+            url: '/composite',
+            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json', ...headers },
+          }),
+        apiPath: `/services/data/v${target.version}`,
+        writeHeaders: headers,
+        recordTypeNames: new Map(
+          recordTypeMappings.map((m) => [m.targetId.slice(0, 15), m.developerName]),
+        ),
+        // Nobody to ask: --rehearse is the request, and --accept-automation
+        // the acceptance of what the target runs, as for a real run.
+        confirm: async (rehearsalPlan) => {
+          say('');
+          for (const line of rehearsalPlanLines(rehearsalPlan, args.target)) say(line);
+        },
+        onProgress: (progress) => {
+          if (progress.phase === 'rehearsing') say(`  call ${progress.call} of ${progress.calls}…`);
+        },
+      });
+    } catch (err: unknown) {
+      if (err instanceof RehearsalNotRolledBackError) {
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+      throw err;
+    }
+    const elapsedMs = Date.now() - t0;
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            action: 'rehearse',
+            source: args.source,
+            target: args.target,
+            ...(targetOrgId ? { targetOrgId } : {}),
+            record: args.record,
+            graph: graphJson(graph, plan),
+            targetAutomation,
+            rehearsal,
+            elapsedMs,
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      console.log('');
+      for (const line of rehearsalLines(rehearsal, args.target)) console.log(line);
+      console.log(`\ndone in ${elapsedMs}ms`);
+    }
+    return;
+  }
 
   // Preflight: pre-count rows on the target for every node in the graph so
   // the user sees how much data already exists before pulling the trigger.

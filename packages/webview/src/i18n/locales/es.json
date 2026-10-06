@@ -2317,6 +2317,19 @@
     "deviceCancel": "Cancelar el inicio de sesión"
   },
   "forge": {
+    "rehearsal": {
+      "action": "Ensayar",
+      "hint": "Hace que el destino juzgue una muestra de las filas: se crean en él y cada escritura se revierte. Primero confirma en VS Code las llamadas que cuesta.",
+      "reading": "Ensayo: leyendo las filas como lo haría la ejecución…",
+      "readingObject": "Ensayo: leyendo las filas como lo haría la ejecución ({{object}})…",
+      "confirming_one": "Ensayo: confirme en VS Code la {{count}} llamada composite que cuesta.",
+      "confirming_other": "Ensayo: confirme en VS Code las {{count}} llamadas composite que cuesta.",
+      "rehearsing": "Ensayo: llamada {{call}} de {{calls}}, revertida al terminar…",
+      "done": "Ensayo terminado, cada escritura revertida. Juzgadas: {{judged}}; se guardarían: {{passed}}; rechazadas: {{refused}}; sin juzgar: {{notJudged}}; llamadas composite: {{calls}}.",
+      "nothing": "Ensayo terminado: la ejecución no crea ninguna fila y no se envió nada.",
+      "declined": "Ensayo cancelado en su confirmación. No se envió nada al destino.",
+      "error": "No se pudo hacer el ensayo: {{error}}"
+    },
     "subtitle": "Clone registros con resolución completa de dependencias",
     "recordTab": "Registro",
     "soqlTab": "SOQL",

@@ -2317,6 +2317,19 @@
     "deviceCancel": "Annuler la connexion"
   },
   "forge": {
+    "rehearsal": {
+      "action": "Répéter",
+      "hint": "Fait juger par la cible un échantillon des lignes : elles y sont créées et chaque écriture est annulée. Vous confirmez d'abord dans VS Code les appels que cela coûte.",
+      "reading": "Répétition : lecture des lignes comme le ferait l'exécution…",
+      "readingObject": "Répétition : lecture des lignes comme le ferait l'exécution ({{object}})…",
+      "confirming_one": "Répétition : confirmez dans VS Code le {{count}} appel composite qu'elle coûte.",
+      "confirming_other": "Répétition : confirmez dans VS Code les {{count}} appels composites qu'elle coûte.",
+      "rehearsing": "Répétition : appel {{call}} sur {{calls}}, annulé à sa fin…",
+      "done": "Répétition terminée, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
+      "nothing": "Répétition terminée : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
+      "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
+      "error": "La répétition n'a pas pu se faire : {{error}}"
+    },
     "subtitle": "Cloner des enregistrements avec résolution complète des dépendances",
     "recordTab": "Enregistrement",
     "soqlTab": "SOQL",

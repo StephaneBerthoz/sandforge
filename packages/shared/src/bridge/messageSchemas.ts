@@ -323,6 +323,8 @@ const AutomationMessages = [
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
+  // Rehearses a run: its rows created in the target, every write rolled back.
+  msg('forge:rehearse:request'),
   // Reads what the target org runs on the objects a run writes.
   msg('forge:automation:request'),
   // Reads from the target org's metadata what will refuse or surprise a run.
@@ -352,6 +354,9 @@ const AutomationMessages = [
   msg('forge:compliance:error'),
   msg('forge:metadata-diff:response'),
   msg('forge:metadata-diff:error'),
+  msg('forge:rehearse:progress'),
+  msg('forge:rehearse:response'),
+  msg('forge:rehearse:error'),
   msg('forge:automation:response'),
   msg('forge:automation:error'),
   msg('forge:gaps:response'),

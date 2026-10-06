@@ -761,6 +761,7 @@ export class ExtensionHandlers {
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',
+        'forge:rehearse:request',
         'forge:automation:request',
         'forge:gaps:request',
       ],

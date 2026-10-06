@@ -286,6 +286,7 @@ import type {
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
+  ForgeRehearseRequest,
   ForgeAutomationRequest,
   ForgeGapsRequest,
   ForgePreviewResponse,
@@ -312,6 +313,9 @@ import type {
   ForgeComplianceErrorMessage,
   ForgeMetadataDiffResponse,
   ForgeMetadataDiffErrorMessage,
+  ForgeRehearseProgressMessage,
+  ForgeRehearseResponse,
+  ForgeRehearseErrorMessage,
   ForgeAutomationResponse,
   ForgeAutomationErrorMessage,
   ForgeGapsResponse,
@@ -574,6 +578,7 @@ export type WebViewToExtensionMessage =
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
+  | ForgeRehearseRequest
   | ForgeAutomationRequest
   | ForgeGapsRequest
   // AI
@@ -786,6 +791,9 @@ export type ExtensionToWebViewMessage =
   | ForgeComplianceErrorMessage
   | ForgeMetadataDiffResponse
   | ForgeMetadataDiffErrorMessage
+  | ForgeRehearseProgressMessage
+  | ForgeRehearseResponse
+  | ForgeRehearseErrorMessage
   | ForgeAutomationResponse
   | ForgeAutomationErrorMessage
   | ForgeGapsResponse
