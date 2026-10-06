@@ -47,6 +47,11 @@ describe('removalStatus', () => {
   it('is cancelled when it was stopped, whatever it did by then', () => {
     expect(removalStatus([object({ deleted: 3 })], true)).toBe('cancelled');
   });
+
+  it('is no success while records the removal could not see may be in the org', () => {
+    expect(removalStatus([object({ deleted: 2, notVisible: 1 })], false)).toBe('partial');
+    expect(removalStatus([object({ alreadyGone: 1, notVisible: 1 })], false)).toBe('failure');
+  });
 });
 
 describe('removalAuditOutcome', () => {
@@ -190,6 +195,27 @@ describe('removalMark', () => {
       alreadyGone: 2,
       kept: 0,
       refused: 1,
+    });
+  });
+
+  it('says what the removal could not see, which a cancel did not leave unreached', () => {
+    expect(
+      removalMark(
+        {
+          status: 'cancelled',
+          finishedAt: '2026-09-30T09:00:00.000Z',
+          objects: [object({ deleted: 2, notVisible: 1 })],
+        },
+        5,
+      ),
+    ).toEqual({
+      removedAt: '2026-09-30T09:00:00.000Z',
+      deleted: 2,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+      notReached: 2,
+      notVisible: 1,
     });
   });
 

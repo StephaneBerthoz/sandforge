@@ -32,6 +32,7 @@ import {
 import type {
   ForgeFiredOnWrite,
   ForgeGraph,
+  ForgeRemovalRisk,
   ForgeRunGateCode,
   ForgeRunGateStop,
   ForgeTargetAutomation,
@@ -576,6 +577,40 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
     );
   }
   return lines;
+}
+
+/** What each kind of risk says on the command line, after the object. */
+const REMOVAL_RISK_WORDS: Readonly<Record<ForgeRemovalRisk['kind'], (name: string) => string>> = {
+  flow: (name) => `flow "${name}" runs before a record is deleted, and can refuse the delete`,
+  trigger: (name) => `Apex trigger ${name} runs on a delete, and can refuse it`,
+  packageTrigger: (name) =>
+    `Apex trigger ${name}, installed by a managed package, runs on a delete and can refuse it; ` +
+    'no one in the org can change it',
+  lock: () =>
+    'once activated, a record locks the records under it, which a removal then takes only ' +
+    'with it, or once it is back in Draft',
+};
+
+/**
+ * What the command line says before a run of what may refuse the removal of
+ * its records (`--remove`): per object it writes, the flows before a delete,
+ * the Apex triggers on one — a managed package's apart — and the records that
+ * lock past Draft; or that none was found.
+ */
+export function removalRiskLines(risks: readonly ForgeRemovalRisk[], target: string): string[] {
+  if (risks.length === 0) {
+    return [
+      `reversibility: nothing found in ${target} that refuses a removal of this run's records ` +
+        '(no flow before a delete, no Apex trigger on one, no record that locks past Draft)',
+    ];
+  }
+  return [
+    `reversibility: a removal of this run's records (--remove) may be refused in ${target}:`,
+    ...risks.map(
+      ({ objectApiName, kind, name }) =>
+        `  ${objectApiName}: ${REMOVAL_RISK_WORDS[kind](name ?? '')}`,
+    ),
+  ];
 }
 
 /** How the command line names a part of the automation it could not read. */

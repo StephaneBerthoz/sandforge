@@ -2323,10 +2323,22 @@ export class ForgeExecutor {
   private isPaused = false;
   private pauseResolve: (() => void) | null = null;
   private isAborted = false;
+  /** The run `execute` has under way, for {@link summarySoFar}; null between runs. */
+  private running: ExecutionState | null = null;
 
   /** @param deps - Injected dependencies for org data operations. */
   constructor(deps: ForgeExecutorDeps) {
     this.deps = deps;
+  }
+
+  /**
+   * What the run under way has done so far, as a finished run's summary says
+   * it — the records it created by then, per object — or undefined between
+   * runs. The command line writes it to its summary file object after object,
+   * so a process killed part way leaves what `--remove` takes back.
+   */
+  summarySoFar(): ExecutionSummary | undefined {
+    return this.running ? this.summaryOf(this.running) : undefined;
   }
 
   /** Pause execution between batches. Idempotent — calling twice is safe. */
@@ -2659,6 +2671,7 @@ export class ForgeExecutor {
       });
     }
 
+    this.running = state;
     try {
       return await this.runPasses(state);
     } catch (err: unknown) {
@@ -2681,6 +2694,8 @@ export class ForgeExecutor {
       this.reportDraftsLeft(state);
       keepPartialSummary(err, this.summaryOf(state));
       throw err;
+    } finally {
+      if (this.running === state) this.running = null;
     }
   }
 

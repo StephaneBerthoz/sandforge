@@ -307,6 +307,29 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says, before the run, what may refuse a removal of the records it creates', () => {
+    const lines = runQuestionDetail({
+      ...automation,
+      removal: [
+        { objectApiName: 'Account', kind: 'flow', name: 'Account guard' },
+        { objectApiName: 'Contact', kind: 'trigger', name: 'ContactDelete' },
+        { objectApiName: 'Contact', kind: 'packageTrigger', name: 'pkg.ContactAudit' },
+        { objectApiName: 'Order', kind: 'lock' },
+      ],
+    }).split('\n');
+
+    expect(lines.slice(-6)).toEqual([
+      'A removal of the records this clone creates may be refused:',
+      '• Account: Flow "Account guard" runs before a record is deleted, and can refuse the delete',
+      '• Contact: Apex trigger ContactDelete runs on a delete, and can refuse it',
+      '• Contact: Apex trigger pkg.ContactAudit, installed by a managed package, runs on a delete and can refuse it; no one in the org can change it',
+      '• Order: once activated, a record locks the records under it, which a removal then takes only with it, or once it is back in Draft',
+      'Nothing has been read or written yet.',
+    ]);
+    // Nothing found, nothing said.
+    expect(runQuestionDetail({ ...automation, removal: [] })).not.toContain('A removal');
+  });
+
   it('says what could not be read, and that what fires is then not known', () => {
     expect(
       runQuestionDetail({

@@ -308,6 +308,29 @@ describe('useForgeForm run history', () => {
     );
   });
 
+  it('exposes the older runs the reply carried, and none when it carried none', () => {
+    const { result } = renderHook(() => useForgeForm());
+    expect(result.current.olderRuns).toEqual([]);
+    const older = {
+      forgeId: 'forge-older',
+      targetOrgId: 'org-dev',
+      timestamp: '2026-08-01T09:00:00.000Z',
+      duration: 1_000,
+      status: 'success' as const,
+      objects: [{ objectApiName: 'Account', ids: ['001000000000001AAA'] }],
+      linked: 0,
+    };
+
+    act(() => {
+      replyTo('forge:history:list', 'forge:history:list:response', {
+        history: [RECORD_RUN],
+        olderRuns: [older],
+      });
+    });
+
+    expect(result.current.olderRuns).toEqual([older]);
+  });
+
   it('refills every form field from a stored record-mode config', () => {
     const { result } = renderHook(() => useForgeForm());
 

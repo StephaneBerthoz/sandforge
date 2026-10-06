@@ -1,3 +1,5 @@
+import type { ForgeRemovalRisk } from '@sandforge/shared';
+
 /** Safety tier classification for Salesforce orgs */
 export type SafetyTier = 'production' | 'staging' | 'development' | 'scratch';
 
@@ -149,6 +151,12 @@ export interface AutomationConfirmation {
   bypass: string[];
   /** Those of `bypass` the user the run writes as does not hold, with what would assign each. */
   assign: BypassToAssign[];
+  /**
+   * What may refuse the removal of the run's records, per object it writes:
+   * a flow before a delete, an Apex trigger on one, records that lock past
+   * Draft. Absent or empty when none was found.
+   */
+  removal?: ForgeRemovalRisk[];
 }
 
 /** The data storage a run's rows take, and what the target has: read, or not. */

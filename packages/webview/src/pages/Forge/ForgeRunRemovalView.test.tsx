@@ -107,6 +107,22 @@ describe('ForgeRunRemovalResult', () => {
     );
   });
 
+  it('says a record found neither in the org nor in its recycle bin is not visible, never gone', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'partial',
+          objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 2, notVisible: 1 })],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-result-Case').textContent).toBe(
+      'Case: 2 deleted · 1 not visible to this user (neither found nor in the recycle bin)',
+    );
+  });
+
   it('names the objects whose records hold a kept record, or says they could not be read', () => {
     render(
       <ForgeRunRemovalResult
@@ -340,6 +356,19 @@ describe('ForgeRunRemovalMark', () => {
 
     expect(screen.getByTestId('forge-removal-mark').textContent).toBe(
       'Records removed on 2026-09-30 09:10: 6 deleted · 3 not reached before the cancel',
+    );
+  });
+
+  it('says how many records the last removal could not see', () => {
+    render(
+      <ForgeRunRemovalMark
+        date="2026-09-30 09:10"
+        mark={{ removedAt: '', deleted: 2, alreadyGone: 0, kept: 0, refused: 0, notVisible: 2 }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-mark').textContent).toBe(
+      'Records removed on 2026-09-30 09:10: 2 deleted · 2 not visible to this user (neither found nor in the recycle bin)',
     );
   });
 });

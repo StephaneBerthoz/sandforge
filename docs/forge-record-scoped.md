@@ -319,7 +319,9 @@ removal read before its first delete and no longer finds went with a parent,
 and is already gone; when the read fails, it stays refused, said not checked.
 A record of an object the removal could not read is counted refused, with
 why, and never sent nor taken for gone: one out of the session's sight comes
-back from a query no more than a deleted one.
+back from a query no more than a deleted one. A record the first read of its
+object does not find is looked for in the org's recycle bin: there, it is
+already gone; nowhere, it is not visible to the user the removal runs as.
 
 ## ExecuteOptions
 
@@ -781,12 +783,15 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   deep. A record past the fifth goes to the target without its parent, which
   refuses it. Such a record brings nothing under it: its other children — the
   junction rows of another case, an invoice's lines — stay out of the clone.
-- **A record no query finds when a removal begins** counts as already gone,
-  and is never sent. No read tells it from one out of the session's sight:
-  the org keeps no deleted price book entry or task relation in its recycle
-  bin, and answers the delete of a price book entry already gone
-  `UNKNOWN_EXCEPTION`. A removal run by a user who cannot see some of the
-  run's records counts those gone.
+- **A record no query finds when a removal begins** is never sent. It counts
+  as already gone when the org's recycle bin holds it (`queryAll`, `IsDeleted
+= true`); one found neither there nor in the org counts as not visible to
+  the user the removal runs as (`notVisible`), never as removed, and the run
+  stays offered for it. No read tells such a record out of the session's
+  sight from one deleted for good: the org keeps no deleted price book entry
+  or task relation in its recycle bin, and a record emptied from the bin, or
+  past the fifteen days it keeps one, is not there either. Those count as not
+  visible too, and a removal of what is left keeps offering them.
 - **A person account whose record type the target does not tell**: one whose
   record type the mapping does not know, or in a target whose record types the
   run could not read, goes in as a person account, without its computed name:

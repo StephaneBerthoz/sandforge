@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
   ForgeExecutionResult,
+  ForgeRemovalPlan,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoResult,
   ForgeUndoStatus,
 } from '@sandforge/shared';
-import { forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRemovalPlanLeft, forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -77,6 +78,10 @@ function outcomeParts(
   if (object.deleted > 0) parts.push(counted(t, 'forge.history.resultDeleted', object.deleted));
   if (object.alreadyGone > 0) {
     parts.push(counted(t, 'forge.history.resultGone', object.alreadyGone));
+  }
+  // Not found, and not in the recycle bin: never said gone.
+  if ((object.notVisible ?? 0) > 0) {
+    parts.push(counted(t, 'forge.history.resultNotVisible', object.notVisible ?? 0));
   }
   if (object.keptChanged > 0) {
     parts.push(counted(t, CHANGED_KEYS[subject], object.keptChanged));
@@ -161,10 +166,18 @@ type RemovableRun = Pick<
 > &
   Partial<Pick<ForgeExecutionResult, 'forgeId' | 'targetOrgId'>>;
 
+/** Whether a run is given by the removal plan kept of it, the history having dropped it. */
+function isKeptPlan(run: RemovableRun | ForgeRemovalPlan): run is ForgeRemovalPlan {
+  return 'objects' in run && Array.isArray(run.objects);
+}
+
 /** Props for {@link ForgeRunRemovalConfirm}. */
 export interface ForgeRunRemovalConfirmProps {
-  /** The run whose removal is being confirmed; null while none is. */
-  run: RemovableRun | null;
+  /**
+   * The run whose removal is being confirmed — its history entry, or the plan
+   * kept of it once the history dropped it; null while none is.
+   */
+  run: RemovableRun | ForgeRemovalPlan | null;
   /** The org it wrote to, as the user knows it: the word typed to confirm. */
   org: string;
   /** Whether the records changed since the run go too. */
@@ -193,12 +206,15 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   const { t } = useTranslation();
   const plan = useMemo(
     () =>
-      (run ? forgeRunRecordsLeft(run) : []).map(({ objectApiName, ids }) => ({
-        objectApiName,
-        count: ids.length,
-      })),
+      (run ? (isKeptPlan(run) ? forgeRemovalPlanLeft(run) : forgeRunRecordsLeft(run)) : []).map(
+        ({ objectApiName, ids }) => ({
+          objectApiName,
+          count: ids.length,
+        }),
+      ),
     [run],
   );
+  const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKept(run).length) : 0;
   return (
     <DangerConfirm
       open={run !== null}
@@ -210,7 +226,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
     >
       <ForgeRunRemovalPlan
         plan={plan}
-        linked={run ? forgeRunLinkedKept(run).length : 0}
+        linked={linked}
         {...(run?.undo
           ? {
               leftBy:
@@ -346,12 +362,14 @@ export interface ForgeRunRemovalMarkProps {
 export const ForgeRunRemovalMark: React.FC<ForgeRunRemovalMarkProps> = ({ mark, date }) => {
   const { t } = useTranslation();
   const notReached = mark.notReached ?? 0;
+  const notVisible = mark.notVisible ?? 0;
   const parts = [
     mark.deleted > 0 ? counted(t, 'forge.history.resultDeleted', mark.deleted) : undefined,
     mark.alreadyGone > 0 ? counted(t, 'forge.history.resultGone', mark.alreadyGone) : undefined,
     mark.kept > 0 ? counted(t, 'forge.history.resultKept', mark.kept) : undefined,
     mark.refused > 0 ? counted(t, 'forge.history.resultRefused', mark.refused) : undefined,
     notReached > 0 ? counted(t, 'forge.history.resultNotReached', notReached) : undefined,
+    notVisible > 0 ? counted(t, 'forge.history.resultNotVisible', notVisible) : undefined,
   ].filter((part): part is string => part !== undefined);
   return (
     <p data-testid="forge-removal-mark" className="text-[10px] text-text-secondary">

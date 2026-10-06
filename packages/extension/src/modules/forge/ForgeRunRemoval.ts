@@ -170,6 +170,11 @@ export type RemovalOrg = Pick<
    * to the removal is created by that user.
    */
   userId(): Promise<string>;
+  /**
+   * A query that reads the org's recycle bin too (`queryAll`): what tells a
+   * record deleted from one the session cannot see.
+   */
+  queryDeleted(soql: string): Promise<{ records: unknown[] }>;
 };
 
 /**
@@ -185,6 +190,10 @@ export function removalOrg(conn: Connection, context: string): RemovalOrg {
     ...orgSession(conn, context),
     serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
     userId: async () => (await conn.soap.getUserInfo()).userId,
+    queryDeleted: async (soql) => {
+      const answer = await conn.query<Record<string, unknown>>(soql, { scanAll: true });
+      return { records: answer.records };
+    },
   };
 }
 
@@ -339,6 +348,14 @@ interface ObjectSnapshot {
   firstCreated: number;
   /** Why the object could not be read, when it could not. */
   error?: string;
+  /**
+   * Keys of the records the read did not find that the org's recycle bin
+   * holds: deleted. One found nowhere is out of the session's sight, or gone
+   * for good.
+   */
+  binned: Set<string>;
+  /** Why the recycle bin could not be read, when it could not. */
+  binError?: string;
 }
 
 /** Why the org refused to delete one record. */
@@ -368,6 +385,8 @@ class ObjectRemoval {
   readonly gone = new Set<string>();
   /** Keys of the records among them that this removal deleted. */
   readonly deleted = new Set<string>();
+  /** Records found neither in the org nor in its recycle bin: never taken for gone. */
+  notVisible = 0;
   /**
    * The records the org had refused that the second try took up, by id: sent
    * again, or kept for a record that stays.
@@ -448,6 +467,7 @@ class ObjectRemoval {
   settle(): ForgeUndoObjectResult {
     this.result.keptDependents = this.held.length;
     this.result.refused = this.refused.size;
+    if (this.notVisible > 0) this.result.notVisible = this.notVisible;
     if (this.held.length === 0) this.result.heldBy = [];
     const reasons = [
       ...this.notes,
@@ -540,7 +560,15 @@ export async function removeRunRecords(
   const snapshots = new Map<string, ObjectSnapshot>();
   for (const { objectApiName, ids } of plan) {
     if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
-    snapshots.set(objectApiName, await snapshotOf(org, objectApiName, ids));
+    const snapshot = await snapshotOf(org, objectApiName, ids);
+    snapshots.set(objectApiName, snapshot);
+    if (snapshot.error !== undefined) continue;
+    const missing = ids.filter((id) => !snapshot.lastModified.has(recordKey(id)));
+    if (missing.length === 0) continue;
+    if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
+    const bin = await recycleBinOf(org, objectApiName, missing);
+    if ('error' in bin) snapshot.binError = bin.error;
+    else snapshot.binned = bin.deleted;
   }
 
   // Each object described once: the order and the dependents check read it.
@@ -559,6 +587,7 @@ export async function removeRunRecords(
     },
     serverTime: () => org.serverTime(),
     userId: () => org.userId(),
+    queryDeleted: (soql) => org.queryDeleted(soql),
     describeGlobal: () => org.describeGlobal(),
     describe: (objectApiName) => {
       let described = describes.get(objectApiName);
@@ -699,10 +728,23 @@ export async function removeRunRecords(
       const key = recordKey(id);
       reached.add(key);
       if (!snapshot.lastModified.has(key)) {
-        removal.result.alreadyGone++;
-        removal.gone.add(key);
+        // Gone only when the recycle bin holds it: a record the session
+        // cannot see comes back from a query no more than a deleted one, and
+        // taken for gone it was counted removed while it stayed in the org.
+        if (snapshot.binned.has(key)) {
+          removal.result.alreadyGone++;
+          removal.gone.add(key);
+        } else removal.notVisible++;
       } else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
       else candidates.push(id);
+    }
+    if (removal.notVisible > 0) {
+      removal.note(
+        `Not visible: ${removal.notVisible} record(s) found neither in the org nor in its ` +
+          "recycle bin, as the user the removal runs as sees them — out of that user's sight, " +
+          'or deleted for good — are not counted as removed' +
+          (snapshot.binError ? ` (the recycle bin could not be read: ${snapshot.binError})` : '.'),
+      );
     }
     settled += ids.length - candidates.length;
 
@@ -1269,12 +1311,42 @@ async function snapshotOf(
         if (typeof row.Id === 'string') lastModified.set(recordKey(row.Id), epochOf(row[modified]));
         if (created) firstCreated = earliest(firstCreated, epochOf(row[created]));
       }
-      return { lastModified, modifiedColumn: modified, firstCreated };
+      return { lastModified, modifiedColumn: modified, firstCreated, binned: new Set() };
     } catch (err: unknown) {
       error ??= extractErrorMessage(err);
     }
   }
-  return { lastModified: new Map(), firstCreated: Number.NaN, error };
+  return { lastModified: new Map(), firstCreated: Number.NaN, error, binned: new Set() };
+}
+
+/**
+ * Of the records of one object a read did not find, those the org's recycle
+ * bin holds, by key: deleted. The rest are out of the session's sight — kept
+ * from it by sharing, or owned by a user whose records it does not reach — or
+ * deleted for good, as the org deletes some objects. Why the bin could not be
+ * read, when it could not: then none of them is taken for gone.
+ */
+async function recycleBinOf(
+  org: RemovalOrg,
+  objectApiName: string,
+  ids: readonly string[],
+): Promise<{ deleted: Set<string> } | { error: string }> {
+  const object = assertSoqlIdentifier(objectApiName);
+  const deleted = new Set<string>();
+  try {
+    for (const list of idLists(ids)) {
+      const answer = await org.queryDeleted(
+        `SELECT Id FROM ${object} WHERE Id IN (${list}) AND IsDeleted = true`,
+      );
+      for (const row of answer.records) {
+        const id = (row as { Id?: unknown } | null)?.Id;
+        if (typeof id === 'string') deleted.add(recordKey(id));
+      }
+    }
+  } catch (err: unknown) {
+    return { error: extractErrorMessage(err) };
+  }
+  return { deleted };
 }
 
 /** The org's clock as a removal starts. */

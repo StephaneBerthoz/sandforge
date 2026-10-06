@@ -5,6 +5,7 @@ import type {
   ForgeAutomationWrite,
   ForgeFlowPath,
   ForgeMessageAction,
+  ForgeRemovalRisk,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetObjectAutomation,
@@ -15,6 +16,7 @@ import {
   bypassAssignmentsOf,
   bypassPermissionsOf,
   heldBypassPermissionsOf,
+  removalRisksOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { uiLocale } from '../../utils/formatters';
@@ -222,6 +224,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           <ObjectRules object={object} applyAssignmentRules={applyAssignmentRules} />
         </section>
       ))}
+      <RemovalRisks automation={automation} leftOut={leftOut} blind={blind} />
       {automation.conditionsNotRead > 0 && (
         <p data-testid="automation-not-read" className="text-text-secondary">
           {t('forge.review.automation.notRead', {
@@ -250,6 +253,52 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
       <p data-testid="automation-cost" className="text-text-secondary">
         {t('forge.review.automation.cost', { count: automation.requests })}
       </p>
+    </div>
+  );
+};
+
+/** What may refuse a removal of the run's records, by its kind. */
+const REMOVAL_RISK_KEYS: Readonly<Record<ForgeRemovalRisk['kind'], string>> = {
+  flow: 'forge.review.automation.removalFlow',
+  trigger: 'forge.review.automation.removalTrigger',
+  packageTrigger: 'forge.review.automation.removalPackageTrigger',
+  lock: 'forge.review.automation.removalLock',
+};
+
+/**
+ * What may refuse a removal of the records the run creates, said before the
+ * run, where no confirmation may come to say it: the flows before a delete,
+ * the Apex triggers on one — a managed package's apart — and the objects
+ * whose records lock past Draft. Once everything was read and none was found,
+ * it says so; a part that could not be read leaves that unsaid.
+ */
+const RemovalRisks: React.FC<{
+  automation: ForgeTargetAutomation;
+  leftOut: ReadonlySet<string>;
+  blind: boolean;
+}> = ({ automation, leftOut, blind }) => {
+  const { t } = useTranslation();
+  const risks = removalRisksOf(automation, leftOut);
+  if (risks.length === 0) {
+    return blind ? null : (
+      <p data-testid="automation-removal-none" className="text-text-secondary">
+        {t('forge.review.automation.removalNone')}
+      </p>
+    );
+  }
+  return (
+    <div
+      data-testid="automation-removal"
+      className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
+    >
+      <p className="font-medium">{t('forge.review.automation.removalRisks')}</p>
+      <ul className="ml-3 flex list-disc flex-col gap-0.5">
+        {risks.map((risk) => (
+          <li key={`${risk.objectApiName}-${risk.kind}-${risk.name ?? ''}`}>
+            {t(REMOVAL_RISK_KEYS[risk.kind], { object: risk.objectApiName, name: risk.name })}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };

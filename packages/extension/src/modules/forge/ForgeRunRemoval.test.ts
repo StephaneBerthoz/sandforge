@@ -65,10 +65,24 @@ class FakeOrg implements RemovalOrg {
   readonly deletes: Array<{ object: string; ids: string[] }> = [];
   /** How far the org's clock runs ahead of this machine's; behind when negative. */
   clockAheadMs = 0;
+  /** The ids of the deleted records the recycle bin holds: every record a delete took. */
+  readonly bin = new Set<string>();
+  /** Why a read of the recycle bin fails, when it does. */
+  binFailure?: string;
+  readonly deletedQueries: string[] = [];
 
   /** The org's clock now, as it dates what it writes. */
   now(): string {
     return new Date(Date.now() + this.clockAheadMs).toISOString();
+  }
+
+  async queryDeleted(soql: string): Promise<{ records: unknown[] }> {
+    this.deletedQueries.push(soql);
+    if (this.binFailure) throw new Error(this.binFailure);
+    const match = /^SELECT Id FROM (\w+) WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+    if (!match) throw new Error(`unexpected query of the recycle bin: ${soql}`);
+    const wanted = match[2].split(', ').map((quoted) => quoted.slice(1, -1));
+    return { records: wanted.filter((recordId) => this.bin.has(recordId)).map((Id) => ({ Id })) };
   }
 
   async serverTime(): Promise<string> {
@@ -193,6 +207,7 @@ class FakeOrg implements RemovalOrg {
       object,
       (this.rows.get(object) ?? []).filter((r) => r.Id !== recordId),
     );
+    this.bin.add(recordId);
     this.onDelete?.(object, row);
     for (const relationship of this.relationships.get(object) ?? []) {
       if (!relationship.cascadeDelete) continue;
@@ -269,8 +284,24 @@ describe('removeRunRecords', () => {
     ]);
   });
 
-  it('counts a record no longer in the org as already gone, and never sends it', async () => {
+  it('counts a record no longer in the org as already gone once its recycle bin holds it, and never sends it', async () => {
     const { org, plan } = accountWithContacts();
+    org.rows.set(
+      'Contact',
+      (org.rows.get('Contact') ?? []).filter((r) => r.Id !== id('003', 2)),
+    );
+    org.bin.add(id('003', 2));
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[0]).toMatchObject({ planned: 2, deleted: 1, alreadyGone: 1 });
+    expect(outcome.objects[0].notVisible).toBeUndefined();
+    expect(org.deletes[0].ids).toEqual([id('003', 1)]);
+  });
+
+  it('counts a record found neither in the org nor in its recycle bin as not visible, never as removed', async () => {
+    const { org, plan } = accountWithContacts();
+    // Out of the session's sight: no query finds it, and it was never deleted.
     org.rows.set(
       'Contact',
       (org.rows.get('Contact') ?? []).filter((r) => r.Id !== id('003', 2)),
@@ -278,8 +309,41 @@ describe('removeRunRecords', () => {
 
     const outcome = await removeRunRecords(org, plan, options());
 
-    expect(outcome.objects[0]).toMatchObject({ planned: 2, deleted: 1, alreadyGone: 1 });
-    expect(org.deletes[0].ids).toEqual([id('003', 1)]);
+    expect(outcome.objects[0]).toMatchObject({
+      planned: 2,
+      deleted: 1,
+      alreadyGone: 0,
+      notVisible: 1,
+    });
+    expect(outcome.objects[0].reasons.join(' ')).toMatch(/Not visible: 1 record/);
+    expect(outcome.gone).not.toContain(id('003', 2));
+    expect(org.deletes.flatMap((d) => d.ids)).not.toContain(id('003', 2));
+    expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('partial');
+    expect(org.deletedQueries).toEqual([
+      `SELECT Id FROM Contact WHERE Id IN ('${id('003', 2)}') AND IsDeleted = true`,
+    ]);
+  });
+
+  it('takes no record it did not find for gone when the recycle bin cannot be read', async () => {
+    const { org, plan } = accountWithContacts();
+    org.rows.set('Contact', []);
+    org.bin.add(id('003', 1));
+    org.binFailure = 'INVALID_TYPE: queryAll is not supported';
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[0]).toMatchObject({ alreadyGone: 0, notVisible: 2 });
+    expect(outcome.objects[0].reasons.join(' ')).toContain(
+      'the recycle bin could not be read: INVALID_TYPE: queryAll is not supported',
+    );
+  });
+
+  it('reads the recycle bin only for the records the read did not find', async () => {
+    const { org, plan } = accountWithContacts();
+
+    await removeRunRecords(org, plan, options());
+
+    expect(org.deletedQueries).toEqual([]);
   });
 
   it('counts a record deleted between its read and its delete as already gone', async () => {
@@ -324,6 +388,7 @@ describe('removeRunRecords', () => {
       'Contact',
       (org.rows.get('Contact') ?? []).filter((r) => r.Id !== id('003', 2)),
     );
+    org.bin.add(id('003', 2));
 
     const outcome = await removeRunRecords(
       org,

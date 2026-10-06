@@ -28,6 +28,7 @@ import { initForgeComposition, registerForgeGraphViewListener } from './forgeCom
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
+import { ForgeRemovalPlanStore } from '../modules/forge/ForgeRemovalPlanStore.js';
 import { PIIDetector } from '../core/precheck/PIIDetector.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
@@ -136,6 +137,7 @@ type DetectPII = (
 /** Wire the composition and hand back what it injects into the handlers. */
 async function compose(
   detectPII: DetectPII = () => ({ piiFields: [] }),
+  extra: Partial<ForgeCompositionDeps> = {},
 ): Promise<{ orchestrator: ForgeOrchestrator; services: ForgeServices }> {
   const setForgeOrchestrator = vi.fn();
   const deps = {
@@ -144,6 +146,7 @@ async function compose(
     orgManager: {},
     piiDetector: { detectPII },
     log: vi.fn(),
+    ...extra,
   } as unknown as ForgeCompositionDeps;
   initForgeComposition(deps);
   await vi.waitFor(() => expect(setForgeOrchestrator).toHaveBeenCalled(), { timeout: 5_000 });
@@ -226,6 +229,14 @@ describe('initForgeComposition', () => {
     expect(new Set(createHeaders.map(({ headers }) => headers?.['Sforce-Auto-Assign']))).toEqual(
       new Set(['FALSE']),
     );
+  });
+
+  it('hands the handlers a store of removal plans in the extension storage it is given, and none without one', async () => {
+    const kept = await compose(undefined, { storagePath: '/extension-storage' });
+    expect(kept.services.removalPlans).toBeInstanceOf(ForgeRemovalPlanStore);
+
+    const none = await compose();
+    expect(none.services.removalPlans).toBeUndefined();
   });
 
   it('hands the handlers the count a run’s calls are read by, so its progress can say them as it goes', async () => {

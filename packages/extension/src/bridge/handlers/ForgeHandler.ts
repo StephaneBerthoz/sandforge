@@ -8,6 +8,7 @@ import type {
   ForgeExecutionError,
   ForgeExecutionResult,
   ForgeGraph,
+  ForgeRemovalPlan,
   ForgeTemplate,
   ForgeUndoResult,
   ForgeRunObjectRecords,
@@ -22,10 +23,13 @@ import {
   forgeConfigSchema,
   forgeFileCopyOptionSchema,
   forgeGraphSchema,
+  forgeRemovalPlanLeft,
+  forgeRemovalPlanOf,
   forgeRunCreatedRecords,
   forgeRunRecordsLeft,
   forgeTemplateSchema,
   leftOutByTheUser,
+  removalRisksOf,
 } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -60,6 +64,7 @@ import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
+import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
@@ -368,6 +373,12 @@ export interface ForgeServices {
    */
   templateStore?: ForgeTemplateStore;
   /**
+   * The removal plans of past runs, kept apart from the history so a run the
+   * history dropped stays removable. Without it, a run is removable while the
+   * history lists it.
+   */
+  removalPlans?: ForgeRemovalPlanStore;
+  /**
    * How many requests to Salesforce the executor's deps have sent so far —
    * what a run counts its calls by (`ForgeExecutorDeps.requestsSent`). Read
    * as the run goes, so its progress can say the calls it has made; without
@@ -443,6 +454,30 @@ interface HeldTemplates {
 
 /** ConfigStore key for persisted forge execution history. */
 const HISTORY_KEY = 'forge:history';
+
+/** What the removals of a run left on it, as its history entry and its kept plan both hold it. */
+type RemovalState = Pick<
+  ForgeRemovalPlan,
+  'undo' | 'removalStamps' | 'removalSpans' | 'removalLeft'
+>;
+
+/**
+ * A run whose records a removal takes, from its history entry or from the
+ * plan kept of it once the history dropped it.
+ */
+type RunToRemove = Pick<
+  ForgeRemovalPlan,
+  'forgeId' | 'targetOrgId' | 'timestamp' | 'duration' | 'writtenBetween'
+> &
+  RemovalState & {
+    /** Rows a call of the run may have written under ids it never learned. */
+    unreachable: number;
+  };
+
+/** The rows of a run a call may have written before its answer was lost. */
+function unreachableOf(entry: Pick<ForgeExecutionResult, 'mayHaveBeenWritten'>): number {
+  return (entry.mayHaveBeenWritten ?? []).reduce((sum, { sourceIds }) => sum + sourceIds.length, 0);
+}
 
 /** ConfigStore category for all forge data. */
 const FORGE_CATEGORY = 'forge';
@@ -813,6 +848,8 @@ export class ForgeHandler implements DomainHandler {
    * of a window with no folder open.
    */
   private templateStore?: ForgeTemplateStore;
+  /** The removal plans of past runs, kept past the history's twenty (see {@link ForgeServices}). */
+  private removalPlans?: ForgeRemovalPlanStore;
 
   /**
    * Per-org `describeGlobal` result, keyed by org id.
@@ -935,6 +972,7 @@ export class ForgeHandler implements DomainHandler {
       // simply missing, so every saved recipe went to globalState instead of
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
+      this.removalPlans = services.removalPlans;
       this.requestsSent = services.requestsSent;
       this.rehearser = services.rehearser;
     }
@@ -1037,7 +1075,7 @@ export class ForgeHandler implements DomainHandler {
         await this.handleDeleteTemplate(msg);
         return true;
       case 'forge:history:list':
-        this.handleHistoryList(msg);
+        await this.handleHistoryList(msg);
         return true;
       case 'forge:undo':
         await this.handleUndo(msg);
@@ -2050,7 +2088,9 @@ export class ForgeHandler implements DomainHandler {
       targetOrgId: config.targetOrgId,
       sourceOrgId: config.sourceOrgId,
     };
-    this.saveHistory([entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY));
+    const history = [entry, ...this.loadHistory()];
+    this.saveHistory(history.slice(0, ForgeHandler.MAX_HISTORY));
+    this.keepRemovalPlans(entry, history.slice(ForgeHandler.MAX_HISTORY));
   }
 
   /**
@@ -2324,6 +2364,7 @@ export class ForgeHandler implements DomainHandler {
     });
     if (fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0) return 'allowed';
     const bypass = known ? runBypassesOf(known, updatedNames) : [];
+    const removal = known ? removalRisksOf(known) : [];
     const answer = await guard.confirmRun({
       stage: 'automation',
       org: target.org,
@@ -2344,6 +2385,8 @@ export class ForgeHandler implements DomainHandler {
             target.username ? { alias: target.org, username: target.username } : undefined,
           )
         : [],
+      // What may refuse taking the run back, said where the user decides on it.
+      ...(removal.length > 0 ? { removal } : {}),
     });
     if (answer === 'confirmed') return 'confirmed';
     throw answer === 'declined'
@@ -2621,9 +2664,23 @@ export class ForgeHandler implements DomainHandler {
     this.deps.broker.postToWebview(response);
   }
 
-  private handleHistoryList(msg: InboundRequest): void {
+  private async handleHistoryList(msg: InboundRequest): Promise<void> {
     const history = this.loadHistory();
-    const response = buildResponse(this.deps, msg, 'forge:history:list:response', { history });
+    // The runs the history dropped whose records are still to remove: listed
+    // apart, as older runs, from the plans kept of them.
+    const listed = new Set(history.map((entry) => entry.forgeId));
+    let olderRuns: ForgeRemovalPlan[] = [];
+    try {
+      olderRuns = ((await this.removalPlans?.list()) ?? []).filter(
+        (plan) => !listed.has(plan.forgeId) && forgeRemovalPlanLeft(plan).length > 0,
+      );
+    } catch (err: unknown) {
+      logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
+    }
+    const response = buildResponse(this.deps, msg, 'forge:history:list:response', {
+      history,
+      ...(olderRuns.length > 0 ? { olderRuns } : {}),
+    });
     this.deps.broker.postToWebview(response);
   }
 
@@ -2653,26 +2710,37 @@ export class ForgeHandler implements DomainHandler {
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     const entry = this.loadHistory().find((e) => e.forgeId === forgeId);
-    if (!entry) {
+    // A run the history no longer lists is taken back from the plan kept of
+    // it: the history keeps twenty runs, and the twenty-first could no longer
+    // be removed from the panel.
+    const kept = entry ? undefined : await this.keptRemovalPlan(forgeId);
+    let run: RunToRemove;
+    let plan: ForgeRunObjectRecords[];
+    if (entry) {
+      const runEnded = Date.parse(entry.timestamp);
+      if (!entry.idRemapCreated || !entry.targetOrgId || Number.isNaN(runEnded)) {
+        refuse(
+          'This run was recorded before Forge kept what a run created: its records cannot be removed from the history.',
+          'NOT_RECORDED',
+        );
+        return;
+      }
+      run = { ...entry, targetOrgId: entry.targetOrgId, unreachable: unreachableOf(entry) };
+      // What earlier removals left, when one did: a removal that ended partial
+      // marked the run, and the next one was refused as done already.
+      plan = forgeRunRecordsLeft(entry);
+    } else if (kept) {
+      run = { ...kept, unreachable: kept.mayHaveBeenWritten ?? 0 };
+      plan = forgeRemovalPlanLeft(kept);
+    } else {
       refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
       return;
     }
-    const runEnded = Date.parse(entry.timestamp);
-    if (!entry.idRemapCreated || !entry.targetOrgId || Number.isNaN(runEnded)) {
-      refuse(
-        'This run was recorded before Forge kept what a run created: its records cannot be removed from the history.',
-        'NOT_RECORDED',
-      );
-      return;
-    }
-    // What earlier removals left, when one did: a removal that ended partial
-    // marked the run, and the next one was refused as done already.
-    const plan = forgeRunRecordsLeft(entry);
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     if (total === 0) {
-      if (entry.undo) {
+      if (run.undo) {
         refuse(
-          `The records this run created were already removed, on ${entry.undo.removedAt}.`,
+          `The records this run created were already removed, on ${run.undo.removedAt}.`,
           'ALREADY_REMOVED',
         );
       } else {
@@ -2688,10 +2756,45 @@ export class ForgeHandler implements DomainHandler {
     // a person, and a second click meanwhile would ask, and remove, twice.
     this.removing.add(forgeId);
     try {
-      await this.removeRun(msg, { ...entry, targetOrgId: entry.targetOrgId }, plan, includeChanged);
+      await this.removeRun(msg, run, plan, includeChanged);
     } finally {
       this.removing.delete(forgeId);
     }
+  }
+
+  /** The removal plan kept of a run, or undefined when none is, or the store cannot be read. */
+  private async keptRemovalPlan(forgeId: string): Promise<ForgeRemovalPlan | undefined> {
+    try {
+      return await this.removalPlans?.get(forgeId);
+    } catch (err: unknown) {
+      logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Keep the removal plan of a run put in the history, and of those the
+   * history drops for it: a run dropped before plans were kept has its plan
+   * kept from its entry as it leaves, and one whose plan is kept already keeps
+   * that one, which every removal of it updated. A failure is logged: the run
+   * stays in the history, removable from there.
+   */
+  private keepRemovalPlans(entry: ForgeExecutionResult, dropped: ForgeExecutionResult[]): void {
+    const store = this.removalPlans;
+    if (!store) return;
+    const plan = forgeRemovalPlanOf(entry);
+    const keeping = [
+      ...(plan ? [store.put(plan)] : []),
+      ...dropped.flatMap((old) => {
+        const oldPlan = forgeRemovalPlanOf(old);
+        return oldPlan && forgeRemovalPlanLeft(oldPlan).length > 0
+          ? [store.putIfAbsent(oldPlan)]
+          : [];
+      }),
+    ];
+    void Promise.all(keeping).catch((err: unknown) => {
+      logger.warn(`Forge removal plan not kept: ${extractErrorMessage(err)}`);
+    });
   }
 
   /** Answer a `forge:undo` that removes nothing, on its error channel. */
@@ -2939,7 +3042,7 @@ export class ForgeHandler implements DomainHandler {
    */
   private async removeRun(
     msg: InboundRequest,
-    entry: ForgeExecutionResult & { targetOrgId: string },
+    entry: RunToRemove,
     plan: ForgeRunObjectRecords[],
     includeChanged: boolean,
   ): Promise<void> {
@@ -3046,10 +3149,7 @@ export class ForgeHandler implements DomainHandler {
       const leftBy = entry.undo?.removedAt;
       // What a call of the run may have written before its answer was lost:
       // in the org maybe, under ids no one knows, and out of this removal's reach.
-      const unreachable = (entry.mayHaveBeenWritten ?? []).reduce(
-        (sum, { sourceIds }) => sum + sourceIds.length,
-        0,
-      );
+      const unreachable = entry.unreachable;
       const result: ForgeUndoResult = {
         forgeId,
         status: removalStatus(outcome.objects, outcome.cancelled),
@@ -3084,19 +3184,25 @@ export class ForgeHandler implements DomainHandler {
       const left =
         gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
       if (mark || stamped || ran || left) {
-        this.saveHistory(
-          this.loadHistory().map((e) =>
-            e.forgeId === forgeId
-              ? {
-                  ...e,
-                  ...(mark ? { undo: mark } : {}),
-                  ...(stamped ? { removalStamps: { ...e.removalStamps, ...outcome.stamps } } : {}),
-                  ...(ran ? { removalSpans: [...(e.removalSpans ?? []), ran] } : {}),
-                  ...(left ? { removalLeft: left } : {}),
-                }
-              : e,
-          ),
-        );
+        // The history entry and the plan kept of the run say the same of its
+        // removals: either may be the one the next removal reads.
+        const marked = <T extends RemovalState>(e: T): T => ({
+          ...e,
+          ...(mark ? { undo: mark } : {}),
+          ...(stamped ? { removalStamps: { ...e.removalStamps, ...outcome.stamps } } : {}),
+          ...(ran ? { removalSpans: [...(e.removalSpans ?? []), ran] } : {}),
+          ...(left ? { removalLeft: left } : {}),
+        });
+        this.saveHistory(this.loadHistory().map((e) => (e.forgeId === forgeId ? marked(e) : e)));
+        // A plan with nothing left to remove is dropped: nothing would offer it.
+        await this.removalPlans
+          ?.update(forgeId, (kept) => {
+            const next = marked(kept);
+            return forgeRemovalPlanLeft(next).length > 0 ? next : undefined;
+          })
+          .catch((err: unknown) => {
+            logger.warn(`Forge removal plan not updated: ${extractErrorMessage(err)}`);
+          });
       }
 
       const response = buildResponse(this.deps, msg, 'forge:undo:response', {

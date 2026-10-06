@@ -535,6 +535,42 @@ describe('forge:execute, the gate before the first write', () => {
       expect(runs()).toEqual([expect.objectContaining({ outcome: 'success', guard: 'confirmed' })]);
     });
 
+    it('says in that question what may refuse a removal of the records the run creates', async () => {
+      const guarded: ForgeTargetAutomation = {
+        ...FIRES,
+        objects: [
+          ...FIRES.objects,
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Account_Guard',
+                label: 'Account guard',
+                timing: 'beforeDelete',
+                startsOn: 'delete',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [{ name: 'pkg.AccountAudit', events: ['afterDelete'] }],
+          },
+        ],
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        targetAutomation: readerOf(guarded),
+      });
+
+      await execute();
+
+      expect(questions[0]).toMatchObject({
+        stage: 'automation',
+        removal: [
+          { objectApiName: 'Account', kind: 'flow', name: 'Account guard' },
+          { objectApiName: 'Account', kind: 'packageTrigger', name: 'pkg.AccountAudit' },
+        ],
+      });
+    });
+
     it('asks, in the same question, about what fires as the run gives an order back its status', async () => {
       // In a client's sandbox, a flow on orders sent each to an external system
       // as the clone gave it back the status it had past Draft.

@@ -1,11 +1,13 @@
 import type {
   ForgePermissionSetGrant,
+  ForgeRemovalRisk,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetFlow,
   ForgeTargetObjectAutomation,
   ForgeTriggerEvent,
 } from '../types/forge.types.js';
+import { LOCKED_PAST_DRAFT } from '../constants/status-children.js';
 
 /**
  * A write a Forge run makes of a record: the insert of every record it
@@ -335,4 +337,47 @@ export function assignPermsetCommand(
     `sf org assign permset --name ${shellWord(permissionSet)} ` +
     `--target-org ${shellWord(targetOrg)} --on-behalf-of ${shellWord(username)}`
   );
+}
+
+/**
+ * What may refuse the removal of a run's records, object by object in the
+ * order the run writes them, said before the run: the record-triggered flows
+ * that run before a record is deleted and the Apex triggers on a delete — a
+ * flow or a trigger can refuse it — those a managed package installed apart,
+ * as no one in the org can change them, and the objects whose records lock
+ * the rows under them past Draft (`LOCKED_PAST_DRAFT`): an activated order's
+ * items and actions, an activated contract's item prices. What a bypass the
+ * run's user holds keeps quiet is left out: the removal runs as that user.
+ *
+ * @param leftOut - Objects the run no longer writes since the read.
+ */
+export function removalRisksOf(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'objectsRead'>,
+  leftOut: ReadonlySet<string> = new Set(),
+): ForgeRemovalRisk[] {
+  const byObject = new Map(automation.objects.map((object) => [object.objectApiName, object]));
+  return automation.objectsRead
+    .filter((name) => !leftOut.has(name))
+    .flatMap((objectApiName): ForgeRemovalRisk[] => {
+      const object = byObject.get(objectApiName);
+      const onDelete = object
+        ? (automationByWrite(object).find((entry) => entry.write === 'delete')?.fired ?? [])
+        : [];
+      const fired = onDelete
+        .filter((entry) => entry.keptQuiet !== true)
+        .map((entry): ForgeRemovalRisk => ({
+          objectApiName,
+          // A trigger a package installed is named after its namespace.
+          kind:
+            entry.kind !== 'trigger'
+              ? 'flow'
+              : entry.name.includes('.')
+                ? 'packageTrigger'
+                : 'trigger',
+          name: entry.name,
+        }));
+      return Object.prototype.hasOwnProperty.call(LOCKED_PAST_DRAFT, objectApiName)
+        ? [...fired, { objectApiName, kind: 'lock' }]
+        : fired;
+    });
 }

@@ -626,6 +626,14 @@ export interface ForgeUndoObjectResult {
   /** Records the org refused to delete. */
   refused: number;
   /**
+   * Records no query found when the removal began, and that are not in the
+   * org's recycle bin either: out of the sight of the user the removal ran as
+   * — sharing, an owner whose records it does not reach — or deleted for good,
+   * which some objects always are. Never counted as removed: they may still
+   * be in the org. Absent when there were none.
+   */
+  notVisible?: number;
+  /**
    * The objects whose records, staying in the org, hold the ones counted in
    * `keptDependents`, by API name.
    */
@@ -704,6 +712,51 @@ export interface ForgeUndoMark {
    * to take, and from marks kept before cancelled removals marked the run.
    */
   notReached?: number;
+  /**
+   * Records the last removal could not see, and found in no recycle bin
+   * (`ForgeUndoObjectResult.notVisible`): a removal run by a user who sees
+   * them takes them. Absent when there were none.
+   */
+  notVisible?: number;
+}
+
+/**
+ * What removing a run's records needs, kept apart from the run's history
+ * entry so the run stays removable once the history has dropped it: ids and
+ * dates only, never a value of a record.
+ */
+export interface ForgeRemovalPlan {
+  /** The run, by its `forgeId`. */
+  forgeId: string;
+  /** The org it wrote to, by its id in this machine's org registry. */
+  targetOrgId: string;
+  /** When the run was recorded, ISO 8601, right after its last write. */
+  timestamp: string;
+  /** How long the run took, in milliseconds. */
+  duration: number;
+  /** How the run ended. */
+  status: ForgeExecutionResult['status'];
+  /** Set when a cancel stopped the run. */
+  cancelled?: true;
+  /** When the target dated the run's writes, when it could tell. */
+  writtenBetween?: ForgeWrittenBetween;
+  /**
+   * The records the run created, per object, by their target ids, in the
+   * order a removal takes them (`forgeRunCreatedRecords`).
+   */
+  objects: Array<{ objectApiName: string; ids: string[] }>;
+  /** Records the run linked to, which a removal leaves where they are. */
+  linked: number;
+  /** Rows a call of the run may have written under ids it never learned. */
+  mayHaveBeenWritten?: number;
+  /** What the removals of the run's records did, once one took some. */
+  undo?: ForgeUndoMark;
+  /** See `ForgeExecutionResult.removalStamps`. */
+  removalStamps?: Record<string, string>;
+  /** See `ForgeExecutionResult.removalSpans`. */
+  removalSpans?: ForgeRemovalSpan[];
+  /** See `ForgeExecutionResult.removalLeft`. */
+  removalLeft?: string[];
 }
 
 /**
@@ -1726,6 +1779,19 @@ export interface ForgeTargetAutomation {
   bypassGrants?: ForgeBypassGrant[];
   /** The requests the read sent to the target. */
   requests: number;
+}
+
+/**
+ * What may refuse the removal of a run's records on one object it writes,
+ * said before the run: a record-triggered flow that runs before a delete, an
+ * Apex trigger on a delete — one a managed package installed, which no one in
+ * the org can change, apart — or records that lock past Draft.
+ */
+export interface ForgeRemovalRisk {
+  objectApiName: string;
+  kind: 'flow' | 'trigger' | 'packageTrigger' | 'lock';
+  /** The flow's label or the trigger's name; absent for a lock. */
+  name?: string;
 }
 
 /** A detected dependency cycle with resolution strategy. */

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { ForgeExecutionResult } from '../types/forge.types.js';
 import {
+  forgeRemovalPlanLeft,
+  forgeRemovalPlanOf,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
   forgeRunRecordsLeft,
@@ -163,6 +165,114 @@ describe('removalTookAll', () => {
 
   it('says nothing was taken before a removal marked the run', () => {
     expect(removalTookAll(undefined)).toBe(false);
+  });
+
+  it('says there is more to take while the last one could not see some of the records', () => {
+    expect(removalTookAll({ ...mark(0), notVisible: 1 })).toBe(false);
+  });
+});
+
+describe('forgeRemovalPlanOf', () => {
+  /** A finished run of accounts and contacts, as the history keeps it. */
+  function historyEntry(overrides: Partial<ForgeExecutionResult> = {}): ForgeExecutionResult {
+    return {
+      ...accountsThenContacts(),
+      forgeId: 'forge-7',
+      status: 'success',
+      graph: {
+        nodes: [],
+        edges: [],
+        totalRecords: 0,
+        estimatedSizeMB: 0,
+        estimatedDurationSeconds: 0,
+      },
+      duration: 4_000,
+      timestamp: '2026-09-20T10:05:00.000Z',
+      idRemapCount: 5,
+      targetOrgId: 'org-target',
+      ...overrides,
+    };
+  }
+
+  it('keeps the target ids of what the run created, in the order a removal takes them', () => {
+    const plan = forgeRemovalPlanOf(historyEntry());
+
+    expect(plan).toEqual({
+      forgeId: 'forge-7',
+      targetOrgId: 'org-target',
+      timestamp: '2026-09-20T10:05:00.000Z',
+      duration: 4_000,
+      status: 'success',
+      objects: forgeRunCreatedRecords(accountsThenContacts()),
+      linked: 0,
+    });
+  });
+
+  it('keeps nothing but ids, dates and counts of the run', () => {
+    const plan = forgeRemovalPlanOf(
+      historyEntry({
+        config: {
+          inputMode: 'record',
+          recordId: src('001', 1).slice(0, 15),
+          depth: 'direct',
+          anonymizePII: false,
+          skipEmpty: true,
+          batchSize: 'auto',
+        },
+        readByObject: [{ objectApiName: 'Contact', read: 3 }],
+      }),
+    );
+
+    expect(Object.keys(plan ?? {}).sort()).toEqual(
+      ['duration', 'forgeId', 'linked', 'objects', 'status', 'targetOrgId', 'timestamp'].sort(),
+    );
+  });
+
+  it('carries what the removals of the run left, and the rows out of reach, as counts', () => {
+    const plan = forgeRemovalPlanOf(
+      historyEntry({
+        cancelled: true,
+        undo: { ...mark(1), removedAt: '2026-09-21T09:00:00.000Z' },
+        removalLeft: [tgt('003', 3)],
+        mayHaveBeenWritten: [
+          { objectApiName: 'Contact', sourceIds: [src('003', 7), src('003', 8)] },
+        ],
+      }),
+    );
+
+    expect(plan?.cancelled).toBe(true);
+    expect(plan?.mayHaveBeenWritten).toBe(2);
+    expect(plan && forgeRemovalPlanLeft(plan)).toEqual([
+      { objectApiName: 'Contact', ids: [tgt('003', 3)] },
+    ]);
+  });
+
+  it('keeps no plan of a run that created nothing, or names no org', () => {
+    expect(forgeRemovalPlanOf(historyEntry({ idRemapCreated: [] }))).toBeUndefined();
+    expect(forgeRemovalPlanOf(historyEntry({ targetOrgId: undefined }))).toBeUndefined();
+    expect(forgeRemovalPlanOf(historyEntry({ idRemapCreated: undefined }))).toBeUndefined();
+  });
+});
+
+describe('forgeRemovalPlanLeft', () => {
+  const objects = forgeRunCreatedRecords(accountsThenContacts());
+
+  it('takes what the plan names while no removal took any of it', () => {
+    expect(forgeRemovalPlanLeft({ objects })).toEqual(objects);
+  });
+
+  it('takes nothing once a removal left none of the records in the org', () => {
+    expect(forgeRemovalPlanLeft({ objects, undo: mark(0), removalLeft: [] })).toEqual([]);
+  });
+
+  it('takes what a removal could not see, which it left', () => {
+    expect(
+      forgeRemovalPlanLeft({
+        objects,
+        undo: { ...mark(0), notVisible: 1 },
+        removalLeft: [tgt('001', 2)],
+      }),
+    ).toEqual([{ objectApiName: 'Account', ids: [tgt('001', 2)] }]);
   });
 });
 

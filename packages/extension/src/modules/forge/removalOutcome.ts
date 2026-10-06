@@ -15,9 +15,12 @@ import type {
 
 import { emptyCounts } from '../audit/auditTrail.js';
 
-/** Records of a removal's objects left in the org: kept, or refused. */
+/**
+ * Records of a removal's objects that may be left in the org: kept, refused,
+ * or out of the sight of the user it ran as — never taken for removed.
+ */
 function leftInOrg(object: ForgeUndoObjectResult): number {
-  return object.keptChanged + object.keptDependents + object.refused;
+  return object.keptChanged + object.keptDependents + object.refused + (object.notVisible ?? 0);
 }
 
 /**
@@ -86,11 +89,13 @@ export function removalMark(
   if (deleted + alreadyGone === 0) return undefined;
   const kept = sum((o) => o.keptChanged + o.keptDependents);
   const refused = sum((o) => o.refused);
+  // Not seen is not gone: the run stays offered for them, to a user who sees them.
+  const notVisible = sum((o) => o.notVisible ?? 0);
   // A removal that ended settled every record it set out to take; one
   // cancelled left the rest where they were.
   const notReached =
     result.status === 'cancelled'
-      ? Math.max(0, planned - deleted - alreadyGone - kept - refused)
+      ? Math.max(0, planned - deleted - alreadyGone - kept - refused - notVisible)
       : 0;
   return {
     removedAt: result.finishedAt,
@@ -99,5 +104,6 @@ export function removalMark(
     kept,
     refused,
     ...(notReached > 0 ? { notReached } : {}),
+    ...(notVisible > 0 ? { notVisible } : {}),
   };
 }

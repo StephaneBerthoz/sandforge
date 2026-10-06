@@ -310,3 +310,28 @@ describe('ForgeExecutor, the dates the target gave the run', () => {
     });
   });
 });
+
+describe('ForgeExecutor, what the run under way has done so far', () => {
+  it('names the records created by the end of each object, and nothing between runs', async () => {
+    const { deps } = fakeOrgs();
+    const executor = new ForgeExecutor(deps);
+    const soFar: string[][] = [];
+    expect(executor.summarySoFar()).toBeUndefined();
+
+    await executor.execute(
+      GRAPH,
+      'src',
+      'tgt',
+      (event) => {
+        if (event.status !== 'done') return;
+        const summary = executor.summarySoFar();
+        soFar.push((summary?.createdByObject ?? []).map((o) => o.objectApiName));
+      },
+      SCOPED,
+    );
+
+    expect(soFar[0]).toEqual(['Account']);
+    expect(soFar.at(-1)).toEqual(['Account', 'Contact']);
+    expect(executor.summarySoFar()).toBeUndefined();
+  });
+});

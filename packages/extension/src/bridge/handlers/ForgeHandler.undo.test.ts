@@ -3,9 +3,10 @@ import type {
   BaseMessage,
   ForgeExecutionResult,
   ForgeGraph,
+  ForgeRemovalPlan,
   ForgeUndoResult,
 } from '@sandforge/shared';
-import { forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRemovalPlanOf, forgeRunRecordsLeft } from '@sandforge/shared';
 
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -14,6 +15,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
+import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -120,11 +122,23 @@ function targetOrg() {
     ],
   ]);
   const deletes: Array<{ object: string; ids: string[] }> = [];
+  /** The ids of the deleted records the recycle bin holds. */
+  const bin = new Set<string>();
   let beforeDelete: (object: string) => void | Promise<void> = () => {};
   let refuseDelete: (object: string, row: Row) => string | undefined = () => undefined;
   const conn = {
     limitInfo: undefined,
-    query: vi.fn(async (soql: string) => {
+    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+      // The recycle bin, which only a query that reads it too answers from.
+      const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+      if (deleted) {
+        const records = deleted[1]
+          .split(', ')
+          .map((quoted) => quoted.slice(1, -1))
+          .filter((recordId) => options?.scanAll === true && bin.has(recordId))
+          .map((Id) => ({ Id }));
+        return { totalSize: records.length, done: true, records };
+      }
       // The statuses of a lifecycle object, each with its category.
       const statuses = /^SELECT ApiName, StatusCode FROM (\w+)$/.exec(soql);
       if (statuses) {
@@ -183,6 +197,7 @@ function targetOrg() {
             object,
             (rows.get(object) ?? []).filter((r) => r.Id !== recordId),
           );
+          bin.add(recordId);
           return { id: recordId, success: true, errors: [] };
         });
       }),
@@ -200,6 +215,7 @@ function targetOrg() {
     conn,
     rows,
     deletes,
+    bin,
     accountChildren,
     children,
     clock,
@@ -567,6 +583,7 @@ describe('forge:undo', () => {
         'Contact',
         (org.rows.get('Contact') ?? []).filter((row) => row.Id !== id('003', 2)),
       );
+      org.bin.add(id('003', 2));
       (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
 
       await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
@@ -1255,6 +1272,146 @@ describe('forge:undo', () => {
 
       expect(org.deletes.flatMap((d) => d.ids)).toEqual([id('003', 2), id('003', 1), id('001', 1)]);
       expect(org.deletes.flatMap((d) => d.ids)).not.toContain(id('001', 9));
+    });
+  });
+
+  describe('a run the history no longer lists', () => {
+    let plans: ForgeRemovalPlanStore;
+    let disk: Map<string, string>;
+
+    beforeEach(() => {
+      disk = new Map();
+      plans = new ForgeRemovalPlanStore({
+        storagePath: '/extension-storage',
+        readFile: async (path) => {
+          const content = disk.get(path);
+          if (content === undefined) throw new Error(`ENOENT: ${path}`);
+          return content;
+        },
+        writeFile: async (path, content) => {
+          disk.set(path, content);
+        },
+        rename: async (from, to) => {
+          disk.set(to, disk.get(from) ?? '');
+          disk.delete(from);
+        },
+        mkdir: async () => undefined,
+      });
+    });
+
+    /** Wire the store, and a clone that ends with `result`. */
+    function withPlans(result?: ForgeExecutionResult): void {
+      handler.setForgeOrchestrator(
+        {
+          execute: vi.fn().mockResolvedValue(result),
+          on: vi.fn().mockReturnValue(vi.fn()),
+          abort: vi.fn(),
+        } as unknown as ForgeOrchestrator,
+        { removalPlans: plans },
+      );
+    }
+
+    /** `count` runs newer than forge-1 that created nothing, as the history keeps them. */
+    const newer = (count: number): ForgeExecutionResult[] =>
+      Array.from({ length: count }, (_, n) =>
+        runEntry({
+          forgeId: `forge-newer-${n}`,
+          timestamp: `2026-09-2${n % 10}T12:00:00.000Z`,
+          idRemapCreated: [],
+        }),
+      );
+
+    const olderRuns = async (): Promise<ForgeRemovalPlan[] | undefined> => {
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:history:list'));
+      return posted<BaseMessage & { payload: { olderRuns?: ForgeRemovalPlan[] } }>(
+        'forge:history:list:response',
+      )[0]?.payload.olderRuns;
+    };
+
+    it('keeps the plan of a run the history drops past twenty, and lists it among the older runs', async () => {
+      withPlans({ ...runEntry({ forgeId: 'forge-latest' }), targetOrgId: undefined });
+      store.set('forge:history', [...newer(19), runEntry()], 'forge');
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: { ...GRAPH, nodes: [] },
+          config: { ...runEntry().config, sourceOrgId: 'src-org', targetOrgId: TARGET_ORG },
+        }),
+      );
+
+      expect(history()).toHaveLength(20);
+      expect(history().map((e) => e.forgeId)).not.toContain('forge-1');
+      expect((await olderRuns())?.map((plan) => plan.forgeId)).toEqual(['forge-1']);
+      // The run that just ended is kept too, for when the history drops it.
+      expect((await plans.list()).map((plan) => plan.forgeId)).toContain('forge-latest');
+      // Ids and dates alone: the config and the graph stay in the history.
+      expect(JSON.stringify(await plans.list())).not.toContain('inputMode');
+    });
+
+    it('removes the records of a run the history dropped from its kept plan, and drops the plan once none is left', async () => {
+      withPlans();
+      await plans.put(forgeRemovalPlanOf(runEntry())!);
+      store.set('forge:history', newer(20), 'forge');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [id('003', 2), id('003', 1)] },
+        { object: 'Account', ids: [id('001', 1)] },
+      ]);
+      expect(org.deletes.flatMap((d) => d.ids)).not.toContain(id('001', 9));
+      expect(answer()).toMatchObject({ forgeId: 'forge-1', status: 'success' });
+      expect(trail()[0]).toMatchObject({ action: 'cleanup_delete', outcome: 'success' });
+      expect(await plans.list()).toEqual([]);
+      expect(await olderRuns()).toBeUndefined();
+    });
+
+    it('keeps on the plan what a removal could not see, and offers the run again for it', async () => {
+      withPlans();
+      await plans.put(forgeRemovalPlanOf(runEntry())!);
+      store.set('forge:history', [], 'forge');
+      // Out of the session's sight: no query finds it, and no delete took it.
+      org.rows.set(
+        'Contact',
+        (org.rows.get('Contact') ?? []).filter((row) => row.Id !== id('003', 2)),
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'partial',
+        objects: [
+          { objectApiName: 'Contact', deleted: 1, alreadyGone: 0, notVisible: 1 },
+          { objectApiName: 'Account', deleted: 1 },
+        ],
+      });
+      const kept = await plans.get('forge-1');
+      expect(kept?.undo).toMatchObject({ deleted: 2, alreadyGone: 0, notVisible: 1 });
+      expect(kept?.removalLeft).toEqual([id('003', 2)]);
+      expect((await olderRuns())?.map((plan) => plan.forgeId)).toEqual(['forge-1']);
+    });
+
+    it('marks the plan kept of a run the history still lists, as it marks its entry', async () => {
+      withPlans();
+      await plans.put(forgeRemovalPlanOf(runEntry())!);
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(history()[0].removalLeft).toEqual([id('003', 1), id('001', 1)]);
+      expect((await plans.get('forge-1'))?.removalLeft).toEqual(history()[0].removalLeft);
+      expect((await plans.get('forge-1'))?.undo).toEqual(history()[0].undo);
+    });
+
+    it('refuses a run neither the history nor a kept plan names', async () => {
+      withPlans();
+      store.set('forge:history', [], 'forge');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['NOT_FOUND']);
+      expect(org.deletes).toEqual([]);
     });
   });
 

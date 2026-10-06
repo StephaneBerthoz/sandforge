@@ -23,6 +23,7 @@ import {
   readDataStorage,
   removalAutomationLines,
   removalAutomationRefusal,
+  removalRiskLines,
   rowStorageBytes,
   runBypassesOf,
   storageCheckOf,
@@ -799,5 +800,36 @@ describe('what the gate says', () => {
   it('asks above 2 000 records in the extension, and refuses above 10 000 on the command line', () => {
     expect(DEFAULT_CONFIRM_ABOVE_RECORDS).toBe(2_000);
     expect(DEFAULT_MAX_TOTAL).toBe(10_000);
+  });
+});
+
+describe('what the command line says of the reversibility of a run', () => {
+  it('names, per object, what may refuse a removal of the run', () => {
+    expect(
+      removalRiskLines(
+        [
+          { objectApiName: 'Case', kind: 'flow', name: 'Case guard' },
+          { objectApiName: 'Case', kind: 'trigger', name: 'CaseDelete' },
+          { objectApiName: 'Case', kind: 'packageTrigger', name: 'pkg.CaseAudit' },
+          { objectApiName: 'Order', kind: 'lock' },
+        ],
+        'TARGET',
+      ),
+    ).toEqual([
+      "reversibility: a removal of this run's records (--remove) may be refused in TARGET:",
+      '  Case: flow "Case guard" runs before a record is deleted, and can refuse the delete',
+      '  Case: Apex trigger CaseDelete runs on a delete, and can refuse it',
+      '  Case: Apex trigger pkg.CaseAudit, installed by a managed package, runs on a delete and ' +
+        'can refuse it; no one in the org can change it',
+      '  Order: once activated, a record locks the records under it, which a removal then takes ' +
+        'only with it, or once it is back in Draft',
+    ]);
+  });
+
+  it('says when nothing was found that refuses one', () => {
+    expect(removalRiskLines([], 'TARGET')).toEqual([
+      "reversibility: nothing found in TARGET that refuses a removal of this run's records " +
+        '(no flow before a delete, no Apex trigger on one, no record that locks past Draft)',
+    ]);
   });
 });

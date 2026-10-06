@@ -5905,6 +5905,8 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
         }),
         serverTime: async () => this.now(),
         userId: async () => USER,
+        // Every record a removal here reads is found: the recycle bin is never asked.
+        queryDeleted: async () => ({ records: [] }),
       };
     }
   }

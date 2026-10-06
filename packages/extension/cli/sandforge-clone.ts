@@ -32,7 +32,7 @@
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn } from './sfSession.js';
@@ -63,6 +63,7 @@ import {
   forgeWriteHeaders,
   formatFileSize,
   leftOutAsEmptyTable,
+  removalRisksOf,
 } from '@sandforge/shared';
 import {
   DEFAULT_MAX_NODES,
@@ -73,7 +74,7 @@ import type {
   ObjectDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
-import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
@@ -124,12 +125,14 @@ import {
   removalAutomationRefusal,
   runBypassesOf,
   readDataStorage,
+  removalRiskLines,
   storageCheckOf,
   storageRefusal,
   writePlanLines,
   writePlanOf,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
@@ -174,6 +177,12 @@ export interface CliArgs {
   skipPreflight: boolean;
   /** Emit JSON summary on stdout (machine-readable for CI integration). */
   json: boolean;
+  /**
+   * Where the run writes its summary as it goes (`--summary`): after each
+   * object, then whole once it ends, or once Ctrl-C stopped it. undefined =
+   * no file.
+   */
+  summary: string | undefined;
   /** Per-object field exclusions: { Account: ['Description', 'NumberOfEmployees'] }. */
   fieldExclusions: Record<string, string[]>;
   /** Objects the clone leaves out, whether discovery reaches them or the run would add them. */
@@ -329,6 +338,15 @@ Options:
                          line goes to stderr. Saved to a file, the summary is
                          what --remove takes the run back from. With
                          --list-objects, the JSON is the objects of the graph.
+  --summary <file>       write the summary to <file> as the run goes
+                         The JSON --json prints, written after each object
+                         with what the run has created so far ("running":
+                         true), then whole once it ends. Ctrl-C stops the run
+                         between two calls to the org and writes what it had
+                         created by then ("interrupted": true), as --json then
+                         prints it: --remove takes the run back from either.
+                         A file already there is not overwritten. Not with
+                         --list-objects or --rehearse.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
   --exclude-object <obj> leave an object out of the clone (repeatable)
@@ -424,7 +442,10 @@ Exit codes:
      (nothing is written or deleted then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
-  3  the removal left records of the run in the org: kept, or refused
+  3  the removal left records of the run in the org: kept, or refused, or
+     found neither in the org nor in its recycle bin, as the user it ran as
+     sees them
+  130  Ctrl-C stopped the clone: the summary says what it created by then
 `;
 
 /** A 15- or 18-character Salesforce ID. */
@@ -491,6 +512,7 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write(`--rehearse does not go with ${withRehearse.join(', ')}.\n`);
     process.exit(2);
   }
+  const summary = summaryArg(args);
 
   const depthRaw = get('--depth', 'custom') ?? 'custom';
   const customDepthRaw = get('--custom-depth', '5');
@@ -658,6 +680,7 @@ export function parseArgs(argv: string[]): CliArgs {
     applyAssignmentRules: has('--apply-assignment-rules'),
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
+    summary,
     fieldExclusions,
     excludedObjects,
     ownerMappings,
@@ -669,6 +692,35 @@ export function parseArgs(argv: string[]): CliArgs {
     maxTotal,
     rehearse: has('--rehearse'),
   };
+}
+
+/**
+ * Where `--summary` writes the run's summary, read and checked; exits 2 on a
+ * flag given no file, one that goes with a run that creates nothing to take
+ * back, and a file already there: it may be the summary of an earlier run,
+ * the only way --remove takes that one back.
+ */
+function summaryArg(args: readonly string[]): string | undefined {
+  const at = args.indexOf('--summary');
+  if (at < 0) return undefined;
+  const path = args[at + 1];
+  if (path === undefined || path.startsWith('--')) {
+    process.stderr.write('--summary takes the file to write the summary to.\n');
+    process.exit(2);
+  }
+  const without = ['--list-objects', '--rehearse'].filter((flag) => args.includes(flag));
+  if (without.length > 0) {
+    process.stderr.write(`--summary does not go with ${without.join(', ')}.\n`);
+    process.exit(2);
+  }
+  if (existsSync(path)) {
+    process.stderr.write(
+      `--summary ${path} exists, and is not overwritten: it may be the summary of an earlier ` +
+        'run, which --remove takes that run back from. Give another file, or move it.\n',
+    );
+    process.exit(2);
+  }
+  return path;
 }
 
 /**
@@ -1803,6 +1855,9 @@ function removalCounts(object: ForgeUndoObjectResult): string {
   return [
     object.deleted > 0 ? `${object.deleted} deleted` : '',
     object.alreadyGone > 0 ? `${object.alreadyGone} already gone` : '',
+    (object.notVisible ?? 0) > 0
+      ? `${object.notVisible} not visible to this user (neither found nor in the recycle bin)`
+      : '',
     object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the run` : '',
     object.keptDependents > 0
       ? `${object.keptDependents} kept for records that stay` +
@@ -1990,14 +2045,15 @@ export function removalsAfter(
 }
 
 /**
- * Write the removals file, whole or not at all: a removal stopped while it
- * wrote would leave half a file, which the next one refuses. Says why it
- * could not, or nothing once it is written.
+ * Write a JSON file — the removals file, a run's summary — whole or not at
+ * all: a process stopped while it wrote would leave half a file, which the
+ * next removal refuses. Says why it could not, or nothing once it is written.
+ * Exported so it can be tested.
  */
-function keepRemovals(path: string, removals: RunRemovals): string | undefined {
+export function writeWhole(path: string, value: unknown): string | undefined {
   const written = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(written, JSON.stringify(removals, null, 2) + '\n', 'utf8');
+    writeFileSync(written, JSON.stringify(value, null, 2) + '\n', 'utf8');
     renameSync(written, path);
     return undefined;
   } catch (err: unknown) {
@@ -2230,7 +2286,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // be written is said, and the removal's own outcome stands: the next one may
   // then read what this one wrote as changes since the run.
   const removals = removalsAfter(run, before.earlier, outcome);
-  const failure = removals ? keepRemovals(removalsFile, removals) : undefined;
+  const failure = removals ? writeWhole(removalsFile, removals) : undefined;
   if (failure) {
     process.stderr.write(
       `What this removal left on the run's records could not be kept in ${removalsFile} ` +
@@ -2532,6 +2588,30 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   if (code !== 0) process.exit(code);
 }
 
+/** The exit code of a clone Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
+
+/** The events that end an object, after which the summary file says what the run created. */
+const OBJECT_ENDS: ReadonlySet<ForgeProgressEvent['status']> = new Set([
+  'done',
+  'error',
+  'stopped',
+]);
+
+/**
+ * What a clone Ctrl-C stopped says last: that it was stopped, and what
+ * --remove takes it back from. Exported so it can be tested.
+ *
+ * @param summaryPath - The file --summary wrote, when it was given.
+ */
+export function interruptedLine(summaryPath: string | undefined): string {
+  return summaryPath
+    ? `interrupted: the clone stopped before it was through; ${summaryPath} says what it created, ` +
+        `and --remove ${summaryPath} takes it back`
+    : 'interrupted: the clone stopped before it was through; the summary above says what it ' +
+        'created, and --remove takes it back from that summary saved to a file (--json)';
+}
+
 /**
  * Run one clone from the given command line, or one removal under `--remove`;
  * exported so its flag checks can be tested.
@@ -2689,6 +2769,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   })) {
     say(line);
   }
+  // What may refuse taking the run back, said before it writes: a flow before
+  // a delete, a trigger on one, a record that locks past Draft.
+  const removalRisks = removalRisksOf(targetAutomation, new Set(args.excludedObjects));
+  for (const line of removalRiskLines(removalRisks, args.target)) say(line);
   // What that automation may reach: the records' own addresses and numbers,
   // unless they go neutralized.
   say(
@@ -3038,16 +3122,105 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   say(
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''})`,
   );
+  // The record types were read for the run, before the executor had it: the
+  // extension counts them among its calls. A summary that counts none is left
+  // so, as the extension leaves it: theirs alone would read as the run's.
+  const withRecordTypeCalls = (counted: ExecutionSummary): ExecutionSummary =>
+    counted.apiCalls === undefined
+      ? counted
+      : { ...counted, apiCalls: counted.apiCalls + recordTypeCalls };
+  /**
+   * The summary --json prints and --summary writes, of the run as `counted`
+   * has it at `at`: the whole run once it ended, what it has created so far
+   * while it goes, what it had created when it was stopped.
+   */
+  const runDocument = (
+    counted: ExecutionSummary,
+    at: Date,
+    state: { running?: true; interrupted?: true; error?: string } = {},
+  ) => ({
+    tool: 'sandforge-clone',
+    version: 1,
+    source: args.source,
+    target: args.target,
+    // The org the run wrote to, by its own id: a removal goes to that org and
+    // to no other, whatever alias names it by then.
+    ...(targetOrgId ? { targetOrgId } : {}),
+    record: args.record,
+    dryRun: args.dryRun,
+    upsert: args.upsert,
+    expandOrphans: args.expandOrphans,
+    // Whether the run's writes let the target's assignment rules apply.
+    applyAssignmentRules: args.applyAssignmentRules,
+    files: args.files !== undefined,
+    graph: graphJson(graph, plan),
+    // What the target runs on the objects the run writes, read before the
+    // run: flows, triggers, processes and workflow rules per object, what of
+    // them sends messages or runs after commit, the assignment and duplicate
+    // rules, the custom permissions that keep a flow quiet and whether the
+    // user the run writes as holds them, and what could not be read.
+    targetAutomation,
+    // What may refuse a removal of the run's records, per object: the flows
+    // before a delete, the Apex triggers on one, the records that lock past
+    // Draft.
+    removalRisks,
+    // What the target holds against the rows, read from its metadata before
+    // the run: each gap with its kind, severity, object, field and the
+    // decisions it allows; what could not be read, and what the read cost.
+    targetGaps,
+    result: jsonResult(counted),
+    elapsedMs: at.getTime() - t0,
+    finishedAt: at.toISOString(),
+    ...state,
+  });
+
   let summary: ExecutionSummary;
   const outcomeLine = objectOutcomePrinter(graph);
+  const executor = new ForgeExecutor(executorDeps);
+  // The summary file follows the run object after object: a process killed
+  // part way leaves what the run had created by the last object it ended,
+  // which --remove takes back. A file that cannot be written is said once.
+  let summaryUnwritable = false;
+  const keepSummary = (document: unknown): void => {
+    if (!args.summary) return;
+    const failure = writeWhole(args.summary, document);
+    if (failure && !summaryUnwritable) {
+      summaryUnwritable = true;
+      process.stderr.write(`The summary could not be written to ${args.summary} (${failure}).\n`);
+    }
+  };
+  let rowsKept = -1;
+  const keepSoFar = (): void => {
+    const soFar = executor.summarySoFar();
+    if (!soFar) return;
+    const rows = soFar.successCount + soFar.linkedCount + soFar.updatedCount + soFar.failedCount;
+    if (rows === rowsKept) return;
+    rowsKept = rows;
+    keepSummary(runDocument(withRecordTypeCalls(soFar), new Date(), { running: true }));
+  };
+  // Ctrl-C stops the run between two calls to the org, as Abort does in the
+  // panel, and the summary says what it had created by then. Killed outright,
+  // a clone printed nothing, and --remove had nothing to take it back from.
+  // A second Ctrl-C ends the process at once.
+  let interrupted = false;
+  const interrupt = (): void => {
+    interrupted = true;
+    process.stderr.write(
+      '\ninterrupted: the clone stops after the call under way, and says what it created ' +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    executor.abort();
+  };
+  process.once('SIGINT', interrupt);
   try {
-    const executed = await new ForgeExecutor(executorDeps).execute(
+    const executed = await executor.execute(
       graph,
       args.source,
       args.target,
       (event) => {
         const line = outcomeLine(event);
         if (line) say(line);
+        if (args.summary && OBJECT_ENDS.has(event.status)) keepSoFar();
       },
       {
         ...executeOptions(args, graph, recordTypeMappings, (fields) =>
@@ -3056,14 +3229,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         beforeWrite,
       },
     );
-    // The record types were read for the run, before the executor had it:
-    // the extension counts them among its calls. A summary that counts none
-    // is left so, as the extension leaves it: theirs alone would read as the
-    // run's.
-    summary =
-      executed.apiCalls === undefined
-        ? executed
-        : { ...executed, apiCalls: executed.apiCalls + recordTypeCalls };
+    summary = withRecordTypeCalls(executed);
   } catch (err: unknown) {
     // Refused before anything was written — the files do not fit in the
     // target, its storage could not be read, or the files could not all be
@@ -3074,7 +3240,31 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
     }
+    const partial = partialSummaryOf(err);
+    if (partial && (interrupted || err instanceof ForgeAbortedError)) {
+      const document = runDocument(withRecordTypeCalls(partial), new Date(), {
+        interrupted: true,
+      });
+      keepSummary(document);
+      if (args.json) {
+        process.stdout.write(JSON.stringify(document, null, 2) + '\n');
+      } else {
+        console.log('');
+        for (const line of summaryLines(partial, args.dryRun)) console.log(line);
+      }
+      say(interruptedLine(args.summary));
+      process.exit(INTERRUPTED_EXIT);
+    }
+    // A failure past the first objects: what the run had created by then is
+    // kept for --remove before the failure is said.
+    if (partial) {
+      keepSummary(
+        runDocument(withRecordTypeCalls(partial), new Date(), { error: extractErrorMessage(err) }),
+      );
+    }
     throw err;
+  } finally {
+    process.off('SIGINT', interrupt);
   }
 
   // When the run ended, on this machine's clock: a removal dates by it a run
@@ -3120,46 +3310,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     say(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`);
   }
 
+  // Machine-readable summary for CI/automation. Stable schema. The summary
+  // file, when asked for, takes the run's end over what it said as it went.
+  const document = runDocument(summary, finishedAt);
+  keepSummary(document);
   if (args.json) {
-    // Machine-readable summary for CI/automation. Stable schema.
-    process.stdout.write(
-      JSON.stringify(
-        {
-          tool: 'sandforge-clone',
-          version: 1,
-          source: args.source,
-          target: args.target,
-          // The org the run wrote to, by its own id: a removal goes to that
-          // org and to no other, whatever alias names it by then.
-          ...(targetOrgId ? { targetOrgId } : {}),
-          record: args.record,
-          dryRun: args.dryRun,
-          upsert: args.upsert,
-          expandOrphans: args.expandOrphans,
-          // Whether the run's writes let the target's assignment rules apply.
-          applyAssignmentRules: args.applyAssignmentRules,
-          files: args.files !== undefined,
-          graph: graphJson(graph, plan),
-          // What the target runs on the objects the run writes, read before
-          // the run: flows, triggers, processes and workflow rules per
-          // object, what of them sends messages or runs after commit, the
-          // assignment and duplicate rules, the custom permissions that keep
-          // a flow quiet and whether the user the run writes as holds them,
-          // and what could not be read.
-          targetAutomation,
-          // What the target holds against the rows, read from its metadata
-          // before the run: each gap with its kind, severity, object, field
-          // and the decisions it allows; what could not be read, and what the
-          // read cost.
-          targetGaps,
-          result: jsonResult(summary),
-          elapsedMs: elapsed,
-          finishedAt: finishedAt.toISOString(),
-        },
-        null,
-        2,
-      ) + '\n',
-    );
+    process.stdout.write(JSON.stringify(document, null, 2) + '\n');
   } else {
     console.log('');
     for (const line of summaryLines(summary, args.dryRun)) console.log(line);

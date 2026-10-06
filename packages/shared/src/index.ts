@@ -113,7 +113,12 @@ export {
   isRequiredLookup,
   isSettableField,
 } from './constants/platform-required-fields.js';
-export { STATUS_NEEDS_CHILDREN, type ChildrenAStatusNeeds } from './constants/status-children.js';
+export {
+  LOCKED_PAST_DRAFT,
+  STATUS_NEEDS_CHILDREN,
+  type ChildrenAStatusNeeds,
+  type LockedPastDraft,
+} from './constants/status-children.js';
 export {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -149,6 +154,8 @@ export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export {
+  forgeRemovalPlanLeft,
+  forgeRemovalPlanOf,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
   forgeRunRecordsLeft,
@@ -174,6 +181,7 @@ export {
   firedOnWriteOf,
   heldBypassPermissionsOf,
   removalBypassesOf,
+  removalRisksOf,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,

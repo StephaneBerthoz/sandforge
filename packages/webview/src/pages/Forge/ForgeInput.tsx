@@ -629,6 +629,7 @@ export const ForgeInput: React.FC = () => {
           {/* Past runs — refill the form from a run the extension kept */}
           <ForgeHistoryPanel
             entries={form.runHistory}
+            olderRuns={form.olderRuns}
             error={form.historyError}
             onReuseConfig={form.applyHistoryConfig}
             onHistoryChanged={form.refreshHistory}

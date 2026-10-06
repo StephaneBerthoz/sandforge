@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRunRecordsLeft } from '@sandforge/shared';
-import type { ForgeUndoResult } from '@sandforge/shared';
+import { forgeRemovalPlanLeft, forgeRunRecordsLeft } from '@sandforge/shared';
+import type { ForgeRemovalPlan, ForgeUndoResult } from '@sandforge/shared';
 import { cn } from '../../theme';
-import { formatStoredDate } from '../../utils/formatters';
+import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import type { ForgeExecutionResult } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -54,6 +54,11 @@ interface UndoAnswer {
 export interface ForgeHistoryPanelProps {
   /** Past runs the extension persisted, newest first. */
   entries: ForgeExecutionResult[];
+  /**
+   * The runs the history no longer lists whose records can still be removed,
+   * by the plans the extension kept of them, newest first.
+   */
+  olderRuns?: ForgeRemovalPlan[];
   /** Error raised while loading the history, or null. */
   error: string | null;
   /** Refill the Forge form from a past run's configuration. */
@@ -81,9 +86,14 @@ export interface ForgeHistoryPanelProps {
  * removes what its own history says the run created, and nothing it linked.
  * A removal that left some of them in the org — kept, or refused — says so
  * on the run, which then offers to remove what is left.
+ *
+ * The history keeps twenty runs; a run it dropped whose records are still in
+ * the org is listed under the older runs, from the removal plan the extension
+ * kept of it, with the same removal.
  */
 export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   entries,
+  olderRuns = [],
   error,
   onReuseConfig,
   onHistoryChanged,
@@ -91,8 +101,10 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const [reusedFrom, setReusedFrom] = useState<string | null>(null);
-  /** The run whose removal is being confirmed. */
-  const [confirming, setConfirming] = useState<ForgeExecutionResult | null>(null);
+  /** The run whose removal is being confirmed: its entry, or the plan kept of an older one. */
+  const [confirming, setConfirming] = useState<ForgeExecutionResult | ForgeRemovalPlan | null>(
+    null,
+  );
   const [includeChanged, setIncludeChanged] = useState(false);
   /** The run the last removal was asked for: its answer shows under it. */
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -117,7 +129,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && olderRuns.length === 0) {
     // A background fetch with nothing to show is silent; a failed one says so,
     // rather than leaving the user to wonder where their runs went.
     return error ? (
@@ -143,10 +155,12 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
    * left, once one left records in the org — what became of it, or why it
    * offers none.
    */
-  const removalOf = (entry: ForgeExecutionResult): React.ReactNode => {
+  const removalOf = (entry: ForgeExecutionResult | ForgeRemovalPlan): React.ReactNode => {
     const mine = removingId === entry.forgeId;
     const org = orgLabel(entry.targetOrgId);
     const answer = mine ? removal.data?.result : undefined;
+    // An older run is listed only while its kept plan has records to remove.
+    const keptPlan = 'objects' in entry;
     // Said above the action, not in its place: a removal that left records
     // marked the run, and the run offered nothing more — what it left could
     // only be deleted by hand.
@@ -157,7 +171,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       />
     ) : null;
     let action: React.ReactNode = null;
-    if (!entry.idRemapCreated || !entry.targetOrgId) {
+    if (!keptPlan && (!entry.idRemapCreated || !entry.targetOrgId)) {
       // Recorded before a run kept what it created and where: said only of a
       // run that did write something.
       if (!entry.undo && (entry.createdCount ?? entry.idRemapCount) > 0) {
@@ -170,7 +184,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           </p>
         );
       }
-    } else if (removable.has(entry.forgeId)) {
+    } else if (keptPlan || removable.has(entry.forgeId)) {
       action = org ? (
         <Button
           variant="secondary"
@@ -282,6 +296,51 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           </div>
         );
       })}
+
+      {olderRuns.length > 0 && (
+        <div data-testid="forge-history-older" className="flex flex-col gap-1.5 mt-1">
+          <div className="text-[10px] text-text-secondary uppercase tracking-widest">
+            {t('forge.history.olderTitle')}
+          </div>
+          <p className="text-[10px] text-text-secondary">{t('forge.history.olderHint')}</p>
+          {olderRuns.map((plan) => {
+            const left = forgeRemovalPlanLeft(plan).reduce((sum, o) => sum + o.ids.length, 0);
+            const org = orgLabel(plan.targetOrgId);
+            return (
+              <div
+                key={plan.forgeId}
+                data-testid={`forge-history-older-${plan.forgeId}`}
+                className="flex flex-col gap-1.5 px-3 py-2 rounded-md border border-subtle bg-surface-2"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-text-secondary">
+                    {shown(plan.timestamp) ?? t('common.dateUnknown')}
+                  </span>
+                  {plan.cancelled ? (
+                    <span className="text-[10px] font-semibold text-text-secondary">
+                      {t('home.opStatus.cancelled')}
+                    </span>
+                  ) : (
+                    <span className={cn('text-[10px] font-semibold', STATUS_CLASSES[plan.status])}>
+                      {t(STATUS_KEYS[plan.status])}
+                    </span>
+                  )}
+                </div>
+                {org && (
+                  <span className="block text-[11px] text-text-secondary">
+                    {t('forge.history.olderRecords', {
+                      count: left,
+                      formatted: formatNumber(left),
+                      org,
+                    })}
+                  </span>
+                )}
+                {removalOf(plan)}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {reusedFrom !== null && (
         <p

@@ -602,4 +602,76 @@ describe('ReviewAutomationTab', () => {
       '保存がコミットされた後にも実行: 保存の 2 日後のスケジュール済みパス',
     );
   });
+
+  describe("what may refuse a removal of the run's records", () => {
+    it('names a flow before a delete, a trigger on one, a managed package trigger, and records that lock past Draft', () => {
+      render(
+        <ReviewAutomationTab
+          automation={automation({
+            objectsRead: ['Case', 'Order'],
+            objects: [
+              {
+                objectApiName: 'Case',
+                flows: [
+                  flow(),
+                  flow({
+                    apiName: 'Case_Guard',
+                    label: 'Case guard',
+                    timing: 'beforeDelete',
+                    startsOn: 'delete',
+                  }),
+                ],
+                triggers: [
+                  { name: 'CaseDelete', events: ['beforeDelete'] },
+                  { name: 'pkg.CaseAudit', events: ['afterDelete'] },
+                ],
+              },
+            ],
+          })}
+        />,
+      );
+
+      const said = screen.getByTestId('automation-removal');
+      expect(said.textContent).toContain("A removal of this run's records may be refused:");
+      expect(
+        within(said)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Case: Flow "Case guard" runs before a record is deleted, and can refuse the delete',
+        'Case: Apex trigger CaseDelete runs on a delete, and can refuse it',
+        'Case: Apex trigger pkg.CaseAudit, installed by a managed package, runs on a delete and can refuse it; no one in the org can change it',
+        'Order: once activated, a record locks the records under it, which a removal then takes only with it, or once it is back in Draft',
+      ]);
+      expect(screen.queryByTestId('automation-removal-none')).toBeNull();
+    });
+
+    it('says none was found once everything was read, and leaves that unsaid when a part could not be', () => {
+      const { unmount } = render(<ReviewAutomationTab automation={automation()} />);
+      expect(screen.getByTestId('automation-removal-none').textContent).toBe(
+        "Nothing found that would refuse a removal of this run's records: no Flow before a delete, no Apex trigger on one, no record that locks past Draft.",
+      );
+      unmount();
+
+      render(
+        <ReviewAutomationTab
+          automation={automation({ unread: [{ part: 'triggers', reason: 'INSUFFICIENT_ACCESS' }] })}
+        />,
+      );
+      expect(screen.queryByTestId('automation-removal-none')).toBeNull();
+      expect(screen.queryByTestId('automation-removal')).toBeNull();
+    });
+
+    it('leaves out an object the user has left out of the run since the read', () => {
+      render(
+        <ReviewAutomationTab
+          automation={automation({ objectsRead: ['Case', 'Order'] })}
+          leftOut={new Set(['Order'])}
+        />,
+      );
+
+      expect(screen.queryByTestId('automation-removal')).toBeNull();
+      expect(screen.getByTestId('automation-removal-none')).toBeDefined();
+    });
+  });
 });

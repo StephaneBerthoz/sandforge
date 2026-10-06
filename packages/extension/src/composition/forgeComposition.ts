@@ -141,6 +141,12 @@ export interface ForgeCompositionDeps {
   orgManager: OrgManager;
   piiDetector: PIIDetector;
   log: (msg: string) => void;
+  /**
+   * The directory the extension owns for persistent data (globalStorageUri),
+   * where the removal plans of past runs are kept. Without it a run is
+   * removable while the history lists it.
+   */
+  storagePath?: string;
 }
 
 /**
@@ -171,6 +177,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/fileTransfer.js'),
     import('../modules/forge/TargetAutomationReader.js'),
     import('../modules/forge/TargetGapReader.js'),
+    import('../modules/forge/ForgeRemovalPlanStore.js'),
   ])
     .then(
       ([
@@ -187,6 +194,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         fileTransfer,
         { TargetAutomationReader, answerOf },
         { TargetGapReader },
+        { ForgeRemovalPlanStore },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -622,6 +630,18 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             })
           : undefined;
 
+        // What removing each past run takes, kept in the extension's own
+        // storage past the history's twenty runs, whatever folder is open.
+        const removalPlans = deps.storagePath
+          ? new ForgeRemovalPlanStore({
+              storagePath: deps.storagePath,
+              readFile: (path) => fs.readFile(path, 'utf-8'),
+              writeFile: (path, content) => fs.writeFile(path, content, 'utf-8'),
+              rename: (from, to) => fs.rename(from, to),
+              mkdir: (path) => fs.mkdir(path, { recursive: true }).then(() => undefined),
+            })
+          : undefined;
+
         // A rehearsal reads through the run's own deps, and creates its sample
         // in the target in composite calls that each roll back whole. Its
         // calls are its own to count: they are none of a run's.
@@ -660,6 +680,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           targetAutomation,
           targetGaps,
           templateStore,
+          removalPlans,
           rehearser,
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.

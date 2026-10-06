@@ -12,6 +12,7 @@ import type {
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
+import type { ForgeRemovalRisk } from '@sandforge/shared';
 import { formatMB } from '../modules/forge/ForgeRunGate';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
@@ -219,7 +220,48 @@ function automationQuestion(question: AutomationConfirmation): string[] {
       ),
     );
   }
+  lines.push(...removalRiskLines(question.removal ?? []));
   lines.push(vscode.l10n.t('Nothing has been read or written yet.'));
+  return lines;
+}
+
+/**
+ * What may refuse the removal of the records the clone creates, one line per
+ * object and cause, as many as a question lists: said before the run, where
+ * the user decides on it, not when a removal is refused.
+ */
+function removalRiskLines(risks: readonly ForgeRemovalRisk[]): string[] {
+  if (risks.length === 0) return [];
+  const lines = [vscode.l10n.t('A removal of the records this clone creates may be refused:')];
+  for (const { objectApiName, kind, name = '' } of risks.slice(0, LISTED_IN_A_QUESTION)) {
+    lines.push(
+      kind === 'flow'
+        ? vscode.l10n.t(
+            '• {0}: Flow "{1}" runs before a record is deleted, and can refuse the delete',
+            objectApiName,
+            name,
+          )
+        : kind === 'trigger'
+          ? vscode.l10n.t(
+              '• {0}: Apex trigger {1} runs on a delete, and can refuse it',
+              objectApiName,
+              name,
+            )
+          : kind === 'packageTrigger'
+            ? vscode.l10n.t(
+                '• {0}: Apex trigger {1}, installed by a managed package, runs on a delete and can refuse it; no one in the org can change it',
+                objectApiName,
+                name,
+              )
+            : vscode.l10n.t(
+                '• {0}: once activated, a record locks the records under it, which a removal then takes only with it, or once it is back in Draft',
+                objectApiName,
+              ),
+    );
+  }
+  if (risks.length > LISTED_IN_A_QUESTION) {
+    lines.push(vscode.l10n.t('• and {0} more', risks.length - LISTED_IN_A_QUESTION));
+  }
   return lines;
 }
 

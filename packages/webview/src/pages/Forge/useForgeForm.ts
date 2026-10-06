@@ -5,7 +5,7 @@ import {
   buildSyntheticForgeGraph,
   getBuiltinTemplateObjects,
 } from '@sandforge/shared';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { ForgeRemovalPlan, SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
@@ -181,6 +181,11 @@ export interface ForgeFormState {
   /* Run history (persisted by the extension, newest first) */
   /** Past runs the extension kept, newest first. Empty until the reply lands. */
   runHistory: ForgeExecutionResult[];
+  /**
+   * The runs the history no longer lists whose records can still be removed,
+   * by the plans the extension kept of them, newest first.
+   */
+  olderRuns: ForgeRemovalPlan[];
   /** Message shown when the history request failed; null while it is fine. */
   historyError: string | null;
   /** Refill every form field from a past run's stored configuration. */
@@ -307,8 +312,12 @@ export function useForgeForm(): ForgeFormState {
    * extension writes do carry the config, and `forge:history:list` is how
    * they are asked for.
    */
-  const historyQuery = useBridgeQuery<{ history: ForgeExecutionResult[] }>('forge:history:list');
+  const historyQuery = useBridgeQuery<{
+    history: ForgeExecutionResult[];
+    olderRuns?: ForgeRemovalPlan[];
+  }>('forge:history:list');
   const runHistory = useMemo(() => historyQuery.data?.history ?? [], [historyQuery.data]);
+  const olderRuns = useMemo(() => historyQuery.data?.olderRuns ?? [], [historyQuery.data]);
 
   /*
    * Read again whenever a run ends, this panel's or another's: the extension
@@ -897,6 +906,7 @@ export function useForgeForm(): ForgeFormState {
     ai,
     applyTemplate,
     runHistory,
+    olderRuns,
     historyError: historyQuery.error,
     applyHistoryConfig,
     refreshHistory: historyQuery.refetch,

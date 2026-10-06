@@ -9,6 +9,7 @@ import {
   bypassPermissionsOf,
   firedOnInsert,
   heldBypassPermissionsOf,
+  removalRisksOf,
 } from './forge-target-automation.js';
 
 /** A flow read with its start condition, naming no permission unless told. */
@@ -350,5 +351,64 @@ describe('assignPermsetCommand', () => {
     expect(assignPermsetCommand('Bypass', 'a$b', 'u@example.com')).toContain(
       '--target-org "a\\$b" ',
     );
+  });
+});
+
+describe('removalRisksOf', () => {
+  const beforeDelete = flow({ label: 'Case guard', startsOn: 'delete', timing: 'beforeDelete' });
+
+  it('names the flows before a delete and the triggers on one, a package trigger apart', () => {
+    const automation = {
+      objectsRead: ['Account', 'Case'],
+      objects: [
+        object({
+          flows: [flow(), beforeDelete],
+          triggers: [
+            { name: 'CaseDelete', events: ['beforeDelete'] },
+            { name: 'pkg.CaseAudit', events: ['afterDelete', 'afterInsert'] },
+            { name: 'CaseInsert', events: ['beforeInsert'] },
+          ],
+        }),
+      ],
+    };
+
+    expect(removalRisksOf(automation)).toEqual([
+      { objectApiName: 'Case', kind: 'flow', name: 'Case guard' },
+      { objectApiName: 'Case', kind: 'trigger', name: 'CaseDelete' },
+      { objectApiName: 'Case', kind: 'packageTrigger', name: 'pkg.CaseAudit' },
+    ]);
+  });
+
+  it('names the objects whose records lock the rows under them past Draft', () => {
+    expect(
+      removalRisksOf({ objectsRead: ['Account', 'Order', 'OrderItem', 'Contract'], objects: [] }),
+    ).toEqual([
+      { objectApiName: 'Order', kind: 'lock' },
+      { objectApiName: 'Contract', kind: 'lock' },
+    ]);
+  });
+
+  it('leaves out an object the run no longer writes, and a flow kept quiet for its user', () => {
+    const quiet = flow({
+      ...beforeDelete,
+      label: 'Quiet guard',
+      permissions: [{ name: 'Load_Data', bypass: true, held: true }],
+    });
+    const automation = {
+      objectsRead: ['Case', 'Order'],
+      objects: [object({ flows: [quiet] })],
+    };
+
+    expect(removalRisksOf(automation)).toEqual([{ objectApiName: 'Order', kind: 'lock' }]);
+    expect(removalRisksOf(automation, new Set(['Order']))).toEqual([]);
+  });
+
+  it('names nothing when nothing runs on a delete and nothing locks', () => {
+    expect(
+      removalRisksOf({
+        objectsRead: ['Case'],
+        objects: [object({ flows: [flow()], triggers: [{ name: 'T', events: ['afterInsert'] }] })],
+      }),
+    ).toEqual([]);
   });
 });

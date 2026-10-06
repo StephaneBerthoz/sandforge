@@ -920,6 +920,15 @@ describe('sandforge-clone removal lines', () => {
       'not checked, deleted with their parent: ActionableListMember',
     ]);
   });
+
+  it('says a record the removal could not see is not visible, never that it went', () => {
+    expect(
+      removalLines('partial', [objectResult('Contact', 3, { deleted: 2, notVisible: 1 })]),
+    ).toEqual([
+      'removal: PARTIAL',
+      '  Contact: 2 deleted, 1 not visible to this user (neither found nor in the recycle bin) of 3',
+    ]);
+  });
 });
 
 describe('sandforge-clone removal of a run a call may have written to', () => {

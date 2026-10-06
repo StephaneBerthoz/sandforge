@@ -4,6 +4,7 @@ import type {
   BaseMessage,
   ForgeExecutionResult,
   ForgeGraph,
+  ForgeRemovalPlan,
   ForgeUndoResult,
   SalesforceOrg,
 } from '@sandforge/shared';
@@ -716,5 +717,108 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     const entry = screen.getByTestId('forge-history-entry-forge-removable');
     expect(within(entry).queryByRole('button', { name: /Remove/ })).toBeNull();
     expect(screen.queryByTestId('forge-history-remove-unrecorded-forge-removable')).toBeNull();
+  });
+});
+
+/** The plan the extension kept of a run the history dropped: two contacts and their account. */
+const OLDER_RUN: ForgeRemovalPlan = {
+  forgeId: 'forge-older',
+  targetOrgId: DEV.id,
+  timestamp: '2026-08-01T09:00:00.000Z',
+  duration: 12_000,
+  status: 'success',
+  objects: [
+    { objectApiName: 'Contact', ids: [rid('003', 2), rid('003', 1)] },
+    { objectApiName: 'Account', ids: [rid('001', 1)] },
+  ],
+  linked: 1,
+};
+
+describe('ForgeHistoryPanel — older runs', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  it('lists a run the history dropped whose records are still to remove, with how many and where', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[REMOVABLE_RUN]}
+        olderRuns={[OLDER_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    const older = screen.getByTestId('forge-history-older');
+    expect(older.textContent).toContain('Older runs');
+    const run = screen.getByTestId('forge-history-older-forge-older');
+    expect(run.textContent).toContain('2026-08-01');
+    expect(run.textContent).toContain('Success');
+    expect(run.textContent).toContain('3 records to remove from DEV-SANDBOX');
+    expect(within(run).getByRole('button', { name: 'Remove the records this run created' }));
+  });
+
+  it('confirms with the records the plan names and the linked ones it keeps, and sends the run alone', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[]}
+        olderRuns={[OLDER_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-older'));
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 2 records', 'Account: 1 record']);
+    expect(screen.getByTestId('forge-removal-linked').textContent).toBe('1 linked record is kept.');
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({ forgeId: 'forge-older', includeChanged: false });
+  });
+
+  it('says what a removal of an older run could not see, and offers what it left', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[]}
+        olderRuns={[
+          {
+            ...OLDER_RUN,
+            undo: {
+              removedAt: '2026-09-23T10:00:00.000Z',
+              deleted: 2,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+              notVisible: 1,
+            },
+            removalLeft: [rid('003', 2)],
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-mark').textContent).toContain(
+      '1 not visible to this user (neither found nor in the recycle bin)',
+    );
+    expect(screen.getByTestId('forge-history-older-forge-older').textContent).toContain(
+      '1 record to remove from DEV-SANDBOX',
+    );
+    expect(screen.getByTestId('forge-history-remove-forge-older').textContent).toBe(
+      "Remove what is left of this run's records",
+    );
+  });
+
+  it('lists no older run section when there is none', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-history-older')).toBeNull();
   });
 });

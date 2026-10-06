@@ -8,6 +8,7 @@ import type {
   ForgePlan,
   ForgeRehearsal,
   ForgeRehearsalProgress,
+  ForgeRemovalPlan,
   ForgeRunVerification,
   ForgeTargetAutomation,
   ForgeTargetGaps,
@@ -373,7 +374,14 @@ export interface ForgeTemplatesDeleteErrorMessage extends BaseMessage {
 /** `forge:history:list:response`. Extension -> WebView. Past execution results, newest first. */
 export interface ForgeHistoryListResponse extends BaseMessage {
   type: 'forge:history:list:response';
-  payload: { history: ForgeExecutionResult[] };
+  payload: {
+    history: ForgeExecutionResult[];
+    /**
+     * The runs the history no longer lists whose records a removal could
+     * still take, by their kept removal plans, newest first.
+     */
+    olderRuns?: ForgeRemovalPlan[];
+  };
 }
 
 /**

@@ -173,6 +173,11 @@ class TargetOrg implements RemovalOrg {
     return OWNER;
   }
 
+  /** Its recycle bin: every removal here finds each record it reads, so none is asked for. */
+  async queryDeleted(): Promise<{ records: unknown[] }> {
+    return { records: [] };
+  }
+
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     return ids.map((recordId) => {
       if (objectApiName === 'ContentVersion') {

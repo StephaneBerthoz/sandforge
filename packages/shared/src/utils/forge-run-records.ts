@@ -1,4 +1,8 @@
-import type { ForgeExecutionResult, ForgeUndoMark } from '../types/forge.types.js';
+import type {
+  ForgeExecutionResult,
+  ForgeRemovalPlan,
+  ForgeUndoMark,
+} from '../types/forge.types.js';
 
 /** A Salesforce record id: 15 or 18 letters and digits. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -101,7 +105,10 @@ export function forgeRunLinkedKept(
  * @param mark - What the run keeps of its removals; undefined before one marked it.
  */
 export function removalTookAll(mark: ForgeUndoMark | undefined): boolean {
-  return mark !== undefined && mark.kept + mark.refused + (mark.notReached ?? 0) === 0;
+  return (
+    mark !== undefined &&
+    mark.kept + mark.refused + (mark.notReached ?? 0) + (mark.notVisible ?? 0) === 0
+  );
 }
 
 /**
@@ -123,13 +130,71 @@ export function forgeRunRecordsLeft(
   >,
 ): ForgeRunObjectRecords[] {
   if (removalTookAll(entry.undo)) return [];
-  const created = forgeRunCreatedRecords(entry);
-  if (!Array.isArray(entry.removalLeft)) return created;
+  return stillLeft(forgeRunCreatedRecords(entry), entry.removalLeft);
+}
+
+/** Of what a run created, what its removals left (`removalLeft`); all of it before any took one. */
+function stillLeft(
+  created: ForgeRunObjectRecords[],
+  removalLeft: unknown,
+): ForgeRunObjectRecords[] {
+  if (!Array.isArray(removalLeft)) return created;
   const left = new Set(
-    entry.removalLeft.filter((id): id is string => typeof id === 'string').map(recordKey),
+    removalLeft.filter((id): id is string => typeof id === 'string').map(recordKey),
   );
   return created.flatMap(({ objectApiName, ids }) => {
     const still = ids.filter((id) => left.has(recordKey(id)));
     return still.length > 0 ? [{ objectApiName, ids: still }] : [];
   });
+}
+
+/**
+ * What removing a run's records needs, read from its history entry and kept
+ * apart from it: the history keeps the last runs alone, and a run it dropped
+ * could no longer be taken back from the panel. Ids, dates and counts only.
+ *
+ * @param entry - A run's history entry, with the org it wrote to.
+ * @returns Nothing for a run that created no record, recorded before runs
+ *   kept what they created, or with no org to remove from.
+ */
+export function forgeRemovalPlanOf(entry: ForgeExecutionResult): ForgeRemovalPlan | undefined {
+  if (!entry.targetOrgId || !Array.isArray(entry.idRemapCreated)) return undefined;
+  const objects = forgeRunCreatedRecords(entry);
+  if (objects.length === 0) return undefined;
+  const unreachable = (entry.mayHaveBeenWritten ?? []).reduce(
+    (sum, { sourceIds }) => sum + sourceIds.length,
+    0,
+  );
+  return {
+    forgeId: entry.forgeId,
+    targetOrgId: entry.targetOrgId,
+    timestamp: entry.timestamp,
+    duration: entry.duration,
+    status: entry.status,
+    ...(entry.cancelled ? { cancelled: true as const } : {}),
+    ...(entry.writtenBetween ? { writtenBetween: { ...entry.writtenBetween } } : {}),
+    objects,
+    linked: forgeRunLinkedKept(entry).length,
+    ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
+    ...(entry.undo ? { undo: { ...entry.undo } } : {}),
+    ...(entry.removalStamps ? { removalStamps: { ...entry.removalStamps } } : {}),
+    ...(entry.removalSpans ? { removalSpans: [...entry.removalSpans] } : {}),
+    ...(Array.isArray(entry.removalLeft) ? { removalLeft: [...entry.removalLeft] } : {}),
+  };
+}
+
+/**
+ * What a removal of a run takes now, from its kept plan: what
+ * {@link forgeRunRecordsLeft} reads from its history entry.
+ *
+ * @param plan - The run's removal plan.
+ */
+export function forgeRemovalPlanLeft(
+  plan: Pick<ForgeRemovalPlan, 'objects' | 'undo' | 'removalLeft'>,
+): ForgeRunObjectRecords[] {
+  if (removalTookAll(plan.undo)) return [];
+  return stillLeft(
+    plan.objects.map(({ objectApiName, ids }) => ({ objectApiName, ids: [...ids] })),
+    plan.removalLeft,
+  );
 }
