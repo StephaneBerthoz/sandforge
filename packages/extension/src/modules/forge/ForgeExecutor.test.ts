@@ -8352,10 +8352,14 @@ describe('ForgeExecutor', () => {
               { ...rooted, dryRun: true, excludedObjects: ['PricebookEntry'] },
             );
 
-            expect(summary.errors).toEqual([
-              leftADraft(ORDER),
-              expect.objectContaining({ objectApiName: 'OrderItem', failedCount: 1 }),
-            ]);
+            // What the real run says, the opportunity's price book included,
+            // the order named as it was read.
+            expect(summary.errors).toEqual(
+              expect.arrayContaining([
+                leftADraft(ORDER),
+                expect.objectContaining({ objectApiName: 'OrderItem', failedCount: 1 }),
+              ]),
+            );
           });
         });
       });
@@ -9120,10 +9124,14 @@ describe('ForgeExecutor', () => {
           { ...scoped, dryRun: true },
         );
 
+        // Said as the read brings it, and again as the simulated write ends it.
+        expect(progressEvents.map((e) => e.message)).toContain(
+          '[dry-run] FeedItem: 1 record(s) would be inserted, 1 tracked change left out: the platform writes them itself',
+        );
         expect(
           progressEvents.find((e) => e.objectName === 'FeedItem' && e.status === 'done')?.message,
         ).toBe(
-          '[dry-run] FeedItem: 1 record(s) would be inserted, 1 tracked change left out: the platform writes them itself',
+          'Simulated FeedItem: 1 would be inserted, 0 failed, 1 tracked change left out: the platform writes them itself',
         );
         // The opportunity, the post and the comment on it.
         expect(summary.wouldInsertCount).toBe(3);
@@ -9239,11 +9247,15 @@ describe('ForgeExecutor', () => {
             { dryRun: true },
           );
 
+          expect(progressEvents.map((e) => e.message)).toContain(
+            '[dry-run] FeedComment: 1 record(s) would be inserted, 1 left out: FeedItemId names ' +
+              'a tracked change, which the platform writes itself',
+          );
           expect(
             progressEvents.find((e) => e.objectName === 'FeedComment' && e.status === 'done')
               ?.message,
           ).toBe(
-            '[dry-run] FeedComment: 1 record(s) would be inserted, 1 left out: FeedItemId names ' +
+            'Simulated FeedComment: 1 would be inserted, 0 failed, 1 left out: FeedItemId names ' +
               'a tracked change, which the platform writes itself',
           );
           expect(summary.errors).toEqual([leftOut, commentLeftOut]);
@@ -12111,7 +12123,7 @@ describe('ForgeExecutor', () => {
       expect(summary.wouldInsertCount).toBe(1);
     });
 
-    it('should emit a [dry-run] message in progress events', async () => {
+    it('says what a read brings as a step, and ends the object on its simulated write', async () => {
       const graph = makeGraph([makeNode('Case')]);
       vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
 
@@ -12122,8 +12134,12 @@ describe('ForgeExecutor', () => {
       });
 
       const dryRunEvent = progressEvents.find((e) => e.message.includes('[dry-run]'));
-      expect(dryRunEvent).toBeDefined();
-      expect(dryRunEvent?.status).toBe('done');
+      expect(dryRunEvent?.status).toBe('running');
+      expect(progressEvents.at(-1)).toMatchObject({
+        objectName: 'Case',
+        status: 'done',
+        message: 'Simulated Case: 1 would be inserted, 0 failed',
+      });
     });
 
     it('should still populate scope cache so downstream nodes can scope', async () => {

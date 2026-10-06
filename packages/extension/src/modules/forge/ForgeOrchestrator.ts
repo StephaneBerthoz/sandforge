@@ -15,6 +15,24 @@ import { runAnonymization, type ForgeAnonymizationMethods } from './ForgeAnonymi
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { finishedRunStatus, forgeRunResult } from './runResult.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
+import type { ForgeRunDecisions } from './stages/RunDecisions.js';
+
+/**
+ * The decisions of a config the executor applies to the rows, or nothing when
+ * it holds none: see `stages/RunDecisions.ts`.
+ */
+function runDecisionsOf(config: ForgeConfig): ForgeRunDecisions | undefined {
+  const decisions: ForgeRunDecisions = {
+    ...(config.picklistValueMappings?.length
+      ? { picklistValueMappings: config.picklistValueMappings }
+      : {}),
+    ...(config.recordTypeMappings?.length ? { recordTypeMappings: config.recordTypeMappings } : {}),
+    ...(config.defaultValues?.length ? { defaultValues: config.defaultValues } : {}),
+    ...(config.truncateFields?.length ? { truncateFields: config.truncateFields } : {}),
+    ...(config.ignoredGaps?.length ? { ignoredGaps: config.ignoredGaps } : {}),
+  };
+  return Object.keys(decisions).length > 0 ? decisions : undefined;
+}
 
 /** Events emitted by ForgeOrchestrator during operation. */
 type ForgeEvents = {
@@ -269,9 +287,20 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // excluded by name: the rows that cannot be written without one of
       // their records are held back and said, not sent for the target to
       // refuse. Discovery's own — the empty tables, what it could not read —
-      // stay nodes the run skips.
-      const leftOut = graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName);
+      // stay nodes the run skips. So do the objects the user chose on the
+      // Gaps tab not to write: what points at them goes as at any object
+      // outside the clone.
+      const leftOut = [
+        ...new Set([
+          ...graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName),
+          ...(config.excludedObjects ?? []),
+        ]),
+      ];
       const excludedObjects = leftOut.length > 0 ? leftOut : undefined;
+      // A simulation goes through every stage a real run does and writes
+      // nothing; the decisions apply to both.
+      const dryRun = config.dryRun === true ? true : undefined;
+      const decisions = runDecisionsOf(config);
       // Only said when the user keeps them: absent, the executor neutralizes
       // every email address and phone number it writes.
       const keepContactPoints = config.keepContactPoints === true ? true : undefined;
@@ -293,6 +322,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               files,
               writtenBefore,
               beforeWrite,
+              dryRun,
+              decisions,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
@@ -305,7 +336,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               keepContactPoints ||
               files ||
               writtenBefore ||
-              beforeWrite
+              beforeWrite ||
+              dryRun ||
+              decisions
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
@@ -319,6 +352,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 files,
                 writtenBefore,
                 beforeWrite,
+                dryRun,
+                decisions,
               }
             : undefined;
 

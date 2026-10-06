@@ -151,6 +151,23 @@ describe('startForgeRun', () => {
     expect(useForgeStore.getState().phase).toBe('execution');
   });
 
+  it('asks for a simulation through the same request, and says on screen the run is one', () => {
+    startForgeRun({ dryRun: true });
+
+    expect(executePayload()?.config).toEqual({ ...CONFIG, dryRun: true });
+    expect(useForgeStore.getState().simulation).toBe(true);
+    expect(useForgeStore.getState().phase).toBe('execution');
+  });
+
+  it('never makes Execute a simulation, whatever flag the config came back with', () => {
+    useForgeStore.getState().setConfig({ ...CONFIG, dryRun: true });
+
+    startForgeRun();
+
+    expect(executePayload()?.config).toEqual(CONFIG);
+    expect(useForgeStore.getState().simulation).toBe(false);
+  });
+
   it('starts the run on nodes put back to idle, keeping what discovery found wrong', () => {
     useForgeStore.getState().updateNodeStatus('Account', 'done', 100);
 

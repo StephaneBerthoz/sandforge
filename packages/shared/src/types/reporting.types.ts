@@ -96,6 +96,13 @@ export interface AuditObjectCounts {
    */
   notSent?: number;
   /**
+   * Records of a call whose answer never came back: the target may hold any
+   * of them under an id the run never learned. Counted among the failed, and
+   * apart, because they may be in the org all the same. Absent when there are
+   * none.
+   */
+  mayHaveBeenWritten?: number;
+  /**
    * Set when the run skipped the object whole and sent none of it: a record
    * its rows cannot be written without failed, or the target takes no insert
    * of it. `counted` when the run had read those rows, which `failed` counts;

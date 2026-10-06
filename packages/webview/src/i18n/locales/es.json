@@ -1888,7 +1888,9 @@
       "writtenWithoutFields_one": "{{count}} escrito sin un campo rechazado por el destino",
       "writtenWithoutFields_other": "{{count}} escritos sin un campo rechazado por el destino",
       "skipped": "omitido",
-      "skippedUncounted": "omitido, cantidad de registros desconocida"
+      "skippedUncounted": "omitido, cantidad de registros desconocida",
+      "mayHaveBeenWritten_one": "{{count}} quizá en el destino, su llamada sin respuesta",
+      "mayHaveBeenWritten_other": "{{count}} quizá en el destino, su llamada sin respuesta"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar más",
@@ -2483,7 +2485,7 @@
     "graphView": "Vista de grafo",
     "direct": {
       "action": "Clonar directamente",
-      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leen igualmente antes de la ejecución, y los que se activan se le presentan primero.",
+      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leen igualmente antes de la ejecución, y los que se activan se le presentan primero. Para ver primero lo que una ejecución escribiría y lo que el destino rechazaría, use Simular en la revisión.",
       "discovering": "La clonación empieza en cuanto responde el descubrimiento.",
       "reviewSkipped": "Revisión omitida: esta ejecución empezó en cuanto respondió el descubrimiento, con los objetos que incluyó, y no se ejecutó la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leyeron antes, y los que se activan se le presentaron primero."
     },
@@ -2789,7 +2791,9 @@
       "resultRefused_one": "{{formatted}} rechazado",
       "resultRefused_other": "{{formatted}} rechazados",
       "resultNotReached_one": "{{formatted}} no alcanzado antes de la cancelación",
-      "resultNotReached_other": "{{formatted}} no alcanzados antes de la cancelación"
+      "resultNotReached_other": "{{formatted}} no alcanzados antes de la cancelación",
+      "resultMayHaveBeenWritten_one": "{{formatted}} registro que una llamada de la ejecución quizá escribió antes de perderse su respuesta puede estar en {{org}}: no se conoce ningún identificador suyo, y la eliminación no puede alcanzarlo.",
+      "resultMayHaveBeenWritten_other": "{{formatted}} registros que una llamada de la ejecución quizá escribió antes de perderse su respuesta pueden estar en {{org}}: no se conoce ningún identificador suyo, y la eliminación no puede alcanzarlos."
     },
     "error": {
       "duplicateValue": {
@@ -3010,6 +3014,13 @@
         "external": "guardado fuera de Salesforce",
         "recordNotCreated": "esta ejecución no creó sus registros"
       }
+    },
+    "simulation": {
+      "action": "Simular",
+      "running": "Simulación: cada registro leído pasa por la etapa de escritura como en una ejecución real, y no se escribe nada en el destino.",
+      "done": "Simulación, no se escribió nada. Estas cifras son lo que una ejecución real insertaría, vincularía, retendría y haría fallar; lo que el destino rechazaría o cambiaría en los registros se lista en la revisión.",
+      "gapsFound": "Diferencias encontradas con el destino: {{gaps}}",
+      "wouldInsert": "Se insertarían"
     }
   },
   "autopilot": {

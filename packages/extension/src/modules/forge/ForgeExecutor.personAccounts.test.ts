@@ -991,8 +991,12 @@ describe('ForgeExecutor, person accounts', () => {
         expect(inserted).toEqual([]);
         // Two accounts, two contacts and the case.
         expect(summary.wouldInsertCount).toBe(5);
-        expect(lastLines(events).get('Contact')).toBe(
+        expect(events.map((e) => e.message)).toContain(
           '[dry-run] Contact: 2 record(s) would be inserted',
+        );
+        expect(lastLines(events).get('Contact')).toBe(
+          "Simulated Contact: 2 would be inserted, 0 failed, 1 person account's contact sent on " +
+            'their own: the target wrote none with their account',
         );
       });
 
@@ -1055,8 +1059,12 @@ describe('ForgeExecutor, person accounts', () => {
 
       expect(inserted).toEqual([]);
       expect(summary.wouldInsertCount).toBe(5);
-      expect(lastLines(events).get('Contact')).toBe(
+      expect(events.map((e) => e.message)).toContain(
         '[dry-run] Contact: 2 record(s) would be inserted',
+      );
+      expect(lastLines(events).get('Contact')).toBe(
+        "Simulated Contact: 2 would be inserted, 0 failed, 1 person account's contact sent on " +
+          'their own: the target wrote none with their account',
       );
     });
   });
@@ -1073,8 +1081,11 @@ describe('ForgeExecutor, person accounts', () => {
     expect(inserted).toEqual([]);
     // Two accounts, one contact and the case would be inserted.
     expect(summary.wouldInsertCount).toBe(4);
-    expect(lastLines(events).get('Contact')).toBe(
+    expect(events.map((e) => e.message)).toContain(
       '[dry-run] Contact: 1 record(s) would be inserted, 1 would be written by the platform with their person account',
+    );
+    expect(lastLines(events).get('Contact')).toBe(
+      'Simulated Contact: 1 would be inserted, 1 written by the platform with their person account, 0 failed',
     );
   });
 });

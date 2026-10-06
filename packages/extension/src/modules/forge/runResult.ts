@@ -33,13 +33,19 @@ export function finishedRunStatus(
     ExecutionSummary,
     'successCount' | 'updatedCount' | 'linkedCount' | 'failedCount' | 'failedReads'
   > &
-    Partial<Pick<ExecutionSummary, 'errors'>>,
+    Partial<Pick<ExecutionSummary, 'errors' | 'wouldInsertCount'>>,
 ): ForgeRunStatus {
   const skippedWhole = (summary.errors ?? []).some((error) => error.skipped === true);
   if (summary.failedCount === 0 && summary.failedReads.length === 0 && !skippedWhole) {
     return 'success';
   }
-  const settled = summary.successCount + summary.updatedCount + summary.linkedCount;
+  // A simulation settles nothing: what it would have created is what a real
+  // run of it would have done of its job.
+  const settled =
+    summary.successCount +
+    summary.updatedCount +
+    summary.linkedCount +
+    (summary.wouldInsertCount ?? 0);
   return settled > 0 ? 'partial' : 'failure';
 }
 
@@ -119,5 +125,16 @@ export function forgeRunResult(
     // The calls the run made, where its deps counted them: discovery's
     // estimate of each node is all the graph says otherwise.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
+    // A simulation says so, with what it would have created and what it found
+    // the target would refuse or change, row by row.
+    ...(summary.dryRun
+      ? { dryRun: true as const, wouldInsertCount: summary.wouldInsertCount }
+      : {}),
+    ...(summary.gaps ? { gaps: summary.gaps } : {}),
+    // The user's decisions it applied, and to how many rows.
+    ...(summary.decisionsApplied ? { decisionsApplied: summary.decisionsApplied } : {}),
+    // The rows a call may have written before its answer was lost: in the
+    // target maybe, out of reach of the removal.
+    ...(summary.mayHaveBeenWritten ? { mayHaveBeenWritten: summary.mayHaveBeenWritten } : {}),
   };
 }

@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   FastForward,
   FileText,
+  FlaskConical,
   Pause,
   Play,
   Square,
@@ -90,6 +91,8 @@ export const ForgeExecution: React.FC = () => {
   const leaveStoppingRun = useForgeStore((s) => s.leaveStoppingRun);
   /** Whether the run was started by Clone directly, with no stop on Review. */
   const reviewSkipped = useForgeStore((s) => s.reviewSkipped);
+  /** Whether the run is a simulation, which writes nothing. */
+  const simulation = useForgeStore((s) => s.simulation);
   /**
    * The run's objects as a graph or as a table: each progress event redraws
    * the whole graph, which past a few dozen objects takes longer than the time
@@ -303,6 +306,18 @@ export const ForgeExecution: React.FC = () => {
         >
           <FastForward size={14} className="mt-0.5 shrink-0 text-hue-forge" />
           {t('forge.direct.reviewSkipped')}
+        </p>
+      )}
+
+      {/* A simulation goes through every stage a real run does and writes
+          nothing: said before a single count, which is otherwise a real run's. */}
+      {simulation && (
+        <p
+          data-testid="forge-execution-simulation"
+          className="flex items-start gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-secondary"
+        >
+          <FlaskConical size={14} className="mt-0.5 shrink-0 text-hue-forge" />
+          {t('forge.simulation.running')}
         </p>
       )}
 

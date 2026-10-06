@@ -263,6 +263,27 @@ export interface ForgeTargetGaps {
 }
 
 /**
+ * A decision of the run's config, as the run applied it: what it changed, and
+ * on how many rows. A value, at most a picklist value or a record type's name,
+ * or the default the user gave; never a record's own data.
+ */
+export interface ForgeDecisionApplied {
+  kind: Extract<
+    ForgeGapDecisionKind,
+    'map_value' | 'leave_empty' | 'set_default' | 'truncate' | 'map_record_type'
+  >;
+  objectApiName: string;
+  field?: string;
+  /** The target record type a picklist mapping is scoped to. */
+  recordType?: string;
+  /** The value or record type read; absent for a default and a cut. */
+  from?: string;
+  /** What the rows got instead; absent when the field was left out, or cut. */
+  to?: string;
+  rows: number;
+}
+
+/**
  * A node in the Forge dependency graph representing a single SObject.
  *
  * Tracks record/field counts, processing status, PII fields, and errors.
@@ -588,6 +609,13 @@ export interface ForgeUndoResult {
    * when that one ended, ISO 8601. It set out to take only those records.
    */
   leftBy?: string;
+  /**
+   * Rows of the run a call may have written before its answer was lost
+   * (`ForgeExecutionResult.mayHaveBeenWritten`): they may sit in the org, and
+   * the removal, which knows no id of theirs, cannot reach them. Absent when
+   * there were none.
+   */
+  mayHaveBeenWritten?: number;
 }
 
 /**
@@ -1057,6 +1085,28 @@ export interface ForgeExecutionResult {
   contactPoints?: ForgeContactPointsReport;
   /** The gaps a simulation found, row by row; set by a run with `dryRun`. */
   gaps?: ForgeGap[];
+  /**
+   * Set on a simulation (`ForgeConfig.dryRun`): it read, cleaned and checked
+   * every row through the write stage and wrote nothing. Its `createdCount` is
+   * 0, and `wouldInsertCount` says what a real run would have created.
+   */
+  dryRun?: true;
+  /** The records a simulation would have created; absent from a real run. */
+  wouldInsertCount?: number;
+  /**
+   * The decisions of the run's config it applied, each with the rows it
+   * changed: a picklist value written as another or left out, a record type
+   * mapped, a default given, a text cut to the target's length. Absent when
+   * none changed a row.
+   */
+  decisionsApplied?: ForgeDecisionApplied[];
+  /**
+   * Per object, the rows of a call whose answer never came back, by source id:
+   * the target may hold any of them under an id the run never learned. Counted
+   * as failed, left out of what the run created, and out of reach of the
+   * removal of its records. Absent when every call was answered.
+   */
+  mayHaveBeenWritten?: Array<{ objectApiName: string; sourceIds: string[] }>;
   /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded

@@ -216,6 +216,11 @@ export const ForgeReview: React.FC = () => {
     startForgeRun();
   }, []);
 
+  /** Simulate the run: the same path, every record checked, nothing written. */
+  const handleSimulate = useCallback(() => {
+    startForgeRun({ dryRun: true });
+  }, []);
+
   const tabs: Array<{
     id: ReviewTab;
     label: string;
@@ -366,6 +371,18 @@ export const ForgeReview: React.FC = () => {
               {t('forge.files.asIsNeeded')}
             </p>
           )}
+          {/* A simulation reads and checks every record as Execute's run
+              would, through the write stage, and writes nothing. */}
+          <button
+            type="button"
+            data-testid="simulate-button"
+            onClick={handleSimulate}
+            disabled={!graph || !config || filesBlocked}
+            aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
+            className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t('forge.simulation.action')}
+          </button>
           <button
             data-testid="execute-button"
             onClick={handleExecute}

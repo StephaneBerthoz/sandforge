@@ -144,7 +144,7 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
 /** Props for {@link ForgeRunRemovalResult}. */
 export interface ForgeRunRemovalResultProps {
   /** What the removal did, and the removal whose leftovers it took up, if any. */
-  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy'>;
+  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten'>;
   /** The org it removed from, as the user knows it. */
   org: string;
   /** What it took back: a Forge run unless said. */
@@ -223,6 +223,16 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
       {unchecked.length > 0 && (
         <p data-testid="forge-removal-unchecked" className="text-text-secondary">
           {t('forge.history.resultUnchecked', { objects: unchecked.join(', ') })}
+        </p>
+      )}
+      {/* A call of the run whose answer was lost may have written its rows:
+          the removal knows no id of theirs, and says so rather than read as
+          one that took everything. */}
+      {(result.mayHaveBeenWritten ?? 0) > 0 && (
+        <p data-testid="forge-removal-unreachable" className="text-status-warning">
+          {counted(t, 'forge.history.resultMayHaveBeenWritten', result.mayHaveBeenWritten ?? 0, {
+            org,
+          })}
         </p>
       )}
     </section>

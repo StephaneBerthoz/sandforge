@@ -666,6 +666,55 @@ describe('initForgeComposition', () => {
     });
   });
 
+  it('hands a simulation the digits a number field holds, as the describe gives them, and writes nothing', async () => {
+    const created = new Map<string, Array<Record<string, unknown>>>();
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => {
+          const described = (await connection.describe(objectApiName)) as { fields: unknown[] };
+          if (objectApiName !== 'Contact') return described;
+          return {
+            ...described,
+            fields: [
+              ...described.fields,
+              { ...field('Score__c', 'double'), precision: 3, scale: 0 },
+            ],
+          };
+        }),
+        query: vi.fn(async (soql: string) => {
+          const page = (await connection.query(soql)) as {
+            records: Array<Record<string, unknown>>;
+          };
+          if (!/\bFROM\s+Contact\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+          return { ...page, records: page.records.map((r) => ({ ...r, Score__c: 12345 })) };
+        }),
+        sobject: (objectApiName: string) => ({
+          create: vi.fn(async (records: Array<Record<string, unknown>>) => {
+            created.set(objectApiName, records);
+            return records.map((_, i) => ({ id: sfId(objectApiName, 900 + i), success: true }));
+          }),
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+
+    const result = await orchestrator.execute(graph, { ...SOQL_CONFIG, dryRun: true });
+
+    expect(created.size).toBe(0);
+    expect(result.dryRun).toBe(true);
+    expect(result.gaps).toContainEqual(
+      expect.objectContaining({
+        kind: 'number_out_of_range',
+        objectApiName: 'Contact',
+        field: 'Score__c',
+        detail: { precision: 3, scale: 0 },
+      }),
+    );
+  });
+
   it('names an object whose source read a bound stopped in the run result', async () => {
     // The source keeps a Contact cursor open forever: the page bound is what
     // ends the read, and only the composition sees that it did.

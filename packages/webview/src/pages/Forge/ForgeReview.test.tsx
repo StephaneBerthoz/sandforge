@@ -18,6 +18,7 @@ const mockSetPlan = vi.fn();
 const mockFillPersonalFields = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
 const mockSetGaps = vi.fn();
+const mockMarkSimulation = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
@@ -108,6 +109,7 @@ vi.mock('../../stores/useForgeStore', () => {
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     setExecutionRequestId: (...args: unknown[]) => mockSetExecutionRequestId(...args),
+    markSimulation: () => mockMarkSimulation(),
     resetNodeStatuses: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
@@ -146,6 +148,7 @@ describe('ForgeReview', () => {
     mockSetGaps.mockClear();
     mockSetPlan.mockClear();
     mockFillPersonalFields.mockClear();
+    mockMarkSimulation.mockClear();
     mockSetMetadataDiffs.mockClear();
     mockGraph = defaultGraph;
     mockConfig = { ...defaultConfig };
@@ -218,6 +221,24 @@ describe('ForgeReview', () => {
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
     // Mission control reads it to ignore messages answering another run.
     expect(mockSetExecutionRequestId).toHaveBeenCalledWith('wv-forge-request');
+  });
+
+  it('simulates the run through the same request, beside Execute, its config asking for a simulation', () => {
+    mockSendBridgeMessage.mockImplementation((type: unknown) =>
+      type === 'forge:execute' ? 'wv-forge-request' : 'wv-other-request',
+    );
+    render(<ForgeReview />);
+
+    fireEvent.click(screen.getByTestId('simulate-button'));
+
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith('forge:execute', {
+      graph: defaultGraph,
+      config: { ...mockConfig, dryRun: true },
+      anonymizationRules: mockAnonymizationRules,
+    });
+    expect(mockMarkSimulation).toHaveBeenCalledTimes(1);
+    expect(mockSetPhase).toHaveBeenCalledWith('execution');
+    expect(screen.getByTestId('simulate-button').textContent).toBe('Simulate');
   });
 
   it('sends the method chosen for each PII category with the run', () => {

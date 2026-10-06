@@ -814,6 +814,33 @@ describe('sandforge-clone removal lines', () => {
   });
 });
 
+describe('sandforge-clone removal of a run a call may have written to', () => {
+  it('says the records a call of the run may have written, which the removal cannot reach', () => {
+    expect(removalLines('success', [objectResult('Opportunity', 1)], 2)).toEqual([
+      'removal: SUCCESS',
+      '  Opportunity: 1 deleted of 1',
+      'not reachable: 2 record(s) a call of the run may have written before its answer was lost ' +
+        'may be in the org, under ids the run never learned',
+    ]);
+  });
+
+  it('reads the summary of such a run', () => {
+    const read = parseRunSummary(
+      JSON.stringify(
+        runSummary(
+          {},
+          { mayHaveBeenWritten: [{ objectApiName: 'Contact', sourceIds: [CONTACTS[0]] }] },
+        ),
+      ),
+    );
+
+    if (!('summary' in read)) throw new Error(read.refusal);
+    expect(read.summary.result.mayHaveBeenWritten).toEqual([
+      { objectApiName: 'Contact', sourceIds: [CONTACTS[0]] },
+    ]);
+  });
+});
+
 describe('sandforge-clone production guard', () => {
   const answering = (records: unknown[]) =>
     ({

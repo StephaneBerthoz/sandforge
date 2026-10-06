@@ -197,6 +197,14 @@ these, not against the graph's counts: discovery counts each whole table, of
 which a record-scoped clone reads a few rows. An object the run did not read —
 left out, skipped before its read, or whose read failed — is not listed.
 
+A dry run goes through the write stage as a real run does, with a writer that
+writes nothing: each object ends on `Simulated Account: 3 would be inserted, 0
+failed`, its counts what a real run would insert, link, hold back and fail, and
+the summary's `gaps` says what the target would refuse or change, row by row
+(see the quickstart's "Simulate a run"). The ids it gives the rows it would
+have written stand in for the target's while their children are cleaned, and
+never leave it: its `remapTable` keeps only what it found in the target.
+
 `failedReads` names the objects whose read failed. A record-scoped run never
 learned how many rows its scope held of them, so their `query` error counts
 none and `failedCount` leaves them out; a run of whole tables counts the table

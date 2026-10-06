@@ -1,6 +1,9 @@
 import type {
   ForgeContactPointsReport,
   ForgeCreatedRecords,
+  ForgeDecisionApplied,
+  ForgeGap,
+  ForgeRecordTypeMapping,
   ForgeFieldsLeftOut,
   ForgeFilesReport,
   ForgeGraph,
@@ -27,6 +30,22 @@ import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 import { RecordTypeMapper, warnUnmappedRecordType } from '../sync/RecordTypeMapper.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
+import {
+  DecisionTally,
+  recordTypeDecisionMappings,
+  withRecordTypeDecisions,
+  type ForgeRunDecisions,
+  type RecordTypesOfAnObject,
+} from './stages/RunDecisions.js';
+import {
+  CURRENCY_FIELD,
+  SimulationGaps,
+  currencyGapOf,
+  picklistGapsOf,
+  recordTypeGapOf,
+  rowGapsOf,
+  uniqueCollisionGapOf,
+} from './stages/SimulationGaps.js';
 import {
   buildNodeQuery,
   CATALOG_OBJECTS,
@@ -56,6 +75,7 @@ import {
   describeTargetFieldSets,
   intersect,
   updatableInTarget,
+  type CleanedRecord,
   type TargetFieldSets,
 } from './stages/RecordCleaner.js';
 import {
@@ -65,6 +85,7 @@ import {
   recordTypeReadSample,
   type PicklistField,
   type RecordTypeReadNote,
+  type RecordTypeValues,
 } from './stages/RecordTypePicklists.js';
 import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklists.js';
 import {
@@ -139,6 +160,7 @@ import {
   type ForgeRunAnonymization,
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
+import type { FieldBounds } from './describeBounds.js';
 import {
   findUnavailableRecordTypes,
   recordTypeBlockedMessage,
@@ -212,8 +234,12 @@ export interface UpdateResult {
   errors: string[];
 }
 
-/** Field metadata returned by describeFields. */
-export interface FieldInfo {
+/**
+ * Field metadata returned by describeFields. With what the describe says of
+ * the values the field takes (`FieldBounds`): what a simulation checks each
+ * row against before anything is written.
+ */
+export interface FieldInfo extends FieldBounds {
   /** Field API name. */
   name: string;
   /** Whether the field can be queried. */
@@ -300,11 +326,24 @@ export interface ExecuteOptions {
   /** API name of the root object (resolved from the record ID prefix). */
   rootObjectApiName?: string;
   /**
-   * When true, the executor still queries source records and populates the
-   * scope cache, but skips all writes to the target org. Used by the recipe
-   * to preview what *would* happen before committing real writes.
+   * A simulation: the run reads what a real run reads and takes every row
+   * through the write stage a real run takes it through — the holds, the
+   * cleaning, the record types and picklists of the target, the contact
+   * points, the user's decisions — with a writer that writes nothing. It
+   * counts what a real run would insert (`wouldInsertCount`), link, hold back
+   * and fail before any write, and says, row by row, what the target would
+   * refuse or change (`ExecutionSummary.gaps`). Nothing of it reaches the
+   * target: no insert, update or file, and no id of its own in the summary.
    */
   dryRun?: boolean;
+  /**
+   * The user's decisions about what the target would refuse or change in the
+   * rows, from the run's config: applied to every row before it is written,
+   * in a simulation as in a real run, and reported in the summary
+   * (`decisionsApplied`). See `stages/RunDecisions.ts`. The objects the user
+   * chose to leave out go in `excludedObjects`.
+   */
+  decisions?: ForgeRunDecisions;
   /**
    * How to handle reference fields whose value points to a record that was
    * never cloned (User, Owner, an excluded parent, etc.) — i.e. the
@@ -725,8 +764,9 @@ export interface ExecutionSummary {
    */
   linkedCount: number;
   /**
-   * Records a dry run read and would have inserted. It writes nothing, so
-   * they are counted here and never as created. Zero on a real run.
+   * Records a simulation would have inserted, as its write stage, which sends
+   * nothing, counted them. It writes nothing, so they are counted here and
+   * never as created. Zero on a real run.
    */
   wouldInsertCount: number;
   /** Number of records that failed to insert. */
@@ -870,6 +910,25 @@ export interface ExecutionSummary {
    * alike, up to where it ended or stopped. Absent when the deps count none.
    */
   apiCalls?: number;
+  /** Set on a simulation, which wrote nothing: see `ExecuteOptions.dryRun`. */
+  dryRun?: true;
+  /**
+   * What a simulation found the target would refuse or change, row by row.
+   * Absent from a real run.
+   */
+  gaps?: ForgeGap[];
+  /**
+   * The user's decisions the run applied, each with the rows it changed.
+   * Absent when none changed a row.
+   */
+  decisionsApplied?: ForgeDecisionApplied[];
+  /**
+   * Per object, the rows of a call whose answer never came back, by source id
+   * (`BatchWriteResult.mayHaveBeenWritten`): the target may hold any of them,
+   * and the removal of the run's records cannot reach them. Absent when every
+   * call was answered.
+   */
+  mayHaveBeenWritten?: Array<{ objectApiName: string; sourceIds: string[] }>;
 }
 
 /** A node the run adds for the status of its parent's records, and how its rows name them. */
@@ -1059,8 +1118,8 @@ interface ExecutionState {
    */
   readonly catalogNodes: CatalogNodeAskedAgain[];
   /**
-   * Rows read from the source, keyed by object, awaiting their write — or, in
-   * a dry run that reads every node first, the rows it would write.
+   * Rows read from the source, keyed by object, awaiting their write — a
+   * simulation's too, whose write sends nothing.
    */
   readonly preread: Map<string, PrereadNode>;
   /**
@@ -1239,6 +1298,26 @@ interface ExecutionState {
   writtenBetween?: ForgeWrittenBetween;
   /** What the deps' `requestsSent` said as the run began; absent when they count none. */
   readonly requestsBefore: number | undefined;
+  /**
+   * The ids a simulation gave the rows it would have written, in place of the
+   * target's: what lets their children be cleaned as a real run cleans them.
+   * None of them leaves the run. `null` on a real run.
+   */
+  readonly simulated: SimulatedIds | null;
+  /** What a simulation finds the target would refuse or change; `null` on a real run. */
+  readonly gaps: SimulationGaps | null;
+  /** The rows each of the user's decisions changed. */
+  readonly decisionsApplied: DecisionTally;
+  /** Per object, the rows of calls whose answer never came back, by source id. */
+  readonly mayHaveBeenWritten: Map<string, string[]>;
+  /**
+   * The record types of objects in the source, read once a run each from the
+   * describe the run holds, for the name of one the target has no counterpart
+   * of. See `recordTypeGaps`.
+   */
+  readonly sourceRecordTypes: Map<string, Promise<RecordTypeAvailability[]>>;
+  /** The currencies active in the target, read once a run when a row carries one; unset until then. */
+  activeCurrencies?: Promise<ReadonlySet<string> | undefined>;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
@@ -2110,6 +2189,41 @@ function wasWrittenBefore(config: ForgeStageConfig, row: Record<string, unknown>
   return typeof id === 'string' && config.writtenBefore.has(id);
 }
 
+/**
+ * The DeveloperName of the target record type a row goes in with, from the
+ * `RecordTypeId` it was read with: the one the run's mapping — the user's
+ * decisions over it — sends it to. Nothing for a row the mapping does not
+ * know, or one a decision sends to the object's default.
+ */
+function targetRecordTypeOf(
+  config: ForgeStageConfig,
+  recordTypeId: string | undefined,
+): string | undefined {
+  if (recordTypeId === undefined) return undefined;
+  if (config.recordTypeDecisions.get(recordTypeId)?.to === null) return undefined;
+  return config.recordTypeMappings?.find((m) => m.sourceId === recordTypeId)?.developerName;
+}
+
+/** The record types of an object in the target the user the run writes as may give a record. */
+function recordTypesToMapTo(target: TargetObjectInfo | null): string[] {
+  return (target?.recordTypes ?? [])
+    .filter((type) => type.available && type.active && !type.master)
+    .map((type) => type.developerName);
+}
+
+/** The values of a unique field one request asks the target for. */
+const UNIQUE_VALUES_PER_REQUEST = 200;
+
+/** A value with a control character in it, which a SOQL literal is not asked with. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTER = /[\u0000-\u001f]/;
+
+/** The currencies an org with several holds active; an org with one answers with an error. */
+const ACTIVE_CURRENCIES_SOQL = 'SELECT IsoCode FROM CurrencyType WHERE IsActive = true';
+
+/** The master record type's id, 15 or 18 characters: the same in every org, and in no mapping. */
+const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
+
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
 function statusesByObject(
   owed: ExecutionState['deferredStatuses'],
@@ -2140,6 +2254,56 @@ const AUDIT_DATE_FIELDS: ReadonlySet<string> = new Set(['CreatedDate', 'LastModi
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
 function epochOf(value: unknown): number {
   return typeof value === 'string' ? Date.parse(value) : Number.NaN;
+}
+
+/**
+ * The ids a simulation gives the rows it would have written, in place of the
+ * ids the target would give them: shaped as the target's — the object's key
+ * prefix, eighteen characters — so that a lookup at one reads as a lookup at a
+ * record the run wrote, and kept, so that none of them leaves the run.
+ */
+class SimulatedIds {
+  private readonly ids = new Set<string>();
+  private issued = 0;
+
+  /** A new id for a record of the object whose ids begin with `keyPrefix`. */
+  idFor(keyPrefix: string | null | undefined): string {
+    this.issued++;
+    const prefix = keyPrefix && /^[A-Za-z0-9]{3}$/.test(keyPrefix) ? keyPrefix : '000';
+    const id = `${prefix}SIM${String(this.issued).padStart(12, '0')}`;
+    this.ids.add(id);
+    return id;
+  }
+
+  /** Whether an id is one this simulation gave. */
+  has(id: string): boolean {
+    return this.ids.has(id);
+  }
+}
+
+/**
+ * The deps a simulation writes through: its reads go to the orgs, and every
+ * write comes back done, with an id of its own, without reaching the target.
+ * Handed to what writes on the run's behalf besides the write stage — a
+ * parent copied from outside the graph — so a simulation of a run that copies
+ * one counts it as written, and writes nothing.
+ */
+function simulatedWrites<D extends Pick<ForgeExecutorDeps, 'insertRecords'>>(
+  deps: D,
+  simulated: SimulatedIds,
+  keyPrefixOf: (orgId: string, objectName: string) => Promise<string | null>,
+): D {
+  return {
+    ...deps,
+    insertRecords: async (
+      orgId: string,
+      objectName: string,
+      records: Record<string, unknown>[],
+    ) => {
+      const prefix = await keyPrefixOf(orgId, objectName);
+      return records.map(() => ({ id: simulated.idFor(prefix), success: true, errors: [] }));
+    },
+  };
 }
 
 /**
@@ -2334,16 +2498,32 @@ export class ForgeExecutor {
     // from here on is the run's.
     const requestsBefore = this.deps.requestsSent?.();
 
-    const config = resolveStageConfig(options);
+    const resolved = resolveStageConfig(options);
     // A run asked to copy files that may not is refused before it reads
     // anything: stopped at the file stage instead, its records would already
     // be in the target without the files they were cloned for.
-    if (config.files) {
+    if (resolved.files) {
       const refusal =
-        fileCopyRefusal(config.anonymization !== undefined, config.files.acceptedAsIs) ??
+        fileCopyRefusal(resolved.anonymization !== undefined, resolved.files.acceptedAsIs) ??
         this.fileCopyUnwired();
       if (refusal) throw new ForgeFilesRefusedError(refusal);
     }
+    // The record types the user decided to write as others, in ids, over the
+    // run's own mapping: every stage that reads the mapping reads them.
+    const decided = await this.recordTypeDecisionsOf(
+      options?.decisions?.recordTypeMappings ?? [],
+      sourceOrgId,
+      targetOrgId,
+    );
+    const config: ForgeStageConfig =
+      decided.bySource.size === 0
+        ? resolved
+        : {
+            ...resolved,
+            recordTypeMappings: withRecordTypeDecisions(resolved.recordTypeMappings, decided),
+            recordTypeDecisions: decided.bySource,
+          };
+    const simulated = config.dryRun ? new SimulatedIds() : null;
     // What the user excluded by name stays out, whether discovery reached it
     // or the run would add it: see `ExecuteOptions.excludedObjects`.
     const leftOut = config.excludedObjects;
@@ -2374,7 +2554,20 @@ export class ForgeExecutor {
       referenceDataMapper: new ReferenceDataMapper((orgId, soql) =>
         this.deps.queryRecords(orgId, soql),
       ),
-      orphanExpander: new OrphanExpander(this.deps),
+      // A parent copied from outside the graph is written as the run's rows
+      // are: through nothing, on a simulation.
+      orphanExpander: new OrphanExpander(
+        simulated
+          ? simulatedWrites(this.deps, simulated, async (orgId, objectName) =>
+              this.deps.describeObject
+                ? this.deps.describeObject(orgId, objectName).then(
+                    (info) => info.keyPrefix,
+                    () => null,
+                  )
+                : null,
+            )
+          : this.deps,
+      ),
       batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy),
       failedObjects: new Set<string>(),
       notCreatable: new Set<string>(),
@@ -2432,6 +2625,11 @@ export class ForgeExecutor {
       emailsAfterTheirTask: [],
       taskTurnOver: false,
       requestsBefore,
+      simulated,
+      gaps: config.dryRun ? new SimulationGaps() : null,
+      decisionsApplied: new DecisionTally(),
+      mayHaveBeenWritten: new Map<string, string[]>(),
+      sourceRecordTypes: new Map<string, Promise<RecordTypeAvailability[]>>(),
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -2444,6 +2642,21 @@ export class ForgeExecutor {
     // registered without its object, no removal of this run takes it back.
     for (const [sourceId, targetId] of config.writtenBefore) {
       state.remapper.addExisting(sourceId, targetId);
+    }
+    // A decision the orgs' record types cannot back is not applied, and said.
+    for (const { decision, reason } of decided.unresolved) {
+      state.errors.push({
+        objectApiName: decision.object,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: `(record type ${decision.from} → ${decision.to ?? 'the default'})`,
+            messages: [`The decision was not applied: ${reason}.`],
+          },
+        ],
+      });
     }
 
     try {
@@ -2469,6 +2682,40 @@ export class ForgeExecutor {
       keepPartialSummary(err, this.summaryOf(state));
       throw err;
     }
+  }
+
+  /**
+   * The record type decisions of a run in ids, from the record types each
+   * object's describe gives in both orgs: what the run writes a source record
+   * type as. An org whose describe cannot be read gives none, and a decision
+   * on it is said not applied.
+   */
+  private async recordTypeDecisionsOf(
+    decisions: readonly ForgeRecordTypeMapping[],
+    sourceOrgId: string,
+    targetOrgId: string,
+  ): Promise<ReturnType<typeof recordTypeDecisionMappings>> {
+    if (decisions.length === 0) return recordTypeDecisionMappings([], []);
+    const describe = this.deps.describeObject;
+    const typesOf = async (
+      orgId: string,
+      objectApiName: string,
+    ): Promise<RecordTypeAvailability[]> =>
+      describe
+        ? describe(orgId, objectApiName).then(
+            (info) => info.recordTypes,
+            () => [],
+          )
+        : [];
+    const objects = [...new Set(decisions.map((decision) => decision.object))];
+    const recordTypes: RecordTypesOfAnObject[] = await Promise.all(
+      objects.map(async (objectApiName) => ({
+        objectApiName,
+        source: await typesOf(sourceOrgId, objectApiName),
+        target: await typesOf(targetOrgId, objectApiName),
+      })),
+    );
+    return recordTypeDecisionMappings(decisions, recordTypes);
   }
 
   /**
@@ -2939,16 +3186,18 @@ export class ForgeExecutor {
     // one writing needs: parents first, the root no longer pulled to the
     // front because nothing is being scoped any more — and the catalog in the
     // order the platform takes it, which the fields read say more about than
-    // the graph does. A dry run holds its rows too, and writes none.
-    if (twoPhase && !config.dryRun) {
+    // the graph does. A simulation goes through it too, with a writer that
+    // writes nothing: stopped before it, a dry run said "would be inserted" of
+    // rows the write stage holds back, cleans or changes.
+    if (twoPhase) {
       for (const node of this.writeOrderOf(state)) {
         if (this.isAborted) {
           throw new ForgeAbortedError(
             'Forge execution was aborted by user request. Remaining objects were not processed.',
           );
         }
-        // Nodes excluded, out of scope, resolved as reference data or read in
-        // a dry run left nothing to write and have already reported.
+        // Nodes excluded, out of scope or resolved as reference data left
+        // nothing to write and have already reported.
         const read = state.preread.get(node.objectApiName);
         if (!read) continue;
         // Parents failed while being written are known only now, and the
@@ -3218,10 +3467,11 @@ export class ForgeExecutor {
         }
         if (!why) continue;
         if (target) leftDrafts.add(target);
+        // The draft in the target, as a refused restore names it; the record
+        // read, in a simulation, whose ids of its own never leave it.
+        const named = target !== undefined && !state.simulated?.has(target) ? target : id;
         left.push({
-          // The draft in the target, as a refused restore names it; the
-          // record read, in a dry run that wrote none.
-          recordSummary: `${parent} ${target ?? id} Status=${status}`,
+          recordSummary: `${parent} ${named} Status=${status}`,
           messages: [
             `Left a draft: the platform gives ${parent} this status only with ${child.object} ` +
               `records under it, and ${why}.`,
@@ -3925,6 +4175,21 @@ export class ForgeExecutor {
   /** What a run has done so far: the summary a finished run returns. */
   private summaryOf(state: ExecutionState): ExecutionSummary {
     const requestsNow = this.deps.requestsSent?.();
+    // A simulation's ids are its own, and never leave it: its table keeps
+    // what it found in the target — reference data matched by name, the
+    // standard price book — and none of what it would have written.
+    const { simulated } = state;
+    const remapTable = state.remapper.toJSON();
+    if (simulated) {
+      for (const [sourceId, targetId] of Object.entries(remapTable)) {
+        if (simulated.has(targetId)) delete remapTable[sourceId];
+      }
+    }
+    const kept = (sourceId: string): boolean => sourceId in remapTable;
+    const mayHaveBeenWritten = [...state.mayHaveBeenWritten].map(([objectApiName, sourceIds]) => ({
+      objectApiName,
+      sourceIds: [...sourceIds],
+    }));
     return {
       successCount: state.successCount,
       updatedCount: state.updatedCount,
@@ -3932,7 +4197,7 @@ export class ForgeExecutor {
       wouldInsertCount: state.wouldInsertCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
-      remapCount: state.remapper.count,
+      remapCount: Object.keys(remapTable).length,
       // What the platform writes itself is said once, at the end, whichever
       // reads of its object found it; so are the rows held back for an
       // object the user excluded, read twice as a node of the catalog is.
@@ -3946,14 +4211,14 @@ export class ForgeExecutor {
       // can audit, export to CSV, or persist as part of a checkpoint.
       // toJSON returns a plain object (Record) so it serializes cleanly
       // through the bridge envelope.
-      remapTable: state.remapper.toJSON(),
+      remapTable,
       existingRecords: [...state.existingRecords],
-      existingSourceIds: state.remapper.existingSourceIds(),
-      updatedSourceIds: state.remapper.updatedSourceIds(),
-      ...(state.withTheirRecord.size > 0
+      existingSourceIds: state.remapper.existingSourceIds().filter(kept),
+      updatedSourceIds: state.remapper.updatedSourceIds().filter(kept),
+      ...(state.withTheirRecord.size > 0 && !simulated
         ? { withTheirRecordSourceIds: [...state.withTheirRecord] }
         : {}),
-      remapByObject: state.remapper.countsByObject(),
+      remapByObject: simulated ? [] : state.remapper.countsByObject(),
       ...(state.notSent.size > 0
         ? {
             notSentByObject: [...state.notSent].map(([objectApiName, notSent]) => ({
@@ -3962,7 +4227,7 @@ export class ForgeExecutor {
             })),
           }
         : {}),
-      createdByObject: state.remapper.createdByObject(),
+      createdByObject: simulated ? [] : state.remapper.createdByObject(),
       readByObject: [...state.readByObject].map(([objectApiName, read]) => ({
         objectApiName,
         read,
@@ -3997,6 +4262,12 @@ export class ForgeExecutor {
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
         ? { apiCalls: requestsNow - state.requestsBefore }
         : {}),
+      ...(simulated ? { dryRun: true as const } : {}),
+      ...(state.gaps ? { gaps: state.gaps.list(state.config.decisions.ignoredGaps) } : {}),
+      ...(state.decisionsApplied.size > 0
+        ? { decisionsApplied: state.decisionsApplied.list() }
+        : {}),
+      ...(mayHaveBeenWritten.length > 0 ? { mayHaveBeenWritten } : {}),
     };
   }
 
@@ -4854,12 +5125,10 @@ export class ForgeExecutor {
           ? await this.writtenWithTheirAccountOnADryRun(state, parent, fresh, createableSet)
           : 0;
       const more = before ? 'more ' : '';
-      state.wouldInsertCount += fresh.length - withTheirAccount;
-      this.countContactPointsOnADryRun(state, parent, fresh, fields, createableSet);
       state.onProgress({
         objectName: parent,
-        status: 'done',
-        progress: 100,
+        status: 'running',
+        progress: 0,
         message:
           `[dry-run] ${parent}: ${fresh.length - withTheirAccount} ${more}record(s) would be inserted` +
           (withTheirAccount > 0
@@ -4902,9 +5171,9 @@ export class ForgeExecutor {
    *
    * Returns true when the node has rows the write stage should carry. The
    * branches that finish here — out of scope, refused by the target,
-   * reference data resolved by name, a dry run — return false having already
-   * reported themselves; a node put off, or read to be read again, returns
-   * false as well.
+   * reference data resolved by name — return false having already reported
+   * themselves; a node put off, or read to be read again, returns false as
+   * well. A simulation's rows go to the write stage as a real run's do.
    *
    * `prefetchTargetDescribe` starts the target-org describe alongside the
    * source query, which saves a round-trip when the write follows straight
@@ -5020,11 +5289,8 @@ export class ForgeExecutor {
       // while they are read instead of after: one round-trip less of waiting
       // per node. It is settled into a value here and read below, so a failed
       // describe cannot surface as an unhandled rejection when the query fails
-      // first. Only started on the path that writes.
-      const writes =
-        prefetchTargetDescribe &&
-        !config.dryRun &&
-        !config.referenceDataObjects.has(node.objectApiName);
+      // first. Only started on the path that writes, a simulation's too.
+      const writes = prefetchTargetDescribe && !config.referenceDataObjects.has(node.objectApiName);
       const targetSetsPending = writes
         ? describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
             (sets) => ({ ok: true as const, sets }),
@@ -5239,20 +5505,19 @@ export class ForgeExecutor {
       // are counted with them as they are among the failed.
       state.readByObject.set(node.objectApiName, records.length + (heldOfNode?.size ?? 0));
 
-      // Held for the write pass — and by a dry run of a run that reads every
-      // node before it writes one, for what it reads after: a row held back
-      // since can be one these name, and a second read of the object is
-      // counted against these (`readMore`). That dry run writes none of them.
-      if (!config.dryRun || readsBeforeWriting(config)) {
-        state.preread.set(node.objectApiName, {
-          fieldInfos,
-          createableSet,
-          records,
-          targetSetsPending,
-        });
-      }
+      // Held for the write pass: a simulation's too, which takes them through
+      // it with a writer that writes nothing.
+      state.preread.set(node.objectApiName, {
+        fieldInfos,
+        createableSet,
+        records,
+        targetSetsPending,
+      });
 
       if (config.dryRun) {
+        // What the read brings, said as a step: the write stage, simulated,
+        // ends the object with what a real run would insert of it, and counts
+        // it there.
         const withTheirAccount = await this.writtenWithTheirAccountOnADryRun(
           state,
           node.objectApiName,
@@ -5262,8 +5527,8 @@ export class ForgeExecutor {
         const inserted = records.length - withTheirAccount;
         onProgress({
           objectName: node.objectApiName,
-          status: 'done',
-          progress: 100,
+          status: 'running',
+          progress: 0,
           message:
             `[dry-run] ${node.objectApiName}: ${inserted} record(s) would be inserted` +
             (withTheirAccount > 0
@@ -5271,20 +5536,11 @@ export class ForgeExecutor {
               : '') +
             notesOf(state, node.objectApiName),
         });
-        // Counted under their own name: a dry run creates nothing.
-        state.wouldInsertCount += inserted;
-        this.countContactPointsOnADryRun(
-          state,
-          node.objectApiName,
-          records,
-          fieldInfos,
-          createableSet,
-        );
       }
       // What these rows cannot be written without and the run has not read,
       // read before anything is written: see `readWhatTheyCannotBeWrittenWithout`.
       await this.readWhatTheyCannotBeWrittenWithout(state, node.objectApiName, fieldInfos, records);
-      return !config.dryRun;
+      return true;
     } catch (err) {
       // An abort is a control-flow signal, not a node failure. Recording it as
       // one and continuing is what let a cancelled run carry on writing.
@@ -5617,11 +5873,10 @@ export class ForgeExecutor {
     }
     this.noteStatusRowsHeld(state, objectApiName, kept, heldNow);
     if (config.dryRun) {
-      state.wouldInsertCount -= heldNow.length;
       onProgress({
         objectName: objectApiName,
-        status: 'done',
-        progress: 100,
+        status: 'running',
+        progress: 0,
         message:
           `[dry-run] ${objectApiName}: ${heldNow.length} fewer would be inserted` +
           failedHeldBack(heldForExclusionsWhy(heldNow.map(({ why }) => why))),
@@ -5914,11 +6169,16 @@ export class ForgeExecutor {
     const emails = [...new Set(rows.flatMap((row) => emailOfTask.get(String(row['Id'])) ?? []))];
     if (emails.length === 0) return { rows, linked: 0 };
     let written: Map<string, string>;
+    const { simulated } = state;
     try {
-      written = await tasksWrittenWithEmails(
-        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
-        emails,
-      );
+      // A simulation's emails are in no target: the platform writes a task
+      // with each one a real run writes, and the simulation says so.
+      written = simulated
+        ? new Map(emails.map((email) => [email, simulated.idFor(null)]))
+        : await tasksWrittenWithEmails(
+            (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+            emails,
+          );
     } catch (err) {
       // Not looked up, the tasks go as any others, and the report says why a
       // task may then stand twice.
@@ -5985,7 +6245,6 @@ export class ForgeExecutor {
     state: ExecutionState,
     accounts: readonly Record<string, unknown>[] = state.preread.get(ACCOUNT)?.records ?? [],
   ): Promise<void> {
-    if (state.config.dryRun) return;
     /** The source contact of each person account, and its source id, by the account's id in the target. */
     const contactOf = new Map<string, { contact: string; account: string }>();
     for (const row of accounts) {
@@ -5998,6 +6257,19 @@ export class ForgeExecutor {
     }
     if (contactOf.size === 0) return;
     if ((await this.personAccountsInTarget(state)) === false) return;
+    const { simulated } = state;
+    if (simulated) {
+      // A simulation wrote no account, and the target holds no contact of
+      // one: the platform writes it with the account, which a real run links
+      // to — save the contact of an account the target takes as a business
+      // one, which goes on its own (`noteContactsOfBusinessAccounts`).
+      for (const [, { contact, account }] of contactOf) {
+        if (state.contactsOnTheirOwn.has(contact)) continue;
+        state.remapper.addExisting(contact, simulated.idFor(null));
+        if (state.remapper.isCreated(account)) state.withTheirRecord.add(contact);
+      }
+      return;
+    }
     let written: Map<string, string>;
     try {
       written = await personContactsOfAccounts(
@@ -6128,8 +6400,8 @@ export class ForgeExecutor {
    * note as going on their own the contacts of the person accounts the target
    * would take as business accounts (`takenAsBusinessAccounts`), as the write
    * does once it finds none the platform wrote with them: the dry run counts
-   * them among the rows it would insert. Read from the source's describe, the
-   * target's field sets not being read on a dry run.
+   * them among the rows it would insert. Read from the source's describe, at
+   * the read, before the write stage reads the target's field sets.
    *
    * @param createable - The fields of the account the source lets the run write.
    */
@@ -6175,33 +6447,6 @@ export class ForgeExecutor {
       (row) => isPersonAccountRow(row) && !state.contactsOnTheirOwn.has(String(row['Id'])),
     ).length;
     return ofPersons > 0 && (await this.personAccountsInTarget(state)) !== false ? ofPersons : 0;
-  }
-
-  /**
-   * Count the email addresses and phone numbers a dry run's rows would have
-   * neutralized, on copies of the fields the run would write: a dry run
-   * cleans no row, and its summary said none whatever a real run would write.
-   *
-   * @param createable - The fields of the object the source lets the run write.
-   */
-  private countContactPointsOnADryRun(
-    state: ExecutionState,
-    objectApiName: string,
-    rows: readonly Record<string, unknown>[],
-    fields: readonly FieldInfo[],
-    createable: ReadonlySet<string>,
-  ): void {
-    if (!state.contactPoints) return;
-    const excluded = new Set(state.config.fieldExclusions[objectApiName] ?? []);
-    const rename = state.config.fieldMappings[objectApiName] ?? {};
-    const written = fields.filter((f) => createable.has(f.name) && !excluded.has(f.name));
-    const neutralize = state.contactPoints.forObject(objectApiName, written, rename);
-    if (!neutralize) return;
-    for (const row of rows) {
-      const copy: Record<string, unknown> = {};
-      for (const field of written) copy[rename[field.name] ?? field.name] = row[field.name];
-      neutralize(copy);
-    }
   }
 
   /**
@@ -6823,18 +7068,10 @@ export class ForgeExecutor {
           isPricebookEntry(objectApiName) ? [] : fresh,
           createableSet,
         );
-        state.wouldInsertCount += added - withTheirAccount;
-        this.countContactPointsOnADryRun(
-          state,
-          objectApiName,
-          records.slice(earlier.length),
-          fields,
-          createableSet,
-        );
         state.onProgress({
           objectName: objectApiName,
-          status: 'done',
-          progress: 100,
+          status: 'running',
+          progress: 0,
           message:
             `[dry-run] ${objectApiName}: ${added - withTheirAccount} more record(s) would be inserted` +
             (withTheirAccount > 0
@@ -7006,7 +7243,13 @@ export class ForgeExecutor {
     if (!creatable.has('RecordTypeId')) return [];
     if ((config.fieldExclusions[node.objectApiName] ?? []).includes('RecordTypeId')) return [];
     if (config.fieldMappings[node.objectApiName]?.['RecordTypeId']) return [];
-    let sent: Record<string, unknown>[] = records.map((r) => ({ RecordTypeId: r['RecordTypeId'] }));
+    // A row a decision sends to the object's default goes without one.
+    let sent: Record<string, unknown>[] = records.map((r) => ({
+      RecordTypeId:
+        config.recordTypeDecisions.get(String(r['RecordTypeId']))?.to === null
+          ? undefined
+          : r['RecordTypeId'],
+    }));
     if (state.recordTypeMapper && config.recordTypeMappings) {
       sent = state.recordTypeMapper.apply(sent, config.recordTypeMappings);
     }
@@ -7024,8 +7267,16 @@ export class ForgeExecutor {
     objectApiName: string,
     written: BatchWriteResult,
   ): void {
-    state.successCount += written.successCount;
+    // A simulation creates nothing: what it would have, under its own name.
+    if (state.simulated) state.wouldInsertCount += written.successCount;
+    else state.successCount += written.successCount;
     state.updatedCount += written.updatedCount;
+    if (written.mayHaveBeenWritten && written.mayHaveBeenWritten.length > 0) {
+      state.mayHaveBeenWritten.set(objectApiName, [
+        ...(state.mayHaveBeenWritten.get(objectApiName) ?? []),
+        ...written.mayHaveBeenWritten,
+      ]);
+    }
     state.linkedCount += written.linkedExistingCount;
     state.failedCount += written.failureCount;
     state.pendingFkUpdates.push(...written.pendingFkUpdates);
@@ -7255,6 +7506,292 @@ export class ForgeExecutor {
   }
 
   /**
+   * Apply to the payloads of a node the record type decisions of the run: a
+   * row whose record type a decision sends to the object's default goes
+   * without `RecordTypeId`, and each row a decision maps is counted. A
+   * simulation also counts the rows whose record type the mapping left as
+   * read — the target has none of that name — which a real run sends as they
+   * are, and the target refuses.
+   *
+   * @param payloads - The rows as the mapping left them, index-aligned with
+   *   `cleanedRecords`, whose `RecordTypeId` is still the one read.
+   * @returns Per source record type the mapping does not know, the rows that carry it.
+   */
+  private applyRecordTypeDecisions(
+    state: ExecutionState,
+    objectApiName: string,
+    cleanedRecords: readonly CleanedRecord[],
+    payloads: Record<string, unknown>[],
+  ): Map<string, number> {
+    const { config } = state;
+    const unmapped = new Map<string, number>();
+    const mapped =
+      state.recordTypeMapper && config.recordTypeMappings
+        ? new Set(config.recordTypeMappings.map((m) => m.sourceId))
+        : undefined;
+    payloads.forEach((payload, index) => {
+      const read = cleanedRecords[index]?.cleaned['RecordTypeId'];
+      if (typeof read !== 'string' || read === '' || !('RecordTypeId' in payload)) return;
+      const decision = config.recordTypeDecisions.get(read);
+      if (decision) {
+        if (decision.to === null) delete payload['RecordTypeId'];
+        state.decisionsApplied.add({
+          kind: 'map_record_type',
+          objectApiName,
+          from: decision.from,
+          ...(decision.to !== null ? { to: decision.to } : {}),
+        });
+        return;
+      }
+      if (!state.simulated || !mapped || MASTER_RECORD_TYPE.test(read) || mapped.has(read)) return;
+      unmapped.set(read, (unmapped.get(read) ?? 0) + 1);
+    });
+    return unmapped;
+  }
+
+  /**
+   * Write one round of a node's rows as a simulation writes them: through
+   * nothing. Each row is counted as one the target would have created, and
+   * given an id of the simulation's own, so that the rows after it are
+   * cleaned as a real run cleans them; its lookups left for the second pass
+   * are owed as a real run owes them, to a pass the simulation never sends.
+   */
+  private simulateWrite(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    round: { records: Record<string, unknown>[]; cleaned: CleanedRecord[] },
+    keyPrefix: string | null | undefined,
+    tally: BatchWriteResult,
+    onProgress: (event: ForgeProgressEvent) => void,
+  ): void {
+    const { simulated } = state;
+    if (!simulated) return;
+    const objectApiName = node.objectApiName;
+    onProgress({
+      objectName: objectApiName,
+      status: 'running',
+      progress: 0,
+      recordCount: round.records.length,
+      message: `Simulating the write of ${round.records.length} ${objectApiName} records: nothing is sent...`,
+    });
+    for (const built of round.cleaned) {
+      const id = simulated.idFor(keyPrefix);
+      tally.successCount++;
+      const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+      if (sourceId !== undefined) state.remapper.add(sourceId, id, objectApiName);
+      for (const nf of built.nullifiedFks) {
+        tally.pendingFkUpdates.push({
+          objectApiName,
+          newId: id,
+          sourceId,
+          fieldName: nf.field,
+          sourceRefId: nf.sourceRefId,
+          ...(nf.insertOnly ? { insertOnly: true as const } : {}),
+        });
+      }
+    }
+  }
+
+  /**
+   * Find, in a simulation, what the target would refuse or change in the rows
+   * of a node as a real run would send them: the picklist values its record
+   * types or its fields refuse, the record types it has no counterpart of,
+   * what its describe holds against each row (`rowGapsOf`), the currencies it
+   * does not hold active, and the unique values it holds already.
+   */
+  private async findGaps(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    rows: {
+      cleanedRecords: readonly CleanedRecord[];
+      recordsToInsert: readonly Record<string, unknown>[];
+      targetFields: readonly FieldInfo[] | undefined;
+      targetObject: TargetObjectInfo | null;
+      picklistValuesByField: Map<string, Set<string>> | null;
+      picklistFields: Map<string, PicklistField> | undefined;
+      recordTypes: ReadonlyMap<string, RecordTypeValues> | undefined;
+      unmapped: ReadonlyMap<string, number>;
+    },
+  ): Promise<void> {
+    const { gaps } = state;
+    if (!gaps) return;
+    const objectApiName = node.objectApiName;
+    const typedByName = new Map(
+      [...(rows.recordTypes?.values() ?? [])].map((typed) => [typed.recordType, typed]),
+    );
+    for (const { picklistChanges = [] } of rows.cleanedRecords) {
+      const found = picklistGapsOf(objectApiName, picklistChanges, (change) => {
+        if (change.recordType !== undefined) {
+          return typedByName.get(change.recordType)?.picklists.get(change.field)?.values;
+        }
+        const known = rows.picklistValuesByField?.get(change.field);
+        return known ? [...known] : undefined;
+      });
+      for (const gap of found) gaps.add(gap);
+    }
+    if (rows.unmapped.size > 0) {
+      const sourceTypes = await this.sourceRecordTypesOf(state, objectApiName);
+      for (const [id, count] of rows.unmapped) {
+        const name =
+          sourceTypes.find((type) => type.recordTypeId.slice(0, 15) === id.slice(0, 15))
+            ?.developerName ?? id;
+        gaps.add(
+          recordTypeGapOf(
+            'record_type_unmapped',
+            objectApiName,
+            name,
+            count,
+            recordTypesToMapTo(rows.targetObject),
+          ),
+        );
+      }
+    }
+    const targetFields = rows.targetFields;
+    if (!targetFields) return;
+    rowGapsOf(
+      {
+        objectApiName,
+        rows: rows.recordsToInsert.map((payload, index) => {
+          const read = rows.cleanedRecords[index]?.cleaned['RecordTypeId'];
+          return {
+            payload,
+            source: rows.cleanedRecords[index]?.source ?? {},
+            typed: typeof read === 'string' && rows.recordTypes?.has(read) === true,
+          };
+        }),
+        targetFields,
+        picklistValuesByField: rows.picklistValuesByField,
+        picklistFields: rows.picklistFields ?? new Map<string, PicklistField>(),
+      },
+      gaps,
+    );
+    await this.currencyGaps(state, objectApiName, targetFields, rows.cleanedRecords);
+    await this.uniqueValueGaps(state, objectApiName, targetFields, rows.recordsToInsert);
+  }
+
+  /**
+   * The record types of an object in the source, from the describe the run
+   * holds of it: what names one the target has no counterpart of. Read once
+   * a run per object; none when the describe cannot be read.
+   */
+  private sourceRecordTypesOf(
+    state: ExecutionState,
+    objectApiName: string,
+  ): Promise<RecordTypeAvailability[]> {
+    let pending = state.sourceRecordTypes.get(objectApiName);
+    if (!pending) {
+      const describe = this.deps.describeObject;
+      pending = describe
+        ? describe(state.sourceOrgId, objectApiName).then(
+            (info) => info.recordTypes,
+            () => [],
+          )
+        : Promise.resolve([]);
+      state.sourceRecordTypes.set(objectApiName, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * In a simulation, the currencies the rows carry that the target does not
+   * hold active, read once a run from `CurrencyType` — an org with one
+   * currency answers nothing, and nothing is said. Written without one, a
+   * record takes the running user's currency and keeps its amounts.
+   */
+  private async currencyGaps(
+    state: ExecutionState,
+    objectApiName: string,
+    targetFields: readonly FieldInfo[],
+    cleanedRecords: readonly CleanedRecord[],
+  ): Promise<void> {
+    if (!targetFields.some((f) => f.name === CURRENCY_FIELD && f.createable)) return;
+    const codes = new Map<string, number>();
+    for (const { source } of cleanedRecords) {
+      const code = source[CURRENCY_FIELD];
+      if (typeof code === 'string' && code !== '') codes.set(code, (codes.get(code) ?? 0) + 1);
+    }
+    if (codes.size === 0) return;
+    state.activeCurrencies ??= this.deps
+      .queryRecords(state.targetOrgId, ACTIVE_CURRENCIES_SOQL)
+      .then(
+        (found) =>
+          new Set(
+            found.flatMap((row) => (typeof row['IsoCode'] === 'string' ? [row['IsoCode']] : [])),
+          ),
+        () => undefined,
+      );
+    const active = await state.activeCurrencies;
+    if (!active || active.size === 0) return;
+    for (const [code, count] of codes) {
+      if (!active.has(code)) state.gaps?.add(currencyGapOf(objectApiName, code, count));
+    }
+  }
+
+  /**
+   * In a simulation, the values of the target's unique fields the rows hold
+   * that the target holds already, asked 200 values a request: it refuses each
+   * such row as a duplicate, or links it to its record when the refusal names
+   * it. The values are asked and never kept: the gap counts them. A field an
+   * upsert matches rows by is no collision, and one whose values could not be
+   * asked is left unsaid.
+   */
+  private async uniqueValueGaps(
+    state: ExecutionState,
+    objectApiName: string,
+    targetFields: readonly FieldInfo[],
+    payloads: readonly Record<string, unknown>[],
+  ): Promise<void> {
+    const unique = targetFields.filter(
+      (f) =>
+        f.unique === true &&
+        f.createable &&
+        !(state.config.upsertMode === 'auto' && f.externalId === true),
+    );
+    for (const field of unique) {
+      // By the value as the target compares it, case aside: asked as the
+      // first row holding it wrote it.
+      const rowsByValue = new Map<string, { value: string; rows: number }>();
+      for (const payload of payloads) {
+        const value = payload[field.name];
+        if (typeof value !== 'string' || value === '' || CONTROL_CHARACTER.test(value)) continue;
+        const key = value.toLowerCase();
+        const known = rowsByValue.get(key);
+        if (known) known.rows++;
+        else rowsByValue.set(key, { value, rows: 1 });
+      }
+      if (rowsByValue.size === 0) continue;
+      const held = new Set<string>();
+      try {
+        const object = assertSoqlIdentifier(objectApiName);
+        const column = assertSoqlIdentifier(field.name);
+        const values = [...rowsByValue.values()].map(({ value }) => value);
+        for (const list of idLists(values, UNIQUE_VALUES_PER_REQUEST)) {
+          const found = await this.deps.queryRecords(
+            state.targetOrgId,
+            `SELECT ${column} FROM ${object} WHERE ${column} IN (${list})`,
+          );
+          for (const row of found) {
+            const value = row[field.name];
+            if (typeof value === 'string') held.add(value.toLowerCase());
+          }
+        }
+      } catch {
+        continue;
+      }
+      let rows = 0;
+      let colliding = 0;
+      for (const [key, { rows: count }] of rowsByValue) {
+        if (!held.has(key)) continue;
+        rows += count;
+        colliding++;
+      }
+      if (rows > 0) {
+        state.gaps?.add(uniqueCollisionGapOf(objectApiName, field.name, rows, colliding));
+      }
+    }
+  }
+
+  /**
    * Write one node the read stage has already pulled: describe the target
    * org, hold the node back when its record types are closed to the running
    * user, and the rows whose parent it did not write, expand orphan parents,
@@ -7279,13 +7816,14 @@ export class ForgeExecutor {
         : state.onProgress;
     // How the line that ends the node begins; the write of the emails that
     // waited for their task goes on the line of the write before, when there
-    // was one.
+    // was one. A simulation says it simulated the write.
+    const ended = config.dryRun ? 'Simulated' : 'Completed';
     const completed =
       afterTheirTask === undefined
-        ? `Completed ${node.objectApiName}`
+        ? `${ended} ${node.objectApiName}`
         : state.emailsWrittenFirst
           ? 'after their task'
-          : `Completed ${node.objectApiName} after their task`;
+          : `${ended} ${node.objectApiName} after their task`;
     // And how it begins when a cancel stopped the node before one of its calls.
     const stopped =
       afterTheirTask === undefined
@@ -7324,6 +7862,7 @@ export class ForgeExecutor {
       let targetUpdatableSet: Set<string> | undefined;
       let targetPicklistValuesByField: Map<string, Set<string>> | null = null;
       let targetPicklistFields: Map<string, PicklistField> | undefined;
+      let targetFields: readonly FieldInfo[] | undefined;
       const targetSets = await (targetSetsPending ??
         describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
           (sets) => ({ ok: true as const, sets }),
@@ -7334,6 +7873,7 @@ export class ForgeExecutor {
         targetUpdatableSet = targetSets.sets.updateable;
         targetPicklistValuesByField = targetSets.sets.picklistValuesByField;
         targetPicklistFields = targetSets.sets.picklistFields;
+        targetFields = targetSets.sets.fields;
       } else {
         // Surface schema-drift defense failure: target describe is the
         // *only* way to detect missing fields/picklist drift before
@@ -7426,6 +7966,19 @@ export class ForgeExecutor {
         state,
       );
       if (heldBack.length > 0) {
+        // What a simulation says of it: each record type, with those of the
+        // target the user the run writes as may map it to.
+        for (const use of heldBack) {
+          state.gaps?.add(
+            recordTypeGapOf(
+              'record_type_unavailable',
+              node.objectApiName,
+              use.developerName,
+              use.recordCount,
+              recordTypesToMapTo(targetObject),
+            ),
+          );
+        }
         state.failedObjects.add(node.objectApiName);
         state.failedCount += records.length;
         state.errors.push({
@@ -7641,6 +8194,15 @@ export class ForgeExecutor {
         recordTypeValues: recordTypes?.byRecordType,
         businessAccounts,
         contactPoints: state.contactPoints ?? undefined,
+        // The user's decisions on the row's values, for the record type it
+        // goes in with in the target.
+        decide: (row, recordTypeId) =>
+          config.decisions.applyToRow(
+            node.objectApiName,
+            row,
+            targetRecordTypeOf(config, recordTypeId),
+            state.decisionsApplied,
+          ),
       });
       // The picklist values this write does not send as read: said on the
       // object's line, and counted for the run's result.
@@ -7658,6 +8220,15 @@ export class ForgeExecutor {
           (recordTypeId) => warnUnmappedRecordType(node.objectApiName, recordTypeId),
         );
       }
+      // The record types the user decided to write as others, or as the
+      // object's default; and, for a simulation, those the target has no
+      // counterpart of, which a real run sends as read and the target refuses.
+      const unmapped = this.applyRecordTypeDecisions(
+        state,
+        node.objectApiName,
+        cleanedRecords,
+        recordsToInsert,
+      );
 
       // Step 2b: anonymize the fields selected on the node, each with the
       // method Review holds for its category. After the rename, under the
@@ -7670,6 +8241,34 @@ export class ForgeExecutor {
         fieldInfos,
         config.fieldMappings[node.objectApiName] ?? {},
       );
+
+      // The texts the user chose to cut, cut to the target's length: last, on
+      // what is sent, once anonymization has written what it writes.
+      const lengths = new Map(
+        (targetFields ?? []).flatMap((f) =>
+          f.length !== undefined && f.length > 0 ? [[f.name, f.length] as const] : [],
+        ),
+      );
+      if (config.decisions.truncatedFieldsOf(node.objectApiName).size > 0) {
+        for (const payload of recordsToInsert) {
+          config.decisions.truncate(node.objectApiName, payload, lengths, state.decisionsApplied);
+        }
+      }
+
+      // What a simulation finds the target would refuse or change in these
+      // rows, as a real run would send them.
+      if (state.gaps) {
+        await this.findGaps(state, node, {
+          cleanedRecords,
+          recordsToInsert,
+          targetFields,
+          targetObject,
+          picklistValuesByField: targetPicklistValuesByField,
+          picklistFields: targetPicklistFields,
+          recordTypes: recordTypes?.byRecordType,
+          unmapped,
+        });
+      }
 
       // An order past Draft goes in as a draft, and gets its status back once
       // every node is written: see `restoreStatuses`.
@@ -7714,6 +8313,17 @@ export class ForgeExecutor {
       let stoppedBy: ForgeAbortedError | undefined;
       try {
         for (const round of rounds) {
+          if (state.simulated) {
+            this.simulateWrite(
+              state,
+              node,
+              round,
+              targetObject?.keyPrefix,
+              writeResult,
+              onProgress,
+            );
+            continue;
+          }
           await state.batchWriter.writeNode(
             {
               node,
@@ -7855,8 +8465,9 @@ export class ForgeExecutor {
       // does not hold into the run, or more of one it holds.
       const readById =
         afterTheirTask === undefined ? readAsParentsNote(state, node.objectApiName) : '';
+      const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
       const counts = (reasons: readonly HeldBackReason[]): string =>
-        `${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}` +
+        `${nodeSuccess} ${succeeded}${updated}${linked}${writtenWithTheirEmail}` +
         `${writtenWithTheirAccount}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
       const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}${readById}`;

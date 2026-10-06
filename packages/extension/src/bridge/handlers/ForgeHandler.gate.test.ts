@@ -324,6 +324,102 @@ describe('forge:execute, the gate before the first write', () => {
     }
   }
 
+  describe('a simulation', () => {
+    /** Review's Simulate: the same request, its config asking for a simulation. */
+    function simulate(): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: graphOf(), config: { ...CONFIG, dryRun: true } },
+        } as BaseMessage),
+      );
+    }
+
+    it('puts no question to the user, whatever the target runs, and hands the run a simulation', async () => {
+      const reader = readerOf(FIRES);
+      const orchestrator = orchestratorHanding({ ...boundaryOf(5000), dryRun: true });
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: reader });
+
+      await simulate();
+
+      expect(questions).toEqual([]);
+      expect(reader.readForGraph).not.toHaveBeenCalled();
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(orchestrator.execute.mock.calls[0][1]).toMatchObject({ dryRun: true });
+      expect(posted('forge:execute:response')).toHaveLength(1);
+    });
+
+    it('keeps it out of the audit trail and the history: it wrote nothing', async () => {
+      const orchestrator = orchestratorHanding();
+      orchestrator.execute.mockResolvedValue({
+        ...RESULT,
+        createdCount: 0,
+        idRemapCount: 0,
+        dryRun: true,
+        wouldInsertCount: 3,
+      });
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await simulate();
+
+      expect(runs()).toEqual([]);
+      expect(store.get('forge:history') ?? []).toEqual([]);
+      expect(posted('forge:execute:response')[0]?.payload).toMatchObject({
+        result: { dryRun: true, wouldInsertCount: 3 },
+      });
+    });
+
+    it('refuses a production target, as a real run is refused', async () => {
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        (id: string) =>
+          (id === 'tgt-org'
+            ? { orgType: 'Production', alias: 'PROD' }
+            : { orgType: 'Sandbox', alias: 'UAT' }) as unknown as ReturnType<
+            HandlerDeps['orgManager']['getOrg']
+          >,
+      );
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await simulate();
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(posted('forge:execute:error').map((e) => e.payload.code)).toEqual([
+        'PRODUCTION_TARGET',
+      ]);
+    });
+  });
+
+  it('counts in the audit trail, per object, the records a call may have written', async () => {
+    const orchestrator = orchestratorHanding();
+    orchestrator.execute.mockResolvedValue({
+      ...RESULT,
+      status: 'partial',
+      idRemapByObject: [{ objectApiName: 'Account', created: 1, linked: 0 }],
+      errors: [
+        {
+          objectApiName: 'Contact',
+          stage: 'insert',
+          failedCount: 2,
+          attemptedCount: 2,
+          samples: [],
+        },
+      ],
+      mayHaveBeenWritten: [
+        { objectApiName: 'Contact', sourceIds: contacts(2).map((c) => String(c['Id'])) },
+      ],
+    });
+    handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+    await execute();
+
+    expect(runs()[0]?.objects).toContainEqual(
+      expect.objectContaining({ objectApiName: 'Contact', failed: 2, mayHaveBeenWritten: 2 }),
+    );
+  });
+
   describe('the org it writes to', () => {
     /** The target as the registry keeps it: its type, and its edition when known. */
     function targetIs(orgType: string, edition?: string): void {

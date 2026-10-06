@@ -1888,7 +1888,9 @@
       "writtenWithoutFields_one": "{{count}} écrit sans un champ refusé par la cible",
       "writtenWithoutFields_other": "{{count}} écrits sans un champ refusé par la cible",
       "skipped": "ignoré",
-      "skippedUncounted": "ignoré, nombre d'enregistrements inconnu"
+      "skippedUncounted": "ignoré, nombre d'enregistrements inconnu",
+      "mayHaveBeenWritten_one": "{{count}} peut-être dans la cible, son appel sans réponse",
+      "mayHaveBeenWritten_other": "{{count}} peut-être dans la cible, leur appel sans réponse"
     },
     "auditShowing": "{{shown}} affichées sur {{total}}",
     "showMore": "Afficher plus",
@@ -2483,7 +2485,7 @@
     "graphView": "Vue graphe",
     "direct": {
       "action": "Cloner directement",
-      "hint": "Découvre le graphe, puis clone ce qu'il contient tel que la revue l'envoie par défaut, sans s'arrêter sur le graphe ni sur la revue. La comparaison des métadonnées entre les deux organisations n'est pas lancée. Les Flows et les déclencheurs Apex que l'org cible exécute à l'insertion des enregistrements sont tout de même lus avant le clonage, et ceux qui se déclenchent vous sont soumis d'abord.",
+      "hint": "Découvre le graphe, puis clone ce qu'il contient tel que la revue l'envoie par défaut, sans s'arrêter sur le graphe ni sur la revue. La comparaison des métadonnées entre les deux organisations n'est pas lancée. Les Flows et les déclencheurs Apex que l'org cible exécute à l'insertion des enregistrements sont tout de même lus avant le clonage, et ceux qui se déclenchent vous sont soumis d'abord. Pour voir d'abord ce qu'un clonage écrirait et ce que la cible refuserait, utilisez Simuler dans la revue.",
       "discovering": "Le clonage démarre dès que la découverte répond.",
       "reviewSkipped": "Revue sautée : ce clonage a démarré dès que la découverte a répondu, avec les objets qu'elle a retenus, et la comparaison des métadonnées entre les deux organisations n'a pas été lancée. Les Flows et les déclencheurs Apex que l'org cible exécute à l'insertion des enregistrements ont été lus avant lui, et ceux qui se déclenchent vous ont été soumis d'abord."
     },
@@ -2789,7 +2791,9 @@
       "resultRefused_one": "{{formatted}} refusé",
       "resultRefused_other": "{{formatted}} refusés",
       "resultNotReached_one": "{{formatted}} non atteint avant l'annulation",
-      "resultNotReached_other": "{{formatted}} non atteints avant l'annulation"
+      "resultNotReached_other": "{{formatted}} non atteints avant l'annulation",
+      "resultMayHaveBeenWritten_one": "{{formatted}} enregistrement qu'un appel du clonage a peut-être écrit avant que sa réponse ne se perde peut se trouver dans {{org}} : aucun identifiant n'en est connu, et la suppression ne peut pas l'atteindre.",
+      "resultMayHaveBeenWritten_other": "{{formatted}} enregistrements qu'un appel du clonage a peut-être écrits avant que sa réponse ne se perde peuvent se trouver dans {{org}} : aucun de leurs identifiants n'est connu, et la suppression ne peut pas les atteindre."
     },
     "error": {
       "duplicateValue": {
@@ -3010,6 +3014,13 @@
         "external": "conservé hors de Salesforce",
         "recordNotCreated": "ses enregistrements n'ont pas été créés par cette exécution"
       }
+    },
+    "simulation": {
+      "action": "Simuler",
+      "running": "Simulation : chaque enregistrement lu passe par l'étape d'écriture comme dans un clonage réel, et rien n'est écrit dans la cible.",
+      "done": "Simulation, rien n'a été écrit. Ces chiffres sont ce qu'un clonage réel insérerait, lierait, retiendrait et ferait échouer ; ce que la cible refuserait ou modifierait dans les enregistrements est listé dans la revue.",
+      "gapsFound": "Écarts trouvés avec la cible : {{gaps}}",
+      "wouldInsert": "Seraient insérés"
     }
   },
   "autopilot": {

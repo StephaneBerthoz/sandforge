@@ -137,6 +137,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const graph = useForgeStore((s) => s.graph);
   const statusesBeyondGraph = useForgeStore((s) => s.statusesBeyondGraph);
   const forgeAgain = useForgeStore((s) => s.forgeAgain);
+  const reviewSimulation = useForgeStore((s) => s.reviewSimulation);
   const setPhase = useForgeStore((s) => s.setPhase);
   const logs = useForgeStore((s) => s.logs);
   const config = useForgeStore((s) => s.config);
@@ -185,9 +186,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // What the run created, as the executor counted it. A run never fills in the
   // graph's own per-node counts, so after a real one they add up to zero; a
   // result recorded before the count was carried still falls back on them.
+  /** Whether the run was a simulation: nothing was written, and its counts are what a real run would do. */
+  const simulation = result?.dryRun === true;
   const inserted = useMemo(
-    () => result?.createdCount ?? nodes.reduce((sum, n) => sum + n.successCount, 0),
-    [result?.createdCount, nodes],
+    () =>
+      simulation
+        ? (result?.wouldInsertCount ?? 0)
+        : (result?.createdCount ?? nodes.reduce((sum, n) => sum + n.successCount, 0)),
+    [simulation, result?.wouldInsertCount, result?.createdCount, nodes],
   );
 
   /** Records the target already held and named: linked to, neither created nor failed. */
@@ -352,7 +358,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * row shows failed: the retry was offered only for a failed one, and the
    * rest of a cancelled clone could only be written again from the start.
    */
-  const retryable = failedObjects || stoppedBeforeItsEnd;
+  // A simulation wrote nothing, and no history keeps it: there is nothing to
+  // retry against. Review runs it, once the gaps are decided.
+  const retryable = !simulation && (failedObjects || stoppedBeforeItsEnd);
 
   /** Sorted and filtered rows for the results table. */
   const sortedFilteredRows = useMemo(() => {
@@ -647,6 +655,31 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </div>
         </div>
       )}
+      {/* A simulation's counts are what a real run would insert, link, hold
+          back and fail: said above them, with the way back to Review, where
+          its gaps are decided. */}
+      {simulation && (
+        <div
+          className="flex flex-wrap items-start gap-3 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-primary"
+          data-testid="forge-results-simulation"
+        >
+          <Info size={14} className="mt-0.5 shrink-0 text-hue-forge" />
+          <div className="flex flex-1 flex-col gap-1">
+            <p>{t('forge.simulation.done')}</p>
+            <p data-testid="forge-results-simulation-gaps">
+              {t('forge.simulation.gapsFound', { gaps: result?.gaps?.length ?? 0 })}
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={reviewSimulation}
+            data-testid="forge-results-simulation-review"
+          >
+            {t('forge.backToReview')}
+          </Button>
+        </div>
+      )}
       {/* KPI row */}
       <m.div
         variants={staggerContainer}
@@ -657,7 +690,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           linked > 0 ? 'lg:grid-cols-7' : 'lg:grid-cols-6',
         )}
       >
-        <KPICard icon="check" label={t('forge.inserted')} value={inserted} variant="success" />
+        <KPICard
+          icon="check"
+          label={t(simulation ? 'forge.simulation.wouldInsert' : 'forge.inserted')}
+          value={inserted}
+          variant="success"
+        />
         {/* Shown only when the target held some: a card reading zero on every
             ordinary run would be noise. */}
         {linked > 0 && (

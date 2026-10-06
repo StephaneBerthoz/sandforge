@@ -134,6 +134,18 @@ const executePayloadSchema = z.object({
   retryOf: z.string().min(1).max(200).optional(),
 });
 
+/**
+ * The guard's verdict on a run it asks no one about: refused, or allowed. A
+ * simulation writes nothing, and no confirmation is put for it.
+ */
+function verdictWithoutConfirmation(
+  guard: ProductionGuard,
+  request: Parameters<ProductionGuard['check']>[0],
+): { check: ReturnType<ProductionGuard['check']>; decision: GuardDecision } {
+  const check = guard.check(request);
+  return { check, decision: check.allowed ? 'allowed' : 'refused' };
+}
+
 /** Why a run that copies files was stopped before it started, as the audit trail records it. */
 const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 
@@ -491,7 +503,10 @@ function failureCodes(errors: readonly ForgeExecutionError[]): Record<string, st
  * say so rather than show nothing.
  */
 function forgeAuditObjects(
-  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors' | 'writtenWithoutFields'> &
+  result: Pick<
+    ForgeExecutionResult,
+    'idRemapByObject' | 'errors' | 'writtenWithoutFields' | 'mayHaveBeenWritten'
+  > &
     Pick<ExecutionSummary, 'notSentByObject'>,
 ): AuditObjectCounts[] {
   const byObject = new Map<string, AuditObjectCounts>();
@@ -533,6 +548,12 @@ function forgeAuditObjects(
   for (const row of result.writtenWithoutFields ?? []) {
     const counts = countsOf(row.objectApiName);
     counts.writtenWithoutFields = (counts.writtenWithoutFields ?? 0) + row.rows;
+  }
+  // Failed, and counted so above, but maybe in the target all the same: the
+  // call that carried them never answered, and no removal reaches them.
+  for (const { objectApiName, sourceIds } of result.mayHaveBeenWritten ?? []) {
+    const counts = countsOf(objectApiName);
+    counts.mayHaveBeenWritten = (counts.mayHaveBeenWritten ?? 0) + sourceIds.length;
   }
   return [...byObject.values()];
 }
@@ -1284,6 +1305,11 @@ export class ForgeHandler implements DomainHandler {
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
     const { graph, config, anonymizationRules, files, retryOf } = parsed;
+    // A simulation reads what the run reads and writes nothing: no question of
+    // the run's gate is put for it, nor of Production Guard, and it is neither
+    // a write in the audit trail nor a run of the history. A production target
+    // is refused all the same, below.
+    const dryRun = config.dryRun === true;
 
     // A run that anonymizes its records copies no file the user has not
     // accepted as it is: a file's content cannot be anonymized. Refused before
@@ -1400,9 +1426,14 @@ export class ForgeHandler implements DomainHandler {
     // guard waits on a person.
     const runController = new AbortController();
     this.runsAwaitingGuard.add(runController);
-    const { check, decision } = await consultProductionGuard(guard, guardRequest).finally(() =>
-      this.runsAwaitingGuard.delete(runController),
-    );
+    // A simulation asks no one: the guard's verdict alone, which still
+    // refuses what it refuses.
+    const { check, decision } = dryRun
+      ? verdictWithoutConfirmation(guard, guardRequest)
+      : await consultProductionGuard(guard, guardRequest).finally(() =>
+          this.runsAwaitingGuard.delete(runController),
+        );
+    if (dryRun) this.runsAwaitingGuard.delete(runController);
     /**
      * What the guard decided, recorded with the run it let through: made
      * `confirmed` by a person's answer to a question of the run's gate.
@@ -1548,11 +1579,12 @@ export class ForgeHandler implements DomainHandler {
 
     this.abortController = runController;
     const operationId = `forge-execute-${this.deps.nextId()}`;
-    sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
-    const releaseRun = this.trackRun(operationId, 'Executing forge operation', runController, true);
+    const operationLabel = dryRun ? 'Simulating forge operation' : 'Executing forge operation';
+    sendOperationStarted(this.deps, operationId, 'forge', operationLabel);
+    const releaseRun = this.trackRun(operationId, operationLabel, runController, true);
     // Listed in Live Operations while it runs, where Cancel reaches it
     // through the registry, as a Sync or a Seed run is.
-    this.liveTracker?.register(operationId, 'forge', 'Executing forge operation');
+    this.liveTracker?.register(operationId, 'forge', operationLabel);
     this.executeOperationId = operationId;
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
@@ -1639,15 +1671,17 @@ export class ForgeHandler implements DomainHandler {
       // a read of the run's own otherwise. Run into a sandbox, a clone fired
       // the target's flows on every record it created, emails and text
       // messages among them, and the preview that said so stopped nothing.
-      const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
-      if (runController.signal.aborted) {
-        stoppedBeforeStart = true;
-        throw new Error(ABORTED_BEFORE_START_MESSAGE);
+      if (!dryRun) {
+        const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        if (runController.signal.aborted) {
+          stoppedBeforeStart = true;
+          throw new Error(ABORTED_BEFORE_START_MESSAGE);
+        }
+        guardDecision = strongerDecision(
+          guardDecision,
+          await this.confirmAutomation(guard, { org: targetName, orgTier }, automation),
+        );
       }
-      guardDecision = strongerDecision(
-        guardDecision,
-        await this.confirmAutomation(guard, { org: targetName, orgTier }, automation),
-      );
       if (runController.signal.aborted) {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
@@ -1707,20 +1741,21 @@ export class ForgeHandler implements DomainHandler {
         runError = new Error('Forge execution finished with a failure status.');
       }
 
-      recordWriteRun(this.deps, {
-        action: 'forge_execute',
-        module: 'forge',
-        operationId,
-        orgId: config.targetOrgId,
-        outcome: result.status,
-        guard: guardDecision,
-        objects: forgeAuditObjects(result),
-        source: { origin: 'org', orgId: config.sourceOrgId },
-        carried: forgeCarried(result),
-        ...contactPointsAudit(result.contactPoints),
-      });
-
-      this.addToHistory(result, config);
+      if (!dryRun) {
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId,
+          orgId: config.targetOrgId,
+          outcome: result.status,
+          guard: guardDecision,
+          objects: forgeAuditObjects(result),
+          source: { origin: 'org', orgId: config.sourceOrgId },
+          carried: forgeCarried(result),
+          ...contactPointsAudit(result.contactPoints),
+        });
+        this.addToHistory(result, config);
+      }
       // What the run came to, in the output channel as on the page: a run
       // that ended left "Forge execute started" there and nothing else, and a
       // log read afterwards could not tell a run that failed from one still
@@ -1762,6 +1797,7 @@ export class ForgeHandler implements DomainHandler {
             errors: partial.errors,
             notSentByObject: partial.notSentByObject,
             writtenWithoutFields: partial.writtenWithoutFields,
+            mayHaveBeenWritten: partial.mayHaveBeenWritten,
           }
         : undefined;
       const objects = tallies ? forgeAuditObjects(tallies) : [];
@@ -1801,31 +1837,33 @@ export class ForgeHandler implements DomainHandler {
       // Kept in the history with what it created and where, so those records
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
-      const stoppedRun = partial
-        ? this.keepStoppedRun(partial, graph, config, {
-            startedAt,
-            cancelled,
-            retryOf,
-            callsBefore: lookup.requests,
-          })
-        : undefined;
-      recordWriteRun(this.deps, {
-        action: 'forge_execute',
-        module: 'forge',
-        operationId,
-        orgId: config.targetOrgId,
-        outcome,
-        ...(code ? { code } : {}),
-        guard: guardDecision,
-        ...(tallies
-          ? {
-              objects,
-              source: { origin: 'org' as const, orgId: config.sourceOrgId },
-              carried: forgeCarried(tallies),
-            }
-          : {}),
-        ...contactPointsAudit(partial?.contactPoints),
-      });
+      const stoppedRun =
+        partial && !dryRun
+          ? this.keepStoppedRun(partial, graph, config, {
+              startedAt,
+              cancelled,
+              retryOf,
+              callsBefore: lookup.requests,
+            })
+          : undefined;
+      if (!dryRun)
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId,
+          orgId: config.targetOrgId,
+          outcome,
+          ...(code ? { code } : {}),
+          guard: guardDecision,
+          ...(tallies
+            ? {
+                objects,
+                source: { origin: 'org' as const, orgId: config.sourceOrgId },
+                carried: forgeCarried(tallies),
+              }
+            : {}),
+          ...contactPointsAudit(partial?.contactPoints),
+        });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so
       // the user can fix the cause and run it again.
@@ -2622,6 +2660,12 @@ export class ForgeHandler implements DomainHandler {
       // A removal after one that marked the run takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = entry.undo?.removedAt;
+      // What a call of the run may have written before its answer was lost:
+      // in the org maybe, under ids no one knows, and out of this removal's reach.
+      const unreachable = (entry.mayHaveBeenWritten ?? []).reduce(
+        (sum, { sourceIds }) => sum + sourceIds.length,
+        0,
+      );
       const result: ForgeUndoResult = {
         forgeId,
         status: removalStatus(outcome.objects, outcome.cancelled),
@@ -2629,6 +2673,7 @@ export class ForgeHandler implements DomainHandler {
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
+        ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
       };
 
       recordWriteRun(this.deps, {

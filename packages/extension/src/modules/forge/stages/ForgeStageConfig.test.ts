@@ -110,4 +110,16 @@ describe('resolveStageConfig', () => {
       2 * MB,
     );
   });
+
+  it("holds the user's decisions, and none until the orgs' record types resolve them", () => {
+    const config = resolveStageConfig({
+      dryRun: true,
+      decisions: { ignoredGaps: ['value_too_long|Case|Subject||'] },
+    });
+
+    expect(config.dryRun).toBe(true);
+    expect(config.decisions.ignoredGaps).toEqual(new Set(['value_too_long|Case|Subject||']));
+    expect(config.recordTypeDecisions.size).toBe(0);
+    expect(resolveStageConfig(undefined).decisions.ignoredGaps.size).toBe(0);
+  });
 });

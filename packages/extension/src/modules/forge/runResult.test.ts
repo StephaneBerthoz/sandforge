@@ -90,6 +90,19 @@ describe('finishedRunStatus', () => {
     );
   });
 
+  it('calls a simulation that would have created records and failed others partial', () => {
+    const simulated = {
+      successCount: 0,
+      updatedCount: 0,
+      linkedCount: 0,
+      failedCount: 2,
+      failedReads: [],
+    };
+
+    expect(finishedRunStatus({ ...simulated, wouldInsertCount: 3 })).toBe('partial');
+    expect(finishedRunStatus({ ...simulated, wouldInsertCount: 0 })).toBe('failure');
+  });
+
   it('calls a run that skipped an object whole partial, though its report counts no record', () => {
     // The target takes no insert of the object, and the run read one row of
     // it only to know: nothing is counted as failed, and the object is lost.
@@ -255,6 +268,56 @@ describe('forgeRunResult', () => {
       '003000000000002SRC',
     ]);
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('idRemapWithTheirRecord');
+  });
+
+  it('says a simulation is one, with what it would have created and the gaps it found', () => {
+    const gaps = [
+      {
+        id: 'currency_inactive|Opportunity|CurrencyIsoCode||USD',
+        kind: 'currency_inactive' as const,
+        severity: 'blocking' as const,
+        source: 'simulation' as const,
+        objectApiName: 'Opportunity',
+        field: 'CurrencyIsoCode',
+        value: 'USD',
+        rows: 2,
+        decisions: ['map_value' as const],
+      },
+    ];
+    const result = forgeRunResult(
+      summary({ successCount: 0, wouldInsertCount: 5, dryRun: true, gaps }),
+      GRAPH,
+      { startedAt: Date.now(), status: 'success' },
+    );
+
+    expect(result).toMatchObject({ dryRun: true, wouldInsertCount: 5, createdCount: 0, gaps });
+    expect(
+      forgeRunResult(summary(), GRAPH, { startedAt: Date.now(), status: 'success' }),
+    ).not.toHaveProperty('dryRun');
+  });
+
+  it('keeps the decisions the run applied and the rows a call may have written, only when there are some', () => {
+    const decisionsApplied = [
+      {
+        kind: 'set_default' as const,
+        objectApiName: 'Case',
+        field: 'Region__c',
+        to: 'North',
+        rows: 2,
+      },
+    ];
+    const mayHaveBeenWritten = [{ objectApiName: 'Case', sourceIds: ['500000000000001AAA'] }];
+    const run = { startedAt: Date.now(), status: 'partial' as const };
+
+    expect(
+      forgeRunResult(summary({ decisionsApplied, mayHaveBeenWritten }), GRAPH, run),
+    ).toMatchObject({
+      decisionsApplied,
+      mayHaveBeenWritten,
+    });
+    const plain = forgeRunResult(summary(), GRAPH, run);
+    expect(plain).not.toHaveProperty('decisionsApplied');
+    expect(plain).not.toHaveProperty('mayHaveBeenWritten');
   });
 
   it('keeps what a run that stopped part way created, under the status it is given', () => {

@@ -283,6 +283,7 @@ const INITIAL_STATE = {
   directDiscoveryId: null as string | null,
   directDiscoveryError: null as string | null,
   reviewSkipped: false,
+  simulation: false,
 };
 
 /** Forge state machine store — state and actions. */
@@ -391,6 +392,11 @@ export interface ForgeState {
    * graph as discovery left it for the next run.
    */
   reviewAgain: () => void;
+  /**
+   * Leave the results of a simulation for Review, the graph as discovery left
+   * it and the gaps the simulation found kept, to decide on them and run.
+   */
+  reviewSimulation: () => void;
   /**
    * How long the run on screen has gone, or null while none was started.
    *
@@ -530,6 +536,14 @@ export interface ForgeState {
   reviewSkipped: boolean;
   /** Mark the run just started as one that skipped Review. */
   markReviewSkipped: () => void;
+  /**
+   * Whether the run on screen is a simulation (Review's Simulate): it reads
+   * and checks every record as a real run would, and writes nothing. Set as
+   * such a run starts; a run started otherwise has it off.
+   */
+  simulation: boolean;
+  /** Mark the run just started as a simulation. */
+  markSimulation: () => void;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -712,6 +726,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set({ reviewSkipped: true });
   },
 
+  markSimulation(): void {
+    set({ simulation: true });
+  },
+
   setFileCopy(change: Partial<ForgeFileCopyChoice>): void {
     set((state) => {
       const next = { ...state.fileCopy, ...change };
@@ -741,6 +759,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       stopRequestedAt: null,
       apiCallsSoFar: null,
       reviewSkipped: false,
+      simulation: false,
       runClock:
         executionRequestId === null
           ? null
@@ -882,6 +901,25 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         phase: 'review' as ForgePhase,
         runError: null,
         runClock: null,
+        ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
+        statusesBeyondGraph: {},
+      };
+    });
+  },
+
+  /*
+   * Only from a simulation's results: a real run's records are in the target,
+   * and Review would start another over them. The gaps stay, the simulation's
+   * among them: they are what Review is gone back to for.
+   */
+  reviewSimulation(): void {
+    set((state) => {
+      if (state.phase !== 'results' || state.result?.dryRun !== true) return state;
+      return {
+        phase: 'review' as ForgePhase,
+        result: null,
+        runClock: null,
+        simulation: false,
         ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
         statusesBeyondGraph: {},
       };
@@ -1055,6 +1093,17 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       // An answer with no result leaves none on screen: a retry's would
       // otherwise show the run it retried. One that comes after an abort was
       // asked for is of a run that finished before the abort reached it.
+      // A simulation wrote nothing, and the history keeps none: what it says
+      // is the gaps it found, which Review's Gaps tab shows with the others.
+      if (result?.dryRun === true) {
+        return {
+          phase: 'results' as ForgePhase,
+          result,
+          stopRequestedAt: null,
+          runClock: endedClock(state.runClock),
+          gaps: { ...state.gaps, simulation: result.gaps ?? [] },
+        };
+      }
       return {
         phase: 'results' as ForgePhase,
         result: result ?? null,

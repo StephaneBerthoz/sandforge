@@ -11,6 +11,12 @@ export interface StartForgeRunOptions {
    * directly): the execution screen says the review was skipped.
    */
   reviewSkipped?: boolean;
+  /**
+   * A simulation (Review's Simulate): the run reads what a real run reads,
+   * takes every record through the write stage, and writes nothing. Its
+   * results say so, and the gaps it found go to Review's Gaps tab.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -49,9 +55,13 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
   // travel on the graph's nodes, and the run used to receive only those, so
   // every category was written with no method at all. So does the choice
   // to copy the files, which is not part of the config.
+  // Simulated only when asked: a config that came back from a template or a
+  // past run with the flag on never makes Execute a simulation.
+  const realConfig = { ...config };
+  delete realConfig.dryRun;
   const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
     graph,
-    config,
+    config: options.dryRun ? { ...realConfig, dryRun: true } : realConfig,
     anonymizationRules,
     ...(fileCopy.enabled
       ? {
@@ -66,6 +76,7 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
   const store = useForgeStore.getState();
   store.setExecutionRequestId(requestId);
   if (options.reviewSkipped) store.markReviewSkipped();
+  if (options.dryRun) store.markSimulation();
   store.setPhase('execution');
   return true;
 }

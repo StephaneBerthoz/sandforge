@@ -300,6 +300,31 @@ describe('forge:undo', () => {
     expect(errors()).toEqual([]);
   });
 
+  it('says how many records of the run a call may have written that it cannot reach', async () => {
+    store.set(
+      'forge:history',
+      [
+        {
+          ...runEntry(),
+          mayHaveBeenWritten: [
+            { objectApiName: 'Contact', sourceIds: [id('003', 7), id('003', 8)] },
+          ],
+        },
+      ],
+      'forge',
+    );
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(answer()).toMatchObject({ status: 'success', mayHaveBeenWritten: 2 });
+  });
+
+  it('says nothing of records out of reach when every call of the run was answered', async () => {
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(answer()).not.toHaveProperty('mayHaveBeenWritten');
+  });
+
   it('records the removal in the audit trail with what it deleted per object', async () => {
     await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
 

@@ -55,6 +55,8 @@ let mockStopRequestedAt: number | null = null;
 let mockApiCallsSoFar: number | null = null;
 /** Whether the run was started by Clone directly, with no stop on Review. */
 let mockReviewSkipped = false;
+/** Whether the run on screen is a simulation. */
+let mockSimulation = false;
 // The store's own moves, as it makes them: the screen draws what they leave.
 const mockPauseRun = vi.fn(() => {
   if (mockRunClock) mockRunClock = { ...mockRunClock, pausedSince: Date.now() };
@@ -182,6 +184,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     stopRequestedAt: mockStopRequestedAt,
     apiCallsSoFar: mockApiCallsSoFar,
     reviewSkipped: mockReviewSkipped,
+    simulation: mockSimulation,
     setPhase: mockSetPhase,
     setStoppedAt: mockSetStoppedAt,
     addLog: mockAddLog,
@@ -233,7 +236,24 @@ describe('ForgeExecution', () => {
     mockStopRequestedAt = null;
     mockApiCallsSoFar = null;
     mockReviewSkipped = false;
+    mockSimulation = false;
     useForgeViewStore.setState({ setting: 'auto', choice: null });
+  });
+
+  describe('a simulation', () => {
+    it('says before any count that the run writes nothing', () => {
+      mockSimulation = true;
+      render(<ForgeExecution />);
+
+      expect(screen.getByTestId('forge-execution-simulation').textContent).toBe(
+        'Simulation: every record read goes through the write stage as a real run would take it, and nothing is written to the target.',
+      );
+    });
+
+    it('says nothing of it for a real run', () => {
+      render(<ForgeExecution />);
+      expect(screen.queryByTestId('forge-execution-simulation')).toBeNull();
+    });
   });
 
   describe('a run Clone directly started', () => {

@@ -1888,7 +1888,9 @@
       "writtenWithoutFields_one": "{{count}} ohne ein vom Ziel abgelehntes Feld geschrieben",
       "writtenWithoutFields_other": "{{count}} ohne ein vom Ziel abgelehntes Feld geschrieben",
       "skipped": "übersprungen",
-      "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt"
+      "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt",
+      "mayHaveBeenWritten_one": "{{count}} vielleicht im Ziel, sein Aufruf ohne Antwort",
+      "mayHaveBeenWritten_other": "{{count}} vielleicht im Ziel, ihr Aufruf ohne Antwort"
     },
     "auditShowing": "{{shown}} von {{total}} angezeigt",
     "showMore": "Mehr anzeigen",
@@ -2483,7 +2485,7 @@
     "graphView": "Graph-Ansicht",
     "direct": {
       "action": "Direkt klonen",
-      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, werden trotzdem vor dem Lauf gelesen, und was davon ausgelöst wird, wird Ihnen zuerst vorgelegt.",
+      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, werden trotzdem vor dem Lauf gelesen, und was davon ausgelöst wird, wird Ihnen zuerst vorgelegt. Um zuerst zu sehen, was ein Lauf schreiben und was das Ziel ablehnen würde, verwenden Sie Simulieren in der Überprüfung.",
       "discovering": "Das Klonen beginnt, sobald die Ermittlung antwortet.",
       "reviewSkipped": "Überprüfung übersprungen: Dieser Lauf begann, sobald die Ermittlung antwortete, mit den Objekten, die sie einbezogen hat, und der Metadatenvergleich zwischen den beiden Orgs wurde nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, wurden vorher gelesen, und was davon ausgelöst wird, wurde Ihnen zuerst vorgelegt."
     },
@@ -2789,7 +2791,9 @@
       "resultRefused_one": "{{formatted}} abgelehnt",
       "resultRefused_other": "{{formatted}} abgelehnt",
       "resultNotReached_one": "{{formatted}} vor dem Abbruch nicht erreicht",
-      "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht"
+      "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht",
+      "resultMayHaveBeenWritten_one": "{{formatted}} Datensatz, den ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, kann sich in {{org}} befinden: Keine seiner IDs ist bekannt, und das Entfernen erreicht ihn nicht.",
+      "resultMayHaveBeenWritten_other": "{{formatted}} Datensätze, die ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, können sich in {{org}} befinden: Keine ihrer IDs ist bekannt, und das Entfernen erreicht sie nicht."
     },
     "error": {
       "duplicateValue": {
@@ -3010,6 +3014,13 @@
         "external": "außerhalb von Salesforce gespeichert",
         "recordNotCreated": "ihre Datensätze hat nicht dieser Durchlauf erstellt"
       }
+    },
+    "simulation": {
+      "action": "Simulieren",
+      "running": "Simulation: Jeder gelesene Datensatz durchläuft die Schreibphase wie bei einem echten Lauf, und nichts wird in das Ziel geschrieben.",
+      "done": "Simulation, nichts wurde geschrieben. Diese Zahlen zeigen, was ein echter Lauf einfügen, verknüpfen, zurückhalten und verfehlen würde; was das Ziel an den Datensätzen ablehnen oder ändern würde, steht in der Überprüfung.",
+      "gapsFound": "Gefundene Abweichungen zum Ziel: {{gaps}}",
+      "wouldInsert": "Würden eingefügt"
     }
   },
   "autopilot": {

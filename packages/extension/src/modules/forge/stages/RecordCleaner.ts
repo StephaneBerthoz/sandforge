@@ -86,6 +86,12 @@ export interface TargetFieldSets {
    * required, and dependent on which field. Empty when the object has none.
    */
   picklistFields: Map<string, PicklistField>;
+  /**
+   * The target's describe of the object, every field with what it says of the
+   * values each takes: what a simulation checks the rows against, and what a
+   * text is cut to when the user chose to cut it.
+   */
+  fields: readonly FieldInfo[];
 }
 
 /**
@@ -114,6 +120,7 @@ export function targetFieldSetsOf(
     updateable,
     picklistValuesByField: pmap.size > 0 ? pmap : null,
     picklistFields: picklistFieldsOf(targetFields, objectApiName),
+    fields: targetFields,
   };
 }
 
@@ -236,6 +243,15 @@ export interface CleanNodeRecordsInput {
    * the source holds them: the run was told to keep them.
    */
   contactPoints?: ContactPointNeutralizer;
+  /**
+   * The user's decisions on the row once it is whole and before its picklist
+   * values are checked: a value mapped to another or left out, a default
+   * given to a field it leaves empty (`RunDecisions.applyToRow`). Changes the
+   * row in place.
+   *
+   * @param recordTypeId - The row's `RecordTypeId` as it was read.
+   */
+  decide?: (row: Record<string, unknown>, recordTypeId: string | undefined) => void;
 }
 
 /** The name parts only a person account holds; `Salutation` "is available on person accounts". */
@@ -290,6 +306,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     recordTypeValues,
     businessAccounts,
     contactPoints,
+    decide,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
@@ -499,6 +516,9 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // `RecordTypeId` is still the source's here, which is what
     // `recordTypeValues` is keyed by.
     const recordTypeId = cleaned['RecordTypeId'];
+    // What the user decided of the row's values comes first: a value mapped
+    // to one the target still refuses is checked as any other.
+    decide?.(cleaned, typeof recordTypeId === 'string' ? recordTypeId : undefined);
     const picklistChanges = checkRowPicklists(
       cleaned,
       picklistValuesByField,

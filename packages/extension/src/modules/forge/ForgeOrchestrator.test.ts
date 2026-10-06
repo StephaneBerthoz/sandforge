@@ -149,6 +149,74 @@ describe('ForgeOrchestrator', () => {
   });
 
   describe('execute', () => {
+    it('asks the executor for a simulation, with the decisions of the config, in both input modes', async () => {
+      const decided = {
+        dryRun: true,
+        picklistValueMappings: [{ object: 'Account', field: 'Type', from: 'Old', to: 'New' }],
+        recordTypeMappings: [{ object: 'Account', from: 'Retail', to: null }],
+        defaultValues: [{ object: 'Account', field: 'Region__c', value: 'North' }],
+        truncateFields: [{ object: 'Account', field: 'Name' }],
+        ignoredGaps: ['value_too_long|Account|Name||'],
+      };
+      const bare = {
+        inputMode: 'soql' as const,
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+        maxRecordsPerObject: undefined,
+      };
+
+      await orchestrator.execute(createMockGraph(), createMockConfig(decided));
+      await orchestrator.execute(createMockGraph(), createMockConfig({ ...bare, ...decided }));
+      await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      const decisions = {
+        picklistValueMappings: decided.picklistValueMappings,
+        recordTypeMappings: decided.recordTypeMappings,
+        defaultValues: decided.defaultValues,
+        truncateFields: decided.truncateFields,
+        ignoredGaps: decided.ignoredGaps,
+      };
+      expect(optionsPassed[0]).toMatchObject({ dryRun: true, decisions });
+      expect(optionsPassed[1]).toMatchObject({ dryRun: true, decisions });
+      // A real run with no decision says neither.
+      expect(optionsPassed[2]?.dryRun).toBeUndefined();
+      expect(optionsPassed[2]?.decisions).toBeUndefined();
+    });
+
+    it('leaves out, as objects excluded by name, those the user chose not to write', async () => {
+      const graph = createMockGraph();
+
+      await orchestrator.execute(graph, createMockConfig({ excludedObjects: ['Contact'] }));
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(optionsPassed[0]?.excludedObjects).toEqual(['Contact']);
+    });
+
+    it("says a simulation's result is one, with what it would have created and its gaps", async () => {
+      const gap = {
+        id: 'value_too_long|Account|Name||',
+        kind: 'value_too_long' as const,
+        severity: 'blocking' as const,
+        source: 'simulation' as const,
+        objectApiName: 'Account',
+        field: 'Name',
+        rows: 1,
+        decisions: ['truncate' as const],
+      };
+      vi.mocked(deps.executor.execute).mockResolvedValueOnce(
+        createMockSummary({ successCount: 0, wouldInsertCount: 3, dryRun: true, gaps: [gap] }),
+      );
+
+      const result = await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({ dryRun: true }),
+      );
+
+      expect(result).toMatchObject({ dryRun: true, wouldInsertCount: 3, gaps: [gap] });
+      expect(result.createdCount).toBe(0);
+    });
+
     it('should hand the RecordType translation table to the executor in both input modes', async () => {
       const recordTypeMappings = [
         { sourceId: '012SRC000000001', targetId: '012TGT000000001', developerName: 'Business' },

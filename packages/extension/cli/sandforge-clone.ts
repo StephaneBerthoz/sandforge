@@ -38,8 +38,10 @@ import { countRequests, loadOrg, makeConn } from './sfSession.js';
 import type {
   ForgeConfig,
   ForgeContactPointsReport,
+  ForgeDecisionApplied,
   ForgeFieldRefusal,
   ForgeFilesReport,
+  ForgeGap,
   ForgeGraph,
   ForgePlan,
   ForgeRemovalFilesLeft,
@@ -70,6 +72,7 @@ import type {
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
+import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
 import { runAnonymization, type PIIFieldInfo } from '../src/modules/forge/ForgeAnonymizer.js';
 import type {
@@ -876,6 +879,22 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
     }
   }
   if (summary.contactPoints) lines.push('', ...contactPointLines(summary.contactPoints, dryRun));
+  // A call whose answer never came back may have written its rows: the target
+  // may hold them, and nothing the run knows reaches them.
+  const mayHaveBeenWritten = summary.mayHaveBeenWritten ?? [];
+  if (mayHaveBeenWritten.length > 0) {
+    lines.push(
+      '',
+      'may be in the target, under ids the run never learned (--remove cannot reach them):',
+    );
+    for (const { objectApiName, sourceIds } of mayHaveBeenWritten) {
+      lines.push(`  ${objectApiName}  ${sourceIds.length} record(s)`);
+    }
+  }
+  if (summary.decisionsApplied && summary.decisionsApplied.length > 0) {
+    lines.push('', ...decisionLines(summary.decisionsApplied));
+  }
+  if (summary.gaps) lines.push('', ...simulationGapLines(summary.gaps));
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -890,6 +909,67 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
     }
   }
   return lines;
+}
+
+/** What a gap's detail says on its line: a length, digits, the value written instead, where to map. */
+function gapDetail(gap: ForgeGap): string {
+  const detail = gap.detail ?? {};
+  const parts: string[] = [];
+  if (typeof detail['longest'] === 'number' && typeof detail['length'] === 'number') {
+    parts.push(`longest ${detail['longest']} of ${detail['length']} characters`);
+  }
+  if (typeof detail['precision'] === 'number') {
+    parts.push(`precision ${detail['precision']}, scale ${String(detail['scale'] ?? 0)}`);
+  }
+  if (typeof detail['replacement'] === 'string')
+    parts.push(`written as "${detail['replacement']}"`);
+  if (typeof detail['colliding'] === 'number') {
+    parts.push(`${detail['colliding']} value(s) already in the target`);
+  }
+  const mapTo = detail['mapTo'];
+  if (Array.isArray(mapTo) && mapTo.length > 0) parts.push(`may map to ${mapTo.join(', ')}`);
+  if (detail['ignored'] === true) parts.push('ignored');
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+/**
+ * What a dry run found the target would refuse or change, row by row, one
+ * line a gap: its severity, the object and field, what it is about, and the
+ * rows it touches. Exported so it can be tested.
+ */
+export function simulationGapLines(gaps: readonly ForgeGap[]): string[] {
+  if (gaps.length === 0) {
+    return ['gaps: none found (dry run: nothing the target would refuse or change)'];
+  }
+  return [
+    `gaps the target holds against the rows (${gaps.length}, dry run):`,
+    ...gaps.map((gap) => {
+      const where = gap.field ? `${gap.objectApiName}.${gap.field}` : gap.objectApiName;
+      const value = gap.value !== undefined ? ` "${gap.value}"` : '';
+      const recordType = gap.recordType !== undefined ? ` (record type ${gap.recordType})` : '';
+      return (
+        `  [${gap.severity}] ${where}  ${gap.kind}${value}${recordType}: ` +
+        `${gap.rows} record(s)${gapDetail(gap)}`
+      );
+    }),
+  ];
+}
+
+/** The user's decisions the run applied, one line each with the rows it changed. Exported so it can be tested. */
+export function decisionLines(applied: readonly ForgeDecisionApplied[]): string[] {
+  return [
+    `decisions applied (${applied.length}):`,
+    ...applied.map((decision) => {
+      const where = decision.field
+        ? `${decision.objectApiName}.${decision.field}`
+        : decision.objectApiName;
+      const from = decision.from !== undefined ? ` "${decision.from}"` : '';
+      const to = decision.to !== undefined ? ` → "${decision.to}"` : '';
+      const scope =
+        decision.recordType !== undefined ? ` (record type ${decision.recordType})` : '';
+      return `  ${where}  ${decision.kind}${from}${to}${scope}: ${decision.rows} record(s)`;
+    }),
+  ];
 }
 
 /**
@@ -997,13 +1077,22 @@ export function jsonResult(summary: ExecutionSummary) {
     ...(summary.contactPoints ? { contactPoints: summary.contactPoints } : {}),
     // The requests the run sent to both orgs, discovery's before it aside.
     ...(summary.apiCalls !== undefined ? { apiCalls: summary.apiCalls } : {}),
+    // On a dry run, what the target would refuse or change, row by row: never
+    // a record's data, a picklist value or a currency code at most.
+    ...(summary.gaps ? { gaps: summary.gaps } : {}),
+    ...(summary.decisionsApplied ? { decisionsApplied: summary.decisionsApplied } : {}),
+    // Per object, the rows of a call whose answer never came back: they may be
+    // in the target under ids the run never learned, and --remove cannot
+    // reach them.
+    ...(summary.mayHaveBeenWritten ? { mayHaveBeenWritten: summary.mayHaveBeenWritten } : {}),
   };
 }
 
 /**
  * The line an object's end of run prints, or nothing for a step on the way.
  * The executor says what each object came to — `--dry-run`'s "would be
- * inserted" counts among them — and the run passed it a callback that
+ * inserted" counts among them, as its reads bring them and as its simulated
+ * write ends the object — and the run passed it a callback that
  * dropped every word. A skipped object is printed too, with the reason the
  * executor gives: with the objects written and failed alone, a clone that
  * left objects out named none of them. So is an object a cancel stopped while
@@ -1011,6 +1100,11 @@ export function jsonResult(summary: ExecutionSummary) {
  * Exported so it can be tested.
  */
 export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined {
+  // What a dry run's read brings is a step the simulated write ends: printed
+  // as it was before the write was simulated, the line the read says it on.
+  if (event.status === 'running' && event.message.startsWith('[dry-run] ')) {
+    return `  ${event.message}`;
+  }
   if (
     event.status !== 'done' &&
     event.status !== 'error' &&
@@ -1442,6 +1536,14 @@ const runSummarySchema = z.object({
     ),
     withTheirRecordSourceIds: z.array(summaryIdSchema).optional(),
     writtenBetween: z.object({ first: summaryDateSchema, last: summaryDateSchema }).optional(),
+    mayHaveBeenWritten: z
+      .array(
+        z.object({
+          objectApiName: z.string().regex(API_NAME_RE, 'not an API name'),
+          sourceIds: z.array(summaryIdSchema),
+        }),
+      )
+      .optional(),
   }),
 });
 
@@ -1578,6 +1680,7 @@ function filesLeftLine(files: ForgeRemovalFilesLeft): string {
 export function removalLines(
   status: ForgeUndoStatus,
   objects: readonly ForgeUndoObjectResult[],
+  mayHaveBeenWritten = 0,
 ): string[] {
   const unchecked = [...new Set(objects.flatMap((o) => o.unchecked))];
   return [
@@ -1589,6 +1692,14 @@ export function removalLines(
     ]),
     ...(unchecked.length > 0
       ? [`not checked, deleted with their parent: ${unchecked.join(', ')}`]
+      : []),
+    // Records a call of the run may have written before its answer was lost:
+    // no id of theirs is known, and nothing here reaches them.
+    ...(mayHaveBeenWritten > 0
+      ? [
+          `not reachable: ${mayHaveBeenWritten} record(s) a call of the run may have written ` +
+            'before its answer was lost may be in the org, under ids the run never learned',
+        ]
       : []),
   ];
 }
@@ -1791,6 +1902,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(2);
   }
 
+  /** Records of the run a call may have written before its answer was lost, which no removal reaches. */
+  const unreachable = (summary.result.mayHaveBeenWritten ?? []).reduce(
+    (sum, { sourceIds }) => sum + sourceIds.length,
+    0,
+  );
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -1816,6 +1932,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               status,
               planned: objects.reduce((sum, o) => sum + o.planned, 0),
               objects,
+              ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
@@ -1826,7 +1943,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
-    for (const line of removalLines(status, objects)) console.log(line);
+    for (const line of removalLines(status, objects, unreachable)) console.log(line);
     if (removalsFile) {
       console.log(
         `what this removal left on the run's records is kept in ${removalsFile}, ` +
@@ -2207,6 +2324,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
     describeFields: async (orgId, name) => {
       const meta = await describe(orgId, name);
+      const controllers = controllersOf(meta.fields);
       return meta.fields.map<FieldInfo>((f) => ({
         name: f.name,
         type: f.type,
@@ -2224,6 +2342,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         updateable: f.updateable !== false,
         // What an email address or a phone number is neutralized within.
         ...(f.length > 0 ? { length: f.length } : {}),
+        // What a dry run checks each row against, as the extension does.
+        ...fieldBoundsOf(f, controllers),
       }));
     },
     isObjectCreatable: async (orgId, name) => (await describe(orgId, name)).createable !== false,

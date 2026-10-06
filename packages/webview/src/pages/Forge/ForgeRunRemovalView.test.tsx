@@ -153,6 +153,30 @@ describe('ForgeRunRemovalResult', () => {
     );
   });
 
+  it('says the records of the run a call may have written, which the removal cannot reach', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={{ ...result({ objects: [outcome({ deleted: 1 })] }), mayHaveBeenWritten: 2 }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-unreachable').textContent).toBe(
+      '2 records a call of the run may have written before its answer was lost may be in DEV-SANDBOX: no id of theirs is known, and the removal cannot reach them.',
+    );
+  });
+
+  it('says nothing of records out of reach when every call of the run was answered', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({ objects: [outcome({ deleted: 1 })] })}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-removal-unreachable')).toBeNull();
+  });
+
   it('says nothing of checks when every relationship was read', () => {
     render(
       <ForgeRunRemovalResult

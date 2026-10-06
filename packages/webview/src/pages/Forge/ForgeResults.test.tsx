@@ -103,6 +103,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 const mockReset = vi.fn();
 const mockForgeAgain = vi.fn();
+const mockReviewSimulation = vi.fn();
 const mockSetPhase = vi.fn();
 const mockSetGraph = vi.fn();
 
@@ -252,6 +253,7 @@ vi.mock('../../stores/useForgeStore', () => {
         },
         reset: (...args: unknown[]) => mockReset(...args),
         forgeAgain: (...args: unknown[]) => mockForgeAgain(...args),
+        reviewSimulation: () => mockReviewSimulation(),
         setPhase: (...args: unknown[]) => mockSetPhase(...args),
         setGraph: (...args: unknown[]) => mockSetGraph(...args),
         logs: mockLogs,
@@ -990,6 +992,68 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
     const btn = screen.getByTestId('forge-export-json');
     expect(btn).toBeDefined();
+  });
+
+  describe('a simulation', () => {
+    /** A simulation that would insert 7 records, failed 2, and found one gap. */
+    function simulation(): void {
+      mockGraph = makeMockGraphWithError();
+      mockResult = {
+        ...makeMockResult(),
+        graph: mockGraph,
+        createdCount: 0,
+        dryRun: true,
+        wouldInsertCount: 7,
+        gaps: [
+          {
+            id: 'value_too_long|Contact|LastName||',
+            kind: 'value_too_long',
+            severity: 'blocking',
+            source: 'simulation',
+            objectApiName: 'Contact',
+            field: 'LastName',
+            rows: 2,
+            decisions: ['truncate'],
+          },
+        ],
+      } as typeof mockResult;
+    }
+
+    it('says nothing was written, what a real run would insert and how many gaps it found', () => {
+      simulation();
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-simulation').textContent).toContain(
+        i18n.t('forge.simulation.done'),
+      );
+      expect(screen.getByTestId('forge-results-simulation-gaps').textContent).toBe(
+        'Gaps found against the target: 1',
+      );
+      expect(screen.getByText(i18n.t('forge.simulation.wouldInsert'))).toBeDefined();
+      expect(screen.queryByText(i18n.t('forge.inserted'))).toBeNull();
+    });
+
+    it('offers no retry, a simulation having written nothing to retry against', () => {
+      simulation();
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+    });
+
+    it('goes back to Review, where its gaps are decided', () => {
+      simulation();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-results-simulation-review'));
+
+      expect(mockReviewSimulation).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing of a simulation after a real run', () => {
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-results-simulation')).toBeNull();
+    });
   });
 
   it('should render retry failed button when failed nodes exist', () => {

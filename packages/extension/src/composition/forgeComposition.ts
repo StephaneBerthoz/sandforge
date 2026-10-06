@@ -22,6 +22,7 @@ import {
   type RecordTypeAvailability,
 } from '../core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../core/metadata/recordTypePicklists.js';
+import { controllersOf, fieldBoundsOf, type FieldBounds } from '../modules/forge/describeBounds.js';
 
 /**
  * The part of an object describe that Forge reads, kept once per org and
@@ -62,6 +63,12 @@ interface ForgeObjectDescribe {
     length: number;
     /** The lookup filter of a reference field, `null` for a field with none. */
     lookupFilter: { optional: boolean } | null;
+    /**
+     * What else the describe says of the values the field takes — digits,
+     * uniqueness, a formula, a lookup filter, which controlling values allow
+     * each dependent value: what a simulation checks each row against.
+     */
+    bounds: FieldBounds;
   }>;
   childRelationships: Array<{
     childSObject: string;
@@ -75,6 +82,7 @@ interface ForgeObjectDescribe {
 function toForgeObjectDescribe(
   meta: Awaited<ReturnType<Connection['describe']>>,
 ): ForgeObjectDescribe {
+  const controllers = controllersOf(meta.fields);
   return {
     name: meta.name,
     // Default to true when jsforce omits the flag — only opt out when
@@ -108,6 +116,7 @@ function toForgeObjectDescribe(
                 (f.filteredLookupInfo as { optionalFilter?: unknown }).optionalFilter === true,
             }
           : null,
+      bounds: fieldBoundsOf(f, controllers),
     })),
     childRelationships: (meta.childRelationships ?? []).map((cr) => ({
       childSObject: cr.childSObject,
@@ -471,6 +480,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               externalId: f.externalId,
               updateable: f.updateable,
               ...(f.length > 0 ? { length: f.length } : {}),
+              ...f.bounds,
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>

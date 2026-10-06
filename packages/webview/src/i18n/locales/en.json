@@ -1888,7 +1888,9 @@
       "writtenWithoutFields_one": "{{count}} written without a field the target refused",
       "writtenWithoutFields_other": "{{count}} written without a field the target refused",
       "skipped": "skipped",
-      "skippedUncounted": "skipped, record count unknown"
+      "skippedUncounted": "skipped, record count unknown",
+      "mayHaveBeenWritten_one": "{{count}} may be in the target, its call unanswered",
+      "mayHaveBeenWritten_other": "{{count}} may be in the target, their call unanswered"
     },
     "auditShowing": "Showing {{shown}} of {{total}}",
     "showMore": "Show more",
@@ -2483,7 +2485,7 @@
     "graphView": "Graph View",
     "direct": {
       "action": "Clone directly",
-      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first.",
+      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first. To see first what a run would write and what the target would refuse, use Simulate on Review.",
       "discovering": "The clone starts as soon as discovery answers.",
       "reviewSkipped": "Review skipped: this run started as soon as discovery answered, with the objects it included, and the metadata diff between the two orgs was not run. The flows and Apex triggers the target org runs as the records are inserted were read before it, and any that fires was put to you first."
     },
@@ -2789,7 +2791,9 @@
       "resultRefused_one": "{{formatted}} refused",
       "resultRefused_other": "{{formatted}} refused",
       "resultNotReached_one": "{{formatted}} not reached before the cancel",
-      "resultNotReached_other": "{{formatted}} not reached before the cancel"
+      "resultNotReached_other": "{{formatted}} not reached before the cancel",
+      "resultMayHaveBeenWritten_one": "{{formatted}} record a call of the run may have written before its answer was lost may be in {{org}}: no id of it is known, and the removal cannot reach it.",
+      "resultMayHaveBeenWritten_other": "{{formatted}} records a call of the run may have written before its answer was lost may be in {{org}}: no id of theirs is known, and the removal cannot reach them."
     },
     "error": {
       "duplicateValue": {
@@ -3010,6 +3014,13 @@
         "external": "kept outside Salesforce",
         "recordNotCreated": "its records were not created by this run"
       }
+    },
+    "simulation": {
+      "action": "Simulate",
+      "running": "Simulation: every record read goes through the write stage as a real run would take it, and nothing is written to the target.",
+      "done": "Simulation, nothing was written. These counts are what a real run would insert, link, hold back and fail; what the target would refuse or change in the records is listed on Review.",
+      "gapsFound": "Gaps found against the target: {{gaps}}",
+      "wouldInsert": "Would be inserted"
     }
   },
   "autopilot": {

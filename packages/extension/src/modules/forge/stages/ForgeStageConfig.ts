@@ -8,15 +8,17 @@
  */
 
 import { BYTES_PER_MB, FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
+import type { ForgeRecordTypeMapping } from '@sandforge/shared';
 import type { ExecuteOptions } from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
+import { RunDecisions } from './RunDecisions.js';
 
 /** Normalized configuration consumed by the execution stages. */
 export interface ForgeStageConfig {
   /** True when both rootRecordId and rootObjectApiName are set — record-scoped mode. */
   readonly isScoped: boolean;
-  /** Query + populate caches but skip all writes to the target org. */
+  /** A simulation: every stage a real run goes through, with a writer that writes nothing. */
   readonly dryRun: boolean;
   /**
    * Orphan-FK handling — `'nullify'` replaces unmapped references with
@@ -69,6 +71,15 @@ export interface ForgeStageConfig {
   readonly writtenBefore: ReadonlyMap<string, string>;
   /** Handed every row before the first is written; absent, nothing looks at them first. */
   readonly beforeWrite?: ExecuteOptions['beforeWrite'];
+  /** The user's decisions about the rows, applied before they are written. */
+  readonly decisions: RunDecisions;
+  /**
+   * The record type decision each source record type is under, by its id:
+   * its rows go in with the target record type it names, or, `to: null`,
+   * without `RecordTypeId`. Filled once the decisions are resolved against
+   * both orgs' record types; empty before.
+   */
+  readonly recordTypeDecisions: ReadonlyMap<string, ForgeRecordTypeMapping>;
 }
 
 /**
@@ -111,5 +122,7 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
       : undefined,
     writtenBefore: new Map(Object.entries(options?.writtenBefore ?? {})),
     beforeWrite: options?.beforeWrite,
+    decisions: new RunDecisions(options?.decisions),
+    recordTypeDecisions: new Map<string, ForgeRecordTypeMapping>(),
   };
 }

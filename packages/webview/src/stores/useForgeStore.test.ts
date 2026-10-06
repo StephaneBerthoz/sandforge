@@ -548,6 +548,79 @@ describe('useForgeStore', () => {
     expect(getState().gaps.rehearsal).toEqual([]);
   });
 
+  describe('a simulation', () => {
+    const simulationGap = {
+      id: 'value_too_long|Contact|LastName||',
+      kind: 'value_too_long' as const,
+      severity: 'blocking' as const,
+      source: 'simulation' as const,
+      objectApiName: 'Contact',
+      field: 'LastName',
+      rows: 2,
+      decisions: ['truncate' as const],
+    };
+    const metadataGap = { ...simulationGap, id: 'm', source: 'metadata' as const };
+
+    /** A simulation started and answered, as the page sees it. */
+    function simulated(): void {
+      getState().setGraph(createMockGraph());
+      getState().setExecutionRequestId('wv-sim');
+      getState().markSimulation();
+      getState().setPhase('execution');
+      getState().setGaps('metadata', [metadataGap]);
+      getState().finishRun(
+        'wv-sim',
+        createMockResult({
+          dryRun: true,
+          wouldInsertCount: 4,
+          createdCount: 0,
+          gaps: [simulationGap],
+        }),
+      );
+    }
+
+    it('keeps the gaps a simulation found, beside the others, and no run in the history', () => {
+      simulated();
+
+      expect(getState().phase).toBe('results');
+      expect(getState().result?.dryRun).toBe(true);
+      expect(getState().gaps.simulation).toEqual([simulationGap]);
+      expect(getState().gaps.metadata).toEqual([metadataGap]);
+      expect(getState().history).toEqual([]);
+    });
+
+    it('goes back to Review from its results, the graph idle again and the gaps kept', () => {
+      simulated();
+      getState().updateNodeStatus('Account', 'done', 100);
+
+      getState().reviewSimulation();
+
+      expect(getState().phase).toBe('review');
+      expect(getState().result).toBeNull();
+      expect(getState().simulation).toBe(false);
+      expect(getState().graph?.nodes.every((n) => n.status === 'idle')).toBe(true);
+      expect(getState().gaps.simulation).toEqual([simulationGap]);
+    });
+
+    it('never goes back to Review from the results of a real run', () => {
+      getState().setExecutionRequestId('wv-run');
+      getState().setPhase('execution');
+      getState().finishRun('wv-run', createMockResult());
+
+      getState().reviewSimulation();
+
+      expect(getState().phase).toBe('results');
+    });
+
+    it('is no longer one once the next run starts', () => {
+      getState().markSimulation();
+
+      getState().setExecutionRequestId('wv-next');
+
+      expect(getState().simulation).toBe(false);
+    });
+  });
+
   it('drops every gap when a new config is set: they were read for the old one', () => {
     getState().setGaps('rehearsal', [
       {

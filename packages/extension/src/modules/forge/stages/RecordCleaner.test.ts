@@ -781,6 +781,46 @@ describe('cleanNodeRecords', () => {
     expect('Status' in dropped.cleaned).toBe(false);
   });
 
+  it("applies the user's decisions to a whole row before its picklist values are checked", () => {
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Status', queryable: true, createable: true, isReference: false },
+      { name: 'RecordTypeId', queryable: true, createable: true, isReference: true },
+    ];
+    const seen: Array<{ row: Record<string, unknown>; recordTypeId: string | undefined }> = [];
+    const [mapped, mappedAway] = cleanNodeRecords(
+      makeInput({
+        records: [
+          { Id: '003A', Status: 'SourceOnlyValue', RecordTypeId: '012000000000001AAA' },
+          { Id: '003B', Status: 'Open' },
+        ],
+        fieldInfos: fields,
+        creatableFields: new Set(['Status', 'RecordTypeId']),
+        picklistValuesByField: new Map([['Status', new Set(['Open', 'Closed'])]]),
+        decide: (row, recordTypeId) => {
+          seen.push({ row: { ...row }, recordTypeId });
+          // A value mapped to one the target holds is kept; one mapped to a
+          // value it refuses is left out by the check after.
+          row['Status'] = row['Status'] === 'SourceOnlyValue' ? 'Closed' : 'AlsoRefused';
+        },
+      }),
+    );
+
+    expect(seen).toEqual([
+      {
+        row: { Status: 'SourceOnlyValue', RecordTypeId: '012000000000001AAA' },
+        recordTypeId: '012000000000001AAA',
+      },
+      { row: { Status: 'Open' }, recordTypeId: undefined },
+    ]);
+    expect(mapped.cleaned['Status']).toBe('Closed');
+    expect(mapped.picklistChanges).toEqual([]);
+    expect('Status' in mappedAway.cleaned).toBe(false);
+    expect(mappedAway.picklistChanges).toEqual([
+      { field: 'Status', reason: 'not-in-target', values: ['AlsoRefused'] },
+    ]);
+  });
+
   describe('picklist values and the record type a row goes in with', () => {
     const SOURCE_RETAIL = '012000000000001AAA';
     const SOURCE_TRADE = '012000000000002AAA';
@@ -920,6 +960,14 @@ describe('describeTargetFieldSets', () => {
 
     expect(sets.updateable).toEqual(new Set(['ContactId', 'Subject']));
     expect(sets.creatable).toEqual(new Set(['ParentId', 'ContactId', 'Subject']));
+  });
+
+  it("keeps the target's describe whole, for what a simulation checks the rows against", () => {
+    const described: FieldInfo[] = [
+      { name: 'Subject', queryable: true, createable: true, isReference: false, length: 80 },
+    ];
+
+    expect(targetFieldSetsOf(described).fields).toBe(described);
   });
 
   it('says which picklist fields of the target are restricted, required and dependent', async () => {

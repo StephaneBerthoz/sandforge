@@ -29,9 +29,11 @@ import {
   summaryLines,
   objectOutcomeLine,
   objectOutcomePrinter,
+  simulationGapLines,
+  decisionLines,
 } from './sandforge-clone';
 import type { ExecutionSummary, ForgeProgressEvent } from '../src/modules/forge/ForgeExecutor.js';
-import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
+import type { ForgeGap, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 
 const mockExecFileSync = vi.mocked(execFileSync);
 
@@ -375,6 +377,90 @@ describe('sandforge-clone summary', () => {
       successCount: 0,
       wouldInsertCount: 7,
     });
+  });
+
+  it('lists what a dry run found the target would refuse or change, a line a gap, never a record value', () => {
+    const gaps: ForgeGap[] = [
+      {
+        id: 'value_too_long|Case|Subject||',
+        kind: 'value_too_long' as const,
+        severity: 'blocking' as const,
+        source: 'simulation' as const,
+        objectApiName: 'Case',
+        field: 'Subject',
+        rows: 2,
+        detail: { length: 80, longest: 112 },
+        decisions: ['truncate' as const],
+      },
+      {
+        id: 'picklist_value_refused|Case|Origin|Support|Fax',
+        kind: 'picklist_value_refused' as const,
+        severity: 'warning' as const,
+        source: 'simulation' as const,
+        objectApiName: 'Case',
+        field: 'Origin',
+        recordType: 'Support',
+        value: 'Fax',
+        rows: 1,
+        detail: { replacement: 'Phone', ignored: true },
+        decisions: ['map_value' as const],
+      },
+    ];
+    const dry = summary({ successCount: 0, wouldInsertCount: 3, dryRun: true, gaps });
+
+    expect(simulationGapLines(gaps)).toEqual([
+      'gaps the target holds against the rows (2, dry run):',
+      '  [blocking] Case.Subject  value_too_long: 2 record(s) (longest 112 of 80 characters)',
+      '  [warning] Case.Origin  picklist_value_refused "Fax" (record type Support): 1 record(s) ' +
+        '(written as "Phone"; ignored)',
+    ]);
+    expect(summaryLines(dry, true)).toEqual(expect.arrayContaining(simulationGapLines(gaps)));
+    expect(simulationGapLines([])).toEqual([
+      'gaps: none found (dry run: nothing the target would refuse or change)',
+    ]);
+    expect(jsonResult(dry).gaps).toEqual(gaps);
+    expect(jsonResult(summary({}))).not.toHaveProperty('gaps');
+  });
+
+  it('says the decisions the run applied and on how many records', () => {
+    const decisionsApplied = [
+      {
+        kind: 'map_value' as const,
+        objectApiName: 'Case',
+        field: 'Origin',
+        recordType: 'Support',
+        from: 'Fax',
+        to: 'Phone',
+        rows: 3,
+      },
+      { kind: 'truncate' as const, objectApiName: 'Case', field: 'Subject', rows: 1 },
+    ];
+
+    expect(decisionLines(decisionsApplied)).toEqual([
+      'decisions applied (2):',
+      '  Case.Origin  map_value "Fax" → "Phone" (record type Support): 3 record(s)',
+      '  Case.Subject  truncate: 1 record(s)',
+    ]);
+    expect(summaryLines(summary({ decisionsApplied }))).toEqual(
+      expect.arrayContaining(decisionLines(decisionsApplied)),
+    );
+    expect(jsonResult(summary({ decisionsApplied })).decisionsApplied).toEqual(decisionsApplied);
+  });
+
+  it('says, and hands a CI job, the records a call may have written that removing the run cannot reach', () => {
+    const mayHaveBeenWritten = [
+      { objectApiName: 'Contact', sourceIds: ['003000000000001AAA', '003000000000002AAA'] },
+    ];
+    const lines = summaryLines(summary({ failedCount: 2, mayHaveBeenWritten }));
+
+    expect(lines).toContain(
+      'may be in the target, under ids the run never learned (--remove cannot reach them):',
+    );
+    expect(lines).toContain('  Contact  2 record(s)');
+    expect(jsonResult(summary({ mayHaveBeenWritten })).mayHaveBeenWritten).toEqual(
+      mayHaveBeenWritten,
+    );
+    expect(jsonResult(summary({}))).not.toHaveProperty('mayHaveBeenWritten');
   });
 
   it('says how many calls the run sent to both orgs, where it counted them', () => {
@@ -842,6 +928,20 @@ describe('sandforge-clone object outcomes', () => {
       objectOutcomeLine(event('done', '[dry-run] Contact: 2 record(s) would be inserted')),
     ).toBe('  [dry-run] Contact: 2 record(s) would be inserted');
     expect(objectOutcomeLine(event('error', 'Contact: 1 failed'))).toBe('  Contact: 1 failed');
+  });
+
+  it('prints what a dry run read, a step its simulated write ends, and that end', () => {
+    expect(
+      objectOutcomeLine(event('running', '[dry-run] Contact: 2 record(s) would be inserted')),
+    ).toBe('  [dry-run] Contact: 2 record(s) would be inserted');
+    expect(
+      objectOutcomeLine(event('done', 'Simulated Contact: 2 would be inserted, 0 failed')),
+    ).toBe('  Simulated Contact: 2 would be inserted, 0 failed');
+    expect(
+      objectOutcomeLine(
+        event('running', 'Simulating the write of 2 Contact records: nothing is sent...'),
+      ),
+    ).toBeUndefined();
   });
 
   it('prints a skipped object with the reason it was skipped, as it prints the others', () => {
