@@ -171,6 +171,8 @@ describe('the gaps of the rows a rehearsal saw refused', () => {
     ]);
     expect(gap.kind).toBe('unique_value_collision');
     expect(gap.detail?.['message']).toBeUndefined();
+    // The run links such a row to the record the target holds: no row is lost.
+    expect(gap.severity).toBe('warning');
   });
 
   it('count a row refused twice on the same gap once', () => {

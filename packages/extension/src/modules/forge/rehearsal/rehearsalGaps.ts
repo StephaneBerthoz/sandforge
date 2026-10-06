@@ -82,10 +82,15 @@ const KIND_OF_CODE: ReadonlyMap<
     },
   ],
   [
+    // Not a row lost: the run's writer links a row a unique value refuses to
+    // the record the refusal names (`existingRecordMatch.ts`). Rehearsed on
+    // a live sandbox, the relation a contact's account gets from the platform
+    // itself came back refused this way, and the real run linked both rows.
+    // A warning, as the simulation gives the same gap.
     'DUPLICATE_VALUE',
     {
       kind: 'unique_value_collision',
-      severity: 'blocking',
+      severity: 'warning',
       decisions: ['leave_empty', 'exclude_object', 'ignore'],
     },
   ],
