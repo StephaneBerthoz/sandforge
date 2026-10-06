@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ForgeConfig, ForgeGap, ForgeGraph } from '@sandforge/shared';
 import { forgeGapId } from '@sandforge/shared';
 import {
+  allowedValues,
   choiceOf,
   decisionOf,
   decisionsAnsweringNoGap,
@@ -9,6 +10,7 @@ import {
   keptDecisions,
   objectsLeftOut,
   offeredDecisions,
+  targetRecordTypes,
   undecidedBlockingGaps,
   withGapDecision,
   withoutGapDecision,
@@ -99,6 +101,22 @@ describe('offeredDecisions', () => {
       'exclude_object',
       'ignore',
     ]);
+  });
+
+  it('reads the allowed values and record types under the names the simulation gives them', () => {
+    // The simulation names them `allowed` and `mapTo`: under those names only,
+    // the tab offered no value and no record type to map to.
+    expect(offeredDecisions({ ...REFUSED, detail: { allowed: ['General', 'Claim'] } })).toContain(
+      'map_value',
+    );
+    expect(allowedValues({ ...REFUSED, detail: { allowed: ['General'] } })).toEqual(['General']);
+    expect(
+      targetRecordTypes({
+        ...REFUSED,
+        kind: 'record_type_unmapped',
+        detail: { mapTo: ['Claim', 'Service'] },
+      }),
+    ).toEqual(['Claim', 'Service']);
   });
 
   it('offers no mapping of a value the read gave no allowed value for', () => {

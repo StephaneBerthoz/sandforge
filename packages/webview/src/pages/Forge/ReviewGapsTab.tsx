@@ -45,7 +45,9 @@ const SEVERITY_STYLES: Readonly<Record<ForgeGapSeverity, string>> = {
 /** Detail entries the tab says in its own words, or uses for a decision. */
 const DETAIL_KEYS: Readonly<Record<string, string>> = {
   allowedValues: 'forge.gaps.detail.allowedValues',
+  allowed: 'forge.gaps.detail.allowedValues',
   targetRecordTypes: 'forge.gaps.detail.targetRecordTypes',
+  mapTo: 'forge.gaps.detail.targetRecordTypes',
 };
 
 /** The select value that maps a record type to the object's default: no DeveloperName is. */

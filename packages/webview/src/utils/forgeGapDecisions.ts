@@ -109,20 +109,27 @@ function recordTypeFrom(gap: ForgeGap): string | undefined {
   return RECORD_TYPE_KINDS.has(gap.kind) ? (gap.value ?? gap.recordType) : undefined;
 }
 
-/** A list the gap's detail holds under `key`, or none. */
-function detailList(gap: ForgeGap, key: string): string[] {
-  const value = gap.detail?.[key];
-  return Array.isArray(value) ? value : [];
+/** A list the gap's detail holds under the first of `keys` that holds one, or none. */
+function detailList(gap: ForgeGap, ...keys: string[]): string[] {
+  for (const key of keys) {
+    const value = gap.detail?.[key];
+    if (Array.isArray(value) && value.length > 0) return value;
+  }
+  return [];
 }
 
-/** The values the target allows in the gap's field, as the read gave them. */
+/**
+ * The values the target allows in the gap's field, as the read gave them. The
+ * simulation names them `allowed`: read under that name too, or a gap it found
+ * offered no value to map to.
+ */
 export function allowedValues(gap: ForgeGap): string[] {
-  return detailList(gap, 'allowedValues');
+  return detailList(gap, 'allowedValues', 'allowed');
 }
 
-/** The target's record types a record type gap may be mapped to. */
+/** The target's record types a record type gap may be mapped to; the simulation names them `mapTo`. */
 export function targetRecordTypes(gap: ForgeGap): string[] {
-  return detailList(gap, 'targetRecordTypes');
+  return detailList(gap, 'targetRecordTypes', 'mapTo');
 }
 
 /**
