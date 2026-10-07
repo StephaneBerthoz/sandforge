@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "bypassHeld1441": "Les contournements que vous détenez sont reconnus",
+      "bypassHeld1441Desc": "L'onglet Automatisation et la commande de clonage disaient une permission de contournement absente même quand vous la déteniez, et demandaient de l'attribuer à nouveau. Une valeur de liste de sélection dépendante que sa valeur de contrôle refuse est désormais repérée aussi sur les objets sans type d'enregistrement.",
       "verify1440": "Vérifier ce qu'un run a écrit, et le reprendre",
       "verify1440Desc": "Vérifier relit ce qu'un clone a créé une fois la cible stabilisée : ses enregistrements, ses liens, et ce qui a changé depuis. Un run reste supprimable au-delà des 20 derniers, et avant le run vous savez ce qui pourrait refuser de le reprendre.",
       "controls1440": "Tous les contrôles sur Review",

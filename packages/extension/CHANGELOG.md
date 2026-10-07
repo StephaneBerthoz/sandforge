@@ -5,6 +5,17 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.1] - 2026-10-07
+
+### Fixed
+
+- **A bypass the user holds reads as held**: the Automation tab and the clone
+  command no longer say a custom permission is missing, nor give the command
+  to assign it, when the user already holds it.
+- **A dependent picklist value its controlling value refuses** is left out
+  before the write on an object without record types, as it already was on
+  one with record types.
+
 ## [1.44.0] - 2026-10-06
 
 After a clone writes, it can be checked, kept removable and accounted for;

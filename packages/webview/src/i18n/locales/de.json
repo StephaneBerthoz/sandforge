@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "bypassHeld1441": "Umgehungen, die Sie besitzen, werden erkannt",
+      "bypassHeld1441Desc": "Die Registerkarte Automatisierung und der Klon-Befehl meldeten eine Umgehungsberechtigung als fehlend, auch wenn Sie sie besaßen, und baten erneut um ihre Zuweisung. Ein abhängiger Auswahllistenwert, den sein steuernder Wert ablehnt, wird jetzt auch bei Objekten ohne Datensatztypen erkannt.",
       "verify1440": "Prüfen, was ein Lauf geschrieben hat, und ihn zurücknehmen",
       "verify1440Desc": "Prüfen liest zurück, was ein Klon erstellt hat, sobald sich das Ziel beruhigt hat: seine Datensätze, seine Verknüpfungen und was sich seitdem geändert hat. Ein Lauf bleibt über die letzten 20 hinaus entfernbar, und vor dem Lauf erfahren Sie, was das Zurücknehmen verweigern könnte.",
       "controls1440": "Alle Steuerungen auf Review",

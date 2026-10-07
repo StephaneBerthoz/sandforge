@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simulate runs a clone through its write stage without writing; Rehearse asks the target itself, inside rolled-back transactions. The Gaps tab lists what they find, with a decision in one click for each, kept in the template.",
       "results1430": "Act from the results",
       "results1430Desc": "Open a created record in the target org, save the results to CSV or JSON, remove the run in place, and retry objects that were skipped. Templates now export and import as JSON files.",
+      "bypassHeld1441": "Bypasses you hold are seen as held",
+      "bypassHeld1441Desc": "The Automation tab and the clone command said a bypass permission was missing even when you held it, and asked you to assign it again. A dependent picklist value its controlling value refuses is now caught on objects without record types too.",
       "verify1440": "Check what a run wrote, and take it back",
       "verify1440Desc": "Verify reads back what a clone created once the target has settled: its records, its links, and what changed since. A run stays removable past the last 20, and before it runs you are told what may refuse taking it back.",
       "controls1440": "Every control on Review",
