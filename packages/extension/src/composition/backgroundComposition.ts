@@ -325,6 +325,32 @@ function writeQuestion(question: WriteConfirmation): string[] {
       );
     }
   }
+  // The daily email limits the records take the target past: the rest of
+  // them would be refused one by one, as the flow that sends fails.
+  for (const over of question.emails ?? []) {
+    const perRecord = over.objects
+      .map(({ objectApiName, perRecord }) => `${objectApiName} ${perRecord}`)
+      .join(', ');
+    lines.push(
+      over.limit === 'SingleEmail'
+        ? vscode.l10n.t(
+            'These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
+            question.org,
+            over.emails,
+            over.remaining,
+            over.max,
+            perRecord,
+          )
+        : vscode.l10n.t(
+            'These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.',
+            question.org,
+            over.emails,
+            over.remaining,
+            over.max,
+            perRecord,
+          ),
+    );
+  }
   lines.push(vscode.l10n.t('The records have been read, and nothing has been written yet.'));
   return lines;
 }

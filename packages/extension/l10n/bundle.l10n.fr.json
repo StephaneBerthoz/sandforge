@@ -150,5 +150,7 @@
   "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "Aucun ensemble d'autorisations de {0} ne détient {1} : un administrateur en crée un qui l'inclut, et l'attribue à l'utilisateur sous lequel le clonage écrit.",
   "{0} runs automation as this clone updates records it inserted ({1}):": "{0} exécute de l'automatisation quand ce clonage met à jour des enregistrements qu'il a insérés ({1}) :",
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Copier la commande la copie et annule le clonage : SandForge ne l'exécute jamais. Exécutez-la, puis relancez le clonage.",
-  "Copy the command": "Copier la commande"
+  "Copy the command": "Copier la commande",
+  "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Ces enregistrements font envoyer aux flows de {0} environ {1} e-mails unitaires, plus que les {2} sur {3} qu'il lui reste aujourd'hui (e-mails par enregistrement : {4}). Au-delà, un enregistrement dont le flow échoue à l'enregistrement est refusé.",
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Ces enregistrements font envoyer aux flows de {0} environ {1} e-mails de workflow, plus que les {2} sur {3} qu'il lui reste aujourd'hui (e-mails par enregistrement : {4}). Au-delà, un enregistrement dont le flow échoue à l'enregistrement est refusé."
 }

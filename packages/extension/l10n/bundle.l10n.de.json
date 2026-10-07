@@ -150,5 +150,7 @@
   "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "Kein Berechtigungssatz von {0} enthält {1}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Klon schreibt.",
   "{0} runs automation as this clone updates records it inserted ({1}):": "{0} führt Automatisierungen aus, wenn dieser Klon eingefügte Datensätze aktualisiert ({1}):",
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Befehl kopieren kopiert ihn und bricht den Klon ab: SandForge führt ihn nie aus. Führen Sie ihn aus und starten Sie den Klon dann erneut.",
-  "Copy the command": "Befehl kopieren"
+  "Copy the command": "Befehl kopieren",
+  "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Diese Datensätze lassen die Flows von {0} etwa {1} Einzel-E-Mails senden, mehr als die {2} von {3}, die heute noch übrig sind (E-Mails pro Datensatz: {4}). Darüber hinaus wird ein Datensatz, dessen Flow beim Speichern fehlschlägt, abgelehnt.",
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Diese Datensätze lassen die Flows von {0} etwa {1} Workflow-E-Mails senden, mehr als die {2} von {3}, die heute noch übrig sind (E-Mails pro Datensatz: {4}). Darüber hinaus wird ein Datensatz, dessen Flow beim Speichern fehlschlägt, abgelehnt."
 }

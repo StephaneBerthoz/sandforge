@@ -1606,6 +1606,9 @@ export interface ForgeFlowPath {
   field?: string;
 }
 
+/** A daily email limit of an org, as its `/limits` name it. */
+export type ForgeEmailLimit = 'SingleEmail' | 'DailyWorkflowEmails';
+
 /**
  * An action of the target's automation that reaches someone outside the org:
  * an email alert or a Send Email, a custom notification, an outbound message,
@@ -1616,6 +1619,13 @@ export interface ForgeMessageAction {
   kind: 'email' | 'notification' | 'outbound' | 'sms';
   /** The action's label, or its name. */
   name: string;
+  /**
+   * For an email, the daily limit it counts against, as the org's `/limits`
+   * name it: a Send Email action's are single emails, an email alert's are
+   * workflow emails. Past what is left of it, the action fails, and a flow
+   * that fails in the save refuses its record.
+   */
+  limit?: ForgeEmailLimit;
   /**
    * True for a text message told from the name of an Apex action alone: the
    * platform has no action of its own for one, and what the class does is not

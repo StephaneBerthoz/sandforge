@@ -453,6 +453,26 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says the daily email limits the records take the target past, before the closing line', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 72,
+          remaining: 15,
+          max: 15,
+          objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.slice(-2)).toEqual([
+      'These records make the flows of DEV send about 72 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+  });
+
   it("warns near what is left, of a large volume, and when the target's storage could not be read", () => {
     const near = runQuestionDetail({
       ...write,

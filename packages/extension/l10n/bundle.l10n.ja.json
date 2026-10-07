@@ -150,5 +150,7 @@
   "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "{0} には {1} を含む権限セットがありません。管理者がそれを含む権限セットを作成し、このクローンが書き込みに使うユーザーに割り当てます。",
   "{0} runs automation as this clone updates records it inserted ({1}):": "{0} では、このクローンが挿入したレコードを更新するときに自動化が実行されます ({1}):",
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "「コマンドをコピー」はコマンドをコピーしてクローンをキャンセルします。SandForge がコマンドを実行することはありません。実行してから、クローンをもう一度実行してください。",
-  "Copy the command": "コマンドをコピー"
+  "Copy the command": "コマンドをコピー",
+  "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通の単一メールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。",
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通のワークフローメールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。"
 }

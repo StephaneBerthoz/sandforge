@@ -150,5 +150,7 @@
   "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.",
   "{0} runs automation as this clone updates records it inserted ({1}):": "{0} runs automation as this clone updates records it inserted ({1}):",
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.",
-  "Copy the command": "Copy the command"
+  "Copy the command": "Copy the command",
+  "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.",
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused."
 }

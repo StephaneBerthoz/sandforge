@@ -53,6 +53,7 @@ import type {
   ForgeAutomationFired,
   ForgeAutomationWrite,
   ForgeBypassGrant,
+  ForgeEmailLimit,
   ForgeFlowPath,
   ForgeFlowPermission,
   ForgeFlowStart,
@@ -276,6 +277,12 @@ const MESSAGE_ACTIONS: Readonly<Record<string, ForgeMessageAction['kind']>> = {
   emailSimple: 'email',
   customNotificationAction: 'notification',
   outboundMessage: 'outbound',
+};
+
+/** The daily limit a flow's email counts against, by its `actionType`. */
+const EMAIL_LIMITS: Readonly<Record<string, ForgeEmailLimit>> = {
+  emailSimple: 'SingleEmail',
+  emailAlert: 'DailyWorkflowEmails',
 };
 
 /** What a workflow rule's action sends, by its `type`. */
@@ -941,7 +948,8 @@ export function messagesOf(metadata: unknown): ForgeMessageAction[] {
     const type = text(call.actionType);
     const name = text(call.label) || text(call.name) || text(call.actionName);
     const kind = MESSAGE_ACTIONS[type];
-    if (kind) return [{ kind, name }];
+    const limit = EMAIL_LIMITS[type];
+    if (kind) return [{ kind, name, ...(limit ? { limit } : {}) }];
     if (type === 'apex' && soundsLikeTextMessages(text(call.actionName), text(call.name), name)) {
       return [{ kind: 'sms', name, guessed: true }];
     }
@@ -1028,7 +1036,15 @@ function readRuleMetadata(flow: ForgeTargetFlow, metadata: unknown): boolean {
     .flatMap(listOf)
     .flatMap((action): ForgeMessageAction[] => {
       const kind = RULE_MESSAGE_ACTIONS[text(action.type)];
-      return kind ? [{ kind, name: text(action.name) }] : [];
+      if (!kind) return [];
+      // A workflow rule's email alert counts against the workflow emails.
+      return [
+        {
+          kind,
+          name: text(action.name),
+          ...(kind === 'email' ? { limit: 'DailyWorkflowEmails' as const } : {}),
+        },
+      ];
     });
   return field(metadata, 'active') === true;
 }

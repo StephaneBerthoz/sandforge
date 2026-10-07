@@ -187,6 +187,18 @@ export interface WriteConfirmation {
   /** The guard's large-volume line the total is past ({@link largeVolumeThreshold}); absent when it is not. */
   largeVolume?: number;
   storage: WriteConfirmationStorage;
+  /**
+   * The daily email limits the records go past as the target's flows send
+   * for them, each with the emails sent and what is left; absent when none.
+   */
+  emails?: Array<{
+    limit: 'SingleEmail' | 'DailyWorkflowEmails';
+    emails: number;
+    remaining: number;
+    max: number;
+    /** The objects whose inserts send them, with the emails each record sends. */
+    objects: Array<{ objectApiName: string; perRecord: number }>;
+  }>;
 }
 
 /**

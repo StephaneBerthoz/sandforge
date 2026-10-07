@@ -177,6 +177,7 @@ export {
   bypassAssignmentsOf,
   bypassesOfWrites,
   bypassPermissionsOf,
+  emailsPerInsertOf,
   firedOnInsert,
   firedOnRemovalOf,
   firedOnWriteOf,
@@ -187,6 +188,7 @@ export {
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,
   type ForgeBypassAssignment,
+  type ForgeEmailsPerInsert,
   type ForgeFiredOnWrite,
 } from './utils/forge-target-automation.js';
 export {

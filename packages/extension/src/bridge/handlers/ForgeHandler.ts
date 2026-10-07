@@ -5,6 +5,8 @@ import type {
   BaseMessage,
   ForgeConfig,
   ForgeContactPointsReport,
+  ForgeEmailLimit,
+  ForgeEmailsPerInsert,
   ForgeExecutionError,
   ForgeExecutionResult,
   ForgeGraph,
@@ -18,6 +20,7 @@ import type {
   GuardDecision,
 } from '@sandforge/shared';
 import {
+  emailsPerInsertOf,
   fileCopyRefusal,
   forgeAnonymizationRulesSchema,
   forgeConfigSchema,
@@ -86,6 +89,7 @@ import type {
   OperationRequest,
   ProductionGuard,
   SafetyTier,
+  WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
@@ -93,6 +97,7 @@ import {
   automationUnreadOf,
   bypassesToAssign,
   confirmationStorageOf,
+  emailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
   forgeTargetTier,
@@ -103,10 +108,12 @@ import {
   updateStepsOf,
   type UpdatedAfterInsert,
   readDataStorage,
+  readEmailLimits,
   storageCheckOf,
   storageRefusal,
   writePlanOf,
   type DataStorage,
+  type EmailLimit,
 } from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { ForgeRunAudit, RecentTrials, forgeCaseKey } from '../../modules/forge/forgeRunAudit.js';
@@ -1761,6 +1768,8 @@ export class ForgeHandler implements DomainHandler {
 
     /** Whether the cancel came before the executor started, so nothing was written. */
     let stoppedBeforeStart = false;
+    /** The emails the target's flows send per record inserted, read before the run. */
+    let emailsPerInsert: ForgeEmailsPerInsert[] = [];
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -1827,6 +1836,7 @@ export class ForgeHandler implements DomainHandler {
       // it back its status.
       if (!dryRun) {
         const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
         if (runController.signal.aborted) {
           stoppedBeforeStart = true;
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
@@ -1876,6 +1886,7 @@ export class ForgeHandler implements DomainHandler {
           org: targetName,
           orgTier,
           lookup,
+          emailsPerInsert,
           onConfirmed: () => {
             guardDecision = strongerDecision(guardDecision, 'confirmed');
             audit.confirm('volume');
@@ -2419,6 +2430,24 @@ export class ForgeHandler implements DomainHandler {
       : DEFAULT_CONFIRM_ABOVE_RECORDS;
   }
 
+  /** The daily email limits the target has left, or why they could not be read. */
+  private async readTargetEmailLimits(
+    targetOrgId: string,
+  ): Promise<Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
+        readEmailLimits(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
   /** The data storage the target has, or why it could not be read. */
   private async readTargetDataStorage(
     targetOrgId: string,
@@ -2458,6 +2487,8 @@ export class ForgeHandler implements DomainHandler {
     org: string;
     orgTier: SafetyTier;
     lookup: { requests: number };
+    /** The emails the target's flows send per record inserted, from the automation read before the run. */
+    emailsPerInsert: readonly ForgeEmailsPerInsert[];
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<void> {
     return async (boundary) => {
@@ -2499,7 +2530,42 @@ export class ForgeHandler implements DomainHandler {
       if (largeVolume !== undefined) {
         logger.warn(`Forge write gate: more than ${largeVolume} records, a large volume`);
       }
-      if (aboveRecords === undefined && storage.verdict === 'fits') return;
+      // The emails the target's flows send as these records go in, against
+      // what it has left today: read only when they send some. Past it, a
+      // record whose flow fails in the save is refused; the user is asked.
+      const overEmails: NonNullable<WriteConfirmation['emails']> = [];
+      if (run.emailsPerInsert.length > 0) {
+        run.lookup.requests++;
+        for (const check of emailChecksOf(
+          plan,
+          run.emailsPerInsert,
+          await this.readTargetEmailLimits(run.targetOrgId),
+        )) {
+          if (check.verdict !== 'exceeds') continue;
+          overEmails.push({
+            limit: check.limit,
+            emails: check.emails,
+            remaining: check.remaining ?? 0,
+            max: check.max ?? 0,
+            objects: check.objects.map(({ objectApiName, perRecord }) => ({
+              objectApiName,
+              perRecord,
+            })),
+          });
+        }
+        if (overEmails.length > 0) {
+          logger.warn('Forge write gate: the records take the target past a daily email limit', {
+            limits: overEmails.map(({ limit, emails, remaining }) => ({
+              limit,
+              emails,
+              remaining,
+            })),
+          });
+        }
+      }
+      if (aboveRecords === undefined && storage.verdict === 'fits' && overEmails.length === 0) {
+        return;
+      }
       const answer = await run.guard.confirmRun({
         stage: 'write',
         org: run.org,
@@ -2509,6 +2575,7 @@ export class ForgeHandler implements DomainHandler {
         ...(aboveRecords !== undefined ? { aboveRecords } : {}),
         ...(largeVolume !== undefined ? { largeVolume } : {}),
         storage: confirmationStorageOf(storage),
+        ...(overEmails.length > 0 ? { emails: overEmails } : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();

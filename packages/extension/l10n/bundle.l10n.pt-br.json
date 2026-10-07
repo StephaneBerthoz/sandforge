@@ -150,5 +150,7 @@
   "No permission set of {0} holds {1}: an admin creates one that includes it, and assigns it to the user the clone writes as.": "Nenhum conjunto de permissões de {0} contém {1}: um administrador cria um que a inclua e o atribui ao usuário com o qual a clonagem grava.",
   "{0} runs automation as this clone updates records it inserted ({1}):": "{0} executa automações quando esta clonagem atualiza registros que inseriu ({1}):",
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Copiar o comando o copia e cancela a clonagem: o SandForge nunca o executa. Execute-o e depois execute a clonagem novamente.",
-  "Copy the command": "Copiar o comando"
+  "Copy the command": "Copiar o comando",
+  "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Estes registros fazem os fluxos de {0} enviarem cerca de {1} e-mails individuais, mais do que os {2} de {3} que restam hoje (e-mails por registro: {4}). Além disso, um registro cujo fluxo falha ao salvar é recusado.",
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Estes registros fazem os fluxos de {0} enviarem cerca de {1} e-mails de fluxo de trabalho, mais do que os {2} de {3} que restam hoje (e-mails por registro: {4}). Além disso, um registro cujo fluxo falha ao salvar é recusado."
 }

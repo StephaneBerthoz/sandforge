@@ -7,6 +7,7 @@ import {
   blindedBy,
   bypassAssignmentsOf,
   bypassPermissionsOf,
+  emailsPerInsertOf,
   firedOnInsert,
   heldBypassPermissionsOf,
   removalRisksOf,
@@ -157,6 +158,48 @@ describe('automationByWrite', () => {
       ['Case after create', true],
       ['Loud', false],
     ]);
+  });
+});
+
+describe('emailsPerInsertOf', () => {
+  it('counts the emails each inserted record makes the target send, per object and daily limit', () => {
+    const welcome = flow({
+      label: 'Contact welcome',
+      messages: [
+        { kind: 'email', name: 'Send welcome', limit: 'SingleEmail' },
+        { kind: 'email', name: 'Send follow up', limit: 'SingleEmail' },
+        { kind: 'email', name: 'Alert owner', limit: 'DailyWorkflowEmails' },
+        { kind: 'notification', name: 'Notify owner' },
+      ],
+    });
+    const onUpdate = flow({
+      label: 'Contact changed',
+      startsOn: 'update',
+      messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+    });
+
+    expect(
+      emailsPerInsertOf({
+        objects: [object({ objectApiName: 'Contact', flows: [welcome, onUpdate] })],
+      }),
+    ).toEqual([
+      { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 2, sentBy: ['Contact welcome'] },
+      {
+        objectApiName: 'Contact',
+        limit: 'DailyWorkflowEmails',
+        perRecord: 1,
+        sentBy: ['Contact welcome'],
+      },
+    ]);
+  });
+
+  it("counts nothing of a flow a bypass the run's user holds keeps quiet", () => {
+    const quiet = flow({
+      permissions: [{ name: 'Skip', bypass: true, held: true }],
+      messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+    });
+
+    expect(emailsPerInsertOf({ objects: [object({ flows: [quiet] })] })).toEqual([]);
   });
 });
 

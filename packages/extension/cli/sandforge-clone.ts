@@ -55,6 +55,7 @@ import type {
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  emailsPerInsertOf,
   forgeGapParts,
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
@@ -133,12 +134,15 @@ import {
   ForgeRunGateError,
   automationRefusal,
   bypassesToAssign,
+  emailCheckLines,
+  emailChecksOf,
   isDeveloperEdition,
   objectsUpdatedAfterInsert,
   removalAutomationLines,
   removalAutomationRefusal,
   runBypassesOf,
   readDataStorage,
+  readEmailLimits,
   removalRiskLines,
   storageCheckOf,
   storageRefusal,
@@ -3434,6 +3438,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const check = storageCheckOf(plan, storage);
     say('');
     for (const line of writePlanLines(plan, check, args.target)) say(line);
+    // The emails the target's flows send as these records go in, against what
+    // it has left today: read only when they send some. Past it, records are
+    // refused one by one; the run is not stopped for it.
+    const sending = emailsPerInsertOf(targetAutomation);
+    if (sending.length > 0) {
+      const limits = await readEmailLimits(targetConn).catch((err: unknown) => ({
+        unread: extractErrorMessage(err),
+      }));
+      for (const line of emailCheckLines(emailChecksOf(plan, sending, limits), args.target)) {
+        say(line);
+      }
+    }
     const overTotal =
       plan.totalRows > args.maxTotal
         ? `The run would write ${plan.totalRows} records, more than --max-total ` +

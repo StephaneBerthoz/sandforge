@@ -30,6 +30,8 @@ import {
   orgTypeToGuardTier,
 } from '@sandforge/shared';
 import type {
+  ForgeEmailLimit,
+  ForgeEmailsPerInsert,
   ForgeFiredOnWrite,
   ForgeGraph,
   ForgeRemovalRisk,
@@ -243,6 +245,143 @@ export function storageCheckOf(
         ? 'near'
         : 'fits';
   return { verdict, estimateMB, maxMB, remainingMB };
+}
+
+/** What an org has of a daily email limit, as its `/limits` say. */
+export interface EmailLimit {
+  max: number;
+  remaining: number;
+}
+
+/** What `/limits` says of an org's daily email limits; either may be missing. */
+const emailLimitsSchema = z
+  .object({
+    SingleEmail: z.object({ Max: z.number(), Remaining: z.number() }).loose().optional(),
+    DailyWorkflowEmails: z.object({ Max: z.number(), Remaining: z.number() }).loose().optional(),
+  })
+  .loose();
+
+/**
+ * The daily email limits an org has left, as its `/limits` say. A limit the
+ * org does not list is left out, and the org may refuse the read to the user
+ * the run writes as: the caller says so, and never takes it for enough.
+ */
+export async function readEmailLimits(
+  transport: LimitsTransport,
+): Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>> {
+  const limits = emailLimitsSchema.parse(
+    await transport.request({ method: 'GET', url: '/limits' }),
+  );
+  const out: Partial<Record<ForgeEmailLimit, EmailLimit>> = {};
+  for (const name of ['SingleEmail', 'DailyWorkflowEmails'] as const) {
+    const limit = limits[name];
+    if (limit) out[name] = { max: limit.Max, remaining: limit.Remaining };
+  }
+  return out;
+}
+
+/** The emails a run's inserts make the target send against one daily limit, and what is left of it. */
+export interface EmailCheck {
+  limit: ForgeEmailLimit;
+  /** The emails, per object: the records inserted and the emails each sends. */
+  objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
+  emails: number;
+  /**
+   * `exceeds` past what the target has left today: the actions past it fail,
+   * and a flow that fails in the save refuses its record. `unread` when the
+   * target did not say.
+   */
+  verdict: 'fits' | 'exceeds' | 'unread';
+  remaining?: number;
+  max?: number;
+  unread?: string;
+}
+
+/**
+ * The emails the rows about to be written make the target send, per daily
+ * limit, against what it has left. Only limits the inserts send emails
+ * against are checked; none, and there is nothing to read.
+ *
+ * Run for real into a Developer Edition, a contact flow's Send Email took
+ * the org past its fifteen single emails a day, and thirty contacts were
+ * refused, `CANNOT_EXECUTE_FLOW_TRIGGER` "Probably Limit Exceeded": emails
+ * neutralized under `.invalid` count all the same.
+ */
+export function emailChecksOf(
+  plan: Pick<WritePlan, 'objects'>,
+  perInsert: readonly ForgeEmailsPerInsert[],
+  limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
+): EmailCheck[] {
+  const rows = new Map(plan.objects.map((object) => [object.objectApiName, object.rows]));
+  const byLimit = new Map<ForgeEmailLimit, EmailCheck>();
+  for (const sending of perInsert) {
+    const inserted = rows.get(sending.objectApiName) ?? 0;
+    if (inserted === 0) continue;
+    const check = byLimit.get(sending.limit) ?? {
+      limit: sending.limit,
+      objects: [],
+      emails: 0,
+      verdict: 'fits' as const,
+    };
+    check.objects.push({
+      objectApiName: sending.objectApiName,
+      rows: inserted,
+      perRecord: sending.perRecord,
+      sentBy: sending.sentBy,
+    });
+    check.emails += inserted * sending.perRecord;
+    byLimit.set(sending.limit, check);
+  }
+  const unread = isUnread(limits) ? limits.unread : undefined;
+  return [...byLimit.values()].map((check): EmailCheck => {
+    if (unread !== undefined || isUnread(limits)) {
+      return { ...check, verdict: 'unread', unread };
+    }
+    const limit = limits[check.limit];
+    if (!limit) {
+      return { ...check, verdict: 'unread', unread: `the org's limits list no ${check.limit}` };
+    }
+    return {
+      ...check,
+      verdict: check.emails > limit.remaining ? 'exceeds' : 'fits',
+      remaining: limit.remaining,
+      max: limit.max,
+    };
+  });
+}
+
+/** Whether the limits could not be read. */
+function isUnread(limits: object): limits is { unread: string } {
+  return typeof (limits as { unread?: unknown }).unread === 'string';
+}
+
+/** How each daily email limit is said. */
+const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
+  SingleEmail: 'single emails',
+  DailyWorkflowEmails: 'workflow emails',
+};
+
+/** What the command's write gate says of the emails the rows make the target send. */
+export function emailCheckLines(checks: readonly EmailCheck[], org: string): string[] {
+  return checks.map((check) => {
+    const words = EMAIL_LIMIT_WORDS[check.limit];
+    const per = check.objects
+      .map((o) => `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}`)
+      .join('; ');
+    const sent = `  emails: these records make ${org} send about ${check.emails} ${words} (${per})`;
+    if (check.verdict === 'unread') {
+      return `${sent}; what it has left today could not be read (${check.unread ?? ''})`;
+    }
+    if (check.verdict === 'fits') {
+      return `${sent}; it has ${check.remaining ?? '?'} of ${check.max ?? '?'} left today`;
+    }
+    return (
+      `${sent}, more than the ${check.remaining ?? '?'} of ${check.max ?? '?'} it has left ` +
+      'today: past them the action fails, and a record whose flow fails in the save is ' +
+      'refused (CANNOT_EXECUTE_FLOW_TRIGGER). A bypass that keeps the flow quiet, or a ' +
+      'smaller run, avoids it'
+    );
+  });
 }
 
 /** The storage of a check, as the confirmation says it. */

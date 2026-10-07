@@ -568,8 +568,9 @@ describe('messagesOf', () => {
         ],
       }),
     ).toEqual([
-      { kind: 'email', name: 'Alert customer' },
-      { kind: 'email', name: 'Send welcome' },
+      // Each email with the daily limit it counts against.
+      { kind: 'email', name: 'Alert customer', limit: 'DailyWorkflowEmails' },
+      { kind: 'email', name: 'Send welcome', limit: 'SingleEmail' },
       { kind: 'notification', name: 'Notify owner' },
       { kind: 'outbound', name: 'Push to ERP' },
     ]);
@@ -1264,7 +1265,7 @@ describe('TargetAutomationReader', () => {
               apiName: 'Case_Routing',
               label: 'Case Routing',
               startsOn: 'create',
-              messages: [{ kind: 'email', name: 'Alert team' }],
+              messages: [{ kind: 'email', name: 'Alert team', limit: 'DailyWorkflowEmails' }],
             }),
           ],
         }),
@@ -1365,9 +1366,9 @@ describe('TargetAutomationReader', () => {
           startsOn: 'createAndUpdate',
           paths: [{ kind: 'scheduled', offset: 2, unit: 'Days', field: 'Case.CreatedDate' }],
           messages: [
-            { kind: 'email', name: 'New_case_alert' },
+            { kind: 'email', name: 'New_case_alert', limit: 'DailyWorkflowEmails' },
             { kind: 'outbound', name: 'Push_to_ERP' },
-            { kind: 'email', name: 'Reminder_alert' },
+            { kind: 'email', name: 'Reminder_alert', limit: 'DailyWorkflowEmails' },
           ],
         }),
       ]);

@@ -936,6 +936,51 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions).toEqual([expect.objectContaining({ total: 11, aboveRecords: 10 })]);
     });
 
+    it('asks before rows whose flows would send more single emails than the target has left today', async () => {
+      // Live, into a Developer Edition: a contact flow's Send Email went past
+      // fifteen a day, and thirty contacts were refused.
+      limits = {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        SingleEmail: { Max: 15, Remaining: 3 },
+      };
+      const sending: ForgeTargetAutomation = {
+        ...FIRES,
+        objects: [
+          {
+            ...FIRES.objects[0],
+            triggers: [],
+            flows: [
+              {
+                ...FIRES.objects[0].flows[0],
+                messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+              },
+            ],
+          },
+        ],
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+        targetAutomation: readerOf(sending),
+      });
+
+      await execute();
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+      expect(questions[1]).toEqual(
+        expect.objectContaining({
+          emails: [
+            {
+              limit: 'SingleEmail',
+              emails: 10,
+              remaining: 3,
+              max: 15,
+              objects: [{ objectApiName: 'Contact', perRecord: 1 }],
+            },
+          ],
+        }),
+      );
+      expect(calls).toContain('written');
+    });
+
     it('refuses rows that take more data storage than the target has left, without asking', async () => {
       limits = { DataStorageMB: { Max: 200, Remaining: 1 } };
       handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(999)), {

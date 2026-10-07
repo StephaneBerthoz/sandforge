@@ -13,6 +13,8 @@ import {
   automationUnreadOf,
   bypassesToAssign,
   confirmationStorageOf,
+  emailCheckLines,
+  emailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
   forgeTargetTier,
@@ -21,6 +23,7 @@ import {
   isForgeRunGateError,
   objectsUpdatedAfterInsert,
   readDataStorage,
+  readEmailLimits,
   removalAutomationLines,
   removalAutomationRefusal,
   removalRiskLines,
@@ -127,6 +130,78 @@ describe('readDataStorage', () => {
     await expect(
       readDataStorage({ request: vi.fn().mockResolvedValue({ DataStorageMB: { Max: 200 } }) }),
     ).rejects.toThrow();
+  });
+});
+
+describe('readEmailLimits', () => {
+  it('reads the daily single and workflow emails the org has left, leaving out one it does not list', async () => {
+    const request = vi.fn().mockResolvedValue({
+      SingleEmail: { Max: 15, Remaining: 3 },
+      DataStorageMB: { Max: 5, Remaining: 5 },
+    });
+
+    await expect(readEmailLimits({ request })).resolves.toEqual({
+      SingleEmail: { max: 15, remaining: 3 },
+    });
+    expect(request).toHaveBeenCalledWith({ method: 'GET', url: '/limits' });
+  });
+});
+
+describe('emailChecksOf', () => {
+  const plan = {
+    objects: [
+      { objectApiName: 'Contact', rows: 36, storageBytes: 0 },
+      { objectApiName: 'Account', rows: 1, storageBytes: 0 },
+    ],
+  };
+  const sending = [
+    {
+      objectApiName: 'Contact',
+      limit: 'SingleEmail' as const,
+      perRecord: 2,
+      sentBy: ['Contact welcome'],
+    },
+    {
+      objectApiName: 'Contact',
+      limit: 'DailyWorkflowEmails' as const,
+      perRecord: 1,
+      sentBy: ['Welcome rule'],
+    },
+    // Nothing of it is written: it sends nothing.
+    { objectApiName: 'Lead', limit: 'SingleEmail' as const, perRecord: 1, sentBy: ['Lead hello'] },
+  ];
+
+  it('says a limit the inserts go past, and one they fit in', () => {
+    // Live, into a Developer Edition: 72 single emails against 15 a day, and
+    // thirty contacts refused, CANNOT_EXECUTE_FLOW_TRIGGER.
+    const checks = emailChecksOf(plan, sending, {
+      SingleEmail: { max: 15, remaining: 15 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+    });
+
+    expect(checks.map(({ limit, emails, verdict }) => ({ limit, emails, verdict }))).toEqual([
+      { limit: 'SingleEmail', emails: 72, verdict: 'exceeds' },
+      { limit: 'DailyWorkflowEmails', emails: 36, verdict: 'fits' },
+    ]);
+    expect(emailCheckLines(checks, 'TRAP')[0]).toContain(
+      'about 72 single emails (2 per Contact, by Contact welcome), more than the 15 of 15',
+    );
+  });
+
+  it('never takes limits the org would not say for enough', () => {
+    expect(emailChecksOf(plan, sending, { unread: 'INSUFFICIENT_ACCESS' })).toEqual([
+      expect.objectContaining({
+        limit: 'SingleEmail',
+        verdict: 'unread',
+        unread: 'INSUFFICIENT_ACCESS',
+      }),
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', verdict: 'unread' }),
+    ]);
+    expect(emailChecksOf(plan, sending, {})[0]).toMatchObject({ verdict: 'unread' });
+  });
+
+  it('checks nothing when the inserts send no email', () => {
+    expect(emailChecksOf(plan, [], { SingleEmail: { max: 15, remaining: 0 } })).toEqual([]);
   });
 });
 

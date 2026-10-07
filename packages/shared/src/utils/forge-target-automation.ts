@@ -1,4 +1,5 @@
 import type {
+  ForgeEmailLimit,
   ForgePermissionSetGrant,
   ForgeRemovalRisk,
   ForgeTargetAutomation,
@@ -220,6 +221,50 @@ export function firedOnWriteOf(
           when: fired.when,
         })),
     );
+}
+
+/** The emails each record a run inserts into one object makes the target send, against one daily limit. */
+export interface ForgeEmailsPerInsert {
+  objectApiName: string;
+  limit: ForgeEmailLimit;
+  /** The emails sent per record inserted. */
+  perRecord: number;
+  /** The flows, processes and rules that send them, by label. */
+  sentBy: string[];
+}
+
+/**
+ * The emails the target sends as a run inserts its records, per object and
+ * daily limit: those of the flows, processes and workflow rules that fire on
+ * insert and that no bypass the run's user holds keeps quiet. Each email
+ * action counts once a record, whatever path of the flow it is on — the
+ * asynchronous one sends too — and whatever condition its Decisions test,
+ * which is not read: an estimate that errs says too much.
+ */
+export function emailsPerInsertOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+): ForgeEmailsPerInsert[] {
+  return automation.objects.flatMap((object) => {
+    const fired = (
+      automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? []
+    ).filter((entry) => entry.keptQuiet !== true);
+    const byLimit = new Map<ForgeEmailLimit, ForgeEmailsPerInsert>();
+    for (const entry of fired) {
+      for (const message of entry.flow?.messages ?? []) {
+        if (message.kind !== 'email' || !message.limit) continue;
+        const sum = byLimit.get(message.limit) ?? {
+          objectApiName: object.objectApiName,
+          limit: message.limit,
+          perRecord: 0,
+          sentBy: [],
+        };
+        sum.perRecord++;
+        if (!sum.sentBy.includes(entry.name)) sum.sentBy.push(entry.name);
+        byLimit.set(message.limit, sum);
+      }
+    }
+    return [...byLimit.values()];
+  });
 }
 
 /**
