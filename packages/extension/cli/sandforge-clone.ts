@@ -294,7 +294,9 @@ Usage:
   Once every row is read and before the first is written, the clone counts
   the records it is about to write, per object, and the data storage they
   take by the sizes Salesforce documents. It writes nothing past --max-total,
-  nor more than the target's data storage has left.
+  nor more than the target's data storage has left. It says the emails the
+  target's flows send as the records go in, against the daily limits it has
+  left: past them, a record whose flow fails in the save is refused.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically);
