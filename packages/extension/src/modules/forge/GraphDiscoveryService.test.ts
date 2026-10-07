@@ -1693,4 +1693,73 @@ describe('GraphDiscoveryService', () => {
       expect(graph.nodes.length).toBe(10);
     });
   });
+
+  describe('empty tables and the cap', () => {
+    /** An object with the given children, and no lookup of its own. */
+    const describing =
+      (childrenOf: Record<string, string[]>) =>
+      async (_orgId: string, objectName: string): Promise<ObjectDescribe> => ({
+        name: objectName,
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
+        childRelationships: (childrenOf[objectName] ?? []).map((child, i) => ({
+          childSObject: child,
+          field: 'ParentId__c',
+          relationshipName: `Children${i}`,
+          isCascadeDelete: false,
+        })),
+      });
+    /** The rows of each object, by the FROM of its count. */
+    const counting =
+      (rows: Record<string, number>) =>
+      async (_orgId: string, soql: string): Promise<number> =>
+        rows[/FROM (\w+)/.exec(soql)![1]] ?? 0;
+    const empties = Array.from({ length: 8 }, (_, i) => `Empty${i}`);
+
+    it('reaches a child holding rows past empty ones that would have filled the cap', async () => {
+      // Live: a root's empty standard children filled the cap of fifty, and
+      // the custom child holding forty rows under the record was cut.
+      vi.mocked(deps.describeObject).mockImplementation(
+        describing({ Account: [...empties, 'Item__c'] }),
+      );
+      vi.mocked(deps.queryCount).mockImplementation(counting({ Account: 1, Item__c: 40 }));
+
+      const graph = await service.discover(createConfig({ skipEmpty: true }), { maxNodes: 3 });
+
+      expect(graph.nodes.map((n) => n.objectApiName)).toContain('Item__c');
+      expect(graph.nodes.find((n) => n.objectApiName === 'Item__c')?.included).toBe(true);
+      expect(graph.truncated).toBe(false);
+    });
+
+    it('walks nothing on from an empty table', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(
+        describing({ Account: ['Empty0'], Empty0: ['Grandchild__c'] }),
+      );
+      vi.mocked(deps.queryCount).mockImplementation(counting({ Account: 1, Grandchild__c: 5 }));
+
+      const graph = await service.discover(createConfig({ depth: 'full' }));
+
+      expect(graph.nodes.map((n) => n.objectApiName)).toEqual(['Account', 'Empty0']);
+      const described = vi.mocked(deps.describeObject).mock.calls.map(([, name]) => name);
+      expect(described).not.toContain('Grandchild__c');
+    });
+
+    it('describes four objects per place at most, and says the graph stopped short', async () => {
+      const many = Array.from({ length: 30 }, (_, i) => `Empty${i}`);
+      vi.mocked(deps.describeObject).mockImplementation(describing({ Account: many }));
+      vi.mocked(deps.queryCount).mockImplementation(counting({ Account: 1 }));
+
+      const graph = await service.discover(createConfig(), { maxNodes: 2 });
+
+      expect(graph.nodes).toHaveLength(8);
+      expect(graph.truncated).toBe(true);
+    });
+  });
 });

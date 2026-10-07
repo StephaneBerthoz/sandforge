@@ -138,6 +138,29 @@ export const DEFAULT_MAX_NODES = 50;
 const REQUIRED_PARENT_CEILING_FACTOR = 2;
 
 /**
+ * How many objects discovery may describe in all, empty tables included, per
+ * place under the node cap.
+ *
+ * An empty table takes no place under the cap ({@link holdsAPlace}): a scoped
+ * read reaches nothing through it, and run for real, a root's empty standard
+ * children filled the cap of fifty before discovery met the custom child
+ * holding forty rows under the record. Each of them still costs a describe
+ * and a count, so this bounds them.
+ */
+const EXAMINED_CEILING_FACTOR = 4;
+
+/**
+ * Whether a node takes a place under the node cap: the root, an object
+ * holding records, or one whose describe or count failed, whose size is not
+ * known. An empty table does not, and discovery does not walk on from it.
+ */
+export function holdsAPlace(
+  node: Pick<ForgeGraphNode, 'level' | 'recordCount' | 'status'>,
+): boolean {
+  return node.level === 0 || node.recordCount > 0 || node.status === 'error';
+}
+
+/**
  * Yield to the event loop. `setImmediate` is Node-only — fall back to
  * `setTimeout(0)` so the suite stays portable across jsdom / browser-like
  * environments that the webview tests may run in.
@@ -269,11 +292,35 @@ export class GraphDiscoveryService {
      * revisit them for nothing, and a later required lookup can take one back.
      */
     const cappedOutObjects = new Set<string>();
+    /**
+     * The same objects, in the order they were met, each with its depth: a
+     * place an empty table did not take goes to the first of them.
+     */
+    let waiting: Array<[string, number]> = [];
+    const examinedCeiling = maxNodes * EXAMINED_CEILING_FACTOR;
+    /** The nodes that take a place under the cap ({@link holdsAPlace}). */
+    let placed = 0;
+    /** The objects of the wave being read that are not yet nodes. */
+    let unread = 0;
 
     const visitedObjects = new Set<string>();
     const nodes: ForgeGraphNode[] = [];
     const edgeMap = new Map<string, ForgeGraphEdge>();
-    let skippedDueToCap = 0;
+    /**
+     * Whether one more object may be queued: every queued object may hold
+     * records, so each counts as placed until its count says otherwise.
+     */
+    const hasRoom = (): boolean =>
+      placed + unread + queue.length < nodeBudget &&
+      nodes.length + unread + queue.length < examinedCeiling;
+    const turnAway = (objectName: string, depth: number): void => {
+      if (!cappedOutObjects.has(objectName)) waiting.push([objectName, depth]);
+      cappedOutObjects.add(objectName);
+    };
+    const takeBack = (objectName: string): void => {
+      if (!cappedOutObjects.delete(objectName)) return;
+      waiting = waiting.filter(([name]) => name !== objectName);
+    };
 
     /**
      * One edge per pair of objects: the first sighting, unless a later one is
@@ -355,7 +402,7 @@ export class GraphDiscoveryService {
       // Cap wave at the smaller of the concurrent-describe limit, remaining
       // headroom under maxNodes, and queue length. Without this, we
       // over-process and overshoot the user-supplied node cap.
-      const remaining = nodeBudget - nodes.length;
+      const remaining = nodeBudget - placed;
       if (remaining <= 0) break;
       const waveLimit = Math.min(CONCURRENT_DESCRIBE_LIMIT, remaining, queue.length);
       const wave = queue.splice(0, waveLimit);
@@ -431,7 +478,9 @@ export class GraphDiscoveryService {
       // enqueue children. A cancel stops the walk at the next wave boundary
       // (the check at the top of the loop); the objects of this wave that had
       // answered are still added.
+      unread = waveResults.length;
       for (const r of waveResults) {
+        unread--;
         if (r.cancelled) continue;
         const { objectName, depth, describe, recordCount, countError, describeError } = r;
 
@@ -454,6 +503,7 @@ export class GraphDiscoveryService {
             estimatedApiCalls: 0,
             batchStrategy: 'auto' as const,
           });
+          placed++;
           options?.onProgress?.({
             phase: 'object',
             objectApiName: objectName,
@@ -489,8 +539,12 @@ export class GraphDiscoveryService {
           batchStrategy: 'auto' as const,
         };
         nodes.push(node);
+        // Nothing is reached through an empty table: no record of it is read,
+        // so neither its children nor the parents its records name are needed.
+        const placesIt = holdsAPlace(node);
+        if (placesIt) placed++;
 
-        if (depth < maxDepth) {
+        if (depth < maxDepth && placesIt) {
           for (const field of describe.fields) {
             if (field.referenceTo.length === 0) continue;
             // A lookup no insert or update can set — a person account's
@@ -534,22 +588,21 @@ export class GraphDiscoveryService {
                 (firstSighting || (required && turnedAwayEarlier)) &&
                 !isExcludedFromCopy(targetObject)
               ) {
-                if (nodes.length + queue.length < nodeBudget) {
+                if (hasRoom()) {
                   visitedObjects.add(targetObject);
-                  cappedOutObjects.delete(targetObject);
+                  takeBack(targetObject);
                   // Ahead of the optional breadth already queued: reaching a
                   // dependency late is the same as not reaching it.
                   if (required) queue.unshift([targetObject, depth + 1]);
                   else queue.push([targetObject, depth + 1]);
                 } else if (required && nodeBudget < nodeCeiling) {
                   visitedObjects.add(targetObject);
-                  cappedOutObjects.delete(targetObject);
+                  takeBack(targetObject);
                   nodeBudget++;
                   queue.unshift([targetObject, depth + 1]);
                 } else {
                   visitedObjects.add(targetObject);
-                  cappedOutObjects.add(targetObject);
-                  skippedDueToCap++;
+                  turnAway(targetObject, depth + 1);
                 }
               }
             }
@@ -571,14 +624,13 @@ export class GraphDiscoveryService {
               !isExcludedFromCopy(child.childSObject)
             ) {
               visitedObjects.add(child.childSObject);
-              if (nodes.length + queue.length < nodeBudget) {
+              if (hasRoom()) {
                 queue.push([child.childSObject, depth + 1]);
               } else {
                 // Noted rather than forgotten: this is usually where an
-                // object is first met, and a required lookup later on is
-                // what takes it back.
-                cappedOutObjects.add(child.childSObject);
-                skippedDueToCap++;
+                // object is first met, and a place an empty table leaves or
+                // a required lookup later on is what takes it back.
+                turnAway(child.childSObject, depth + 1);
               }
             }
           }
@@ -590,6 +642,13 @@ export class GraphDiscoveryService {
           discoveredCount: nodes.length,
           queueRemaining: queue.length,
         });
+      }
+      // The places the wave's empty tables did not take, to the objects
+      // turned away first.
+      while (waiting.length > 0 && hasRoom()) {
+        const [objectName, depth] = waiting.shift()!;
+        cappedOutObjects.delete(objectName);
+        queue.push([objectName, depth]);
       }
     }
 
@@ -615,7 +674,7 @@ export class GraphDiscoveryService {
       totalRecords,
       estimatedSizeMB: totalRecords * MB_PER_RECORD,
       estimatedDurationSeconds: totalRecords * SECONDS_PER_RECORD,
-      truncated: skippedDueToCap > 0,
+      truncated: waiting.length > 0,
     };
   }
 

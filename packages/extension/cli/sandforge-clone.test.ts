@@ -1955,6 +1955,25 @@ describe('sandforge-clone graph line', () => {
     );
   });
 
+  it('counts the empty tables apart: they take no place under the cap, which they do not raise', () => {
+    const empty = (objectApiName: string): ForgeGraphNode => ({
+      ...node(objectApiName, false),
+      level: 1,
+    });
+    const graph: ForgeGraph = {
+      nodes: [node('Opportunity'), node('Account'), empty('Lead'), empty('Campaign')],
+      edges: [lookup('Account', 'Opportunity')],
+      totalRecords: 2,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    expect(graphLine(graph, plan, 2)).toBe(
+      'graph: 4 objects at a cap of 2 (2 empty, taking no place under it), 2 included; ' +
+        '1 lookups, 1 between these objects; 2 waves, 0 cycles',
+    );
+  });
+
   it('lists the objects by name, each with its record count, depth and whether it is included', () => {
     const graph: ForgeGraph = {
       nodes: [

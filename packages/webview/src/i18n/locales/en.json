@@ -2619,7 +2619,7 @@
     "recordLimit": "Records per object",
     "recordLimitHint": "Cap how many rows are cloned per object. Lower = faster, safer on big orgs.",
     "objectCap": "Objects",
-    "objectCapHint": "how many objects discovery may reach; depth says how far, this says how wide",
+    "objectCapHint": "how many objects holding records discovery may reach, empty tables aside; depth says how far, this says how wide",
     "objectCapDefault": "Default (50)",
     "recordLimitSmart": "Smart (auto from preview)",
     "recordLimitAll": "All",

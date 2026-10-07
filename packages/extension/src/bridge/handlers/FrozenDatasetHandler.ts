@@ -65,6 +65,7 @@ import {
   DEFAULT_MAX_NODES,
   GraphDiscoveryService,
 } from '../../modules/forge/GraphDiscoveryService.js';
+import { holdsAPlace } from '../../modules/forge/GraphDiscoveryService.js';
 import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import { readPicklistFieldValues } from '../../core/metadata/recordTypePicklists.js';
@@ -339,7 +340,13 @@ function withoutExcluded(graph: ForgeGraph, excluded: readonly string[] | undefi
 
 /** How far a discovery reached, at the cap it ran with. */
 function graphCoverage(graph: ForgeGraph, maxNodes: number): FrozenGraphCoverage {
-  return { objects: graph.nodes.length, truncated: graph.truncated === true, maxNodes };
+  // The objects that take a place under the cap: an empty table takes none,
+  // and counted, it read as the cap raised.
+  return {
+    objects: graph.nodes.filter(holdsAPlace).length,
+    truncated: graph.truncated === true,
+    maxNodes,
+  };
 }
 
 /**

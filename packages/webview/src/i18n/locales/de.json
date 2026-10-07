@@ -2619,7 +2619,7 @@
     "recordLimit": "Datensätze pro Objekt",
     "recordLimitHint": "Begrenzen Sie, wie viele Zeilen pro Objekt geklont werden. Niedriger = schneller und sicherer bei großen Orgs.",
     "objectCap": "Objekte",
-    "objectCapHint": "wie viele Objekte die Erkennung erreichen darf; die Tiefe sagt wie weit, dies wie breit",
+    "objectCapHint": "wie viele Objekte mit Datensätzen die Erkennung erreichen darf, leere Tabellen ausgenommen; die Tiefe sagt wie weit, dies wie breit",
     "objectCapDefault": "Standard (50)",
     "recordLimitSmart": "Smart (automatisch aus Vorschau)",
     "recordLimitAll": "Alle",

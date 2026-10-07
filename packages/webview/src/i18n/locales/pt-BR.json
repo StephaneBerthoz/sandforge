@@ -2619,7 +2619,7 @@
     "recordLimit": "Registros por objeto",
     "recordLimitHint": "Limite quantas linhas são clonadas por objeto. Menor = mais rápido e mais seguro em orgs grandes.",
     "objectCap": "Objetos",
-    "objectCapHint": "quantos objetos a descoberta pode alcançar; a profundidade diz até onde, isto diz até que largura",
+    "objectCapHint": "quantos objetos com registros a descoberta pode alcançar, sem contar tabelas vazias; a profundidade diz até onde, isto diz até que largura",
     "objectCapDefault": "Padrão (50)",
     "recordLimitSmart": "Inteligente (automático pela pré-visualização)",
     "recordLimitAll": "Todos",

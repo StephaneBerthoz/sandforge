@@ -73,6 +73,7 @@ import {
 import {
   DEFAULT_MAX_NODES,
   GraphDiscoveryService,
+  holdsAPlace,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
   GraphDiscoveryDeps,
@@ -315,6 +316,9 @@ Options:
                          the cap, as do the items of an activated order. Each
                          parent a record reached cannot be written without
                          takes the cap one object further, up to twice it.
+                         An empty table takes no place under it, and nothing
+                         is reached through it; discovery reads four times
+                         the cap in objects at most.
   --anonymize            anonymize PII fields                   (default: off)
   --keep-contact-points  write emails and phone numbers as read (default: off)
                          Off, every record is written with its email addresses
@@ -1609,12 +1613,17 @@ export function graphLine(
   const between = graph.edges.filter(
     (e) => objects.has(e.sourceObject) && objects.has(e.targetObject),
   ).length;
+  // An empty table takes no place under the cap: the objects can outnumber
+  // it without its being raised.
+  const empty = graph.nodes.length - graph.nodes.filter(holdsAPlace).length;
+  const emptyNote = empty > 0 ? ` (${empty} empty, taking no place under it)` : '';
   const raised =
-    graph.nodes.length > maxNodes
+    graph.nodes.length - empty > maxNodes
       ? ' (raised for the parents their records cannot be written without)'
       : '';
   return (
-    `graph: ${graph.nodes.length} objects at a cap of ${maxNodes}${raised}, ${included} included; ` +
+    `graph: ${graph.nodes.length} objects at a cap of ${maxNodes}${emptyNote}${raised}, ` +
+    `${included} included; ` +
     `${graph.edges.length} lookups, ${between} between these objects; ` +
     `${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles` +
     (graph.truncated ? ' (TRUNCATED)' : '')

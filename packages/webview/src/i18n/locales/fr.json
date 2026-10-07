@@ -2619,7 +2619,7 @@
     "recordLimit": "Enregistrements / objet",
     "recordLimitHint": "Limite le nombre de lignes clonées par objet. Plus bas = plus rapide, plus sûr sur les grosses orgs.",
     "objectCap": "Objets",
-    "objectCapHint": "combien d'objets la découverte peut atteindre ; la profondeur dit jusqu'où, ceci dit jusqu'à quelle largeur",
+    "objectCapHint": "combien d'objets contenant des enregistrements la découverte peut atteindre, tables vides à part ; la profondeur dit jusqu'où, ceci dit jusqu'à quelle largeur",
     "objectCapDefault": "Par défaut (50)",
     "recordLimitSmart": "Smart (auto depuis preview)",
     "recordLimitAll": "Tout",
