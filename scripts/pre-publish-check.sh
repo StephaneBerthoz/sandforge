@@ -89,10 +89,14 @@ done
 # version change, and the panel looks the version up in WHATS_NEW: a release
 # with no entry there shows nothing at all, and says nothing about it — the
 # page dismisses itself. Between 1.0.0 and 1.22.0 that list gained no entry,
-# so no upgrader saw a single highlight. Blocking, with
-# ALLOW_MISSING_WHATS_NEW=1 for a release that really has nothing to announce.
+# so no upgrader saw a single highlight. Blocking for a minor or major
+# release, with ALLOW_MISSING_WHATS_NEW=1 for one that really has nothing to
+# announce. A patch adds no entry: two patches in a day opened the panel twice
+# for whoever updated each time, and its changelog says what it fixed.
 WHATS_NEW_FILE="packages/webview/src/pages/Welcome/WhatsNewPage.tsx"
-if [[ ! -f "$WHATS_NEW_FILE" ]]; then
+if [[ ${EXT_VER##*.} != 0 ]]; then
+  echo "SKIP: What's New is for x.y.0 releases; $EXT_VER is a patch"
+elif [[ ! -f "$WHATS_NEW_FILE" ]]; then
   echo "FAIL: $WHATS_NEW_FILE not found — the What's New check ran against nothing"
   ERRORS=$((ERRORS + 1))
 elif grep -qF "'$EXT_VER': [" "$WHATS_NEW_FILE"; then

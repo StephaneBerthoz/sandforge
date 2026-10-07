@@ -75,7 +75,7 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * The extension sends `whats-new:show` on every version change. A single
  * unkeyed list was therefore shown to every upgrader, under the new version
  * number, long after it stopped describing anything recent. A release that
- * adds no entry here shows no panel at all.
+ * adds no entry here shows no panel at all: from 1.44.3 on, a patch adds none.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
   '1.44.2': [
