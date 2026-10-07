@@ -3362,6 +3362,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       throw err;
     }
     const elapsedMs = Date.now() - t0;
+    // What the target refused, on stderr under --json as every other line:
+    // the JSON alone left the terminal at the last call's progress line.
+    say('');
+    for (const line of rehearsalLines(rehearsal, args.target)) say(line);
     if (args.json) {
       process.stdout.write(
         JSON.stringify(
@@ -3383,8 +3387,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ) + '\n',
       );
     } else {
-      console.log('');
-      for (const line of rehearsalLines(rehearsal, args.target)) console.log(line);
       console.log(`\ndone in ${elapsedMs}ms`);
     }
     return;
