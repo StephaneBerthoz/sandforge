@@ -331,6 +331,33 @@ export interface RecordTypeReadInput {
   readonly written: (field: string) => boolean;
   /** The run's record type mapping; absent, no row's record type is known in the target. */
   readonly recordTypeMappings: readonly RecordTypeMapping[] | undefined;
+  /**
+   * The target object has no record types: its describe has no
+   * `RecordTypeId`. Every row goes in under the master record type, which the
+   * UI API answers for too.
+   */
+  readonly withoutRecordTypes?: boolean;
+}
+
+/**
+ * The record type id the UI API answers for on an object without record
+ * types: the master record type's.
+ */
+export const MASTER_RECORD_TYPE_ID = '012000000000000AAA';
+
+/** The key of {@link RecordTypePicklistReads.forRows}'s answer for rows without a record type. */
+const WITHOUT_RECORD_TYPE = '';
+
+/**
+ * What the record type a row goes in with allows, from
+ * {@link RecordTypePicklistReads.forRows}'s answer: by the row's source
+ * `RecordTypeId`, or, for a row without one, the master record type's.
+ */
+export function recordTypeValuesOf(
+  byRecordType: ReadonlyMap<string, RecordTypeValues> | undefined,
+  recordTypeId: unknown,
+): RecordTypeValues | undefined {
+  return byRecordType?.get(typeof recordTypeId === 'string' ? recordTypeId : WITHOUT_RECORD_TYPE);
 }
 
 /**
@@ -390,6 +417,12 @@ export class RecordTypePicklistReads {
    * record type is then known in the target — and only when one of its rows
    * holds a value in a restricted picklist the rows are written with. With
    * the notes not yet said of the record types read.
+   *
+   * On an object without record types, the master record type's, read only
+   * when a row holds a value in a restricted dependent picklist: it keeps
+   * every active value, and only its answer says which a controlling value
+   * allows. Checked against the field's values alone, a subcategory its
+   * category does not allow went to the target and was refused.
    */
   async forRows(
     input: RecordTypeReadInput,
@@ -397,7 +430,32 @@ export class RecordTypePicklistReads {
     const byRecordType = new Map<string, RecordTypeValues>();
     const notes: RecordTypeReadNote[] = [];
     const { read } = this;
-    if (!read || !input.recordTypeMappings || !input.written('RecordTypeId')) {
+    if (!read) return { byRecordType, notes };
+    if (input.withoutRecordTypes) {
+      const dependent = [...input.fields]
+        .filter(([name, field]) => field.restricted && field.controllerName && input.written(name))
+        .map(([name]) => name);
+      const fields = new Set(
+        dependent.filter((field) =>
+          input.rows.some((row) => typeof row[field] === 'string' && row[field] !== ''),
+        ),
+      );
+      if (fields.size > 0) {
+        const master = { targetId: MASTER_RECORD_TYPE_ID, developerName: 'Master' };
+        const answer = await this.readFor(read, input.objectApiName, master.targetId);
+        this.keep(
+          byRecordType,
+          notes,
+          input.objectApiName,
+          WITHOUT_RECORD_TYPE,
+          fields,
+          master,
+          answer,
+        );
+      }
+      return { byRecordType, notes };
+    }
+    if (!input.recordTypeMappings || !input.written('RecordTypeId')) {
       return { byRecordType, notes };
     }
     const restricted = [...input.fields]
@@ -420,33 +478,65 @@ export class RecordTypePicklistReads {
     }
     const answers = await Promise.all(
       [...held].map(async ([sourceId, fields]) => {
-        const { targetId, developerName } = mapping.get(sourceId)!;
-        const key = `${input.objectApiName}|${targetId}`;
-        let pending = this.reads.get(key);
-        if (!pending) {
-          pending = readOnce(read, input.objectApiName, targetId);
-          this.reads.set(key, pending);
-        }
-        return { sourceId, fields, developerName, key, answer: await pending };
+        const target = mapping.get(sourceId)!;
+        return {
+          sourceId,
+          fields,
+          target,
+          answer: await this.readFor(read, input.objectApiName, target.targetId),
+        };
       }),
     );
-    for (const { sourceId, fields, developerName, key, answer } of answers) {
-      if ('error' in answer) {
-        if (!this.said.has(key)) {
-          this.said.add(key);
-          notes.push({ recordType: developerName, error: answer.error });
-        }
-        continue;
-      }
-      byRecordType.set(sourceId, { recordType: developerName, picklists: answer.picklists });
-      const leftOut = [...fields].filter(
-        (field) => !answer.picklists.has(field) && !this.said.has(`${key}|${field}`),
-      );
-      if (leftOut.length === 0) continue;
-      for (const field of leftOut) this.said.add(`${key}|${field}`);
-      notes.push({ recordType: developerName, leftOut });
+    for (const { sourceId, fields, target, answer } of answers) {
+      this.keep(byRecordType, notes, input.objectApiName, sourceId, fields, target, answer);
     }
     return { byRecordType, notes };
+  }
+
+  /** A record type's values, read once a run per object and record type. */
+  private readFor(
+    read: (objectApiName: string, recordTypeId: string) => Promise<RecordTypePicklists>,
+    objectApiName: string,
+    targetId: string,
+  ): Promise<RecordTypeRead> {
+    const key = `${objectApiName}|${targetId}`;
+    let pending = this.reads.get(key);
+    if (!pending) {
+      pending = readOnce(read, objectApiName, targetId);
+      this.reads.set(key, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * A record type's answer kept under `rowKey` for the rows it covers, and the
+   * notes not yet said of it: its read failed, or it left out fields the rows
+   * hold a value in.
+   */
+  private keep(
+    byRecordType: Map<string, RecordTypeValues>,
+    notes: RecordTypeReadNote[],
+    objectApiName: string,
+    rowKey: string,
+    fields: ReadonlySet<string>,
+    target: { readonly targetId: string; readonly developerName: string },
+    answer: RecordTypeRead,
+  ): void {
+    const key = `${objectApiName}|${target.targetId}`;
+    if ('error' in answer) {
+      if (!this.said.has(key)) {
+        this.said.add(key);
+        notes.push({ recordType: target.developerName, error: answer.error });
+      }
+      return;
+    }
+    byRecordType.set(rowKey, { recordType: target.developerName, picklists: answer.picklists });
+    const leftOut = [...fields].filter(
+      (field) => !answer.picklists.has(field) && !this.said.has(`${key}|${field}`),
+    );
+    if (leftOut.length === 0) return;
+    for (const field of leftOut) this.said.add(`${key}|${field}`);
+    notes.push({ recordType: target.developerName, leftOut });
   }
 }
 

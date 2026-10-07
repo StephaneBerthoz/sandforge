@@ -166,9 +166,9 @@ export const ASSIGNMENT_RULES_SOQL =
 export const DUPLICATE_RULES_SOQL =
   'SELECT DeveloperName, MasterLabel, SobjectType FROM DuplicateRule WHERE IsActive = true';
 
-/** The custom permissions the user the query runs as holds, `0CF` being theirs. */
+/** The custom permissions the user the query runs as holds, `0CP` being theirs. */
 export const USER_PERMISSIONS_SOQL =
-  "SELECT DeveloperName, NamespacePrefix FROM UserSetupEntityAccess WHERE KeyPrefix = '0CF'";
+  "SELECT DeveloperName, NamespacePrefix FROM UserSetupEntityAccess WHERE KeyPrefix = '0CP'";
 
 /** The metadata of one version of a flow: the only way the org gives its start condition. */
 export function conditionSoql(versionId: string): string {

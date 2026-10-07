@@ -6,6 +6,7 @@ import type {
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import {
+  MASTER_RECORD_TYPE_ID,
   PicklistChangeTally,
   RecordTypePicklistReads,
   checkRowPicklists,
@@ -13,6 +14,7 @@ import {
   picklistChangesNote,
   picklistFieldsOf,
   recordTypeReadSample,
+  recordTypeValuesOf,
   type PicklistField,
   type RecordTypeValues,
 } from './RecordTypePicklists.js';
@@ -737,6 +739,67 @@ describe('RecordTypePicklistReads', () => {
     expect(first.notes).toEqual([{ recordType: 'Retail', leftOut: ['Status__c'] }]);
     expect(first.byRecordType.get(SOURCE_RETAIL)?.recordType).toBe('Retail');
     expect(second.notes).toEqual([]);
+  });
+
+  describe('on an object without record types', () => {
+    const dependentFields = new Map<string, PicklistField>([
+      ['Category__c', optional],
+      ['Subcategory__c', { ...optional, controllerName: 'Category__c' }],
+    ]);
+    const master: RecordTypePicklists = new Map([
+      [
+        'Subcategory__c',
+        keeps(['Laptop', 'Bug'], null, { Hardware: ['Laptop'], Software: ['Bug'] }),
+      ],
+    ]);
+
+    it('reads the master record type once, and checks a dependent value against its controlling value', async () => {
+      // Live, on an object without record types: Software with Laptop went in
+      // as active values of each field and was refused,
+      // INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST.
+      const read = vi.fn(async () => master);
+      const reads = new RecordTypePicklistReads(read);
+      const input = {
+        objectApiName: 'Item__c',
+        rows: [{ Category__c: 'Software', Subcategory__c: 'Laptop' }],
+        fields: dependentFields,
+        written: everyField,
+        recordTypeMappings: MAPPINGS,
+        withoutRecordTypes: true,
+      };
+
+      const { byRecordType } = await reads.forRows(input);
+      await reads.forRows(input);
+      const row: Record<string, unknown> = { Category__c: 'Software', Subcategory__c: 'Laptop' };
+      const changes = checkRowPicklists(
+        row,
+        active({ Category__c: ['Hardware', 'Software'], Subcategory__c: ['Laptop', 'Bug'] }),
+        dependentFields,
+        recordTypeValuesOf(byRecordType, row['RecordTypeId']),
+      );
+
+      expect(read.mock.calls).toEqual([['Item__c', MASTER_RECORD_TYPE_ID]]);
+      expect(recordTypeValuesOf(byRecordType, undefined)?.recordType).toBe('Master');
+      expect(row).toEqual({ Category__c: 'Software' });
+      expect(changes).toEqual([expect.objectContaining({ field: 'Subcategory__c' })]);
+    });
+
+    it('reads nothing when no row holds a value in a restricted dependent picklist', async () => {
+      const read = vi.fn(async () => master);
+
+      const { byRecordType } = await new RecordTypePicklistReads(read).forRows({
+        objectApiName: 'Item__c',
+        // A value only in the controlling field, which depends on none.
+        rows: [{ Category__c: 'Software', Subcategory__c: '' }],
+        fields: dependentFields,
+        written: everyField,
+        recordTypeMappings: undefined,
+        withoutRecordTypes: true,
+      });
+
+      expect(read).not.toHaveBeenCalled();
+      expect(recordTypeValuesOf(byRecordType, undefined)).toBeUndefined();
+    });
   });
 });
 

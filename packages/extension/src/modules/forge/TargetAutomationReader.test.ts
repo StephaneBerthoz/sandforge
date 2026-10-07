@@ -1477,6 +1477,12 @@ describe('TargetAutomationReader', () => {
       expect(target.asked).not.toContain(USER_PERMISSIONS_SOQL);
     });
 
+    it("asks for the user's custom permissions by the key prefix their ids carry", () => {
+      // The fakes answer the query whatever it says; a real org answers only
+      // 0CP. Under 0CF it answered nothing, and every bypass read as not held.
+      expect(USER_PERMISSIONS_SOQL).toContain("KeyPrefix = '0CP'");
+    });
+
     it('finds the permission sets that hold a bypass the user does not, the smallest first', async () => {
       const target = fakeTarget({
         flows: [flowRow('Case', 'Case_Flow', 'RecordAfterSave', 'Create', '301000000000001AAA')],

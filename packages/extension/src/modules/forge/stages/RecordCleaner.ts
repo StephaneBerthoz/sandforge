@@ -26,6 +26,7 @@ import {
 import {
   checkRowPicklists,
   picklistFieldsOf,
+  recordTypeValuesOf,
   type PicklistChange,
   type PicklistField,
   type RecordTypeValues,
@@ -523,7 +524,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       cleaned,
       picklistValuesByField,
       targetPicklists,
-      typeof recordTypeId === 'string' ? recordTypeValues?.get(recordTypeId) : undefined,
+      recordTypeValuesOf(recordTypeValues, recordTypeId),
       renamed,
     );
     // Two fields the describe calls createable that the platform accepts

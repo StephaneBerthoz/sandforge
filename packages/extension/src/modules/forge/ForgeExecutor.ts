@@ -8225,6 +8225,8 @@ export class ForgeExecutor {
               !excludedFields.has(field) &&
               fieldRename[field] === undefined,
             recordTypeMappings: config.recordTypeMappings,
+            withoutRecordTypes:
+              targetFields !== undefined && !targetFields.some((f) => f.name === 'RecordTypeId'),
           })
         : undefined;
       for (const note of recordTypes?.notes ?? []) {

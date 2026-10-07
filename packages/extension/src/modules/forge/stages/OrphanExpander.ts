@@ -61,6 +61,7 @@ import {
 } from './RecordCleaner.js';
 import {
   checkRowPicklists,
+  recordTypeValuesOf,
   type PicklistChangeTally,
   type RecordTypePicklistReads,
   type RecordTypeReadNote,
@@ -646,6 +647,7 @@ export class OrphanExpander {
           fields: sets.picklistFields,
           written: (field) => written.has(field),
           recordTypeMappings: input.recordTypeMappings,
+          withoutRecordTypes: !sets.fields.some((field) => field.name === 'RecordTypeId'),
         })
       : undefined;
     for (const note of reads?.notes ?? []) input.onRecordTypeNote?.(objectName, note);
@@ -654,7 +656,7 @@ export class OrphanExpander {
       cleaned,
       sets.picklistValuesByField,
       sets.picklistFields,
-      typeof recordTypeId === 'string' ? reads?.byRecordType.get(recordTypeId) : undefined,
+      recordTypeValuesOf(reads?.byRecordType, recordTypeId),
       renamed,
     );
     input.picklistChanges?.add(objectName, changes);
