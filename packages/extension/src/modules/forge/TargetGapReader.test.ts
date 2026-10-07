@@ -374,7 +374,8 @@ describe('TargetGapReader — duplicate rules', () => {
       {
         id: forgeGapId('duplicate_rule', 'Account', undefined, undefined, 'Account_Block'),
         kind: 'duplicate_rule',
-        severity: 'blocking',
+        // Only the rows it matches: which the metadata does not say.
+        severity: 'warning',
         source: 'metadata',
         objectApiName: 'Account',
         rows: 0,
@@ -848,7 +849,7 @@ describe('gapLines', () => {
         'does not write it (the source has no such field): every row is refused unless it is given a value',
     );
     expect(lines).toContain(
-      '    BLOCKING: duplicate rule "Account Block": blocks an insert it matches: a row it matches ' +
+      '    warning: duplicate rule "Account Block": blocks an insert it matches: a row it matches ' +
         'is refused, whatever allowSave says',
     );
     expect(lines).toContain(

@@ -639,9 +639,13 @@ function validationGap(rule: ReadRule, held: ReadonlySet<string> | undefined): F
 /**
  * A duplicate rule as a gap, by what it does on insert. Forge saves with
  * `allowSave=true`: a rule that allows the insert, with an alert or a report,
- * saves the record — an info; one that blocks refuses the row whatever the
- * header — blocking, the row linked to the record it matched when the refusal
- * names exactly one. A rule whose definition was not read may do either.
+ * saves the record — an info; one that blocks refuses whatever the header the
+ * rows it matches, the row linked to the record it matched when the refusal
+ * names exactly one — a warning, as a validation rule's: whether a row
+ * matches depends on what the target holds, which the metadata does not say.
+ * Read as blocking, it was said of objects the run then wrote no row of; a
+ * rehearsal that meets a refusal makes it blocking, with its rows. A rule
+ * whose definition was not read may do either.
  */
 function duplicateGap(
   rule: { objectApiName: string; developerName: string; label: string },
@@ -650,8 +654,7 @@ function duplicateGap(
   const action = text(definition?.actionOnInsert).toLowerCase();
   const known = action === 'block' || action === 'allow' ? action : 'unknown';
   const operations = textsOf(definition?.operationsOnInsert).map((op) => op.toLowerCase());
-  const severity: ForgeGapSeverity =
-    known === 'block' ? 'blocking' : known === 'allow' ? 'info' : 'warning';
+  const severity: ForgeGapSeverity = known === 'allow' ? 'info' : 'warning';
   return gapOf({
     kind: 'duplicate_rule',
     severity,
