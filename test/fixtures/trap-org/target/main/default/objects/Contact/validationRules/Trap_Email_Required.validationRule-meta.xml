@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Email_Required</fullName>
+    <active>true</active>
+    <description>Bypassable: a user holding the Trap_Bypass_VR custom permission, granted by the Trap Bypass permission set, saves a contact without an email.</description>
+    <errorConditionFormula>AND(
+    NOT($Permission.Trap_Bypass_VR),
+    ISBLANK(Email)
+)</errorConditionFormula>
+    <errorDisplayField>Email</errorDisplayField>
+    <errorMessage>Email is required.</errorMessage>
+</ValidationRule>

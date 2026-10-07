@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Account__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>Makes items children of an account, so a clone that follows an account's children takes them along.</description>
+    <label>Trap Account</label>
+    <referenceTo>Account</referenceTo>
+    <relationshipLabel>Trap Items</relationshipLabel>
+    <relationshipName>Trap_Items</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

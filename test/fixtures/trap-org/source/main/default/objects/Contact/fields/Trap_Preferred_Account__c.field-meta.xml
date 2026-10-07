@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Preferred_Account__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>No filter here, so a source contact can point at a Prospect, which the target's required lookup filter refuses.</description>
+    <label>Trap Preferred Account</label>
+    <referenceTo>Account</referenceTo>
+    <relationshipLabel>Trap Preferred Contacts</relationshipLabel>
+    <relationshipName>Trap_Preferred_Contacts</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

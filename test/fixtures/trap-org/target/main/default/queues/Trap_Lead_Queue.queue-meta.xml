@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Queue xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Where the active Lead assignment rule sends every lead.</description>
+    <doesSendEmailToMembers>false</doesSendEmailToMembers>
+    <name>Trap Lead Queue</name>
+    <queueSobject>
+        <sobjectType>Lead</sobjectType>
+    </queueSobject>
+</Queue>

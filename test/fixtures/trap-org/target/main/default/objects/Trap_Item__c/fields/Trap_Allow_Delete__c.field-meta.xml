@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Allow_Delete__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>The before-delete flow lets an item go only when this is checked. The source has no such field, so no clone ever sets it; the trap script checks it to clean up.</description>
+    <label>Trap Allow Delete</label>
+    <type>Checkbox</type>
+</CustomField>

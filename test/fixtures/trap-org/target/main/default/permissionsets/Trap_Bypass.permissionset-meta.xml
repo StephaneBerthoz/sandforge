@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customPermissions>
+        <enabled>true</enabled>
+        <name>Trap_Bypass_VR</name>
+    </customPermissions>
+    <description>Holds the bypass of Trap_Email_Required and is assigned to nobody, so the rule applies to whoever writes.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Trap Bypass</label>
+</PermissionSet>

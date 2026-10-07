@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Lets its holder save a contact the Trap_Email_Required rule refuses.</description>
+    <isLicensed>false</isLicensed>
+    <label>Trap Bypass VR</label>
+</CustomPermission>

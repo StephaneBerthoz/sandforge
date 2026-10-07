@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workflow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <alerts>
+        <fullName>Trap_Contact_Alert</fullName>
+        <description>Trap Contact Alert</description>
+        <protected>false</protected>
+        <recipients>
+            <field>Email</field>
+            <type>email</type>
+        </recipients>
+        <senderType>CurrentUser</senderType>
+        <template>unfiled$public/Trap_Contact_Welcome</template>
+    </alerts>
+    <rules>
+        <fullName>Trap_Contact_Welcome</fullName>
+        <actions>
+            <name>Trap_Contact_Alert</name>
+            <type>Alert</type>
+        </actions>
+        <active>true</active>
+        <description>A legacy workflow rule that emails every contact created with an email, as older client orgs still run.</description>
+        <formula>NOT(ISBLANK(Email))</formula>
+        <triggerType>onCreateOnly</triggerType>
+    </rules>
+</Workflow>

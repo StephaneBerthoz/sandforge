@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DuplicateRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionOnInsert>Block</actionOnInsert>
+    <actionOnUpdate>Block</actionOnUpdate>
+    <alertText>Another lead already has this email.</alertText>
+    <description>Block: no header lets a lead whose email another lead has through.</description>
+    <duplicateRuleMatchRules>
+        <matchRuleSObjectType>Lead</matchRuleSObjectType>
+        <matchingRule>Trap_Lead_Email</matchingRule>
+    </duplicateRuleMatchRules>
+    <isActive>true</isActive>
+    <masterLabel>Trap Lead Block</masterLabel>
+    <securityOption>EnforceSharingRules</securityOption>
+    <sortOrder>1</sortOrder>
+</DuplicateRule>

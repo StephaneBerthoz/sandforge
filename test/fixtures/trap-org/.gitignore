@@ -1,0 +1,3 @@
+# Local CLI state: source tracking and config hold org ids.
+.sf/
+.sfdx/

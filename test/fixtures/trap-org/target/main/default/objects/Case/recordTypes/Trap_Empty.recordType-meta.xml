@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RecordType xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Empty</fullName>
+    <active>true</active>
+    <businessProcess>Trap_Support</businessProcess>
+    <description>Given X alone of Trap_Late__c, a value deploy then retires: no active value is left to it. A record type whose file leaves a picklist out gets every value, and an entry without values changes nothing.</description>
+    <label>Trap Empty</label>
+    <picklistValues>
+        <picklist>Trap_Category__c</picklist>
+        <values>
+            <fullName>Hardware</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Software</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Trap_Late__c</picklist>
+        <values>
+            <fullName>X</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Trap_Subcategory__c</picklist>
+        <values>
+            <fullName>Bug</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Laptop</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>License</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Printer</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+</RecordType>
