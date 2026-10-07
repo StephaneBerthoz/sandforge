@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "emptyTables1442": "La découverte va au-delà des tables vides",
+      "emptyTables1442Desc": "Un objet enfant contenant des enregistrements sous votre enregistrement était coupé quand des objets standard vides remplissaient le plafond de cinquante. Les tables vides n'y prennent plus de place : le clone, son contrôle de réversibilité et son contrôle d'écriture voient chaque objet qui a des lignes.",
       "bypassHeld1441": "Les contournements que vous détenez sont reconnus",
       "bypassHeld1441Desc": "L'onglet Automatisation et la commande de clonage disaient une permission de contournement absente même quand vous la déteniez, et demandaient de l'attribuer à nouveau. Une valeur de liste de sélection dépendante que sa valeur de contrôle refuse est désormais repérée aussi sur les objets sans type d'enregistrement.",
       "verify1440": "Vérifier ce qu'un run a écrit, et le reprendre",

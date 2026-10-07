@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simular passa um clone pela etapa de gravação sem gravar nada; Ensaiar pergunta ao próprio destino, em transações revertidas. A aba Divergências lista o que encontram, com uma decisão em um clique para cada uma, guardada no modelo.",
       "results1430": "Agir a partir dos resultados",
       "results1430Desc": "Abra um registro criado na org de destino, salve os resultados em CSV ou JSON, remova a execução no lugar e tente novamente os objetos ignorados. Os modelos são exportados e importados como arquivos JSON.",
+      "emptyTables1442": "A descoberta vai além das tabelas vazias",
+      "emptyTables1442Desc": "Um objeto filho com registros sob o seu registro era cortado quando objetos padrão vazios preenchiam o limite de cinquenta. Tabelas vazias não ocupam mais lugar nele: o clone, sua verificação de reversibilidade e seu controle de gravação veem cada objeto que tem linhas.",
       "bypassHeld1441": "Os bypass que você possui são reconhecidos",
       "bypassHeld1441Desc": "A aba Automação e o comando de clonagem diziam que uma permissão de bypass faltava mesmo quando você a possuía, e pediam para atribuí-la novamente. Um valor de lista de opções dependente que seu valor controlador recusa agora é detectado também em objetos sem tipos de registro.",
       "verify1440": "Verificar o que uma execução gravou, e desfazê-la",

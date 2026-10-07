@@ -5,6 +5,14 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.2] - 2026-10-07
+
+### Fixed
+
+- **Discovery no longer cuts a child holding records** while empty standard
+  objects fill its cap: an empty table takes no place under it, and nothing
+  is reached through one.
+
 ## [1.44.1] - 2026-10-07
 
 ### Fixed

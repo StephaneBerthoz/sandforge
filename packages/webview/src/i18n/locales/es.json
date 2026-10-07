@@ -2064,6 +2064,8 @@
       "gaps1430Desc": "Simular hace pasar un clon por su etapa de escritura sin escribir nada; Ensayar pregunta al propio destino, en transacciones revertidas. La pestaña Discrepancias lista lo que encuentran, con una decisión en un clic para cada una, guardada en la plantilla.",
       "results1430": "Actuar desde los resultados",
       "results1430Desc": "Abra un registro creado en la org de destino, guarde los resultados en CSV o JSON, elimine la ejecución en el sitio y vuelva a intentar los objetos omitidos. Las plantillas se exportan e importan como archivos JSON.",
+      "emptyTables1442": "El descubrimiento va más allá de las tablas vacías",
+      "emptyTables1442Desc": "Un objeto hijo con registros bajo su registro se cortaba cuando objetos estándar vacíos llenaban el límite de cincuenta. Las tablas vacías ya no ocupan lugar en él: el clon, su comprobación de reversibilidad y su control de escritura ven cada objeto que tiene filas.",
       "bypassHeld1441": "Las omisiones que tiene se reconocen",
       "bypassHeld1441Desc": "La pestaña Automatización y el comando de clonación indicaban que faltaba un permiso de omisión aunque usted lo tuviera, y pedían asignarlo de nuevo. Un valor de lista de selección dependiente que su valor de control rechaza ahora se detecta también en objetos sin tipos de registro.",
       "verify1440": "Comprobar lo que escribió una ejecución, y deshacerla",
