@@ -34,6 +34,7 @@
   "walkthrough.step.exploreSettings.title": "設定を調整",
   "walkthrough.step.exploreSettings.description": "バッチサイズ、本番ガードレール、メモリ上の安全性チェックログ、AI アシスタント。\n[設定を開く](command:sandforge.openSettings)",
   "config.title": "SandForge",
+  "config.showWhatsNew.description": "更新後に SandForge パネルを初めて開いたとき、新しいマイナーバージョンの内容を表示します。パッチバージョンでは表示されません。",
   "config.telemetry.description": "診断のため拡張機能のエラーをローカルに記録します。ネットワーク経由では何も送信されません。",
   "config.orgs.validateOnStartup.description": "起動時に登録済み組織を検証し、期限切れのセッションを sf CLI で自動的に更新する",
   "config.forge.graphView.description": "Forge の検出画面・確認画面・実行画面でグラフのオブジェクトをどう表示するかを指定します。`auto` は 25 オブジェクトまではグラフとして描き、それを超えるとテーブルに一覧表示します。`graph` と `table` は常にそのビューで表示します。いずれの画面でも、グラフビュー / テーブルビューの切り替えはパネルを閉じるまでこの設定より優先されます。",

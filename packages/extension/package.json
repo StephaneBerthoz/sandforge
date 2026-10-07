@@ -278,6 +278,11 @@
     "configuration": {
       "title": "%config.title%",
       "properties": {
+        "sandforge.showWhatsNew": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showWhatsNew.description%"
+        },
         "sandforge.telemetry": {
           "type": "boolean",
           "default": false,

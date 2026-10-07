@@ -34,6 +34,7 @@
   "walkthrough.step.exploreSettings.title": "Tune your settings",
   "walkthrough.step.exploreSettings.description": "Batch sizes, production guardrails, the in-memory safety-check log, and the AI assistant.\n[Open Settings](command:sandforge.openSettings)",
   "config.title": "SandForge",
+  "config.showWhatsNew.description": "Show what a new minor version brings the first time a SandForge panel opens after an upgrade. A patch version never shows it.",
   "config.telemetry.description": "Record extension errors locally for diagnosis. Nothing is sent over the network.",
   "config.orgs.validateOnStartup.description": "Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI",
   "config.forge.graphView.description": "How Forge shows a graph's objects on its discovery, Review and execution screens. `auto` draws them as a graph up to 25 objects and lists them in a table past that; `graph` and `table` always show that view. The Graph View / Table View switch on any of these screens overrides this setting until the panel is closed.",

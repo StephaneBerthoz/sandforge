@@ -34,6 +34,7 @@
   "walkthrough.step.exploreSettings.title": "Ajusta tu configuración",
   "walkthrough.step.exploreSettings.description": "Tamaños de lote, protecciones de producción, el registro de comprobaciones de seguridad en memoria y el asistente de IA.\n[Abrir Configuración](command:sandforge.openSettings)",
   "config.title": "SandForge",
+  "config.showWhatsNew.description": "Mostrar lo que trae una nueva versión menor la primera vez que se abre un panel de SandForge tras una actualización. Una versión de corrección nunca lo muestra.",
   "config.telemetry.description": "Registrar localmente los errores de la extensión para el diagnóstico. No se envía nada por la red.",
   "config.orgs.validateOnStartup.description": "Validar las organizaciones registradas al iniciar y actualizar automáticamente las sesiones caducadas mediante la CLI sf",
   "config.forge.graphView.description": "Cómo muestra Forge los objetos de un grafo en sus pantallas de descubrimiento, revisión y ejecución. `auto` los dibuja como grafo hasta 25 objetos y, por encima, los enumera en una tabla; `graph` y `table` muestran siempre esa vista. El selector Vista de grafo / Vista de tabla de cualquiera de estas pantallas prevalece sobre este ajuste hasta que se cierra el panel.",

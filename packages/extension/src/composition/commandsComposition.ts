@@ -14,6 +14,11 @@ export interface ModuleCommandsDeps {
   orgManager: OrgManager;
   stateSync: WebviewStateSync;
   onboardingService: OnboardingService;
+  /**
+   * Whether the user wants the What's New panel after an upgrade: the
+   * `sandforge.showWhatsNew` setting. Absent, they do.
+   */
+  whatsNewWanted?: () => boolean;
 }
 
 /**
@@ -64,12 +69,18 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
               payload: {},
             };
           } else if (onboardingService.shouldShowWhatsNew(currentVersion)) {
-            message = {
-              type: 'whats-new:show',
-              id: `whatsnew-${Date.now()}`,
-              timestamp: Date.now(),
-              payload: { version: currentVersion },
-            };
+            if (deps.whatsNewWanted?.() === false) {
+              // Turned off: the upgrade is still recorded, so turning it back
+              // on shows the next one, not this one late.
+              onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+            } else {
+              message = {
+                type: 'whats-new:show',
+                id: `whatsnew-${Date.now()}`,
+                timestamp: Date.now(),
+                payload: { version: currentVersion },
+              };
+            }
           }
           if (message) {
             // Post to the TRIGGERING panel only — the welcome/what's-new

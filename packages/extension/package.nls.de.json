@@ -34,6 +34,7 @@
   "walkthrough.step.exploreSettings.title": "Optimieren Sie Ihre Einstellungen",
   "walkthrough.step.exploreSettings.description": "Batchgrößen, Produktions-Schutzmaßnahmen, das Sicherheitsprüfungs-Protokoll im Arbeitsspeicher und der KI-Assistent.\n[Einstellungen öffnen](command:sandforge.openSettings)",
   "config.title": "SandForge",
+  "config.showWhatsNew.description": "Zeigen, was eine neue Nebenversion bringt, wenn nach einem Update zum ersten Mal ein SandForge-Panel geöffnet wird. Eine Patch-Version zeigt es nie.",
   "config.telemetry.description": "Fehler der Erweiterung zur Diagnose lokal aufzeichnen. Es wird nichts über das Netzwerk gesendet.",
   "config.orgs.validateOnStartup.description": "Registrierte Organisationen beim Start validieren und abgelaufene Sitzungen automatisch über die sf CLI aktualisieren",
   "config.forge.graphView.description": "Wie Forge die Objekte eines Graphen auf seinen Ermittlungs-, Überprüfungs- und Ausführungsbildschirmen zeigt. `auto` zeichnet sie bis 25 Objekte als Graph und listet sie darüber in einer Tabelle; `graph` und `table` zeigen immer diese Ansicht. Der Umschalter Graph-Ansicht / Tabellenansicht auf jedem dieser Bildschirme hat Vorrang vor dieser Einstellung, bis das Panel geschlossen wird.",

@@ -502,6 +502,8 @@ export function activate(context: vscode.ExtensionContext): void {
     orgManager,
     stateSync,
     onboardingService,
+    whatsNewWanted: () =>
+      vscode.workspace.getConfiguration('sandforge').get<boolean>('showWhatsNew', true),
   });
 
   // 12. StatusBar — org count + selected (or first connected) org alias

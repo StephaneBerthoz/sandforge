@@ -52,6 +52,7 @@ function createDeps(options: {
   panelAlreadyOpen: boolean;
   shouldShowOnboarding: boolean;
   shouldShowWhatsNew?: boolean;
+  whatsNewWanted?: boolean;
 }) {
   const panel = createFakePanel();
   const panelManager = {
@@ -75,6 +76,9 @@ function createDeps(options: {
     orgManager: { getAllOrgs: vi.fn(() => []) },
     stateSync: { updateState: vi.fn() },
     onboardingService,
+    ...(options.whatsNewWanted !== undefined
+      ? { whatsNewWanted: () => options.whatsNewWanted }
+      : {}),
   } as unknown as ModuleCommandsDeps;
   return { deps, panel, panelManager, onboardingService, context };
 }
@@ -172,6 +176,21 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
     expect(onboardingService.markVersionSeen).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
     expect(panel.webview.onDidReceiveMessage).not.toHaveBeenCalled();
+  });
+
+  it("turned off in the settings: shows no What's New, and records the upgrade as seen", () => {
+    const { deps, panel, onboardingService } = createDeps({
+      panelAlreadyOpen: true,
+      shouldShowOnboarding: false,
+      shouldShowWhatsNew: true,
+      whatsNewWanted: false,
+    });
+    registerModuleCommands(deps);
+
+    invokeFirstModuleCommand();
+
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
   });
 
   it('arms nothing and marks nothing when neither onboarding nor whats-new applies', () => {
