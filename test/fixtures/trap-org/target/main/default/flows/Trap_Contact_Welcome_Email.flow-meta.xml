@@ -84,14 +84,7 @@
         <connector>
             <targetReference>Send_Welcome_Email</targetReference>
         </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>Email</field>
-            <operator>IsNull</operator>
-            <value>
-                <booleanValue>false</booleanValue>
-            </value>
-        </filters>
+        <filterFormula>AND(NOT(ISBLANK({!$Record.Email})), NOT({!$Permission.Trap_Bypass_Flow}))</filterFormula>
         <object>Contact</object>
         <recordTriggerType>Create</recordTriggerType>
         <scheduledPaths>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Keeps the Trap Contact Welcome Email flow from starting for its holder.</description>
+    <isLicensed>false</isLicensed>
+    <label>Trap Bypass Flow</label>
+</CustomPermission>

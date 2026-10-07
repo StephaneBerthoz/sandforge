@@ -2,9 +2,13 @@
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <customPermissions>
         <enabled>true</enabled>
+        <name>Trap_Bypass_Flow</name>
+    </customPermissions>
+    <customPermissions>
+        <enabled>true</enabled>
         <name>Trap_Bypass_VR</name>
     </customPermissions>
-    <description>Holds the bypass of Trap_Email_Required and is assigned to nobody, so the rule applies to whoever writes.</description>
+    <description>Holds the bypasses of Trap_Email_Required and of the Trap Contact Welcome Email flow, and is assigned to nobody, so both apply to whoever writes.</description>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Trap Bypass</label>
 </PermissionSet>
