@@ -21,7 +21,9 @@ jobs:
     # which is what the run history shows: a wall of "cancelled" at 30m2x for
     # months. Ubuntu also runs the E2E suite, on one worker: 33 of 45 minutes
     # in 1.39.5, and at 45 the 1.39.6 run was cancelled two thirds through it.
-    timeout-minutes: 60
+    # In 1.44.1 the suite had 968 tests and took 43 of the 60 minutes for 840
+    # of them, every one passing, when the run was cancelled.
+    timeout-minutes: 90
     strategy:
       # Each OS reports its own result. Without this, a failure on one leg
       # cancels the others — including ubuntu, the leg that runs the E2E suite,
