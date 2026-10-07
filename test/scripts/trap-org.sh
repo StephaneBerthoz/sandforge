@@ -559,6 +559,9 @@ wipe_org() {
   wipe_query "$org" Contact "SELECT Id FROM Contact$(business_only "$org")"
   wipe_query "$org" Lead 'SELECT Id FROM Lead'
   wipe_query "$org" Opportunity 'SELECT Id FROM Opportunity'
+  # A Developer Edition's sample account holds a sample entitlement, which
+  # keeps it from being deleted.
+  wipe_query "$org" Entitlement 'SELECT Id FROM Entitlement'
   wipe_query "$org" Account 'SELECT Id FROM Account'
 }
 
