@@ -1267,6 +1267,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Sauvegarde",
+    "backupPartial": "Partielle : {{objects}} contiennent plus de lignes que cette sauvegarde n'en a lu. Une restauration ne rétablit que ces lignes.",
     "backupDesc": "Créer et gérer les sauvegardes de données",
     "restore": "Restaurer",
     "restoreDesc": "Restaurer les données depuis une sauvegarde",

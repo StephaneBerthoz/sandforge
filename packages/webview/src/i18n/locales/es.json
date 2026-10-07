@@ -1267,6 +1267,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Respaldo",
+    "backupPartial": "Parcial: {{objects}} contienen más filas de las que leyó esta copia de seguridad. Una restauración solo recupera esas filas.",
     "backupDesc": "Crear y administrar respaldos de datos",
     "restore": "Restaurar",
     "restoreDesc": "Restaurar datos desde un respaldo",

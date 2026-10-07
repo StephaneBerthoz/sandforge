@@ -48,7 +48,14 @@ export interface BackupSummary {
   totalRecords: number;
   totalSize: number;
   status: BackupStatus;
-  objectResults: Array<{ objectApiName: string; recordCount: number }>;
+  /**
+   * Each object read, with the rows taken; `truncated` when the read stopped
+   * at the tier's bound (2,000 rows on a sandbox, 500 on production) with
+   * rows left in the org.
+   */
+  objectResults: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
+  /** Some object holds more rows than the backup read: a restore brings back only those it holds. */
+  partial?: boolean;
 }
 
 /** Export one backup, records included, so it can leave the machine. */
@@ -199,8 +206,10 @@ export interface DataOpsBackupResponse extends BaseMessage {
   payload: {
     operationId: string;
     status: string;
-    objects: Array<{ objectApiName: string; recordCount: number }>;
+    objects: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
     totalRecords: number;
+    /** Some object holds more rows than the backup read: see {@link BackupSummary.partial}. */
+    partial?: boolean;
     timestamp: string;
   };
 }

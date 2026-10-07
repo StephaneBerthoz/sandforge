@@ -1267,6 +1267,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Backup",
+    "backupPartial": "Partial: {{objects}} hold more rows than this backup read. A restore brings back these rows only.",
     "backupDesc": "Create and manage data backups",
     "restore": "Restore",
     "restoreDesc": "Restore data from a backup",

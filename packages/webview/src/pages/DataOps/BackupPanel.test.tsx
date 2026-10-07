@@ -51,6 +51,29 @@ describe('BackupPanel', () => {
     expect(card.textContent).not.toContain('Invalid Date');
   });
 
+  it('says which objects a partial backup holds only part of, and nothing of a whole one', () => {
+    // Live: 1 220 contacts, 500 read, listed as complete.
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            partial: true,
+            objectResults: [
+              { objectApiName: 'Contact', recordCount: 500, truncated: true },
+              { objectApiName: 'Account', recordCount: 40 },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('backup-partial-op-1').textContent).toBe(
+      'Partial: Contact (500) hold more rows than this backup read. A restore brings back these rows only.',
+    );
+    expect(screen.queryByTestId('backup-partial-op-2')).toBeNull();
+  });
+
   it('should show backup status badges', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByText('completed')).toBeDefined();

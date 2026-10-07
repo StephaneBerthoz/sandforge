@@ -1267,6 +1267,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Sicherung",
+    "backupPartial": "Unvollständig: {{objects}} enthalten mehr Zeilen, als diese Sicherung gelesen hat. Eine Wiederherstellung bringt nur diese Zeilen zurück.",
     "backupDesc": "Datensicherungen erstellen und verwalten",
     "restore": "Wiederherstellen",
     "restoreDesc": "Daten aus einer Sicherung wiederherstellen",

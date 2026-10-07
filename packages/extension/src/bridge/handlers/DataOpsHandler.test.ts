@@ -1498,6 +1498,62 @@ describe('DataOpsHandler', () => {
       expect(response?.payload.totalRecords).toBe(1);
     });
 
+    it('says a backup the bound cut short is partial, in its answer and in the list', async () => {
+      // Live: 1 220 contacts on a Developer Edition, 500 read, said complete.
+      const full = Array.from({ length: 2_000 }, (_, i) => ({ Id: `001${i}`, Name: `A${i}` }));
+      const conn = mockOrg(full, ['Id', 'Name']);
+      conn.query.mockImplementation(async (soql: string) =>
+        soql.startsWith('SELECT COUNT()')
+          ? { records: [], done: true, totalSize: 5_321 }
+          : answer(soql === 'SELECT Id FROM Organization' ? [] : full),
+      );
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const stored = new Map<string, unknown>();
+      deps.configStore = {
+        get: vi.fn((key: string) => stored.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          stored.set(key, value);
+        }),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          [...stored.keys()].filter((key) => key.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-partial',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-list',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+
+      const response = posted().find((m) => m.type === 'dataops:backup:response');
+      expect(response?.payload).toMatchObject({
+        partial: true,
+        objects: [{ objectApiName: 'Account', recordCount: 2_000, truncated: true }],
+      });
+      const list = posted().find((m) => m.type === 'backup:list:result');
+      expect(list?.payload).toMatchObject({
+        backups: [
+          {
+            partial: true,
+            objectResults: [{ objectApiName: 'Account', recordCount: 2_000, truncated: true }],
+          },
+        ],
+      });
+    });
+
     it('records in the backup the org id the org answered with, for a restore to compare', async () => {
       const query = vi.fn(async (soql: string) =>
         soql === 'SELECT Id FROM Organization'

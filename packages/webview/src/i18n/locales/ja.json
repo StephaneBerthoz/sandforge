@@ -1197,6 +1197,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "バックアップ",
+    "backupPartial": "一部のみ: {{objects}} には、このバックアップが読み取った以上の行があります。復元で戻るのはこれらの行だけです。",
     "backupDesc": "データバックアップの作成と管理",
     "restore": "リストア",
     "restoreDesc": "バックアップからデータをリストア",

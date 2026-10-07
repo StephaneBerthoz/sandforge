@@ -671,8 +671,10 @@ export class DataOpsHandler implements DomainHandler {
       objects: outcome.objects.map((r) => ({
         objectApiName: r.objectApiName,
         recordCount: r.recordCount,
+        ...(r.truncated ? { truncated: true } : {}),
       })),
       totalRecords: outcome.totalRecords,
+      ...(outcome.partial ? { partial: true } : {}),
       timestamp: outcome.timestamp,
     });
     this.deps.broker.postToWebview(response);
@@ -1002,7 +1004,8 @@ export class DataOpsHandler implements DomainHandler {
         orgId?: string;
         timestamp?: string;
         totalRecords?: number;
-        objects?: Array<{ objectApiName: string; recordCount: number }>;
+        objects?: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
+        partial?: boolean;
       }>(key);
       if (!meta || meta.orgId !== parsed.orgId) continue;
       backups.push({
@@ -1016,7 +1019,11 @@ export class DataOpsHandler implements DomainHandler {
         // A meta record only exists once the backup has been written, so a
         // listed backup is by construction a completed one.
         status: 'completed',
+        // Run for real, a backup of 1 220 contacts on a Developer Edition
+        // read 500 and was listed as complete: the snapshot knew, the list
+        // did not say.
         objectResults: meta.objects ?? [],
+        ...(meta.partial ? { partial: true } : {}),
       });
     }
     // Newest first — the list is a history, and the most recent restore point

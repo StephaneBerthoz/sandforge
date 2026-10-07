@@ -101,6 +101,22 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               <div className="flex gap-4 text-xs text-text-secondary">
                 <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
               </div>
+              {backup.partial && (
+                // The tier's bound stopped the read: a restore brings back
+                // these rows only, and the rest of each object stays as it is.
+                <p
+                  className="mt-2 text-xs text-status-warning"
+                  role="note"
+                  data-testid={`backup-partial-${backup.operationId}`}
+                >
+                  {t('dataops.backupPartial', {
+                    objects: backup.objectResults
+                      .filter((o) => o.truncated)
+                      .map((o) => `${o.objectApiName} (${o.recordCount})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
             </CardBody>
           </Card>
         </div>

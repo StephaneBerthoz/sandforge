@@ -1267,6 +1267,7 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Backup",
+    "backupPartial": "Parcial: {{objects}} têm mais linhas do que este backup leu. Uma restauração traz de volta apenas essas linhas.",
     "backupDesc": "Criar e gerenciar backups de dados",
     "restore": "Restaurar",
     "restoreDesc": "Restaurar dados a partir de um backup",
