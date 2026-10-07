@@ -555,7 +555,7 @@ describe('sandforge-clone target automation', () => {
       expect(said).toBeGreaterThan(-1);
       expect(printed.slice(said + 1, said + 6)).toEqual([
         '  Contact',
-        '    BLOCKING: duplicate rule "Contact rule": blocks an insert it matches: a row it ' +
+        '    warning: duplicate rule "Contact rule": blocks an insert it matches: a row it ' +
           'matches is refused, whatever allowSave says',
         '    warning: validation rule "Name_Format" on LastName: "Use capitals" (not when ' +
           '$Permission.Load_Data; a row it refuses goes again without LastName)',
@@ -593,7 +593,7 @@ describe('sandforge-clone target automation', () => {
       expect(summary.targetGaps.requests).toBe(8);
       expect(summary.targetGaps.unread).toEqual([]);
       expect(summary.targetGaps.gaps.map((gap) => [gap.kind, gap.severity, gap.id])).toEqual([
-        ['duplicate_rule', 'blocking', 'duplicate_rule|Contact|||Contact_Rule'],
+        ['duplicate_rule', 'warning', 'duplicate_rule|Contact|||Contact_Rule'],
         ['validation_rule', 'warning', 'validation_rule|Contact|LastName||Name_Format'],
         ['api_budget', 'info', 'api_budget|Account|||'],
       ]);
