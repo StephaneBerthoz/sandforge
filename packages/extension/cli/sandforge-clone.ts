@@ -3599,6 +3599,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         restrictedPicklist: f.restrictedPicklist === true,
         ...(f.controllerName ? { controllerName: f.controllerName } : {}),
         defaultedOnCreate: f.defaultedOnCreate === true,
+        // What --upsert matches by. Left out, no field was a key, and every
+        // --upsert run inserted, as the extension's describe never did.
+        externalId: f.externalId === true,
         updateable: f.updateable !== false,
         // What an email address or a phone number is neutralized within.
         ...(f.length > 0 ? { length: f.length } : {}),

@@ -1310,8 +1310,19 @@ describe('sandforge-clone describes', () => {
     function fakeOrg({ id = TARGET_ORG, sandbox = true }: { id?: string; sandbox?: boolean } = {}) {
       const asked: string[] = [];
       const written: Array<Record<string, unknown>> = [];
+      const upserted: Array<{ name: string; field: string; rows: number }> = [];
       const conn = {
         sobject: (name: string) => ({
+          upsert: async (records: Array<Record<string, unknown>>, field: string) => {
+            upserted.push({ name, field, rows: records.length });
+            const prefix = String(DESCRIBES[name]?.keyPrefix);
+            return records.map((_, i) => ({
+              id: `${prefix}00000000080${i}AAA`,
+              success: true,
+              created: true,
+              errors: [],
+            }));
+          },
           describe: async () => {
             asked.push(name);
             return DESCRIBES[name];
@@ -1353,7 +1364,7 @@ describe('sandforge-clone describes', () => {
         // say nothing of the data storage.
         request: async () => ({}),
       };
-      return { conn: conn as unknown as Connection, asked, written };
+      return { conn: conn as unknown as Connection, asked, written, upserted };
     }
 
     let realLoadOrg: typeof loadOrg;
@@ -1571,9 +1582,23 @@ describe('sandforge-clone describes', () => {
       beforeEach(() => {
         plain = DESCRIBES.Contact;
         DESCRIBES.Contact = keyed;
+        ROWS.Contact[0].Login_Email__c = 'key@example.com';
       });
       afterEach(() => {
         DESCRIBES.Contact = plain;
+        delete ROWS.Contact[0].Login_Email__c;
+      });
+
+      it('upserts the records by their external id, where every --upsert run inserted', async () => {
+        // The command's describe never said which fields were external ids,
+        // so no key was ever found and --upsert wrote plain inserts.
+        const orgs = withFakeOrgs();
+
+        expect(
+          await run(argv('--skip-preflight', '--upsert', '--accept-automation')),
+        ).toBeUndefined();
+
+        expect(orgs.TGT.upserted).toEqual([{ name: 'Contact', field: 'Login_Email__c', rows: 1 }]);
       });
 
       it('says before the run that the key goes neutralized and matches no copy holding the real address', async () => {
