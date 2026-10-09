@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ForgeGap } from '../types/forge.types.js';
-import { forgeGapId, forgeGapParts, mergeGaps } from './forge-gaps.js';
+import {
+  forgeGapId,
+  forgeGapParts,
+  gapAssignEntry,
+  gapAssignments,
+  mergeGaps,
+} from './forge-gaps.js';
 
 const gap = (over: Partial<ForgeGap>): ForgeGap => ({
   id: forgeGapId('picklist_value_refused', 'Case', 'Reason__c', 'Claim', 'Other'),
@@ -88,5 +94,46 @@ describe('mergeGaps', () => {
     mergeGaps(first, [gap({ decisions: ['ignore'] })]);
 
     expect(first[0].decisions).toEqual(['map_value', 'leave_empty']);
+  });
+});
+
+describe("a gap's assignments", () => {
+  it('reads back each permission with its permission sets, the smallest first', () => {
+    const detail = {
+      assign: [
+        gapAssignEntry({
+          permission: 'Bypass_VR',
+          permissionSets: [{ name: 'Bypass' }, { name: 'ns__Admin_Tools' }],
+        }),
+        gapAssignEntry({ permission: 'ns__Skip', permissionSets: [] }),
+      ],
+    };
+
+    expect(detail.assign).toEqual(['Bypass_VR=Bypass,ns__Admin_Tools', 'ns__Skip=']);
+    expect(gapAssignments({ detail })).toEqual([
+      {
+        permission: 'Bypass_VR',
+        permissionSet: { name: 'Bypass' },
+        others: [{ name: 'ns__Admin_Tools' }],
+      },
+      { permission: 'ns__Skip', others: [] },
+    ]);
+  });
+
+  it('reads none from a gap that holds no assignment, or from an entry that names no permission', () => {
+    expect(gapAssignments({})).toEqual([]);
+    expect(gapAssignments({ detail: { assign: 'Bypass=Set' } })).toEqual([]);
+    expect(gapAssignments({ detail: { assign: ['=Set', 'no sign'] } })).toEqual([]);
+  });
+
+  it('keeps the assignments the metadata read gave a gap a rehearsal also found', () => {
+    const [merged] = mergeGaps(
+      [gap({ detail: { assign: ['Bypass_VR=Bypass'] } })],
+      [gap({ source: 'rehearsal', rows: 2, detail: { statusCode: 'X' } })],
+    );
+
+    expect(gapAssignments(merged)).toEqual([
+      { permission: 'Bypass_VR', permissionSet: { name: 'Bypass' }, others: [] },
+    ]);
   });
 });

@@ -16,6 +16,20 @@ export interface RehearsedRow {
   placeholderId: string;
 }
 
+/** One update the run would make after its inserts, as the executor handed it to its writer. */
+export interface RehearsedUpdate {
+  /** Where the run would send it among the updates it makes, from 0. */
+  seq: number;
+  objectApiName: string;
+  /**
+   * The record it updates: the placeholder of a row the run creates, or the
+   * id of a record the target held, which a rehearsal never writes.
+   */
+  recordId: string;
+  /** What it sets, without the id. A lookup to a record the run creates holds its placeholder. */
+  fields: Record<string, unknown>;
+}
+
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 /**
@@ -55,7 +69,8 @@ export function placeholderId(keyPrefix: string | null, seq: number): string {
  * The writer a rehearsal hands the executor in place of the target's: it
  * keeps every row the run would create, in the order the run would create
  * them, and answers each with a placeholder id, as if the row had been
- * written. Nothing reaches the target through it.
+ * written; and every update the run would make after, answered as made.
+ * Nothing reaches the target through it.
  *
  * The run's preparation is the executor's own — the read, the cleaning, the
  * picklist checks, the contact points neutralized, the decisions — run whole
@@ -65,8 +80,8 @@ export function placeholderId(keyPrefix: string | null, seq: number): string {
 export class RehearsalWriter {
   /** The rows the run would create, in order. */
   readonly rows: RehearsedRow[] = [];
-  /** The rows the run would update after its inserts, which a rehearsal does not send. */
-  updates = 0;
+  /** The updates the run would make after its inserts, in order. */
+  readonly updated: RehearsedUpdate[] = [];
   /** Each placeholder, by its first 15 characters, to the row it stands for. */
   private readonly byId = new Map<string, RehearsedRow>();
   /** Key prefix per object, asked once. */
@@ -99,23 +114,31 @@ export class RehearsalWriter {
     });
   };
 
+  /** How many updates the run would make after its inserts. */
+  get updates(): number {
+    return this.updated.length;
+  }
+
   /**
-   * Count the rows, and answer each as updated: the executor's
-   * `updateRecords`. What a run updates after its inserts is a record the
-   * rehearsal never created; it is counted, never sent.
+   * Keep the updates, and answer each as made: the executor's
+   * `updateRecords`. The rehearsal sends one of a record the run creates in
+   * the call that creates it, after its inserts; nothing here reaches the
+   * target.
    */
   readonly updateRecords = async (
     _orgId: string,
-    _objectApiName: string,
+    objectApiName: string,
     records: Record<string, unknown>[],
-  ): Promise<UpdateResult[]> => {
-    this.updates += records.length;
-    return records.map((record) => ({
-      id: typeof record['Id'] === 'string' ? record['Id'] : '',
-      success: true,
-      errors: [],
-    }));
-  };
+  ): Promise<UpdateResult[]> =>
+    records.map((record) => {
+      const recordId = typeof record['Id'] === 'string' ? record['Id'] : '';
+      const fields: Record<string, unknown> = {};
+      for (const [field, value] of Object.entries(record)) {
+        if (field !== 'Id' && field !== 'attributes') fields[field] = value;
+      }
+      this.updated.push({ seq: this.updated.length, objectApiName, recordId, fields });
+      return { id: recordId, success: true, errors: [] };
+    });
 
   /** The row a value stands for, when it is one of this writer's placeholders. */
   rowOf(value: unknown): RehearsedRow | undefined {

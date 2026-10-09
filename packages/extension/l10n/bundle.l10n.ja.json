@@ -108,6 +108,8 @@
   "This rehearsal creates {0} of the {1} records this clone would create in {2}, and rolls each call back whole.": "このリハーサルは、このクローンが {2} に作成する {1} 件のレコードのうち {0} 件を作成し、呼び出しごとにすべてロールバックします。",
   "It costs {0} composite API calls, {1} at most if a call stops at a refused record.": "コンポジット API 呼び出しは {0} 回、拒否されたレコードで呼び出しが止まった場合は最大 {1} 回です。",
   "{0} runs automation on the records this rehearsal creates:": "{0} では、このリハーサルが作成するレコードに対して自動化が実行されます:",
+  "It also makes {0} of the updates the clone makes after its inserts, each in the call that creates its record.": "また、クローンが挿入後に行う更新のうち {0} 件を、それぞれのレコードを作成する呼び出しの中で行います。",
+  "{0} runs automation as this rehearsal updates the records it creates:": "{0} では、このリハーサルが作成したレコードを更新するときに自動化が実行されます:",
   "What fires as the rehearsal creates its records is not known.": "リハーサルがレコードを作成するときに何が実行されるかはわかりません。",
   "Rolled back with each call, and never sent: emails, @future and Queueable jobs, platform events published after commit, and the asynchronous paths of Flows.": "呼び出しごとにロールバックされ、送信されないもの: メール、@future および Queueable ジョブ、コミット後に公開されるプラットフォームイベント、フローの非同期パス。",
   "Not rolled back: platform events published immediately, and callouts already made.": "ロールバックされないもの: 即時公開されるプラットフォームイベントと、すでに実行されたコールアウト。",

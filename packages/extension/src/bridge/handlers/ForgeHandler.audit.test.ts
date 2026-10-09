@@ -144,6 +144,9 @@ const VERDICTS: ForgeRehearsal = {
   passed: 2,
   notJudged: 0,
   notJudgedWhy: [],
+  updates: 0,
+  updatesJudged: 0,
+  updatesPassed: 0,
   updatesNotRehearsed: 0,
   calls: 1,
   plannedCalls: 1,
@@ -198,7 +201,14 @@ describe('forge:execute, what the run’s audit entry says of how it was set up'
   function rehearser(): ForgeRehearser {
     return {
       rehearse: vi.fn(async (_g: ForgeGraph, _c: ForgeConfig, options: RehearseOptions) => {
-        await options.confirm({ rows: 2, sampled: 2, calls: 1, maxCalls: 5, objects: [] });
+        await options.confirm({
+          rows: 2,
+          sampled: 2,
+          calls: 1,
+          maxCalls: 5,
+          updates: [],
+          objects: [],
+        });
         return VERDICTS;
       }),
     } as unknown as ForgeRehearser;

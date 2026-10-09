@@ -23,15 +23,26 @@ function statusLine(
       : t('forge.rehearsal.reading');
   }
   if (status === 'done' && result) {
-    return result.rows === 0
-      ? t('forge.rehearsal.nothing')
-      : t('forge.rehearsal.done', {
-          judged: result.judged,
-          passed: result.passed,
-          refused: result.judged - result.passed,
-          notJudged: result.notJudged,
-          calls: result.calls,
-        });
+    if (result.rows === 0) return t('forge.rehearsal.nothing');
+    const done = t('forge.rehearsal.done', {
+      judged: result.judged,
+      passed: result.passed,
+      refused: result.judged - result.passed,
+      notJudged: result.notJudged,
+      calls: result.calls,
+    });
+    // The updates the run makes after its inserts, apart: only the command
+    // line said those it could not rehearse, and the panel's line read as
+    // the verdict on every write of the run.
+    return result.updates > 0
+      ? `${done} ${t('forge.rehearsal.updates', {
+          judged: result.updatesJudged,
+          passed: result.updatesPassed,
+          refused: result.updatesJudged - result.updatesPassed,
+          notRehearsed: result.updatesNotRehearsed,
+          updates: result.updates,
+        })}`
+      : done;
   }
   if (status === 'declined') return t('forge.rehearsal.declined');
   if (status === 'error') return t('forge.rehearsal.error', { error: error ?? '' });

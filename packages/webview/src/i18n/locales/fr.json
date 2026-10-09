@@ -1847,6 +1847,7 @@
       "template_delete": "Suppression modèle",
       "forge_execute": "Clonage Forge",
       "forge_verify": "Vérification Forge",
+      "forge_rehearse": "Répétition Forge",
       "seed_csv_import": "Import CSV",
       "seed_clone": "Clonage d'enregistrements",
       "autopilot_execute": "Exécution Autopilot",
@@ -2409,6 +2410,7 @@
       "confirming_other": "Répétition : confirmez dans VS Code les {{count}} appels composites qu'elle coûte.",
       "rehearsing": "Répétition : appel {{call}} sur {{calls}}, annulé à sa fin…",
       "done": "Répétition terminée, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
+      "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} non répétées.",
       "nothing": "Répétition terminée : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
       "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
       "error": "La répétition n'a pas pu se faire : {{error}}"
@@ -2783,7 +2785,8 @@
           "userPermissions": "Les autorisations personnalisées de l'utilisateur sous lequel l'exécution écrit",
           "targetFields": "Les champs d'un objet de l'org cible",
           "sourceFields": "Les champs d'un objet de l'org source",
-          "apiBudget": "Les requêtes API quotidiennes restantes"
+          "apiBudget": "Les requêtes API quotidiennes restantes",
+          "permissionSets": "Les ensembles d'autorisations qui détiennent un contournement d'une règle de validation que l'utilisateur sous lequel l'exécution écrit ne détient pas"
         }
       },
       "planTab": "Plan",
@@ -3303,7 +3306,8 @@
         "validation_rule": "Règle de validation",
         "duplicate_rule": "Règle de doublons",
         "api_budget": "Quota quotidien de requêtes API",
-        "rehearsal_refusal": "Refusé lors de la répétition"
+        "rehearsal_refusal": "Refusé lors de la répétition",
+        "rehearsal_update_refusal": "Mise à jour refusée lors de la répétition"
       },
       "rows_one": "{{count}} ligne",
       "rows_other": "{{count}} lignes",

@@ -553,21 +553,53 @@ describe('sandforge-clone target automation', () => {
         'target gaps: what TGT holds against the rows, read from its metadata',
       );
       expect(said).toBeGreaterThan(-1);
-      expect(printed.slice(said + 1, said + 6)).toEqual([
+      expect(printed.slice(said + 1, said + 7)).toEqual([
         '  Contact',
         '    warning: duplicate rule "Contact rule": blocks an insert it matches: a row it ' +
           'matches is refused, whatever allowSave says',
         '    warning: validation rule "Name_Format" on LastName: "Use capitals" (not when ' +
           '$Permission.Load_Data; a row it refuses goes again without LastName)',
+        '      Load_Data: no permission set of TGT holds it: an admin creates one that includes it',
         '  info: API budget: the run takes at most about 4 call(s) (2 write(s) of 200 rows, 2 read(s)), ' +
           'counted on whole tables; 14000 of 15000 daily requests left',
         // The rules, the duplicate rules, the limits, the two objects described
-        // in the target, the formula, the duplicate rule's action, and the
-        // permissions of the user: the source's describes were discovery's.
-        '  read in 8 request(s) to TGT',
+        // in the target, the formula, the duplicate rule's action, the
+        // permissions of the user, the custom permission it does not hold and
+        // the permission sets holding it: the source's describes were discovery's.
+        '  read in 10 request(s) to TGT',
       ]);
       expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
       expect(orgs.SRC.tooling).toEqual([]);
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('names under a rule the smallest permission set that keeps it quiet, and the command that assigns it', async () => {
+      withOrgs(
+        fakeOrg({
+          noFlows: true,
+          validationRules: [NAME_RULE],
+          permissionSets: [
+            { name: 'Integration', grants: 120 },
+            { name: 'Data_Load', grants: 1 },
+          ],
+        }),
+      );
+      vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+        alias,
+        username: alias === 'TGT' ? 'loader@example.com.dev' : '',
+        instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+        accessToken: 'token',
+      }));
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      const rule = printed.findIndex((line) => line.includes('validation rule "Name_Format"'));
+      expect(printed[rule + 1]).toBe(
+        '      Load_Data: held by permission set Data_Load, the smallest; also held by ' +
+          'Integration: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
+          'loader@example.com.dev',
+      );
+      // Shown, never run.
       expect(orgs.TGT.written).toEqual([]);
     });
 
@@ -590,7 +622,7 @@ describe('sandforge-clone target automation', () => {
       const summary = JSON.parse(stdout) as {
         targetGaps: { gaps: Array<Record<string, unknown>>; unread: unknown[]; requests: number };
       };
-      expect(summary.targetGaps.requests).toBe(8);
+      expect(summary.targetGaps.requests).toBe(10);
       expect(summary.targetGaps.unread).toEqual([]);
       expect(summary.targetGaps.gaps.map((gap) => [gap.kind, gap.severity, gap.id])).toEqual([
         ['duplicate_rule', 'warning', 'duplicate_rule|Contact|||Contact_Rule'],

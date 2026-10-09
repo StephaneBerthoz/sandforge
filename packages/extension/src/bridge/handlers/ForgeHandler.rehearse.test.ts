@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
@@ -17,6 +17,16 @@ import type {
 } from '../../modules/forge/rehearsal/ForgeRehearser.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { RunConfirmation } from '../../core/precheck/ProductionGuard.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
+import {
+  RehearsalCancelledError,
+  RehearsalNotRolledBackError,
+} from '../../modules/forge/rehearsal/rehearse.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -91,6 +101,9 @@ const VERDICTS: ForgeRehearsal = {
   passed: 2,
   notJudged: 0,
   notJudgedWhy: [],
+  updates: 0,
+  updatesJudged: 0,
+  updatesPassed: 0,
   updatesNotRehearsed: 0,
   calls: 1,
   plannedCalls: 1,
@@ -102,7 +115,7 @@ const FIRES: ForgeTargetAutomation = {
     {
       objectApiName: 'Contact',
       flows: [],
-      triggers: [{ name: 'ContactTrigger', events: ['beforeInsert'] }],
+      triggers: [{ name: 'ContactTrigger', events: ['beforeInsert', 'afterUpdate'] }],
     },
   ],
   unread: [],
@@ -120,6 +133,11 @@ describe('forge:rehearse', () => {
   /** What the fake rehearsal did, in order. */
   let steps: string[];
   let rehearser: ForgeRehearser & { rehearse: ReturnType<typeof vi.fn> };
+  let store: ConfigStore;
+  let tracker: LiveOperationTracker;
+  let registry: BackgroundOperationRegistry;
+  /** The entries the audit trail holds, oldest first. */
+  const trail = () => new AuditTrailStore(store).list().entries;
 
   /** A rehearsal that reads, asks, then sends its call, as the engine does. */
   function rehearsing(): ForgeRehearser & { rehearse: ReturnType<typeof vi.fn> } {
@@ -133,6 +151,7 @@ describe('forge:rehearse', () => {
             sampled: 2,
             calls: 1,
             maxCalls: 5,
+            updates: [{ objectApiName: 'Contact', updates: 1 }],
             objects: [{ objectApiName: 'Account', rows: 1 }],
           });
           steps.push('sent');
@@ -148,6 +167,10 @@ describe('forge:rehearse', () => {
     answers = [];
     orgType = 'Sandbox';
     steps = [];
+    store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    tracker = new LiveOperationTracker();
+    registry = new BackgroundOperationRegistry();
     let n = 0;
     deps = {
       log: vi.fn(),
@@ -157,7 +180,7 @@ describe('forge:rehearse', () => {
         getOrg: vi.fn((id: string) => ({ orgType, alias: id === 'tgt-org' ? 'DEV' : 'UAT' })),
       } as unknown as HandlerDeps['orgManager'],
       orgRegistry: {} as HandlerDeps['orgRegistry'],
-      configStore: {} as HandlerDeps['configStore'],
+      configStore: store,
       secretVault: {} as HandlerDeps['secretVault'],
       authProvider: {} as HandlerDeps['authProvider'],
       sfdxBridge: {} as HandlerDeps['sfdxBridge'],
@@ -168,10 +191,12 @@ describe('forge:rehearse', () => {
             return answers.shift() ?? true;
           },
         }),
+        backgroundRegistry: registry,
       } as unknown as HandlerDeps['infraServices'],
       nextId: () => String(++n),
     };
     handler = new ForgeHandler(deps);
+    handler.setLiveOperationTracker(tracker);
     rehearser = rehearsing();
     handler.setForgeOrchestrator({} as ForgeOrchestrator, {
       rehearser,
@@ -179,6 +204,11 @@ describe('forge:rehearse', () => {
         readForGraph: vi.fn(async () => FIRES),
       } as unknown as TargetAutomationReader,
     });
+  });
+
+  afterEach(() => {
+    tracker.dispose();
+    registry.dispose();
   });
 
   function rehearse(payload: Record<string, unknown> = { graph: GRAPH, config: CONFIG }) {
@@ -207,7 +237,7 @@ describe('forge:rehearse', () => {
     expect(posted('forge:rehearse:error')).toEqual([]);
   });
 
-  it('puts the calls, the records and what the target runs to the user before the first call', async () => {
+  it('puts the calls, the records, the updates and what the target runs on both to the user before the first call', async () => {
     await rehearse();
     expect(questions).toEqual([
       {
@@ -216,9 +246,11 @@ describe('forge:rehearse', () => {
         orgTier: 'development',
         rows: 2,
         sampled: 2,
+        updates: 1,
         calls: 1,
         maxCalls: 5,
         fired: [{ objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' }],
+        firedOnUpdate: [{ objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' }],
         unread: [],
       },
     ]);
@@ -284,6 +316,179 @@ describe('forge:rehearse', () => {
     await rehearse({ graph: GRAPH });
     expect(rehearser.rehearse).not.toHaveBeenCalled();
     expect(posted('forge:rehearse:error')).toHaveLength(1);
+  });
+
+  describe('in the audit trail', () => {
+    it('records what a rehearsal judged, confirmed by the user, and no lineage', async () => {
+      await rehearse();
+
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'forge_rehearse',
+          module: 'forge',
+          orgId: 'tgt-org',
+          orgAlias: 'DEV',
+          outcome: 'success',
+          guard: 'confirmed',
+          objects: [],
+          details: {
+            sampled: 2,
+            judged: 2,
+            passed: 2,
+            refused: 0,
+            notJudged: 0,
+            updatesJudged: 0,
+            updatesRefused: 0,
+            updatesNotRehearsed: 0,
+            calls: 1,
+          },
+        }),
+      ]);
+      expect(trail()[0]).not.toHaveProperty('sourceOrgId');
+    });
+
+    it('records a rehearsal declined at its confirmation as stopped, the user having declined', async () => {
+      answers = [false];
+      await rehearse();
+
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'forge_rehearse',
+          outcome: 'stopped',
+          guard: 'declined',
+          details: { code: 'REHEARSAL_DECLINED' },
+        }),
+      ]);
+    });
+
+    it('records a rehearsal that failed as a failure', async () => {
+      rehearser.rehearse.mockRejectedValueOnce(new Error('composite refused'));
+      await rehearse();
+
+      expect(trail()).toEqual([
+        expect.objectContaining({ action: 'forge_rehearse', outcome: 'failure', objects: [] }),
+      ]);
+    });
+
+    it('records a call that was not rolled back with the records it left, by object and never by id', async () => {
+      rehearser.rehearse.mockRejectedValueOnce(
+        new RehearsalNotRolledBackError(
+          ['003000000000001AAA', '003000000000002AAA', '001000000000003AAA'],
+          [
+            { objectApiName: 'Contact', created: 2 },
+            { objectApiName: 'Account', created: 1 },
+          ],
+        ),
+      );
+      await rehearse();
+
+      const [entry] = trail();
+      expect(entry).toMatchObject({
+        action: 'forge_rehearse',
+        outcome: 'failure',
+        details: { code: 'REHEARSAL_NOT_ROLLED_BACK', recordsLeft: 3 },
+        objects: [
+          { objectApiName: 'Contact', created: 2, updated: 0, deleted: 0, failed: 0 },
+          { objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 },
+        ],
+      });
+      expect(JSON.stringify(entry)).not.toContain('003000000000001AAA');
+    });
+
+    it('records a rehearsal refused against a production org, under the request', async () => {
+      orgType = 'Production';
+      await rehearse();
+
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'forge_rehearse',
+          operationId: 'wv-rehearse',
+          outcome: 'stopped',
+          details: { code: 'PRODUCTION_TARGET' },
+        }),
+      ]);
+    });
+  });
+
+  describe('in Live Operations', () => {
+    it('lists a rehearsal while it runs, call by call, under the id its Cancel reaches, then completes it', async () => {
+      let listed: LiveOperation[] = [];
+      let running: string[] = [];
+      rehearser.rehearse.mockImplementationOnce(
+        async (_graph: ForgeGraph, _config: ForgeConfig, options: RehearseOptions) => {
+          await options.confirm({
+            rows: 2,
+            sampled: 2,
+            calls: 2,
+            maxCalls: 10,
+            updates: [],
+            objects: [],
+          });
+          options.onProgress?.({ phase: 'rehearsing', call: 2, calls: 2 });
+          listed = tracker.getAll().map((op) => ({ ...op }));
+          running = registry.getRunning().map((op) => op.operationId);
+          return VERDICTS;
+        },
+      );
+
+      await rehearse();
+
+      expect(listed).toEqual([
+        expect.objectContaining({
+          module: 'forge',
+          status: 'running',
+          percentage: 50,
+          processedRecords: 1,
+          totalRecords: 2,
+        }),
+      ]);
+      expect(running).toEqual([listed[0].operationId]);
+      expect(tracker.get(listed[0].operationId)?.status).toBe('completed');
+    });
+
+    it('marks a failed rehearsal failed', async () => {
+      rehearser.rehearse.mockRejectedValueOnce(new Error('composite refused'));
+      await rehearse();
+
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({ status: 'failed', error: 'composite refused' }),
+      ]);
+    });
+
+    it('stops the rehearsal its Cancel reaches, and records it stopped with the calls it made', async () => {
+      rehearser.rehearse.mockImplementationOnce(
+        async (_graph: ForgeGraph, _config: ForgeConfig, options: RehearseOptions) => {
+          await options.confirm({
+            rows: 2,
+            sampled: 2,
+            calls: 3,
+            maxCalls: 15,
+            updates: [],
+            objects: [],
+          });
+          options.onProgress?.({ phase: 'rehearsing', call: 1, calls: 3 });
+          // Live Operations' Cancel: the registry aborts what the run registered.
+          registry.abort(registry.getRunning()[0].operationId);
+          if (options.signal?.aborted) throw new RehearsalCancelledError(1);
+          return VERDICTS;
+        },
+      );
+
+      await rehearse();
+
+      expect(posted('forge:rehearse:error')[0].payload).toMatchObject({
+        code: 'REHEARSAL_CANCELLED',
+      });
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'forge_rehearse',
+          outcome: 'stopped',
+          guard: 'confirmed',
+          details: { calls: 1, code: 'REHEARSAL_CANCELLED' },
+        }),
+      ]);
+    });
   });
 
   it('says so when no rehearsal is wired', async () => {

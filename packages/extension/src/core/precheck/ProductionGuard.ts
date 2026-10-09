@@ -233,11 +233,18 @@ export interface RehearsalConfirmation {
   rows: number;
   /** Records the rehearsal creates of them: a sample, and the records its rows name. */
   sampled: number;
+  /**
+   * Updates the rehearsal sends, of those the run makes after its inserts,
+   * each of a record it creates, in the call that creates it.
+   */
+  updates: number;
   /** Composite calls planned, and the most it sends when calls stop at refused records. */
   calls: number;
   maxCalls: number;
   /** What fires on insert, per object, as the run's own question says it. */
   fired: FiredOnInsert[];
+  /** What fires on update, per object, on the objects whose records it updates. */
+  firedOnUpdate: FiredOnInsert[];
   /** What could not be read of the target's automation, and why. */
   unread: AutomationConfirmation['unread'];
 }

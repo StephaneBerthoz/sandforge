@@ -1847,6 +1847,7 @@
       "template_delete": "Template Delete",
       "forge_execute": "Forge Clone",
       "forge_verify": "Forge Verification",
+      "forge_rehearse": "Forge Rehearsal",
       "seed_csv_import": "CSV Import",
       "seed_clone": "Record Clone",
       "autopilot_execute": "Autopilot Run",
@@ -2409,6 +2410,7 @@
       "confirming_other": "Rehearsal: confirm in VS Code the {{count}} composite calls it costs.",
       "rehearsing": "Rehearsal: call {{call}} of {{calls}}, rolled back as it ends…",
       "done": "Rehearsal done, every write rolled back. Judged: {{judged}}; would save: {{passed}}; refused: {{refused}}; not judged: {{notJudged}}; composite calls: {{calls}}.",
+      "updates": "Updates the run makes after its inserts: {{judged}} judged, {{passed}} would save, {{refused}} refused; {{notRehearsed}} of {{updates}} not rehearsed.",
       "nothing": "Rehearsal done: the run creates no row, and nothing was sent.",
       "declined": "Rehearsal cancelled at its confirmation. Nothing was sent to the target.",
       "error": "The rehearsal could not run: {{error}}"
@@ -2783,7 +2785,8 @@
           "userPermissions": "The custom permissions of the user the run writes as",
           "targetFields": "The fields of an object in the target org",
           "sourceFields": "The fields of an object in the source org",
-          "apiBudget": "The daily API requests left"
+          "apiBudget": "The daily API requests left",
+          "permissionSets": "The permission sets that hold a bypass of a validation rule the user the run writes as does not hold"
         }
       },
       "planTab": "Plan",
@@ -3303,7 +3306,8 @@
         "validation_rule": "Validation rule",
         "duplicate_rule": "Duplicate rule",
         "api_budget": "Daily API request budget",
-        "rehearsal_refusal": "Refused in the rehearsal"
+        "rehearsal_refusal": "Refused in the rehearsal",
+        "rehearsal_update_refusal": "Update refused in the rehearsal"
       },
       "rows_one": "{{count}} row",
       "rows_other": "{{count}} rows",

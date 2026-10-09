@@ -8,6 +8,7 @@ import type {
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { GraphDiscoveryService } from '../GraphDiscoveryService.js';
 import { ForgeRehearser, type ForgeRehearserDeps } from './ForgeRehearser.js';
+import { RehearsalCancelledError } from './rehearse.js';
 
 type Composite = ForgeRehearserDeps['composite'];
 
@@ -208,6 +209,31 @@ describe('a rehearsal of a run, through the run’s own executor', () => {
       progress.findIndex((p) => p.phase === 'reading'),
     );
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ rows: 2, calls: 1 }));
+  });
+
+  it('stops reading once its signal is aborted, sends nothing and says it was cancelled', async () => {
+    const base = reads();
+    const controller = new AbortController();
+    // Cancelled from Live Operations as the source is read.
+    const run: ForgeExecutorDeps = {
+      ...base,
+      queryRecords: vi.fn(async (org: string, soql: string) => {
+        controller.abort();
+        return base.queryRecords(org, soql);
+      }),
+    };
+    const composite = everyRowPasses();
+    const confirm = vi.fn(async () => {});
+
+    await expect(
+      rehearser(run, composite).rehearse(GRAPH, CONFIG, { confirm, signal: controller.signal }),
+    ).rejects.toBeInstanceOf(RehearsalCancelledError);
+    // Stopped where it was: the contacts were never read.
+    const read = vi.mocked(run.queryRecords).mock.calls.map(([, soql]) => soql);
+    expect(read.some((soql) => /FROM Account\b/.test(soql))).toBe(true);
+    expect(read.some((soql) => /FROM Contact\b/.test(soql))).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(composite).not.toHaveBeenCalled();
   });
 
   it('names a refused value’s record type by the run’s record type table', async () => {

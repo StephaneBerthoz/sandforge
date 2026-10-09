@@ -80,3 +80,58 @@ export function mergeGaps(...lists: ReadonlyArray<readonly ForgeGap[]>): ForgeGa
       a.id.localeCompare(b.id),
   );
 }
+
+/**
+ * What would keep a validation rule from refusing a row, as a gap's
+ * `detail.assign` holds it: a custom permission the rule excludes and the
+ * user the run writes as does not hold, and the permission sets of the target
+ * that include it, the smallest first; none when no permission set a user can
+ * be assigned holds it, and an admin creates one.
+ */
+export interface ForgeGapAssignment {
+  /** The custom permission, as `$Permission.<name>` names it. */
+  permission: string;
+  /** The smallest permission set that includes it; absent when none does. */
+  permissionSet?: { name: string };
+  /** The other permission sets that include it, the smallest first. */
+  others: Array<{ name: string }>;
+}
+
+/**
+ * One entry of a gap's `detail.assign`: `<permission>=<set>,<set>…`, the
+ * smallest set first, nothing after `=` when no set holds it. A gap's detail
+ * holds texts and lists of texts only, so that the detail of every read of
+ * the same gap merges into one ({@link mergeGaps}); an API name never holds
+ * `=` or `,`.
+ */
+export function gapAssignEntry(grant: {
+  permission: string;
+  permissionSets: ReadonlyArray<{ name: string }>;
+}): string {
+  return `${grant.permission}=${grant.permissionSets.map((set) => set.name).join(',')}`;
+}
+
+/**
+ * The assignments a gap's `detail.assign` holds ({@link gapAssignEntry}), in
+ * its order; none when it holds none.
+ */
+export function gapAssignments(gap: Pick<ForgeGap, 'detail'>): ForgeGapAssignment[] {
+  const entries = gap.detail?.['assign'];
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => {
+    const at = entry.indexOf('=');
+    if (at <= 0) return [];
+    const [smallest, ...others] = entry
+      .slice(at + 1)
+      .split(',')
+      .filter((name) => name !== '')
+      .map((name) => ({ name }));
+    return [
+      {
+        permission: entry.slice(0, at),
+        ...(smallest ? { permissionSet: smallest } : {}),
+        others,
+      },
+    ];
+  });
+}

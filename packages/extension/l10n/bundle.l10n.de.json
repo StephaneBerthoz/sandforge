@@ -108,6 +108,8 @@
   "This rehearsal creates {0} of the {1} records this clone would create in {2}, and rolls each call back whole.": "Diese Generalprobe legt {0} der {1} Datensätze an, die dieser Klon in {2} anlegen würde, und setzt jeden Aufruf vollständig zurück.",
   "It costs {0} composite API calls, {1} at most if a call stops at a refused record.": "Sie kostet {0} Composite-API-Aufrufe, höchstens {1}, wenn ein Aufruf an einem abgelehnten Datensatz anhält.",
   "{0} runs automation on the records this rehearsal creates:": "{0} führt Automatisierungen für die Datensätze aus, die diese Generalprobe anlegt:",
+  "It also makes {0} of the updates the clone makes after its inserts, each in the call that creates its record.": "Sie führt außerdem {0} der Aktualisierungen aus, die der Klon nach seinen Einfügungen vornimmt, jede im Aufruf, der ihren Datensatz anlegt.",
+  "{0} runs automation as this rehearsal updates the records it creates:": "{0} führt Automatisierungen aus, wenn diese Generalprobe die Datensätze aktualisiert, die sie anlegt:",
   "What fires as the rehearsal creates its records is not known.": "Was beim Anlegen der Datensätze durch die Generalprobe ausgelöst wird, ist nicht bekannt.",
   "Rolled back with each call, and never sent: emails, @future and Queueable jobs, platform events published after commit, and the asynchronous paths of Flows.": "Mit jedem Aufruf zurückgesetzt und nie gesendet: E-Mails, @future- und Queueable-Jobs, nach dem Commit veröffentlichte Plattformereignisse und die asynchronen Pfade von Flows.",
   "Not rolled back: platform events published immediately, and callouts already made.": "Nicht zurückgesetzt: sofort veröffentlichte Plattformereignisse und bereits ausgeführte Callouts.",

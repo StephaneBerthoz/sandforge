@@ -1847,6 +1847,7 @@
       "template_delete": "Vorlage löschen",
       "forge_execute": "Forge-Klon",
       "forge_verify": "Forge-Prüfung",
+      "forge_rehearse": "Forge-Probe",
       "seed_csv_import": "CSV-Import",
       "seed_clone": "Datensatz-Klon",
       "autopilot_execute": "Autopilot-Lauf",
@@ -2409,6 +2410,7 @@
       "confirming_other": "Generalprobe: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die sie kostet.",
       "rehearsing": "Generalprobe: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
       "done": "Generalprobe beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
+      "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht geprobt.",
       "nothing": "Generalprobe beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
       "declined": "Generalprobe bei ihrer Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
       "error": "Die Generalprobe konnte nicht laufen: {{error}}"
@@ -2783,7 +2785,8 @@
           "userPermissions": "Die benutzerdefinierten Berechtigungen des Benutzers, als der der Durchlauf schreibt",
           "targetFields": "Die Felder eines Objekts der Ziel-Org",
           "sourceFields": "Die Felder eines Objekts der Quell-Org",
-          "apiBudget": "Die verbleibenden täglichen API-Anfragen"
+          "apiBudget": "Die verbleibenden täglichen API-Anfragen",
+          "permissionSets": "Die Berechtigungssätze, die eine Umgehung einer Validierungsregel enthalten, die der Benutzer, als der der Durchlauf schreibt, nicht besitzt"
         }
       },
       "planTab": "Plan",
@@ -3303,7 +3306,8 @@
         "validation_rule": "Validierungsregel",
         "duplicate_rule": "Duplikatregel",
         "api_budget": "Tägliches API-Anfragekontingent",
-        "rehearsal_refusal": "In der Probe abgelehnt"
+        "rehearsal_refusal": "In der Probe abgelehnt",
+        "rehearsal_update_refusal": "In der Probe abgelehnte Aktualisierung"
       },
       "rows_one": "{{count}} Zeile",
       "rows_other": "{{count}} Zeilen",

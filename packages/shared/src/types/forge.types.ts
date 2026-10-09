@@ -227,7 +227,14 @@ export type ForgeGapKind =
   | 'validation_rule'
   | 'duplicate_rule'
   | 'api_budget'
-  | 'rehearsal_refusal';
+  | 'rehearsal_refusal'
+  /**
+   * The platform refused, in a rehearsal, an update the run makes after its
+   * inserts — a lookup a second pass fills in, a status given back — of a
+   * record it created there: the record goes in, without what the update
+   * gives it.
+   */
+  | 'rehearsal_update_refusal';
 
 /** `blocking`: rows will be refused; `warning`: rows may be, or change; `info`: nothing is refused. */
 export type ForgeGapSeverity = 'blocking' | 'warning' | 'info';
@@ -305,7 +312,21 @@ export interface ForgeRehearsal {
   }>;
   /**
    * Updates the run makes after its inserts — the lookups a second pass fills
-   * in, the statuses it gives back — which a rehearsal does not send.
+   * in, the statuses it gives back — each of one record.
+   */
+  updates: number;
+  /**
+   * Updates sent that got a verdict: in the call that created their record,
+   * after its inserts and before the step that rolls it back. Up to 19, every
+   * update is sent; past that, one per object and set of fields.
+   */
+  updatesJudged: number;
+  /** Updates judged that would save. */
+  updatesPassed: number;
+  /**
+   * Updates of the run no judged update stands for: one of a record the
+   * target already held, which a rehearsal never writes; one whose record was
+   * refused, or that no call could hold; and those of its shape.
    */
   updatesNotRehearsed: number;
   /** Composite calls sent. */

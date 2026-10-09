@@ -411,9 +411,9 @@ function writeQuestion(question: WriteConfirmation): string[] {
 }
 
 /**
- * What a rehearsal's question says: the records it creates and the calls it
- * costs, what the target runs as they are created, and what a rollback takes
- * back and what it does not.
+ * What a rehearsal's question says: the records it creates, the updates it
+ * makes of them and the calls it costs, what the target runs as they are
+ * created and updated, and what a rollback takes back and what it does not.
  */
 function rehearsalQuestion(question: RehearsalConfirmation): string[] {
   const lines = [
@@ -423,17 +423,39 @@ function rehearsalQuestion(question: RehearsalConfirmation): string[] {
       question.rows,
       question.org,
     ),
+  ];
+  if (question.updates > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'It also makes {0} of the updates the clone makes after its inserts, each in the call that creates its record.',
+        question.updates,
+      ),
+    );
+  }
+  lines.push(
     vscode.l10n.t(
       'It costs {0} composite API calls, {1} at most if a call stops at a refused record.',
       question.calls,
       question.maxCalls,
     ),
-  ];
+  );
   if (question.fired.length > 0) {
     lines.push(
       vscode.l10n.t('{0} runs automation on the records this rehearsal creates:', question.org),
     );
     lines.push(...firedLines(question.fired));
+  }
+  // An order given back its status in a client's sandbox started a flow that
+  // sent it to an external system: inside a call, a callout already made is
+  // not taken back.
+  if (question.firedOnUpdate.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} runs automation as this rehearsal updates the records it creates:',
+        question.org,
+      ),
+    );
+    lines.push(...firedLines(question.firedOnUpdate));
   }
   lines.push(...unreadLines(question.unread, question.org));
   if (question.unread.length > 0) {

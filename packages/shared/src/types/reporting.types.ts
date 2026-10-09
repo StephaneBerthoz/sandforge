@@ -35,6 +35,7 @@ export type AuditAction =
   | 'template_delete'
   | 'forge_execute'
   | 'forge_verify'
+  | 'forge_rehearse'
   | 'seed_csv_import'
   | 'seed_clone'
   | 'autopilot_execute'

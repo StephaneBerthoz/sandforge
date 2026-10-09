@@ -28,13 +28,18 @@
  * - the budget from `/limits` (`DailyApiRequests`), which the org may refuse
  *   to a user without Manage Users: that is said, never taken for enough;
  * - the custom permissions of the user the read runs as — the user the run
- *   writes as — from `UserSetupEntityAccess`, when a formula names one.
+ *   writes as — from `UserSetupEntityAccess`, when a formula names one;
+ * - for a bypass a formula names that this user does not hold, the
+ *   permission sets that include it, smallest first, as the automation read
+ *   finds them for a flow (`readBypassGrants`): the command that would assign
+ *   the smallest is shown, never run.
  *
  * A part the org refuses is said, with its reason, and the others are read all
  * the same: the read never stops a run.
  */
 
 import type {
+  ForgeBypassGrant,
   ForgeConfig,
   ForgeGap,
   ForgeGapDecisionKind,
@@ -42,7 +47,13 @@ import type {
   ForgeGraph,
   ForgeTargetGaps,
 } from '@sandforge/shared';
-import { forgeGapId, mergeGaps } from '@sandforge/shared';
+import {
+  assignPermsetCommand,
+  forgeGapId,
+  gapAssignEntry,
+  gapAssignments,
+  mergeGaps,
+} from '@sandforge/shared';
 import { z } from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { ForgePlanGenerator } from './ForgePlanGenerator.js';
@@ -52,6 +63,7 @@ import {
   objectsTheRunWrites,
   permissionKey,
   permissionsNamed,
+  readBypassGrants,
   switchesNamed,
   type QueryAnswer,
 } from './TargetAutomationReader.js';
@@ -86,6 +98,7 @@ export type GapUnreadPart =
   | 'duplicateRules'
   | 'duplicateRuleActions'
   | 'userPermissions'
+  | 'permissionSets'
   | 'targetFields'
   | 'sourceFields'
   | 'apiBudget';
@@ -588,8 +601,37 @@ export class TargetGapReader {
       )();
     }
 
+    // The permission sets that would give the user the bypasses of the rules
+    // it does not hold, for the command that assigns the smallest: four
+    // requests at most, sent only when such a bypass is named. A rule kept
+    // quiet for a flow's bypass was read before; this rule's own was named
+    // without what holds it, and finding that was left to the user.
+    const missing = [
+      ...new Set(
+        rules.flatMap((rule) => rule.permissions.filter((name) => !held.has(name.toLowerCase()))),
+      ),
+    ];
+    const grants =
+      missing.length > 0
+        ? await readBypassGrants(
+            missing,
+            async (soql) => {
+              let rows: Row[] = [];
+              await ask(
+                'permissionSets',
+                () => this.deps.query(targetOrgId, soql),
+                (answered) => {
+                  rows = answered;
+                },
+              )();
+              return rows;
+            },
+            () => unread.some((u) => u.part === 'permissionSets'),
+          )
+        : undefined;
+
     const gaps: ForgeGap[] = [
-      ...rules.map((rule) => validationGap(rule, heldKnown ? held : undefined)),
+      ...rules.map((rule) => validationGap(rule, heldKnown ? held : undefined, grants)),
       ...duplicates.map((rule) => duplicateGap(rule, definitions.get(rule.fullName.toLowerCase()))),
       ...objects.flatMap((objectApiName) => {
         const target = targetFields.get(objectApiName);
@@ -613,10 +655,24 @@ export class TargetGapReader {
  * A validation rule as a gap: a warning, rows may be refused — written again
  * without the field it shows its error on, which is what the writer does with
  * a row a rule refuses on a field. A rule the user the run writes as is kept
- * out of by a permission they hold refuses nothing: an info.
+ * out of by a permission they hold refuses nothing: an info. For a bypass
+ * the user does not hold, the permission sets that hold it, as `grants`
+ * found them (`detail.assign`, {@link gapAssignEntry}); nothing when they
+ * could not be read, or the user holds a bypass of the rule already.
  */
-function validationGap(rule: ReadRule, held: ReadonlySet<string> | undefined): ForgeGap {
+function validationGap(
+  rule: ReadRule,
+  held: ReadonlySet<string> | undefined,
+  grants: readonly ForgeBypassGrant[] | undefined,
+): ForgeGap {
   const heldBypasses = held ? rule.permissions.filter((name) => held.has(name.toLowerCase())) : [];
+  const assign =
+    heldBypasses.length > 0
+      ? []
+      : rule.permissions.flatMap((name) => {
+          const grant = grants?.find((g) => g.permission.toLowerCase() === name.toLowerCase());
+          return grant ? [gapAssignEntry(grant)] : [];
+        });
   const decisions: ForgeGapDecisionKind[] = rule.field ? ['leave_empty', 'ignore'] : ['ignore'];
   return gapOf({
     kind: 'validation_rule',
@@ -630,6 +686,7 @@ function validationGap(rule: ReadRule, held: ReadonlySet<string> | undefined): F
       formula: rule.formula,
       ...(rule.bypasses.length > 0 ? { bypasses: rule.bypasses } : {}),
       ...(heldBypasses.length > 0 ? { heldBypasses } : {}),
+      ...(assign.length > 0 ? { assign } : {}),
     },
     decisions,
     ...(rule.field ? { defaultDecision: 'leave_empty' as const } : {}),
@@ -809,6 +866,8 @@ const PART_WORDS: Readonly<Record<GapUnreadPart, string>> = {
   duplicateRules: 'the duplicate rules',
   duplicateRuleActions: 'what the duplicate rules do on insert',
   userPermissions: 'the custom permissions of the user the run writes as',
+  permissionSets:
+    'the permission sets that hold a bypass of a validation rule the user the run writes as does not',
   targetFields: 'the fields of an object in the target',
   sourceFields: 'the fields of an object in the source',
   apiBudget: 'the daily API requests left',
@@ -893,15 +952,44 @@ function gapWords(gap: ForgeGap): string {
 }
 
 /**
+ * What would keep a validation rule quiet, as the command's lines say it
+ * under the rule: per bypass the user does not hold, the smallest permission
+ * set that holds it and the command that would assign it, shown and never
+ * run, or that none holds it.
+ */
+function assignLines(gap: ForgeGap, target: string, username: string | undefined): string[] {
+  return gapAssignments(gap).map(({ permission, permissionSet, others }) => {
+    if (!permissionSet) {
+      return (
+        `      ${permission}: no permission set of ${target} holds it: an admin creates one ` +
+        'that includes it'
+      );
+    }
+    const also = others.length > 0 ? `; also held by ${others.map((o) => o.name).join(', ')}` : '';
+    const command = username
+      ? `: ${assignPermsetCommand(permissionSet.name, target, username)}`
+      : '';
+    return `      ${permission}: held by permission set ${permissionSet.name}, the smallest${also}${command}`;
+  });
+}
+
+/**
  * What the clone command says of the target's gaps before it writes: per
- * object, each gap with its severity; the API budget; the validation rule
- * formulas the bound left unread; what the read could not read, and what it
- * cost.
+ * object, each gap with its severity, and under a validation rule what would
+ * keep it quiet for the user the run writes as; the API budget; the
+ * validation rule formulas the bound left unread; what the read could not
+ * read, and what it cost.
  *
  * @param read - What the read found.
  * @param target - The alias of the target, as the command names it.
+ * @param options - The user the run writes as, whom the command that assigns
+ *   a bypass names; without it, the permission set is named and no command.
  */
-export function gapLines(read: ForgeTargetGaps, target: string): string[] {
+export function gapLines(
+  read: ForgeTargetGaps,
+  target: string,
+  options: { username?: string } = {},
+): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
   const others = read.gaps.filter((gap) => gap.kind !== 'api_budget');
@@ -912,6 +1000,7 @@ export function gapLines(read: ForgeTargetGaps, target: string): string[] {
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
       lines.push(`    ${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`);
+      lines.push(...assignLines(gap, target, options.username));
     }
   }
   if (others.length === 0) {

@@ -72,10 +72,14 @@ describe('the writer a rehearsal hands the executor', () => {
     expect(keyPrefixOf).toHaveBeenCalledTimes(1);
   });
 
-  it('counts the updates the run makes after its inserts, and sends none', async () => {
+  it('keeps the updates the run makes after its inserts, each of one record, and sends none', async () => {
     const w = writer();
     const results = await w.updateRecords('target', 'Account', [{ Id: 'x', ParentId: 'y' }, {}]);
     expect(w.updates).toBe(2);
+    expect(w.updated).toEqual([
+      { seq: 0, objectApiName: 'Account', recordId: 'x', fields: { ParentId: 'y' } },
+      { seq: 1, objectApiName: 'Account', recordId: '', fields: {} },
+    ]);
     expect(results).toEqual([
       { id: 'x', success: true, errors: [] },
       { id: '', success: true, errors: [] },

@@ -108,10 +108,19 @@ interface FakeOrgs {
   sourceFields?: Record<string, GapField[]>;
   limits?: unknown;
   held?: Array<Record<string, unknown>>;
+  /** The custom permissions of the target, as `CustomPermission` lists them. */
+  customPermissions?: Array<Record<string, unknown>>;
+  /** The permission sets that include them, as `SetupEntityAccess` lists them. */
+  holdings?: Array<Record<string, unknown>>;
+  /** Per permission set, its setup entities and its objects. */
+  sizes?: Record<string, [number, number]>;
   /** Describes already held, by `<org>::<object>`: they cost the read nothing. */
   held_describes?: ReadonlySet<string>;
   refuse?: Partial<
-    Record<'rules' | 'formulas' | 'duplicates' | 'definitions' | 'limits' | 'held', Error>
+    Record<
+      'rules' | 'formulas' | 'duplicates' | 'definitions' | 'limits' | 'held' | 'permissionSets',
+      Error
+    >
   > & { describe?: ReadonlySet<string> };
 }
 
@@ -143,6 +152,20 @@ function fakeDeps(orgs: FakeOrgs = {}) {
         if (soql === USER_PERMISSIONS_SOQL) {
           if (refuse.held) throw refuse.held;
           return page(orgs.held ?? []);
+        }
+        if (/FROM (CustomPermission|SetupEntityAccess|ObjectPermissions) /.test(soql)) {
+          if (refuse.permissionSets) throw refuse.permissionSets;
+          if (soql.includes('FROM CustomPermission ')) return page(orgs.customPermissions ?? []);
+          if (soql.includes("SetupEntityType = 'CustomPermission'")) {
+            return page(orgs.holdings ?? []);
+          }
+          const column = soql.includes('FROM ObjectPermissions ') ? 1 : 0;
+          return page(
+            Object.entries(orgs.sizes ?? {}).map(([id, counts]) => ({
+              ParentId: id,
+              n: counts[column],
+            })),
+          );
         }
         throw new Error(`unexpected query ${soql}`);
       }),
@@ -304,6 +327,85 @@ describe('TargetGapReader — validation rules', () => {
     });
     expect(read.asked.some((call) => call.includes('UserSetupEntityAccess'))).toBe(false);
     expect(ofKind(read, 'validation_rule')[0].detail).not.toHaveProperty('bypasses');
+  });
+
+  it('names the smallest permission set that holds a bypass the user does not, under the rule', async () => {
+    const read = await readGaps([node('Contact')], {
+      rules: [
+        rule(ruleId(1), 'Email_Required', 'Contact', 'Email'),
+        rule(ruleId(2), 'Phone_Format', 'Contact', 'Phone'),
+      ],
+      formulas: {
+        [ruleId(1)]: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))',
+        [ruleId(2)]: 'AND(NOT($Permission.Bypass_VR), NOT(ISBLANK(Phone)))',
+      },
+      targetFields: { Contact: [field('Email'), field('Phone')] },
+      customPermissions: [
+        { Id: '0CP000000000001AAA', DeveloperName: 'Bypass_VR', NamespacePrefix: null },
+      ],
+      holdings: [
+        {
+          SetupEntityId: '0CP000000000001AAA',
+          ParentId: '0PS000000000001AAA',
+          Parent: { Name: 'Admin_Tools', Label: 'Admin tools', NamespacePrefix: null },
+        },
+        {
+          SetupEntityId: '0CP000000000001AAA',
+          ParentId: '0PS000000000002AAA',
+          Parent: { Name: 'Bypass', Label: 'Bypass', NamespacePrefix: null },
+        },
+      ],
+      sizes: { '0PS000000000001AAA': [30, 12], '0PS000000000002AAA': [2, 0] },
+    });
+
+    for (const gap of ofKind(read, 'validation_rule')) {
+      expect(gap).toMatchObject({
+        severity: 'warning',
+        detail: { assign: ['Bypass_VR=Bypass,Admin_Tools'] },
+      });
+    }
+    // Asked once for both rules: the permission, what holds it, what each grants.
+    expect(read.asked.filter((call) => call.includes('FROM CustomPermission '))).toHaveLength(1);
+    expect(
+      read.asked.filter((call) => /FROM (SetupEntityAccess|ObjectPermissions) /.test(call)),
+    ).toHaveLength(3);
+    expect(read.unread).toEqual([]);
+  });
+
+  it('looks up no permission set when the user holds a bypass of the rule', async () => {
+    const read = await readGaps([node('Contact')], {
+      rules: [rule(ruleId(1), 'Email_Required', 'Contact', 'Email')],
+      formulas: { [ruleId(1)]: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))' },
+      held: [{ DeveloperName: 'Bypass_VR', NamespacePrefix: null }],
+    });
+
+    expect(ofKind(read, 'validation_rule')[0].detail).not.toHaveProperty('assign');
+    expect(read.asked.some((call) => call.includes('CustomPermission'))).toBe(false);
+  });
+
+  it('says the permission sets could not be read, and names none', async () => {
+    const read = await readGaps([node('Contact')], {
+      rules: [rule(ruleId(1), 'Email_Required', 'Contact', 'Email')],
+      formulas: { [ruleId(1)]: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))' },
+      refuse: { permissionSets: new Error('INVALID_TYPE: sObject type is not supported') },
+    });
+
+    expect(ofKind(read, 'validation_rule')[0].detail).not.toHaveProperty('assign');
+    expect(read.unread).toEqual([
+      { part: 'permissionSets', reason: 'INVALID_TYPE: sObject type is not supported' },
+    ]);
+  });
+
+  it('says no permission set holds a bypass when none does', async () => {
+    const read = await readGaps([node('Contact')], {
+      rules: [rule(ruleId(1), 'Email_Required', 'Contact', 'Email')],
+      formulas: { [ruleId(1)]: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))' },
+      customPermissions: [
+        { Id: '0CP000000000001AAA', DeveloperName: 'Bypass_VR', NamespacePrefix: null },
+      ],
+    });
+
+    expect(ofKind(read, 'validation_rule')[0].detail).toMatchObject({ assign: ['Bypass_VR='] });
   });
 
   it(`reads ${FORMULAS_BOUND} formulas at most, one request each, and says the others were not read`, async () => {
@@ -690,9 +792,10 @@ describe('TargetGapReader — budget and robustness', () => {
       duplicates: [duplicateRule('Account_Rule', 'Account')],
     });
     expect(read.mostInFlight).toBe(4);
-    // Rules, duplicate rules, limits, 10 describes, 1 formula, 1 definition, the user's permissions.
-    expect(read.requests).toBe(16);
-    expect(read.asked).toHaveLength(16);
+    // Rules, duplicate rules, limits, 10 describes, 1 formula, 1 definition,
+    // the user's permissions, and the custom permission the user does not hold.
+    expect(read.requests).toBe(17);
+    expect(read.asked).toHaveLength(17);
   });
 
   it('counts no request for a describe already held', async () => {
@@ -870,6 +973,48 @@ describe('gapLines', () => {
       '  the custom permissions of the user the run writes as could not be read: INSUFFICIENT_ACCESS',
     );
     expect(lines[lines.length - 1]).toBe(`  read in ${read.requests} request(s) to TGT`);
+  });
+
+  it('says under a rule the permission set that would keep it quiet, and the command that assigns it', () => {
+    const gap = (assign: string[]): ForgeGap => ({
+      id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+      kind: 'validation_rule',
+      severity: 'warning',
+      source: 'metadata',
+      objectApiName: 'Contact',
+      field: 'Email',
+      rows: 0,
+      detail: {
+        rule: 'Email_Required',
+        message: '',
+        formula: 'read',
+        bypasses: ['$Permission.Bypass_VR'],
+        assign,
+      },
+      decisions: ['leave_empty', 'ignore'],
+    });
+    const read = (assign: string[]): ForgeTargetGaps => ({
+      gaps: [gap(assign)],
+      unread: [],
+      requests: 1,
+    });
+
+    const lines = gapLines(read(['Bypass_VR=Bypass,Admin_Tools']), 'TGT', {
+      username: 'user@example.com',
+    });
+    expect(lines.slice(1, 4)).toEqual([
+      '  Contact',
+      '    warning: validation rule "Email_Required" on Email (not when $Permission.Bypass_VR; ' +
+        'a row it refuses goes again without Email)',
+      '      Bypass_VR: held by permission set Bypass, the smallest; also held by Admin_Tools: ' +
+        'sf org assign permset --name Bypass --target-org TGT --on-behalf-of user@example.com',
+    ]);
+    expect(gapLines(read(['Bypass_VR=Bypass']), 'TGT')[3]).toBe(
+      '      Bypass_VR: held by permission set Bypass, the smallest',
+    );
+    expect(gapLines(read(['Bypass_VR=']), 'TGT')[3]).toBe(
+      '      Bypass_VR: no permission set of TGT holds it: an admin creates one that includes it',
+    );
   });
 
   it('says when nothing was found, and when nothing could be read to find it', () => {

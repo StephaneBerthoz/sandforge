@@ -114,10 +114,16 @@ function fieldsIn(gap: ForgeGap): string[] {
 
 /** A row a rehearsal saw refused, with the errors it was refused with. */
 export interface RefusedRow {
+  /**
+   * The row; for an update refused, the row of the record it updates, with
+   * the values the update sets.
+   */
   row: RehearsedRow;
   errors: readonly SaveErrorDetail[];
-  /** How many of the run's rows it stands for, itself included. */
+  /** How many of the run's rows, or of its updates, it stands for, itself included. */
   standsFor: number;
+  /** Set when what was refused is an update the run makes after its inserts. */
+  onUpdate?: true;
 }
 
 /**
@@ -163,11 +169,33 @@ function gapsOfError(
       ...(code === 'STRING_TOO_LONG' && typeof value === 'string'
         ? { valueLength: value.length }
         : {}),
-      ...(WRITTEN_AGAIN_WITHOUT_THE_FIELD.has(code) && field !== undefined
+      // The run writes a row again without the field refused; an update
+      // refused is counted, and sent no more.
+      ...(WRITTEN_AGAIN_WITHOUT_THE_FIELD.has(code) && field !== undefined && !refused.onUpdate
         ? { writtenWithoutTheField: true }
         : {}),
     };
   };
+  if (refused.onUpdate) {
+    // Never a read's own kind: what a read before the run reports, and the
+    // decisions that answer it, are about the row the run inserts. The
+    // record goes in; what the update gives it does not.
+    const field = error.fields[0];
+    return [
+      {
+        id: forgeGapId('rehearsal_update_refusal', row.objectApiName, field, undefined, code),
+        kind: 'rehearsal_update_refusal',
+        severity: 'warning',
+        source: 'rehearsal',
+        objectApiName: row.objectApiName,
+        ...(field !== undefined ? { field } : {}),
+        value: code,
+        rows: 1,
+        detail: detail(field),
+        decisions: ['exclude_object', 'ignore'],
+      },
+    ];
+  }
   const known = KIND_OF_CODE.get(code);
   if (known && error.fields.length > 0) {
     // A required field's refusal names every field the row lacks: each is a
@@ -223,6 +251,8 @@ function gapsOfError(
  * field — or per known kind, field and value ({@link KIND_OF_CODE}) — with
  * how many sample rows got that verdict and how many rows of the run those
  * stand for. Never a row's data: a status code, a picklist value, a length.
+ * An update the run makes after its inserts that was refused is a gap of its
+ * own kind (`rehearsal_update_refusal`), per object, code and field.
  *
  * @param recordTypeNames - The target's record types, by the first 15
  *   characters of their id, to their DeveloperName: a refused picklist value

@@ -1093,13 +1093,19 @@ const FORGE_GAPS = [
   {
     id: 'validation_rule|Account|Phone||Phone_Format',
     kind: 'validation_rule',
-    severity: 'info',
+    severity: 'warning',
     source: 'simulation',
     objectApiName: 'Account',
     field: 'Phone',
     value: 'Phone_Format',
     rows: 0,
-    detail: { message: 'The phone needs a country code.' },
+    // A bypass the user does not hold: the permission set that holds it, and
+    // the command that assigns it, with its copy button.
+    detail: {
+      message: 'The phone needs a country code.',
+      bypasses: ['$Permission.Phone_Bypass'],
+      assign: ['Phone_Bypass=Data_Load,Integration'],
+    },
     decisions: ['leave_empty', 'ignore'],
   },
 ];
@@ -3131,6 +3137,10 @@ for (const theme of SCANNED_THEMES) {
       );
       await page.getByTestId('gaps-severity-blocking').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps2');
+      // The rule's bypass, under it: checked with the rest of the tab.
+      await expect(
+        page.getByTestId(`gap-${FORGE_GAPS[3].id}`).getByTestId('bypass-assistant-Phone_Bypass'),
+      ).toContainText('Data_Load is the smallest permission set');
       const listed = await checkAccessibility(page);
       expectNoViolations(listed);
       expect(

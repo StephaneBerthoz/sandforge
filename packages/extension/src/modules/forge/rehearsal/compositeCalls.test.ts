@@ -4,11 +4,15 @@ import { familyOf } from './rehearsalSample.js';
 import {
   COLLECTIONS_PER_CALL,
   ROWS_PER_COLLECTION,
+  SUBREQUESTS_PER_CALL,
   compositeBody,
   planCalls,
   readCompositeAnswer,
+  updateVerdictsOf,
+  updatesRoomOf,
   verdictsOf,
   type PlannedCall,
+  type PlannedUpdate,
 } from './compositeCalls.js';
 
 const PREFIX: Record<string, string> = { Account: '001', Contact: '003', Opportunity: '006' };
@@ -127,8 +131,10 @@ describe('the composite request of a call', () => {
   const [call] = planCalls(rows, family).calls;
   const body = compositeBody(call, family, rowOfIn(rows), API, HEADERS);
 
-  it('is all or none, each Collections request creating its rows one by one', () => {
+  it('is all or none, run in the order sent, each Collections request creating its rows one by one', () => {
     expect(body.allOrNone).toBe(true);
+    // Collated, the platform ran the rollback before updates that named no other.
+    expect(body.collateSubrequests).toBe(false);
     expect(body.compositeRequest[0]).toMatchObject({
       method: 'POST',
       url: `${API}/composite/sobjects`,
@@ -164,6 +170,158 @@ describe('the composite request of a call', () => {
     expect(() => compositeBody(alone, family, rowOfIn(rows), API, HEADERS)).toThrow(
       /does not hold/,
     );
+  });
+
+  it('sends each update after the inserts and before the rollback, its record and its values read from the answers', () => {
+    const update: PlannedUpdate = {
+      seq: 0,
+      objectApiName: 'Contact',
+      rowSeq: 1,
+      fields: { ReportsToId: contact.placeholderId, Title: 'Lead', Id: contact.placeholderId },
+    };
+    const withUpdate = compositeBody(call, family, rowOfIn(rows), API, HEADERS, [update]);
+
+    expect(withUpdate.compositeRequest.map((sub) => sub.referenceId)).toEqual([
+      'rows0',
+      'rows1',
+      'update0',
+      'rollback',
+    ]);
+    expect(withUpdate.compositeRequest[2]).toEqual({
+      method: 'PATCH',
+      url: `${API}/sobjects/Contact/@{rows1[0].id}`,
+      referenceId: 'update0',
+      body: { ReportsToId: '@{rows1[0].id}', Title: 'Lead' },
+      httpHeaders: HEADERS,
+    });
+  });
+
+  it('refuses an update of a record the call does not create, and more updates than a call holds', () => {
+    const update = (seq: number, rowSeq: number): PlannedUpdate => ({
+      seq,
+      objectApiName: 'Account',
+      rowSeq,
+      fields: { Rating: 'Hot' },
+    });
+    expect(() => compositeBody(call, family, rowOfIn(rows), API, HEADERS, [update(0, 7)])).toThrow(
+      /does not create/,
+    );
+    // Two Collections requests and the rollback leave 22 of the 25 subrequests.
+    expect(updatesRoomOf(call.collections.length)).toBe(22);
+    const many = Array.from({ length: 23 }, (_, seq) => update(seq, 0));
+    expect(() => compositeBody(call, family, rowOfIn(rows), API, HEADERS, many)).toThrow(/no room/);
+    expect(
+      compositeBody(call, family, rowOfIn(rows), API, HEADERS, many.slice(0, 22)).compositeRequest,
+    ).toHaveLength(SUBREQUESTS_PER_CALL);
+  });
+});
+
+describe("reading the updates of a call's answer", () => {
+  const call: PlannedCall = { collections: [{ level: 0, seqs: [0, 1] }] };
+  const updates: PlannedUpdate[] = [0, 1, 2].map((seq) => ({
+    seq: seq + 10,
+    objectApiName: 'Account',
+    rowSeq: 0,
+    fields: { Rating: 'Hot' },
+  }));
+  const refused = {
+    body: [{ errorCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'No', fields: ['Rating'] }],
+    httpStatusCode: 400,
+  };
+
+  it('reads every update as made when the call failed on its closing update alone', () => {
+    const answer = readCompositeAnswer(
+      {
+        compositeResponse: [HALTED, HALTED, { body: null, httpStatusCode: 204 }, HALTED, NOT_FOUND],
+      },
+      call,
+      3,
+    );
+    if (answer.kind !== 'rolled_back') throw new Error('expected a rolled back call');
+    expect([...updateVerdictsOf(updates, answer)]).toEqual([
+      [10, { passed: true }],
+      [11, { passed: true }],
+      [12, { passed: true }],
+    ]);
+  });
+
+  it('gives the update refused its errors, those before it made, those after it none', () => {
+    const answer = readCompositeAnswer(
+      { compositeResponse: [HALTED, HALTED, refused, HALTED, HALTED] },
+      call,
+      3,
+    );
+    if (answer.kind !== 'rolled_back') throw new Error('expected a rolled back call');
+    expect(verdictsOf(call, answer.collections).size).toBe(2);
+    expect([...updateVerdictsOf(updates, answer)]).toEqual([
+      [10, { passed: true }],
+      [
+        11,
+        {
+          passed: false,
+          errors: [
+            { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'No', fields: ['Rating'] },
+          ],
+        },
+      ],
+    ]);
+  });
+
+  it('gives no update a verdict when the call stopped at its rows', () => {
+    const answer = readCompositeAnswer(
+      {
+        compositeResponse: [
+          {
+            body: [
+              { success: false, errors: [{ statusCode: 'X', message: 'x', fields: [] }] },
+              { id: '001000000000002AAA', success: true, errors: [] },
+            ],
+            httpStatusCode: 200,
+          },
+          HALTED,
+          HALTED,
+          HALTED,
+          HALTED,
+        ],
+      },
+      call,
+      3,
+    );
+    if (answer.kind !== 'rolled_back') throw new Error('expected a rolled back call');
+    expect(updateVerdictsOf(updates, answer).size).toBe(0);
+  });
+
+  it('refuses an answer short of its updates, or stopped at none of them', () => {
+    expect(() => readCompositeAnswer({ compositeResponse: [HALTED, NOT_FOUND] }, call, 3)).toThrow(
+      /2 subrequests of the 5/,
+    );
+    expect(() =>
+      readCompositeAnswer({ compositeResponse: [HALTED, HALTED, HALTED, HALTED, HALTED] }, call, 3),
+    ).toThrow(/names no refusal/);
+  });
+
+  it('refuses an answer whose subrequests ran out of the order sent, never reading one in another’s place', () => {
+    // As a trap org answered a collated call: the rollback ran third, and the
+    // two updates after it were never tried.
+    expect(() =>
+      readCompositeAnswer(
+        {
+          compositeResponse: [
+            { ...HALTED, referenceId: 'rows0' },
+            { ...HALTED, referenceId: 'update0' },
+            {
+              body: [{ errorCode: 'INVALID_FIELD', message: 'No such column', fields: [] }],
+              httpStatusCode: 400,
+              referenceId: 'rollback',
+            },
+            { ...HALTED, referenceId: 'update1' },
+            { ...HALTED, referenceId: 'update2' },
+          ],
+        },
+        call,
+        3,
+      ),
+    ).toThrow(/out of the order sent \(rollback in place of update1\)/);
   });
 });
 

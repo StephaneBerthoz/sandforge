@@ -2090,12 +2090,20 @@ const NOT_JUDGED_WORDS: Readonly<Record<ForgeRehearsal['notJudgedWhy'][number]['
 
 /**
  * What a rehearsal says before its first call: the records it creates, of
- * those the run would, and the calls it costs. Exported so it can be tested.
+ * those the run would, the updates it makes of them, and the calls it costs.
+ * Exported so it can be tested.
  */
 export function rehearsalPlanLines(plan: RehearsalPlan, target: string): string[] {
+  const updates = plan.updates.reduce((sum, object) => sum + object.updates, 0);
   return [
     `rehearsal: ${plan.sampled} of the ${plan.rows} record(s) the run would create, created in ` +
       `${target} and rolled back with each call`,
+    ...(updates > 0
+      ? [
+          `  and ${updates} update(s) the run makes after its inserts, each in the call that ` +
+            `creates its record: ${plan.updates.map((o) => `${o.objectApiName} ${o.updates}`).join(', ')}`,
+        ]
+      : []),
     `  ${plan.calls} composite call(s), ${plan.maxCalls} at most if a call stops at a refused record`,
     ...plan.objects.map(({ objectApiName, rows }) => `  ${objectApiName.padEnd(40)} ${rows}`),
   ];
@@ -2103,13 +2111,18 @@ export function rehearsalPlanLines(plan: RehearsalPlan, target: string): string[
 
 /**
  * The verdicts of a rehearsal: what was judged, what passed, each refusal with
- * its status code, field and rows, and what could not be judged. Exported so
- * it can be tested.
+ * its status code, field and rows — an update's apart — and what could not be
+ * judged. Exported so it can be tested.
  */
 export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): string[] {
+  const updates =
+    rehearsal.updatesJudged > 0
+      ? `; ${rehearsal.updatesJudged} update(s) judged, ${rehearsal.updatesPassed} would save, ` +
+        `${rehearsal.updatesJudged - rehearsal.updatesPassed} refused`
+      : '';
   const lines = [
     `rehearsed in ${target}: ${rehearsal.judged} judged, ${rehearsal.passed} would save, ` +
-      `${rehearsal.judged - rehearsal.passed} refused, ${rehearsal.notJudged} not judged ` +
+      `${rehearsal.judged - rehearsal.passed} refused, ${rehearsal.notJudged} not judged${updates} ` +
       `(${rehearsal.calls} call(s), every write rolled back)`,
   ];
   for (const gap of rehearsal.gaps) {
@@ -2120,6 +2133,13 @@ export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): strin
     const runRows = gap.detail?.rowsOfTheRun;
     const standsFor =
       typeof runRows === 'number' && runRows > gap.rows ? `, ${runRows} in the run` : '';
+    if (gap.kind === 'rehearsal_update_refusal') {
+      lines.push(
+        `  refused on update  ${gap.objectApiName}${field}: ${code}, ${gap.rows} update(s)${standsFor} ` +
+          '(the record goes in without what the update gives it)',
+      );
+      continue;
+    }
     lines.push(
       `  ${gap.severity === 'blocking' ? 'REFUSED' : 'refused'}  ${gap.objectApiName}${field}${value}${recordType}: ` +
         `${code}, ${gap.rows} row(s)${standsFor}` +
@@ -2133,7 +2153,8 @@ export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): strin
   }
   if (rehearsal.updatesNotRehearsed > 0) {
     lines.push(
-      `  not rehearsed: the ${rehearsal.updatesNotRehearsed} update(s) the run makes after its inserts`,
+      `  not rehearsed: ${rehearsal.updatesNotRehearsed} of the ${rehearsal.updates} update(s) ` +
+        'the run makes after its inserts',
     );
   }
   return lines;
@@ -3474,7 +3495,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
   );
   say('');
-  for (const line of gapLines(targetGaps, args.target)) say(line);
+  for (const line of gapLines(targetGaps, args.target, { username: targetOrg.username })) {
+    say(line);
+  }
   // What --upsert matches the target's records by, when the run writes it
   // neutralized: an email key went out as `x@y.com.invalid` and matched no
   // copy holding the real address. Said before anything is written, and

@@ -9,6 +9,7 @@ import type {
   ForgeGapSeverity,
   ForgeGapSource,
 } from '@sandforge/shared';
+import { gapAssignments } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -27,6 +28,7 @@ import {
   targetRecordTypes,
   undecidedBlockingGaps,
 } from '../../utils/forgeGapDecisions';
+import { BypassAssistant, type BypassTarget } from './BypassAssistant';
 import { ForgeSaveTemplate } from './ForgeSaveTemplate';
 
 /** The reads of the gaps, in the order the tab names them. */
@@ -50,6 +52,12 @@ const DETAIL_KEYS: Readonly<Record<string, string>> = {
   mapTo: 'forge.gaps.detail.targetRecordTypes',
 };
 
+/**
+ * Detail entries the tab shows in a part of its own: the permission sets
+ * that would keep a validation rule quiet, with the command that assigns one.
+ */
+const DETAIL_SHOWN_APART: ReadonlySet<string> = new Set(['assign']);
+
 /** The select value that maps a record type to the object's default: no DeveloperName is. */
 const DEFAULT_RECORD_TYPE = '*';
 
@@ -67,6 +75,7 @@ function valueLabel(t: TFunction, gap: ForgeGap): string | null {
   if (isValueKind(gap.kind)) return t('forge.gaps.value', { value: gap.value });
   switch (gap.kind) {
     case 'rehearsal_refusal':
+    case 'rehearsal_update_refusal':
       return t('forge.gaps.statusCode', { code: gap.value });
     case 'validation_rule':
     case 'duplicate_rule':
@@ -168,6 +177,7 @@ const KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
   'duplicate_rule',
   'api_budget',
   'rehearsal_refusal',
+  'rehearsal_update_refusal',
 ]);
 
 /** Whether `kind` is one the catalogue names. */
@@ -180,13 +190,16 @@ interface GapItemProps {
   gap: ForgeGap;
   config: ForgeConfig | null;
   decide: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
+  /** The target org and the user the run writes as, whom a bypass's command names. */
+  target?: BypassTarget;
 }
 
 /**
- * One gap: what it is and where it was found, then the decisions it offers,
+ * One gap: what it is and where it was found, what would keep a validation
+ * rule quiet for the user the run writes as, then the decisions it offers,
  * or the one taken and the way to take it back.
  */
-const GapItem: React.FC<GapItemProps> = ({ gap, config, decide }) => {
+const GapItem: React.FC<GapItemProps> = ({ gap, config, decide, target }) => {
   const { t } = useTranslation();
   const id = useId();
   const kept = decisionOf(config, gap);
@@ -217,7 +230,8 @@ const GapItem: React.FC<GapItemProps> = ({ gap, config, decide }) => {
     valueLabel(t, gap),
   ].filter((part): part is string => part !== null);
 
-  const details = Object.entries(gap.detail ?? {});
+  const details = Object.entries(gap.detail ?? {}).filter(([key]) => !DETAIL_SHOWN_APART.has(key));
+  const assignments = gapAssignments(gap);
   const allowed = allowedValues(gap);
   const recordTypes = targetRecordTypes(gap);
   const decidedText = chosen ? choiceLabel(t, gap, chosen) : '';
@@ -253,6 +267,11 @@ const GapItem: React.FC<GapItemProps> = ({ gap, config, decide }) => {
           ))}
         </dl>
       )}
+      {/* A rule a custom permission keeps quiet: the permission set that
+          would give it to the user the run writes as, and the command,
+          shown and never run. Named without what held it, the bypass was
+          left for the user to look up in Setup. */}
+      <BypassAssistant assignments={assignments} {...(target ? { target } : {})} />
       <p data-testid="gap-source" className="text-text-secondary">
         {t(`forge.gaps.source.${gap.source}`)}
       </p>
@@ -494,8 +513,12 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
  * shows as taken. The decisions the config holds that answer no gap shown are
  * listed below the gaps, where they can be taken back: the run applies them.
  * An object left out is one of them: its gaps refuse nothing, and go.
+ *
+ * @param target - The target org and the user the run writes as, whom the
+ *   command that assigns a validation rule's bypass names; without them the
+ *   permission set is named and no command is shown.
  */
-export const ReviewGapsTab: React.FC = () => {
+export const ReviewGapsTab: React.FC<{ target?: BypassTarget }> = ({ target }) => {
   const { t, i18n } = useTranslation();
   const gaps = useForgeStore((s) => s.gaps);
   const gapReads = useForgeStore((s) => s.gapReads);
@@ -600,7 +623,13 @@ export const ReviewGapsTab: React.FC = () => {
                   {ofSeverity
                     .filter((gap) => gap.objectApiName === object)
                     .map((gap) => (
-                      <GapItem key={gap.id} gap={gap} config={config} decide={decide} />
+                      <GapItem
+                        key={gap.id}
+                        gap={gap}
+                        config={config}
+                        decide={decide}
+                        {...(target ? { target } : {})}
+                      />
                     ))}
                 </ul>
               </div>

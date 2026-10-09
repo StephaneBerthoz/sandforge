@@ -9,6 +9,7 @@ const PART_KEYS: Readonly<Record<string, string>> = {
   duplicateRules: 'forge.review.gapsRead.part.duplicateRules',
   duplicateRuleActions: 'forge.review.gapsRead.part.duplicateRuleActions',
   userPermissions: 'forge.review.gapsRead.part.userPermissions',
+  permissionSets: 'forge.review.gapsRead.part.permissionSets',
   targetFields: 'forge.review.gapsRead.part.targetFields',
   sourceFields: 'forge.review.gapsRead.part.sourceFields',
   apiBudget: 'forge.review.gapsRead.part.apiBudget',

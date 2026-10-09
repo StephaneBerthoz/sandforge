@@ -186,6 +186,45 @@ describe('ReviewGapsTab', () => {
       expect(within(item(REQUIRED)).queryByTestId('gap-rows')).toBeNull();
     });
 
+    it('names under a rule the permission set that keeps it quiet, with the command that assigns it', () => {
+      const rule: ForgeGap = {
+        id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        field: 'Email',
+        value: 'Email_Required',
+        rows: 0,
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Bypass_VR'],
+          assign: ['Bypass_VR=Bypass,Admin_Tools'],
+        },
+        decisions: ['leave_empty', 'ignore'],
+      };
+      act(() => useForgeStore.getState().setGaps('metadata', [REQUIRED, rule]));
+      const { rerender } = render(
+        <ReviewGapsTab target={{ alias: 'TGT', username: 'loader@example.com' }} />,
+      );
+      const gap = item(rule);
+
+      expect(within(gap).getByTestId('bypass-assistant-Bypass_VR').textContent).toContain(
+        'Bypass is the smallest permission set of the target org that holds Bypass_VR.',
+      );
+      expect(within(gap).getByTestId('bypass-assistant-command').textContent).toBe(
+        'sf org assign permset --name Bypass --target-org TGT --on-behalf-of loader@example.com',
+      );
+      // Said once, in its own words: the entry is not repeated as a raw detail.
+      expect(within(gap).getByTestId('gap-detail').textContent).not.toContain('assign');
+      expect(within(item(REQUIRED)).queryByTestId('bypass-assistant')).toBeNull();
+
+      // Without the org's alias and user, the permission set is named and no command shown.
+      rerender(<ReviewGapsTab />);
+      expect(within(item(rule)).getByTestId('bypass-assistant-Bypass_VR')).toBeTruthy();
+      expect(within(item(rule)).queryByTestId('bypass-assistant-command')).toBeNull();
+    });
+
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
       render(<ReviewGapsTab />);
       fireEvent.change(within(item(REFUSED)).getByTestId('gap-map-value'), {

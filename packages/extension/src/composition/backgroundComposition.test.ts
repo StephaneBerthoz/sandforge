@@ -596,9 +596,11 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     orgTier: 'development',
     rows: 340,
     sampled: 12,
+    updates: 0,
     calls: 2,
     maxCalls: 10,
     fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' }],
+    firedOnUpdate: [],
     unread: [],
   };
 
@@ -612,6 +614,24 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'Not rolled back: platform events published immediately, and callouts already made.',
       'The records have been read, and nothing has been sent to DEV yet.',
     ]);
+  });
+
+  it('says the updates a rehearsal makes of the records it creates, and what fires as it does', () => {
+    const lines = runQuestionDetail({
+      ...rehearsal,
+      updates: 3,
+      firedOnUpdate: [{ objectApiName: 'Order', kind: 'flow', name: 'Order sync' }],
+    }).split('\n');
+
+    expect(lines.slice(1, 3)).toEqual([
+      'It also makes 3 of the updates the clone makes after its inserts, each in the call that creates its record.',
+      'It costs 2 composite API calls, 10 at most if a call stops at a refused record.',
+    ]);
+    const updating = lines.indexOf(
+      'DEV runs automation as this rehearsal updates the records it creates:',
+    );
+    expect(updating).toBeGreaterThan(-1);
+    expect(lines[updating + 1]).toBe('• Order: Flow "Order sync"');
   });
 
   it('says when what fires as a rehearsal creates its records could not be read', () => {

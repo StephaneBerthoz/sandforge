@@ -13,6 +13,7 @@ import type {
   ForgeUndoResult,
   ForgeRunObjectRecords,
   ForgeTargetAutomation,
+  ForgeRehearsal,
   ForgeRehearsalProgress,
   ComplianceFrameworkType,
   GuardDecision,
@@ -67,6 +68,10 @@ import type { TargetGapReader } from '../../modules/forge/TargetGapReader.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import type { ForgeRehearser } from '../../modules/forge/rehearsal/ForgeRehearser.js';
+import {
+  RehearsalCancelledError,
+  RehearsalNotRolledBackError,
+} from '../../modules/forge/rehearsal/rehearse.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { ACTIVE_USERS_SOQL, activeUsersOf } from '../../modules/forge/orgUsers.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
@@ -115,7 +120,7 @@ import {
   type DataStorage,
   type EmailLimit,
 } from '../../modules/forge/ForgeRunGate.js';
-import { recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
   auditTalliesOf,
@@ -682,6 +687,21 @@ class RehearsalStoppedError extends Error {
     super(message);
     this.name = 'RehearsalStoppedError';
   }
+}
+
+/** What a rehearsal's entry in the audit trail says of what it judged: counts only. */
+function rehearsalAuditDetails(rehearsal: ForgeRehearsal): Record<string, number> {
+  return {
+    sampled: rehearsal.sampled,
+    judged: rehearsal.judged,
+    passed: rehearsal.passed,
+    refused: rehearsal.judged - rehearsal.passed,
+    notJudged: rehearsal.notJudged,
+    updatesJudged: rehearsal.updatesJudged,
+    updatesRefused: rehearsal.updatesJudged - rehearsal.updatesPassed,
+    updatesNotRehearsed: rehearsal.updatesNotRehearsed,
+    calls: rehearsal.calls,
+  };
 }
 
 /**
@@ -3502,11 +3522,38 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { graph, config, anonymizationRules } = parsed;
+    /**
+     * The rehearsal's entry in the audit trail: what it judged, or why it
+     * stopped or failed. It creates records in the target, rolled back with
+     * each call — through the target's automation all the same — and a
+     * rehearsal declined, failed or not followed by a run left no trace; one
+     * whose call was not rolled back left records in the target and nothing
+     * that said so. No source: it carries no record anywhere, and keeps no
+     * lineage.
+     */
+    const audited = (
+      operationId: string,
+      outcome: AuditOutcome,
+      more: Pick<WriteRun, 'code' | 'guard' | 'details' | 'objects'> = {},
+    ): void =>
+      recordWriteRun(this.deps, {
+        action: 'forge_rehearse',
+        module: 'forge',
+        operationId,
+        orgId: config.targetOrgId,
+        outcome,
+        ...more,
+      });
+    /** Refused before it started: recorded as the path's own stop, under the request's id. */
+    const refuseBefore = (error: Error, code: string, retryable = false): void => {
+      audited(msg.id, 'stopped', { code });
+      refuse(error, code, retryable);
+    };
     // The rehearsal's question goes through the guard's channel: without the
     // guard there is nobody to ask, and nothing is sent.
     const guard = this.deps.infraServices?.productionGuard;
     if (!guard) {
-      refuse(new Error(PRODUCTION_GUARD_MISSING.message), PRODUCTION_GUARD_MISSING.code);
+      refuseBefore(new Error(PRODUCTION_GUARD_MISSING.message), PRODUCTION_GUARD_MISSING.code);
       return;
     }
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
@@ -3516,7 +3563,7 @@ export class ForgeHandler implements DomainHandler {
     // platform event it publishes at once, a callout it makes, are not taken
     // back. A production org is never rehearsed against.
     if (orgTier === 'production') {
-      refuse(
+      refuseBefore(
         new Error(
           `${targetName} is a production org, or an org SandForge cannot tell is a sandbox, a ` +
             'scratch org or a Developer Edition org: a rehearsal creates records in those only. ' +
@@ -3527,7 +3574,7 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     if (this.rehearseOperationId !== null) {
-      refuse(
+      refuseBefore(
         new Error('A rehearsal is already under way in this window: rehearse once it has ended.'),
         'REHEARSAL_RUNNING',
         true,
@@ -3535,7 +3582,7 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     if (this.executeOperationId !== null) {
-      refuse(
+      refuseBefore(
         new Error('A Forge run is under way in this window: rehearse once it has ended.'),
         FORGE_RUNNING,
         true,
@@ -3543,12 +3590,38 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     const operationId = `forge-rehearse-${this.deps.nextId()}`;
+    const description = 'Rehearsing a forge run';
     this.rehearseOperationId = operationId;
-    sendOperationStarted(this.deps, operationId, 'forge', 'Rehearsing a forge run');
+    sendOperationStarted(this.deps, operationId, 'forge', description);
+    // Listed in Live Operations, whose Cancel reaches it through the
+    // background registry: it stops before its next call, each call being
+    // rolled back whole. Never the shared orchestrator, which a run may hold.
+    const stop = new AbortController();
+    const releaseRun = this.trackRun(operationId, description, stop);
+    this.liveTracker?.register(operationId, 'forge', description);
+    /** What the rehearsal failed on, so the registry lists it as failed. */
+    let runError: unknown;
+    /** Whether the person asked confirmed, for the entry's guard decision. */
+    let confirmed = false;
     const post = (progress: ForgeRehearsalProgress): void =>
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:rehearse:progress', { ...progress }),
       );
+    /** Live Operations' line, call by call: the calls are what a rehearsal costs. */
+    const track = (progress: ForgeRehearsalProgress): void => {
+      if (progress.phase !== 'rehearsing' || !progress.call || !progress.calls) return;
+      const percent = Math.min(100, Math.round(((progress.call - 1) / progress.calls) * 100));
+      if (!stop.signal.aborted) {
+        this.deps.infraServices?.backgroundRegistry?.updateProgress(operationId, percent);
+      }
+      this.liveTracker?.updateProgress(
+        operationId,
+        percent,
+        progress.call - 1,
+        progress.calls,
+        `call ${progress.call} of ${progress.calls}`,
+      );
+    };
     // The reading phase says each object as the executor moves on: throttled,
     // as a run's progress is. The question and each call are said at once.
     const reading = throttle(post, 100);
@@ -3563,6 +3636,7 @@ export class ForgeHandler implements DomainHandler {
       const rehearsal = await rehearser.rehearse(graph, config, {
         recordTypeMappings,
         anonymizationRules,
+        signal: stop.signal,
         onProgress: (progress) => {
           if (progress.phase === 'reading') {
             reading(progress);
@@ -3570,6 +3644,7 @@ export class ForgeHandler implements DomainHandler {
           }
           reading.flush();
           post(progress);
+          track(progress);
         },
         confirm: async (plan) => {
           const answer = await guard.confirmRun({
@@ -3578,14 +3653,26 @@ export class ForgeHandler implements DomainHandler {
             orgTier,
             rows: plan.rows,
             sampled: plan.sampled,
+            updates: plan.updates.reduce((sum, object) => sum + object.updates, 0),
             calls: plan.calls,
             maxCalls: plan.maxCalls,
             fired: known ? firedOnInsertOf(known) : [],
+            // The updates it sends fire what the target runs on update, inside
+            // each call, as the run's own updates would.
+            firedOnUpdate: known
+              ? firedOnUpdateOf(
+                  known,
+                  plan.updates.map((object) => object.objectApiName),
+                )
+              : [],
             unread: known
               ? automationUnreadOf(known)
               : [{ part: 'automation', reason: 'unread' in automation ? automation.unread : '' }],
           });
-          if (answer === 'confirmed') return;
+          if (answer === 'confirmed') {
+            confirmed = true;
+            return;
+          }
           throw new RehearsalStoppedError(
             answer === 'declined' ? 'REHEARSAL_DECLINED' : 'CONFIRMATION_UNAVAILABLE',
             answer === 'declined'
@@ -3617,18 +3704,60 @@ export class ForgeHandler implements DomainHandler {
           ),
         ],
       });
+      // A run that creates no row asks nothing and sends nothing: allowed,
+      // never confirmed.
+      audited(operationId, 'success', {
+        guard: confirmed ? 'confirmed' : 'allowed',
+        details: rehearsalAuditDetails(rehearsal),
+      });
       sendOperationCompleted(this.deps, operationId, { status: 'success' });
+      this.liveTracker?.complete(operationId);
     } catch (error: unknown) {
       const stopped = error instanceof RehearsalStoppedError ? error : undefined;
+      const cancelled = error instanceof RehearsalCancelledError ? error : undefined;
+      const kept = error instanceof RehearsalNotRolledBackError ? error : undefined;
+      const message = extractErrorMessage(error);
       refuse(
-        error instanceof Error ? error : new Error(extractErrorMessage(error)),
-        stopped?.code ?? 'REHEARSAL_ERROR',
+        error instanceof Error ? error : new Error(message),
+        stopped?.code ?? (cancelled ? 'REHEARSAL_CANCELLED' : 'REHEARSAL_ERROR'),
         true,
       );
-      if (stopped) sendOperationCompleted(this.deps, operationId, { aborted: true });
-      else sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
+      if (stopped || cancelled) {
+        const decision: GuardDecision | undefined =
+          stopped?.code === 'REHEARSAL_DECLINED' ? 'declined' : confirmed ? 'confirmed' : undefined;
+        audited(operationId, 'stopped', {
+          code: stopped?.code ?? 'REHEARSAL_CANCELLED',
+          ...(decision ? { guard: decision } : {}),
+          ...(cancelled ? { details: { calls: cancelled.calls } } : {}),
+        });
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.liveTracker?.cancel(operationId);
+      } else {
+        runError = error;
+        // A call the target committed left its records there: counted, per
+        // object, as created — the one rehearsal whose writes stayed.
+        audited(operationId, 'failure', {
+          ...(confirmed ? { guard: 'confirmed' as const } : {}),
+          ...(kept
+            ? {
+                code: 'REHEARSAL_NOT_ROLLED_BACK',
+                details: { recordsLeft: kept.ids.length },
+                objects: kept.objects.map(({ objectApiName, created }) => ({
+                  objectApiName,
+                  created,
+                  updated: 0,
+                  deleted: 0,
+                  failed: 0,
+                })),
+              }
+            : {}),
+        });
+        sendOperationFailed(this.deps, operationId, message, true);
+        this.liveTracker?.fail(operationId, message);
+      }
     } finally {
       reading.flush();
+      releaseRun(runError);
       if (this.rehearseOperationId === operationId) this.rehearseOperationId = null;
     }
   }

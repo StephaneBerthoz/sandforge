@@ -1,10 +1,18 @@
-import type { RehearsedRow } from './RehearsalWriter.js';
+import type { RehearsedRow, RehearsedUpdate } from './RehearsalWriter.js';
 
 /**
  * Up to this many rows, a rehearsal sends every row the run would create:
  * one Collections request holds 200, and a small clone is judged whole.
  */
 export const EVERY_ROW_UP_TO = 200;
+
+/**
+ * Up to this many updates, a rehearsal sends every update the run would make
+ * after its inserts: a composite call holds 25 subrequests, of which five
+ * Collections requests at most and the update that rolls it back, so 19
+ * updates fit in any call.
+ */
+export const EVERY_UPDATE_UP_TO = 19;
 
 /** Whether a field of a row gives it a value: a field left empty is a different shape. */
 function populated(value: unknown): boolean {
@@ -58,6 +66,53 @@ export function sampleOf(rows: readonly RehearsedRow[]): RehearsalSample {
     standsFor.set(row.seq, 1);
   }
   return { rows: [...firstOfShape.values()], standsFor };
+}
+
+/**
+ * What an update is judged as: its object, the fields it sets and, for a
+ * status given back, the status — an order activated meets other rules than
+ * one cancelled.
+ */
+export function updateShapeOf(update: Pick<RehearsedUpdate, 'objectApiName' | 'fields'>): string {
+  const status = update.fields['Status'];
+  return [
+    update.objectApiName,
+    Object.keys(update.fields).sort().join(','),
+    typeof status === 'string' ? status : '',
+  ].join('|');
+}
+
+/** The updates a rehearsal judges, and how many of the run's updates each stands for. */
+export interface UpdateSample<T> {
+  updates: T[];
+  /** By the update's `seq`, the updates of the run of the same shape, itself included. */
+  standsFor: Map<number, number>;
+}
+
+/**
+ * The updates to rehearse, of those a rehearsal can send: every one when
+ * there are {@link EVERY_UPDATE_UP_TO} or fewer, one per shape
+ * ({@link updateShapeOf}) otherwise — the first the run would make.
+ */
+export function sampleOfUpdates<
+  T extends Pick<RehearsedUpdate, 'seq' | 'objectApiName' | 'fields'>,
+>(updates: readonly T[]): UpdateSample<T> {
+  if (updates.length <= EVERY_UPDATE_UP_TO) {
+    return { updates: [...updates], standsFor: new Map(updates.map((u) => [u.seq, 1])) };
+  }
+  const firstOfShape = new Map<string, T>();
+  const standsFor = new Map<number, number>();
+  for (const update of updates) {
+    const shape = updateShapeOf(update);
+    const first = firstOfShape.get(shape);
+    if (first) {
+      standsFor.set(first.seq, (standsFor.get(first.seq) ?? 1) + 1);
+      continue;
+    }
+    firstOfShape.set(shape, update);
+    standsFor.set(update.seq, 1);
+  }
+  return { updates: [...firstOfShape.values()], standsFor };
 }
 
 /** How the rows the run creates name one another. */

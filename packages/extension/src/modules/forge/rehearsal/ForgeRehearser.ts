@@ -11,7 +11,7 @@ import type { GraphDiscoveryService } from '../GraphDiscoveryService.js';
 import type { ForgeAnonymizationMethods } from '../ForgeAnonymizer.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import { rehearsalExecutorDeps } from './RehearsalWriter.js';
-import { rehearse, type RehearsalPlan } from './rehearse.js';
+import { RehearsalCancelledError, rehearse, type RehearsalPlan } from './rehearse.js';
 import type { CompositeRequestBody } from './compositeCalls.js';
 
 /** What the extension's rehearsals are wired to. */
@@ -42,6 +42,12 @@ export interface RehearseOptions {
   /** Put the plan to the user; what it throws stops the rehearsal before its first call. */
   confirm: (plan: RehearsalPlan) => Promise<void>;
   onProgress?: (progress: ForgeRehearsalProgress) => void;
+  /**
+   * Stops the rehearsal once aborted — Live Operations' Cancel: while it
+   * reads, through its orchestrator; once it sends, before its next call,
+   * each call being rolled back whole.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -71,7 +77,11 @@ export class ForgeRehearser {
         const stopListening = orchestrator.on('forge:progress', (event) =>
           options.onProgress?.({ phase: 'reading', objectApiName: event.objectName }),
         );
+        // Its own orchestrator: stopping it stops this rehearsal's reads alone.
+        const stopReading = (): void => orchestrator.abort();
+        options.signal?.addEventListener('abort', stopReading, { once: true });
         try {
+          if (options.signal?.aborted) throw new RehearsalCancelledError(0);
           // Through the write stage, as a real run: a simulation's executor
           // never hands its writer a row.
           await orchestrator.execute(
@@ -82,7 +92,12 @@ export class ForgeRehearser {
               anonymizationRules: options.anonymizationRules,
             },
           );
+        } catch (err: unknown) {
+          // Stopped while it read, nothing was sent: said as a cancel.
+          if (options.signal?.aborted) throw new RehearsalCancelledError(0);
+          throw err;
         } finally {
+          options.signal?.removeEventListener('abort', stopReading);
           stopListening();
         }
       },
@@ -101,6 +116,7 @@ export class ForgeRehearser {
       recordTypeNames,
       confirm: options.confirm,
       onProgress: options.onProgress,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
   }
 }

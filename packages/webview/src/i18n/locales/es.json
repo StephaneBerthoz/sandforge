@@ -1847,6 +1847,7 @@
       "template_delete": "Eliminar plantilla",
       "forge_execute": "Clonación Forge",
       "forge_verify": "Verificación Forge",
+      "forge_rehearse": "Ensayo Forge",
       "seed_csv_import": "Importación CSV",
       "seed_clone": "Clonación de registros",
       "autopilot_execute": "Ejecución de Autopilot",
@@ -2409,6 +2410,7 @@
       "confirming_other": "Ensayo: confirme en VS Code las {{count}} llamadas composite que cuesta.",
       "rehearsing": "Ensayo: llamada {{call}} de {{calls}}, revertida al terminar…",
       "done": "Ensayo terminado, cada escritura revertida. Juzgadas: {{judged}}; se guardarían: {{passed}}; rechazadas: {{refused}}; sin juzgar: {{notJudged}}; llamadas composite: {{calls}}.",
+      "updates": "Actualizaciones que la ejecución hace después de sus inserciones: {{judged}} juzgadas, {{passed}} se guardarían, {{refused}} rechazadas; {{notRehearsed}} de {{updates}} sin ensayar.",
       "nothing": "Ensayo terminado: la ejecución no crea ninguna fila y no se envió nada.",
       "declined": "Ensayo cancelado en su confirmación. No se envió nada al destino.",
       "error": "No se pudo hacer el ensayo: {{error}}"
@@ -2783,7 +2785,8 @@
           "userPermissions": "Los permisos personalizados del usuario con el que escribe la ejecución",
           "targetFields": "Los campos de un objeto de la org de destino",
           "sourceFields": "Los campos de un objeto de la org de origen",
-          "apiBudget": "Las solicitudes de API diarias restantes"
+          "apiBudget": "Las solicitudes de API diarias restantes",
+          "permissionSets": "Los conjuntos de permisos que contienen una omisión de una regla de validación que el usuario con el que la ejecución escribe no tiene"
         }
       },
       "planTab": "Plan",
@@ -3303,7 +3306,8 @@
         "validation_rule": "Regla de validación",
         "duplicate_rule": "Regla de duplicados",
         "api_budget": "Cuota diaria de solicitudes de API",
-        "rehearsal_refusal": "Rechazado en el ensayo"
+        "rehearsal_refusal": "Rechazado en el ensayo",
+        "rehearsal_update_refusal": "Actualización rechazada en el ensayo"
       },
       "rows_one": "{{count}} fila",
       "rows_other": "{{count}} filas",

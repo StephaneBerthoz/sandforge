@@ -1847,6 +1847,7 @@
       "template_delete": "Excluir modelo",
       "forge_execute": "Clonagem Forge",
       "forge_verify": "Verificação Forge",
+      "forge_rehearse": "Ensaio Forge",
       "seed_csv_import": "Importação CSV",
       "seed_clone": "Clonagem de registros",
       "autopilot_execute": "Execução do Autopilot",
@@ -2409,6 +2410,7 @@
       "confirming_other": "Ensaio: confirme no VS Code as {{count}} chamadas composite que ele custa.",
       "rehearsing": "Ensaio: chamada {{call}} de {{calls}}, revertida ao terminar…",
       "done": "Ensaio concluído, cada gravação revertida. Julgadas: {{judged}}; seriam salvas: {{passed}}; recusadas: {{refused}}; não julgadas: {{notJudged}}; chamadas composite: {{calls}}.",
+      "updates": "Atualizações que a execução faz depois de suas inserções: {{judged}} julgadas, {{passed}} seriam salvas, {{refused}} recusadas; {{notRehearsed}} de {{updates}} não ensaiadas.",
       "nothing": "Ensaio concluído: a execução não cria nenhuma linha, e nada foi enviado.",
       "declined": "Ensaio cancelado na confirmação. Nada foi enviado ao destino.",
       "error": "Não foi possível fazer o ensaio: {{error}}"
@@ -2783,7 +2785,8 @@
           "userPermissions": "As permissões personalizadas do usuário com que a execução grava",
           "targetFields": "Os campos de um objeto da org de destino",
           "sourceFields": "Os campos de um objeto da org de origem",
-          "apiBudget": "As solicitações de API diárias restantes"
+          "apiBudget": "As solicitações de API diárias restantes",
+          "permissionSets": "Os conjuntos de permissões que contêm uma exceção de uma regra de validação que o usuário com o qual a execução grava não tem"
         }
       },
       "planTab": "Plano",
@@ -3303,7 +3306,8 @@
         "validation_rule": "Regra de validação",
         "duplicate_rule": "Regra de duplicidade",
         "api_budget": "Cota diária de solicitações de API",
-        "rehearsal_refusal": "Recusado no ensaio"
+        "rehearsal_refusal": "Recusado no ensaio",
+        "rehearsal_update_refusal": "Atualização recusada no ensaio"
       },
       "rows_one": "{{count}} linha",
       "rows_other": "{{count}} linhas",

@@ -44,6 +44,9 @@ const VERDICTS: ForgeRehearsal = {
   passed: 3,
   notJudged: 1,
   notJudgedWhy: [{ objectApiName: 'Task', rows: 1, reason: 'parent_refused' }],
+  updates: 0,
+  updatesJudged: 0,
+  updatesPassed: 0,
   updatesNotRehearsed: 0,
   calls: 2,
   plannedCalls: 1,
@@ -117,6 +120,30 @@ describe('ForgeRehearseAction', () => {
       'Rehearsal done, every write rolled back. Judged: 4; would save: 3; refused: 1; not judged: 1; composite calls: 2.',
     );
     expect((screen.getByTestId('rehearse-button') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('says the updates the run makes after its inserts apart: judged, refused, and those not rehearsed', () => {
+    render(<ForgeRehearseAction />);
+    fireEvent.click(screen.getByTestId('rehearse-button'));
+    fromExtension('forge:rehearse:response', {
+      rehearsal: {
+        ...VERDICTS,
+        updates: 9,
+        updatesJudged: 3,
+        updatesPassed: 2,
+        updatesNotRehearsed: 4,
+      },
+    });
+    expect(screen.getByTestId('forge-rehearse-status')?.textContent).toContain(
+      'Updates the run makes after its inserts: 3 judged, 2 would save, 1 refused; 4 of 9 not rehearsed.',
+    );
+  });
+
+  it('says nothing of updates for a run that makes none', () => {
+    render(<ForgeRehearseAction />);
+    fireEvent.click(screen.getByTestId('rehearse-button'));
+    fromExtension('forge:rehearse:response', { rehearsal: VERDICTS });
+    expect(screen.getByTestId('forge-rehearse-status')?.textContent).not.toContain('Updates');
   });
 
   it('says a run that creates no row sent nothing', () => {

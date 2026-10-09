@@ -12,6 +12,9 @@ import { ancestorsOf, type RowFamily } from './rehearsalSample.js';
 /** Collections requests one composite call may hold. */
 export const COLLECTIONS_PER_CALL = 5;
 
+/** Subrequests one composite call may hold, its Collections requests among them. */
+export const SUBREQUESTS_PER_CALL = 25;
+
 /** Rows one Collections request creates. */
 export const ROWS_PER_COLLECTION = 200;
 
@@ -42,6 +45,26 @@ export interface PlannedCollection {
 /** One composite call: its Collections requests in order, then the update that fails. */
 export interface PlannedCall {
   collections: PlannedCollection[];
+}
+
+/**
+ * One update a call sends after its Collections requests and before the
+ * update that rolls it back: the record it updates, and every record its
+ * values name, are rows the call creates.
+ */
+export interface PlannedUpdate {
+  /** The update's own place among the run's updates, for its verdict. */
+  seq: number;
+  objectApiName: string;
+  /** The row of the call whose record it updates, by `seq`. */
+  rowSeq: number;
+  /** What it sets. A placeholder of a row of the call goes as that row's new id. */
+  fields: Record<string, unknown>;
+}
+
+/** How many updates a call of `collections` Collections requests has room for. */
+export function updatesRoomOf(collections: number): number {
+  return Math.max(0, SUBREQUESTS_PER_CALL - collections - 1);
 }
 
 /** The calls that judge some rows, and the rows no call can hold with what they need. */
@@ -156,6 +179,15 @@ export interface CompositeSubrequest {
 /** The body of `POST /composite`. */
 export interface CompositeRequestBody {
   allOrNone: true;
+  /**
+   * Run the subrequests in the order sent. Left to the platform, it ran
+   * those that name no other first: in a live trap org, the update that
+   * rolls the call back ran before two of the call's updates, which were
+   * never tried, and its own refusal answered in the place of the first of
+   * them. A verdict is read from where a subrequest stands against the one
+   * the call stopped at; out of order, that says nothing.
+   */
+  collateSubrequests: false;
   compositeRequest: CompositeSubrequest[];
 }
 
@@ -164,19 +196,34 @@ function collectionRef(index: number): string {
   return `rows${index}`;
 }
 
+/** The reference id of a call's `index`-th update. */
+function updateRef(index: number): string {
+  return `update${index}`;
+}
+
+/** The reference id of the update that ends a call, and fails. */
+const ROLLBACK_REF = 'rollback';
+
 /**
  * The composite request of a call, all or none: each Collections request
  * creates its rows one by one (`allOrNone: false` inside, so each row gets
  * its own verdict), a lookup to a row of an earlier request reads that row's
- * new id from its answer (`@{rowsN[i].id}`), and the call ends on an update
- * of a record that does not exist, which fails. One subrequest failing rolls
- * back every write of the call: either a row is refused and the call stops at
- * its request, or every row is created and the update fails on its own.
+ * new id from its answer (`@{rowsN[i].id}`); then each update the run makes
+ * after its inserts of a record the call creates, one subrequest each, its
+ * record and the records its values name read the same way; and the call
+ * ends on an update of a record that does not exist, which fails. One
+ * subrequest failing rolls back every write of the call: either a row or an
+ * update is refused and the call stops there, or every write is made and the
+ * last update fails on its own. The subrequests run in the order sent
+ * ({@link CompositeRequestBody.collateSubrequests}).
  *
  * @param apiPath - The target's REST API path, `/services/data/vXX.X`.
- * @param headers - The headers of a Forge write, sent with each Collections request.
+ * @param headers - The headers of a Forge write, sent with each Collections
+ *   request and each update, as the run sends them with its updates.
  * @param rowOf - The row a value stands for, when it is a placeholder.
- * @throws When a row names a record the run creates that the call does not hold.
+ * @param updates - The updates the call sends after its inserts.
+ * @throws When a row or an update names a record the run creates that the
+ *   call does not hold, or the call would hold more subrequests than one may.
  */
 export function compositeBody(
   call: PlannedCall,
@@ -184,7 +231,14 @@ export function compositeBody(
   rowOf: (value: unknown) => RehearsedRow | undefined,
   apiPath: string,
   headers: Readonly<Record<string, string>>,
+  updates: readonly PlannedUpdate[] = [],
 ): CompositeRequestBody {
+  if (updates.length > updatesRoomOf(call.collections.length)) {
+    throw new Error(
+      `A rehearsal call of ${call.collections.length} Collections request(s) has no room for ` +
+        `${updates.length} update(s): a call holds ${SUBREQUESTS_PER_CALL} subrequests`,
+    );
+  }
   const at = new Map<number, string>();
   call.collections.forEach((collection, index) =>
     collection.seqs.forEach((seq, position) =>
@@ -225,16 +279,47 @@ export function compositeBody(
     },
     httpHeaders: { ...headers },
   }));
+  updates.forEach((update, index) => {
+    const record = at.get(update.rowSeq);
+    if (record === undefined) {
+      throw new Error(
+        `An update of ${update.objectApiName} names a record its call does not create`,
+      );
+    }
+    const body: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(update.fields)) {
+      if (field === 'attributes' || field === 'Id') continue;
+      const parent = rowOf(value);
+      if (!parent) {
+        body[field] = value;
+        continue;
+      }
+      const reference = at.get(parent.seq);
+      if (reference === undefined) {
+        throw new Error(
+          `An update of ${update.objectApiName} names a record the run creates that its call does not hold`,
+        );
+      }
+      body[field] = reference;
+    }
+    compositeRequest.push({
+      method: 'PATCH',
+      url: `${apiPath}/sobjects/${update.objectApiName}/${record}`,
+      referenceId: updateRef(index),
+      body,
+      httpHeaders: { ...headers },
+    });
+  });
   const first = call.collections[0]?.seqs[0];
   const firstRow = first === undefined ? undefined : family.bySeq.get(first);
   if (!firstRow) throw new Error('A rehearsal call holds no row');
   compositeRequest.push({
     method: 'PATCH',
     url: `${apiPath}/sobjects/${firstRow.objectApiName}/${noSuchRecord(firstRow.placeholderId)}`,
-    referenceId: 'rollback',
+    referenceId: ROLLBACK_REF,
     body: { [NO_SUCH_FIELD]: true },
   });
-  return { allOrNone: true, compositeRequest };
+  return { allOrNone: true, collateSubrequests: false, compositeRequest };
 }
 
 /**
@@ -254,9 +339,18 @@ export type CollectionAnswer =
   /** Refused whole, before any row: each row gets these errors. */
   | { kind: 'refused'; errors: SaveErrorDetail[] };
 
+/** What one update of a call came to. */
+export type UpdateAnswer =
+  /** Stopped, or its answer lost: the call stopped at another subrequest. */
+  | { kind: 'halted' }
+  /** Made: the call stopped after it, or failed on its closing update. */
+  | { kind: 'saved' }
+  /** Refused, with the platform's errors. */
+  | { kind: 'refused'; errors: SaveErrorDetail[] };
+
 /** What a composite call came to. */
 export type CallAnswer =
-  | { kind: 'rolled_back'; collections: CollectionAnswer[] }
+  | { kind: 'rolled_back'; collections: CollectionAnswer[]; updates: UpdateAnswer[] }
   /**
    * The closing update did not fail, so the call was committed: the records
    * it created are in the target. `ids` are those its answer names.
@@ -286,27 +380,48 @@ function halted(sub: Subresponse): boolean {
 }
 
 /**
- * Read a composite call's answer, collection by collection.
+ * Read a composite call's answer, collection by collection, then update by
+ * update.
  *
  * The call stops at the first subrequest that fails. A Collections request
  * one of whose rows was refused answers with every row's verdict; one that
- * passed whole before the stop loses its body, and reads as stopped. When
- * every row was created, each Collections request reads as stopped and the
- * closing update fails on its own: every row would have saved. A closing
- * update that did not fail means no subrequest did, and nothing was rolled
- * back.
+ * passed whole before the stop loses its body, and reads as stopped. An
+ * update refused answers with its errors; one made before the stop reads as
+ * stopped too. When every write was made, each reads as stopped and the
+ * closing update fails on its own: every row and update would have saved. A
+ * closing update that did not fail means no subrequest did, and nothing was
+ * rolled back.
  *
+ * @param updates - How many updates the call sent after its Collections requests.
  * @throws When the answer is not a composite answer of this call.
  */
-export function readCompositeAnswer(raw: unknown, call: PlannedCall): CallAnswer {
+export function readCompositeAnswer(raw: unknown, call: PlannedCall, updates = 0): CallAnswer {
   const parsed = compositeAnswerSchema.safeParse(raw);
   if (!parsed.success)
     throw new Error('The target answered the rehearsal with no composite answer');
   const subs = parsed.data.compositeResponse;
-  const closing = subs[call.collections.length];
-  if (subs.length !== call.collections.length + 1 || !closing) {
+  const sent = call.collections.length + updates + 1;
+  const closing = subs[sent - 1];
+  if (subs.length !== sent || !closing) {
     throw new Error(
-      `The target answered ${subs.length} subrequests of the ${call.collections.length + 1} the rehearsal sent`,
+      `The target answered ${subs.length} subrequests of the ${sent} the rehearsal sent`,
+    );
+  }
+  // The platform lists the subrequests in the order it ran them: one out of
+  // the order sent would have its verdict read from another's place.
+  const order = [
+    ...call.collections.map((_, index) => collectionRef(index)),
+    ...Array.from({ length: updates }, (_, index) => updateRef(index)),
+    ROLLBACK_REF,
+  ];
+  const misplaced = subs.findIndex(
+    (sub, index) => sub.referenceId !== undefined && sub.referenceId !== order[index],
+  );
+  if (misplaced !== -1) {
+    throw new Error(
+      `The target ran the rehearsal's subrequests out of the order sent (${String(
+        subs[misplaced]?.referenceId,
+      )} in place of ${order[misplaced]}): no verdict can be read from it`,
     );
   }
   const collections = call.collections.map((collection, index): CollectionAnswer => {
@@ -329,6 +444,18 @@ export function readCompositeAnswer(raw: unknown, call: PlannedCall): CallAnswer
       `The target answered a request of the rehearsal with status ${sub.httpStatusCode}`,
     );
   });
+  const updateAnswers = Array.from({ length: updates }, (_, index): UpdateAnswer => {
+    const sub = subs[call.collections.length + index];
+    if (halted(sub)) return { kind: 'halted' };
+    if (sub.httpStatusCode < 400) return { kind: 'saved' };
+    const errors = errorBodySchema.safeParse(sub.body);
+    if (errors.success && errors.data.length > 0) {
+      return { kind: 'refused', errors: errors.data.map(saveErrorDetail) };
+    }
+    throw new Error(
+      `The target answered an update of the rehearsal with status ${sub.httpStatusCode}`,
+    );
+  });
   if (closing.httpStatusCode < 400) {
     return {
       kind: 'not_rolled_back',
@@ -339,10 +466,14 @@ export function readCompositeAnswer(raw: unknown, call: PlannedCall): CallAnswer
   }
   // Stopped, the closing update says a request before it failed: one that
   // names none would have every row read as created when one was refused.
-  if (halted(closing) && stopOf(collections) === -1) {
+  if (
+    halted(closing) &&
+    stopOf(collections) === -1 &&
+    !updateAnswers.some((answer) => answer.kind === 'refused')
+  ) {
     throw new Error('The target stopped the rehearsal at a request whose answer names no refusal');
   }
-  return { kind: 'rolled_back', collections };
+  return { kind: 'rolled_back', collections, updates: updateAnswers };
 }
 
 /** The request a call stopped at: the first one refused whole or with a row refused; -1 for none. */
@@ -382,5 +513,28 @@ export function verdictsOf(call: PlannedCall, answer: CollectionAnswer[]): Map<n
       );
     });
   });
+  return verdicts;
+}
+
+/**
+ * Each update's verdict from a call's answer, by its `seq`: none when the
+ * call stopped at a Collections request, before any update was tried; every
+ * update before the one refused was made; that one has its errors; those
+ * after it were never tried, and get none.
+ */
+export function updateVerdictsOf(
+  updates: readonly PlannedUpdate[],
+  answer: Extract<CallAnswer, { kind: 'rolled_back' }>,
+): Map<number, RowVerdict> {
+  const verdicts = new Map<number, RowVerdict>();
+  if (stopOf(answer.collections) !== -1) return verdicts;
+  for (const [index, update] of updates.entries()) {
+    const own = answer.updates[index];
+    if (own?.kind === 'refused') {
+      verdicts.set(update.seq, { passed: false, errors: own.errors });
+      break;
+    }
+    verdicts.set(update.seq, { passed: true });
+  }
   return verdicts;
 }

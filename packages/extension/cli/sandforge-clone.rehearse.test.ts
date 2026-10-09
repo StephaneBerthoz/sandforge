@@ -291,6 +291,7 @@ describe("a rehearsal's lines", () => {
         {
           rows: 300,
           sampled: 4,
+          updates: [],
           calls: 1,
           maxCalls: 5,
           objects: [{ objectApiName: 'Case', rows: 4 }],
@@ -302,6 +303,28 @@ describe("a rehearsal's lines", () => {
       '  1 composite call(s), 5 at most if a call stops at a refused record',
       `  ${'Case'.padEnd(40)} 4`,
     ]);
+  });
+
+  it('say the updates it makes of the records it creates, per object', () => {
+    expect(
+      rehearsalPlanLines(
+        {
+          rows: 30,
+          sampled: 30,
+          updates: [
+            { objectApiName: 'Order', updates: 2 },
+            { objectApiName: 'Account', updates: 1 },
+          ],
+          calls: 1,
+          maxCalls: 5,
+          objects: [{ objectApiName: 'Order', rows: 30 }],
+        },
+        'TGT',
+      )[1],
+    ).toBe(
+      '  and 3 update(s) the run makes after its inserts, each in the call that creates its ' +
+        'record: Order 2, Account 1',
+    );
   });
 
   it('say a refused value with its record type, the rows of the run it stands for, and what was not judged', () => {
@@ -332,6 +355,9 @@ describe("a rehearsal's lines", () => {
         passed: 1,
         notJudged: 1,
         notJudgedWhy: [{ objectApiName: 'CaseComment', rows: 1, reason: 'parent_refused' }],
+        updates: 2,
+        updatesJudged: 0,
+        updatesPassed: 0,
         updatesNotRehearsed: 2,
         calls: 1,
         plannedCalls: 1,
@@ -342,7 +368,48 @@ describe("a rehearsal's lines", () => {
       'rehearsed in TGT: 2 judged, 1 would save, 1 refused, 1 not judged (1 call(s), every write rolled back)',
       '  refused  Case.Origin "Fax" (record type Support): INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST, 1 row(s), 40 in the run (a real run writes it again without the field)',
       '  not judged  CaseComment: 1 row(s), a record it names was refused',
-      '  not rehearsed: the 2 update(s) the run makes after its inserts',
+      '  not rehearsed: 2 of the 2 update(s) the run makes after its inserts',
+    ]);
+  });
+
+  it('say the updates judged, and an update refused apart from the rows', () => {
+    const lines = rehearsalLines(
+      {
+        gaps: [
+          {
+            id: 'rehearsal_update_refusal|Order|Status||FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            kind: 'rehearsal_update_refusal',
+            severity: 'warning',
+            source: 'rehearsal',
+            objectApiName: 'Order',
+            field: 'Status',
+            value: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            rows: 1,
+            detail: { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', rowsOfTheRun: 12 },
+            decisions: ['exclude_object', 'ignore'],
+          },
+        ],
+        rows: 20,
+        sampled: 20,
+        judged: 20,
+        passed: 20,
+        notJudged: 0,
+        notJudgedWhy: [],
+        updates: 14,
+        updatesJudged: 2,
+        updatesPassed: 1,
+        updatesNotRehearsed: 1,
+        calls: 2,
+        plannedCalls: 1,
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'rehearsed in TGT: 20 judged, 20 would save, 0 refused, 0 not judged; 2 update(s) judged, ' +
+        '1 would save, 1 refused (2 call(s), every write rolled back)',
+      '  refused on update  Order.Status: FIELD_CUSTOM_VALIDATION_EXCEPTION, 1 update(s), 12 in ' +
+        'the run (the record goes in without what the update gives it)',
+      '  not rehearsed: 1 of the 14 update(s) the run makes after its inserts',
     ]);
   });
 });

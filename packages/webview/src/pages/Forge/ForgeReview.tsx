@@ -383,7 +383,13 @@ export const ForgeReview: React.FC = () => {
                   : {})}
               />
             )}
-            {activeTab === 'gaps' && <ReviewGapsTab />}
+            {activeTab === 'gaps' && (
+              <ReviewGapsTab
+                {...(targetOrg?.alias && targetOrg.username
+                  ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
+                  : {})}
+              />
+            )}
             {activeTab === 'controls' && <ReviewControlsTab />}
           </div>
         </div>

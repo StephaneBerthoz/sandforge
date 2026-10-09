@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy } from 'lucide-react';
 import { assignPermsetCommand } from '@sandforge/shared';
-import type { ForgeBypassAssignment } from '@sandforge/shared';
+import type { ForgeGapAssignment } from '@sandforge/shared';
 
 /** The target org by the alias SandForge knows it by, and the user a run writes to it as. */
 export interface BypassTarget {
@@ -12,8 +12,12 @@ export interface BypassTarget {
 
 /** Props for {@link BypassAssistant}. */
 export interface BypassAssistantProps {
-  /** The bypasses the user does not hold, with what the read found to assign each. */
-  assignments: readonly ForgeBypassAssignment[];
+  /**
+   * The bypasses the user does not hold, with what the read found to assign
+   * each: a flow's, as the automation read found them, or a validation
+   * rule's, as its gap holds them — the permission sets by name alone.
+   */
+  assignments: readonly ForgeGapAssignment[];
   /** The org and the user the command names; without them no command is shown. */
   target?: BypassTarget;
 }
@@ -49,7 +53,7 @@ export const BypassAssistant: React.FC<BypassAssistantProps> = ({ assignments, t
 };
 
 /** One bypass: the permission set that holds it and its command, or that none does. */
-const AssignmentItem: React.FC<{ assignment: ForgeBypassAssignment; target?: BypassTarget }> = ({
+const AssignmentItem: React.FC<{ assignment: ForgeGapAssignment; target?: BypassTarget }> = ({
   assignment,
   target,
 }) => {
