@@ -956,7 +956,7 @@ describe('ForgeExecutor', () => {
       // A fake address, and a different person for each record, delivered nowhere.
       expect(rows.map((r) => r['Email'])).not.toContain('one@source.test');
       expect(rows.map((r) => r['Email'])).not.toContain('two@source.test');
-      expect(String(rows[0]['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+      expect(String(rows[0]['Email'])).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/);
       // The method Review chose for phones, not the default mask.
       expect(rows.map((r) => r['Phone'])).toEqual(['[REDACTED]', '[REDACTED]']);
       // A field nobody selected goes as the source holds it, and no row gains an Id.

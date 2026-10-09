@@ -50,7 +50,34 @@ describe('PersonaRegistry', () => {
 
   it('generates a valid email format', () => {
     const persona = registry.getPersona('003xx000001');
-    expect(persona.email).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
+    expect(persona.email).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.com$/);
+    expect(persona.email.startsWith(`${persona.firstName.toLowerCase()}.`)).toBe(true);
+  });
+
+  it('gives 1 220 records 1 220 names and 1 220 addresses of their own', () => {
+    // A run over 1 220 contacts drew from twenty given names and twenty
+    // surnames: four hundred people at most, and as many addresses.
+    const ids = Array.from({ length: 1220 }, (_, i) => `003xx${String(i).padStart(7, '0')}`);
+    const personas = ids.map((id) => registry.getPersona(id));
+    expect(new Set(personas.map((p) => `${p.firstName} ${p.lastName}`)).size).toBe(1220);
+    expect(new Set(personas.map((p) => p.email)).size).toBe(1220);
+  });
+
+  it('keeps a record on the persona it first drew, after others drew theirs', () => {
+    const first = registry.getPersona('003xx000001');
+    for (let i = 2; i < 500; i++) registry.getPersona(`003xx${String(i).padStart(6, '0')}`);
+    expect(registry.getPersona('003xx000001')).toStrictEqual(first);
+  });
+
+  it('gives the same people to the same records read in the same order, in a fresh registry', () => {
+    const ids = Array.from({ length: 300 }, (_, i) => `003xx${String(i).padStart(7, '0')}`);
+    const once = ids.map((id) => new PersonaRegistry('key-a').getPersona(id));
+    const keyed = new PersonaRegistry('key-a');
+    const run = ids.map((id) => keyed.getPersona(id));
+    const again = new PersonaRegistry('key-a');
+    expect(ids.map((id) => again.getPersona(id))).toStrictEqual(run);
+    // The first record draws no name twice: alone, or first of a run, it is the same person.
+    expect(run[0]).toStrictEqual(once[0]);
   });
 
   it('tracks size correctly', () => {

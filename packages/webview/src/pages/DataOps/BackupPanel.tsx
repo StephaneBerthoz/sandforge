@@ -11,6 +11,10 @@ import { formatStoredDate, uiLocale } from '../../utils/formatters';
 export interface BackupPanelProps {
   backups?: BackupSummary[];
   isCreating?: boolean;
+  /** The objects Create Backup reads. */
+  objects?: string[];
+  /** The template whose objects those are, when one is picked; every template's otherwise. */
+  template?: string;
   onCreate?: () => void;
   onDelete?: (operationId: string) => void;
   /** Download this backup, records included, so it can leave the machine. */
@@ -29,6 +33,8 @@ const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | '
 export const BackupPanel: React.FC<BackupPanelProps> = ({
   backups = [],
   isCreating = false,
+  objects = [],
+  template,
   onCreate,
   onDelete,
   onExport,
@@ -49,6 +55,15 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
           {t('dataops.createBackup')}
         </Button>
       </div>
+
+      {/* Said before the click: the objects it reads follow the templates. */}
+      {objects.length > 0 && (
+        <p className="text-xs text-text-secondary" data-testid="backup-objects">
+          {template
+            ? t('dataops.backupObjectsTemplate', { objects: objects.join(', '), name: template })
+            : t('dataops.backupObjectsAll', { objects: objects.join(', ') })}
+        </p>
+      )}
 
       {backups.length === 0 && (
         <EmptyState

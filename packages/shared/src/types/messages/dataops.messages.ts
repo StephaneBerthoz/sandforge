@@ -164,6 +164,12 @@ export interface DataOpsAnonymizeCoverageResponse extends BaseMessage {
     /** The org's latest backup on this machine, when it has one. */
     backup?: { operationId: string; timestamp: string };
     objects: AnonymizeCoverageObject[];
+    /**
+     * The last run of this template on this org, when it stopped short and
+     * can be resumed: its id, which a resume names as its `resumeFrom`, and
+     * when it stopped.
+     */
+    checkpoint?: { id: string; savedAt: string };
   };
 }
 
@@ -197,7 +203,17 @@ export interface DataOpsRollbackRequest extends BaseMessage {
 /** Request to anonymize data with a masking template (validated by dataOpsAnonymizePayloadSchema). */
 export interface DataOpsAnonymizeRequest extends BaseMessage {
   type: 'dataops:anonymize';
-  payload: { orgId: string; templateId: string; objects?: string[] };
+  payload: {
+    orgId: string;
+    templateId: string;
+    objects?: string[];
+    /**
+     * The checkpoint to resume from, as the coverage answer names it
+     * ({@link DataOpsAnonymizeCoverageResponse}): the run masks only what that
+     * run left. Absent, the run masks every row.
+     */
+    resumeFrom?: string;
+  };
 }
 
 /** Response after a successful backup of the selected objects. */

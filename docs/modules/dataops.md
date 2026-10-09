@@ -17,11 +17,15 @@ records, and clean up the records nobody needs, from a single tabbed page.
 
 ### Backup
 
-Take a full snapshot of Account and Contact:
+Take a snapshot of the objects an Anonymize writes over:
 
-- The objects are fixed: every backup reads Account and Contact, every field
-  of each, up to the org's query limit (2,000 rows on a sandbox). There is no
-  object picker and no incremental mode -- each backup is a new full snapshot
+- The objects follow the templates: a backup reads the objects the template
+  picked on the Anonymize tab masks or, with none picked, every object a
+  listed template masks -- Contact, Lead, Account and Opportunity for the
+  templates that ship. The Backup tab names them before the click. Each is
+  read whole, every field, up to the org's query limit (2,000 rows on a
+  sandbox). There is no object picker and no incremental mode -- each backup
+  is a new snapshot
 - Every backup is written to extension storage with per-object record counts
   and the org id the org answered with, and listed newest-first in the Backup
   tab
@@ -80,9 +84,13 @@ your own:
   (`SELECT COUNT()`), then masks them a page at a time, in `Id` order: 2,000
   records a page on a sandbox, 500 on production, each page written back in
   batches of 200 before the next is read. An object of any size is masked
-  whole, and the progress counts records against what the counts said. A
-  backup holds at most the org's query limit of each object (see Backup), so
-  on a larger object it cannot bring back every record a run masks
+  whole, and the progress counts records against what the counts said. The
+  counts come before Production Guard is asked, so its confirmation says how
+  many records the run writes over, and a sandbox run past 50,000 records is
+  logged with the guard's volume warning. A backup holds at most the org's
+  query limit of each object (see Backup), so on a larger object it cannot
+  bring back every record a run masks: Apply's confirmation names, per object,
+  the records a restore of the latest backup can never bring back
 - **What a run reads and writes.** It reads the `Id` and the fields the
   template names. It writes those fields where they hold a value, and nothing
   else of the record: an empty field stays empty rather than being given a
@@ -94,9 +102,18 @@ your own:
   then ends partial -- failed when it masked nothing -- and says, per object,
   how many records still hold their original values: in its result, in the
   message the page shows, in the audit trail (Reports: refused records as
-  failed, records never reached as not sent) and in the output log. Run the
-  template again to mask what was left: a run masks every record of its
-  objects, so the records already masked are masked once more
+  failed, records never reached as not sent) and in the output log.
+- **Resume where it stopped.** A run that stopped before the end keeps, on
+  this machine, where it got: per object, whether it was read to the end, the
+  last record it handled, and the records the org refused. The Anonymize tab
+  then offers **Resume where it stopped** beside Apply: the resume first tries
+  the refused records again, by `Id`, then reads each object on from where the
+  run stopped, so no record the first run masked is masked again -- an address
+  already hashed would be hashed once more, and no longer give the same
+  pseudonym as on the objects masked once. Apply still masks every record. A
+  run that leaves nothing unmasked forgets where the last one stopped; a
+  template whose rules changed since cannot be resumed, nor can a run the org
+  refused more than 2,000 records of -- Apply masks those
 - **What the templates that ship write.** Sandbox Data Scrub replaces a
   website with `https://example.com`. HIPAA Health Data keeps the first three
   characters of a postal code, the region a ZIP code's first three digits
@@ -104,7 +121,10 @@ your own:
   `example.invalid`, a domain that receives no mail: the same address becomes
   the same pseudonym on a contact and on a lead. GDPR Standard makes up an
   email at `example.invalid` too, as the Fake method does for every address
-  it writes
+  it writes. A made-up person is drawn from ten thousand names: no two
+  records of one run get the same name while names last, nor the same
+  address, which carries a short token, `first.last.ab12`. A resume is a run
+  of its own, and can give a record a name the run it resumes gave
 - **No preview.** The panel offers no Preview: the one it used to show
   applied the mask to the org for real, and nothing can run a template without
   writing. Apply is the only path, and it is irreversible -- back up first.
@@ -125,6 +145,8 @@ your own:
   who has the template. Every rule, a hash included, draws from a key the
   window generates when it starts and never writes down, so two runs in one
   window mask a record identically and the next window masks it differently.
+  A resume in another window masks what the first run left with that window's
+  key.
 
 ### Compliance (GDPR/CCPA)
 

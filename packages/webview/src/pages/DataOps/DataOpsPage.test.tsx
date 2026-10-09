@@ -106,6 +106,7 @@ let mockExportMutationState = {
 /** What `dataops:anonymize:coverage` answers, and how the page last asked it. */
 let mockCoverageData: Record<string, unknown> | null = null;
 let coverageAsked: { payload?: Record<string, unknown>; skip?: boolean } | null = null;
+const mockCoverageRefetch = vi.fn();
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (
@@ -121,7 +122,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     }
     if (type === 'dataops:anonymize:coverage') {
       coverageAsked = { payload, skip: options?.skip };
-      return { data: mockCoverageData, loading: false, error: null, refetch: vi.fn() };
+      return { data: mockCoverageData, loading: false, error: null, refetch: mockCoverageRefetch };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -279,6 +280,91 @@ describe('DataOpsPage', () => {
       // Both handlers used to read orgs[0], so a user with several connections
       // backed up and anonymised an org other than the one on screen.
       expect(mockBackupMutate).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-2' }));
+    });
+
+    it('backs up every object the templates mask, Lead and Opportunity included, when none is picked', () => {
+      mockTemplatesQueryState = {
+        data: {
+          templates: [
+            {
+              id: 'tpl-1',
+              name: 'GDPR Template',
+              description: '',
+              complianceFramework: 'gdpr',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Contact.Phone', ruleType: 'mask', description: '' },
+              ],
+            },
+            {
+              id: 'tpl-2',
+              name: 'Sandbox scrub',
+              description: '',
+              complianceFramework: 'custom',
+              rules: [
+                { fieldPattern: 'Opportunity.Description', ruleType: 'nullify', description: '' },
+              ],
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+
+      expect(screen.getByTestId('backup-objects').textContent).toBe(
+        'Backs up Contact, Lead, Opportunity: the objects the anonymization templates mask.',
+      );
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+
+      // It read Account and Contact whatever the templates masked.
+      expect(mockBackupMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        objects: ['Contact', 'Lead', 'Opportunity'],
+      });
+    });
+
+    it('backs up the objects of the template picked on the Anonymize tab', () => {
+      mockTemplatesQueryState = {
+        data: {
+          templates: [
+            {
+              id: 'tpl-1',
+              name: 'GDPR Template',
+              description: '',
+              complianceFramework: 'gdpr',
+              rules: [{ fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' }],
+            },
+            {
+              id: 'tpl-2',
+              name: 'Sandbox scrub',
+              description: '',
+              complianceFramework: 'custom',
+              rules: [
+                { fieldPattern: 'Opportunity.Description', ruleType: 'nullify', description: '' },
+              ],
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+      fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
+      fireEvent.click(screen.getByText('Backup'));
+
+      expect(screen.getByTestId('backup-objects').textContent).toBe(
+        'Backs up Lead: the objects GDPR Template masks.',
+      );
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+
+      expect(mockBackupMutate).toHaveBeenCalledWith({ orgId: 'org-1', objects: ['Lead'] });
     });
 
     it('should not run a backup when no org is selected', () => {
@@ -593,6 +679,44 @@ describe('DataOpsPage', () => {
       });
       expect(screen.getByTestId('restore-coverage-shortfall').textContent).toContain('Contact');
       mockCoverageData = null;
+    });
+
+    it('resumes the run that stopped short from where it stopped, naming it', () => {
+      mockCoverageData = {
+        templateId: 'tpl-1',
+        objects: [{ objectApiName: 'Contact', count: 2500, backedUp: 2500, truncated: false }],
+        checkpoint: { id: 'run-1', savedAt: '2026-10-09T10:00:00.000Z' },
+      };
+      openTemplate();
+
+      fireEvent.click(screen.getByTestId('resume-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(mockAnonymizeMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        templateId: 'tpl-1',
+        resumeFrom: 'run-1',
+      });
+      mockCoverageData = null;
+    });
+
+    it('asks again whether a run can be resumed once one ends', () => {
+      mockTemplatesQueryState = {
+        data: templateList,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      const { rerender } = render(<DataOpsPage />);
+      mockCoverageRefetch.mockClear();
+
+      // A run that stopped short leaves a checkpoint, and one that finished forgets it.
+      mockAnonymizeMutationState = { ...mockAnonymizeMutationState, data: { status: 'partial' } };
+      rerender(<DataOpsPage />);
+
+      expect(mockCoverageRefetch).toHaveBeenCalledTimes(1);
     });
 
     it('asks nothing until a template is picked on the Anonymize tab', () => {

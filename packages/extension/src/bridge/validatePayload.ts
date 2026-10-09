@@ -585,6 +585,8 @@ export const dataOpsAnonymizePayloadSchema = z.object({
   orgId: orgIdSchema,
   templateId: opaqueIdSchema,
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
+  // The checkpoint a resume names: matched against the one kept, never read as anything else.
+  resumeFrom: opaqueIdSchema.optional(),
 });
 export const dataOpsAnonymizeCoveragePayloadSchema = z.object({
   orgId: orgIdSchema,

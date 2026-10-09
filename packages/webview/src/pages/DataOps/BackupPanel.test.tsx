@@ -36,6 +36,20 @@ describe('BackupPanel', () => {
     expect(screen.getByText('No backups available')).toBeDefined();
   });
 
+  it('names, before the click, the objects a backup reads and the template they come from', () => {
+    const { rerender } = render(
+      <BackupPanel objects={['Contact', 'Lead']} template="GDPR Template" />,
+    );
+    expect(screen.getByTestId('backup-objects').textContent).toBe(
+      'Backs up Contact, Lead: the objects GDPR Template masks.',
+    );
+
+    rerender(<BackupPanel objects={['Contact', 'Lead', 'Opportunity']} />);
+    expect(screen.getByTestId('backup-objects').textContent).toBe(
+      'Backs up Contact, Lead, Opportunity: the objects the anonymization templates mask.',
+    );
+  });
+
   it('should show backup cards', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByTestId('backup-op-1')).toBeDefined();

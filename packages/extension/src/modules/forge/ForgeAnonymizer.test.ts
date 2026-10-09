@@ -255,7 +255,7 @@ describe('ForgeAnonymizer', () => {
         methods: { email: 'generalize' },
       });
 
-      expect(String(persona['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+      expect(String(persona['Email'])).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/);
       expect(generalized['Email']).toBe('***@source.test.invalid');
     });
 

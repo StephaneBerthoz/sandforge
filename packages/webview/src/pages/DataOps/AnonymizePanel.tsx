@@ -30,6 +30,11 @@ export interface AnonymizePanelProps {
   /** Deletes a template the user saved; one that ships offers no delete. */
   onDeleteTemplate?: (templateId: string) => void;
   onApply?: (templateId: string) => void;
+  /**
+   * Resumes the run of the template that stopped short, the checkpoint the
+   * coverage answer names: only what that run left is masked.
+   */
+  onResume?: (templateId: string, resumeFrom: string) => void;
   isApplying?: boolean;
   previewData?: Record<string, unknown>[];
   /**
@@ -42,6 +47,26 @@ export interface AnonymizePanelProps {
 
 /** What the host answers `dataops:anonymize:coverage` with. */
 type AnonymizeCoverage = DataOpsAnonymizeCoverageResponse['payload'];
+
+/**
+ * Per object, the rows a restore of the latest backup can never bring back
+ * once a run has masked them: those past what it holds, all of them without
+ * a backup; `null` where the org did not count them and nothing says they are
+ * held.
+ */
+function unrestorable(
+  coverage: AnonymizeCoverage,
+): Array<{ objectApiName: string; rows: number | null }> {
+  return coverage.objects.flatMap((o): Array<{ objectApiName: string; rows: number | null }> => {
+    if (o.count === null) {
+      return o.truncated || o.backedUp === 0
+        ? [{ objectApiName: o.objectApiName, rows: null }]
+        : [];
+    }
+    const rows = o.count - o.backedUp;
+    return rows > 0 ? [{ objectApiName: o.objectApiName, rows }] : [];
+  });
+}
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   gdpr: 'dataops.frameworks.gdpr',
@@ -124,17 +149,24 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   saveTemplateError = null,
   onDeleteTemplate,
   onApply,
+  onResume,
   isApplying = false,
   previewData,
   coverage,
 }) => {
   const { t } = useTranslation();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Apply and Resume both write over the org's records, behind the same typed confirmation.
+  const [confirming, setConfirming] = useState<'apply' | 'resume' | null>(null);
   const [editing, setEditing] = useState(false);
   // Held by id: a delete asked about one template is not a delete of the next one picked.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const selectedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
+  // An answer for another template is not this one's.
+  const selectedCoverage =
+    coverage && selectedTemplate && coverage.templateId === selectedTemplate.id ? coverage : null;
+  const checkpoint = selectedCoverage?.checkpoint;
+  const lost = selectedCoverage ? unrestorable(selectedCoverage) : [];
 
   // The editor closes when a save it sent lands, and stays open, with what was
   // typed, when the host refuses it.
@@ -230,10 +262,16 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                     </Badge>
                   ))}
                 </div>
-                {/* Before Apply, which masks every row for good: an answer
-                    for another template is not this one's. */}
-                {coverage && coverage.templateId === selectedTemplate.id && (
-                  <RestoreCoverage coverage={coverage} />
+                {/* Before Apply, which masks every row for good. */}
+                {selectedCoverage && <RestoreCoverage coverage={selectedCoverage} />}
+                {checkpoint && onResume && (
+                  <span className="text-xs text-text-primary" data-testid="resume-hint">
+                    {t('dataops.resumeHint', {
+                      date:
+                        formatStoredDate(checkpoint.savedAt, (d) => d.toLocaleString(uiLocale())) ??
+                        t('common.dateUnknown'),
+                    })}
+                  </span>
                 )}
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="flex flex-wrap gap-2">
@@ -246,12 +284,26 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={() => setConfirmOpen(true)}
+                      onClick={() => setConfirming('apply')}
                       loading={isApplying}
                       data-testid="apply-btn"
                     >
                       {t('dataops.applyAnonymization')}
                     </Button>
+                    {/* Where the last run stopped short: Apply would mask
+                        again what it masked, and an address it hashed is
+                        hashed once more. */}
+                    {checkpoint && onResume && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setConfirming('resume')}
+                        disabled={isApplying}
+                        data-testid="resume-btn"
+                      >
+                        {t('dataops.resumeAnonymization')}
+                      </Button>
+                    )}
                     {selectedTemplate.saved &&
                       onDeleteTemplate &&
                       (confirmDeleteId === selectedTemplate.id ? (
@@ -294,16 +346,45 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           {/* Apply masks records in the org for good; it used to fire straight
               off the click, with nothing between the pointer and the write. */}
           <DangerConfirm
-            open={confirmOpen}
-            onClose={() => setConfirmOpen(false)}
+            open={confirming !== null}
+            onClose={() => setConfirming(null)}
             onConfirm={() => {
-              setConfirmOpen(false);
-              onApply?.(selectedTemplate.id);
+              const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
+              setConfirming(null);
+              if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
+              else onApply?.(selectedTemplate.id);
             }}
-            title={t('dataops.applyAnonymization')}
+            title={
+              confirming === 'resume'
+                ? t('dataops.resumeAnonymization')
+                : t('dataops.applyAnonymization')
+            }
             description={t('dataops.anonymizeDesc')}
             confirmText={t('dataops.anonymize')}
-          />
+          >
+            {/* The confirmation said only 'Anonymize sensitive data', whatever
+                the backup held: 1 220 contacts on a Developer Edition, 500
+                backed up, and nothing said the other 720 could never come
+                back. */}
+            {lost.length > 0 && (
+              <div className="text-xs text-text-primary" data-testid="confirm-unrestorable">
+                <p>{t('dataops.coverage.confirmShortfall')}</p>
+                <ul className="list-disc pl-4">
+                  {lost.map((o) => (
+                    <li key={o.objectApiName}>
+                      {o.objectApiName}:{' '}
+                      {o.rows === null
+                        ? t('dataops.coverage.notCounted')
+                        : t('common.recordCountFormatted', {
+                            count: o.rows,
+                            formatted: formatNumber(o.rows),
+                          })}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </DangerConfirm>
         </div>
       )}
 

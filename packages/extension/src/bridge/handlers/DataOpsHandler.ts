@@ -60,6 +60,16 @@ import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
+import {
+  MAX_CHECKPOINT_REFUSED,
+  MaskingCheckpointStore,
+  maskingFingerprint,
+  refusedCount,
+} from '../../modules/dataops/MaskingCheckpointStore.js';
+import type {
+  MaskingCheckpoint,
+  MaskingProgress,
+} from '../../modules/dataops/MaskingCheckpointStore.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -242,6 +252,18 @@ interface MaskingTally {
   /** Whether the run read the object to its last row. */
   done: boolean;
 }
+
+/** One object of a masking run: its rules, its counts, and how far the run got through it. */
+interface MaskingWork {
+  objectName: string;
+  objectRules: AnonymizationTemplateRule[];
+  tally: MaskingTally;
+  /** What a checkpoint keeps of the object, should the run stop short. */
+  progress: MaskingProgress;
+}
+
+/** The code of a resume refused because the checkpoint it names is not the one kept. */
+const NOTHING_TO_RESUME = 'NOTHING_TO_RESUME';
 
 /**
  * Rows of an object the run never reached, counted from the rows it held: none
@@ -612,10 +634,17 @@ export class DataOpsHandler implements DomainHandler {
    * counts before it writes anything: its progress counts against these, and
    * what a run that stops leaves is counted from them.
    *
+   * @param afterId - Count only the rows past this one, in Id order: those a
+   *   resume has left to read. Letters and digits only, as a checkpoint keeps it.
    * @throws When the org answers the count with no number.
    */
-  private async countRows(conn: Connection, objectApiName: string): Promise<number> {
-    const answer = await conn.query(`SELECT COUNT() FROM ${objectApiName}`);
+  private async countRows(
+    conn: Connection,
+    objectApiName: string,
+    afterId?: string,
+  ): Promise<number> {
+    const after = afterId === undefined ? '' : ` WHERE Id > '${afterId}'`;
+    const answer = await conn.query(`SELECT COUNT() FROM ${objectApiName}${after}`);
     const total: unknown = answer.totalSize;
     if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
       throw new Error(`The org did not say how many records ${objectApiName} holds.`);
@@ -1598,9 +1627,14 @@ export class DataOpsHandler implements DomainHandler {
     };
     /** Per object, the rows it held and what the run did with them so far. */
     const tallies: MaskingTally[] = [];
+    /** Per object, its rules, its counts, and how far the run got through it. */
+    const work: MaskingWork[] = [];
+    /** What a checkpoint of this run is good for: its rules and its objects. */
+    const fingerprint = template ? maskingFingerprint(template.rules, plannedObjects) : '';
     /**
-     * Whether every object the run addresses has been counted: until then, how
-     * many rows a run that stops leaves cannot be said.
+     * Whether every object the run addresses has been counted and the guard
+     * let it go ahead: until then, how many rows a run that stops leaves is
+     * not said.
      */
     let counted = false;
     /**
@@ -1608,6 +1642,13 @@ export class DataOpsHandler implements DomainHandler {
      * stops at the first object it may not write, and must still be recorded.
      */
     let unrecorded = false;
+    /**
+     * Whether the run was announced: from then on, where it got is kept, or
+     * forgotten, when it ends — however it ends.
+     */
+    let begun = false;
+    /** Whether the end of the run already kept or forgot where it got. */
+    let checkpointSettled = false;
     /**
      * Aborted by the registry: a cancel of the run, the window closing. A run
      * was never registered, so nothing could stop it, and it masked every
@@ -1652,12 +1693,164 @@ export class DataOpsHandler implements DomainHandler {
       });
     };
 
+    /**
+     * Keep where the run got when it left rows holding their original values,
+     * so that Resume masks only those; forget it once nothing is left. A run
+     * masks every row it reads, and a second run over rows the first one
+     * masked masks them again: an address it hashed is still an address, and
+     * is hashed once more, so the same address no longer gives the same
+     * pseudonym on Contact and on Lead.
+     *
+     * Kept outside the org: losing it costs a resume, never the run's result,
+     * so a store that cannot keep it is logged and the run ends as it did.
+     *
+     * @returns Whether a run of this template on this org can now be resumed.
+     */
+    const settleCheckpoint = (): boolean => {
+      checkpointSettled = true;
+      const checkpoints = new MaskingCheckpointStore(this.deps.configStore);
+      const { recordsNotMasked } = maskingTotals(tallies);
+      const handled = tallies.reduce((sum, t) => sum + t.masked + t.nothingToMask + t.refused, 0);
+      try {
+        if (recordsNotMasked === 0) {
+          checkpoints.clear(payload.orgId, payload.templateId);
+          return false;
+        }
+        // A run that handled no row changed nothing in the org: where the run
+        // before it stopped is still where the org stands.
+        if (handled === 0) {
+          return checkpoints.load(payload.orgId, payload.templateId, fingerprint) !== undefined;
+        }
+        const objects = work.map((w) => w.progress);
+        if (refusedCount(objects) > MAX_CHECKPOINT_REFUSED) {
+          this.deps.log(
+            `[WARN] dataops:anonymize ${operationId}: the org refused ${refusedCount(objects)} ` +
+              `record(s), more than a resume retries (${MAX_CHECKPOINT_REFUSED}): only a full run masks them.`,
+          );
+          checkpoints.clear(payload.orgId, payload.templateId);
+          return false;
+        }
+        checkpoints.save({
+          id: operationId,
+          orgId: payload.orgId,
+          templateId: payload.templateId,
+          fingerprint,
+          savedAt: new Date().toISOString(),
+          objects,
+        });
+        return true;
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] dataops:anonymize ${operationId}: where the run stopped was not kept: ` +
+            extractErrorMessage(err),
+        );
+        return false;
+      }
+    };
+
     try {
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
         this.refuseWithoutGuard('dataops:anonymize', msg, operationId, failure, run);
         return;
       }
+      // Before anything is counted: an unknown template has nothing to count.
+      if (!template) {
+        sendNotification(
+          this.deps,
+          'error',
+          'Anonymize',
+          `Template "${payload.templateId}" not found.`,
+        );
+        return;
+      }
+
+      /** Where the run this one resumes stopped; a run asked for whole starts from nothing. */
+      let resumed: MaskingCheckpoint | undefined;
+      if (payload.resumeFrom !== undefined) {
+        resumed = new MaskingCheckpointStore(this.deps.configStore).load(
+          payload.orgId,
+          payload.templateId,
+          fingerprint,
+        );
+        // Another run since, a run that finished, or rules edited since: what
+        // the page offered to resume is not where the org stands, and a run
+        // from the first row would mask again what was masked.
+        if (resumed?.id !== payload.resumeFrom) {
+          sendHandlerError(
+            this.deps,
+            'dataops:anonymize',
+            'dataops:error',
+            msg,
+            new Error(
+              'There is nothing to resume: the run has finished since, another run of this ' +
+                'template has stopped since, or its rules have changed. Apply masks every record ' +
+                'of its objects.',
+            ),
+            { code: NOTHING_TO_RESUME },
+          );
+          return;
+        }
+      }
+
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+
+      /** The org's API usage, once it passed the line past which the run makes no call. */
+      let apiLimit: SforceLimitInfo | undefined;
+      /** Log the org's API usage after a call, and keep it once it passes that line. */
+      const noteApiUsage = (context: string): void => {
+        const usage = checkApiLimits(conn.limitInfo, context);
+        if (usage && usage.usagePercent >= MASKING_API_STOP_PERCENT) apiLimit ??= usage;
+      };
+      /** Where the org's API usage stood when the run stopped on it, if it did. */
+      const usageAtStop = (): SforceLimitInfo | undefined => apiLimit;
+
+      // Every object is counted before the guard is asked and before anything
+      // is written. The guard was asked first, with no count: a production
+      // confirmation said 'UPDATE an unknown number of records', and the
+      // warning past 50 000 rows never fired on a sandbox, whose tier only
+      // warns. The progress counts rows against these totals, and a run that
+      // stops says from them how many rows of each object it left. A resume
+      // counts what the run it resumes left: the rows past where it stopped,
+      // and the ones the org refused.
+      for (const objectName of plannedObjects) {
+        const objectRules = template.rules.filter(
+          (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
+        );
+        if (objectRules.length === 0) continue;
+        const safeObj = sanitizeSoqlObjectName(objectName);
+        failure.objectName = safeObj;
+        const from = resumed?.objects.find((o) => o.objectApiName === safeObj);
+        const progress: MaskingProgress = {
+          objectApiName: safeObj,
+          done: from?.done ?? false,
+          ...(from?.afterId !== undefined ? { afterId: from.afterId } : {}),
+          refused: [...(from?.refused ?? [])],
+        };
+        let toRead = 0;
+        if (!progress.done) {
+          toRead = await this.countRows(conn, safeObj, progress.afterId);
+          noteApiUsage(`dataops:anonymize count ${safeObj}`);
+          if (toRead === 0) progress.done = true;
+        }
+        const total = toRead + progress.refused.length;
+        const tally: MaskingTally = {
+          objectApiName: safeObj,
+          total,
+          masked: 0,
+          nothingToMask: 0,
+          refused: 0,
+          done: total === 0,
+        };
+        tallies.push(tally);
+        work.push({ objectName, objectRules, tally, progress });
+      }
+      const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -1666,9 +1859,9 @@ export class DataOpsHandler implements DomainHandler {
         // The objects the run addresses, so a production confirmation
         // names them instead of an opaque 'AnonymizeData'.
         objectName: plannedObjects.join(', ') || 'AnonymizeData',
-        // The rows are counted below, on a connection the guard comes
-        // before: a run it stops opens none.
-        recordCount: 'unknown' as const,
+        // The rows counted above: every one of them is written over. A run
+        // the guard stops has made these counts, and no write.
+        recordCount: grandTotal,
         module: 'dataops',
       };
       const { check, decision } = await consultProductionGuard(guard, guardRequest);
@@ -1689,30 +1882,18 @@ export class DataOpsHandler implements DomainHandler {
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
         return;
       }
-
-      const conn = await getJsforceConnection(
-        payload.orgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-      if (!template) {
-        sendNotification(
-          this.deps,
-          'error',
-          'Anonymize',
-          `Template "${payload.templateId}" not found.`,
-        );
-        return;
+      // A tier that asks nothing still says what it saw: a run past 50 000
+      // rows on a sandbox.
+      for (const warning of check.warnings) {
+        this.deps.log(`[WARN] dataops:anonymize ${operationId}: ${warning}`);
       }
+      counted = true;
 
       // The org's tier sets how many rows a page reads: 2,000 on a sandbox, 500
       // on production. It used to be how many rows of each object a run read at
       // all: the rows past it were never masked, the progress counted only what
       // was read, and the run said it had succeeded.
-      const anonOrg = this.deps.orgManager.getOrg(payload.orgId);
-      const anonOrgTier = resolveOrgTier(
-        anonOrg?.orgType === 'Sandbox' || anonOrg?.orgType === 'Scratch',
-      );
+      const anonOrgTier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
       const pageSize = getQueryLimits(anonOrgTier).defaultQueryLimit;
 
       // Create CrudFlsGuard for permission checks before DML
@@ -1724,6 +1905,7 @@ export class DataOpsHandler implements DomainHandler {
       const description = `Anonymizing with ${template.name}`;
       sendOperationStarted(this.deps, operationId, 'dataops', description);
       unrecorded = true;
+      begun = true;
       this.deps.infraServices?.backgroundRegistry?.register(
         operationId,
         'dataops',
@@ -1746,46 +1928,7 @@ export class DataOpsHandler implements DomainHandler {
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
-      /** The org's API usage, once it passed the line past which the run makes no call. */
-      let apiLimit: SforceLimitInfo | undefined;
-      /** Log the org's API usage after a call, and keep it once it passes that line. */
-      const noteApiUsage = (context: string): void => {
-        const usage = checkApiLimits(conn.limitInfo, context);
-        if (usage && usage.usagePercent >= MASKING_API_STOP_PERCENT) apiLimit ??= usage;
-      };
-      /** Where the org's API usage stood when the run stopped on it, if it did. */
-      const usageAtStop = (): SforceLimitInfo | undefined => apiLimit;
 
-      // Every object is counted before anything is written: the progress
-      // counts rows against these totals, and a run that stops says from them
-      // how many rows of each object it left.
-      const work: Array<{
-        objectName: string;
-        objectRules: AnonymizationTemplateRule[];
-        tally: MaskingTally;
-      }> = [];
-      for (const objectName of plannedObjects) {
-        const objectRules = template.rules.filter(
-          (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
-        );
-        if (objectRules.length === 0) continue;
-        const safeObj = sanitizeSoqlObjectName(objectName);
-        failure.objectName = safeObj;
-        const total = await this.countRows(conn, safeObj);
-        noteApiUsage(`dataops:anonymize count ${safeObj}`);
-        const tally: MaskingTally = {
-          objectApiName: safeObj,
-          total,
-          masked: 0,
-          nothingToMask: 0,
-          refused: 0,
-          done: total === 0,
-        };
-        tallies.push(tally);
-        work.push({ objectName, objectRules, tally });
-      }
-      counted = true;
-      const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
       /** Rows of one object the run is done with: masked, refused, or holding nothing to mask. */
       const doneWith = (t: MaskingTally): number => t.masked + t.nothingToMask + t.refused;
       /** Progress over the rows of every object, counted against what the counts said. */
@@ -1803,7 +1946,7 @@ export class DataOpsHandler implements DomainHandler {
         );
       };
 
-      for (const { objectName, objectRules, tally } of work) {
+      for (const { objectName, objectRules, tally, progress } of work) {
         if (tally.total === 0) continue;
         if (stop.signal.aborted) {
           cancelled = true;
@@ -1860,35 +2003,19 @@ export class DataOpsHandler implements DomainHandler {
         }
         failure.batchSize = MASKING_BATCH_SIZE;
 
-        // Page after page to the object's last row, each written back before
-        // the next is read, so the run holds one page whatever the object's
-        // size. A cancel, or the org's API usage passing the line, is honoured
-        // before the next page, and before each batch of this one.
-        let afterId: string | undefined;
-        for (;;) {
-          if (stop.signal.aborted) {
-            cancelled = true;
-            break;
-          }
-          if (usageAtStop()) break;
-          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId);
-          noteApiUsage(`dataops:anonymize query ${safeObj}`);
-          if (page.records.length === 0) {
-            tally.done = true;
-            break;
-          }
-          // Where the next page starts, taken before this one is written: a
-          // page that does not end past the one before it is not written twice.
-          const nextAfterId = page.truncated ? pageEnd(page.records, afterId, safeObj) : undefined;
-
-          // Reading a page takes a while: a cancel that came meanwhile is
-          // honoured before any of it is written.
-          if (stop.signal.aborted) {
-            cancelled = true;
-            break;
-          }
-
-          const anonymized = engine.anonymize(page.records, rules);
+        /**
+         * Mask rows read from the object and write them back, two hundred an
+         * update, handing each batch the org answered to `onAnswered` with the
+         * ids it refused. A cancel, or the org's API usage passing the line, is
+         * honoured before each batch.
+         *
+         * @returns Whether it stopped before every batch was written.
+         */
+        const writeBack = async (
+          records: Array<Record<string, unknown>>,
+          onAnswered: (batch: ReadonlyArray<Record<string, unknown>>, refused: string[]) => void,
+        ): Promise<boolean> => {
+          const anonymized = engine.anonymize(records, rules);
 
           // Only the Id and the template's fields that held something go back.
           // Each record used to go back with every field it was read with — its
@@ -1900,16 +2027,16 @@ export class DataOpsHandler implements DomainHandler {
           // the digest of nothing, which an Email field refuses along with the
           // rest of the record — is data the record never had.
           const payloads: Array<Record<string, unknown>> = [];
-          page.records.forEach((original, index) => {
-            const payload: Record<string, unknown> = { Id: original.Id };
+          records.forEach((original, index) => {
+            const update: Record<string, unknown> = { Id: original.Id };
             for (const rule of rules) {
               if (isFilledValue(original[rule.fieldApiName])) {
-                payload[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
+                update[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
               }
             }
             // A record none of whose masked fields held anything is done, as
             // an erasure counts one; the audit trail keeps to what was written.
-            if (Object.keys(payload).length > 1) payloads.push(payload);
+            if (Object.keys(update).length > 1) payloads.push(update);
             else tally.nothingToMask++;
           });
 
@@ -1927,9 +2054,9 @@ export class DataOpsHandler implements DomainHandler {
             // hundred records.
             if (stop.signal.aborted) {
               cancelled = true;
-              break;
+              return true;
             }
-            if (usageAtStop()) break;
+            if (usageAtStop()) return true;
             const batch = payloads.slice(bi, bi + MASKING_BATCH_SIZE);
             // The waiver the restore's upsert sends: a duplicate rule can block
             // an edit as it blocks a create, and a masked record that the rule
@@ -1942,25 +2069,102 @@ export class DataOpsHandler implements DomainHandler {
             noteApiUsage(`dataops:anonymize update ${safeObj}`);
             // Same dropped count as the restore: a record the org refuses keeps
             // its real PII, and reporting only the successes hid exactly that.
-            for (const r of Array.isArray(updateResults) ? updateResults : [updateResults]) {
+            const refusedIds: string[] = [];
+            const answers = Array.isArray(updateResults) ? updateResults : [updateResults];
+            answers.forEach((r, i) => {
               if (r.success) {
                 tally.masked++;
-                continue;
+                return;
               }
               tally.refused++;
+              const id = batch[i]?.Id;
+              if (typeof id === 'string' && RECORD_ID.test(id)) refusedIds.push(id);
               collectDmlError(maskErrors, safeObj, r.errors);
-            }
+            });
+            onAnswered(batch, refusedIds);
             reportProgress(objectName, tally);
           }
-          // A page whose rows held nothing to mask is done with all the same.
+          // Rows that held nothing to mask are done with all the same.
           if (payloads.length === 0) reportProgress(objectName, tally);
-          if (cancelled || usageAtStop()) break;
+          return false;
+        };
+
+        // A resume first tries again, by Id, the rows the org refused last
+        // time: they hold their original values, and lie behind where the run
+        // it resumes stopped, so reading on from there never reaches them.
+        const retry = [...progress.refused];
+        for (let i = 0; i < retry.length; i += MASKING_BATCH_SIZE) {
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
+          if (usageAtStop()) break;
+          const ids = retry.slice(i, i + MASKING_BATCH_SIZE);
+          const rows = await queryAll<Record<string, unknown>>(
+            conn,
+            `SELECT ${fields} FROM ${safeObj} WHERE Id IN (${ids.map((id) => `'${id}'`).join(', ')})`,
+          );
+          noteApiUsage(`dataops:anonymize query ${safeObj}`);
+          // A row deleted since holds nothing left to mask.
+          tally.total -= ids.length - rows.length;
+          const refusedAgain: string[] = [];
+          const stopped = await writeBack(rows, (_batch, refused) => refusedAgain.push(...refused));
+          if (stopped) break;
+          const tried = new Set(ids);
+          progress.refused = [...progress.refused.filter((id) => !tried.has(id)), ...refusedAgain];
+        }
+        if (cancelled || usageAtStop()) break;
+        if (progress.done) {
+          tally.done = true;
+          continue;
+        }
+
+        // Page after page to the object's last row, each written back before
+        // the next is read, so the run holds one page whatever the object's
+        // size. A cancel, or the org's API usage passing the line, is honoured
+        // before the next page, and before each batch of this one. A resume
+        // reads on from the last row the run it resumes handled.
+        let afterId: string | undefined = progress.afterId;
+        for (;;) {
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
+          if (usageAtStop()) break;
+          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId);
+          noteApiUsage(`dataops:anonymize query ${safeObj}`);
+          if (page.records.length === 0) {
+            tally.done = true;
+            progress.done = true;
+            break;
+          }
+          // Where the next page starts, taken before this one is written: a
+          // page that does not end past the one before it is not written twice.
+          const nextAfterId = page.truncated ? pageEnd(page.records, afterId, safeObj) : undefined;
+
+          // Reading a page takes a while: a cancel that came meanwhile is
+          // honoured before any of it is written.
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
+
+          // Every row of the page up to the last of a batch the org answered
+          // is done with: a run that stops between two batches resumes after it.
+          const stopped = await writeBack(page.records, (batch, refused) => {
+            progress.refused.push(...refused);
+            const lastId = batch[batch.length - 1]?.Id;
+            if (typeof lastId === 'string' && RECORD_ID.test(lastId)) progress.afterId = lastId;
+          });
+          if (stopped) break;
           // A page that came back short was the last one.
           if (nextAfterId === undefined) {
             tally.done = true;
+            progress.done = true;
             break;
           }
           afterId = nextAfterId;
+          progress.afterId = nextAfterId;
         }
         if (cancelled || usageAtStop()) break;
       }
@@ -1971,6 +2175,7 @@ export class DataOpsHandler implements DomainHandler {
       const left = leftByObject(tallies);
       unrecorded = false;
       recordWriteRun(this.deps, { ...run, outcome: status, objects: maskingAuditCounts(tallies) });
+      const resumable = settleCheckpoint();
       if (recordsNotMasked > 0) {
         const why = cancelled
           ? 'cancelled'
@@ -2008,17 +2213,22 @@ export class DataOpsHandler implements DomainHandler {
         : limitHit
           ? `Anonymization stopped at ${limitHit.usagePercent}% of the org's daily API requests ` +
             `(${limitHit.apiUsage} of ${limitHit.apiLimit}): ${recordsProcessed} masked — ` +
-            `${stillHeld}. Run it again once the org has requests to spare.`
+            `${stillHeld}. ${resumable ? 'Resume it' : 'Run it again'} once the org has ` +
+            'requests to spare.'
           : recordsFailed === 0
             ? `Anonymization completed: ${recordsProcessed} records processed.`
             : `Anonymization ${status}: ${recordsProcessed} masked, ${recordsFailed} rejected by the org` +
               ' — those records still hold their original values.';
+      // Said once the run left something a resume can mask, and not for a run
+      // that left nothing.
+      const resumeHint =
+        resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
       const message =
-        fieldsNotFound.length > 0
+        (fieldsNotFound.length > 0
           ? `${ranMessage} Masked nothing in ${fieldsNotFound
               .map((f) => `${f.objectApiName}.${f.fieldApiName}`)
               .join(', ')}: the org has no such field.`
-          : ranMessage;
+          : ranMessage) + resumeHint;
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
         templateId: payload.templateId,
         status,
@@ -2062,6 +2272,8 @@ export class DataOpsHandler implements DomainHandler {
           objects: counted ? maskingAuditCounts(tallies) : [],
         });
       }
+      // And where it got is kept for a resume, as for a run that ended on its own.
+      if (begun && !checkpointSettled) settleCheckpoint();
       settleRun(runError);
     }
   }
@@ -2131,12 +2343,20 @@ export class DataOpsHandler implements DomainHandler {
           truncated: held?.truncated === true,
         });
       }
+      // The last run of this template on this org, when it stopped short and
+      // its rules are still the template's: the page offers to resume it.
+      const checkpoint = new MaskingCheckpointStore(this.deps.configStore).load(
+        parsed.orgId,
+        parsed.templateId,
+        maskingFingerprint(template.rules, plannedAnonymizeObjects({}, template)),
+      );
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:coverage:response', {
         templateId: parsed.templateId,
         ...(backup
           ? { backup: { operationId: backup.operationId, timestamp: backup.timestamp } }
           : {}),
         objects,
+        ...(checkpoint ? { checkpoint: { id: checkpoint.id, savedAt: checkpoint.savedAt } } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);

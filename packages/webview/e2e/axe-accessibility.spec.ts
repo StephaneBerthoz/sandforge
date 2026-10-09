@@ -6213,6 +6213,53 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Anonymize offering to resume a run, and a confirmation naming what no restore brings back', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-gdpr',
+              name: 'GDPR Standard',
+              description: 'Mask the people.',
+              complianceFramework: 'gdpr',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+              ],
+            },
+          ],
+        },
+      );
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-gdpr');
+      await bridge.waitForMessage('dataops:anonymize:coverage', { timeout: 10_000 });
+      await answerAll(page, 'dataops:anonymize:coverage', 'dataops:anonymize:coverage:response', {
+        templateId: 'tpl-gdpr',
+        backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+        objects: [
+          { objectApiName: 'Contact', count: 1220, backedUp: 500, truncated: true },
+          { objectApiName: 'Lead', count: null, backedUp: 0, truncated: false },
+        ],
+        checkpoint: { id: 'run-1', savedAt: '2026-10-09T10:00:00.000Z' },
+      });
+      await expect(page.getByTestId('resume-btn')).toBeVisible();
+      await expect(page.getByTestId('resume-hint')).toContainText('stopped before the end');
+      await expectReadable(page, theme);
+
+      await page.getByTestId('resume-btn').click();
+      await expect(page.getByTestId('confirm-unrestorable')).toContainText('Contact: 720 records');
+      await expectReadable(page, theme);
+    });
+
     test('Monitor predictions tile at every urgency', async ({ page }) => {
       await openPanel(bridge, page, 'monitor', theme);
       await bridge.seedOrgs(MOCK_ORGS);

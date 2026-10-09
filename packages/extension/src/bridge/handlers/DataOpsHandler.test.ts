@@ -14,6 +14,12 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
+import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
+import {
+  MaskingCheckpointStore,
+  maskingFingerprint,
+} from '../../modules/dataops/MaskingCheckpointStore.js';
+import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -222,6 +228,29 @@ describe('DataOpsHandler', () => {
       return postToWebview.mock.calls.map((c) => c[0]);
     }
 
+    /**
+     * An org that answers each object's `SELECT COUNT()` with its count, and
+     * whose describe fails: a masking run the guard lets go ahead stops at its
+     * permission check, having written nothing.
+     */
+    async function countingOrg(counts: Record<string, number>) {
+      const query = vi.fn(async (soql: string) => {
+        const object = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql)?.[1];
+        if (object === undefined) throw new Error(`Unexpected query: ${soql}`);
+        return { totalSize: counts[object] ?? 0, records: [], done: true };
+      });
+      const sobject = vi.fn();
+      const conn = {
+        query,
+        describe: vi.fn().mockRejectedValue(new Error('describe unavailable')),
+        sobject,
+      };
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockClear();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      return { query, sobject, getJsforceConnection };
+    }
+
     it('emits dataops:error with the real message exactly once when backup fails', async () => {
       // Pin the connection mock explicitly — this file registers several
       // hoisted vi.mock factories for ConnectionHelper, so the resolved
@@ -326,7 +355,8 @@ describe('DataOpsHandler', () => {
       vi.restoreAllMocks();
     });
 
-    it('names the objects a masking run addresses to the production guard', async () => {
+    it('names the objects a masking run addresses to the production guard, and the rows they hold', async () => {
+      await countingOrg({ Account: 3, Contact: 1220 });
       const check = vi.fn().mockReturnValue({
         allowed: true,
         requiresConfirmation: false,
@@ -347,21 +377,24 @@ describe('DataOpsHandler', () => {
           timestamp: Date.now(),
           payload: {
             orgId: 'org-123',
-            templateId: 'tmpl-1',
+            templateId: 'tpl-gdpr-standard',
             objects: ['Account', 'Contact'],
           },
         } as BaseMessage),
       );
 
+      // Counted before the guard is asked: it was asked with 'unknown', and a
+      // production confirmation said 'an unknown number of records'.
       expect(check.mock.calls[0][0]).toMatchObject({
         operation: 'update',
         objectName: 'Account, Contact',
-        recordCount: 'unknown',
+        recordCount: 1223,
         module: 'dataops',
       });
     });
 
     it('names the objects of the template to the production guard when the request lists none', async () => {
+      await countingOrg({ Contact: 1220, Lead: 0, Account: 3 });
       const check = vi.fn().mockReturnValue({
         allowed: true,
         requiresConfirmation: false,
@@ -388,12 +421,13 @@ describe('DataOpsHandler', () => {
       expect(check.mock.calls[0][0]).toMatchObject({
         operation: 'update',
         objectName: 'Contact, Lead, Account',
-        recordCount: 'unknown',
+        recordCount: 1223,
         module: 'dataops',
       });
     });
 
-    it('emits dataops:error once when anonymize is declined at the production guard', async () => {
+    it('emits dataops:error once when anonymize is declined at the production guard, having written nothing', async () => {
+      const { sobject } = await countingOrg({ Account: 3 });
       deps.infraServices = {
         performanceTracker: undefined,
         productionGuard: {
@@ -412,7 +446,7 @@ describe('DataOpsHandler', () => {
         timestamp: Date.now(),
         payload: {
           orgId: 'org-123',
-          templateId: 'tmpl-1',
+          templateId: 'tpl-gdpr-standard',
           objects: ['Account'],
         },
       });
@@ -426,6 +460,7 @@ describe('DataOpsHandler', () => {
         'Operation cancelled by user (production confirmation declined).',
       );
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      expect(sobject).not.toHaveBeenCalled();
     });
 
     it('refuses a masking run with NOT_INITIALIZED, and opens no connection, when no Production Guard was injected', async () => {
@@ -464,12 +499,11 @@ describe('DataOpsHandler', () => {
       ]);
     });
 
-    it('asks before masking an org the registry does not know, and opens no connection when declined', async () => {
+    it('asks before masking an org the registry does not know, saying how many records, and writes nothing when declined', async () => {
       // A real guard, and getOrg left unstubbed: nothing shows 'org-unknown'
       // is a sandbox. It was classed as development, so the masking started
       // without a word to the user.
-      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
-      vi.mocked(getJsforceConnection).mockClear();
+      const { query, sobject } = await countingOrg({ Contact: 1220 });
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
       const check = vi.spyOn(guard, 'check');
@@ -489,17 +523,101 @@ describe('DataOpsHandler', () => {
         } as BaseMessage),
       );
 
+      // The rows are counted first, so the question says how many records
+      // the run writes over; a declined run has counted and written nothing.
       expect(requestConfirmation).toHaveBeenCalledWith(
-        'UPDATE an unknown number of Contact record(s) on production org org-unknown [module: dataops]',
+        'UPDATE 1220 Contact record(s) on production org org-unknown [module: dataops]',
         'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
-      expect(getJsforceConnection).not.toHaveBeenCalled();
+      expect(query.mock.calls.map(([soql]) => soql)).toEqual(['SELECT COUNT() FROM Contact']);
+      expect(sobject).not.toHaveBeenCalled();
       const errors = postedMessages().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toBe(
         'Operation cancelled by user (production confirmation declined).',
       );
+    });
+
+    it('sends no update when the guard refuses the counted run, and says only why', async () => {
+      const { sobject } = await countingOrg({ Contact: 1220 });
+      const check = vi.fn().mockReturnValue({
+        allowed: false,
+        requiresConfirmation: false,
+        blockedReason: 'update is not allowed on production org org-prod',
+        warnings: [],
+        impactSummary: '',
+      });
+      deps.infraServices = {
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a6',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-prod', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(check.mock.calls[0][0]).toMatchObject({ recordCount: 1220 });
+      expect(sobject).not.toHaveBeenCalled();
+      const errors = postedMessages().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      // Nothing was masked, so nothing is said about rows left as they were.
+      expect(errors[0].payload.message).toBe(
+        'Operation blocked by Production Guard: update is not allowed on production org org-prod',
+      );
+    });
+
+    it('warns of a run past 50 000 rows on a sandbox, whose tier asks nothing', async () => {
+      // The guard was asked with no count, which it weighs as none: the
+      // warning past 50 000 rows never fired on a sandbox.
+      await countingOrg({ Contact: 60_000 });
+      const guard = new ProductionGuard();
+      const check = vi.spyOn(guard, 'check');
+      deps.infraServices = {
+        productionGuard: guard,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a7',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(check.mock.results[0]?.value).toMatchObject({
+        allowed: true,
+        warnings: ['Large volume operation: 60000 records on development org'],
+      });
+      expect(vi.mocked(deps.log).mock.calls.map(([line]) => line)).toContainEqual(
+        expect.stringContaining('Large volume operation: 60000 records on development org'),
+      );
+    });
+
+    it('opens no connection for a template it does not hold', async () => {
+      const { getJsforceConnection } = await countingOrg({});
+      const check = vi.fn();
+      deps.infraServices = {
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a8',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gone' },
+        } as BaseMessage),
+      );
+
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+      expect(check).not.toHaveBeenCalled();
     });
   });
 
@@ -2277,6 +2395,8 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     ignoreAfter?: boolean;
     /** Called once each update is answered, with how many were. */
     afterBatch?: (batchesWritten: number, conn: { limitInfo?: unknown }) => void;
+    /** Whether the org refuses to update a row, which then keeps its values. */
+    refuse?: (id: string) => boolean;
   }
 
   /** An org holding `rows`, read and written the way Salesforce does. */
@@ -2284,14 +2404,21 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     let pagesRead = 0;
     const conn: { limitInfo?: unknown } = {};
     const query = vi.fn(async (soql: string) => {
+      const after = quirks.ignoreAfter ? undefined : /\bWHERE Id > '(\w+)'/.exec(soql)?.[1];
       if (soql.startsWith('SELECT COUNT() ')) {
-        return { totalSize: rows.length, records: [], done: true };
+        const counted = rows.filter((r) => after === undefined || String(r.Id) > after);
+        return { totalSize: counted.length, records: [], done: true };
+      }
+      const inList = /\bWHERE Id IN \(([^)]*)\)/.exec(soql)?.[1];
+      if (inList !== undefined) {
+        const ids = new Set(inList.split(',').map((id) => id.trim().replace(/'/g, '')));
+        const found = rows.filter((r) => ids.has(String(r.Id))).map((r) => ({ ...r }));
+        return { totalSize: found.length, records: found, done: true };
       }
       pagesRead += 1;
       if (pagesRead === quirks.failPage) {
         throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
       }
-      const after = quirks.ignoreAfter ? undefined : /\bWHERE Id > '(\w+)'/.exec(soql)?.[1];
       const limit = Number(/\bLIMIT (\d+)/.exec(soql)?.[1] ?? rows.length);
       const page = rows
         .filter((r) => after === undefined || String(r.Id) > after)
@@ -2301,6 +2428,12 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     });
     const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
       const answers = batch.map((sent) => {
+        if (quirks.refuse?.(String(sent.Id))) {
+          return {
+            success: false,
+            errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: blocked by a rule' }],
+          };
+        }
         Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
         return { success: true, id: sent.Id };
       });
@@ -2315,8 +2448,16 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     return { conn, query, update };
   }
 
-  /** Mask the org's contacts with the GDPR template, the way the page asks. */
-  async function maskContacts(conn: object, orgType = 'Sandbox'): Promise<void> {
+  /**
+   * Mask the org's contacts with the GDPR template, the way the page asks;
+   * with `resumeFrom`, the way its Resume asks.
+   */
+  async function maskContacts(
+    conn: object,
+    orgType = 'Sandbox',
+    resumeFrom?: string,
+    templateId = 'tpl-gdpr-standard',
+  ): Promise<void> {
     const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
     vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
     (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
@@ -2325,9 +2466,36 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
         id: 'an-pages',
         type: 'dataops:anonymize',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        payload: {
+          orgId: 'org-1',
+          templateId,
+          objects: ['Contact'],
+          ...(resumeFrom !== undefined ? { resumeFrom } : {}),
+        },
       } as BaseMessage),
     );
+  }
+
+  /** Where the last run of a template on the org stopped, as the store keeps it. */
+  function checkpointOf(templateId = 'tpl-gdpr-standard'):
+    | {
+        id: string;
+        objects: Array<{
+          objectApiName: string;
+          done: boolean;
+          afterId?: string;
+          refused: string[];
+        }>;
+      }
+    | undefined {
+    return store.get(`anonymization:checkpoint:org-1:${templateId}`);
+  }
+
+  /** The ids every update call sent, from call `from` on. */
+  function idsSent(update: ReturnType<typeof vi.fn>, from = 0): string[] {
+    return update.mock.calls
+      .slice(from)
+      .flatMap(([batch]) => (batch as Array<Record<string, unknown>>).map((r) => String(r.Id)));
   }
 
   /** The last message of a type the handler posted. */
@@ -2590,6 +2758,197 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     const error = String(last('dataops:error')?.payload.message);
     expect(error).toContain('does not end past the page before it');
     expect(error).toContain('500 still hold their original values (Contact 500)');
+  });
+
+  /**
+   * A run that stops short, resumed. Every run used to start each object at
+   * its first row: a second run masked again what the first had masked, and
+   * an address already hashed — still an address — was hashed once more.
+   */
+  describe('resumed where it stopped', () => {
+    it('masks the 500 rows a cancel left after the first page, and none of the 2,000 masked', async () => {
+      const rows = contactsOf(2500);
+      let cancelOnce = true;
+      const { conn, query, update } = orgOf(rows, {
+        afterBatch: (written) => {
+          if (written === 10 && cancelOnce) {
+            cancelOnce = false;
+            cancelTheRun();
+          }
+        },
+      });
+      await maskContacts(conn);
+      const firstPage = rows.slice(0, 2000).map((r) => ({ ...r }));
+      const checkpoint = checkpointOf();
+      expect(checkpoint).toMatchObject({
+        objects: [
+          { objectApiName: 'Contact', done: false, afterId: String(rows[1999].Id), refused: [] },
+        ],
+      });
+      expect(String(last('dataops:anonymize:response')?.payload.message)).toContain(
+        'Resume masks only what this run left.',
+      );
+      const callsBefore = update.mock.calls.length;
+      const queriesBefore = query.mock.calls.length;
+
+      await maskContacts(conn, 'Sandbox', checkpoint?.id);
+
+      const resumedIds = idsSent(update, callsBefore);
+      expect(resumedIds).toEqual(rows.slice(2000).map((r) => String(r.Id)));
+      // The rows the first run masked keep what it wrote: masked once.
+      expect(rows.slice(0, 2000)).toEqual(firstPage);
+      expect(unmasked(rows)).toBe(0);
+      // Counted and read from where the first run stopped.
+      expect(query.mock.calls.slice(queriesBefore).map(([soql]) => soql)).toEqual([
+        `SELECT COUNT() FROM Contact WHERE Id > '${String(rows[1999].Id)}'`,
+        `SELECT Id, FirstName FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
+      ]);
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+        status: 'success',
+        recordsProcessed: 500,
+        recordsNotMasked: 0,
+        objects: [{ objectApiName: 'Contact', total: 500, processed: 500, notMasked: 0 }],
+      });
+      // Finished: nothing is left to resume.
+      expect(checkpointOf()).toBeUndefined();
+    });
+
+    it('resumes after the last batch the org answered when a cancel comes between two batches', async () => {
+      const rows = contactsOf(1000);
+      let cancelOnce = true;
+      const { conn, update } = orgOf(rows, {
+        afterBatch: (written) => {
+          if (written === 2 && cancelOnce) {
+            cancelOnce = false;
+            cancelTheRun();
+          }
+        },
+      });
+      await maskContacts(conn);
+      expect(checkpointOf()?.objects[0]).toMatchObject({ afterId: String(rows[399].Id) });
+
+      await maskContacts(conn, 'Sandbox', checkpointOf()?.id);
+
+      expect(idsSent(update, 2)).toEqual(rows.slice(400).map((r) => String(r.Id)));
+      expect(new Set(idsSent(update)).size).toBe(1000);
+      expect(unmasked(rows)).toBe(0);
+    });
+
+    it('tries again, by Id and first, the rows the org refused, and keeps those it refuses again', async () => {
+      const rows = contactsOf(300);
+      const blocked = new Set([String(rows[4].Id), String(rows[9].Id)]);
+      const { conn, query, update } = orgOf(rows, { refuse: (id) => blocked.has(id) });
+      await maskContacts(conn);
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+        status: 'partial',
+        recordsFailed: 2,
+      });
+      expect(checkpointOf()?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', done: true, refused: [...blocked] }),
+      ]);
+
+      // The rule is fixed for one of the two.
+      blocked.delete(String(rows[9].Id));
+      const callsBefore = update.mock.calls.length;
+      const queriesBefore = query.mock.calls.length;
+      await maskContacts(conn, 'Sandbox', checkpointOf()?.id);
+
+      expect(idsSent(update, callsBefore)).toEqual([String(rows[4].Id), String(rows[9].Id)]);
+      expect(query.mock.calls.slice(queriesBefore).map(([soql]) => soql)).toEqual([
+        `SELECT Id, FirstName FROM Contact WHERE Id IN ('${String(rows[4].Id)}', '${String(rows[9].Id)}')`,
+      ]);
+      expect(rows[9].FirstName).not.toBe('Person 10');
+      expect(rows[4].FirstName).toBe('Person 5');
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+        status: 'partial',
+        recordsProcessed: 1,
+        recordsFailed: 1,
+        objects: [{ objectApiName: 'Contact', total: 2, processed: 1, failed: 1, notMasked: 1 }],
+      });
+      expect(checkpointOf()?.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Contact',
+          done: true,
+          refused: [String(rows[4].Id)],
+        }),
+      ]);
+    });
+
+    it('masks every row again when Apply runs whole, and forgets where the last run stopped', async () => {
+      const rows = contactsOf(2500);
+      let cancelOnce = true;
+      const { conn, query } = orgOf(rows, {
+        afterBatch: (written) => {
+          if (written === 10 && cancelOnce) {
+            cancelOnce = false;
+            cancelTheRun();
+          }
+        },
+      });
+      await maskContacts(conn);
+      expect(checkpointOf()).toBeDefined();
+      const queriesBefore = query.mock.calls.length;
+
+      await maskContacts(conn);
+
+      expect(query.mock.calls[queriesBefore]?.[0]).toBe('SELECT COUNT() FROM Contact');
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+        status: 'success',
+        recordsProcessed: 2500,
+      });
+      expect(checkpointOf()).toBeUndefined();
+    });
+
+    it('refuses to resume once the template’s rules changed since, and writes nothing', async () => {
+      const templates = new AnonymizationTemplateStore(store);
+      const mine = {
+        id: 'tpl-mine',
+        name: 'Mine',
+        description: '',
+        complianceFramework: 'custom' as const,
+        rules: [{ fieldPattern: 'Contact.FirstName', ruleType: 'fake' as const, description: '' }],
+        saved: true as const,
+        createdAt: '2026-10-01T10:00:00.000Z',
+      };
+      templates.save(mine);
+      const rows = contactsOf(2500);
+      let cancelOnce = true;
+      const { conn, update } = orgOf(rows, {
+        afterBatch: (written) => {
+          if (written === 10 && cancelOnce) {
+            cancelOnce = false;
+            cancelTheRun();
+          }
+        },
+      });
+      await maskContacts(conn, 'Sandbox', undefined, 'tpl-mine');
+      const stopped = checkpointOf('tpl-mine');
+      expect(stopped).toBeDefined();
+      // The same template, its rule now another method.
+      templates.save({ ...mine, rules: [{ ...mine.rules[0], ruleType: 'mask' }] });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockClear();
+      const callsBefore = update.mock.calls.length;
+
+      await maskContacts(conn, 'Sandbox', stopped?.id, 'tpl-mine');
+
+      expect(update.mock.calls.length).toBe(callsBefore);
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+      expect(last('dataops:error')?.payload).toMatchObject({ code: 'NOTHING_TO_RESUME' });
+    });
+
+    it('refuses a resume that names another run than the one kept', async () => {
+      const rows = contactsOf(300);
+      const { conn, update } = orgOf(rows, { refuse: (id) => id === String(rows[0].Id) });
+      await maskContacts(conn);
+      const callsBefore = update.mock.calls.length;
+
+      await maskContacts(conn, 'Sandbox', 'a-run-since-replaced');
+
+      expect(update.mock.calls.length).toBe(callsBefore);
+      expect(last('dataops:error')?.payload).toMatchObject({ code: 'NOTHING_TO_RESUME' });
+      expect(checkpointOf()?.objects[0]?.refused).toEqual([String(rows[0].Id)]);
+    });
   });
 });
 
@@ -3309,5 +3668,42 @@ describe('DataOpsHandler — what a restore can bring back of what a template ma
 
     expect(answer.type).toBe('dataops:error');
     expect(String(answer.payload.message)).toContain('Template "tpl-gone" not found');
+  });
+
+  it('offers to resume the last run of the template that stopped short, while its rules are the same', async () => {
+    const deps = createMockDeps();
+    const store = storeWith({}) as ConfigStore;
+    deps.configStore = store;
+    await countingOrg({ Account: 3, Contact: 4, Lead: 5 });
+    const gdpr = ANONYMIZATION_TEMPLATES.find((t) => t.id === 'tpl-gdpr-standard');
+    const objects = ['Contact', 'Lead', 'Account'];
+    const kept = {
+      id: 'run-1',
+      orgId: 'org-1',
+      templateId: 'tpl-gdpr-standard',
+      fingerprint: maskingFingerprint(gdpr?.rules ?? [], objects),
+      savedAt: '2026-10-09T10:00:00.000Z',
+      objects: [
+        { objectApiName: 'Contact', done: false, afterId: `003${'0'.repeat(11)}1`, refused: [] },
+      ],
+    };
+    const checkpoints = new MaskingCheckpointStore(store);
+    checkpoints.save(kept);
+
+    const offered = (await askCoverage(deps)).at(-1);
+    expect(offered?.payload.checkpoint).toEqual({
+      id: 'run-1',
+      savedAt: '2026-10-09T10:00:00.000Z',
+    });
+
+    // Kept by a version of the template whose rules were other: a resume
+    // would mask the rest another way than the rows already masked.
+    checkpoints.save({
+      ...kept,
+      fingerprint: maskingFingerprint(gdpr?.rules.slice(1) ?? [], objects),
+    });
+    const notOffered = (await askCoverage(deps)).at(-1);
+    expect(notOffered?.type).toBe('dataops:anonymize:coverage:response');
+    expect(notOffered?.payload).not.toHaveProperty('checkpoint');
   });
 });

@@ -186,7 +186,28 @@ describe('AnonymizationEngine', () => {
       // A fake email has to be an email, or the anonymized org fails the
       // validation rules the real one passed — and one at `example.com`, a
       // domain that resolves, is one the masked org's mail can still be sent to.
-      expect(String(result)).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+      expect(String(result)).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/);
+    });
+
+    it('makes up as many names and addresses as there are contacts in one run', () => {
+      // 1 220 contacts on a Developer Edition were masked out of four hundred
+      // names, so contacts shared a name and an address.
+      const records = Array.from({ length: 1220 }, (_, i) => ({
+        Id: `003xx${String(i).padStart(10, '0')}`,
+        FirstName: 'Ada',
+        LastName: 'Lovelace',
+        Email: 'ada@mail.test',
+      }));
+      const rules: DataOpsAnonymizationRule[] = [
+        { objectApiName: 'Contact', fieldApiName: 'FirstName', method: 'fake', config: {} },
+        { objectApiName: 'Contact', fieldApiName: 'LastName', method: 'fake', config: {} },
+        { objectApiName: 'Contact', fieldApiName: 'Email', method: 'fake', config: {} },
+      ];
+      const masked = engine.anonymize(records, rules);
+      expect(new Set(masked.map((r) => `${String(r.FirstName)} ${String(r.LastName)}`)).size).toBe(
+        1220,
+      );
+      expect(new Set(masked.map((r) => r.Email)).size).toBe(1220);
     });
 
     it('makes up an address for an address in a field the persona does not name', () => {

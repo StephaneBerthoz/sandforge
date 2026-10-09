@@ -87,9 +87,74 @@ function keyedSeed(key: string, seed: string): number {
   return createHmac('sha256', key).update(seed).digest().readUInt32BE(0) & 0x7fffffff;
 }
 
+/**
+ * Given names a persona draws from: a hundred neutral English ones.
+ *
+ * Twenty given names and twenty surnames made four hundred people, and a
+ * persona's address is its name: a run over 1 220 contacts could not give them
+ * all a name or an address of their own, and 'Taylor' was on both lists.
+ */
+const FIRST_NAMES = (
+  'Alex Jordan Morgan Casey Riley Quinn Avery Parker Reese Dakota Skyler Sage River Hayden ' +
+  'Emery Finley Blake Charlie Drew Rowan Jamie Robin Kendall Logan Peyton Cameron Jesse Kai ' +
+  'Arden Bailey Blair Brook Carson Corey Devon Eden Ellis Emerson Frankie Gray Harper Jules ' +
+  'Jody Kerry Lane Leslie Linden Marley Micah Nico Noel Oakley Perry Quincy Reagan Remy Rory ' +
+  'Sam Sasha Shawn Spencer Sutton Tatum Terry Toby Tracy Val Wren Wynn Adair Alden Ainsley ' +
+  'Billie Briar Cass Dale Darcy Ellery Emory Fallon Glenn Hollis Ira Jaden Kit Lennon Lou ' +
+  'Mackenzie Monroe Nova Palmer Presley Ridley Sawyer Scout Shay Sloane Tanner Teagan Winter'
+).split(' ');
+
+/**
+ * Surnames a persona draws from: a hundred made-up ones, each a first part and
+ * an ending, none of them a given name above.
+ */
+const LAST_NAMES = [
+  'Ash',
+  'Birch',
+  'Brook',
+  'Clay',
+  'Fern',
+  'Hazel',
+  'Lark',
+  'Marsh',
+  'Oak',
+  'Thorn',
+].flatMap((first) =>
+  ['bury', 'combe', 'dale', 'field', 'ford', 'gate', 'ridge', 'stone', 'ton', 'wood'].map(
+    (ending) => `${first}${ending}`,
+  ),
+);
+
+/**
+ * How many times a persona draws again when its name, or its address, is one
+ * the registry already gave. Past ten thousand records the names run out, and
+ * a name is given twice rather than drawn for ever; the address still differs
+ * by its token.
+ */
+const MAX_REDRAWS = 32;
+
+/** The name a pick gives. */
+function nameOf(hash: number): { firstName: string; lastName: string } {
+  return {
+    firstName: FIRST_NAMES[hash % FIRST_NAMES.length],
+    lastName: LAST_NAMES[(hash >> 8) % LAST_NAMES.length],
+  };
+}
+
+/** A persona's name as one string, `First Last`, as the registry tells two apart by it. */
+function fullName(name: { firstName: string; lastName: string }): string {
+  return `${name.firstName} ${name.lastName}`;
+}
+
 /** Registry of deterministic fake personas for cross-object coherence. */
 export class PersonaRegistry {
   private readonly personas = new Map<string, AnonymizedPersona>();
+
+  /** Full names already given: two records of a run are not one person while names last. */
+  private readonly namesGiven = new Set<string>();
+
+  /** Addresses already given: two records of a run never share one. */
+  private readonly emailsGiven = new Set<string>();
 
   /** HMAC key the persona picks are drawn with. See the constructor. */
   private readonly key: string;
@@ -103,52 +168,6 @@ export class PersonaRegistry {
   constructor(key?: string) {
     this.key = key ?? randomBytes(32).toString('hex');
   }
-
-  private readonly firstNames = [
-    'Alex',
-    'Jordan',
-    'Taylor',
-    'Morgan',
-    'Casey',
-    'Riley',
-    'Quinn',
-    'Avery',
-    'Parker',
-    'Reese',
-    'Dakota',
-    'Skyler',
-    'Sage',
-    'River',
-    'Hayden',
-    'Emery',
-    'Finley',
-    'Blake',
-    'Charlie',
-    'Drew',
-  ];
-
-  private readonly lastNames = [
-    'Smith',
-    'Johnson',
-    'Williams',
-    'Brown',
-    'Jones',
-    'Garcia',
-    'Miller',
-    'Davis',
-    'Rodriguez',
-    'Martinez',
-    'Anderson',
-    'Taylor',
-    'Thomas',
-    'Moore',
-    'Jackson',
-    'Martin',
-    'Lee',
-    'White',
-    'Harris',
-    'Clark',
-  ];
 
   private readonly cities = [
     'Springfield',
@@ -193,6 +212,14 @@ export class PersonaRegistry {
    * The pick is keyed: an unkeyed hash of the id gives every installation the
    * same persona for the same record, so a fake name can be traced back to its
    * record by anyone who can list candidate ids.
+   *
+   * A name the registry already gave is drawn again (`persona:<id>:<n>`), so
+   * the records of one run are as many people as there are records, up to the
+   * ten thousand names there are. The registry lives for one run: which record
+   * draws again follows the order the run reads them in, and the same ordered
+   * run gives the same people. The address carries a short token keyed on the
+   * id, `first.last.ab12`, so it is unlike every other one the registry gave,
+   * and very likely unlike those of another run.
    * @param sourceRecordId - The Salesforce record ID
    * @returns A coherent fake persona
    */
@@ -202,16 +229,19 @@ export class PersonaRegistry {
       return existing;
     }
 
-    const hash = keyedSeed(this.key, `persona:${sourceRecordId}`);
-    const firstName = this.firstNames[hash % this.firstNames.length];
-    const lastName = this.lastNames[(hash >> 8) % this.lastNames.length];
+    let hash = keyedSeed(this.key, `persona:${sourceRecordId}`);
+    for (let n = 1; n <= MAX_REDRAWS && this.namesGiven.has(fullName(nameOf(hash))); n++) {
+      hash = keyedSeed(this.key, `persona:${sourceRecordId}:${n}`);
+    }
+    const { firstName, lastName } = nameOf(hash);
+    this.namesGiven.add(fullName({ firstName, lastName }));
     const city = this.cities[(hash >> 16) % this.cities.length];
 
     const persona: AnonymizedPersona = {
       sourceRecordId,
       firstName,
       lastName,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com`,
+      email: this.emailFor(firstName, lastName, sourceRecordId),
       phone: `+1-555-${String((hash % 900) + 100).padStart(3, '0')}-${String(((hash >> 4) % 9000) + 1000).padStart(4, '0')}`,
       address: `${(hash % 999) + 1} ${this.streets[(hash >> 12) % this.streets.length]}`,
       city,
@@ -223,6 +253,23 @@ export class PersonaRegistry {
     return persona;
   }
 
+  /**
+   * A persona's address: its name and four hex digits keyed on the record id,
+   * drawn again while the registry already gave the address.
+   */
+  private emailFor(firstName: string, lastName: string, sourceRecordId: string): string {
+    const local = `${firstName.toLowerCase()}.${lastName.toLowerCase()}`;
+    let email = '';
+    for (let n = 0; n <= MAX_REDRAWS; n++) {
+      const seed = n === 0 ? `email:${sourceRecordId}` : `email:${sourceRecordId}:${n}`;
+      const token = (keyedSeed(this.key, seed) & 0xffff).toString(16).padStart(4, '0');
+      email = `${local}.${token}@example.com`;
+      if (!this.emailsGiven.has(email)) break;
+    }
+    this.emailsGiven.add(email);
+    return email;
+  }
+
   /** Get count of registered personas. */
   get size(): number {
     return this.personas.size;
@@ -231,6 +278,8 @@ export class PersonaRegistry {
   /** Clear all personas. */
   clear(): void {
     this.personas.clear();
+    this.namesGiven.clear();
+    this.emailsGiven.clear();
   }
 }
 

@@ -408,8 +408,8 @@ describe('DataOps masking with the templates that ship', () => {
 
     // `example.com` resolves, and the masked org's alerts and flows go on
     // sending to the addresses it holds.
-    expect(org.records.Contact[0].Email).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
-    expect(org.records.Lead[0].Email).toMatch(/^[a-z]+\.[a-z]+@example\.invalid$/);
+    expect(org.records.Contact[0].Email).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/);
+    expect(org.records.Lead[0].Email).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/);
   });
 
   it('masks all of a contact’s phone but its last four digits, as the GDPR template says', async () => {

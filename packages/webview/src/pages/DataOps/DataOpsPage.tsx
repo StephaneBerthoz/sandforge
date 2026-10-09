@@ -32,6 +32,19 @@ import { CleanupPanel } from './CleanupPanel';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { uiLocale } from '../../utils/formatters';
 
+/**
+ * The objects templates mask, in the order their rules first name them: those
+ * a masking run of each addresses.
+ */
+function maskedObjects(templates: readonly ListedAnonymizationTemplate[]): string[] {
+  return templates
+    .flatMap((tpl) => tpl.rules.map((rule) => rule.fieldPattern.split('.')[0]))
+    .filter((name, i, all) => name !== '' && name !== '*' && all.indexOf(name) === i);
+}
+
+/** What Backup read whatever the templates masked, kept for an org that lists none. */
+const DEFAULT_BACKUP_OBJECTS = ['Account', 'Contact'];
+
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
   const { save } = useFileSave();
@@ -156,6 +169,24 @@ export const DataOpsPage: React.FC = () => {
   // Derive backups from bridge query + mutation results
   const backups = backupsQuery.data?.backups ?? [];
 
+  // What Backup reads: the objects the picked template masks, or, with none
+  // picked, every object a listed template masks — what an Anonymize writes
+  // over. It read Account and Contact whatever the templates masked, and the
+  // shipped ones also mask Lead and Opportunity, which never had a backup.
+  const templates = templatesQuery.data?.templates ?? [];
+  const pickedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
+  const templateObjects = maskedObjects(pickedTemplate ? [pickedTemplate] : templates);
+  const backupObjects = templateObjects.length > 0 ? templateObjects : DEFAULT_BACKUP_OBJECTS;
+
+  // A run that stopped short leaves a checkpoint to resume, and one that
+  // finished forgets it: the coverage answer says which, so it is asked again
+  // once a run ends, however it ends.
+  const refetchCoverage = useLatestRef(() => coverageQuery.refetch());
+  const anonymizeEnded = anonymizeMutation.data ?? anonymizeMutation.error;
+  useEffect(() => {
+    if (anonymizeEnded) refetchCoverage.current();
+  }, [anonymizeEnded, refetchCoverage]);
+
   /** Show error notifications from bridge hooks. */
   useEffect(() => {
     const bridgeError =
@@ -226,7 +257,7 @@ export const DataOpsPage: React.FC = () => {
     setError(null);
     backupMutation.mutate({
       orgId: currentOrg.id,
-      objects: ['Account', 'Contact'],
+      objects: backupObjects,
     });
   };
 
@@ -277,6 +308,13 @@ export const DataOpsPage: React.FC = () => {
     });
   };
 
+  // Masks only what the run that stopped short left, from where it stopped.
+  const handleResumeAnonymize = (templateId: string, resumeFrom: string) => {
+    if (!currentOrg) return;
+    setError(null);
+    anonymizeMutation.mutate({ orgId: currentOrg.id, templateId, resumeFrom });
+  };
+
   const navigate = useAppStore((s) => s.navigate);
 
   if (orgs.length === 0) {
@@ -301,7 +339,7 @@ export const DataOpsPage: React.FC = () => {
   const failedObjects = backups.filter((b) => b.status === 'failed').length;
   const totalObjects = backups.reduce((sum, b) => sum + b.objectResults.length, 0);
   const errorRate = totalObjects > 0 ? ((failedObjects / totalObjects) * 100).toFixed(1) : '0.0';
-  const templateCount = templatesQuery.data?.templates?.length ?? 0;
+  const templateCount = templates.length;
 
   // A tab waits only on the query it actually reads. Gating the skeleton on
   // both queries at once let a slow templates response paint a skeleton on top
@@ -401,6 +439,8 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'backup' && !tabLoading && (
             <BackupPanel
               backups={backups}
+              objects={backupObjects}
+              template={pickedTemplate?.name}
               onCreate={handleCreateBackup}
               onExport={handleExportBackup}
             />
@@ -420,7 +460,7 @@ export const DataOpsPage: React.FC = () => {
 
           {activeTab === 'anonymize' && !tabLoading && (
             <AnonymizePanel
-              templates={templatesQuery.data?.templates ?? []}
+              templates={templates}
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
               onSaveTemplate={handleSaveTemplate}
@@ -430,6 +470,10 @@ export const DataOpsPage: React.FC = () => {
               // onPreview was this same handler: clicking "Preview" masked the
               // org's data for real. AnonymizePanel now inerts that button.
               onApply={handleApplyAnonymize}
+              onResume={handleResumeAnonymize}
+              // Nothing held the buttons while a run went on, so a second
+              // click started a second run over the same records.
+              isApplying={anonymizeMutation.loading}
               coverage={coverageQuery.data}
             />
           )}

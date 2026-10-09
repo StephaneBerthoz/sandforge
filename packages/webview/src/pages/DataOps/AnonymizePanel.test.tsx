@@ -202,6 +202,162 @@ describe('AnonymizePanel', () => {
       );
       expect(screen.queryByTestId('restore-coverage')).toBeNull();
     });
+
+    it('names in the confirmation the objects and records a restore can never bring back', () => {
+      // 1 220 contacts on a Developer Edition, 500 backed up: the confirmation
+      // said only 'Anonymize sensitive data'.
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{
+            templateId: 'tpl-1',
+            backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+            objects: [
+              { objectApiName: 'Contact', count: 1220, backedUp: 500, truncated: true },
+              { objectApiName: 'Lead', count: 1, backedUp: 0, truncated: false },
+              { objectApiName: 'Account', count: 120, backedUp: 120, truncated: false },
+            ],
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      const lost = screen.getByTestId('confirm-unrestorable');
+      expect(lost.textContent).toContain(
+        'Once masked, these records can never be brought back by a restore:',
+      );
+      expect(
+        within(lost)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Contact: 720 records', 'Lead: 1 record']);
+    });
+
+    it('names an object the org did not count when no backup holds it', () => {
+      render(
+        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+      );
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      expect(
+        within(screen.getByTestId('confirm-unrestorable'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Contact: 28,000 records', 'Lead: Not counted']);
+    });
+
+    it('says nothing more in the confirmation when the backup holds every record', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{
+            templateId: 'tpl-1',
+            backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
+            objects: [{ objectApiName: 'Contact', count: 120, backedUp: 120, truncated: false }],
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      expect(screen.getByTestId('danger-title')).toBeDefined();
+      expect(screen.queryByTestId('confirm-unrestorable')).toBeNull();
+    });
+  });
+
+  describe('a run that stopped short', () => {
+    const stopped = {
+      templateId: 'tpl-1',
+      objects: [{ objectApiName: 'Contact', count: 2500, backedUp: 2500, truncated: false }],
+      checkpoint: { id: 'run-1', savedAt: '2026-10-09T10:00:00.000Z' },
+    };
+
+    it('offers to resume it beside Apply, and resumes it once the confirmation word is typed', () => {
+      const onApply = vi.fn();
+      const onResume = vi.fn();
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={stopped}
+          onApply={onApply}
+          onResume={onResume}
+        />,
+      );
+      expect(screen.getByTestId('resume-hint').textContent).toMatch(
+        /^The run of .+ stopped before the end\. Resume masks only what it left; Apply masks every record again\.$/,
+      );
+
+      fireEvent.click(screen.getByTestId('resume-btn'));
+      expect(onResume).not.toHaveBeenCalled();
+      expect(screen.getByTestId('danger-title').textContent).toBe('Resume where it stopped');
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onResume).toHaveBeenCalledWith('tpl-1', 'run-1');
+      expect(onApply).not.toHaveBeenCalled();
+    });
+
+    it('still applies the template whole from Apply', () => {
+      const onApply = vi.fn();
+      const onResume = vi.fn();
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={stopped}
+          onApply={onApply}
+          onResume={onResume}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onApply).toHaveBeenCalledWith('tpl-1');
+      expect(onResume).not.toHaveBeenCalled();
+    });
+
+    it('offers no resume without a run that stopped, nor for another template', () => {
+      const { rerender } = render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{ ...stopped, checkpoint: undefined }}
+          onResume={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('resume-btn')).toBeNull();
+
+      rerender(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-saved-1"
+          coverage={stopped}
+          onResume={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('resume-btn')).toBeNull();
+      expect(screen.queryByTestId('resume-hint')).toBeNull();
+    });
+
+    it('holds Resume while a run goes on', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={stopped}
+          onResume={vi.fn()}
+          isApplying
+        />,
+      );
+      expect((screen.getByTestId('resume-btn') as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 
   it('should show preview data table', () => {
