@@ -1055,7 +1055,16 @@ describe('ForgeExecutor', () => {
           expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
           expect(String(row['Email'])).toMatch(/@example\.invalid$/);
         }
-        expect(String(rows[0]['Phone'])).not.toContain('0405');
+        // A mask keeping each number's last digits would end both rows with
+        // their own; one random draw of four digits matches a source's once
+        // in ten thousand, both at once once in a hundred million.
+        const keptOwn = [
+          [rows[0], '0405'],
+          [rows[1], '0910'],
+        ].every(([row, last]) =>
+          String((row as Record<string, unknown>)['Phone']).endsWith(last as string),
+        );
+        expect(keptOwn).toBe(false);
       }
     });
 
