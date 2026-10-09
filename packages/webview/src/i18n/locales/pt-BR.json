@@ -2592,7 +2592,7 @@
     "gate": {
       "productionTarget": "A execução não começou: a org de destino é uma org de produção, ou uma que o SandForge não consegue dizer que é um sandbox, uma scratch org ou uma org Developer Edition. O Forge grava apenas nessas, e nada foi lido nem gravado. Escolha uma delas como destino.",
       "automationDeclined": "Você cancelou a execução na confirmação do que a org de destino executa ao inserir os registros. Nada foi lido nem gravado.",
-      "readDeclined": "Você cancelou a execução na confirmação das tabelas que ela lê sem limite por objeto, cada uma com mais de 50.000 registros. Nada foi lido nem gravado. Ajuste Registros por objeto para ler menos.",
+      "readDeclined": "Você cancelou a execução na confirmação das tabelas que ela lê sem limite por objeto, cada uma com mais de {{ceiling}} registros. Nada foi lido nem gravado. Ajuste Registros por objeto para ler menos.",
       "writeDeclined": "Você cancelou a execução antes que ela gravasse qualquer coisa. Os registros de origem foram lidos; nada foi gravado na org de destino.",
       "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
       "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida."
@@ -3187,6 +3187,8 @@
     },
     "contactPoints": {
       "title": "E-mails e números de telefone",
+      "numbersExhausted_one": "{{count}} número de telefone deixado vazio: os 10.000 números fictícios do intervalo foram todos dados a outros números da execução.",
+      "numbersExhausted_other": "{{count}} números de telefone deixados vazios: os 10.000 números fictícios do intervalo foram todos dados a outros números da execução.",
       "neutralized": "Neutralizados antes da gravação: {{values}} em {{fields}}. Cada endereço de e-mail foi gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcançasse ninguém.",
       "none": "Neutralizados antes da gravação: os registros gravados não continham endereço de e-mail nem número de telefone.",
       "kept": "Gravados como a origem os tem, como foi pedido: a automação da org de destino pode ter enviado e-mails ou SMS a pessoas reais.",

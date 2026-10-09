@@ -2592,7 +2592,7 @@
     "gate": {
       "productionTarget": "The run did not start: the target org is a production org, or one SandForge cannot tell is a sandbox, a scratch org or a Developer Edition org. Forge writes to those only, and nothing was read or written. Pick one of them as the target.",
       "automationDeclined": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.",
-      "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past 50,000 records. Nothing was read or written. Set Records per object to read fewer.",
+      "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past {{ceiling}} records. Nothing was read or written. Set Records per object to read fewer.",
       "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
@@ -3187,6 +3187,8 @@
     },
     "contactPoints": {
       "title": "Emails and phone numbers",
+      "numbersExhausted_one": "{{count}} phone number left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
+      "numbersExhausted_other": "{{count}} phone numbers left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
       "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so the target org's automation reached no one.",
       "none": "Neutralized before writing: the records written held no email address or phone number.",
       "kept": "Written as the source holds them, as the run was asked: the target org's automation may have emailed or texted real people.",

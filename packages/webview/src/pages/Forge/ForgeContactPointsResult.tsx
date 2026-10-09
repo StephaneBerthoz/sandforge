@@ -70,6 +70,13 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
               </li>
             ))}
           </ul>
+          {report.numbersExhausted !== undefined && report.numbersExhausted > 0 && (
+            // Past the range's ten thousand, a number is left out rather
+            // than given one another number of the run already holds.
+            <p className="mt-1" data-testid="forge-results-contact-points-exhausted">
+              {t('forge.contactPoints.numbersExhausted', { count: report.numbersExhausted })}
+            </p>
+          )}
         </>
       )}
     </section>

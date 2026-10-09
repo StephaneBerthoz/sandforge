@@ -2592,7 +2592,7 @@
     "gate": {
       "productionTarget": "Le clonage n'a pas démarré : l'org cible est une org de production, ou une org dont SandForge ne peut pas dire qu'elle est une sandbox, une scratch org ou une org Developer Edition. Forge n'écrit que dans celles-ci, et rien n'a été lu ni écrit. Choisissez l'une d'elles comme cible.",
       "automationDeclined": "Vous avez annulé le clonage à la confirmation de ce que l'org cible exécute à l'insertion des enregistrements. Rien n'a été lu ni écrit.",
-      "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de 50 000 enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
+      "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de {{ceiling}} enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
       "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
       "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée."
@@ -3187,6 +3187,8 @@
     },
     "contactPoints": {
       "title": "E-mails et numéros de téléphone",
+      "numbersExhausted_one": "{{count}} numéro de téléphone laissé vide : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
+      "numbersExhausted_other": "{{count}} numéros de téléphone laissés vides : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
       "neutralized": "Neutralisés avant l'écriture : {{values}} dans {{fields}}. Chaque adresse e-mail a été écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible n'a joint personne.",
       "none": "Neutralisés avant l'écriture : les enregistrements écrits ne contenaient ni adresse e-mail ni numéro de téléphone.",
       "kept": "Écrits tels que la source les contient, comme demandé : l'automatisation de l'org cible a pu écrire ou envoyer des SMS à de vraies personnes.",

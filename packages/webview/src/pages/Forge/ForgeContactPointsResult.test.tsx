@@ -27,6 +27,19 @@ describe('ForgeContactPointsResult', () => {
     expect(screen.queryByTestId('forge-results-contact-points-kept')).toBeNull();
   });
 
+  it('says how many phone numbers were left empty once the fictional range ran out, and nothing when none was', () => {
+    const { rerender } = render(
+      <ForgeContactPointsResult report={{ ...NEUTRALIZED, numbersExhausted: 3 }} />,
+    );
+
+    expect(screen.getByTestId('forge-results-contact-points-exhausted').textContent).toBe(
+      "3 phone numbers left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
+    );
+
+    rerender(<ForgeContactPointsResult report={NEUTRALIZED} />);
+    expect(screen.queryByTestId('forge-results-contact-points-exhausted')).toBeNull();
+  });
+
   it('says what a real run would do after a simulation, which wrote nothing', () => {
     // Said in the past, it told of addresses that went in and a target that
     // reached no one, on a run that wrote no record.

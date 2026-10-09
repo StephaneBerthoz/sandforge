@@ -21,6 +21,7 @@
 import { z } from 'zod';
 import {
   BYTES_PER_MB,
+  FORGE_READ_CEILING_PER_OBJECT,
   assignPermsetCommand,
   bypassAssignmentsOf,
   bypassesOfWrites,
@@ -102,7 +103,7 @@ export const DEFAULT_MAX_TOTAL = 10_000;
  * its record reaches — and a table of millions of rows would go into the
  * extension host's memory, with nothing said before it.
  */
-export const READ_CEILING_PER_OBJECT = 50_000;
+export const READ_CEILING_PER_OBJECT = FORGE_READ_CEILING_PER_OBJECT;
 
 /**
  * The objects a run reads past `ceiling` rows: those it writes whose table

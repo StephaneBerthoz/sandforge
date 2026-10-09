@@ -22,6 +22,13 @@ import { z } from 'zod';
  * - `CONFIRMATION_UNAVAILABLE`: a confirmation was needed, and there was no
  *   one to ask.
  */
+/**
+ * The rows of one object past which a run reading it with no cap asks first
+ * (`READ_DECLINED` when the user declines): said in the question and in the
+ * notice from this one number.
+ */
+export const FORGE_READ_CEILING_PER_OBJECT = 50_000;
+
 export const FORGE_RUN_GATE_CODES = [
   'PRODUCTION_TARGET',
   'AUTOMATION_DECLINED',

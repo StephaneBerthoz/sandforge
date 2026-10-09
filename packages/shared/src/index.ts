@@ -192,6 +192,7 @@ export {
   type ForgeFiredOnWrite,
 } from './utils/forge-target-automation.js';
 export {
+  FORGE_READ_CEILING_PER_OBJECT,
   FORGE_RUN_GATE_CODES,
   forgeRunGateStopOf,
   isForgeRunGateCode,

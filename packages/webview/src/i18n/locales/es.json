@@ -2592,7 +2592,7 @@
     "gate": {
       "productionTarget": "La ejecución no empezó: la org de destino es una org de producción, o una que SandForge no puede confirmar que sea un sandbox, una scratch org o una org Developer Edition. Forge solo escribe en esas, y no se leyó ni escribió nada. Elija una de ellas como destino.",
       "automationDeclined": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada.",
-      "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de 50.000 registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
+      "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de {{ceiling}} registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
       "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino.",
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
       "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir."
@@ -3187,6 +3187,8 @@
     },
     "contactPoints": {
       "title": "Correos y números de teléfono",
+      "numbersExhausted_one": "{{count}} número de teléfono dejado vacío: los 10.000 números ficticios del rango se dieron todos a otros números de la ejecución.",
+      "numbersExhausted_other": "{{count}} números de teléfono dejados vacíos: los 10.000 números ficticios del rango se dieron todos a otros números de la ejecución.",
       "neutralized": "Neutralizados antes de escribir: {{values}} en {{fields}}. Cada dirección de correo se escribió bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llegó a nadie.",
       "none": "Neutralizados antes de escribir: los registros escritos no contenían ninguna dirección de correo ni ningún número de teléfono.",
       "kept": "Escritos tal como los tiene el origen, como se pidió: la automatización de la org de destino puede haber enviado correos o SMS a personas reales.",

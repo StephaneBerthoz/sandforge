@@ -2592,7 +2592,7 @@
     "gate": {
       "productionTarget": "Der Lauf wurde nicht gestartet: Die Ziel-Org ist eine Produktions-Org oder eine, von der SandForge nicht sagen kann, dass sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org ist. Forge schreibt nur in solche, und es wurde nichts gelesen oder geschrieben. Wählen Sie eine davon als Ziel.",
       "automationDeclined": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben.",
-      "readDeclined": "Sie haben den Lauf bei der Bestätigung der Tabellen abgebrochen, die er ohne Obergrenze pro Objekt liest, jede mit mehr als 50.000 Datensätzen. Es wurde nichts gelesen oder geschrieben. Stellen Sie Datensätze pro Objekt ein, um weniger zu lesen.",
+      "readDeclined": "Sie haben den Lauf bei der Bestätigung der Tabellen abgebrochen, die er ohne Obergrenze pro Objekt liest, jede mit mehr als {{ceiling}} Datensätzen. Es wurde nichts gelesen oder geschrieben. Stellen Sie Datensätze pro Objekt ein, um weniger zu lesen.",
       "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben.",
       "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden."
@@ -3187,6 +3187,8 @@
     },
     "contactPoints": {
       "title": "E-Mails und Telefonnummern",
+      "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
+      "numbersExhausted_other": "{{count}} Telefonnummern leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
       "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht hat.",
       "none": "Vor dem Schreiben neutralisiert: Die geschriebenen Datensätze enthielten weder E-Mail-Adressen noch Telefonnummern.",
       "kept": "So geschrieben, wie die Quelle sie enthält, wie für diesen Lauf gewünscht: Die Automatisierung der Ziel-Org kann echten Personen E-Mails oder SMS gesendet haben.",

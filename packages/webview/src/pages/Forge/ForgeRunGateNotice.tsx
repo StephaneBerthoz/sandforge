@@ -1,7 +1,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShieldAlert, X } from 'lucide-react';
-import type { ForgeRunGateCode } from '@sandforge/shared';
+import { FORGE_READ_CEILING_PER_OBJECT, type ForgeRunGateCode } from '@sandforge/shared';
+import { uiLocale } from '../../utils/formatters';
 import { useForgeRunGateStore } from './runGate';
 
 /** The sentence each stop is said in. */
@@ -52,6 +53,7 @@ export const ForgeRunGateNotice: React.FC = () => {
         {t(STOP_KEYS[stop.code], {
           estimate: stop.storage?.estimateMB ?? 0,
           remaining: stop.storage?.remainingMB ?? 0,
+          ceiling: FORGE_READ_CEILING_PER_OBJECT.toLocaleString(uiLocale()),
         })}
       </p>
       <button
