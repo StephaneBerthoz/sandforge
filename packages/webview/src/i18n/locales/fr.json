@@ -1402,6 +1402,8 @@
       "save": "Enregistrer le modèle",
       "constantValue": "Valeur écrite",
       "constantValueMissing": "Constante a besoin de la valeur qu'elle écrit à la place de celle du champ.",
+      "maskKeepLast": "Caractères gardés à la fin (facultatif)",
+      "maskKeepLastInvalid": "Mask garde un nombre entier de caractères à la fin, de 0 à {{max}}.",
       "truncateLength": "Caractères conservés",
       "truncateLengthMissing": "Tronquer a besoin du nombre de caractères qu'il conserve : un nombre entier de 1 à {{max}}.",
       "truncateKeep": "Conservés depuis",

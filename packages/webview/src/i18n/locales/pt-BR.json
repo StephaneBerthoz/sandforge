@@ -1402,6 +1402,8 @@
       "save": "Salvar modelo",
       "constantValue": "Valor gravado",
       "constantValueMissing": "Constante precisa do valor que grava no lugar do valor do campo.",
+      "maskKeepLast": "Caracteres mantidos no final (opcional)",
+      "maskKeepLastInvalid": "Mask mantém um número inteiro de caracteres no final, de 0 a {{max}}.",
       "truncateLength": "Caracteres mantidos",
       "truncateLengthMissing": "Truncar precisa de quantos caracteres mantém: um número inteiro de 1 a {{max}}.",
       "truncateKeep": "Mantidos a partir de",

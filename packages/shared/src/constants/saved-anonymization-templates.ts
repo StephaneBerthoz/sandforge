@@ -57,6 +57,12 @@ export const TEMPLATE_SETTING_MAX = 255;
  */
 export interface SavedTemplateRuleConfig {
   constantValue?: string;
+  /**
+   * How many characters at the end a Mask keeps, none when absent: the GDPR
+   * template's phone keeps its last four, and a template saved from it lost
+   * them while a saved rule carried no Mask setting.
+   */
+  maskKeepLast?: number;
   truncateLength?: number;
   truncateKeep?: 'first' | 'last';
 }
@@ -66,7 +72,7 @@ const SETTINGS_TAKEN: Readonly<
   Record<SavedTemplateMethod, ReadonlyArray<keyof SavedTemplateRuleConfig>>
 > = {
   fake: [],
-  mask: [],
+  mask: ['maskKeepLast'],
   hash: [],
   nullify: [],
   shuffle: [],
@@ -80,10 +86,12 @@ const SETTINGS_TAKEN: Readonly<
  * - `constantValueMissing`: a Constant with no value, or only spaces;
  * - `truncateLengthMissing`: a Truncate with no whole length from 1 to
  *   {@link TEMPLATE_SETTING_MAX};
+ * - `maskKeepLastInvalid`: a Mask keeping a number of characters that is not
+ *   a whole one from 0 to {@link TEMPLATE_SETTING_MAX};
  * - `settingNotTaken`: a setting the method does not read, left from another one.
  */
 export type SavedRuleSettingProblem =
-  'constantValueMissing' | 'truncateLengthMissing' | 'settingNotTaken';
+  'constantValueMissing' | 'truncateLengthMissing' | 'maskKeepLastInvalid' | 'settingNotTaken';
 
 /**
  * Why a saved rule's settings would not do what its method says, or
@@ -106,6 +114,12 @@ export function savedRuleSettingProblem(
       return 'constantValueMissing';
     }
   }
+  if (ruleType === 'mask' && config?.maskKeepLast !== undefined) {
+    const kept = config.maskKeepLast;
+    if (!Number.isInteger(kept) || kept < 0 || kept > TEMPLATE_SETTING_MAX) {
+      return 'maskKeepLastInvalid';
+    }
+  }
   if (ruleType === 'truncate') {
     const length = config?.truncateLength;
     if (
@@ -124,6 +138,7 @@ export function savedRuleSettingProblem(
 const SETTING_PROBLEM_MESSAGES: Readonly<Record<SavedRuleSettingProblem, string>> = {
   constantValueMissing: `A Constant rule needs the value it writes, 1 to ${TEMPLATE_SETTING_MAX} characters`,
   truncateLengthMissing: `A Truncate rule needs how many characters it keeps, 1 to ${TEMPLATE_SETTING_MAX}`,
+  maskKeepLastInvalid: `A Mask rule keeps a whole number of characters at the end, 0 to ${TEMPLATE_SETTING_MAX}`,
   settingNotTaken: 'The rule carries a setting its method does not take',
 };
 
@@ -140,6 +155,7 @@ export const savedTemplateRuleSchema = z
     config: z
       .strictObject({
         constantValue: z.string().max(TEMPLATE_SETTING_MAX).optional(),
+        maskKeepLast: z.number().int().min(0).max(TEMPLATE_SETTING_MAX).optional(),
         truncateLength: z.number().int().min(1).max(TEMPLATE_SETTING_MAX).optional(),
         truncateKeep: z.enum(['first', 'last']).optional(),
       })

@@ -58,13 +58,18 @@ interface RuleRow {
   fieldPattern: string;
   ruleType: string;
   constantValue: string;
+  maskKeepLast: string;
   truncateLength: string;
   truncateKeep: 'first' | 'last';
 }
 
-/** What a row's method carries to the host: the setting a Constant or a Truncate needs, or none. */
+/** What a row's method carries to the host: the setting a Constant, a Mask or a Truncate takes, or none. */
 function settingsOf(row: RuleRow): SavedTemplateRuleConfig | undefined {
   if (row.ruleType === 'constant') return { constantValue: row.constantValue };
+  if (row.ruleType === 'mask') {
+    const kept = row.maskKeepLast.trim();
+    return kept === '' ? undefined : { maskKeepLast: Number(kept) };
+  }
   if (row.ruleType === 'truncate') {
     const length = row.truncateLength.trim();
     return {
@@ -100,6 +105,12 @@ function rowProblem(
       values: { max: String(TEMPLATE_SETTING_MAX) },
     };
   }
+  if (setting === 'maskKeepLastInvalid') {
+    return {
+      key: 'dataops.templateEditor.maskKeepLastInvalid',
+      values: { max: String(TEMPLATE_SETTING_MAX) },
+    };
+  }
   return undefined;
 }
 
@@ -110,6 +121,8 @@ function rowOf(rule: AnonymizationTemplateRule, key: number): RuleRow {
     fieldPattern: rule.fieldPattern,
     ruleType: rule.ruleType,
     constantValue: rule.config?.constantValue ?? '',
+    maskKeepLast:
+      typeof rule.config?.maskKeepLast === 'number' ? String(rule.config.maskKeepLast) : '',
     truncateLength:
       rule.config?.truncateLength === undefined ? '' : String(rule.config.truncateLength),
     truncateKeep: rule.config?.truncateKeep ?? 'last',
@@ -313,6 +326,24 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
                     aria-invalid={settingWrong || undefined}
                     aria-describedby={settingWrong ? problemId : undefined}
                     data-testid={`template-rule-constant-${index}`}
+                  />
+                </label>
+              )}
+              {row.ruleType === 'mask' && (
+                <label className="flex flex-col gap-1 text-xs text-text-primary">
+                  <span>{t('dataops.templateEditor.maskKeepLast')}</span>
+                  <input
+                    className={inputClass}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={TEMPLATE_SETTING_MAX}
+                    step={1}
+                    value={row.maskKeepLast}
+                    onChange={(event) => updateRow(row.key, { maskKeepLast: event.target.value })}
+                    aria-invalid={settingWrong || undefined}
+                    aria-describedby={settingWrong ? problemId : undefined}
+                    data-testid={`template-rule-mask-keep-${index}`}
                   />
                 </label>
               )}

@@ -1402,6 +1402,8 @@
       "save": "Guardar plantilla",
       "constantValue": "Valor escrito",
       "constantValueMissing": "Constante necesita el valor que escribe en lugar del del campo.",
+      "maskKeepLast": "Caracteres conservados al final (opcional)",
+      "maskKeepLastInvalid": "Mask conserva un número entero de caracteres al final, de 0 a {{max}}.",
       "truncateLength": "Caracteres conservados",
       "truncateLengthMissing": "Truncar necesita cuántos caracteres conserva: un número entero de 1 a {{max}}.",
       "truncateKeep": "Conservados desde",

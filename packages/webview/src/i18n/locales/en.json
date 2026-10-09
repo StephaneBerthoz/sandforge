@@ -1402,6 +1402,8 @@
       "save": "Save template",
       "constantValue": "Value written",
       "constantValueMissing": "Constant needs the value it writes in place of the field's.",
+      "maskKeepLast": "Characters kept at the end (optional)",
+      "maskKeepLastInvalid": "Mask keeps a whole number of characters at the end, from 0 to {{max}}.",
       "truncateLength": "Characters kept",
       "truncateLengthMissing": "Truncate needs how many characters it keeps: a whole number from 1 to {{max}}.",
       "truncateKeep": "Kept from",

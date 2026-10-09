@@ -173,6 +173,29 @@ describe('AnonymizationTemplateEditor', () => {
     });
   });
 
+  it('keeps the characters a Mask it starts from keeps at the end, and lets one be typed', () => {
+    // Saved from the GDPR template, its phone mask lost the four digits it keeps.
+    const { onSave } = editor({
+      initialRules: [
+        { ...rule('Contact.Phone', 'mask'), config: { maskKeepLast: 4 } },
+        rule('Contact.MobilePhone', 'mask'),
+      ],
+    });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+
+    expect((screen.getByTestId('template-rule-mask-keep-0') as HTMLInputElement).value).toBe('4');
+    fireEvent.change(screen.getByTestId('template-rule-mask-keep-1'), { target: { value: '2' } });
+    fireEvent.click(saveButton());
+
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [
+        { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 4 } },
+        { fieldPattern: 'Contact.MobilePhone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+      ],
+    });
+  });
+
   it('keeps the setting of a rule it starts from: the value a Constant writes, the length and end a Truncate keeps', () => {
     // Sandbox Data Scrub writes a placeholder URL, HIPAA keeps the first three
     // digits of a postal code: carried over without them, neither rule would

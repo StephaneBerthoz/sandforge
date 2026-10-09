@@ -44,6 +44,17 @@ describe('savedRuleSettingProblem', () => {
     );
   });
 
+  it('lets a Mask keep a whole number of characters at the end, from 0 to 255, or none', () => {
+    // The GDPR template's phone keeps its last four: saved without it, the
+    // mask ran to the end of the value.
+    expect(savedRuleSettingProblem('mask', undefined)).toBe(undefined);
+    expect(savedRuleSettingProblem('mask', { maskKeepLast: 4 })).toBe(undefined);
+    expect(savedRuleSettingProblem('mask', { maskKeepLast: 0 })).toBe(undefined);
+    expect(savedRuleSettingProblem('mask', { maskKeepLast: -1 })).toBe('maskKeepLastInvalid');
+    expect(savedRuleSettingProblem('mask', { maskKeepLast: 1.5 })).toBe('maskKeepLastInvalid');
+    expect(savedRuleSettingProblem('fake', { maskKeepLast: 4 })).toBe('settingNotTaken');
+  });
+
   it('asks a Truncate for a whole length from 1 to 255, and lets it say which end it keeps', () => {
     expect(savedRuleSettingProblem('truncate', undefined)).toBe('truncateLengthMissing');
     expect(savedRuleSettingProblem('truncate', { truncateLength: 0 })).toBe(

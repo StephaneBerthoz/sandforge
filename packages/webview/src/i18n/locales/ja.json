@@ -1328,6 +1328,8 @@
       "save": "テンプレートを保存",
       "constantValue": "書き込む値",
       "constantValueMissing": "定数には、項目の値の代わりに書き込む値が必要です。",
+      "maskKeepLast": "末尾に残す文字数（任意）",
+      "maskKeepLastInvalid": "Mask は末尾に 0 から {{max}} までの整数の文字数を残します。",
       "truncateLength": "残す文字数",
       "truncateLengthMissing": "切り詰めには、残す文字数（1～{{max}} の整数）が必要です。",
       "truncateKeep": "残す位置",

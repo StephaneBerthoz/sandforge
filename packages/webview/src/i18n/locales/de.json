@@ -1402,6 +1402,8 @@
       "save": "Vorlage speichern",
       "constantValue": "Geschriebener Wert",
       "constantValueMissing": "Konstante braucht den Wert, den sie anstelle des Feldwerts schreibt.",
+      "maskKeepLast": "Am Ende behaltene Zeichen (optional)",
+      "maskKeepLastInvalid": "Mask behält am Ende eine ganze Zahl von Zeichen, von 0 bis {{max}}.",
       "truncateLength": "Behaltene Zeichen",
       "truncateLengthMissing": "Kürzen braucht die Anzahl der Zeichen, die es behält: eine ganze Zahl von 1 bis {{max}}.",
       "truncateKeep": "Behalten ab",
