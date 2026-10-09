@@ -559,6 +559,15 @@ export class TargetGapReader {
             }
             rule.formula = 'read';
             Object.assign(rule, bypassesOf(formula));
+            // The definition names the field by its API name, where the
+            // rule's row gives its label in the org's language: on a French
+            // org, "Adresse e-mail" for Email, which matched no field, and the
+            // rule offered no leave-empty decision.
+            const display = displayFieldOf(
+              (metadata as { errorDisplayField?: unknown }).errorDisplayField,
+              targetFields.get(rule.objectApiName),
+            );
+            if (display) rule.field = display;
           } catch (err: unknown) {
             requests++;
             rule.formula = 'unreadable';

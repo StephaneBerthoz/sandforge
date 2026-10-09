@@ -102,6 +102,8 @@ function duplicateRule(developerName: string, objectApiName: string): Record<str
 interface FakeOrgs {
   rules?: Array<Record<string, unknown>>;
   formulas?: Record<string, string>;
+  /** Per rule id, the field its definition shows its error on, by API name. */
+  displayFields?: Record<string, string>;
   duplicates?: Array<Record<string, unknown>>;
   definitions?: Record<string, Record<string, unknown>>;
   targetFields?: Record<string, GapField[]>;
@@ -178,8 +180,18 @@ function fakeDeps(orgs: FakeOrgs = {}) {
         const id = /WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? '';
         if (refuse.formulas) throw refuse.formulas;
         const formula = orgs.formulas?.[id];
+        const errorDisplayField = orgs.displayFields?.[id];
         return page(
-          formula === undefined ? [] : [{ Metadata: { errorConditionFormula: formula } }],
+          formula === undefined
+            ? []
+            : [
+                {
+                  Metadata: {
+                    errorConditionFormula: formula,
+                    ...(errorDisplayField ? { errorDisplayField } : {}),
+                  },
+                },
+              ],
         );
       }),
     describeFields: (orgId, objectApiName) => {
@@ -285,6 +297,27 @@ describe('TargetGapReader — validation rules', () => {
       Top_French: undefined,
       Top_German: undefined,
     });
+  });
+
+  it("takes a rule's field from its definition, where the row gives the field's label in the org's language", async () => {
+    // Live, on a French org: ErrorDisplayField read "Adresse e-mail" for
+    // Email and "Téléphone" for Phone, and neither rule had a field.
+    const read = await readGaps([node('Contact')], {
+      rules: [
+        rule(ruleId(1), 'Email_Required', 'Contact', 'Adresse e-mail'),
+        rule(ruleId(2), 'Phone_Format', 'Contact', 'Téléphone'),
+      ],
+      formulas: { [ruleId(1)]: 'ISBLANK(Email)', [ruleId(2)]: 'NOT(REGEX(Phone, "[0-9]+"))' },
+      displayFields: { [ruleId(1)]: 'Email', [ruleId(2)]: 'Phone' },
+      targetFields: { Contact: [field('LastName'), field('Email'), field('Phone')] },
+    });
+
+    const fieldOf = new Map(ofKind(read, 'validation_rule').map((g) => [g.detail?.rule, g.field]));
+    expect(Object.fromEntries(fieldOf)).toEqual({ Email_Required: 'Email', Phone_Format: 'Phone' });
+    expect(ofKind(read, 'validation_rule').map((g) => g.defaultDecision)).toEqual([
+      'leave_empty',
+      'leave_empty',
+    ]);
   });
 
   it('names what in a formula keeps the rule quiet, and says a permission the user holds keeps it quiet for the run', async () => {
