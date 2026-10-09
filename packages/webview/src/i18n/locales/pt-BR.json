@@ -2117,6 +2117,8 @@
       "gaps1430Desc": "Simular passa um clone pela etapa de gravação sem gravar nada; Ensaiar pergunta ao próprio destino, em transações revertidas. A aba Divergências lista o que encontram, com uma decisão em um clique para cada uma, guardada no modelo.",
       "results1430": "Agir a partir dos resultados",
       "results1430Desc": "Abra um registro criado na org de destino, salve os resultados em CSV ou JSON, remova a execução no lugar e tente novamente os objetos ignorados. Os modelos são exportados e importados como arquivos JSON.",
+      "readAgain1470": "Ler de novo, e saber o que uma parada deixa",
+      "readAgain1470Desc": "A aba Automação da Revisão lê a org de destino de novo quando pedido: um conjunto de permissões recém-atribuído aparece como atribuído. Uma execução do Autopilot interrompida diz quais pesquisas deixou vazias e quais status não devolveu.",
       "previewResume1460": "Pré-visualizar, retomar e parar, em todo lugar",
       "previewResume1460Desc": "O DataOps pré-visualiza um modelo em algumas linhas e retoma uma anonimização de onde parou; o Frozen pré-visualiza um carregamento e o cancela; execuções do Autopilot e perguntas ao chat de IA podem ser interrompidas.",
       "cloneFlags1460": "Um clone que faz o que suas opções dizem",

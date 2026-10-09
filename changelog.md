@@ -5,6 +5,25 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.47.0] - 2026-10-09
+
+What a run leaves is said, and what Review shows can be read again.
+
+### Added
+
+- Review's Automation tab and its bypass assistant read the target again on
+  demand: a permission set just assigned shows as held.
+
+### Fixed
+
+- A stopped Autopilot run counts the lookups it left empty and the statuses
+  it did not give back.
+- DataOps audits a count that fails, and a resume reads back the records of a
+  write whose answer never came before masking them again.
+- Frozen keeps the last verification per target org.
+- The AI pipeline draft shows its suggestions in the user's language.
+- `NOT_INITIALIZED` reads translated on the Autopilot and CSV import pages.
+
 ## [1.46.0] - 2026-10-09
 
 Every module can now be previewed, stopped and taken back, and the clone

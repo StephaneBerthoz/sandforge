@@ -2117,6 +2117,8 @@
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "readAgain1470": "Erneut lesen und wissen, was ein Halt hinterlässt",
+      "readAgain1470Desc": "Der Automatisierungs-Tab der Überprüfung liest die Ziel-Org auf Wunsch erneut, sodass ein gerade zugewiesener Berechtigungssatz als vorhanden erscheint. Ein angehaltener Autopilot-Lauf sagt, welche Lookups er leer ließ und welche Status er nicht zurückgab.",
       "previewResume1460": "Vorschau, Fortsetzen und Anhalten, überall",
       "previewResume1460Desc": "DataOps zeigt eine Vorlage an einigen Zeilen in der Vorschau und setzt eine Anonymisierung dort fort, wo sie anhielt; Frozen zeigt einen Ladevorgang in der Vorschau und bricht ihn ab; Autopilot-Läufe und KI-Chatfragen lassen sich anhalten.",
       "cloneFlags1460": "Ein Klon, der tut, was seine Optionen sagen",

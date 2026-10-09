@@ -2117,6 +2117,8 @@
       "gaps1430Desc": "Simulate runs a clone through its write stage without writing; Rehearse asks the target itself, inside rolled-back transactions. The Gaps tab lists what they find, with a decision in one click for each, kept in the template.",
       "results1430": "Act from the results",
       "results1430Desc": "Open a created record in the target org, save the results to CSV or JSON, remove the run in place, and retry objects that were skipped. Templates now export and import as JSON files.",
+      "readAgain1470": "Read again, and know what a stop leaves",
+      "readAgain1470Desc": "Review's Automation tab reads the target org again on demand, so a permission set you just assigned shows as held. A stopped Autopilot run says which lookups it left empty and which statuses it did not give back.",
       "previewResume1460": "Preview, resume and stop, everywhere",
       "previewResume1460Desc": "DataOps previews a template on a few rows and resumes an anonymization where it stopped; Frozen previews a load and cancels one; Autopilot runs and AI chat questions can be stopped.",
       "cloneFlags1460": "A clone that does what its flags say",

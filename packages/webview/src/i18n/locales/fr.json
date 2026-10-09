@@ -2117,6 +2117,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "readAgain1470": "Relire, et savoir ce qu'un arrêt laisse",
+      "readAgain1470Desc": "L'onglet Automatisation de Review relit l'org cible à la demande : un jeu de permissions tout juste attribué apparaît comme détenu. Un run Autopilot arrêté dit quels lookups il a laissés vides et quels statuts il n'a pas rendus.",
       "previewResume1460": "Aperçu, reprise et arrêt, partout",
       "previewResume1460Desc": "DataOps prévisualise un modèle sur quelques lignes et reprend une anonymisation là où elle s'est arrêtée ; Frozen prévisualise un chargement et l'annule ; les runs Autopilot et les questions au chat IA peuvent être arrêtés.",
       "cloneFlags1460": "Un clone qui fait ce que disent ses options",

@@ -2117,6 +2117,8 @@
       "gaps1430Desc": "Simular hace pasar un clon por su etapa de escritura sin escribir nada; Ensayar pregunta al propio destino, en transacciones revertidas. La pestaña Discrepancias lista lo que encuentran, con una decisión en un clic para cada una, guardada en la plantilla.",
       "results1430": "Actuar desde los resultados",
       "results1430Desc": "Abra un registro creado en la org de destino, guarde los resultados en CSV o JSON, elimine la ejecución en el sitio y vuelva a intentar los objetos omitidos. Las plantillas se exportan e importan como archivos JSON.",
+      "readAgain1470": "Volver a leer, y saber qué deja una detención",
+      "readAgain1470Desc": "La pestaña Automatización de Revisión vuelve a leer la org de destino a petición: un conjunto de permisos recién asignado aparece como asignado. Una ejecución de Autopilot detenida dice qué búsquedas dejó vacías y qué estados no devolvió.",
       "previewResume1460": "Vista previa, reanudar y detener, en todas partes",
       "previewResume1460Desc": "DataOps previsualiza una plantilla en algunas filas y reanuda una anonimización donde se detuvo; Frozen previsualiza una carga y la cancela; las ejecuciones de Autopilot y las preguntas al chat de IA se pueden detener.",
       "cloneFlags1460": "Un clon que hace lo que dicen sus opciones",
