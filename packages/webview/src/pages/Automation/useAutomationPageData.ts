@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type {
   ConditionOperator,
   OperationCompleted,
   OperationFailed,
   PipelineCondition,
   PipelineDefinition,
+  PipelineDraftSuggestion,
   PipelineStepType,
+  PipelineWritePage,
   PipelineStepUpdate,
   PipelineTrigger,
   PipelineTriggerStatus,
@@ -116,6 +119,42 @@ export function nextTriggerRefreshDelay(
 /** Narrows an unknown value to a plain object without widening to `any`. */
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/** The pages the host sends work a pipeline cannot run to, as data. */
+const WRITE_PAGES: readonly PipelineWritePage[] = ['sync', 'seed', 'dataops'];
+
+/**
+ * What a draft leaves out, as the host sent it beside the draft. An entry of
+ * another shape — a sentence from a host that sent English — is dropped
+ * rather than shown in English on a page in another language.
+ */
+export function toDraftSuggestions(raw: unknown): PipelineDraftSuggestion[] {
+  if (!Array.isArray(raw)) return [];
+  const kept: PipelineDraftSuggestion[] = [];
+  for (const entry of raw) {
+    const { code, page, stepType } = asRecord(entry);
+    const writePage = WRITE_PAGES.find((known) => known === page);
+    if (code === 'WRITES_TO_ORG' && writePage) kept.push({ code, page: writePage });
+    else if (code === 'STEP_NOT_RUNNABLE' && typeof stepType === 'string') {
+      kept.push({ code, stepType });
+    }
+  }
+  return kept;
+}
+
+/**
+ * A suggestion in the reader's language: the page named as the menu names
+ * it, a step type as the palette does, or as the model wrote it when the
+ * palette has no such type.
+ */
+export function draftSuggestionText(t: TFunction, suggestion: PipelineDraftSuggestion): string {
+  if (suggestion.code === 'WRITES_TO_ORG') {
+    return t('automation.draftSuggestions.writesToOrg', { page: t(`nav.${suggestion.page}`) });
+  }
+  return t('automation.draftSuggestions.stepNotRunnable', {
+    type: t(`automation.stepTypes.${suggestion.stepType}`, { defaultValue: suggestion.stepType }),
+  });
 }
 
 /**
@@ -282,6 +321,11 @@ export interface AutomationPageData {
   marketplaceTemplates: MarketplaceTemplate[];
   /** Pipeline generator mutation (AI feature). */
   pipelineGen: ReturnType<typeof usePipelineGenerator>;
+  /**
+   * What the draft on the canvas leaves out, and where its work runs: empty
+   * once another pipeline is on the canvas.
+   */
+  draftSuggestions: PipelineDraftSuggestion[];
   /** Number of steps in the current pipeline. */
   stepCount: number;
   /** Number of triggers in the current pipeline. */
@@ -391,6 +435,11 @@ export function useAutomationPageData(): AutomationPageData {
   // Pipeline state
   const [pipeline, setPipeline] = useState<PipelineDefinition | undefined>();
   const [error, setError] = useState<string | null>(null);
+  /** What the last draft adopted leaves out, kept with the id of that draft. */
+  const [draft, setDraft] = useState<{
+    pipelineId: string;
+    suggestions: PipelineDraftSuggestion[];
+  }>();
 
   // Bridge query: load saved pipelines, and what their triggers will do.
   const pipelinesQuery = useBridgeQuery<{
@@ -640,9 +689,18 @@ export function useAutomationPageData(): AutomationPageData {
   // waited out the round trip and got nothing — no canvas, no explanation.
   // `success: false` carries the reason (an unset API key is the common one),
   // which is the only thing that tells the user what to do next.
+  //
+  // What the draft leaves out comes as codes beside it — work that writes to
+  // an org, which a pipeline never runs, and the page that runs it — and is
+  // said next to the draft in the reader's language. A request that drew no
+  // step at all is answered by them alone, in place of the host's English.
   const adoptGenerated = useLatestRef((generated: NonNullable<typeof pipelineGen.data>) => {
+    const suggestions = toDraftSuggestions(generated.suggestions);
     if (!generated.success || !generated.pipeline) {
-      const message = generated.error ?? t('ai.error.unknown');
+      const message =
+        suggestions.length > 0
+          ? suggestions.map((suggestion) => draftSuggestionText(t, suggestion)).join(' ')
+          : (generated.error ?? t('ai.error.unknown'));
       setError(message);
       addNotification({
         level: 'error',
@@ -651,7 +709,9 @@ export function useAutomationPageData(): AutomationPageData {
       });
       return;
     }
-    setPipeline(toPipelineDefinition(generated.pipeline, t('automation.newPipeline')));
+    const adopted = toPipelineDefinition(generated.pipeline, t('automation.newPipeline'));
+    setPipeline(adopted);
+    setDraft({ pipelineId: adopted.id, suggestions });
     setActiveTab('canvas');
   });
   useEffect(() => {
@@ -877,6 +937,7 @@ export function useAutomationPageData(): AutomationPageData {
     marketplaceError: marketplaceList.error,
     marketplaceTemplates: marketplaceList.data?.templates ?? [],
     pipelineGen,
+    draftSuggestions: draft && draft.pipelineId === pipeline?.id ? draft.suggestions : [],
     stepCount,
     triggerCount,
     historyCount,

@@ -50,6 +50,15 @@ let mockSaveMutationState = {
   reset: mockSaveReset,
 };
 
+/** What the pipeline generator answered, kept across renders as the bridge keeps it. */
+let mockGenerateMutationState = {
+  mutate: vi.fn(),
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
 /** What each query answers, by request type; a type left out answers nothing yet. */
 let mockQueryData: Record<string, unknown> = {};
 
@@ -69,6 +78,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'pipeline:save') {
       return mockSaveMutationState;
+    }
+    if (type === 'ai:generate-pipeline') {
+      return mockGenerateMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -104,6 +116,38 @@ describe('AutomationPage', () => {
       error: null,
       reset: mockSaveReset,
     };
+    mockGenerateMutationState = {
+      mutate: vi.fn(),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  });
+
+  it('says next to a draft what it leaves out and where that work runs', () => {
+    // "compare then sync": the draft holds the comparison, and the sync goes
+    // to the page that runs it.
+    mockGenerateMutationState.data = {
+      success: true,
+      pipeline: {
+        name: 'Pipeline_CompareThenSync',
+        steps: [{ name: 'compare_step', type: 'compare', config: {} }],
+      },
+      suggestions: [
+        { code: 'WRITES_TO_ORG', page: 'sync' },
+        { code: 'STEP_NOT_RUNNABLE', stepType: 'loop' },
+      ],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+
+    const note = screen.getByTestId('pipeline-draft-suggestions');
+    expect(note.getAttribute('role')).toBe('note');
+    expect([...note.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
+      'A pipeline runs no step that writes to an org, so it cannot run Sync: run it from the Sync page, where Production Guard can stop it or ask first.',
+      'A pipeline cannot run a Loop step, so the draft leaves it out.',
+    ]);
   });
 
   it('should show empty state when no orgs', () => {

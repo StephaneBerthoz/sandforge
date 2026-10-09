@@ -1,8 +1,9 @@
 import {
   PipelineDraftReplySchema,
-  PipelineSuggestionsReplySchema,
   parseModelJson,
+  type PipelineDraftSuggestion,
   type PipelineStepType,
+  type PipelineWritePage,
 } from '@sandforge/shared';
 import type { AIProvider } from './types.js';
 
@@ -31,8 +32,9 @@ export interface GeneratedPipeline {
   /**
    * What the draft leaves out and where to do it instead: the work it was
    * asked for that writes to an org, or a step type a pipeline cannot run.
+   * Codes, which the page words in the reader's language.
    */
-  suggestions?: string[];
+  suggestions?: PipelineDraftSuggestion[];
 }
 
 /**
@@ -74,36 +76,50 @@ const KEYWORD_STEP_MAP: Record<string, PipelineStepType> = {
  * Guard, so it runs no step that writes: such a wish draws no step, and a
  * suggestion to run it from its page.
  */
-const WRITE_KEYWORD_PAGE: Record<string, string> = {
-  sync: 'Sync',
-  synchronize: 'Sync',
-  copy: 'Sync',
-  transfer: 'Sync',
-  migrate: 'Sync',
-  seed: 'Seed',
-  generate: 'Seed',
-  create: 'Seed',
-  populate: 'Seed',
-  anonymize: 'DataOps',
-  mask: 'DataOps',
-  scramble: 'DataOps',
-  delete: 'DataOps',
-  clean: 'DataOps',
-  purge: 'DataOps',
+const WRITE_KEYWORD_PAGE: Record<string, PipelineWritePage> = {
+  sync: 'sync',
+  synchronize: 'sync',
+  copy: 'sync',
+  transfer: 'sync',
+  migrate: 'sync',
+  seed: 'seed',
+  generate: 'seed',
+  create: 'seed',
+  populate: 'seed',
+  anonymize: 'dataops',
+  mask: 'dataops',
+  scramble: 'dataops',
+  delete: 'dataops',
+  clean: 'dataops',
+  purge: 'dataops',
 };
 
 /** The page that runs the work a step type that writes to an org stands for. */
-const WRITE_STEP_PAGE: Record<string, string> = {
+const WRITE_STEP_PAGE: Record<string, PipelineWritePage> = {
+  sync: 'sync',
+  seed: 'seed',
+  restore: 'dataops',
+  anonymize: 'dataops',
+  delete: 'dataops',
+  dataops: 'dataops',
+};
+
+/** A page's name as the English of the host's log says it. */
+const PAGE_NAME: Record<PipelineWritePage, string> = {
   sync: 'Sync',
   seed: 'Seed',
-  restore: 'DataOps',
-  anonymize: 'DataOps',
-  delete: 'DataOps',
   dataops: 'DataOps',
 };
 
-/** The suggestion given for work that writes to an org, by the page that runs it. */
-function writeSuggestion(page: string): string {
+/**
+ * A suggestion in English, for the host's log and the `error` of a request
+ * that drew no step: the page words the code itself.
+ */
+export function suggestionText(suggestion: PipelineDraftSuggestion): string {
+  if (suggestion.code === 'STEP_NOT_RUNNABLE') {
+    return `A pipeline cannot run a ${suggestion.stepType} step, so the draft leaves it out.`;
+  }
+  const page = PAGE_NAME[suggestion.page];
   return `A pipeline runs no step that writes to an org, so it cannot run ${page}: run it from the ${page} page, where Production Guard can stop or ask first.`;
 }
 
@@ -182,49 +198,6 @@ export class PipelineGenerator {
     return this.generateWithAI(description, availableOrgs);
   }
 
-  /**
-   * Suggest improvements for an existing pipeline.
-   * @param pipeline - The pipeline to analyze
-   * @returns Array of improvement suggestions
-   */
-  async suggestImprovements(pipeline: GeneratedPipeline): Promise<string[]> {
-    const suggestions: string[] = [];
-
-    if (pipeline.steps.length === 0) {
-      suggestions.push('Pipeline has no steps. Add at least one step to make it functional.');
-    }
-
-    const hasSync = pipeline.steps.some((s) => s.type === 'sync');
-    const hasCompare = pipeline.steps.some((s) => s.type === 'compare');
-    if (hasSync && !hasCompare) {
-      suggestions.push('Add a compare step before sync to preview changes and reduce risk.');
-    }
-
-    const hasDataops = pipeline.steps.some((s) => s.type === 'dataops');
-    if (hasSync && !hasDataops) {
-      suggestions.push('Consider adding anonymization for sensitive data in sync operations.');
-    }
-
-    if (pipeline.steps.length > 1 && !pipeline.steps.some((s) => s.type === 'monitor')) {
-      suggestions.push('Add a monitor step to track pipeline execution and alert on failures.');
-    }
-
-    if (!pipeline.schedule) {
-      suggestions.push('Consider adding a schedule for automated recurring execution.');
-    }
-
-    const prompt = `Analyze this pipeline and suggest improvements:\n${JSON.stringify(pipeline, null, 2)}\nReturn a JSON array of suggestion strings.`;
-
-    try {
-      const response = await this.provider(prompt);
-      suggestions.push(...parseModelJson(PipelineSuggestionsReplySchema, response));
-    } catch {
-      // AI suggestions are best-effort; rule-based suggestions are always returned.
-    }
-
-    return suggestions;
-  }
-
   private extractSteps(normalizedDesc: string, availableOrgs: OrgInfo[]): GeneratedPipelineStep[] {
     const steps: GeneratedPipelineStep[] = [];
     const detectedTypes = new Set<string>();
@@ -247,13 +220,13 @@ export class PipelineGenerator {
   }
 
   /** One suggestion per page that runs the writing work the description asks for. */
-  private writeSuggestions(normalizedDesc: string): string[] {
-    const pages = new Set<string>();
+  private writeSuggestions(normalizedDesc: string): PipelineDraftSuggestion[] {
+    const pages = new Set<PipelineWritePage>();
     for (const word of this.words(normalizedDesc)) {
       const page = WRITE_KEYWORD_PAGE[word];
       if (page) pages.add(page);
     }
-    return [...pages].map(writeSuggestion);
+    return [...pages].map((page) => ({ code: 'WRITES_TO_ORG', page }));
   }
 
   /** The words of a description, without the punctuation around them. */
@@ -384,18 +357,16 @@ export class PipelineGenerator {
       // word of where its work runs instead: kept, it reached the canvas as a
       // step that blocked the whole pipeline.
       const steps = draft.steps.filter((step) => RUNNABLE_STEP_TYPES.has(step.type));
-      const suggestions = [
-        ...new Set(
-          draft.steps
-            .filter((step) => !RUNNABLE_STEP_TYPES.has(step.type))
-            .map((step) => {
-              const page = WRITE_STEP_PAGE[step.type];
-              return page
-                ? writeSuggestion(page)
-                : `A pipeline cannot run a ${step.type} step, so the draft leaves it out.`;
-            }),
-        ),
-      ];
+      // One per page, and one per step type that has none.
+      const suggestions = new Map<string, PipelineDraftSuggestion>();
+      for (const step of draft.steps) {
+        if (RUNNABLE_STEP_TYPES.has(step.type)) continue;
+        const page = WRITE_STEP_PAGE[step.type];
+        const suggestion: PipelineDraftSuggestion = page
+          ? { code: 'WRITES_TO_ORG', page }
+          : { code: 'STEP_NOT_RUNNABLE', stepType: step.type };
+        suggestions.set(JSON.stringify(suggestion), suggestion);
+      }
       return {
         name: draft.name ?? `Pipeline_${Date.now()}`,
         description: draft.description ?? description,
@@ -405,7 +376,7 @@ export class PipelineGenerator {
         // as the keyword path's does, for the page to ask for one. A trigger
         // that starts nothing is left out, whatever the model calls it.
         triggers: draft.triggers?.filter(isDraftTrigger),
-        ...(suggestions.length > 0 ? { suggestions } : {}),
+        ...(suggestions.size > 0 ? { suggestions: [...suggestions.values()] } : {}),
       };
     } catch {
       // A reply that is not a pipeline object leaves a draft with no step,

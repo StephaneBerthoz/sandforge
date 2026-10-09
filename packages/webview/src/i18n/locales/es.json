@@ -54,7 +54,8 @@
     "refusal": {
       "guardBlocked": "Production Guard rechazó esta operación y no se cambió nada en la org. Su motivo: {{reason}}",
       "guardDeclined": "Cancelado en la confirmación de Production Guard: no se cambió nada en la org.",
-      "templateNotFound": "No se encontró la plantilla de enmascaramiento: puede que se haya eliminado. Elija otra plantilla."
+      "templateNotFound": "No se encontró la plantilla de enmascaramiento: puede que se haya eliminado. Elija otra plantilla.",
+      "guardMissing": "Production Guard no estaba listo en esta ventana, y sin él no se escribe nada: no se cambió nada en la org. Recargue la ventana (Developer: Reload Window) y vuelva a intentarlo."
     }
   },
   "status": {
@@ -1804,7 +1805,12 @@
     "failedStepCount_one": "{{count}} fallido",
     "failedStepCount_other": "{{count}} fallidos",
     "errorCount_one": "{{count}} error",
-    "errorCount_other": "{{count}} errores"
+    "errorCount_other": "{{count}} errores",
+    "draftSuggestions": {
+      "title": "Fuera de este borrador",
+      "writesToOrg": "Un pipeline no ejecuta ningún paso que escriba en una org, así que no puede ejecutar {{page}}: ejecútelo desde la página {{page}}, donde Production Guard puede detenerlo o preguntar antes.",
+      "stepNotRunnable": "Un pipeline no puede ejecutar un paso {{type}}, así que el borrador lo deja fuera."
+    }
   },
   "ai": {
     "title": "Asistente IA",
@@ -1945,7 +1951,11 @@
       "skipped": "omitido",
       "skippedUncounted": "omitido, cantidad de registros desconocida",
       "mayHaveBeenWritten_one": "{{count}} quizá en el destino, su llamada sin respuesta",
-      "mayHaveBeenWritten_other": "{{count}} quizá en el destino, su llamada sin respuesta"
+      "mayHaveBeenWritten_other": "{{count}} quizá en el destino, su llamada sin respuesta",
+      "lookupsLeftEmpty_one": "{{count}} con un vínculo vacío, ejecución detenida",
+      "lookupsLeftEmpty_other": "{{count}} con un vínculo vacío, ejecución detenida",
+      "statusesNotGivenBack_one": "{{count}} quedó como borrador, ejecución detenida",
+      "statusesNotGivenBack_other": "{{count}} quedaron como borradores, ejecución detenida"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar más",
@@ -3592,7 +3602,12 @@
       "statusesApplied": "Estados aplicados después de sus registros secundarios",
       "statusRefusals": "Por qué no se aplicó un estado",
       "piiFieldCount_one": "{{count}} campo PII",
-      "piiFieldCount_other": "{{count}} campos PII"
+      "piiFieldCount_other": "{{count}} campos PII",
+      "stoppedLeftTitle": "Escritos, y dejados sin terminar por la detención:",
+      "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} registro mantiene vacío un vínculo que la segunda pasada habría rellenado.",
+      "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} registros mantienen vacío un vínculo que la segunda pasada habría rellenado.",
+      "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} registro sigue como borrador, sin el estado que tenía en el origen.",
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros siguen como borradores, sin el estado que tenían en el origen."
     },
     "report": {
       "title": "Reporte de cumplimiento",

@@ -73,9 +73,6 @@ export const PipelineDraftReplySchema = z.object({
   triggers: keepFitting(z.string()).optional().catch(undefined),
 });
 
-/** Improvement suggestions for a pipeline: the strings of an array. */
-export const PipelineSuggestionsReplySchema = keepFitting(z.string());
-
 /** A natural-language-to-SOQL draft. */
 export const NL2SOQLReplySchema = z.object({
   soql: z.string().catch(''),

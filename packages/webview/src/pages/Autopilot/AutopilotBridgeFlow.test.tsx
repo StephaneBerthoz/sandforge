@@ -436,10 +436,14 @@ describe('Autopilot bridge flow', () => {
         totalApiCalls: 0,
         stopped: true,
         notWritten: ['Contact'],
+        leftByStop: [{ objectApiName: 'Account', lookupsLeftEmpty: 4 }],
       },
       executeRequest.id,
     );
 
+    expect(screen.getByTestId('control-stopped-left').textContent).toBe(
+      'Account: 4 records keep a lookup empty that the second pass would have filled.',
+    );
     const contact = useAutopilotStore
       .getState()
       .graph?.nodes.find((node) => node.objectApiName === 'Contact');
@@ -511,6 +515,36 @@ describe('Autopilot bridge flow', () => {
       );
       expect(shown).toContain('insert is not allowed on production');
       expect(shown).not.toContain('Operation blocked by Production Guard');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
+  it('says a run refused for a missing Production Guard in the panel’s language, by its code', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<AutopilotPage />);
+      driveToReview();
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      dispatchBridgeMessage(
+        'autopilot:error',
+        {
+          message: 'Production Guard is not initialized — infrastructure services missing',
+          code: 'NOT_INITIALIZED',
+        },
+        lastRequestOfType('autopilot:execute').id,
+      );
+
+      expect(useAutopilotStore.getState().step).toBe('review');
+      const shown = screen.getByTestId('autopilot-execute-error').textContent ?? '';
+      expect(shown).toContain(fr.common.refusal.guardMissing);
+      expect(shown).not.toContain('infrastructure services missing');
     } finally {
       await act(async () => {
         await i18n.changeLanguage('en');

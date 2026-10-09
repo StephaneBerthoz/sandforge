@@ -54,7 +54,8 @@
     "refusal": {
       "guardBlocked": "Production Guard hat diesen Vorgang abgelehnt, und in der Org wurde nichts geändert. Begründung: {{reason}}",
       "guardDeclined": "Bei der Bestätigung von Production Guard abgebrochen: In der Org wurde nichts geändert.",
-      "templateNotFound": "Die Maskierungsvorlage wurde nicht gefunden: Sie wurde vielleicht gelöscht. Wählen Sie eine andere Vorlage."
+      "templateNotFound": "Die Maskierungsvorlage wurde nicht gefunden: Sie wurde vielleicht gelöscht. Wählen Sie eine andere Vorlage.",
+      "guardMissing": "Production Guard war in diesem Fenster nicht bereit, und ohne ihn wird nichts geschrieben: In der Org wurde nichts geändert. Laden Sie das Fenster neu (Developer: Reload Window) und versuchen Sie es dann erneut."
     }
   },
   "status": {
@@ -1804,7 +1805,12 @@
     "failedStepCount_one": "{{count}} fehlgeschlagen",
     "failedStepCount_other": "{{count}} fehlgeschlagen",
     "errorCount_one": "{{count}} Fehler",
-    "errorCount_other": "{{count}} Fehler"
+    "errorCount_other": "{{count}} Fehler",
+    "draftSuggestions": {
+      "title": "In diesem Entwurf ausgelassen",
+      "writesToOrg": "Eine Pipeline führt keinen Schritt aus, der in eine Org schreibt, und kann {{page}} deshalb nicht ausführen: Starten Sie es auf der Seite {{page}}, wo Production Guard es anhalten oder zuerst nachfragen kann.",
+      "stepNotRunnable": "Eine Pipeline kann keinen Schritt vom Typ {{type}} ausführen, deshalb lässt der Entwurf ihn aus."
+    }
   },
   "ai": {
     "title": "KI-Assistent",
@@ -1945,7 +1951,11 @@
       "skipped": "übersprungen",
       "skippedUncounted": "übersprungen, Anzahl der Datensätze unbekannt",
       "mayHaveBeenWritten_one": "{{count}} vielleicht im Ziel, sein Aufruf ohne Antwort",
-      "mayHaveBeenWritten_other": "{{count}} vielleicht im Ziel, ihr Aufruf ohne Antwort"
+      "mayHaveBeenWritten_other": "{{count}} vielleicht im Ziel, ihr Aufruf ohne Antwort",
+      "lookupsLeftEmpty_one": "{{count}} mit leer gebliebener Verknüpfung, Lauf gestoppt",
+      "lookupsLeftEmpty_other": "{{count}} mit leer gebliebener Verknüpfung, Lauf gestoppt",
+      "statusesNotGivenBack_one": "{{count}} als Entwurf geblieben, Lauf gestoppt",
+      "statusesNotGivenBack_other": "{{count}} als Entwürfe geblieben, Lauf gestoppt"
     },
     "auditShowing": "{{shown}} von {{total}} angezeigt",
     "showMore": "Mehr anzeigen",
@@ -3592,7 +3602,12 @@
       "statusesApplied": "Nach den untergeordneten Datensätzen gesetzte Status",
       "statusRefusals": "Warum ein Status nicht gesetzt wurde",
       "piiFieldCount_one": "{{count}} PII-Feld",
-      "piiFieldCount_other": "{{count}} PII-Felder"
+      "piiFieldCount_other": "{{count}} PII-Felder",
+      "stoppedLeftTitle": "Geschrieben und durch den Stopp unvollendet gelassen:",
+      "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} Datensatz behält eine leere Verknüpfung, die der zweite Durchgang gefüllt hätte.",
+      "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} Datensätze behalten eine leere Verknüpfung, die der zweite Durchgang gefüllt hätte.",
+      "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} Datensatz bleibt ein Entwurf, ohne den Status, den er in der Quelle hatte.",
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} Datensätze bleiben Entwürfe, ohne den Status, den sie in der Quelle hatten."
     },
     "report": {
       "title": "Compliance-Bericht",

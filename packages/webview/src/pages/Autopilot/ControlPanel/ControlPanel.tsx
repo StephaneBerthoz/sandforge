@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { AutopilotStopLeftover } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { useSendMessage } from '../../../hooks/useMessageBus';
 import { buildMessage } from '../../../bridge/messageHelpers';
@@ -20,10 +21,19 @@ export interface ControlPanelProps {
   runOperationId?: string | null;
   /** Set once a stopped run has ended: the objects it did not write whole. */
   notWritten?: string[];
+  /**
+   * What a stopped run wrote and left unfinished, per object: records that
+   * keep a lookup empty, records left a draft.
+   */
+  leftByStop?: readonly AutopilotStopLeftover[];
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
-export const ControlPanel: React.FC<ControlPanelProps> = ({ runOperationId, notWritten }) => {
+export const ControlPanel: React.FC<ControlPanelProps> = ({
+  runOperationId,
+  notWritten,
+  leftByStop = [],
+}) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<ControlTab>('stats');
   /** The run Stop was sent for: its button waits for the run to end. */
@@ -100,15 +110,49 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ runOperationId, notW
       </div>
 
       {notWritten !== undefined && (
-        <p
+        <div
           className="px-4 py-2 text-xs text-text-primary border-b border-(--sf-border)"
           role="status"
-          data-testid="control-stopped"
         >
-          {notWritten.length > 0
-            ? t('autopilot.control.stoppedNotWritten', { list: notWritten.join(', ') })
-            : t('autopilot.control.stoppedAllWritten')}
-        </p>
+          <p data-testid="control-stopped">
+            {notWritten.length > 0
+              ? t('autopilot.control.stoppedNotWritten', { list: notWritten.join(', ') })
+              : t('autopilot.control.stoppedAllWritten')}
+          </p>
+          {/* The stop sends neither the second pass nor the statuses set
+              aside at insert: records it wrote keep a lookup empty, or stay
+              drafts. Said here, with what was not written, so the user
+              knows what is left to fix. */}
+          {leftByStop.length > 0 && (
+            <>
+              <p className="mt-1">{t('autopilot.control.stoppedLeftTitle')}</p>
+              <ul className="list-disc pl-4" data-testid="control-stopped-left">
+                {leftByStop.flatMap((left) => [
+                  ...(left.lookupsLeftEmpty
+                    ? [
+                        <li key={`${left.objectApiName}-lookups`}>
+                          {t('autopilot.control.stoppedLookupsLeftEmpty', {
+                            object: left.objectApiName,
+                            count: left.lookupsLeftEmpty,
+                          })}
+                        </li>,
+                      ]
+                    : []),
+                  ...(left.statusesNotGivenBack
+                    ? [
+                        <li key={`${left.objectApiName}-statuses`}>
+                          {t('autopilot.control.stoppedStatusesNotGivenBack', {
+                            object: left.objectApiName,
+                            count: left.statusesNotGivenBack,
+                          })}
+                        </li>,
+                      ]
+                    : []),
+                ])}
+              </ul>
+            </>
+          )}
+        </div>
       )}
 
       {/* Tab Content */}

@@ -99,6 +99,29 @@ describe('auditTrailCsv', () => {
     });
   });
 
+  it('names the records a stopped run left with a lookup empty or as drafts among an object’s counts', () => {
+    const stopped: AuditLogEntry = {
+      ...forgeRun,
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      objects: [
+        {
+          objectApiName: 'Order',
+          created: 8,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          lookupsLeftEmpty: 3,
+          statusesNotGivenBack: 5,
+        },
+      ],
+    };
+    const [header, line] = auditTrailCsv([stopped]).split('\n');
+    const byColumn = Object.fromEntries(cells(header).map((name, i) => [name, cells(line)[i]]));
+
+    expect(byColumn.Objects).toBe('Order created=8 lookupsLeftEmpty=3 statusesNotGivenBack=5');
+  });
+
   it("gives a verification of a run's records its verdict, in a column of its own", () => {
     const verification = {
       ...forgeRun,

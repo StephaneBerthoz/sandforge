@@ -41,6 +41,7 @@ let mockMutationState = {
   data: null as Record<string, unknown> | null,
   loading: false,
   error: null as string | null,
+  errorCode: null as string | null,
   reset: mockReset,
 };
 
@@ -66,6 +67,7 @@ describe('useCsvImport', () => {
       data: null,
       loading: false,
       error: null,
+      errorCode: null,
       reset: mockReset,
     };
   });
@@ -222,5 +224,25 @@ describe('useCsvImport', () => {
 
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe('Import exploded');
+  });
+
+  it('says a refusal for a missing Production Guard by its code, not in the host’s English', () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tMock));
+
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      loading: false,
+      error: 'Production Guard is not initialized — infrastructure services missing',
+      errorCode: 'NOT_INITIALIZED',
+    };
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('common.refusal.guardMissing');
   });
 });

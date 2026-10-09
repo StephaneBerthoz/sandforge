@@ -54,7 +54,8 @@
     "refusal": {
       "guardBlocked": "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. Sa raison : {{reason}}",
       "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
-      "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle."
+      "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle.",
+      "guardMissing": "Production Guard n'était pas prêt dans cette fenêtre, et rien ne s'écrit sans lui : rien n'a été modifié dans l'org. Rechargez la fenêtre (Developer: Reload Window), puis réessayez."
     }
   },
   "status": {
@@ -1804,7 +1805,12 @@
     "failedStepCount_one": "{{count}} en échec",
     "failedStepCount_other": "{{count}} en échec",
     "errorCount_one": "{{count}} erreur",
-    "errorCount_other": "{{count}} erreurs"
+    "errorCount_other": "{{count}} erreurs",
+    "draftSuggestions": {
+      "title": "Laissé hors de ce brouillon",
+      "writesToOrg": "Un pipeline n'exécute aucune étape qui écrit dans une org, donc il ne peut pas lancer {{page}} : lancez-le depuis la page {{page}}, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
+      "stepNotRunnable": "Un pipeline ne peut pas exécuter une étape {{type}}, donc le brouillon la laisse de côté."
+    }
   },
   "ai": {
     "title": "Assistant IA",
@@ -1945,7 +1951,11 @@
       "skipped": "ignoré",
       "skippedUncounted": "ignoré, nombre d'enregistrements inconnu",
       "mayHaveBeenWritten_one": "{{count}} peut-être dans la cible, son appel sans réponse",
-      "mayHaveBeenWritten_other": "{{count}} peut-être dans la cible, leur appel sans réponse"
+      "mayHaveBeenWritten_other": "{{count}} peut-être dans la cible, leur appel sans réponse",
+      "lookupsLeftEmpty_one": "{{count}} avec un lien resté vide, l'exécution arrêtée",
+      "lookupsLeftEmpty_other": "{{count}} avec un lien resté vide, l'exécution arrêtée",
+      "statusesNotGivenBack_one": "{{count}} resté en brouillon, l'exécution arrêtée",
+      "statusesNotGivenBack_other": "{{count}} restés en brouillon, l'exécution arrêtée"
     },
     "auditShowing": "{{shown}} affichées sur {{total}}",
     "showMore": "Afficher plus",
@@ -3592,7 +3602,12 @@
       "statusesApplied": "Statuts appliqués après leurs enregistrements enfants",
       "statusRefusals": "Pourquoi un statut n'a pas été appliqué",
       "piiFieldCount_one": "{{count}} champ PII",
-      "piiFieldCount_other": "{{count}} champs PII"
+      "piiFieldCount_other": "{{count}} champs PII",
+      "stoppedLeftTitle": "Écrits, et laissés inachevés par l'arrêt :",
+      "stoppedLookupsLeftEmpty_one": "{{object}} : {{count}} enregistrement garde vide un lien que la seconde passe aurait rempli.",
+      "stoppedLookupsLeftEmpty_other": "{{object}} : {{count}} enregistrements gardent vide un lien que la seconde passe aurait rempli.",
+      "stoppedStatusesNotGivenBack_one": "{{object}} : {{count}} enregistrement reste en brouillon, sans le statut qu'il avait dans la source.",
+      "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source."
     },
     "report": {
       "title": "Rapport de Conformité",

@@ -574,6 +574,52 @@ describe('DataOpsHandler', () => {
       expect(errors[0].payload.code).toBe('GUARD_BLOCKED');
     });
 
+    it('records a run whose count the org refused, before the guard is asked, as a failure with the object and the org’s code', async () => {
+      // The counts come before the guard: a count that failed ended the run
+      // with no entry in the audit trail, the guard never asked, nothing
+      // written.
+      const { query, sobject } = await countingOrg({});
+      query.mockRejectedValue(
+        Object.assign(new Error("sObject type 'Contact' is not supported."), {
+          errorCode: 'INVALID_TYPE',
+        }),
+      );
+      const check = vi.fn();
+      deps.infraServices = {
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a8',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(check).not.toHaveBeenCalled();
+      expect(sobject).not.toHaveBeenCalled();
+      const errors = postedMessages().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain("sObject type 'Contact' is not supported.");
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail).toHaveLength(1);
+      expect(trail[0][1]).toEqual([
+        expect.objectContaining({
+          action: 'anonymize_execute',
+          orgId: 'org-1',
+          outcome: 'failure',
+          objects: [{ objectApiName: 'Contact', created: 0, updated: 0, deleted: 0, failed: 0 }],
+          // The org's code, never its message, which can quote a value.
+          details: { code: 'COUNT_FAILED', reason: 'INVALID_TYPE' },
+        }),
+      ]);
+      expect(trail[0][1]).not.toHaveProperty([0, 'guard']);
+    });
+
     it('warns of a run past 50 000 rows on a sandbox, whose tier asks nothing', async () => {
       // The guard was asked with no count, which it weighs as none: the
       // warning past 50 000 rows never fired on a sandbox.
@@ -2428,6 +2474,11 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     afterBatch?: (batchesWritten: number, conn: { limitInfo?: unknown }) => void;
     /** Whether the org refuses to update a row, which then keeps its values. */
     refuse?: (id: string) => boolean;
+    /**
+     * The update, counted from 1, whose answer never comes back: the org
+     * commits the first `landed` rows of it, then the call throws `error`.
+     */
+    cutOff?: { batch: number; landed: number; error: Error };
   }
 
   /** An org holding `rows`, read and written the way Salesforce does. */
@@ -2458,6 +2509,12 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
       return { totalSize: page.length, records: page, done: true };
     });
     const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
+      if (quirks.cutOff && update.mock.calls.length === quirks.cutOff.batch) {
+        for (const sent of batch.slice(0, quirks.cutOff.landed)) {
+          Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
+        }
+        throw quirks.cutOff.error;
+      }
       const answers = batch.map((sent) => {
         if (quirks.refuse?.(String(sent.Id))) {
           return {
@@ -2903,6 +2960,92 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
           refused: [String(rows[4].Id)],
         }),
       ]);
+    });
+
+    it('reads back the rows of an update whose answer never came, and masks none of them twice', async () => {
+      // The second update went out and its answer was lost: the org took the
+      // first 120 of its 200 rows. The checkpoint stayed at the first batch,
+      // so a resume sent all 200 again, and masked those 120 a second time,
+      // another way.
+      const rows = contactsOf(600);
+      const { conn, query, update } = orgOf(rows, {
+        cutOff: {
+          batch: 2,
+          landed: 120,
+          error: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+        },
+      });
+      await maskContacts(conn);
+      const landed = rows.slice(200, 320).map((r) => ({ ...r }));
+      expect(rows.slice(200, 320).every((r, i) => r.FirstName !== `Person ${i + 201}`)).toBe(true);
+      const checkpoint = checkpointOf() as
+        | { id: string; objects: Array<{ afterId?: string; unconfirmed?: Array<{ id: string }> }> }
+        | undefined;
+      expect(checkpoint?.objects[0]?.afterId).toBe(String(rows[399].Id));
+      expect(checkpoint?.objects[0]?.unconfirmed?.map((row) => row.id)).toEqual(
+        rows.slice(200, 400).map((r) => String(r.Id)),
+      );
+      // Sent, and failed with no answer: counted apart, as rows that may be masked.
+      expect(audited().at(-1)).toMatchObject({
+        outcome: 'partial',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            updated: 200,
+            failed: 200,
+            mayHaveBeenWritten: 200,
+            notSent: 200,
+          },
+        ],
+      });
+      const callsBefore = update.mock.calls.length;
+      const queriesBefore = query.mock.calls.length;
+
+      await maskContacts(conn, 'Sandbox', checkpoint?.id);
+
+      // Read back first; only the 80 rows still holding their values are sent.
+      expect(query.mock.calls[queriesBefore + 1]?.[0]).toBe(
+        `SELECT Id, FirstName FROM Contact WHERE Id IN (${rows
+          .slice(200, 400)
+          .map((r) => `'${String(r.Id)}'`)
+          .join(', ')})`,
+      );
+      expect(idsSent(update, callsBefore)).toEqual(rows.slice(320).map((r) => String(r.Id)));
+      // Masked once: the rows the lost call masked keep what it wrote.
+      expect(rows.slice(200, 320)).toEqual(landed);
+      expect(unmasked(rows)).toBe(0);
+      expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+        status: 'success',
+        recordsProcessed: 400,
+        recordsNotMasked: 0,
+      });
+      expect(checkpointOf()).toBeUndefined();
+    });
+
+    it('sends again, as it was, an update the org never had', async () => {
+      // Refused at the connection, the call wrote nothing: there is nothing to
+      // read back, and the resume starts after the last batch answered.
+      const rows = contactsOf(400);
+      const { conn, update } = orgOf(rows, {
+        cutOff: {
+          batch: 2,
+          landed: 0,
+          error: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+        },
+      });
+      await maskContacts(conn);
+      expect(checkpointOf()?.objects[0]).toEqual({
+        objectApiName: 'Contact',
+        done: false,
+        afterId: String(rows[199].Id),
+        refused: [],
+      });
+      const callsBefore = update.mock.calls.length;
+
+      await maskContacts(conn, 'Sandbox', checkpointOf()?.id);
+
+      expect(idsSent(update, callsBefore)).toEqual(rows.slice(200).map((r) => String(r.Id)));
+      expect(unmasked(rows)).toBe(0);
     });
 
     it('masks every row again when Apply runs whole, and forgets where the last run stopped', async () => {

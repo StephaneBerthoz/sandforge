@@ -22,7 +22,7 @@ import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
-import { useAutomationPageData } from './useAutomationPageData';
+import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
 
 /** Main Automation page — wired to extension via bridge hooks. */
@@ -62,6 +62,7 @@ export const AutomationPage: React.FC = () => {
     marketplaceError,
     marketplaceTemplates,
     pipelineGen,
+    draftSuggestions,
     stepCount,
     triggerCount,
     historyCount,
@@ -189,6 +190,28 @@ export const AutomationPage: React.FC = () => {
                 <span className="font-medium text-text-primary">{blocked.stepName}</span> (
                 {stepTypeLabel(blocked.stepType)}) —{' '}
                 {t(`automation.runnability.${blocked.blocker}`)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Beside the draft, what it leaves out and where that work runs — a
+          sync asked for with a comparison, which only the Sync page runs: the
+          generator said it, and the page showed nothing of it. */}
+      {pipeline && draftSuggestions.length > 0 && (
+        <div
+          role="note"
+          className="flex flex-col gap-1 rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2"
+          data-testid="pipeline-draft-suggestions"
+        >
+          <p className="text-xs font-semibold text-text-primary">
+            {t('automation.draftSuggestions.title')}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {draftSuggestions.map((suggestion) => (
+              <li key={JSON.stringify(suggestion)} className="text-xs text-text-secondary">
+                {draftSuggestionText(t, suggestion)}
               </li>
             ))}
           </ul>

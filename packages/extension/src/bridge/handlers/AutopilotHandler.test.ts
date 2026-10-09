@@ -1062,6 +1062,51 @@ describe('AutopilotHandler', () => {
       ]);
     });
 
+    it('records and says what the stop left undone in the records it wrote', async () => {
+      // Stopped as its first wave ended: the accounts went in without the
+      // parents the second pass fills, and the orders as drafts.
+      const store = recordingStore();
+      const { registry, running } = await startStoppableRun({
+        ...PART_WRITTEN,
+        completedObjects: ['Account'],
+        stoppedObjects: ['Contact'],
+        objectOutcomes: {
+          Account: {
+            written: 5,
+            linked: 0,
+            failed: 0,
+            refusals: [],
+            lookupsLeftEmpty: 3,
+            statusesNotGivenBack: 2,
+          },
+          Contact: { written: 0, linked: 0, failed: 0, refusals: [], notSent: 5 },
+        },
+      });
+
+      await abort(registry);
+      await running;
+
+      expect(postedMessages(deps).find((m) => m.type === 'autopilot:completed')).toMatchObject({
+        payload: {
+          stopped: true,
+          notWritten: ['Contact'],
+          leftByStop: [{ objectApiName: 'Account', lookupsLeftEmpty: 3, statusesNotGivenBack: 2 }],
+        },
+      });
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'partial',
+          objects: expect.arrayContaining([
+            expect.objectContaining({
+              objectApiName: 'Account',
+              lookupsLeftEmpty: 3,
+              statusesNotGivenBack: 2,
+            }),
+          ]),
+        }),
+      ]);
+    });
+
     it('records a run stopped before it wrote as stopped, under the code of a cancel', async () => {
       const store = recordingStore();
       const { registry, running } = await startStoppableRun({
@@ -1198,6 +1243,9 @@ describe('AutopilotHandler', () => {
         correlationId: 'exec-guard',
         payload: { code: 'NOT_INITIALIZED' },
       });
+      // Said by the page in the interface language, by its code: no
+      // notification beside it repeats the refusal in English.
+      expect(postedMessages(deps).filter((m) => m.type === 'notification')).toEqual([]);
       // Recorded as the guard's own refusals are, with the code that says why.
       const trail = vi
         .mocked(deps.configStore.set)

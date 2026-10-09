@@ -99,6 +99,18 @@ export interface AuditObjectCounts {
    */
   notSent?: number;
   /**
+   * Of the records written, those a stopped run left with a lookup empty that
+   * its second pass would have filled: the stop sends no update after it.
+   * Absent when there are none.
+   */
+  lookupsLeftEmpty?: number;
+  /**
+   * Of the records written, those a stopped run wrote at a draft status and
+   * never gave back the status they had in the source: they stay drafts.
+   * Absent when there are none.
+   */
+  statusesNotGivenBack?: number;
+  /**
    * Records of a call whose answer never came back: the target may hold any
    * of them under an id the run never learned. Counted among the failed, and
    * apart, because they may be in the org all the same. Absent when there are

@@ -54,7 +54,8 @@
     "refusal": {
       "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
       "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
-      "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template."
+      "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template.",
+      "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again."
     }
   },
   "status": {
@@ -1804,7 +1805,12 @@
     "failedStepCount_one": "{{count}} failed",
     "failedStepCount_other": "{{count}} failed",
     "errorCount_one": "{{count}} error",
-    "errorCount_other": "{{count}} errors"
+    "errorCount_other": "{{count}} errors",
+    "draftSuggestions": {
+      "title": "Left out of this draft",
+      "writesToOrg": "A pipeline runs no step that writes to an org, so it cannot run {{page}}: run it from the {{page}} page, where Production Guard can stop it or ask first.",
+      "stepNotRunnable": "A pipeline cannot run a {{type}} step, so the draft leaves it out."
+    }
   },
   "ai": {
     "title": "AI Assistant",
@@ -1945,7 +1951,11 @@
       "skipped": "skipped",
       "skippedUncounted": "skipped, record count unknown",
       "mayHaveBeenWritten_one": "{{count}} may be in the target, its call unanswered",
-      "mayHaveBeenWritten_other": "{{count}} may be in the target, their call unanswered"
+      "mayHaveBeenWritten_other": "{{count}} may be in the target, their call unanswered",
+      "lookupsLeftEmpty_one": "{{count}} kept a lookup empty, the run stopped",
+      "lookupsLeftEmpty_other": "{{count}} kept a lookup empty, the run stopped",
+      "statusesNotGivenBack_one": "{{count}} left a draft, the run stopped",
+      "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped"
     },
     "auditShowing": "Showing {{shown}} of {{total}}",
     "showMore": "Show more",
@@ -3592,7 +3602,12 @@
       "statusesApplied": "Statuses applied after their children",
       "statusRefusals": "Why a status was not applied",
       "piiFieldCount_one": "{{count}} PII field",
-      "piiFieldCount_other": "{{count}} PII fields"
+      "piiFieldCount_other": "{{count}} PII fields",
+      "stoppedLeftTitle": "Written, and left unfinished by the stop:",
+      "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} record keeps a lookup empty that the second pass would have filled.",
+      "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} records keep a lookup empty that the second pass would have filled.",
+      "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} record stays a draft, without the status it had in the source.",
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source."
     },
     "report": {
       "title": "Compliance Report",

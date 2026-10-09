@@ -21,6 +21,23 @@ export const MAX_CHECKPOINT_REFUSED = 2_000;
 /** A record id, 15 or 18 letters and digits: what goes into a statement as it is. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
+/** A field's API name, as an update sends it. */
+const FIELD_NAME = z.string().min(1).max(255);
+
+/**
+ * A row of an update whose answer never came back: the org may hold what the
+ * call sent, or the row's original values. What was sent is kept as a digest
+ * ({@link sentValuesDigest}) of the masked values, never the values themselves
+ * nor the originals.
+ */
+const unconfirmedSchema = z.object({
+  id: z.string().regex(RECORD_ID),
+  /** The fields the call sent, by API name. */
+  fields: z.array(FIELD_NAME).min(1).max(800),
+  /** {@link sentValuesDigest} of what the call sent for them. */
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 /** How far a masking run got through one object. */
 const progressSchema = z.object({
   objectApiName: z.string().min(1).max(255),
@@ -30,6 +47,13 @@ const progressSchema = z.object({
   afterId: z.string().regex(RECORD_ID).optional(),
   /** The rows the org refused: they hold their original values, and a resume tries them first. */
   refused: z.array(z.string().regex(RECORD_ID)).max(MAX_CHECKPOINT_REFUSED),
+  /**
+   * The rows of the update the run ended on, whose answer never came back:
+   * they lie behind `afterId`, and a resume reads them back before anything
+   * else, so that a row the call masked is not masked a second time, another
+   * way. Absent when there are none.
+   */
+  unconfirmed: z.array(unconfirmedSchema).max(MAX_CHECKPOINT_REFUSED).optional(),
 });
 
 /**
@@ -51,6 +75,9 @@ const checkpointSchema = z.object({
 /** How far a masking run got through one object, as a checkpoint keeps it. */
 export type MaskingProgress = z.infer<typeof progressSchema>;
 
+/** A row of an update whose answer never came back, as a checkpoint keeps it. */
+export type UnconfirmedRow = z.infer<typeof unconfirmedSchema>;
+
 /** Where a masking run that stopped short left off. */
 export type MaskingCheckpoint = z.infer<typeof checkpointSchema>;
 
@@ -69,6 +96,32 @@ export function maskingFingerprint(
   return createHash('sha256')
     .update(JSON.stringify({ rules: masked, objects }))
     .digest('hex');
+}
+
+/** A value as a row read back compares with the value an update sent: text without its edge spaces. */
+function comparable(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
+/**
+ * A digest of a row's values for some fields: of what an update sent, kept,
+ * and of the same row read back, compared with it. Equal, the row holds what
+ * the update sent. The fields in name order, so either side may list them in
+ * any; text without its edge spaces, which the org may trim; a number or a
+ * flag as text.
+ *
+ * @param row - The values, by field API name.
+ * @param fields - The fields the digest covers.
+ */
+export function sentValuesDigest(
+  row: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+): string {
+  const values = [...fields].sort().map((field) => [field, comparable(row[field])]);
+  return createHash('sha256').update(JSON.stringify(values)).digest('hex');
 }
 
 /** Rows the org refused that a set of objects' progress holds. */

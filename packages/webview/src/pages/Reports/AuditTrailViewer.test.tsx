@@ -190,6 +190,32 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('counts after what was written the records a stopped run left with a lookup empty or as drafts', () => {
+    const stoppedRun: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-autopilot-stopped',
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Order',
+          created: 8,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          lookupsLeftEmpty: 3,
+          statusesNotGivenBack: 5,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[stoppedRun]} />);
+
+    expect(screen.getByTestId('audit-aud-autopilot-stopped').querySelector('li')?.textContent).toBe(
+      'Order 8 created · 3 kept a lookup empty, the run stopped · 5 left drafts, the run stopped',
+    );
+  });
+
   it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
     // Nothing created, nothing failed: what the cancel kept from the target
     // is all there is to say of the object, and the entry says why it stopped.

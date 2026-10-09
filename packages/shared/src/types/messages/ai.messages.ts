@@ -275,10 +275,34 @@ export interface AIGeneratePipelineRequest extends BaseMessage {
   payload: { description: string; orgIds?: string[] };
 }
 
+/** The page that runs work a pipeline cannot, by its key under `nav`. */
+export type PipelineWritePage = 'sync' | 'seed' | 'dataops';
+
+/**
+ * What a pipeline draft leaves out, and where its work runs instead, as a
+ * code the page words in the reader's language. The host's sentences were
+ * English, and the page showed none of them beside a draft it loaded.
+ */
+export type PipelineDraftSuggestion =
+  /** Work that writes to an org, which a pipeline never runs: run it from its page. */
+  | { code: 'WRITES_TO_ORG'; page: PipelineWritePage }
+  /** A step type the model named that a pipeline cannot run, left out of the draft. */
+  | { code: 'STEP_NOT_RUNNABLE'; stepType: string };
+
 /** Response containing an AI-generated pipeline definition */
 export interface AIGeneratePipelineResponse extends BaseMessage {
   type: 'ai:generate-pipeline:response';
-  payload: { success: boolean; pipeline?: Record<string, unknown>; error?: string };
+  payload: {
+    success: boolean;
+    pipeline?: Record<string, unknown>;
+    /**
+     * What the draft leaves out: beside a draft it loads, the page says each;
+     * for a request that drew no step, they are the answer in place of
+     * `error`, which says them in English.
+     */
+    suggestions?: PipelineDraftSuggestion[];
+    error?: string;
+  };
 }
 
 /** AI schema advice */

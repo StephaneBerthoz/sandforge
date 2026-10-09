@@ -5,6 +5,7 @@ import type {
   ComplianceProfile,
   AutopilotAnonymizationRule,
   AutopilotRefusal,
+  AutopilotStopLeftover,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -336,6 +337,8 @@ export class AutopilotHandler implements DomainHandler {
         outcome: 'stopped',
         code: PRODUCTION_GUARD_MISSING.code,
       });
+      // The page says it in the interface language by its code. No
+      // notification beside it: one said the same refusal in English.
       sendHandlerError(
         this.deps,
         'autopilot:execute',
@@ -344,7 +347,6 @@ export class AutopilotHandler implements DomainHandler {
         new Error(PRODUCTION_GUARD_MISSING.message),
         { code: PRODUCTION_GUARD_MISSING.code },
       );
-      sendNotification(this.deps, 'error', 'Autopilot', PRODUCTION_GUARD_MISSING.message);
       return;
     }
     const totalRecords = Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0);
@@ -516,6 +518,11 @@ export class AutopilotHandler implements DomainHandler {
       const failedSet = new Set(result.failedObjects);
       const skippedSet = new Set(result.skippedObjects);
       const stoppedSet = new Set(result.stoppedObjects ?? []);
+      /**
+       * What a stop kept the updates after the waves from giving back, per
+       * object: records that keep a lookup empty, records left a draft.
+       */
+      const leftByStop: AutopilotStopLeftover[] = [];
 
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
@@ -582,6 +589,26 @@ export class AutopilotHandler implements DomainHandler {
               ...(notSent > 0 ? { notSent } : {}),
             });
           }
+          // Written, and left unfinished by the stop: the audit counts them,
+          // and the page says them with what the run did not write, so the
+          // user knows what is left to fix. Neither was counted anywhere.
+          const lookupsLeftEmpty = outcome?.lookupsLeftEmpty ?? 0;
+          const statusesNotGivenBack = outcome?.statusesNotGivenBack ?? 0;
+          if (lookupsLeftEmpty + statusesNotGivenBack > 0) {
+            const left = {
+              ...(lookupsLeftEmpty > 0 ? { lookupsLeftEmpty } : {}),
+              ...(statusesNotGivenBack > 0 ? { statusesNotGivenBack } : {}),
+            };
+            leftByStop.push({ objectApiName: name, ...left });
+            written.set(name, {
+              ...(written.get(name) ?? {
+                ...emptyCounts(name),
+                created: outcome?.written ?? 0,
+                failed: outcome?.failed ?? 0,
+              }),
+              ...left,
+            });
+          }
         }
       }
 
@@ -603,7 +630,13 @@ export class AutopilotHandler implements DomainHandler {
         totalFailureCount: result.totalFailure,
         totalElapsedMs: result.elapsedMs,
         totalApiCalls: 0,
-        ...(result.stopped ? { stopped: true, notWritten: result.stoppedObjects ?? [] } : {}),
+        ...(result.stopped
+          ? {
+              stopped: true,
+              notWritten: result.stoppedObjects ?? [],
+              ...(leftByStop.length > 0 ? { leftByStop } : {}),
+            }
+          : {}),
       });
       this.deps.broker.postToWebview(response);
       if (result.stopped) this.liveTracker?.cancel(msg.id);

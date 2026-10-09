@@ -47,7 +47,8 @@
     "refusal": {
       "guardBlocked": "Production Guard がこの操作を拒否したため、組織では何も変更されていません。理由: {{reason}}",
       "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。",
-      "templateNotFound": "マスキングテンプレートが見つかりません。削除された可能性があります。別のテンプレートを選択してください。"
+      "templateNotFound": "マスキングテンプレートが見つかりません。削除された可能性があります。別のテンプレートを選択してください。",
+      "guardMissing": "このウィンドウでは Production Guard の準備ができておらず、Production Guard なしでは何も書き込まれません。組織では何も変更されていません。ウィンドウを再読み込み（Developer: Reload Window）してから、もう一度お試しください。"
     }
   },
   "status": {
@@ -1702,7 +1703,12 @@
     "stepCount_other": "{{count}}ステップ",
     "stepsDone_other": "{{done}}/{{count}}ステップ",
     "failedStepCount_other": "{{count}}件失敗",
-    "errorCount_other": "{{count}}件のエラー"
+    "errorCount_other": "{{count}}件のエラー",
+    "draftSuggestions": {
+      "title": "この下書きから除外されたもの",
+      "writesToOrg": "パイプラインは組織に書き込むステップを実行しないため、{{page}} は実行できません。{{page}} ページから実行してください。そのページでは Production Guard が停止するか、事前に確認できます。",
+      "stepNotRunnable": "パイプラインは {{type}} ステップを実行できないため、下書きから除外しました。"
+    }
   },
   "ai": {
     "title": "AIアシスタント",
@@ -1835,7 +1841,9 @@
       "writtenWithoutFields_other": "{{count}}件をターゲットが拒否した項目なしで書き込み",
       "skipped": "スキップ",
       "skippedUncounted": "スキップ（件数不明）",
-      "mayHaveBeenWritten_other": "{{count}}件は呼び出しに応答がなく、ターゲットにある可能性あり"
+      "mayHaveBeenWritten_other": "{{count}}件は呼び出しに応答がなく、ターゲットにある可能性あり",
+      "lookupsLeftEmpty_other": "{{count}}件は参照項目が空のまま（実行停止）",
+      "statusesNotGivenBack_other": "{{count}}件はドラフトのまま（実行停止）"
     },
     "auditShowing": "{{total}}件中{{shown}}件を表示",
     "showMore": "さらに表示",
@@ -3408,7 +3416,10 @@
       "refusals": "レコードが拒否された理由",
       "statusesApplied": "子レコードの後に適用されたステータス",
       "statusRefusals": "ステータスが適用されなかった理由",
-      "piiFieldCount_other": "{{count}}個の PII 項目"
+      "piiFieldCount_other": "{{count}}個の PII 項目",
+      "stoppedLeftTitle": "書き込まれたものの、停止により未完了のまま:",
+      "stoppedLookupsLeftEmpty_other": "{{object}}：{{count}}件のレコードで、2回目の処理で設定されるはずだった参照項目が空のままです。",
+      "stoppedStatusesNotGivenBack_other": "{{object}}：{{count}}件のレコードがドラフトのままで、ソースでの状態に戻っていません。"
     },
     "report": {
       "title": "コンプライアンスレポート",

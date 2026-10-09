@@ -71,11 +71,14 @@ import {
   MaskingCheckpointStore,
   maskingFingerprint,
   refusedCount,
+  sentValuesDigest,
 } from '../../modules/dataops/MaskingCheckpointStore.js';
 import type {
   MaskingCheckpoint,
   MaskingProgress,
+  UnconfirmedRow,
 } from '../../modules/dataops/MaskingCheckpointStore.js';
+import { whatTheWriteLeft } from '../../core/common/thrownWrite.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -266,6 +269,11 @@ interface MaskingTally {
   nothingToMask: number;
   /** Rows the org refused to update: they keep their original values. */
   refused: number;
+  /**
+   * Rows of the update the run ended on, whose answer never came back: the
+   * org may hold them masked, or as they were.
+   */
+  unanswered: number;
   /** Whether the run read the object to its last row. */
   done: boolean;
 }
@@ -284,6 +292,40 @@ const NOTHING_TO_RESUME = 'NOTHING_TO_RESUME';
 
 /** The code of a request naming a template neither shipped nor saved. */
 const TEMPLATE_NOT_FOUND = 'TEMPLATE_NOT_FOUND';
+
+/**
+ * A row of an update whose answer never came back, as a checkpoint keeps it:
+ * its id, the fields the update sent and a digest of what it sent for them —
+ * masked values, never the originals. Nothing for a row without a usable id.
+ */
+function unconfirmedRowOf(row: Readonly<Record<string, unknown>>): UnconfirmedRow[] {
+  const id = row['Id'];
+  if (typeof id !== 'string' || !RECORD_ID.test(id)) return [];
+  const fields = Object.keys(row).filter((field) => field !== 'Id');
+  return fields.length > 0 ? [{ id, fields, digest: sentValuesDigest(row, fields) }] : [];
+}
+
+/** The code a masking run is recorded with when the org would not count an object's rows. */
+const COUNT_FAILED = 'COUNT_FAILED';
+
+/** An API or system error code, as an org's error message starts with one. */
+const LEADING_CODE = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+):/;
+
+/**
+ * Why the org refused a call, as a code and never as its message: the
+ * Salesforce code jsforce puts on `errorCode` (`INVALID_TYPE`,
+ * `REQUEST_LIMIT_EXCEEDED`), the system's for a connection that broke
+ * (`ECONNRESET`), or the code a message starts with. The audit trail keeps no
+ * message: a Salesforce error can quote the value it refused.
+ */
+function orgReasonCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const { errorCode, code } = err as { errorCode?: unknown; code?: unknown };
+    if (typeof errorCode === 'string' && errorCode !== '') return errorCode;
+    if (typeof code === 'string' && code !== '') return code;
+  }
+  return LEADING_CODE.exec(extractErrorMessage(err))?.[1] ?? 'UNKNOWN';
+}
 
 /** Rows of each object a preview reads: the first ones a masking run masks. */
 const PREVIEW_ROWS = 5;
@@ -307,12 +349,18 @@ function previewValue(value: unknown): AnonymizePreviewValue {
  */
 function notReached(tally: MaskingTally): number {
   if (tally.done) return 0;
-  return Math.max(0, tally.total - tally.masked - tally.nothingToMask - tally.refused);
+  return Math.max(
+    0,
+    tally.total - tally.masked - tally.nothingToMask - tally.refused - tally.unanswered,
+  );
 }
 
-/** Rows of an object still holding their original values: refused, or never reached. */
+/**
+ * Rows of an object that may still hold their original values: refused,
+ * never reached, or sent in a call whose answer never came back.
+ */
 function notMasked(tally: MaskingTally): number {
-  return tally.refused + notReached(tally);
+  return tally.refused + tally.unanswered + notReached(tally);
 }
 
 /** A masking run's counts over every object, as its result carries them. */
@@ -390,7 +438,10 @@ function maskingAuditCounts(tallies: readonly MaskingTally[]): AuditObjectCounts
       return {
         ...emptyCounts(t.objectApiName),
         updated: t.masked,
-        failed: t.refused,
+        // A call with no answer is counted failed, and apart: it may have
+        // masked any of its rows.
+        failed: t.refused + t.unanswered,
+        ...(t.unanswered > 0 ? { mayHaveBeenWritten: t.unanswered } : {}),
         ...(left > 0 ? { notSent: left } : {}),
       };
     });
@@ -1797,7 +1848,11 @@ export class DataOpsHandler implements DomainHandler {
       checkpointSettled = true;
       const checkpoints = new MaskingCheckpointStore(this.deps.configStore);
       const { recordsNotMasked } = maskingTotals(tallies);
-      const handled = tallies.reduce((sum, t) => sum + t.masked + t.nothingToMask + t.refused, 0);
+      // A call whose answer never came may have changed the org as well.
+      const handled = tallies.reduce(
+        (sum, t) => sum + t.masked + t.nothingToMask + t.refused + t.unanswered,
+        0,
+      );
       try {
         if (recordsNotMasked === 0) {
           checkpoints.clear(payload.orgId, payload.templateId);
@@ -1910,20 +1965,38 @@ export class DataOpsHandler implements DomainHandler {
           done: from?.done ?? false,
           ...(from?.afterId !== undefined ? { afterId: from.afterId } : {}),
           refused: [...(from?.refused ?? [])],
+          ...(from?.unconfirmed?.length ? { unconfirmed: [...from.unconfirmed] } : {}),
         };
         let toRead = 0;
         if (!progress.done) {
-          toRead = await this.countRows(conn, safeObj, progress.afterId);
+          try {
+            toRead = await this.countRows(conn, safeObj, progress.afterId);
+          } catch (err: unknown) {
+            // Before the guard is asked and before anything is written: the
+            // run ends here, and is recorded as a failure with the object and
+            // the org's reason, as a run a check of its own stops is. Once
+            // the counts came before the guard, such a run left no entry.
+            recordWriteRun(this.deps, {
+              ...run,
+              outcome: 'failure',
+              source: undefined,
+              objects: [emptyCounts(safeObj)],
+              code: COUNT_FAILED,
+              details: { reason: orgReasonCode(err) },
+            });
+            throw err;
+          }
           noteApiUsage(`dataops:anonymize count ${safeObj}`);
           if (toRead === 0) progress.done = true;
         }
-        const total = toRead + progress.refused.length;
+        const total = toRead + progress.refused.length + (progress.unconfirmed?.length ?? 0);
         const tally: MaskingTally = {
           objectApiName: safeObj,
           total,
           masked: 0,
           nothingToMask: 0,
           refused: 0,
+          unanswered: 0,
           done: total === 0,
         };
         tallies.push(tally);
@@ -2071,14 +2144,20 @@ export class DataOpsHandler implements DomainHandler {
         /**
          * Mask rows read from the object and write them back, two hundred an
          * update, handing each batch the org answered to `onAnswered` with the
-         * ids it refused. A cancel, or the org's API usage passing the line, is
-         * honoured before each batch.
+         * ids it refused, and the batch whose answer never came back to
+         * `onUnanswered`, with what it sent, before the error goes on. A
+         * cancel, or the org's API usage passing the line, is honoured before
+         * each batch.
          *
          * @returns Whether it stopped before every batch was written.
          */
         const writeBack = async (
           records: Array<Record<string, unknown>>,
           onAnswered: (batch: ReadonlyArray<Record<string, unknown>>, refused: string[]) => void,
+          onUnanswered: (
+            batch: ReadonlyArray<Record<string, unknown>>,
+            sent: UnconfirmedRow[],
+          ) => void,
         ): Promise<boolean> => {
           const anonymized = engine.anonymize(records, rules);
 
@@ -2126,11 +2205,26 @@ export class DataOpsHandler implements DomainHandler {
             // The waiver the restore's upsert sends: a duplicate rule can block
             // an edit as it blocks a create, and a masked record that the rule
             // refuses keeps its real values.
-            const updateResults = (await conn
-              .sobject(objectName)
-              .update(batch as Array<Record<string, unknown> & { Id: string }>, {
-                headers: recordWriteHeaders(),
-              })) as unknown as JsforceResult[];
+            let updateResults: JsforceResult[];
+            try {
+              updateResults = (await conn
+                .sobject(objectName)
+                .update(batch as Array<Record<string, unknown> & { Id: string }>, {
+                  headers: recordWriteHeaders(),
+                })) as unknown as JsforceResult[];
+            } catch (err: unknown) {
+              // The request went out and no answer came: the org may have
+              // masked any row of it, each committed on its own, and a resume
+              // that sent them again would mask those a second time, another
+              // way. What was sent is kept, as a digest, for the resume to
+              // read back first. A call the org never had, or refused whole,
+              // wrote nothing, and is sent again as it was.
+              if (whatTheWriteLeft(err) === 'may-have-written') {
+                tally.unanswered += batch.length;
+                onUnanswered(batch, batch.flatMap(unconfirmedRowOf));
+              }
+              throw err;
+            }
             noteApiUsage(`dataops:anonymize update ${safeObj}`);
             // Same dropped count as the restore: a record the org refuses keeps
             // its real PII, and reporting only the successes hid exactly that.
@@ -2154,7 +2248,43 @@ export class DataOpsHandler implements DomainHandler {
           return false;
         };
 
-        // A resume first tries again, by Id, the rows the org refused last
+        // A resume first reads back, by Id, the rows of the update whose
+        // answer never came: those that hold what it sent were masked, and
+        // are done with; the others hold their original values, and are
+        // tried again with the rows the org refused. Sent again unread, a
+        // row the update did mask was masked a second time, another way.
+        const unconfirmed = progress.unconfirmed ?? [];
+        for (let i = 0; i < unconfirmed.length; i += MASKING_BATCH_SIZE) {
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
+          if (usageAtStop()) break;
+          const part = unconfirmed.slice(i, i + MASKING_BATCH_SIZE);
+          const ids = part.map((row) => `'${row.id}'`).join(', ');
+          const rows = await queryAll<Record<string, unknown>>(
+            conn,
+            `SELECT ${fields} FROM ${safeObj} WHERE Id IN (${ids})`,
+          );
+          noteApiUsage(`dataops:anonymize query ${safeObj}`);
+          const read = new Map(rows.map((row) => [String(row.Id), row]));
+          const original: string[] = [];
+          for (const sent of part) {
+            const row = read.get(sent.id);
+            // A row deleted since holds nothing left to mask.
+            if (row === undefined) tally.total -= 1;
+            else if (sentValuesDigest(row, sent.fields) === sent.digest) tally.nothingToMask++;
+            else original.push(sent.id);
+          }
+          const checked = new Set(part.map((row) => row.id));
+          const left = (progress.unconfirmed ?? []).filter((row) => !checked.has(row.id));
+          if (left.length > 0) progress.unconfirmed = left;
+          else delete progress.unconfirmed;
+          progress.refused.push(...original);
+        }
+        if (cancelled || usageAtStop()) break;
+
+        // A resume then tries again, by Id, the rows the org refused last
         // time: they hold their original values, and lie behind where the run
         // it resumes stopped, so reading on from there never reaches them.
         const retry = [...progress.refused];
@@ -2173,7 +2303,16 @@ export class DataOpsHandler implements DomainHandler {
           // A row deleted since holds nothing left to mask.
           tally.total -= ids.length - rows.length;
           const refusedAgain: string[] = [];
-          const stopped = await writeBack(rows, (_batch, refused) => refusedAgain.push(...refused));
+          const stopped = await writeBack(
+            rows,
+            (_batch, refused) => refusedAgain.push(...refused),
+            (_batch, sent) => {
+              // No longer known to hold their original values: read back first.
+              const unsure = new Set(sent.map((row) => row.id));
+              progress.refused = progress.refused.filter((id) => !unsure.has(id));
+              progress.unconfirmed = [...(progress.unconfirmed ?? []), ...sent];
+            },
+          );
           if (stopped) break;
           const tried = new Set(ids);
           progress.refused = [...progress.refused.filter((id) => !tried.has(id)), ...refusedAgain];
@@ -2216,11 +2355,23 @@ export class DataOpsHandler implements DomainHandler {
 
           // Every row of the page up to the last of a batch the org answered
           // is done with: a run that stops between two batches resumes after it.
-          const stopped = await writeBack(page.records, (batch, refused) => {
-            progress.refused.push(...refused);
+          // A batch whose answer never came is gone past as well: a resume
+          // reads its rows back by Id rather than send them again.
+          const passBatch = (batch: ReadonlyArray<Record<string, unknown>>): void => {
             const lastId = batch[batch.length - 1]?.Id;
             if (typeof lastId === 'string' && RECORD_ID.test(lastId)) progress.afterId = lastId;
-          });
+          };
+          const stopped = await writeBack(
+            page.records,
+            (batch, refused) => {
+              progress.refused.push(...refused);
+              passBatch(batch);
+            },
+            (batch, sent) => {
+              progress.unconfirmed = [...(progress.unconfirmed ?? []), ...sent];
+              passBatch(batch);
+            },
+          );
           if (stopped) break;
           // A page that came back short was the last one.
           if (nextAfterId === undefined) {

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderHook, act } from '@testing-library/react';
 import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import type { NotificationInput } from '../../stores/useNotificationStore';
 import type { PipelineDefinition, PipelineTriggerStatus, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -307,6 +308,60 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     expect(messages(reason)).toHaveLength(1);
     expect(messages(reason)[0].level).toBe('error');
     expect(result.current.error).toBe(reason);
+  });
+
+  it('keeps beside the draft what it leaves out until another pipeline replaces it', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    // "compare then sync": the generator keeps the comparison and sends the
+    // sync to its page, as a code — the page used to show nothing of it.
+    mutationFor('ai:generate-pipeline').data = {
+      success: true,
+      pipeline: {
+        name: 'Pipeline_CompareThenSync',
+        steps: [{ name: 'compare_step', type: 'compare', config: {} }],
+      },
+      suggestions: [
+        { code: 'WRITES_TO_ORG', page: 'sync' },
+        { code: 'STEP_NOT_RUNNABLE', stepType: 'monitor' },
+        // An English sentence from an older host is not shown.
+        'run it from the Sync page',
+      ],
+    };
+    rerender();
+
+    expect(result.current.stepCount).toBe(1);
+    expect(result.current.draftSuggestions).toEqual([
+      { code: 'WRITES_TO_ORG', page: 'sync' },
+      { code: 'STEP_NOT_RUNNABLE', stepType: 'monitor' },
+    ]);
+    expect(result.current.error).toBeNull();
+
+    act(() => result.current.handleCreatePipeline());
+    expect(result.current.draftSuggestions).toEqual([]);
+  });
+
+  it('answers a request that drew no step with the suggestions in the reader’s language', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      const { result, rerender } = renderHook(() => useAutomationPageData());
+
+      mutationFor('ai:generate-pipeline').data = {
+        success: false,
+        error: 'A pipeline runs no step that writes to an org, so it cannot run Sync: …',
+        suggestions: [{ code: 'WRITES_TO_ORG', page: 'sync' }],
+      };
+      rerender();
+
+      expect(result.current.pipeline).toBeUndefined();
+      expect(result.current.error).toBe(
+        "Un pipeline n'exécute aucune étape qui écrit dans une org, donc il ne peut pas lancer Sync : lancez-le depuis la page Sync, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
+      );
+      expect(notifications.map((n) => n.message)).toEqual([result.current.error]);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should surface a generation that failed on the bridge itself', () => {

@@ -87,6 +87,18 @@ export interface AutopilotSkipNodeRequest extends BaseMessage {
   };
 }
 
+/**
+ * What a stopped run left undone in the records it wrote to one object: the
+ * updates that follow the waves are writes, and a stop sends none of them.
+ */
+export interface AutopilotStopLeftover {
+  objectApiName: string;
+  /** Records written without a lookup the second pass would have filled: they keep it empty. */
+  lookupsLeftEmpty?: number;
+  /** Records written at a draft status never given back the one they had in the source. */
+  statusesNotGivenBack?: number;
+}
+
 /** Autopilot execution completed, or stopped */
 export interface AutopilotCompleted extends BaseMessage {
   type: 'autopilot:completed';
@@ -104,6 +116,11 @@ export interface AutopilotCompleted extends BaseMessage {
     stopped?: boolean;
     /** The objects of a stopped run it did not write whole, in plan order. */
     notWritten?: string[];
+    /**
+     * Per object of a stopped run, in plan order, the records it wrote and
+     * left unfinished: what the user has to fix. Absent when there are none.
+     */
+    leftByStop?: AutopilotStopLeftover[];
   };
 }
 

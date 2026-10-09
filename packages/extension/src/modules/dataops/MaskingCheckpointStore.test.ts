@@ -6,6 +6,7 @@ import {
   MAX_CHECKPOINT_REFUSED,
   MaskingCheckpointStore,
   maskingFingerprint,
+  sentValuesDigest,
 } from './MaskingCheckpointStore.js';
 import type { MaskingCheckpoint } from './MaskingCheckpointStore.js';
 
@@ -58,6 +59,32 @@ describe('maskingFingerprint', () => {
   });
 });
 
+describe('sentValuesDigest', () => {
+  const sent = { Id: recordId(1), FirstName: 'Ana', Email: 'a1b2@example.invalid' };
+
+  it('is the same for a row read back holding what was sent, whatever the order of the fields', () => {
+    const readBack = { Email: 'a1b2@example.invalid', FirstName: 'Ana', Id: recordId(1) };
+    expect(sentValuesDigest(readBack, ['Email', 'FirstName'])).toBe(
+      sentValuesDigest(sent, ['FirstName', 'Email']),
+    );
+  });
+
+  it('reads text without its edge spaces, which the org may trim, and a number as text', () => {
+    expect(sentValuesDigest({ FirstName: 'Ana ' }, ['FirstName'])).toBe(
+      sentValuesDigest({ FirstName: 'Ana' }, ['FirstName']),
+    );
+    expect(sentValuesDigest({ Age: 41 }, ['Age'])).toBe(sentValuesDigest({ Age: '41' }, ['Age']));
+  });
+
+  it('differs for a row that holds another value, or none', () => {
+    const digest = sentValuesDigest(sent, ['FirstName', 'Email']);
+    expect(sentValuesDigest({ ...sent, FirstName: 'Person 1' }, ['FirstName', 'Email'])).not.toBe(
+      digest,
+    );
+    expect(sentValuesDigest({ ...sent, Email: null }, ['FirstName', 'Email'])).not.toBe(digest);
+  });
+});
+
 describe('MaskingCheckpointStore', () => {
   let configStore: ConfigStore;
   let checkpoints: MaskingCheckpointStore;
@@ -94,6 +121,46 @@ describe('MaskingCheckpointStore', () => {
   it('forgets a checkpoint once cleared', () => {
     checkpoints.save(checkpoint());
     checkpoints.clear('org-1', 'tpl-1');
+    expect(checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint)).toBeUndefined();
+  });
+
+  it('keeps the rows of an update whose answer never came, with the digest of what it sent', () => {
+    const unconfirmed = [
+      {
+        id: recordId(2001),
+        fields: ['Email'],
+        digest: sentValuesDigest({ Email: 'x@example.invalid' }, ['Email']),
+      },
+    ];
+    const kept = checkpoint({
+      objects: [
+        {
+          objectApiName: 'Contact',
+          done: false,
+          afterId: recordId(2200),
+          refused: [],
+          unconfirmed,
+        },
+      ],
+    });
+    checkpoints.save(kept);
+    expect(checkpoints.load('org-1', 'tpl-1', kept.fingerprint)?.objects[0]?.unconfirmed).toEqual(
+      unconfirmed,
+    );
+  });
+
+  it('reads an entry whose unanswered rows carry no digest as none', () => {
+    configStore.set('anonymization:checkpoint:org-1:tpl-1', {
+      ...checkpoint(),
+      objects: [
+        {
+          objectApiName: 'Contact',
+          done: false,
+          refused: [],
+          unconfirmed: [{ id: recordId(1), fields: ['Email'], digest: 'masked@example.invalid' }],
+        },
+      ],
+    });
     expect(checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint)).toBeUndefined();
   });
 

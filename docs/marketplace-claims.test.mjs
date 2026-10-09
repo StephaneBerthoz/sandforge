@@ -926,6 +926,24 @@ test('anchor: what the first steps say of Forge is what its code does', () => {
     /config\.keepContactPoints\s*\?\s*null\s*:\s*new ContactPointNeutralizer\(/,
     'a run no longer neutralizes contact points unless told to keep them — step 4 is false',
   );
+  // The fictional range runs out: past its last number a phone field goes in
+  // empty, which "every phone number as a fictional one" alone did not say.
+  const neutralizer = read(
+    ...EXT,
+    'src',
+    'modules',
+    'forge',
+    'stages',
+    'ContactPointNeutralizer.ts',
+  );
+  const range = /const FICTIONAL_NUMBERS = ([\d_]+);/.exec(neutralizer);
+  assert.ok(range, 'FICTIONAL_NUMBERS is gone — re-read step 4');
+  const numbers = Number(range[1].replaceAll('_', '')).toLocaleString('en-US');
+  assert.match(
+    steps,
+    new RegExp(`past ${numbers} distinct numbers in one run, a phone field is left empty`),
+    `past ${numbers} numbers a run leaves a phone field empty — step 4 says every one is fictional`,
+  );
 
   // The rehearsal's sample: every row up to the figure the step gives.
   const sample = read(...EXT, 'src', 'modules', 'forge', 'rehearsal', 'rehearsalSample.ts');

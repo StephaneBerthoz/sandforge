@@ -129,6 +129,37 @@ describe('ControlPanel', () => {
         'Run stopped: nothing was written after the stop. Not written, or not whole: Contact, Case.',
       );
     });
+
+    it('says what the stop left unfinished in the records it wrote, so the user knows what to fix', () => {
+      // The stop sends neither the second pass nor the statuses set aside:
+      // nothing said that accounts kept their parent empty, or orders stayed
+      // drafts.
+      mockStoreState.executionStatus = 'completed';
+      render(
+        <ControlPanel
+          runOperationId="exec-1"
+          notWritten={['Contact']}
+          leftByStop={[
+            { objectApiName: 'Account', lookupsLeftEmpty: 18 },
+            { objectApiName: 'Order', lookupsLeftEmpty: 1, statusesNotGivenBack: 8 },
+          ]}
+        />,
+      );
+
+      const items = [...screen.getByTestId('control-stopped-left').querySelectorAll('li')];
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Account: 18 records keep a lookup empty that the second pass would have filled.',
+        'Order: 1 record keeps a lookup empty that the second pass would have filled.',
+        'Order: 8 records stay drafts, without the status they had in the source.',
+      ]);
+    });
+
+    it('lists nothing more when the stop left nothing unfinished', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runOperationId="exec-1" notWritten={['Contact']} leftByStop={[]} />);
+
+      expect(screen.queryByTestId('control-stopped-left')).toBeNull();
+    });
   });
 
   it('should post autopilot:skip-node with the selected object when skip is clicked', () => {

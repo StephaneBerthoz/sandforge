@@ -217,7 +217,12 @@ export function useCsvImport(t: TFunction): CsvImportState {
   }
   if (executeMutation.error && executionStatus === 'executing') {
     setExecutionStatus('error');
-    setError(executeMutation.error);
+    // A missing Production Guard is said by its code: the host's words are English.
+    setError(
+      executeMutation.errorCode === 'NOT_INITIALIZED'
+        ? t('common.refusal.guardMissing')
+        : executeMutation.error,
+    );
   }
 
   const handleMappingChange = useCallback(
@@ -281,9 +286,6 @@ export function useCsvImport(t: TFunction): CsvImportState {
     validateMutation.reset();
     executeMutation.reset();
   }, [describeMutation, validateMutation, executeMutation]);
-
-  // Suppress unused parameter warning -- t is part of the public API contract
-  void t;
 
   return {
     file,

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   parseModelJson,
   PipelineDraftReplySchema,
-  PipelineSuggestionsReplySchema,
   NL2SOQLReplySchema,
   PersonaReplySchema,
   DataRowsReplySchema,
@@ -17,13 +16,13 @@ describe('parseModelJson', () => {
   });
 
   it('reads a fence with no language tag and prose around it', () => {
-    const reply = 'Here you go:\n```\n["Add a compare step"]\n```\nHope it helps.';
+    const reply = 'Here you go:\n```\n{"soql": "SELECT Id FROM Case"}\n```\nHope it helps.';
 
-    expect(parseModelJson(PipelineSuggestionsReplySchema, reply)).toEqual(['Add a compare step']);
+    expect(parseModelJson(NL2SOQLReplySchema, reply).soql).toBe('SELECT Id FROM Case');
   });
 
   it('reads bare JSON', () => {
-    expect(parseModelJson(PipelineSuggestionsReplySchema, '  ["a"]  ')).toEqual(['a']);
+    expect(parseModelJson(NL2SOQLReplySchema, '  {"soql": "a"}  ').soql).toBe('a');
   });
 
   it('throws when the reply is not JSON', () => {

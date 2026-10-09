@@ -174,6 +174,19 @@ export interface ObjectOutcome {
    * reached them. Neither written nor failed. Absent when there are none.
    */
   notSent?: number;
+  /**
+   * Set when the run was stopped: records it wrote without a lookup its
+   * second pass would have filled — the record pointed at is in the target,
+   * or was in a wave the stop cut short — and never sent that pass. They keep
+   * the lookup empty. Absent when there are none.
+   */
+  lookupsLeftEmpty?: number;
+  /**
+   * Set when the run was stopped: records it wrote at a draft status and
+   * never gave back the status they had in the source. They stay drafts.
+   * Absent when there are none.
+   */
+  statusesNotGivenBack?: number;
 }
 
 /**
@@ -499,6 +512,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly emailsAfterTheirTask: Record<string, unknown>[] = [];
   /** Whether the task node has had its turn, whatever it wrote. */
   private taskTurnOver = false;
+  /**
+   * Per object, the records a stop kept the passes after the waves from
+   * reaching, by target id: those that keep a lookup empty, those left a draft.
+   */
+  private readonly leftByStop = new Map<string, { lookups: Set<string>; statuses: Set<string> }>();
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -872,6 +890,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
         result.stopped = true;
         result.stoppedObjects = stoppedObjects;
+        this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
         result.elapsedMs = Date.now() - startTime;
         return result;
       }
@@ -895,6 +914,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       if (this.stopped()) {
         result.stopped = true;
         result.stoppedObjects = stoppedObjects;
+        this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
       }
 
       result.elapsedMs = Date.now() - startTime;
@@ -1041,7 +1061,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const refusals = new RefusalTally();
       for (const refusal of known?.refusals ?? []) refusals.addCounted(refusal);
       for (let i = 0; i < records.length; i += this.batchSize) {
-        if (this.stopped()) break;
+        if (this.stopped()) {
+          // Never sent: those records keep the lookups empty, and are said so.
+          this.noteLeftByStop(
+            objectApiName,
+            'lookups',
+            records.slice(i).map((record) => String(record['Id'])),
+          );
+          break;
+        }
         const part = records.slice(i, i + this.batchSize);
         const results = await updateEach(update, objectApiName, part);
         part.forEach((_, index) => {
@@ -1723,7 +1751,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       let applied = 0;
       const refusals = new RefusalTally();
       for (let i = 0; i < entries.length; i += this.batchSize) {
-        if (this.stopped()) break;
+        if (this.stopped()) {
+          // Never sent: those records stay drafts, and are said so.
+          this.noteLeftByStop(
+            objectApiName,
+            'statuses',
+            entries.slice(i).map((entry) => entry.id),
+          );
+          break;
+        }
         const part = entries.slice(i, i + this.batchSize);
         const results = await updateEach(
           update,
@@ -1740,6 +1776,59 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
     this.deferredStatuses.length = 0;
     return outcomes;
+  }
+
+  /** Note records, by target id, that a stop left with a lookup empty or at a draft status. */
+  private noteLeftByStop(
+    objectApiName: string,
+    kind: 'lookups' | 'statuses',
+    recordIds: readonly string[],
+  ): void {
+    if (recordIds.length === 0) return;
+    let left = this.leftByStop.get(objectApiName);
+    if (!left) {
+      left = { lookups: new Set(), statuses: new Set() };
+      this.leftByStop.set(objectApiName, left);
+    }
+    for (const id of recordIds) left[kind].add(id);
+  }
+
+  /**
+   * What a stopped run leaves undone in the records it wrote, counted per
+   * object into its outcome: the stop sends neither the second pass nor the
+   * statuses set aside at insert, and nothing said so. A record of the
+   * stopped wave kept the lookups the second pass would have filled empty,
+   * and an order born a draft stayed one, counted nowhere.
+   *
+   * A lookup still owed is counted when the second pass could have filled
+   * it — the record it points at is in the target — or when that record was
+   * in an object the stop cut short or kept from the target: the stop is what
+   * left it empty. One whose record no wave was to write would have stayed
+   * empty all the same, and is not.
+   */
+  private countWhatTheStopLeft(
+    stoppedObjects: readonly string[],
+    outcomes: Record<string, ObjectOutcome>,
+  ): void {
+    const cutShort = new Set(stoppedObjects);
+    for (const lookup of this.owedLookups.splice(0, this.owedLookups.length)) {
+      const keptByTheStop = lookup.parents.some(
+        (parent) =>
+          cutShort.has(parent) ||
+          this.deps.remapper.getTargetId(parent, lookup.sourceId) !== undefined,
+      );
+      if (keptByTheStop) this.noteLeftByStop(lookup.objectApiName, 'lookups', [lookup.recordId]);
+    }
+    const statuses = this.deferredStatuses.splice(0, this.deferredStatuses.length);
+    for (const entry of statuses) this.noteLeftByStop(entry.objectApiName, 'statuses', [entry.id]);
+    for (const [objectApiName, left] of this.leftByStop) {
+      const outcome = outcomes[objectApiName] ?? { written: 0, linked: 0, failed: 0, refusals: [] };
+      outcomes[objectApiName] = {
+        ...outcome,
+        ...(left.lookups.size > 0 ? { lookupsLeftEmpty: left.lookups.size } : {}),
+        ...(left.statuses.size > 0 ? { statusesNotGivenBack: left.statuses.size } : {}),
+      };
+    }
   }
 
   /** Pause execution. Subsequent batch iterations will wait until resumed. */

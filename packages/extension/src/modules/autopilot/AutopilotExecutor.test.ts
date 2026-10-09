@@ -2238,6 +2238,168 @@ describe('AutopilotExecutor — a run stopped part way', () => {
     expect(result.totalSuccess).toBe(0);
   });
 
+  describe('what the stop leaves undone in the records it wrote', () => {
+    const parentEdge = makeEdge({
+      from: 'Account' as ApiName,
+      to: 'Account' as ApiName,
+      fieldApiName: 'ParentId',
+      relationshipType: 'hierarchical',
+    });
+
+    it('sends no second pass after a stop, and counts the records that keep the lookup empty', async () => {
+      // A child read before its parent goes in with ParentId empty, owed to
+      // the second pass at the end of the wave — which a stop skips.
+      const rows = {
+        Account: [
+          { Id: 'child', Name: 'Child', ParentId: 'parent' },
+          { Id: 'parent', Name: 'Parent', ParentId: null },
+        ],
+      };
+      const controller = new AbortController();
+      const update = updateAll();
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        insert: vi.fn<InsertFn>(async (_name, records) => {
+          controller.abort();
+          return written(...records.map((record) => `001T_${String(record['Id'])}`));
+        }),
+        update,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account'),
+        [parentEdge],
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      expect(result.stopped).toBe(true);
+      expect(update).not.toHaveBeenCalled();
+      expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 2, lookupsLeftEmpty: 1 });
+    });
+
+    it('counts the records whose lookups a stop during the second pass kept from being filled', async () => {
+      // Three children before their parent, one update each: the stop comes
+      // as the first is answered, and the other two keep ParentId empty.
+      const rows = {
+        Account: [
+          { Id: 'c1', Name: 'C1', ParentId: 'p' },
+          { Id: 'c2', Name: 'C2', ParentId: 'p' },
+          { Id: 'c3', Name: 'C3', ParentId: 'p' },
+          { Id: 'p', Name: 'P', ParentId: null },
+        ],
+      };
+      const controller = new AbortController();
+      const update = vi.fn<UpdateFn>(async (_name, records) => {
+        controller.abort();
+        return written(...records.map((record) => String(record['Id'])));
+      });
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        insert: vi.fn<InsertFn>(async (_name, records) =>
+          written(...records.map((record) => `001T_${String(record['Id'])}`)),
+        ),
+        update,
+        remapper: new RecordIdRemapper(),
+        batchSize: 1,
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account'),
+        [parentEdge],
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(result.objectOutcomes?.['Account']?.lookupsLeftEmpty).toBe(2);
+    });
+
+    it('does not count a lookup at a record no wave was to write', async () => {
+      const rows = { Account: [{ Id: 'child', Name: 'Child', ParentId: 'elsewhere' }] };
+      const controller = new AbortController();
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        insert: vi.fn<InsertFn>(async () => {
+          controller.abort();
+          return written('001T_child');
+        }),
+        update: updateAll(),
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account'),
+        [parentEdge],
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      expect(result.stopped).toBe(true);
+      expect(result.objectOutcomes?.['Account']).not.toHaveProperty('lookupsLeftEmpty');
+    });
+
+    it('gives back no status after a stop, and counts the records left a draft', async () => {
+      const rows = {
+        Order: [
+          { Id: 'ordActive', Status: 'ST004' },
+          { Id: 'ordDraft', Status: 'ST001' },
+        ],
+        OrderItem: [{ Id: 'itemSrc', OrderId: 'ordActive' }],
+      };
+      const controller = new AbortController();
+      const update = updateAll();
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        remapper: new RecordIdRemapper(),
+        queryTarget: vi.fn<SoqlQuery>(async (soql) =>
+          soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+            ? [
+                { ApiName: 'ST001', StatusCode: 'Draft' },
+                { ApiName: 'ST004', StatusCode: 'Activated' },
+              ]
+            : [],
+        ),
+        update,
+        batchSize: 200,
+      });
+      // The stop comes as the orders are answered: their products never go.
+      vi.mocked(deps.insert).mockImplementationOnce(async () => {
+        controller.abort();
+        return written('801A', '801B');
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Order', 'OrderItem'),
+        [
+          makeEdge({
+            from: 'Order' as ApiName,
+            to: 'OrderItem' as ApiName,
+            fieldApiName: 'OrderId',
+            required: true,
+          }),
+        ],
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      expect(update).not.toHaveBeenCalled();
+      expect(result.stoppedObjects).toEqual(['OrderItem']);
+      expect(result.objectOutcomes?.['Order']).toMatchObject({
+        written: 2,
+        statusesNotGivenBack: 1,
+      });
+      expect(result.statuses).toBeUndefined();
+    });
+  });
+
   it('runs to its end, unmarked, when its signal never aborts', async () => {
     const deps = makeDeps();
     vi.mocked(deps.query).mockResolvedValue([]);

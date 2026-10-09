@@ -171,7 +171,28 @@ describe('AIToolsHandler', () => {
     expect(response.payload.success).toBe(false);
     expect(response.payload.error).toContain('from the Sync page');
     expect(response.payload.error).not.toMatch(/no steps/);
+    // The page words it from the code, in the reader's language.
+    expect(response.payload.suggestions).toEqual([{ code: 'WRITES_TO_ORG', page: 'sync' }]);
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('sends beside a draft it loads what the draft leaves out, as codes', async () => {
+    const provider = vi.fn().mockResolvedValue('{}');
+    handler.setAIModules({
+      pipelineGenerator: new PipelineGenerator(provider),
+    } as unknown as AIModules);
+
+    await handler.handle(
+      createMsg('ai:generate-pipeline', { description: 'compare then sync account data' }),
+    );
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.payload.success).toBe(true);
+    expect(response.payload.pipeline.steps.map((s: { type: string }) => s.type)).toEqual([
+      'compare',
+    ]);
+    expect(response.payload.suggestions).toEqual([{ code: 'WRITES_TO_ORG', page: 'sync' }]);
+    expect(response.payload.pipeline.suggestions).toBeUndefined();
   });
 
   it('handles ai:generate-pipeline with modules with correlationId', async () => {

@@ -15,7 +15,7 @@ import {
   type SObjectCatalogEntry,
 } from '../../../modules/ai/mentionedObjects.js';
 import type { NL2SOQL, NL2SOQLResult, SchemaContext } from '../../../modules/ai/NL2SOQL.js';
-import type { OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
+import { suggestionText, type OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
 import { checkForgeRootQuery } from '../../../modules/ai/forgeRootQuery.js';
 
 /** Message types handled by AIToolsHandler. */
@@ -416,26 +416,37 @@ export class AIToolsHandler implements DomainHandler {
           type: pipelineOrgType(org?.orgType),
         };
       });
-      const result = await this.aiModules.pipelineGenerator.generatePipeline(
-        description,
-        availableOrgs,
-      );
+      const { suggestions = [], ...pipeline } =
+        await this.aiModules.pipelineGenerator.generatePipeline(description, availableOrgs);
+      // A wish for work that writes to an org draws no step but says where
+      // that work runs, which is the answer to give: as codes the page words
+      // in the reader's language, and in English for the log.
+      if (pipeline.steps.length === 0 && suggestions.length > 0) {
+        const said = suggestions.map(suggestionText).join(' ');
+        this.deps.log(`[ERR] ai:generate-pipeline: ${said}`);
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
+            success: false,
+            error: said,
+            suggestions,
+          }),
+        );
+        return;
+      }
       // A keyword match always yields a step, so a draft with none is a model
       // reply nothing could be read from. Answered as a success it opened an
       // empty canvas with no word of why; refused, the page shows the reason.
-      // A wish for work that writes to an org draws no step but says where
-      // that work runs, which is the answer to give.
-      if (result.steps.length === 0 && result.suggestions && result.suggestions.length > 0) {
-        throw new Error(result.suggestions.join(' '));
-      }
-      if (result.steps.length === 0) {
+      if (pipeline.steps.length === 0) {
         throw new Error(
           'The AI returned a pipeline with no steps, so there is nothing to load. Name the operations it should run, for example: back up Account daily, then compare dev with uat.',
         );
       }
+      // What the draft leaves out goes beside it, for the page to say next to
+      // the draft: carried inside the pipeline, it was read by nothing.
       const response = buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
         success: true,
-        pipeline: result as unknown as Record<string, unknown>,
+        pipeline: pipeline as unknown as Record<string, unknown>,
+        ...(suggestions.length > 0 ? { suggestions } : {}),
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {

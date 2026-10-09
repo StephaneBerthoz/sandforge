@@ -54,7 +54,8 @@
     "refusal": {
       "guardBlocked": "O Production Guard recusou esta operação, e nada foi alterado na org. O motivo: {{reason}}",
       "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org.",
-      "templateNotFound": "O modelo de mascaramento não foi encontrado: talvez tenha sido excluído. Escolha outro modelo."
+      "templateNotFound": "O modelo de mascaramento não foi encontrado: talvez tenha sido excluído. Escolha outro modelo.",
+      "guardMissing": "O Production Guard não estava pronto nesta janela, e nada é gravado sem ele: nada foi alterado na org. Recarregue a janela (Developer: Reload Window) e tente novamente."
     }
   },
   "status": {
@@ -1804,7 +1805,12 @@
     "failedStepCount_one": "{{count}} com falha",
     "failedStepCount_other": "{{count}} com falha",
     "errorCount_one": "{{count}} erro",
-    "errorCount_other": "{{count}} erros"
+    "errorCount_other": "{{count}} erros",
+    "draftSuggestions": {
+      "title": "Deixado fora deste rascunho",
+      "writesToOrg": "Um pipeline não executa nenhuma etapa que grave em uma org, então não pode executar {{page}}: execute-o pela página {{page}}, onde o Production Guard pode pará-lo ou perguntar antes.",
+      "stepNotRunnable": "Um pipeline não pode executar uma etapa {{type}}, então o rascunho a deixa de fora."
+    }
   },
   "ai": {
     "title": "Assistente IA",
@@ -1945,7 +1951,11 @@
       "skipped": "ignorado",
       "skippedUncounted": "ignorado, quantidade de registros desconhecida",
       "mayHaveBeenWritten_one": "{{count}} talvez no destino, sua chamada sem resposta",
-      "mayHaveBeenWritten_other": "{{count}} talvez no destino, sua chamada sem resposta"
+      "mayHaveBeenWritten_other": "{{count}} talvez no destino, sua chamada sem resposta",
+      "lookupsLeftEmpty_one": "{{count}} com um vínculo vazio, execução parada",
+      "lookupsLeftEmpty_other": "{{count}} com um vínculo vazio, execução parada",
+      "statusesNotGivenBack_one": "{{count}} ficou como rascunho, execução parada",
+      "statusesNotGivenBack_other": "{{count}} ficaram como rascunhos, execução parada"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar mais",
@@ -3592,7 +3602,12 @@
       "statusesApplied": "Status aplicados após seus registros filhos",
       "statusRefusals": "Por que um status não foi aplicado",
       "piiFieldCount_one": "{{count}} campo PII",
-      "piiFieldCount_other": "{{count}} campos PII"
+      "piiFieldCount_other": "{{count}} campos PII",
+      "stoppedLeftTitle": "Gravados, e deixados inacabados pela parada:",
+      "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} registro mantém vazio um vínculo que a segunda passagem teria preenchido.",
+      "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} registros mantêm vazio um vínculo que a segunda passagem teria preenchido.",
+      "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} registro continua como rascunho, sem o status que tinha na origem.",
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros continuam como rascunhos, sem o status que tinham na origem."
     },
     "report": {
       "title": "Relatório de conformidade",

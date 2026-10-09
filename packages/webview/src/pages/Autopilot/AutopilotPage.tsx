@@ -5,6 +5,7 @@ import type {
   AutopilotGraph as AutopilotGraphType,
   AutopilotNodeStatus,
   AutopilotRefusal,
+  AutopilotStopLeftover,
   ExecutionPlan,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
@@ -42,6 +43,8 @@ export const AutopilotPage: React.FC = () => {
   const [showReport, setShowReport] = useState(false);
   /** Set once a stopped run has ended: the objects it did not write whole. */
   const [notWritten, setNotWritten] = useState<string[] | undefined>();
+  /** What a stopped run wrote and left unfinished, per object. */
+  const [leftByStop, setLeftByStop] = useState<AutopilotStopLeftover[]>([]);
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -141,10 +144,12 @@ export const AutopilotPage: React.FC = () => {
         totalApiCalls: number;
         stopped?: boolean;
         notWritten?: string[];
+        leftByStop?: AutopilotStopLeftover[];
       };
     }
   >('autopilot:completed', (msg) => {
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
+    setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     useAutopilotStore.getState().setExecutionStatus('completed');
     useAutopilotStore.getState().setStep('completed');
     useAutopilotStore.getState().updateLiveStats({
@@ -177,6 +182,7 @@ export const AutopilotPage: React.FC = () => {
   /** Start execution: flip to the execution view and post `autopilot:execute`. */
   const handleExecute = useCallback((): void => {
     setNotWritten(undefined);
+    setLeftByStop([]);
     const store = useAutopilotStore.getState();
     const plan = store.plan;
     store.setExecutionStatus('executing');
@@ -195,13 +201,20 @@ export const AutopilotPage: React.FC = () => {
 
   // Execute rejected (validation, production guard declined, execution crash):
   // surface the error back on the review step — the store keeps the wizard state.
+  // A run refused because Production Guard is missing is said by its code:
+  // the host words it in English, and a notification beside it said the
+  // same in English.
+  const executeError =
+    executeMutation.errorCode === 'NOT_INITIALIZED'
+      ? t('common.refusal.guardMissing')
+      : executeMutation.error;
   useEffect(() => {
-    if (!executeMutation.error) return;
+    if (!executeError) return;
     const store = useAutopilotStore.getState();
     store.setExecutionStatus('failed');
-    store.addError(executeMutation.error);
+    store.addError(executeError);
     store.setStep('review');
-  }, [executeMutation.error]);
+  }, [executeError]);
 
   // Execute leaves with the wizard, and the focus it held fell to the page:
   // the running view takes it, announced by its heading. A page opened on a
@@ -301,7 +314,11 @@ export const AutopilotPage: React.FC = () => {
             <AutopilotGraph />
           </div>
           <div className="w-[40%] overflow-hidden">
-            <ControlPanel runOperationId={executeMutation.requestId} notWritten={notWritten} />
+            <ControlPanel
+              runOperationId={executeMutation.requestId}
+              notWritten={notWritten}
+              leftByStop={leftByStop}
+            />
           </div>
         </div>
       </div>

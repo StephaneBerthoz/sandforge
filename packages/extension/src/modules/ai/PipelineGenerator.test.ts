@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { PipelineGenerator, type OrgInfo, type GeneratedPipeline } from './PipelineGenerator';
+import { PipelineGenerator, suggestionText, type OrgInfo } from './PipelineGenerator';
 import type { AIProvider } from './types.js';
 
 const testOrgs: OrgInfo[] = [
@@ -57,17 +57,17 @@ describe('PipelineGenerator', () => {
   });
 
   it.each([
-    ['sync accounts', 'Sync'],
-    ['generate test contact records', 'Seed'],
-    ['anonymize contact email data', 'DataOps'],
-    ['delete old cases', 'DataOps'],
+    ['sync accounts', 'sync'],
+    ['generate test contact records', 'seed'],
+    ['anonymize contact email data', 'dataops'],
+    ['delete old cases', 'dataops'],
   ])(
     'draws no step from "%s", which writes to an org, and points to the %s page',
     async (description, page) => {
       const pipeline = await generator.generatePipeline(description, testOrgs);
       expect(pipeline.steps).toEqual([]);
-      expect(pipeline.suggestions).toHaveLength(1);
-      expect(pipeline.suggestions?.[0]).toContain(`from the ${page} page`);
+      // A code and the page's key, which the page words in the reader's language.
+      expect(pipeline.suggestions).toEqual([{ code: 'WRITES_TO_ORG', page }]);
       // The model is not asked: its draft would hold the step a pipeline refuses.
       expect(mockProvider).not.toHaveBeenCalled();
     },
@@ -79,7 +79,7 @@ describe('PipelineGenerator', () => {
       testOrgs,
     );
     expect(pipeline.steps.map((s) => s.type)).toEqual(['compare', 'precheck']);
-    expect(pipeline.suggestions).toEqual([expect.stringContaining('from the Sync page')]);
+    expect(pipeline.suggestions).toEqual([{ code: 'WRITES_TO_ORG', page: 'sync' }]);
   });
 
   it('gives one suggestion per page, however many of its words appear', async () => {
@@ -244,22 +244,35 @@ describe('PipelineGenerator', () => {
 
     expect(pipeline.steps.map((s) => s.type)).toEqual(['backup']);
     expect(pipeline.suggestions).toEqual([
-      expect.stringContaining('from the Sync page'),
-      expect.stringContaining('cannot run a monitor step'),
-      expect.stringContaining('from the Seed page'),
+      { code: 'WRITES_TO_ORG', page: 'sync' },
+      { code: 'STEP_NOT_RUNNABLE', stepType: 'monitor' },
+      { code: 'WRITES_TO_ORG', page: 'seed' },
     ]);
   });
 
-  it('adds the suggestions of a fenced model reply to the rule-based ones', async () => {
-    mockProvider.mockResolvedValue('```json\n["Run it off-hours"]\n```');
+  it('gives one suggestion per page a model draft names, however many of its steps do', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({
+        steps: [
+          { name: 'a', type: 'anonymize', config: {}, description: '' },
+          { name: 'b', type: 'delete', config: {}, description: '' },
+          { name: 'c', type: 'compare', config: {}, description: '' },
+        ],
+      }),
+    );
 
-    const suggestions = await generator.suggestImprovements({
-      name: 'Test',
-      description: 'test',
-      steps: [{ name: 's', type: 'seed', config: {}, description: '' }],
-    });
+    const pipeline = await generator.generatePipeline('tidy the box', testOrgs);
 
-    expect(suggestions).toContain('Run it off-hours');
+    expect(pipeline.suggestions).toEqual([{ code: 'WRITES_TO_ORG', page: 'dataops' }]);
+  });
+
+  it('says each suggestion in English for the log', () => {
+    expect(suggestionText({ code: 'WRITES_TO_ORG', page: 'dataops' })).toContain(
+      'run it from the DataOps page',
+    );
+    expect(suggestionText({ code: 'STEP_NOT_RUNNABLE', stepType: 'monitor' })).toBe(
+      'A pipeline cannot run a monitor step, so the draft leaves it out.',
+    );
   });
 
   it('should return empty pipeline when AI returns invalid JSON', async () => {
@@ -271,65 +284,5 @@ describe('PipelineGenerator', () => {
   it('should not call AI when keyword-based steps are found', async () => {
     await generator.generatePipeline('backup account data', testOrgs);
     expect(mockProvider).not.toHaveBeenCalled();
-  });
-
-  // --- suggestImprovements ---
-
-  it('should suggest adding compare step before sync', async () => {
-    const pipeline: GeneratedPipeline = {
-      name: 'Test',
-      description: 'test',
-      steps: [{ name: 'sync_step', type: 'sync', config: {}, description: '' }],
-    };
-
-    const suggestions = await generator.suggestImprovements(pipeline);
-    expect(suggestions.some((s) => s.includes('compare'))).toBe(true);
-  });
-
-  it('should suggest anonymization for sync without dataops', async () => {
-    const pipeline: GeneratedPipeline = {
-      name: 'Test',
-      description: 'test',
-      steps: [{ name: 'sync_step', type: 'sync', config: {}, description: '' }],
-    };
-
-    const suggestions = await generator.suggestImprovements(pipeline);
-    expect(suggestions.some((s) => s.includes('anonymization'))).toBe(true);
-  });
-
-  it('should suggest monitor for multi-step pipelines', async () => {
-    const pipeline: GeneratedPipeline = {
-      name: 'Test',
-      description: 'test',
-      steps: [
-        { name: 'compare_step', type: 'compare', config: {}, description: '' },
-        { name: 'sync_step', type: 'sync', config: {}, description: '' },
-      ],
-    };
-
-    const suggestions = await generator.suggestImprovements(pipeline);
-    expect(suggestions.some((s) => s.includes('monitor'))).toBe(true);
-  });
-
-  it('should suggest schedule when none is set', async () => {
-    const pipeline: GeneratedPipeline = {
-      name: 'Test',
-      description: 'test',
-      steps: [{ name: 's', type: 'seed', config: {}, description: '' }],
-    };
-
-    const suggestions = await generator.suggestImprovements(pipeline);
-    expect(suggestions.some((s) => s.includes('schedule'))).toBe(true);
-  });
-
-  it('should warn about empty pipeline', async () => {
-    const pipeline: GeneratedPipeline = {
-      name: 'Empty',
-      description: 'empty',
-      steps: [],
-    };
-
-    const suggestions = await generator.suggestImprovements(pipeline);
-    expect(suggestions.some((s) => s.includes('no steps'))).toBe(true);
   });
 });
