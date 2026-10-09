@@ -3096,8 +3096,8 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(2);
   }
-  const records = removalPlan(summary);
-  if (records.length === 0) {
+  const created = removalPlan(summary);
+  if (created.length === 0) {
     say('The run created no record: there is nothing of it to verify.');
     return;
   }
@@ -3112,9 +3112,21 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   } catch {
     // No removal kept anything beside the summary.
   }
-  const earlier = readEarlierRemovals(removalsText, runKey(records));
+  const earlier = readEarlierRemovals(removalsText, runKey(created));
+  let records = created;
   if ('refusal' in earlier) say(`${removalsFile} ${earlier.refusal}`);
-  else removalStamps = earlier.earlier?.removalStamps;
+  else {
+    removalStamps = earlier.earlier?.removalStamps;
+    // What an earlier --remove took is not looked for, as the panel verifies
+    // what a run's history entry says is left: it read as missing.
+    records = forgeRemovalPlanLeft({ objects: created, removalLeft: earlier.earlier?.removalLeft });
+    if (records.length === 0) {
+      say(
+        'An earlier --remove of this summary took every record the run created: there is nothing of it to verify.',
+      );
+      return;
+    }
+  }
   const written = writtenWithoutSchema.safeParse(raw);
 
   say(`sandforge-clone --verify  ${args.summaryPath}  in ${args.target}`);

@@ -307,6 +307,43 @@ describe('sandforge-clone --verify', () => {
       expect(verifierCalls[0].run.removalStamps).toEqual(stamps);
     });
 
+    it('looks only for the records an earlier --remove of the summary left, and for none when it took them all', async () => {
+      // They read as missing: the verification looked for records the
+      // removal had deleted, where the panel looks for what is left.
+      const path = file(runSummary());
+      const { runKey } = await import('./sandforge-clone.js');
+      const key = runKey([
+        { objectApiName: 'Contact', ids: [TGT('003', 1)] },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+      const removals = (removalLeft: string[]) =>
+        file(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            run: key,
+            removalStamps: {},
+            removalSpans: [],
+            removalLeft,
+          },
+          'clone-summary.removals.json',
+        );
+
+      removals([TGT('001', 1)]);
+      await run(['--verify', path, '--target', 'TGT']);
+      expect(verifierCalls[0].run.records).toEqual([
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+
+      verifierCalls.length = 0;
+      removals([]);
+      expect(await run(['--verify', path, '--target', 'TGT'])).toBeUndefined();
+      expect(verifierCalls).toEqual([]);
+      expect(printed).toContain(
+        'An earlier --remove of this summary took every record the run created: there is nothing of it to verify.',
+      );
+    });
+
     it.each([
       ['partial', 3],
       ['unstable', 4],
