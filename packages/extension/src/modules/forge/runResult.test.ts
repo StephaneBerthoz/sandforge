@@ -126,6 +126,25 @@ describe('finishedRunStatus', () => {
       'success',
     );
   });
+
+  it('calls a run whose second pass left lookups empty partial, though no object counts a failure', () => {
+    // Every record went in; two of the lookups owed after the insert did not.
+    // The pass reports them under its own entry, in no object's failures, and
+    // the run ended a success beside a warning.
+    const leftEmpty = {
+      objectApiName: '__pass2__',
+      stage: 'insert' as const,
+      failedCount: 2,
+      attemptedCount: 3,
+      samples: [],
+    };
+
+    expect(finishedRunStatus(summary({ errors: [leftEmpty] }))).toBe('partial');
+    // A pass that filled every lookup it owed leaves no entry with a failure.
+    expect(finishedRunStatus(summary({ errors: [{ ...leftEmpty, failedCount: 0 }] }))).toBe(
+      'success',
+    );
+  });
 });
 
 describe('forgeRunResult', () => {

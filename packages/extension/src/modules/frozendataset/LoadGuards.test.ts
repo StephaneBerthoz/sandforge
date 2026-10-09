@@ -48,7 +48,7 @@ describe('assertLoadGuards', () => {
       expect(error).toBeInstanceOf(LoadGuardError);
       expect((error as LoadGuardError).code).toBe('non-sandbox');
       // Remediation is a config deployment on the target — never DML on the source.
-      expect((error as Error).message).toMatch(/sandbox-only/);
+      expect((error as Error).message).toMatch(/sandboxes and Developer Edition orgs only/);
       expect((error as Error).message).toMatch(/never run DML against a shared or source org/i);
     }
   });

@@ -2373,6 +2373,32 @@ describe('SyncOpsHandler', () => {
       };
       expect(response.payload.objects).toEqual(['Account', 'Contact']);
     });
+
+    it("offers a managed package's objects, which only Forge's discovery leaves out", async () => {
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: ['Account', 'vlocity_ins__Party__c', 'vlocity_ins__Party__History'].map(
+            (name) => ({ name, createable: true, queryable: true }),
+          ),
+        }),
+        limitInfo: undefined,
+      } as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-global-managed-package',
+          type: 'sync:describe-global',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: string[] };
+      };
+      expect(response.payload.objects).toEqual(['Account', 'vlocity_ins__Party__c']);
+    });
   });
 
   describe('field types are compared across both orgs before anything is written', () => {

@@ -5,7 +5,7 @@
  * created and it does not reuse.
  *
  * Pipeline (every divergence is listed in the report, nothing is silent):
- *   1. entry guards (LoadGuards.ts) — sandbox-only, protected envs,
+ *   1. entry guards (LoadGuards.ts) — development orgs only, protected envs,
  *      mocked callouts, non-empty dataset;
  *   2. what the target already holds is matched: on a reload the records its
  *      identity keys find, then the catalog — the standard price book, a

@@ -1185,9 +1185,13 @@ export class SeedCloneHandler implements DomainHandler {
           : totalInserted + totalLinked > 0
             ? 'partial'
             : 'failure';
+      // Every record in but a lookup the second pass left empty: the target
+      // holds the records without the links between them, which a 'success'
+      // in the history and Live Ops hid behind the panel's warning alone.
+      const lookupsLeftEmpty = secondPass !== undefined && secondPass.filled < secondPass.owed;
       const result: CloneExecutionResult = {
         // A clone the cancel stopped did not write every object it was for.
-        status: cancelled && reached === 'success' ? 'partial' : reached,
+        status: (cancelled || lookupsLeftEmpty) && reached === 'success' ? 'partial' : reached,
         objectResults,
         totalSourceRecords,
         totalInserted,

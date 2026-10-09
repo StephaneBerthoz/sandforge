@@ -1220,18 +1220,18 @@ export async function describeObjectInfo(
 }
 
 /**
- * Whether a run failed outright: records failed, or the read of an object did,
- * and none was created, updated or linked, nor — for a dry run — would have
- * been inserted. A failed read counts no record — the clone never learned how
- * many of its rows it held — so a run whose every read failed has none failed.
- * A run that linked what it could not create, or wrote over what its external
- * ids matched, has done part of its job. Exported so it can be tested.
+ * Whether a run failed outright: records failed, the read of an object did, or
+ * an object was skipped whole, and none was created, updated or linked, nor —
+ * for a dry run — would have been inserted. A failed read counts no record —
+ * the clone never learned how many of its rows it held — so a run whose every
+ * read failed has none failed. A run that linked what it could not create, or
+ * wrote over what its external ids matched, has done part of its job; so has
+ * one whose second pass left lookups empty. Read from the status the run's
+ * audit entry records, so the exit code and the history say the same thing.
+ * Exported so it can be tested.
  */
 export function failedOutright(summary: ExecutionSummary): boolean {
-  const settled =
-    summary.successCount + summary.updatedCount + summary.linkedCount + summary.wouldInsertCount;
-  const failed = summary.failedCount > 0 || summary.failedReads.length > 0;
-  return failed && settled === 0;
+  return finishedRunStatus(summary) === 'failure';
 }
 
 /**
@@ -2059,8 +2059,8 @@ export async function typeOrg(conn: Connection): Promise<TypedOrg> {
  * both, its load at its entry guards and its removal at Production Guard. So
  * this one refuses it too — but a Developer Edition org, which says IsSandbox
  * false: refused, it left those who try SandForge with a Trailhead playground
- * and no sandbox nowhere to clone into, as the panel does not. Exported so it
- * can be tested.
+ * and no sandbox nowhere to clone into, as the panel does not, and the Frozen
+ * command no longer does either. Exported so it can be tested.
  *
  * @param action - What was about to happen: a clone writes, a removal deletes.
  */

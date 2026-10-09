@@ -461,6 +461,11 @@ function rehearsalQuestion(question: RehearsalConfirmation): string[] {
   if (question.unread.length > 0) {
     lines.push(vscode.l10n.t('What fires as the rehearsal creates its records is not known.'));
   }
+  // Read on a trap org (the trap kit's probe 16): after a rolled-back insert,
+  // only the event published at once was delivered, and its subscriber's
+  // write kept; the queued and future jobs, the event published after commit,
+  // and the Flow's path after commit and its path scheduled zero minutes on
+  // never ran, where the same insert committed ran all six.
   lines.push(
     vscode.l10n.t(
       'Rolled back with each call, and never sent: emails, @future and Queueable jobs, platform events published after commit, and the asynchronous paths of Flows.',

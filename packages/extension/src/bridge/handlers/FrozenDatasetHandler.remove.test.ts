@@ -963,6 +963,37 @@ describe('frozen:remove', () => {
       ]);
     });
 
+    it('takes back what a load wrote to a Developer Edition org, which the load took for a development org', async () => {
+      // It says IsSandbox false and is registered as a production org: the
+      // load may now write to it, and its removal was refused as production.
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+        metadata: { edition: 'Developer Edition' },
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+      const check = vi.spyOn(ProductionGuard.prototype, 'check');
+
+      await remove();
+
+      expect(check).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: TARGET_ORG, orgTier: 'development', operation: 'delete' }),
+      );
+      expect(errors()).toEqual([]);
+      expect(org.deletes.length).toBeGreaterThan(0);
+      check.mockRestore();
+    });
+
+    it('still refuses a production org of any other edition', async () => {
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+        metadata: { edition: 'Enterprise Edition' },
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+
+      await remove();
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(errors().map((e) => e.payload.code)).toEqual(['GUARD_BLOCKED']);
+    });
+
     it('deletes nothing when the confirmation is declined', async () => {
       deps.infraServices = {
         productionGuard: {

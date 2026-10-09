@@ -3,6 +3,7 @@ import {
   excludedByDescribe,
   isExcludedFromCopy,
   isNeverCopied,
+  isNeverCopiedWhenPicked,
   lookupsAtObjectsLeftOut,
 } from './excludedObjects.js';
 
@@ -136,6 +137,32 @@ describe('isNeverCopied', () => {
     expect(isNeverCopied('AccountHistory')).toBe(true);
     expect(isNeverCopied('ApexClass', new Set(['ApexClass']))).toBe(true);
     expect(isNeverCopied('Order')).toBe(false);
+  });
+
+  it("still leaves a managed package's objects out of Forge's discovery and expansion", () => {
+    expect(isNeverCopied('vlocity_ins__Party__c')).toBe(true);
+  });
+});
+
+describe('isNeverCopiedWhenPicked', () => {
+  it("lets a managed package's objects through, which only a discovery leaves out", () => {
+    // Picked by name, a Vlocity party is data: no reverse lookup is followed.
+    expect(isNeverCopiedWhenPicked('vlocity_ins__Party__c')).toBe(false);
+    expect(isNeverCopiedWhenPicked('vlocity_CMT__Catalog__c')).toBe(false);
+  });
+
+  it('refuses everything else no copy writes, a managed package history and sharing rows included', () => {
+    for (const name of [
+      'User',
+      'ContentVersion',
+      'AccountHistory',
+      'AsyncApexJob',
+      'vlocity_ins__Party__History',
+      'vlocity_ins__Party__Share',
+    ]) {
+      expect(isNeverCopiedWhenPicked(name)).toBe(true);
+    }
+    expect(isNeverCopiedWhenPicked('Order')).toBe(false);
   });
 });
 

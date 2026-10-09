@@ -35,7 +35,7 @@ import {
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { AUDIT_TRAIL_LIMIT } from '../modules/audit/auditTrail.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
-import { isNeverCopied } from '../modules/forge/excludedObjects.js';
+import { isNeverCopiedWhenPicked } from '../modules/forge/excludedObjects.js';
 
 /**
  * Generic webview-payload validation (defense-in-depth against a compromised
@@ -108,7 +108,8 @@ const MAX_BATCH_SIZE = 10_000;
 
 /**
  * Whether Sync refuses to copy `objectApiName`: one of the objects no copy
- * writes, the list Forge and Autopilot read (`isNeverCopied`).
+ * writes, the list Forge and Autopilot read, save the managed-package
+ * namespaces only their discovery leaves out (`isNeverCopiedWhenPicked`).
  *
  * Sync used to read a narrower one of its own — users, metadata and files —
  * and so offered, and ran, objects Forge never touches: a login history, an
@@ -117,7 +118,7 @@ const MAX_BATCH_SIZE = 10_000;
  * leaves out is what the boundary refuses.
  */
 export function syncCannotCopy(objectApiName: string): boolean {
-  return isNeverCopied(objectApiName);
+  return isNeverCopiedWhenPicked(objectApiName);
 }
 
 /** Why the sync boundary refuses `objectApiName`, in the words a person reads. */

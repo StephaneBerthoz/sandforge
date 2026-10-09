@@ -208,14 +208,14 @@ deploy_from() {
 # A field deployed by the Metadata API stays hidden from every profile, the
 # admin's included, until a permission set opens it.
 assign_access() {
-  local out
-  out=$(sfj org assign permset --name Trap_Access --target-org "$1") || true
+  local org=$1 set=${2:-Trap_Access} label=${3:-Trap Access} out
+  out=$(sfj org assign permset --name "$set" --target-org "$org") || true
   if jq -e '.result.successes | length > 0' <<<"$out" >/dev/null 2>&1; then
-    say "$1: Trap Access assigned to the admin"
+    say "$org: $label assigned to the admin"
   elif jq -r '.result.failures[]?.message' <<<"$out" 2>/dev/null | grep -qi 'duplicate'; then
-    say "$1: Trap Access already assigned to the admin"
+    say "$org: $label already assigned to the admin"
   else
-    die "$1: Trap Access could not be assigned: $(sf_error "$out")"
+    die "$org: $label could not be assigned: $(sf_error "$out")"
   fi
 }
 
@@ -331,6 +331,13 @@ deploy_target() {
   # takes one is what this deploy finds out, so a refusal is reported, not fatal.
   deploy_from "$FIXTURE" "$org" target/legacy 'workflow rule and email alert' ||
     say "$org: the Metadata API refused the workflow rule"
+  # The async probe of verify (16), on an object of its own: on Trap_Item__c,
+  # its trigger would meet every clone of the items above.
+  if deploy_from "$FIXTURE" "$org" target/probes 'async probe'; then
+    assign_access "$org" Trap_Probe_Access 'Trap Probe Access'
+  else
+    say "$org: the async probe was refused; verify skips probe 16"
+  fi
 }
 
 # --- seed -----------------------------------------------------------------------
@@ -542,11 +549,19 @@ wipe_query() {
   bulk delete "$org" "$sobject" "$file" "$sobject removed" || die "$org: wipe stopped"
 }
 
+# Whether the async probe of verify is deployed in the org.
+has_async_probe() { sfj data query --target-org "$1" --query 'SELECT COUNT() FROM Trap_Probe_Log__c' >/dev/null; }
+
 # Back to an empty org, children before parents. The sample records a
 # Developer Edition comes with go too: these orgs serve SandForge alone, and
 # their 5 MB are better spent on the seed.
 wipe_org() {
   local org=$1
+  if [[ $org == "$TARGET_ORG" ]] && has_async_probe "$org"; then
+    # A verify stopped while it waited leaves its markers, and its items.
+    wipe_query "$org" Trap_Probe_Log__c 'SELECT Id FROM Trap_Probe_Log__c'
+    wipe_query "$org" Trap_Probe_Item__c 'SELECT Id FROM Trap_Probe_Item__c'
+  fi
   if [[ $org == "$TARGET_ORG" ]]; then
     records "$org" 'SELECT Id FROM Trap_Item__c WHERE Trap_Allow_Delete__c = false' |
       jq -r '"Id,Trap_Allow_Delete__c", (.[] | .Id + ",true")' >"$WORK/unlock.csv"
@@ -582,6 +597,167 @@ report() {
 }
 
 note() { printf '%-6s %-4s %-58s %s\n' "$1" "$2" "$3" "$4"; }
+
+# A note whose value is known in advance: a different one is flagged and
+# fails the run, as a different status does.
+expect_note() {
+  local side=$1 trap=$2 label=$3 expected=$4 got=$5 mark=''
+  if [[ $got != "$expected" ]]; then
+    mark="  UNEXPECTED, expected $expected"
+    UNEXPECTED=$((UNEXPECTED + 1))
+  fi
+  printf '%-6s %-4s %-58s %s%s\n' "$side" "$trap" "$label" "$got" "$mark"
+}
+
+# The body of a composite call as a rehearsal sends one: a Collections
+# request of the rows given (a JSON array), each row judged on its own, then
+# an update of a record that does not exist, which fails and rolls the whole
+# call back — an account's key prefix then zeros, which no record holds. With
+# headers (a JSON object), the Collections request carries them as its own,
+# as the rehearsal's do.
+rehearsal_body() {
+  local sobject=$1 rows=$2 headers=${3:-'{}'}
+  jq -cn --arg api "/services/data/$API" --arg sobject "$sobject" --argjson rows "$rows" \
+    --argjson headers "$headers" '{
+      allOrNone: true,
+      collateSubrequests: false,
+      compositeRequest: [
+        ({method: "POST", url: "\($api)/composite/sobjects", referenceId: "rows0",
+          body: {allOrNone: false, records: $rows}}
+          + (if $headers == {} then {} else {httpHeaders: $headers} end)),
+        {method: "PATCH", url: "\($api)/sobjects/Account/001000000000000", referenceId: "rollback",
+          body: {SandForge_Rehearsal_Rollback__c: true}}
+      ]}'
+}
+
+# What each row of a rehearsal call came to: created, or the code it was
+# refused with; "halted" when the Collections request lost its body, every
+# row having passed.
+row_verdicts() {
+  jq -r '(.body.compositeResponse? // null) as $calls
+    | if $calls == null then "unread"
+      else $calls[0].body
+        | if type == "array" and ((.[0] // {}) | has("success"))
+          then map(if .success then "created" else (.errors[0].statusCode // "?") end) | join(", ")
+          else "halted" end
+      end' <<<"$1" 2>/dev/null || printf 'unread'
+}
+
+# Where a rehearsal sends the duplicate header, an Alert rule reading it lets
+# the twin through and a Block rule refuses it whatever: the call's own
+# headers, the Collections request's, both, or neither. The second row is
+# refused on a field the target requires, so the Collections request answers
+# a verdict per row. The twin is given as its object, a bar, then the row;
+# then both rows' expected verdicts, per place, in that order.
+composite_duplicates() {
+  local org=$1 trap=$2 label=$3 twin=$4 refused=$5 counted=$6 before scope body verdicts letter i
+  local header='Sforce-Duplicate-Rule-Header: allowSave=true' sub='{"Sforce-Duplicate-Rule-Header":"allowSave=true"}'
+  local -a expected=("${@:7}") letters=(a b c d)
+  local -a scopes=(none call subrequest both)
+  before=$(count "$org" "$counted")
+  for i in 0 1 2 3; do
+    scope=${scopes[i]}
+    letter=${letters[i]}
+    case $scope in
+      none | call) body=$(rehearsal_body "${twin%%|*}" "[${twin#*|},$refused]") ;;
+      *) body=$(rehearsal_body "${twin%%|*}" "[${twin#*|},$refused]" "$sub") ;;
+    esac
+    case $scope in
+      call | both) call "$org" POST composite "$body" "$header" ;;
+      *) call "$org" POST composite "$body" ;;
+    esac
+    verdicts=$(row_verdicts "$RESPONSE")
+    report target "$trap$letter" "$label, duplicate header: $scope" 200 "$RESPONSE"
+    expect_note target "$trap$letter" '  rows: the twin, the row refused' "${expected[i]}" "$verdicts"
+  done
+  expect_note target "${trap}e" "$label: records of its kind before / after" "$before / $before" \
+    "$before / $(count "$org" "$counted")"
+}
+
+# Asynchronous work started by an insert a rehearsal rolls back, beside the
+# same insert committed: Apex queued and future jobs, a flow's path after
+# commit and its path scheduled zero minutes on, and the events it publishes
+# at once and after commit, each leaving a marker under the item's tag. The
+# markers come a minute or two after the insert: the probe waits five.
+async_after_rollback() {
+  local org=$1 stamp rolled kept body jobs_before jobs left waited=0 got_rolled got_kept
+  if ! has_async_probe "$org"; then
+    note target 16 'async work after a rolled-back insert' 'skipped: the async probe is not deployed (deploy target)'
+    return 0
+  fi
+  stamp=$(date -u +%Y%m%d%H%M%S)
+  rolled="Trap Probe Async $stamp rolled back"
+  kept="Trap Probe Async $stamp committed"
+  jobs_before=$(count "$org" "SELECT COUNT() FROM AsyncApexJob WHERE ApexClass.Name = 'Trap_Probe_Async' AND JobType IN ('Queueable', 'Future')")
+
+  body=$(rehearsal_body Trap_Probe_Item__c "[{\"attributes\":{\"type\":\"Trap_Probe_Item__c\"},\"Name\":\"$rolled\"}]")
+  call "$org" POST composite "$body"
+  left=$(count "$org" "SELECT COUNT() FROM Trap_Probe_Item__c WHERE Name = '$rolled'")
+  report target 16a 'Trap_Probe_Item__c in a rolled-back call' 200 "$RESPONSE" \
+    "rows: $(row_verdicts "$RESPONSE"); left in the org: $left"
+  insert "$org" Trap_Probe_Item__c "{\"Name\":\"$kept\"}"
+  report target 16b 'Trap_Probe_Item__c committed (control)' 201 "$RESPONSE"
+
+  # The control's six markers, or the five minutes, whichever comes last.
+  while ((waited < 420)); do
+    got_kept=$(markers "$org" "$kept")
+    [[ $waited -lt 300 || $got_kept != 'event-commit, event-now, flow-async, flow-scheduled, future, queueable' ]] || break
+    sleep 30
+    waited=$((waited + 30))
+  done
+  got_rolled=$(markers "$org" "$rolled")
+  got_kept=$(markers "$org" "$kept")
+  expect_note target 16c "markers of the rolled-back insert, after ${waited} s" 'event-now' "${got_rolled:-none}"
+  expect_note target 16d 'markers of the committed insert (control)' \
+    'event-commit, event-now, flow-async, flow-scheduled, future, queueable' "${got_kept:-none}"
+  jobs=$(count "$org" "SELECT COUNT() FROM AsyncApexJob WHERE ApexClass.Name = 'Trap_Probe_Async' AND JobType IN ('Queueable', 'Future')")
+  expect_note target 16e 'Apex jobs queued since: the control queueable and future' 2 "$((jobs - jobs_before))"
+  records "$org" "SELECT Id FROM Trap_Probe_Log__c WHERE Name IN ('$rolled', '$kept')" |
+    jq -r '.[].Id' | while read -r id; do printf 'Trap_Probe_Log__c/%s\n' "$id"; done >"$WORK/markers.txt"
+  while read -r id; do CREATED+=("$id"); done <"$WORK/markers.txt"
+}
+
+# The sources of the markers left under a tag, sorted, comma-separated.
+markers() {
+  records "$1" "SELECT Source__c FROM Trap_Probe_Log__c WHERE Name = '$2'" |
+    jq -r 'map(.Source__c) | sort | join(", ")'
+}
+
+# The single emails a Developer Edition has left today, as /limits counts them.
+emails_left() {
+  call "$1" GET limits ''
+  jq -r '.body.SingleEmail.Remaining // "unread"' <<<"$RESPONSE"
+}
+
+# A contact with an email fires trap 9's flow, which sends one in the
+# transaction: inserted in a rolled-back composite call, beside one message
+# the Send Email action sends for good. /limits counts a send a minute or
+# two late, so the count is read once it has taken the control's, and again
+# half a minute on. Run after probe 16's wait, which lets the sends of the
+# probes before settle.
+emails_after_rollback() {
+  local org=$1 before after waited=0
+  before=$(emails_left "$org")
+  if [[ $before == unread || $before -lt 2 ]]; then
+    note target 17 'single emails a rolled-back welcome email takes' "skipped: $before left today"
+    return 0
+  fi
+  call "$org" POST composite "$(rehearsal_body Contact '[{"attributes":{"type":"Contact"},"LastName":"Probe Rehearsed Email","Email":"trap.probe.rehearsed@example.invalid","Phone":"+33 6 39 98 99 17"}]')"
+  report target 17a 'Contact with an email in a rolled-back call' 200 "$RESPONSE" \
+    "rows: $(row_verdicts "$RESPONSE")"
+  call "$org" POST actions/standard/emailSimple \
+    '{"inputs":[{"emailAddresses":"trap.probe.control@example.invalid","emailSubject":"Trap probe","emailBody":"A synthetic message from the SandForge trap org, the control of probe 17."}]}'
+  report target 17b 'Send Email action, one message (control)' 200 "$RESPONSE"
+  after=$before
+  while ((waited < 240)) && [[ $after == "$before" ]]; do
+    sleep 30
+    waited=$((waited + 30))
+    after=$(emails_left "$org")
+  done
+  sleep 30
+  after=$(emails_left "$org")
+  expect_note target 17c 'single emails taken: the control alone' 1 "$((before - after))"
+}
 
 owner_kind() {
   call "$1" GET "sobjects/Lead/$2?fields=OwnerId" ''
@@ -744,6 +920,30 @@ verify_target() {
     '{"inputs":[{"emailAddresses":"trap.probe.deliverability@example.invalid","emailSubject":"Trap probe","emailBody":"A synthetic message from the SandForge trap org."}]}'
   report target 13 'Send Email action' '' "$RESPONSE" \
     "$(jq -r '.body | if type == "array" then "isSuccess: \(.[0].isSuccess)\(if .[0].errors then ", " + (.[0].errors | map(.message) | join("; ")) else "" end)" else empty end' <<<"$RESPONSE" 2>/dev/null || true)"
+
+  # 14 and 15. The duplicate header in a rehearsal's composite call. The
+  # target holds "Trap Account 01" and a lead on trap.lead.01; the second row
+  # leaves out what the target requires.
+  composite_duplicates "$org" 14 'Account twin (alert)' \
+    "Account|{\"attributes\":{\"type\":\"Account\"},\"Name\":\"Trap Account 01\",$base}" \
+    "{\"attributes\":{\"type\":\"Account\"},\"Name\":\"Trap Probe Composite Missing\"$account_rt}" \
+    "SELECT COUNT() FROM Account WHERE Name = 'Trap Account 01'" \
+    'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING' 'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING' \
+    'created, REQUIRED_FIELD_MISSING' 'created, REQUIRED_FIELD_MISSING'
+  composite_duplicates "$org" 15 'Lead twin (block)' \
+    'Lead|{"attributes":{"type":"Lead"},"LastName":"Probe Composite","Company":"Trap Probe Composite","Email":"trap.lead.01@example.invalid"}' \
+    '{"attributes":{"type":"Lead"},"Company":"Trap Probe Composite Missing","Email":"trap.probe.composite@example.invalid"}' \
+    "SELECT COUNT() FROM Lead WHERE Email = 'trap.lead.01@example.invalid'" \
+    'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING' 'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING' \
+    'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING' 'DUPLICATES_DETECTED, REQUIRED_FIELD_MISSING'
+
+  # 16. What of the asynchronous work an insert starts survives the rollback
+  # of a rehearsal call.
+  async_after_rollback "$org"
+
+  # 17. Whether a welcome email the rollback took back still counts against
+  # the day's fifteen.
+  emails_after_rollback "$org"
 
   remove_created "$org"
 }

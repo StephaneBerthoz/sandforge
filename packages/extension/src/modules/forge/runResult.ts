@@ -11,6 +11,9 @@ import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 
 import type { ExecutionSummary } from './ForgeExecutor.js';
 
+/** The entry the second pass reports the lookups it left empty under. */
+const SECOND_PASS = '__pass2__';
+
 /** How a run ended, as its result says it. */
 export type ForgeRunStatus = ForgeExecutionResult['status'];
 
@@ -26,7 +29,10 @@ export type ForgeRunStatus = ForgeExecutionResult['status'];
  * that lost a whole object ended a success beside an audit entry naming it
  * skipped. One that failed and settled records as well — created them, wrote
  * over a match by external id, or linked them to the record the target
- * already held — did part of its job, not none of it.
+ * already held — did part of its job, not none of it. So did one whose second
+ * pass left lookups empty: its records are in, without the links between them,
+ * and the pass reports what it left as an `__pass2__` entry, counted in no
+ * object's failures — read as none, such a run ended a success.
  */
 export function finishedRunStatus(
   summary: Pick<
@@ -35,8 +41,17 @@ export function finishedRunStatus(
   > &
     Partial<Pick<ExecutionSummary, 'errors' | 'wouldInsertCount'>>,
 ): ForgeRunStatus {
-  const skippedWhole = (summary.errors ?? []).some((error) => error.skipped === true);
-  if (summary.failedCount === 0 && summary.failedReads.length === 0 && !skippedWhole) {
+  const errors = summary.errors ?? [];
+  const skippedWhole = errors.some((error) => error.skipped === true);
+  const lookupsLeftEmpty = errors.some(
+    (error) => error.objectApiName === SECOND_PASS && error.failedCount > 0,
+  );
+  if (
+    summary.failedCount === 0 &&
+    summary.failedReads.length === 0 &&
+    !skippedWhole &&
+    !lookupsLeftEmpty
+  ) {
     return 'success';
   }
   // A simulation settles nothing: what it would have created is what a real

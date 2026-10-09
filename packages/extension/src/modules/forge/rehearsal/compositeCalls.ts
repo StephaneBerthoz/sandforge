@@ -219,7 +219,11 @@ const ROLLBACK_REF = 'rollback';
  *
  * @param apiPath - The target's REST API path, `/services/data/vXX.X`.
  * @param headers - The headers of a Forge write, sent with each Collections
- *   request and each update, as the run sends them with its updates.
+ *   request and each update, as the run sends them with its updates. Only
+ *   there does a subrequest read them: in a trap org, the duplicate header
+ *   sent with the composite call alone left an Alert rule refusing a twin
+ *   the run would have written, and sent with the Collections request it let
+ *   it through (the trap kit's probe 14).
  * @param rowOf - The row a value stands for, when it is a placeholder.
  * @param updates - The updates the call sends after its inserts.
  * @throws When a row or an update names a record the run creates that the

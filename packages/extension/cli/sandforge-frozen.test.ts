@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { messageLines, parseArgs, removalAsks, removalPlanLines } from './sandforge-frozen.js';
+import {
+  messageLines,
+  parseArgs,
+  removalAsks,
+  removalPlanLines,
+  typeOrg,
+} from './sandforge-frozen.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -87,6 +93,53 @@ describe('parseArgs', () => {
       parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT', '--include-changed'))
         .includeChanged,
     ).toBe(true);
+  });
+});
+
+describe('typeOrg', () => {
+  /** A connection whose Organization record answers `row`, and whose edition query answers `edition`. */
+  function orgAnswering(row: { Id: string; IsSandbox: boolean }, edition: () => unknown) {
+    const query = vi.fn(async (soql: string) =>
+      soql.includes('OrganizationType') ? { records: [edition()] } : { records: [row] },
+    );
+    return { query, conn: { query } as never };
+  }
+
+  it('gives a Developer Edition org its edition, which the guards of the load read', async () => {
+    // Typed from IsSandbox alone, it was registered as a production org with
+    // no edition, and every guard of the load refused it.
+    const { conn } = orgAnswering({ Id: '00D000000000001AAA', IsSandbox: false }, () => ({
+      OrganizationType: 'Developer Edition',
+    }));
+
+    await expect(typeOrg(conn)).resolves.toEqual({
+      id: '00D000000000001AAA',
+      orgType: 'Production',
+      edition: 'Developer Edition',
+    });
+  });
+
+  it('types a sandbox from IsSandbox, without asking its edition', async () => {
+    const { conn, query } = orgAnswering({ Id: '00D000000000002AAA', IsSandbox: true }, () => ({
+      OrganizationType: 'Enterprise Edition',
+    }));
+
+    await expect(typeOrg(conn)).resolves.toEqual({
+      id: '00D000000000002AAA',
+      orgType: 'Sandbox',
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an org whose edition cannot be read a production org without one', async () => {
+    const { conn } = orgAnswering({ Id: '00D000000000003AAA', IsSandbox: false }, () => {
+      throw new Error('INVALID_FIELD');
+    });
+
+    await expect(typeOrg(conn)).resolves.toEqual({
+      id: '00D000000000003AAA',
+      orgType: 'Production',
+    });
   });
 });
 

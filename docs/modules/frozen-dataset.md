@@ -27,7 +27,7 @@ Typical case: a Developer sandbox refresh leaves you with metadata and zero reco
 
 Entry guards refuse with an actionable message, and never issue DML against the source:
 
-- **sandbox only** (Production Guard tier check);
+- **sandbox or Developer Edition org only** (Production Guard tier check: a Developer Edition org says it is no sandbox, and is taken, as Forge takes it, for the development org it is -- by the preview and the removal too);
 - configured **protected environments** are refused, as is the source org recorded in the manifest;
 - **mocked callouts**: detected through custom metadata (`mockDetection`); when it is not configured the guard is explicitly disabled and reported in the tab;
 - an **empty dataset** is refused.

@@ -644,7 +644,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 
         // A rehearsal reads through the run's own deps, and creates its sample
         // in the target in composite calls that each roll back whole. Its
-        // calls are its own to count: they are none of a run's.
+        // calls are its own to count: they are none of a run's. The duplicate
+        // header sent with the call reaches none of its subrequests, which
+        // carry their own (`compositeBody`): an Alert rule reads only those.
         const rehearser = new ForgeRehearser({
           reads: executorDeps,
           discoveryService,

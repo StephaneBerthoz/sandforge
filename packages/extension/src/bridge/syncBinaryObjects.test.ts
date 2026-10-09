@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SyncObjectConfig } from '@sandforge/shared';
-import { syncObjectPayloadSchema } from './validatePayload.js';
+import { syncCannotCopy, syncObjectPayloadSchema } from './validatePayload.js';
 
 /**
  * Sync has no file-transfer stage. `Attachment`, `ContentVersion` and
@@ -79,16 +79,37 @@ describe('a sync may not carry an object no copy writes', () => {
 
   // Salesforce reads an object's name whatever its case, and the boundary
   // refused `user` while `loginhistory` and `ACCOUNTSHARE` went through.
-  it.each([
-    'loginhistory',
-    'ACCOUNTSHARE',
-    'accounthistory',
-    'asyncApexJob',
-    'vlocity_INS__Party__c',
-  ])('the bridge refuses %j however its name is cased', (objectApiName) => {
-    const issues = objectIssues(objectApiName);
+  it.each(['loginhistory', 'ACCOUNTSHARE', 'accounthistory', 'asyncApexJob'])(
+    'the bridge refuses %j however its name is cased',
+    (objectApiName) => {
+      const issues = objectIssues(objectApiName);
 
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toContain('no copy writes it');
-  });
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain('no copy writes it');
+    },
+  );
+});
+
+/**
+ * Forge's discovery leaves a managed package's objects out because following
+ * reverse lookups from one record pulls the package's catalogue in. Sync took
+ * the same list and refused a Vlocity party a person had picked by name,
+ * saying no copy writes it, as of a user or a history row.
+ */
+describe("a sync may carry a managed package's objects, which only Forge's discovery leaves out", () => {
+  it.each(['vlocity_ins__Party__c', 'vlocity_INS__Party__c', 'vlocity_cmt__Catalog__c'])(
+    'the bridge accepts %j, and the object picker offers it',
+    (objectApiName) => {
+      expect(objectIssues(objectApiName)).toEqual([]);
+      expect(syncCannotCopy(objectApiName)).toBe(false);
+    },
+  );
+
+  it.each(['User', 'AccountHistory', 'vlocity_ins__Party__History', 'vlocity_ins__Party__Share'])(
+    'the bridge still refuses %j',
+    (objectApiName) => {
+      expect(objectIssues(objectApiName)).toHaveLength(1);
+      expect(syncCannotCopy(objectApiName)).toBe(true);
+    },
+  );
 });

@@ -1,5 +1,5 @@
 import type { RelationshipSuggestion } from '@sandforge/shared';
-import { isNeverCopied } from '../forge/excludedObjects.js';
+import { isNeverCopiedWhenPicked } from '../forge/excludedObjects.js';
 
 /** Field metadata needed for relationship detection (subset of jsforce describe). */
 export interface DescribeFieldInfo {
@@ -60,9 +60,11 @@ export class RelationshipDetector {
         // Skip unavailable objects
         if (!availableSet.has(parentObj)) continue;
         // Skip the ones no copy writes, whatever the org says about them: the
-        // list Forge and Autopilot read, so a parent one of them would never
-        // write is not offered here either.
-        if (isNeverCopied(parentObj)) continue;
+        // list the sync boundary reads, so a parent it would refuse is not
+        // offered here either. A managed package's object stays offered: a
+        // lookup from a picked child at it is no walk into the package's
+        // catalogue, and the child cannot go in before it.
+        if (isNeverCopiedWhenPicked(parentObj)) continue;
 
         const relationshipType = this.inferRelationshipType(field.name);
 

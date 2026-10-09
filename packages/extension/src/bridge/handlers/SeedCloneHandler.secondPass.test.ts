@@ -318,8 +318,9 @@ describe('SeedCloneHandler — the second pass', () => {
     ]);
     const [response] = posted(deps, 'seed:clone:execute:response');
     expect(response.payload as unknown).toMatchObject({
-      // Every record went in: the lookups are what the clone could not finish.
-      status: 'success',
+      // Every record went in, but two lookups stay empty: the clone did not
+      // finish what it was for, and the history and Live Ops say so.
+      status: 'partial',
       totalInserted: 3,
       secondPass: {
         owed: 2,
@@ -340,6 +341,9 @@ describe('SeedCloneHandler — the second pass', () => {
           },
         ],
       },
+    });
+    expect(posted(deps, 'operation:completed')[0].payload as unknown).toMatchObject({
+      result: { status: 'partial' },
     });
   });
 

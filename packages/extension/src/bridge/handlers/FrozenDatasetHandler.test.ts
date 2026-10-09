@@ -517,7 +517,8 @@ describe('FrozenDatasetHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('GUARD_REFUSED');
       expect(String(errors[0].payload.message)).toContain(
-        'Refusing frozen-dataset load on production org org-2: loads are sandbox-only.',
+        'Refusing frozen-dataset load on production org org-2: loads go into sandboxes and ' +
+          'Developer Edition orgs only.',
       );
       expect(posted(deps, 'frozen:load:response')).toEqual([]);
       expect(conn.query).not.toHaveBeenCalled();
@@ -710,6 +711,70 @@ describe('FrozenDatasetHandler', () => {
 
         expect(posted(deps, 'frozen:load:preview:error')).toHaveLength(1);
         expect(loaderPlan).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('into a Developer Edition org', () => {
+      // Registered as a production org — it says IsSandbox false — a
+      // Developer Edition org holds nobody's business: Forge clones into one,
+      // and the load and its preview refused it as production.
+      const developerEdition = {
+        orgType: 'Production',
+        metadata: { edition: 'Developer Edition' },
+      };
+      const enterpriseEdition = {
+        orgType: 'Production',
+        metadata: { edition: 'Enterprise Edition' },
+      };
+
+      it('loads into it, taken for the development org it is', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue(developerEdition as never);
+        loaderLoad.mockImplementationOnce(async () => report());
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(loaderLoad).toHaveBeenCalledWith(
+          expect.objectContaining({ orgId: 'org-2', orgTier: 'development' }),
+        );
+        expect(posted(deps, 'frozen:load:error')).toEqual([]);
+        expect(posted(deps, 'frozen:load:response')).toHaveLength(1);
+      });
+
+      it('previews a load into it, taken for the development org it is', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue(developerEdition as never);
+        loaderPlan.mockImplementationOnce(async () => ({ orgId: 'org-2' }));
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        expect(loaderPlan).toHaveBeenCalledWith(
+          expect.objectContaining({ orgId: 'org-2', orgTier: 'development' }),
+        );
+        expect(posted(deps, 'frozen:load:preview:error')).toEqual([]);
+      });
+
+      it('still refuses a production org of any other edition, the load and its preview alike', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderLoad.mockReset();
+        loaderPlan.mockReset();
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue(enterpriseEdition as never);
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        for (const type of ['frozen:load:error', 'frozen:load:preview:error']) {
+          const errors = posted(deps, type);
+          expect(errors.map((error) => error.payload.code)).toEqual(['GUARD_REFUSED']);
+          expect(String(errors[0].payload.message)).toContain(
+            'Refusing frozen-dataset load on production org org-2',
+          );
+        }
+        expect(posted(deps, 'frozen:load:response')).toEqual([]);
+        expect(posted(deps, 'frozen:load:preview:response')).toEqual([]);
       });
     });
 

@@ -154,12 +154,14 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain('no metadata is deployed');
   });
 
-  it('names the objects the picker leaves out as the list every copy reads', () => {
-    // Positive control: the boundary refuses Forge's list, not one of its own.
-    expect(VALIDATE_PAYLOAD).toContain('return isNeverCopied(objectApiName);');
+  it("names the objects the picker leaves out as the list every copy reads, a managed package's offered", () => {
+    // Positive control: the boundary refuses Forge's list, not one of its own,
+    // save the managed-package namespaces only Forge's discovery leaves out.
+    expect(VALIDATE_PAYLOAD).toContain('return isNeverCopiedWhenPicked(objectApiName);');
 
     expect(DOC).toContain('the list Forge and Autopilot read');
     expect(DOC).toContain("a record's history, feed or sharing rows");
+    expect(DOC).toContain("A managed package's objects, such as Vlocity's");
   });
 
   it('says a transform rule reaches every field but the one the write matches on', () => {

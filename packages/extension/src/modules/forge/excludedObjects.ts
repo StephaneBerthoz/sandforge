@@ -135,6 +135,18 @@ export function isExcludedFromCopy(
   objectApiName: string,
   described?: ReadonlySet<string>,
 ): boolean {
+  return excludedFromCopy(objectApiName, described, { byNamespace: true });
+}
+
+/**
+ * {@link isExcludedFromCopy}, with or without the managed-package namespaces
+ * of {@link EXCLUDED_NAMESPACE}.
+ */
+function excludedFromCopy(
+  objectApiName: string,
+  described: ReadonlySet<string> | undefined,
+  options: { byNamespace: boolean },
+): boolean {
   const name = objectApiName.toLowerCase();
   if (EXCLUDED_OBJECTS.has(name)) return true;
   // A file is no record to clone: read as one, its body comes back as the
@@ -142,7 +154,7 @@ export function isExcludedFromCopy(
   // written. Discovery used to walk into ContentVersion from a quote.
   if (isFileBodiedObject(objectApiName)) return true;
   if (described && (described.has(objectApiName) || lowerCased(described).has(name))) return true;
-  if (EXCLUDED_NAMESPACE.test(name)) return true;
+  if (options.byNamespace && EXCLUDED_NAMESPACE.test(name)) return true;
   return EXCLUDED_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
@@ -169,6 +181,24 @@ function lowerCased(names: ReadonlySet<string>): ReadonlySet<string> {
  */
 export function isNeverCopied(objectApiName: string, described?: ReadonlySet<string>): boolean {
   return isUncopyableObject(objectApiName) || isExcludedFromCopy(objectApiName, described);
+}
+
+/**
+ * Whether no copy creates `objectApiName` even when a person names it: Sync,
+ * whose objects the user picks, and the parents it offers for them.
+ *
+ * {@link isNeverCopied} without the managed-package namespaces. Those are
+ * left out because a discovery that follows reverse lookups from one record
+ * pulls the package's catalogue in; an object a person picks, or the parent
+ * one of its lookups points at, is no such walk, and a Vlocity party is data
+ * like an account. Sync refused it with a message that called it a user, a
+ * piece of metadata or a history row, while its command line copied it.
+ */
+export function isNeverCopiedWhenPicked(objectApiName: string): boolean {
+  return (
+    isUncopyableObject(objectApiName) ||
+    excludedFromCopy(objectApiName, undefined, { byNamespace: false })
+  );
 }
 
 /** An object as an org's global describe lists it. */

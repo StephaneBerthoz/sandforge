@@ -18,14 +18,15 @@ import type {
   ForgeRunObjectRecords,
   GuardDecision,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
   consultProductionGuard,
   strongerDecision,
 } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -1352,6 +1353,20 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.deps.broker.postToWebview(response);
   }
 
+  /**
+   * The tier a load, its preview and its removal take the target for: the one
+   * a Forge run takes it for (`forgeTargetTier`). A Developer Edition org
+   * says IsSandbox false and is registered as a production org while it holds
+   * nobody's business: Forge cloned into one, and the load refused it as
+   * production, leaving those with no sandbox of their own nowhere to load a
+   * dataset. A production org of any other edition, or of an edition not
+   * known, stays production, and every guard of the load refuses it.
+   */
+  private targetTier(orgId: string): SafetyTier {
+    const org = this.deps.orgManager.getOrg(orgId);
+    return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+  }
+
   // ── frozen:load ────────────────────────────────────────────────────────
 
   private async handleLoad(msg: InboundRequest): Promise<void> {
@@ -1501,10 +1516,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         serverTime: () => targetClock.serverTime(),
       });
 
-      const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
       const report = await loader.load({
         orgId: parsed.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        orgTier: this.targetTier(parsed.targetOrgId),
         dataset,
         manifest,
         sasDir,
@@ -1686,10 +1700,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         sasGuard: guard,
         serverTime: () => targetClock.serverTime(),
       });
-      const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
       const plan = await loader.planLoad({
         orgId: parsed.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        orgTier: this.targetTier(parsed.targetOrgId),
         dataset,
         manifest,
         sasDir,
@@ -2060,10 +2073,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       refuse(PRODUCTION_GUARD_MISSING.message, PRODUCTION_GUARD_MISSING.code);
       return;
     }
-    const targetOrg = this.deps.orgManager.getOrg(orgId);
     const { check, decision } = await consultProductionGuard(productionGuard, {
       orgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      // The tier the load took the org for: a Developer Edition org it may
+      // load into is one it may take its records back from, as for Forge.
+      orgTier: this.targetTier(orgId),
       operation: 'delete',
       objectName: plan.map((o) => o.objectApiName).join(', '),
       recordCount: total,

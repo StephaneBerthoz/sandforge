@@ -141,6 +141,38 @@ describe('parents a sync cannot write are not offered', () => {
     expect(suggestions.map((s) => s.parentObject)).toEqual(['Account']);
   });
 
+  it("offers a managed package's parent, which only Forge's discovery leaves out, so it goes in before its child", () => {
+    // A case's party: refused as a parent, the party was never suggested and
+    // the case went in without it. Its history stays left out.
+    const detector = new RelationshipDetector();
+    const suggestions = detector.detect(
+      'Case',
+      [
+        {
+          name: 'vlocity_ins__PartyId__c',
+          type: 'reference',
+          referenceTo: ['vlocity_ins__Party__c'],
+          relationshipName: null,
+        },
+        {
+          name: 'PartyHistory__c',
+          type: 'reference',
+          referenceTo: ['vlocity_ins__Party__History'],
+          relationshipName: null,
+        },
+      ],
+      [],
+      ['vlocity_ins__Party__c', 'vlocity_ins__Party__History'],
+    );
+    expect(suggestions).toEqual([
+      expect.objectContaining({
+        childObject: 'Case',
+        parentObject: 'vlocity_ins__Party__c',
+        lookupField: 'vlocity_ins__PartyId__c',
+      }),
+    ]);
+  });
+
   it('still offers a parent a sync can write', () => {
     const detector = new RelationshipDetector();
     const suggestions = detector.detect(

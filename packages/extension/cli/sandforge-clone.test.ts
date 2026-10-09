@@ -571,6 +571,31 @@ describe('sandforge-clone summary', () => {
     expect(failedOutright({ ...unread, successCount: 2 })).toBe(false);
   });
 
+  it('exits on a failure exactly when the run is recorded one, whatever its errors name', () => {
+    // Its only object skipped whole, the run wrote nothing and its history
+    // entry said failure, while the command exited as though it had done
+    // its job.
+    const skipped = {
+      objectApiName: 'Case',
+      stage: 'scope' as const,
+      failedCount: 0,
+      attemptedCount: 0,
+      skipped: true,
+      samples: [],
+    };
+    expect(failedOutright(summary({ successCount: 0, errors: [skipped] }))).toBe(true);
+    expect(failedOutright(summary({ errors: [skipped] }))).toBe(false);
+    // Lookups the second pass left empty: partial, as the history records it.
+    const leftEmpty = {
+      objectApiName: '__pass2__',
+      stage: 'insert' as const,
+      failedCount: 2,
+      attemptedCount: 2,
+      samples: [],
+    };
+    expect(failedOutright(summary({ errors: [leftEmpty] }))).toBe(false);
+  });
+
   it('tells a CI job which errors are reference data unmatched and which an object skipped whole', () => {
     // Dropped from each error, the two flags left a job reading unmatched
     // reference data as rows held back, and a skipped object counting none

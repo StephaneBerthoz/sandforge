@@ -41,6 +41,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import type { Connection } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
@@ -65,7 +66,8 @@ Required:
 
 Options:
   --source <alias>       sf CLI alias of the org the dataset is read from
-  --target <alias>       sf CLI alias of the sandbox it is loaded into
+  --target <alias>       sf CLI alias of the sandbox, or Developer Edition org, it is
+                         loaded into
   --author <name>        who froze the dataset, for the manifest   (default: sandforge)
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
@@ -155,35 +157,78 @@ export function parseArgs(argv: string[]): CliArgs {
 
 /** An org as the extension's org manager and registry hold it. */
 interface KnownOrg {
-  org: { id: string; alias: string; orgType: string; metadata: { apiVersion: string } };
+  org: {
+    id: string;
+    alias: string;
+    orgType: string;
+    metadata: { apiVersion: string; edition?: string };
+  };
   credentials: { accessToken: string; instanceUrl: string };
+}
+
+/** An org typed from its `Organization` record, as the panel registers it. */
+export interface TypedOrg {
+  id: string;
+  orgType: 'Sandbox' | 'Production';
+  /** `Organization.OrganizationType` of an org that is not a sandbox; absent when it said none. */
+  edition?: string;
+}
+
+/**
+ * Type an org from its `Organization` record, as the panel does when it
+ * connects it (`OrgHandler`): `IsSandbox` for its type, and its edition with
+ * it, which every guard of the load reads. A Developer Edition org says
+ * IsSandbox false: typed without its edition, it was refused as a production
+ * org, where the panel and the clone command take it for the development org
+ * it is. Asked of an org that is not a sandbox alone; an answer that does not
+ * say leaves it a production org. Exported so it can be tested.
+ */
+export async function typeOrg(conn: Pick<Connection, 'query'>): Promise<TypedOrg> {
+  const result = await conn.query<{ Id: string; IsSandbox: boolean }>(
+    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
+  );
+  const row = result.records[0];
+  if (!row) throw new Error('The org gave no Organization record.');
+  if (row.IsSandbox) return { id: row.Id, orgType: 'Sandbox' };
+  try {
+    const typed = await conn.query<{ OrganizationType?: string }>(
+      'SELECT OrganizationType FROM Organization LIMIT 1',
+    );
+    const edition = typed.records[0]?.OrganizationType;
+    return typeof edition === 'string' && edition !== ''
+      ? { id: row.Id, orgType: 'Production', edition }
+      : { id: row.Id, orgType: 'Production' };
+  } catch {
+    return { id: row.Id, orgType: 'Production' };
+  }
 }
 
 /**
  * Register an `sf` alias under its real org id, typed from the org.
  *
- * The panel types an org from `Organization.IsSandbox` when it connects it
- * (`OrgHandler`), and every guard of the load reads that type. A runner that
- * guessed it would be testing its guess.
+ * Every guard of the load reads the type, and the edition, the panel gives an
+ * org it connects. A runner that guessed them would be testing its guess.
  */
 async function registerOrg(alias: string, orgs: Map<string, KnownOrg>): Promise<string> {
   const session = await loadOrg(alias);
   const conn = makeConn(session);
-  const result = await conn.query<{ Id: string; IsSandbox: boolean }>(
-    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
-  );
-  const row = result.records[0];
-  if (!row) throw new Error(`Could not read the Organization record of '${alias}'.`);
-  orgs.set(row.Id, {
+  let typed: TypedOrg;
+  try {
+    typed = await typeOrg(conn);
+  } catch (err: unknown) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not read the Organization record of '${alias}': ${why}`);
+  }
+  orgs.set(typed.id, {
     org: {
-      id: row.Id,
+      id: typed.id,
       alias,
-      orgType: row.IsSandbox ? 'Sandbox' : 'Production',
-      metadata: { apiVersion: '66.0' },
+      orgType: typed.orgType,
+      metadata: { apiVersion: '66.0', ...(typed.edition ? { edition: typed.edition } : {}) },
     },
     credentials: { accessToken: session.accessToken, instanceUrl: session.instanceUrl },
   });
-  return row.Id;
+  return typed.id;
 }
 
 /** Ask on the terminal, unless the answer was given on the command line. */

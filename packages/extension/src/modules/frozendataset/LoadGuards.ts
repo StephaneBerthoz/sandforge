@@ -2,7 +2,8 @@
  * Entry guards of the frozen-dataset load. A load is REFUSED —
  * with an actionable remediation, never an opaque error — when:
  *
- *   1. the target org is not a sandbox (production/staging tier);
+ *   1. the target org is not a sandbox, a scratch org or a Developer Edition
+ *      org (production/staging tier);
  *   2. the target org belongs to the CONFIGURED protected-environment list
  *      or is the manifest source org (the source is never a target);
  *   3. callouts of the target org are not mocked (injectable detection —
@@ -63,13 +64,15 @@ export function datasetRecordCount(dataset: FrozenDataset): number {
  * refusal; resolves when the load may proceed.
  */
 export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
-  // 1. Sandbox-only: the frozen dataset is never loaded elsewhere.
+  // 1. Development orgs only: a sandbox, a scratch org, or a Developer
+  //    Edition org, which the caller takes for the development org it is.
   if (input.orgTier !== 'development' && input.orgTier !== 'scratch') {
     throw new LoadGuardError(
       'non-sandbox',
-      `Refusing frozen-dataset load on ${input.orgTier} org ${input.orgId}: loads are ` +
-        'sandbox-only. Remediation: target a Developer/Scratch sandbox — deploy the ' +
-        'required configuration THERE; never run DML against a shared or source org.',
+      `Refusing frozen-dataset load on ${input.orgTier} org ${input.orgId}: loads go into ` +
+        'sandboxes and Developer Edition orgs only. Remediation: target a Developer/Scratch ' +
+        'sandbox or a Developer Edition org — deploy the required configuration THERE; ' +
+        'never run DML against a shared or source org.',
     );
   }
 
