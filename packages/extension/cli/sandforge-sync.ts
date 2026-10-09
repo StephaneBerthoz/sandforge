@@ -38,6 +38,7 @@ import { ConflictResolver } from '../src/modules/sync/ConflictResolver.js';
 import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
 import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
+import { cannotCopyMessage, syncCannotCopy } from '../src/bridge/validatePayload.js';
 import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
@@ -125,6 +126,12 @@ export function parseArgs(argv: string[]): CliArgs {
     const [objectApiName, externalIdField] = raw.split(':');
     if (!API_NAME_RE.test(objectApiName)) {
       process.stderr.write(`Not an SObject API name: "${objectApiName}"\n`);
+      process.exit(2);
+    }
+    // The panel's boundary: the command took User, a history or a file
+    // object as it took any other.
+    if (syncCannotCopy(objectApiName)) {
+      process.stderr.write(`${cannotCopyMessage(objectApiName)}\n`);
       process.exit(2);
     }
     if (externalIdField !== undefined && !API_NAME_RE.test(externalIdField)) {

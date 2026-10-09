@@ -122,7 +122,7 @@ export function syncCannotCopy(objectApiName: string): boolean {
 }
 
 /** Why the sync boundary refuses `objectApiName`, in the words a person reads. */
-function cannotCopyMessage(objectApiName: string): string {
+export function cannotCopyMessage(objectApiName: string): string {
   if (isFileBodiedObject(objectApiName)) {
     return (
       `Sync does not transfer files: "${objectApiName}" keeps its content in a file ` +

@@ -65,6 +65,18 @@ describe('parseArgs', () => {
     expect(message).toContain('Account; DROP');
   });
 
+  it('refuses an object the panel refuses — User, a history, a file — before contacting any org', () => {
+    for (const object of ['User', 'AccountHistory', 'ContentVersion']) {
+      const { code, message } = refuse('--source', 'S', '--target', 'T', '--object', object);
+      expect(code).toBe(2);
+      expect(message).toContain(object);
+    }
+    expect(
+      parseArgs(argv('--source', 'S', '--target', 'T', '--object', 'vlocity_ins__Party__c'))
+        .objects,
+    ).toHaveLength(1);
+  });
+
   it('refuses a field name that is not one', () => {
     expect(refuse('--source', 'S', '--target', 'T', '--object', 'Account:9bad').code).toBe(2);
   });
