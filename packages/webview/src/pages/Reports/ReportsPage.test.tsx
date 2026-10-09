@@ -279,6 +279,31 @@ describe('ReportsPage', () => {
       expect(screen.getByText('No audit entries')).toBeDefined();
     });
 
+    it('opens the lineage tab on the run an audit entry records, when its graph is kept', () => {
+      const onSelectLineageRun = vi.fn();
+      const traced: AuditLogEntry = { ...auditEntries[0], id: 'aud-op-0', operationId: 'op-0' };
+      render(
+        <ReportsPage
+          auditEntries={[traced]}
+          lineageData={lineageData}
+          lineageRuns={[
+            { operationId: 'op-1', generatedAt: '2026-02-20T10:00:00Z' },
+            { operationId: 'op-0', generatedAt: '2026-02-19T10:00:00Z' },
+          ]}
+          onSelectLineageRun={onSelectLineageRun}
+        />,
+      );
+      fireEvent.click(screen.getByRole('tab', { name: 'Audit Trail' }));
+
+      fireEvent.click(screen.getByTestId('audit-view-run-aud-op-0'));
+
+      expect(onSelectLineageRun).toHaveBeenCalledWith('op-0');
+      expect(screen.getByRole('tab', { name: 'Data Lineage' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+      expect(screen.getByTestId('mock-reactflow')).toBeDefined();
+    });
+
     it('offers a pick of runs only when more than one is traced', () => {
       const onSelectLineageRun = vi.fn();
       const run = (operationId: string) => ({

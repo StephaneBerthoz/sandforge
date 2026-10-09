@@ -2069,6 +2069,26 @@ describe('ExtensionHandlers', () => {
       tracker.dispose();
     });
 
+    it('hands Autopilot the registry execution:abort stops it through, and the tracker', async () => {
+      const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
+      const { BackgroundOperationRegistry } =
+        await import('../core/engine/BackgroundOperationRegistry.js');
+      const { AutopilotHandler } = await import('./handlers/AutopilotHandler.js');
+      const setRegistry = vi.spyOn(AutopilotHandler.prototype, 'setRegistry');
+      const setTracker = vi.spyOn(AutopilotHandler.prototype, 'setLiveOperationTracker');
+      const registry = new BackgroundOperationRegistry();
+      const tracker = new LiveOperationTracker();
+
+      handlers.setBackgroundRegistry(registry);
+      handlers.setLiveOperationTracker(tracker);
+
+      expect(setRegistry).toHaveBeenCalledWith(registry);
+      expect(setTracker).toHaveBeenCalledWith(tracker);
+      setRegistry.mockRestore();
+      setTracker.mockRestore();
+      tracker.dispose();
+    });
+
     it('feeds the tracker from the removal of the records a Forge run created', async () => {
       const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
       const tracker = new LiveOperationTracker();

@@ -32,6 +32,9 @@ import type {
 } from '../../modules/autopilot/SchemaScanner.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Message types handled by AutopilotHandler. */
 const AUTOPILOT_TYPES = new Set([
@@ -96,6 +99,8 @@ export class AutopilotHandler implements DomainHandler {
   /** Operations currently inside executePlan — the target of pause/resume/skip. */
   private readonly executingOperations = new Set<string>();
   private orchestrator?: AutopilotOrchestrator;
+  private registry?: BackgroundOperationRegistry;
+  private liveTracker?: LiveOperationTracker;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -103,6 +108,19 @@ export class AutopilotHandler implements DomainHandler {
   /** Inject autopilot orchestrator. */
   setOrchestrator(orchestrator: AutopilotOrchestrator): void {
     this.orchestrator = orchestrator;
+  }
+
+  /**
+   * Inject the registry `execution:abort` stops runs through. Each run is
+   * registered under the id of its `autopilot:execute` request.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
+  }
+
+  /** Inject the tracker the Monitor's Live Operations lists runs from. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -329,13 +347,29 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', PRODUCTION_GUARD_MISSING.message);
       return;
     }
+    const totalRecords = Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0);
+
+    // The run's stop. `execution:abort` with this request's id reaches it
+    // through the registry: the page's Stop sends it, and Live Operations'
+    // Cancel. Registered before the guard is asked, so a stop sent while the
+    // confirmation waits is not lost: the run then writes nothing.
+    const abortController = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this keeps a host with none
+    // from an unhandled rejection.
+    tracked.catch(() => {});
+    this.registry?.register(msg.id, 'autopilot', 'Autopilot run', tracked, abortController);
+
     const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
     const guardRequest = {
       orgId: operation.targetOrgId,
       orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
       operation: 'insert' as const,
       objectName: plan.waves[0]?.objects[0] ?? 'AutopilotData',
-      recordCount: Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0),
+      recordCount: totalRecords,
       module: 'autopilot',
     };
     const { check, decision } = await consultProductionGuard(guard, guardRequest);
@@ -352,13 +386,16 @@ export class AutopilotHandler implements DomainHandler {
       });
     }
     // Each with the code every write path is stopped with: the page says it
-    // in the interface language by it, where these messages are English.
+    // in the interface language by it, where these messages are English. No
+    // notification beside it: one carried the same refusal, in English, next
+    // to the page's translated error.
     if (decision === 'refused') {
       const refusal = guardBlockedError(check.blockedReason ?? check.impactSummary);
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, refusal, {
         code: GUARD_REFUSAL.blocked,
       });
-      sendNotification(this.deps, 'error', 'Autopilot', refusal.message);
+      // Settled, or the registry lists it as running for the session.
+      settle(refusal);
       return;
     }
     // `safety.requireProdConfirmation`: explicit user consent before
@@ -368,16 +405,17 @@ export class AutopilotHandler implements DomainHandler {
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message), {
         code: GUARD_REFUSAL.declined,
       });
-      sendNotification(this.deps, 'error', 'Autopilot', message);
+      settle(new Error(message));
       return;
     }
 
+    this.liveTracker?.register(msg.id, 'autopilot', 'Autopilot run', totalRecords);
     this.executingOperations.add(operation.id);
     /** Per object, what the run wrote, as each node settles. */
     const written = new Map<string, AuditObjectCounts>();
     /** A run is recorded once, whichever way it ends. */
     let recorded = false;
-    const recordRun = (outcome: 'success' | 'partial' | 'failure'): void => {
+    const recordRun = (outcome: 'success' | 'partial' | 'failure' | 'stopped'): void => {
       if (recorded) return;
       recorded = true;
       recordWriteRun(this.deps, {
@@ -389,6 +427,9 @@ export class AutopilotHandler implements DomainHandler {
         guard: guardDecision,
         objects: [...written.values()],
         source: { origin: 'org', orgId: operation.sourceOrgId },
+        // Stopped before it wrote anything, under the code a cancelled
+        // Forge run is recorded with: read as a failure otherwise.
+        ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
       });
     };
     try {
@@ -435,6 +476,15 @@ export class AutopilotHandler implements DomainHandler {
               ? { created: event.successCount, failed: event.failureCount }
               : { created: event.partialSuccessCount, failed: event.failureCount ?? 0 }),
           });
+          // Live Operations shows the run's records as its nodes settle.
+          const processed = [...written.values()].reduce((s, c) => s + c.created + c.failed, 0);
+          this.liveTracker?.updateProgress(
+            msg.id,
+            totalRecords > 0 ? Math.round((processed / totalRecords) * 100) : 0,
+            processed,
+            totalRecords,
+            name,
+          );
           if (event.type === 'node-completed') {
             this.sendNodeProgress(msg, name, 'completed', waveOf.get(name) ?? 0, {
               recordCount: event.successCount,
@@ -458,12 +508,14 @@ export class AutopilotHandler implements DomainHandler {
             });
           }
         },
+        abortController.signal,
       );
 
       // Send node-progress 'completed' or 'failed' per node based on execution result
       const completedSet = new Set(result.completedObjects);
       const failedSet = new Set(result.failedObjects);
       const skippedSet = new Set(result.skippedObjects);
+      const stoppedSet = new Set(result.stoppedObjects ?? []);
 
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
@@ -513,16 +565,36 @@ export class AutopilotHandler implements DomainHandler {
               recordCount: 0,
               failureCount: 0,
             });
+          } else if (stoppedSet.has(name)) {
+            // Cut short or never reached by the stop: what it wrote, and what
+            // it never sent, which the audit counts apart.
+            const notSent = outcome?.notSent ?? 0;
+            written.set(name, {
+              ...emptyCounts(name),
+              created: outcome?.written ?? 0,
+              failed: outcome?.failed ?? 0,
+              ...(notSent > 0 ? { notSent } : {}),
+            });
+            this.sendNodeProgress(msg, name, 'stopped', wave.order, {
+              ...settled,
+              recordCount: outcome?.written ?? 0,
+              failureCount: outcome?.failed ?? 0,
+              ...(notSent > 0 ? { notSent } : {}),
+            });
           }
         }
       }
 
       recordRun(
-        result.totalFailure === 0 && failedSet.size === 0
-          ? 'success'
-          : result.totalSuccess > 0
+        result.stopped
+          ? result.totalSuccess > 0
             ? 'partial'
-            : 'failure',
+            : 'stopped'
+          : result.totalFailure === 0 && failedSet.size === 0
+            ? 'success'
+            : result.totalSuccess > 0
+              ? 'partial'
+              : 'failure',
       );
 
       const response = buildResponse(this.deps, msg, 'autopilot:completed', {
@@ -531,9 +603,15 @@ export class AutopilotHandler implements DomainHandler {
         totalFailureCount: result.totalFailure,
         totalElapsedMs: result.elapsedMs,
         totalApiCalls: 0,
+        ...(result.stopped ? { stopped: true, notWritten: result.stoppedObjects ?? [] } : {}),
       });
       this.deps.broker.postToWebview(response);
+      if (result.stopped) this.liveTracker?.cancel(msg.id);
+      else this.liveTracker?.complete(msg.id);
+      settle();
     } catch (err: unknown) {
+      this.liveTracker?.fail(msg.id, extractErrorMessage(err));
+      settle(err);
       // The nodes that settled before the run died say what it wrote.
       recordRun('failure');
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err);
@@ -560,7 +638,7 @@ export class AutopilotHandler implements DomainHandler {
   private sendNodeProgress(
     requestMsg: InboundRequest,
     objectName: string,
-    status: 'processing' | 'completed' | 'failed',
+    status: 'processing' | 'completed' | 'failed' | 'stopped',
     wave: number,
     extra?: {
       recordCount?: number;
@@ -575,6 +653,8 @@ export class AutopilotHandler implements DomainHandler {
       statusRefusals?: AutopilotRefusal[];
       /** Records read and never sent: the platform writes them, or what they hang from, itself. */
       leftToThePlatform?: number;
+      /** Records a stopped run never sent. */
+      notSent?: number;
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

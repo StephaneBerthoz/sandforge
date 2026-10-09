@@ -116,7 +116,11 @@
     "aliasPlaceholder": "mon-sandbox",
     "bannerConnected": "Orgs connectées : {{count}} sur {{total}}",
     "bannerEmpty": "Importez vos orgs depuis Salesforce CLI ou connectez-vous manuellement",
-    "installCli": "Installer le CLI Salesforce"
+    "installCli": "Installer le CLI Salesforce",
+    "openInBrowser": "Ouvrir dans le navigateur",
+    "openRefusedUrl": "{{alias}} n'a pas été ouverte : son URL d'instance n'est pas une adresse HTTPS.",
+    "openNotFound": "{{alias}} n'est plus enregistrée, elle n'a donc pas été ouverte.",
+    "openFailed": "Le navigateur n'a pas ouvert {{alias}} : {{reason}}"
   },
   "monitor": {
     "refresh": "Actualiser",
@@ -1267,6 +1271,11 @@
       "action": "Lancer la synchronisation",
       "running": "En cours…",
       "orgsRequired": "Choisissez deux orgs différentes pour lancer cet import."
+    },
+    "edit": {
+      "noObjects": "Gardez au moins un objet : une exécution sans objet ne déplacerait rien.",
+      "upsertNeedsKey": "Un upsert de {{object}} a besoin d'un champ External ID que les deux orgs partagent : faire correspondre sur Id ne peut pas marcher. Nommez-en un, ou passez l'opération en insert.",
+      "invalid": "Cette configuration ne peut pas s'exécuter telle que modifiée — {{reason}}"
     }
   },
   "dataops": {
@@ -1808,6 +1817,7 @@
     "noMessages": "Envoyez un message pour démarrer la conversation",
     "placeholder": "Tapez un message... (Entrée pour envoyer, Shift+Entrée pour nouvelle ligne)",
     "send": "Envoyer",
+    "stop": "Arrêter",
     "waitingIn": "En attente de la réponse à votre question dans « {{title}} ».",
     "answeredIn": "Votre question dans « {{title}} » a reçu sa réponse.",
     "openConversation": "Ouvrir la conversation",
@@ -1946,6 +1956,7 @@
     "lineageEmptyDesc": "Quand une exécution écrit des enregistrements dans une org, cet onglet montre d’où ils venaient — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu figé — et combien d’enregistrements de chaque objet y sont arrivés.",
     "lineageUnreadable": "La lignée de données n’a pas pu être lue : {{error}}",
     "lineageRun": "Exécution",
+    "viewRun": "Voir l’exécution",
     "lineageOrigin": {
       "org": "Org",
       "generator": "Données générées",
@@ -3560,6 +3571,10 @@
       "pause": "Pause",
       "resume": "Reprendre",
       "skip": "Ignorer le Noeud",
+      "stop": "Arrêter",
+      "stopping": "Arrêt en cours…",
+      "stoppedNotWritten": "Exécution arrêtée : rien n'a été écrit après l'arrêt. Objets non écrits, ou pas en entier : {{list}}.",
+      "stoppedAllWritten": "Exécution arrêtée une fois chaque objet écrit : les mises à jour qui suivent n'ont pas été envoyées.",
       "recordsProcessed": "Enregistrements Traités",
       "apiCalls": "Appels API",
       "elapsed": "Temps Écoulé",

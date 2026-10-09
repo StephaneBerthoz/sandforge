@@ -98,21 +98,52 @@ export const AIPage: React.FC = () => {
     ]);
   });
 
+  /**
+   * Take a question that got no answer out of the thread, and give it back to
+   * its conversation's composer: at once when that conversation is open, else
+   * once it is open again.
+   */
+  const giveBack = useCallback(
+    (question: PendingQuestion) => {
+      if (question.conversationId === activeConversationId) {
+        setMessages((prev) => prev.filter((m) => m !== question.message));
+        setDraft((current) => current || question.message.content);
+        return;
+      }
+      returnedQuestion.current = {
+        conversationId: question.conversationId,
+        text: question.message.content,
+      };
+    },
+    [activeConversationId],
+  );
+
   // An answer belongs to the conversation its question was asked in. It went to
   // whatever thread was open when it came: asked in one conversation and
   // answered while another was open, it joined the other.
   useMessageListener<
-    BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }
+    BaseMessage & {
+      payload:
+        | { conversationId: string; message: ChatMessageDisplay }
+        | { conversationId: string; code: 'CANCELLED' };
+    }
   >('ai:chat:response', (msg) => {
     const question = pendingQuestion.current;
     if (!question || msg.correlationId !== question.requestId) return;
     setPending(undefined);
+    // Stopped by the user: no answer, and nothing to say about it. The host
+    // kept neither the question nor an answer; the thread does the same.
+    if ('code' in msg.payload) {
+      giveBack(question);
+      return;
+    }
+    const answer = msg.payload.message;
     if (question.conversationId === activeConversationId) {
       // The host keeps a question out of its conversation until the answer
       // comes, so a thread opened again in the meantime was loaded without it.
       setMessages((prev) => [
         ...(prev.includes(question.message) ? prev : [...prev, question.message]),
-        msg.payload.message,
+        answer,
       ]);
       return;
     }
@@ -218,6 +249,18 @@ export const AIPage: React.FC = () => {
     },
     [conversations, send, setPending],
   );
+
+  // Stops the question this page waits on; its `ai:chat` request answers with
+  // code `CANCELLED`, which ends the wait.
+  const handleCancel = useCallback(() => {
+    const question = pendingQuestion.current;
+    if (!question) return;
+    send(
+      buildMessage<{ conversationId: string }>('ai:chat:cancel', {
+        conversationId: question.conversationId,
+      }),
+    );
+  }, [send]);
 
   const handleNewConversation = useCallback(
     (title: string) => {
@@ -327,6 +370,7 @@ export const AIPage: React.FC = () => {
       errorMessage={errorMessage}
       onDismissError={() => setErrorMessage(undefined)}
       onSendMessage={handleSendMessage}
+      onCancel={handleCancel}
       onNewConversation={handleNewConversation}
       onSelectConversation={handleSelectConversation}
       onDeleteConversation={handleDeleteConversation}

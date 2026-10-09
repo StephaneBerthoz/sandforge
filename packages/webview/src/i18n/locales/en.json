@@ -116,7 +116,11 @@
     "aliasPlaceholder": "my-sandbox",
     "bannerConnected": "Orgs connected: {{count}} of {{total}}",
     "bannerEmpty": "Import your orgs from Salesforce CLI or connect manually",
-    "installCli": "Install the Salesforce CLI"
+    "installCli": "Install the Salesforce CLI",
+    "openInBrowser": "Open in browser",
+    "openRefusedUrl": "{{alias}} was not opened: its instance URL is not an HTTPS address.",
+    "openNotFound": "{{alias}} is no longer registered, so it was not opened.",
+    "openFailed": "The browser did not open {{alias}}: {{reason}}"
   },
   "monitor": {
     "refresh": "Refresh",
@@ -1267,6 +1271,11 @@
       "action": "Run sync",
       "running": "Running…",
       "orgsRequired": "Pick two different orgs to run this import."
+    },
+    "edit": {
+      "noObjects": "Keep at least one object: a run with none would move nothing.",
+      "upsertNeedsKey": "An upsert of {{object}} needs an External ID field both orgs share: matching on Id cannot work. Name one, or set the operation to insert.",
+      "invalid": "This configuration cannot run as edited — {{reason}}"
     }
   },
   "dataops": {
@@ -1808,6 +1817,7 @@
     "noMessages": "Send a message to start the conversation",
     "placeholder": "Type a message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",
+    "stop": "Stop",
     "waitingIn": "Waiting for the answer to your question in “{{title}}”.",
     "answeredIn": "Your question in “{{title}}” has been answered.",
     "openConversation": "Open conversation",
@@ -1946,6 +1956,7 @@
     "lineageEmptyDesc": "When a run writes records to an org, this tab shows where they came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many records of each object reached it.",
     "lineageUnreadable": "The data lineage could not be read: {{error}}",
     "lineageRun": "Run",
+    "viewRun": "View run",
     "lineageOrigin": {
       "org": "Org",
       "generator": "Generated data",
@@ -3560,6 +3571,10 @@
       "pause": "Pause",
       "resume": "Resume",
       "skip": "Skip Node",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "stoppedNotWritten": "Run stopped: nothing was written after the stop. Not written, or not whole: {{list}}.",
+      "stoppedAllWritten": "Run stopped once every object was written: the updates that follow were not sent.",
       "recordsProcessed": "Records Processed",
       "apiCalls": "API Calls",
       "elapsed": "Elapsed Time",

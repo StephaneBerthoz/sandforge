@@ -2,6 +2,7 @@ import {
   PipelineDraftReplySchema,
   PipelineSuggestionsReplySchema,
   parseModelJson,
+  type PipelineStepType,
 } from '@sandforge/shared';
 import type { AIProvider } from './types.js';
 
@@ -27,34 +28,84 @@ export interface GeneratedPipeline {
   steps: GeneratedPipelineStep[];
   schedule?: string;
   triggers?: string[];
+  /**
+   * What the draft leaves out and where to do it instead: the work it was
+   * asked for that writes to an org, or a step type a pipeline cannot run.
+   */
+  suggestions?: string[];
 }
 
-/** Keywords mapped to pipeline step types. */
-const KEYWORD_STEP_MAP: Record<string, string> = {
-  sync: 'sync',
-  synchronize: 'sync',
-  copy: 'sync',
-  transfer: 'sync',
-  migrate: 'sync',
-  seed: 'seed',
-  generate: 'seed',
-  create: 'seed',
-  populate: 'seed',
+/**
+ * The step types a pipeline runs: Delay and Condition, and Backup, Compare,
+ * Pre-check and Notification through the modules that own their work. The
+ * step executor refuses every other type before the run starts, and the
+ * Automation page shows such a step blocked.
+ */
+const RUNNABLE_STEP_TYPES: ReadonlySet<string> = new Set<PipelineStepType>([
+  'delay',
+  'condition',
+  'backup',
+  'compare',
+  'precheck',
+  'notification',
+]);
+
+/**
+ * Keywords mapped to the step types a pipeline runs. "backup" used to draw a
+ * DataOps step and "monitor" a Monitor step, neither of which a pipeline
+ * runs: "back up accounts daily" gave a blocked step although Backup runs.
+ */
+const KEYWORD_STEP_MAP: Record<string, PipelineStepType> = {
+  backup: 'backup',
+  snapshot: 'backup',
+  export: 'backup',
   compare: 'compare',
   diff: 'compare',
-  check: 'compare',
-  anonymize: 'dataops',
-  mask: 'dataops',
-  scramble: 'dataops',
-  delete: 'dataops',
-  clean: 'dataops',
-  purge: 'dataops',
-  monitor: 'monitor',
-  watch: 'monitor',
-  alert: 'monitor',
-  backup: 'dataops',
-  export: 'dataops',
+  check: 'precheck',
+  monitor: 'precheck',
+  watch: 'precheck',
+  alert: 'notification',
+  notify: 'notification',
 };
+
+/**
+ * Keywords for the work that writes to an org, mapped to the page that runs
+ * it. A pipeline runs unattended, with nobody there to answer Production
+ * Guard, so it runs no step that writes: such a wish draws no step, and a
+ * suggestion to run it from its page.
+ */
+const WRITE_KEYWORD_PAGE: Record<string, string> = {
+  sync: 'Sync',
+  synchronize: 'Sync',
+  copy: 'Sync',
+  transfer: 'Sync',
+  migrate: 'Sync',
+  seed: 'Seed',
+  generate: 'Seed',
+  create: 'Seed',
+  populate: 'Seed',
+  anonymize: 'DataOps',
+  mask: 'DataOps',
+  scramble: 'DataOps',
+  delete: 'DataOps',
+  clean: 'DataOps',
+  purge: 'DataOps',
+};
+
+/** The page that runs the work a step type that writes to an org stands for. */
+const WRITE_STEP_PAGE: Record<string, string> = {
+  sync: 'Sync',
+  seed: 'Seed',
+  restore: 'DataOps',
+  anonymize: 'DataOps',
+  delete: 'DataOps',
+  dataops: 'DataOps',
+};
+
+/** The suggestion given for work that writes to an org, by the page that runs it. */
+function writeSuggestion(page: string): string {
+  return `A pipeline runs no step that writes to an org, so it cannot run ${page}: run it from the ${page} page, where Production Guard can stop or ask first.`;
+}
 
 /** Schedule keywords mapped to cron-like expressions. */
 const SCHEDULE_KEYWORDS: Record<string, string> = {
@@ -108,18 +159,23 @@ export class PipelineGenerator {
     description: string,
     availableOrgs: OrgInfo[],
   ): Promise<GeneratedPipeline> {
-    const normalizedDesc = description.toLowerCase();
+    // "back up" is read as the one word the keyword map knows.
+    const normalizedDesc = description.toLowerCase().replace(/\bback\s+up\b/g, 'backup');
     const steps = this.extractSteps(normalizedDesc, availableOrgs);
+    const suggestions = this.writeSuggestions(normalizedDesc);
     const schedule = this.extractSchedule(normalizedDesc);
     const triggers = this.extractTriggers(normalizedDesc);
 
-    if (steps.length > 0) {
+    // Work that writes to an org is answered with where to run it, not handed
+    // to the model, whose draft would hold the same step a pipeline refuses.
+    if (steps.length > 0 || suggestions.length > 0) {
       return {
         name: this.generatePipelineName(description),
         description,
         steps,
         schedule: schedule ?? undefined,
         triggers: triggers.length > 0 ? triggers : undefined,
+        suggestions: suggestions.length > 0 ? suggestions : undefined,
       };
     }
 
@@ -171,10 +227,9 @@ export class PipelineGenerator {
 
   private extractSteps(normalizedDesc: string, availableOrgs: OrgInfo[]): GeneratedPipelineStep[] {
     const steps: GeneratedPipelineStep[] = [];
-    const words = normalizedDesc.split(/\s+/);
     const detectedTypes = new Set<string>();
 
-    for (const word of words) {
+    for (const word of this.words(normalizedDesc)) {
       const stepType = KEYWORD_STEP_MAP[word];
       if (stepType && !detectedTypes.has(stepType)) {
         detectedTypes.add(stepType);
@@ -191,8 +246,29 @@ export class PipelineGenerator {
     return steps;
   }
 
+  /** One suggestion per page that runs the writing work the description asks for. */
+  private writeSuggestions(normalizedDesc: string): string[] {
+    const pages = new Set<string>();
+    for (const word of this.words(normalizedDesc)) {
+      const page = WRITE_KEYWORD_PAGE[word];
+      if (page) pages.add(page);
+    }
+    return [...pages].map(writeSuggestion);
+  }
+
+  /** The words of a description, without the punctuation around them. */
+  private words(normalizedDesc: string): string[] {
+    return normalizedDesc.split(/[^a-z0-9_-]+/).filter((word) => word.length > 0);
+  }
+
+  /**
+   * The configuration a step reads: org ids under the keys the step's own
+   * check reads (`orgId`, or `sourceOrgId` and `targetOrgId` for Compare), and
+   * the objects a backup takes. A step left without them shows on the page as
+   * needing them.
+   */
   private buildStepConfig(
-    stepType: string,
+    stepType: PipelineStepType,
     description: string,
     availableOrgs: OrgInfo[],
   ): Record<string, unknown> {
@@ -204,16 +280,23 @@ export class PipelineGenerator {
         description.includes(org.orgId.toLowerCase()),
     );
 
-    if (stepType === 'sync' && matchedOrgs.length >= 2) {
-      config['sourceOrg'] = matchedOrgs[0].alias;
-      config['targetOrg'] = matchedOrgs[1].alias;
-    } else if (matchedOrgs.length >= 1) {
-      config['org'] = matchedOrgs[0].alias;
+    if (stepType === 'compare') {
+      if (matchedOrgs.length >= 2) {
+        config['sourceOrgId'] = matchedOrgs[0].orgId;
+        config['targetOrgId'] = matchedOrgs[1].orgId;
+      }
+      return config;
     }
+    if (stepType === 'notification') return config;
 
-    const sfObjects = this.extractSalesforceObjects(description);
-    if (sfObjects.length > 0) {
-      config['objects'] = sfObjects;
+    if (matchedOrgs.length >= 1) {
+      config['orgId'] = matchedOrgs[0].orgId;
+    }
+    if (stepType === 'backup') {
+      const sfObjects = this.extractSalesforceObjects(description);
+      if (sfObjects.length > 0) {
+        config['objects'] = sfObjects;
+      }
     }
 
     return config;
@@ -297,15 +380,32 @@ export class PipelineGenerator {
 
     try {
       const draft = parseModelJson(PipelineDraftReplySchema, response);
+      // A step the model names that a pipeline cannot run is left out, with a
+      // word of where its work runs instead: kept, it reached the canvas as a
+      // step that blocked the whole pipeline.
+      const steps = draft.steps.filter((step) => RUNNABLE_STEP_TYPES.has(step.type));
+      const suggestions = [
+        ...new Set(
+          draft.steps
+            .filter((step) => !RUNNABLE_STEP_TYPES.has(step.type))
+            .map((step) => {
+              const page = WRITE_STEP_PAGE[step.type];
+              return page
+                ? writeSuggestion(page)
+                : `A pipeline cannot run a ${step.type} step, so the draft leaves it out.`;
+            }),
+        ),
+      ];
       return {
         name: draft.name ?? `Pipeline_${Date.now()}`,
         description: draft.description ?? description,
-        steps: draft.steps,
+        steps,
         schedule: draft.schedule,
         // A sandbox_refresh trigger the model names arrives naming no sandbox,
         // as the keyword path's does, for the page to ask for one. A trigger
         // that starts nothing is left out, whatever the model calls it.
         triggers: draft.triggers?.filter(isDraftTrigger),
+        ...(suggestions.length > 0 ? { suggestions } : {}),
       };
     } catch {
       // A reply that is not a pipeline object leaves a draft with no step,

@@ -50,11 +50,25 @@ export interface AICallResult {
   durationMs: number;
 }
 
+/** What a single call carries besides its messages and the model's configuration. */
+export interface AICallOptions {
+  /** Aborts the call: the question is stopped. */
+  signal?: AbortSignal;
+}
+
 /** AI provider call function abstraction. */
 export type AICallFn = (
   messages: Array<{ role: ChatRole; content: string }>,
   config: AIModelConfig,
+  options?: AICallOptions,
 ) => Promise<AICallResult>;
+
+/** Why a question got no answer when it was stopped. */
+function cancelled(): Error {
+  return Object.assign(new Error('The question was stopped before its answer came.'), {
+    code: 'CANCELLED',
+  });
+}
 
 /** What the host gives the assistant besides its calls. */
 export interface AIAssistantOptions {
@@ -210,11 +224,20 @@ export class AIAssistant {
    * answer comes is refused, and nothing of it is sent or kept. Questions in
    * two conversations wait at once.
    *
+   * A question stopped through `options.signal` is a question that got no
+   * answer: the conversation keeps neither it nor an answer that comes after
+   * the stop, and takes a question again.
+   *
    * @param conversationId - The conversation to continue
    * @param userMessage - The user's message
+   * @param options - The signal that stops the question
    * @returns The AI response message
    */
-  async chat(conversationId: string, userMessage: string): Promise<ChatMessage> {
+  async chat(
+    conversationId: string,
+    userMessage: string,
+    options: AICallOptions = {},
+  ): Promise<ChatMessage> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) {
       throw new Error(`Conversation ${conversationId} not found`);
@@ -241,13 +264,18 @@ export class AIAssistant {
     // Call AI provider. Marked in the same turn as the check above, nothing
     // awaited between, so no other question comes in between; answered or
     // failed, the conversation takes a question again.
+    const { signal } = options;
+    if (signal?.aborted) throw cancelled();
     this.asking.add(conversationId);
     let result: AICallResult;
     try {
-      result = await this.callFn(apiMessages, this.config);
+      result = await this.callFn(apiMessages, this.config, { signal });
     } finally {
       this.asking.delete(conversationId);
     }
+    // An answer that came as the question was stopped is one the user gave
+    // up on: kept, the conversation would hold an exchange the page dropped.
+    if (signal?.aborted) throw cancelled();
 
     // Create assistant message
     const assistantMsg: ChatMessage = {

@@ -87,7 +87,7 @@ export interface AutopilotSkipNodeRequest extends BaseMessage {
   };
 }
 
-/** Autopilot execution completed */
+/** Autopilot execution completed, or stopped */
 export interface AutopilotCompleted extends BaseMessage {
   type: 'autopilot:completed';
   payload: {
@@ -96,6 +96,14 @@ export interface AutopilotCompleted extends BaseMessage {
     totalFailureCount: number;
     totalElapsedMs: number;
     totalApiCalls: number;
+    /**
+     * Set when the run was stopped (`execution:abort`, with the id of the
+     * `autopilot:execute` request): the batch in flight was answered and
+     * counted, and nothing was written after it.
+     */
+    stopped?: boolean;
+    /** The objects of a stopped run it did not write whole, in plan order. */
+    notWritten?: string[];
   };
 }
 

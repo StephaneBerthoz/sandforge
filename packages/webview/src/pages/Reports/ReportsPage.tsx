@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
@@ -165,6 +165,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
   const handleExportReport = (id: string): void => {
     onExportReport?.(id);
+  };
+
+  /** The runs a lineage graph is kept for, which an audit entry can open. */
+  const runsWithLineage = useMemo(
+    () => new Set((lineageRuns ?? []).map((run) => run.operationId)),
+    [lineageRuns],
+  );
+
+  /** Open the graph of the run an audit entry records, on the lineage tab. */
+  const handleOpenRun = (operationId: string): void => {
+    onSelectLineageRun?.(operationId);
+    setActiveTab('lineage');
   };
 
   const reportCount = reports?.length ?? 0;
@@ -374,6 +386,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       onShowMore={onShowMoreAudit}
                       onExport={onExportAudit}
                       exporting={auditExporting}
+                      runsWithLineage={runsWithLineage}
+                      onOpenRun={onSelectLineageRun ? handleOpenRun : undefined}
                     />
                   ))}
                 {tab.id === 'lineage' &&

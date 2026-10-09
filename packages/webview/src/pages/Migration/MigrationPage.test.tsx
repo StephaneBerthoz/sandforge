@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { SyncExecutionResult } from '@sandforge/shared';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -440,5 +440,120 @@ describe('MigrationPage — running an imported config', () => {
 
     expect(screen.queryByTestId('migration-run-result')).toBeNull();
     expect(screen.getByTestId('migration-run-btn').textContent).toBe('Running…');
+  });
+});
+
+describe('MigrationPage — editing the imported config before a run', () => {
+  beforeEach(() => {
+    mockRunMutate.mockClear();
+    mockRunState = {
+      mutate: mockRunMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockRunReset,
+    };
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+      ] as never,
+    });
+    mockSfdmuState = {
+      mutate: mockSfdmuMutate,
+      data: { success: true, config: sfdmuConfig },
+      loading: false,
+      error: null,
+      reset: mockSfdmuReset,
+    };
+  });
+
+  type SentConfig = Record<string, unknown> & { objects: Array<Record<string, unknown>> };
+
+  /** Pick the two orgs, run, and return the config sent. */
+  function runAndReadConfig(): SentConfig {
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+    fireEvent.click(screen.getByTestId('migration-run-btn'));
+    expect(mockRunMutate).toHaveBeenCalledTimes(1);
+    return (mockRunMutate.mock.calls[0][0] as { config: SentConfig }).config;
+  }
+
+  const [account, contact] = sfdmuConfig.objects as Array<Record<string, unknown>>;
+
+  it('runs an object with the operation, External ID, batch size and filter edited here', () => {
+    render(<MigrationPage />);
+
+    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
+    fireEvent.change(screen.getByLabelText('External ID — Contact'), {
+      target: { value: 'Ext_Key__c' },
+    });
+    fireEvent.change(screen.getByLabelText('Batch Size — Contact'), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('WHERE clause — Contact'), {
+      target: { value: 'LastName != null' },
+    });
+
+    const config = runAndReadConfig();
+    expect(config.objects).toEqual([
+      account,
+      {
+        ...contact,
+        operation: 'upsert',
+        externalIdField: 'Ext_Key__c',
+        batchSize: 50,
+        where: 'LastName != null',
+      },
+    ]);
+  });
+
+  it('leaves out of the run an object removed here, and sends the other as imported', () => {
+    render(<MigrationPage />);
+
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+
+    const config = runAndReadConfig();
+    // Excluded fields, mappings and add-on fields go as the import gave them.
+    expect(config.objects).toEqual([account]);
+    expect(config.objects[0].excludedFields).toEqual(['CreatedDate']);
+    expect(config.name).toBe('SFDMU Import');
+    expect(screen.queryByTestId('migration-object-Contact')).toBeNull();
+  });
+
+  it('puts a removed object back as imported, where it stood', () => {
+    render(<MigrationPage />);
+    fireEvent.click(screen.getByTestId('remove-obj-Account'));
+
+    const addRow = screen.getByTestId('add-object-row');
+    fireEvent.change(within(addRow).getByRole('combobox'), { target: { value: 'Account' } });
+    fireEvent.click(screen.getByTestId('add-object-btn'));
+
+    expect(runAndReadConfig().objects).toEqual([account, contact]);
+  });
+
+  it('keeps Run disabled, saying why, for an upsert with no External ID field', () => {
+    render(<MigrationPage />);
+    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+
+    expect((screen.getByTestId('migration-run-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
+      'An upsert of Contact needs an External ID field both orgs share: matching on Id cannot work. Name one, or set the operation to insert.',
+    );
+    fireEvent.click(screen.getByTestId('migration-run-btn'));
+    expect(mockRunMutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps Run disabled once every object is removed', () => {
+    render(<MigrationPage />);
+    fireEvent.click(screen.getByTestId('remove-obj-Account'));
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+
+    expect((screen.getByTestId('migration-run-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
+      'Keep at least one object: a run with none would move nothing.',
+    );
   });
 });

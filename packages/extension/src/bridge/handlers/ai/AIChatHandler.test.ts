@@ -771,6 +771,88 @@ describe('AIChatHandler', () => {
     });
   });
 
+  describe('a question stopped while it waits', () => {
+    /** A real assistant whose calls wait until their signal aborts, as the adapter's do. */
+    function stoppableAssistant(): { assistant: AIAssistant; callFn: Mock<AICallFn> } {
+      const callFn = vi.fn<AICallFn>(
+        (_messages, _config, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () =>
+              reject(Object.assign(new Error('Request was aborted.'), { name: 'AbortError' })),
+            );
+          }),
+      );
+      const assistant = new AIAssistant(callFn, {
+        provider: 'anthropic',
+        model: 'test-model',
+        maxTokens: 1024,
+      });
+      handler.setAIAssistant(assistant);
+      return { assistant, callFn };
+    }
+
+    const postedMessages = () =>
+      vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> });
+
+    it('aborts the call and answers CANCELLED on the chat response, not ai:error', async () => {
+      const { assistant, callFn } = stoppableAssistant();
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      const [{ id }] = assistant.listConversations();
+
+      const asked = handler.handle(
+        inboundRequest({
+          id: 'ask-1',
+          type: 'ai:chat',
+          timestamp: Date.now(),
+          payload: { conversationId: id, message: 'a slow question' },
+        }),
+      );
+      const signal = callFn.mock.calls[0][2]?.signal;
+      expect(signal?.aborted).toBe(false);
+
+      await handler.handle(createMsg('ai:chat:cancel', { conversationId: id }));
+      await asked;
+
+      expect(signal?.aborted).toBe(true);
+      expect(postedMessages().filter((m) => m.type === 'ai:error')).toEqual([]);
+      expect(postedMessages().filter((m) => m.type === 'ai:chat:response')).toEqual([
+        expect.objectContaining({
+          correlationId: 'ask-1',
+          payload: { conversationId: id, code: 'CANCELLED' },
+        }),
+      ]);
+      // Nothing of the question is kept, in memory or in the store.
+      expect(assistant.getConversation(id)?.messages).toEqual([]);
+      const stored = deps.configStore.get<{ messages: unknown[] }>(`ai:conversation:${id}`);
+      expect(stored?.messages).toEqual([]);
+    });
+
+    it('leaves a conversation that waits on nothing as it is', async () => {
+      stoppableAssistant();
+
+      await handler.handle(createMsg('ai:chat:cancel', { conversationId: 'conv-idle' }));
+
+      expect(postedMessages()).toEqual([]);
+    });
+
+    it('stops only the question of the conversation named', async () => {
+      const { assistant, callFn } = stoppableAssistant();
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Cases' }));
+      await handler.handle(createMsg('ai:conversation:create', { title: 'Leads' }));
+      const [cases, leads] = assistant.listConversations();
+
+      void handler.handle(createMsg('ai:chat', { conversationId: cases.id, message: 'q1' }));
+      void handler.handle(createMsg('ai:chat', { conversationId: leads.id, message: 'q2' }));
+      await handler.handle(createMsg('ai:chat:cancel', { conversationId: leads.id }));
+
+      expect(callFn.mock.calls[0][2]?.signal?.aborted).toBe(false);
+      expect(callFn.mock.calls[1][2]?.signal?.aborted).toBe(true);
+      await handler.handle(createMsg('ai:chat:cancel', { conversationId: cases.id }));
+    });
+  });
+
   describe('an answer that comes once the assistant was replaced', () => {
     const CONFIG: AIModelConfig = { provider: 'anthropic', model: 'test-model', maxTokens: 1024 };
 

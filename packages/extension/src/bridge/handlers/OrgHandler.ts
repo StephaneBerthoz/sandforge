@@ -14,12 +14,14 @@ import {
   orgDeviceConnectPayloadSchema,
   orgDisconnectPayloadSchema,
   orgJwtConnectPayloadSchema,
+  orgOpenInBrowserPayloadSchema,
   orgSelectPayloadSchema,
   orgUpdatePayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
+import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
 import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
 import type {
   CliLogin,
@@ -36,6 +38,7 @@ const ORG_TYPES = new Set([
   'org:disconnect',
   'org:select',
   'org:update',
+  'org:open-in-browser',
 ]);
 
 /** What OrgHandler reaches outside the extension through; tests pass stand-ins. */
@@ -102,6 +105,9 @@ export class OrgHandler implements DomainHandler {
         return true;
       case 'org:update':
         this.handleOrgUpdate(msg);
+        return true;
+      case 'org:open-in-browser':
+        await this.handleOpenInBrowser(msg);
         return true;
       default:
         return false;
@@ -779,6 +785,63 @@ export class OrgHandler implements DomainHandler {
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
 
     this.syncOrgState();
+  }
+
+  /**
+   * Open an org in the system browser, from its card.
+   *
+   * The command `sandforge.openOrgInBrowser` did this from the sidebar and the
+   * Command Palette only; the Organizations page, where each org has a card,
+   * had no way to. The page names the org and nothing else: the address is
+   * the org's stored instance URL, bare, behind the same HTTPS gate as the
+   * command's. A frontdoor URL would carry the session token into the
+   * browser's history; the bare URL lets the browser's own Salesforce session
+   * sign the user in, or the login page ask. Refusals leave on `org:error`
+   * with a code; the response carries what the browser did.
+   */
+  private async handleOpenInBrowser(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(orgOpenInBrowserPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+
+    const org = this.deps.orgManager.getOrg(parsed.orgId as UUID);
+    if (!org) {
+      sendHandlerError(
+        this.deps,
+        'org:open-in-browser',
+        'org:error',
+        msg,
+        new Error(`No registered org has the id "${parsed.orgId}".`),
+        { code: 'ORG_NOT_FOUND', retryable: false },
+      );
+      return;
+    }
+
+    const target = parseHttpsUrl(org.instanceUrl);
+    if (!target.ok) {
+      const why =
+        target.reason === 'not-https'
+          ? `its instance URL must use HTTPS, got "${target.protocol}"`
+          : 'its instance URL is not a valid URL';
+      sendHandlerError(
+        this.deps,
+        'org:open-in-browser',
+        'org:error',
+        msg,
+        new Error(`Cannot open "${org.alias}": ${why}.`),
+        { code: 'INVALID_INSTANCE_URL', retryable: false },
+      );
+      return;
+    }
+
+    // The URL that passed the gate, as parsed, not the stored string.
+    const outcome = await this.browser.open(target.url.toString());
+    if (outcome.status === 'error') {
+      this.deps.log(`[WARN] org:open-in-browser: not opened: ${outcome.message}`);
+    }
+    const response = buildResponse(this.deps, msg, 'org:open-in-browser:response', outcome);
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
   }
 
   private syncOrgState(): void {

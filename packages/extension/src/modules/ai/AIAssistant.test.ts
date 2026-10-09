@@ -373,6 +373,64 @@ describe('AIAssistant', () => {
       });
     });
 
+    describe('stopped before its answer comes', () => {
+      /** A call that waits until its signal aborts, then fails as the adapter does. */
+      function callUntilAborted(): void {
+        mockCallFn.mockImplementation(
+          (_messages, _config, options) =>
+            new Promise<AICallResult>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () =>
+                reject(Object.assign(new Error('Request was aborted.'), { name: 'AbortError' })),
+              );
+            }),
+        );
+      }
+
+      it('hands the call its signal, keeps no message, and takes a question again', async () => {
+        callUntilAborted();
+        const conv = assistant.createConversation('Stopped');
+        const controller = new AbortController();
+
+        const asked = assistant.chat(conv.id, 'a slow question', { signal: controller.signal });
+        expect(mockCallFn.mock.calls[0][2]?.signal).toBe(controller.signal);
+        controller.abort();
+
+        await expect(asked).rejects.toThrow();
+        expect(assistant.getConversation(conv.id)?.messages).toEqual([]);
+        expect(assistant.getConversation(conv.id)?.totalTokens).toBe(0);
+        // The lock is released: the next question goes out, alone.
+        mockCallFn.mockResolvedValue(mockResult);
+        await expect(assistant.chat(conv.id, 'asked again')).resolves.toMatchObject({
+          role: 'assistant',
+        });
+        expect(turnsSent(1)).toEqual([{ role: 'user', content: 'asked again' }]);
+      });
+
+      it('keeps no answer that came as the question was stopped', async () => {
+        const answers = heldCalls();
+        const conv = assistant.createConversation('Late answer');
+        const controller = new AbortController();
+
+        const asked = assistant.chat(conv.id, 'question', { signal: controller.signal });
+        controller.abort();
+        answers[0]('an answer the user gave up on');
+
+        await expect(asked).rejects.toMatchObject({ code: 'CANCELLED' });
+        expect(assistant.getConversation(conv.id)?.messages).toEqual([]);
+      });
+
+      it('sends nothing for a question stopped before it went out', async () => {
+        const conv = assistant.createConversation('Never sent');
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+          assistant.chat(conv.id, 'question', { signal: controller.signal }),
+        ).rejects.toMatchObject({ code: 'CANCELLED' });
+        expect(mockCallFn).not.toHaveBeenCalled();
+      });
+    });
+
     it('waits beside a question of another conversation, as before', async () => {
       const answers = heldCalls();
       const seed = assistant.createConversation('Seed');

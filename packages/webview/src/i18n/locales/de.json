@@ -116,7 +116,11 @@
     "aliasPlaceholder": "meine-sandbox",
     "bannerConnected": "Verbundene Orgs: {{count}} von {{total}}",
     "bannerEmpty": "Importieren Sie Ihre Orgs aus der Salesforce CLI oder verbinden Sie sie manuell",
-    "installCli": "Salesforce CLI installieren"
+    "installCli": "Salesforce CLI installieren",
+    "openInBrowser": "Im Browser öffnen",
+    "openRefusedUrl": "{{alias}} wurde nicht geöffnet: Die Instanz-URL ist keine HTTPS-Adresse.",
+    "openNotFound": "{{alias}} ist nicht mehr registriert und wurde daher nicht geöffnet.",
+    "openFailed": "Der Browser hat {{alias}} nicht geöffnet: {{reason}}"
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -1267,6 +1271,11 @@
       "action": "Sync starten",
       "running": "Läuft…",
       "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import auszuführen."
+    },
+    "edit": {
+      "noObjects": "Behalten Sie mindestens ein Objekt: Ein Lauf ohne Objekt würde nichts übertragen.",
+      "upsertNeedsKey": "Ein Upsert von {{object}} braucht ein External-ID-Feld, das beide Orgs teilen: Ein Abgleich über Id kann nicht funktionieren. Benennen Sie eines oder stellen Sie die Operation auf Insert.",
+      "invalid": "Diese Konfiguration kann so bearbeitet nicht laufen — {{reason}}"
     }
   },
   "dataops": {
@@ -1808,6 +1817,7 @@
     "noMessages": "Senden Sie eine Nachricht, um die Unterhaltung zu starten",
     "placeholder": "Nachricht eingeben... (Enter zum Senden, Shift+Enter für neue Zeile)",
     "send": "Senden",
+    "stop": "Anhalten",
     "waitingIn": "Warten auf die Antwort auf Ihre Frage in „{{title}}“.",
     "answeredIn": "Ihre Frage in „{{title}}“ wurde beantwortet.",
     "openConversation": "Unterhaltung öffnen",
@@ -1946,6 +1956,7 @@
     "lineageEmptyDesc": "Sobald ein Lauf Datensätze in eine Org schreibt, zeigt dieser Tab, woher sie kamen — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Datensatz — und wie viele Datensätze je Objekt dort angekommen sind.",
     "lineageUnreadable": "Die Datenherkunft konnte nicht gelesen werden: {{error}}",
     "lineageRun": "Lauf",
+    "viewRun": "Lauf ansehen",
     "lineageOrigin": {
       "org": "Org",
       "generator": "Generierte Daten",
@@ -3560,6 +3571,10 @@
       "pause": "Pause",
       "resume": "Fortsetzen",
       "skip": "Knoten überspringen",
+      "stop": "Stoppen",
+      "stopping": "Wird gestoppt…",
+      "stoppedNotWritten": "Lauf gestoppt: Nach dem Stopp wurde nichts mehr geschrieben. Nicht oder nicht vollständig geschrieben: {{list}}.",
+      "stoppedAllWritten": "Lauf gestoppt, nachdem jedes Objekt geschrieben war: Die folgenden Aktualisierungen wurden nicht gesendet.",
       "recordsProcessed": "Verarbeitete Datensätze",
       "apiCalls": "API-Aufrufe",
       "elapsed": "Vergangene Zeit",

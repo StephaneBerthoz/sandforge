@@ -737,6 +737,14 @@ describe('SeedCsvHandler', () => {
       expect(failed).toHaveLength(1);
       expect(failed[0].payload).toMatchObject({ code: 'NOT_INITIALIZED', retryable: false });
       expect(posted(deps, 'seed:csv:execute:response')).toHaveLength(0);
+      // The page's request is answered on its own channel, correlated, with
+      // the code: on `operation:failed` alone it waited out its two minutes.
+      const answered = posted(deps, 'seed:csv:error') as Array<
+        BaseMessage & { payload: { code?: string; retryable?: boolean } }
+      >;
+      expect(answered).toHaveLength(1);
+      expect(answered[0].correlationId).toBe('msg-seed:csv:execute');
+      expect(answered[0].payload).toMatchObject({ code: 'NOT_INITIALIZED', retryable: false });
       // Recorded as the guard's own refusals are, with the code that says why.
       const trail = vi
         .mocked(deps.configStore.set)

@@ -507,6 +507,39 @@ describe('AIPage', () => {
     });
   });
 
+  describe('a question stopped while it waits', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    it('asks the host to stop the question of the conversation it waits in', () => {
+      render(<AIPage />);
+      openConversation();
+      ask('which object holds cases');
+
+      fireEvent.click(screen.getByTestId('stop-btn'));
+
+      expect(sentOfType('ai:chat:cancel')).toEqual([{ conversationId: 'conv-1' }]);
+    });
+
+    it('ends the wait on CANCELLED and gives the question back, with no error shown', () => {
+      render(<AIPage />);
+      openConversation();
+      const chat = ask('which object holds cases');
+      fireEvent.click(screen.getByTestId('stop-btn'));
+
+      emit('ai:chat:response', { conversationId: 'conv-1', code: 'CANCELLED' }, chat);
+
+      expect(screen.queryByTestId('loading-indicator')).toBeNull();
+      expect(screen.queryByTestId('stop-btn')).toBeNull();
+      expect(composer().disabled).toBe(false);
+      expect(composer().value).toBe('which object holds cases');
+      expect(bubbles('user')).toEqual([]);
+      expect(bubbles('assistant')).toEqual([]);
+      expect(screen.queryByTestId('ai-error-banner')).toBeNull();
+    });
+  });
+
   describe('a conversation the host has not confirmed yet', () => {
     beforeEach(() => {
       useAppStore.setState({ aiAvailable: true });

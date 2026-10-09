@@ -12,6 +12,7 @@ import type { SfdxUnreadableOrg } from '../../core/connection/SfdxBridge';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import type { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -805,6 +806,113 @@ describe('OrgHandler', () => {
         code: 'SFDX_IMPORT_FAILED',
         message:
           'No access token from the Salesforce CLI, so not imported: uat (sf did not answer within 30 s — check the Salesforce CLI)',
+      });
+    });
+  });
+
+  describe('org:open-in-browser', () => {
+    let open: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      open = vi.fn().mockResolvedValue({ status: 'opened' });
+      handler = new OrgHandler(deps, { browser: { open } as unknown as ExternalBrowserAdapter });
+    });
+
+    /** Have the registry hold one org, `org-1`, at `instanceUrl`. */
+    function registerOrg(instanceUrl: string): void {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+        id === 'org-1' ? { id: 'org-1', alias: 'dev', instanceUrl } : undefined,
+      );
+    }
+
+    function posted(): BaseMessage[] {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => call[0] as BaseMessage,
+      );
+    }
+
+    it('opens the bare https instance URL of a known org, and says it opened', async () => {
+      registerOrg('https://example-dev.my.salesforce.com');
+
+      expect(await handler.handle(createMsg('org:open-in-browser', { orgId: 'org-1' }))).toBe(true);
+
+      expect(open).toHaveBeenCalledWith('https://example-dev.my.salesforce.com/');
+      expect(posted()).toEqual([
+        expect.objectContaining({
+          type: 'org:open-in-browser:response',
+          correlationId: 'req-99',
+          payload: { status: 'opened' },
+        }),
+      ]);
+    });
+
+    it('carries a browser that did not open on the response, not as a refusal', async () => {
+      registerOrg('https://example-dev.my.salesforce.com');
+      open.mockResolvedValue({ status: 'error', message: 'VS Code did not open the page.' });
+
+      await handler.handle(createMsg('org:open-in-browser', { orgId: 'org-1' }));
+
+      expect(posted()[0]).toMatchObject({
+        type: 'org:open-in-browser:response',
+        payload: { status: 'error', message: 'VS Code did not open the page.' },
+      });
+    });
+
+    it.each([
+      ['javascript:', 'javascript:alert(1)'],
+      ['http:', 'http://example-dev.my.salesforce.com'],
+      ['file:', 'file:///etc/passwd'],
+    ])('refuses a %s instance URL and opens nothing', async (_scheme, instanceUrl) => {
+      registerOrg(instanceUrl);
+
+      await handler.handle(createMsg('org:open-in-browser', { orgId: 'org-1' }));
+
+      expect(open).not.toHaveBeenCalled();
+      expect(posted()).toEqual([
+        expect.objectContaining({
+          type: 'org:error',
+          correlationId: 'req-99',
+          payload: expect.objectContaining({ code: 'INVALID_INSTANCE_URL' }),
+        }),
+      ]);
+    });
+
+    it('refuses an instance URL that does not parse, and opens nothing', async () => {
+      registerOrg('not a url');
+
+      await handler.handle(createMsg('org:open-in-browser', { orgId: 'org-1' }));
+
+      expect(open).not.toHaveBeenCalled();
+      expect(posted()[0]).toMatchObject({
+        type: 'org:error',
+        payload: { code: 'INVALID_INSTANCE_URL' },
+      });
+    });
+
+    it('answers an id no org has with ORG_NOT_FOUND', async () => {
+      registerOrg('https://example-dev.my.salesforce.com');
+
+      await handler.handle(createMsg('org:open-in-browser', { orgId: 'org-404' }));
+
+      expect(open).not.toHaveBeenCalled();
+      expect(posted()[0]).toMatchObject({
+        type: 'org:error',
+        correlationId: 'req-99',
+        payload: { code: 'ORG_NOT_FOUND' },
+      });
+    });
+
+    it('refuses an address sent by the page, never reading it', async () => {
+      registerOrg('https://example-dev.my.salesforce.com');
+
+      await handler.handle(
+        createMsg('org:open-in-browser', { orgId: 'org-1', url: 'https://elsewhere.example' }),
+      );
+
+      expect(open).not.toHaveBeenCalled();
+      expect(posted()[0]).toMatchObject({
+        type: 'org:error',
+        payload: { code: 'INVALID_PAYLOAD' },
       });
     });
   });

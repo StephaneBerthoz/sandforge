@@ -13,6 +13,9 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ExecutionHandler } from './ExecutionHandler.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -900,6 +903,188 @@ describe('AutopilotHandler', () => {
     });
   });
 
+  describe('a run stopped through execution:abort', () => {
+    const PLAN = {
+      waves: [
+        { order: 0, objects: ['Account'], dependsOn: [] },
+        { order: 1, objects: ['Contact'], dependsOn: [0] },
+      ],
+      totalRecords: 10,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 2,
+      complianceFramework: 'none',
+      anonymizationSummary: { totalRules: 0, rulesByType: {} },
+      cycleResolutions: [],
+    };
+
+    /** A real store, read back the way the Reports page reads it. */
+    function recordingStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    /**
+     * Scan and plan, then start the run without waiting for it: its
+     * `executePlan` waits for the signal it is handed, and returns `stopped`
+     * once it aborts.
+     */
+    async function startStoppableRun(stopped: Record<string, unknown>): Promise<{
+      registry: BackgroundOperationRegistry;
+      executePlan: Mock;
+      running: Promise<boolean>;
+    }> {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      const executePlan = vi.fn(
+        (_p: unknown, _g: unknown, _r: unknown, _c: unknown, _s: unknown, signal: AbortSignal) =>
+          new Promise((resolve) => {
+            signal.addEventListener('abort', () => resolve(stopped));
+          }),
+      );
+      handler.setOrchestrator(
+        createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(PLAN), executePlan }),
+      );
+      mockGetConn.mockResolvedValue({} as never);
+      await handler.handle(scanMsg('scan-stop'));
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-stop',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
+      const running = handler.handle(
+        inboundRequest({
+          id: 'exec-stop',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
+      await vi.waitFor(() => expect(executePlan).toHaveBeenCalled());
+      return { registry, executePlan, running };
+    }
+
+    /** Send `execution:abort` for the run, as Stop and Live Operations do. */
+    async function abort(registry: BackgroundOperationRegistry): Promise<void> {
+      await new ExecutionHandler(deps, registry).handle(
+        inboundRequest({
+          id: 'abort-1',
+          type: 'execution:abort',
+          timestamp: Date.now(),
+          payload: { operationId: 'exec-stop' },
+        } as BaseMessage),
+      );
+    }
+
+    const PART_WRITTEN = {
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 10,
+      completedObjects: [],
+      failedObjects: [],
+      skippedObjects: [],
+      stopped: true,
+      stoppedObjects: ['Account', 'Contact'],
+      objectOutcomes: {
+        Account: { written: 2, linked: 0, failed: 0, refusals: [], notSent: 3 },
+        Contact: { written: 0, linked: 0, failed: 0, refusals: [], notSent: 5 },
+      },
+    };
+
+    it('reaches the run by the id of its execute request, and the run says it stopped', async () => {
+      recordingStore();
+      const { registry, running } = await startStoppableRun(PART_WRITTEN);
+      expect(registry.get('exec-stop')?.status).toBe('running');
+
+      await abort(registry);
+      await running;
+
+      expect(postedMessages(deps).find((m) => m.type === 'execution:abort:response')).toMatchObject(
+        {
+          payload: { success: true, operationId: 'exec-stop' },
+        },
+      );
+      expect(registry.get('exec-stop')?.status).toBe('aborted');
+      expect(postedMessages(deps).find((m) => m.type === 'autopilot:completed')).toMatchObject({
+        correlationId: 'exec-stop',
+        payload: {
+          totalSuccessCount: 2,
+          stopped: true,
+          notWritten: ['Account', 'Contact'],
+        },
+      });
+      // Each node the stop cut short or never reached is said to be stopped.
+      const stoppedNodes = postedMessages(deps)
+        .filter((m) => m.type === 'autopilot:node-progress')
+        .map((m) => (m as BaseMessage & { payload: Record<string, unknown> }).payload)
+        .filter((payload) => payload.status === 'stopped');
+      expect(stoppedNodes).toEqual([
+        expect.objectContaining({ objectName: 'Account', recordCount: 2, notSent: 3 }),
+        expect.objectContaining({ objectName: 'Contact', recordCount: 0, notSent: 5 }),
+      ]);
+    });
+
+    it('is listed in Live Operations while it runs, and cancelled there once stopped', async () => {
+      recordingStore();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      const { registry, running } = await startStoppableRun(PART_WRITTEN);
+      expect(tracker.get('exec-stop')).toMatchObject({ module: 'autopilot', status: 'running' });
+
+      await abort(registry);
+      await running;
+
+      expect(tracker.get('exec-stop')?.status).toBe('cancelled');
+      tracker.dispose();
+    });
+
+    it('records a run stopped after it wrote as partial, with what it never sent', async () => {
+      const store = recordingStore();
+      const { registry, running } = await startStoppableRun(PART_WRITTEN);
+
+      await abort(registry);
+      await running;
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'exec-stop',
+          outcome: 'partial',
+          objects: [
+            expect.objectContaining({ objectApiName: 'Account', created: 2, notSent: 3 }),
+            expect.objectContaining({ objectApiName: 'Contact', created: 0, notSent: 5 }),
+          ],
+        }),
+      ]);
+    });
+
+    it('records a run stopped before it wrote as stopped, under the code of a cancel', async () => {
+      const store = recordingStore();
+      const { registry, running } = await startStoppableRun({
+        ...PART_WRITTEN,
+        totalSuccess: 0,
+        objectOutcomes: {
+          Account: { written: 0, linked: 0, failed: 0, refusals: [], notSent: 5 },
+          Contact: { written: 0, linked: 0, failed: 0, refusals: [], notSent: 5 },
+        },
+      });
+
+      await abort(registry);
+      await running;
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          details: expect.objectContaining({ code: 'RUN_CANCELLED' }),
+        }),
+      ]);
+    });
+  });
+
   describe('production guard', () => {
     const GUARD_PLAN = {
       waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
@@ -1052,6 +1237,8 @@ describe('AutopilotHandler', () => {
       expect((errors[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
         'GUARD_BLOCKED',
       );
+      // And no notification repeating it in English beside the page's own.
+      expect(postedMessages(deps).filter((m) => m.type === 'notification')).toEqual([]);
     });
 
     it('cancels the execution when the user declines the production confirmation', async () => {
@@ -1078,6 +1265,7 @@ describe('AutopilotHandler', () => {
       expect((errors[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
         'GUARD_DECLINED',
       );
+      expect(postedMessages(deps).filter((m) => m.type === 'notification')).toEqual([]);
     });
 
     it('asks before executing on a target the registry does not know, and inserts nothing when declined', async () => {

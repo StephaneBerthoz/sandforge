@@ -16,6 +16,8 @@ export interface OrgCardProps {
   onDisconnect: (id: string) => void;
   /** Offered on an expired or failed org, whose badge alone left no way forward. */
   onReconnect?: (org: SalesforceOrg) => void;
+  /** Opens the org in the system browser, at its instance URL. */
+  onOpenInBrowser?: (org: SalesforceOrg) => void;
 }
 
 const statusBadgeVariant: Record<string, BadgeVariant> = {
@@ -41,6 +43,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
   onEdit,
   onDisconnect,
   onReconnect,
+  onOpenInBrowser,
 }) => {
   const { t } = useTranslation();
   const typeStyle = ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT;
@@ -119,6 +122,18 @@ export const OrgCard: React.FC<OrgCardProps> = ({
             data-testid={`org-reconnect-${org.id}`}
           >
             {t('monitor.tryReconnect')}
+          </button>
+        )}
+        {onOpenInBrowser && (
+          <button
+            className="text-xs text-(--sf-text-link) hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenInBrowser(org);
+            }}
+            data-testid={`org-open-${org.id}`}
+          >
+            {t('org.openInBrowser')}
           </button>
         )}
         <button

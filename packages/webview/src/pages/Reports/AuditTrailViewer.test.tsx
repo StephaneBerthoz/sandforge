@@ -277,6 +277,45 @@ describe('AuditTrailViewer', () => {
     expect(screen.queryByTestId('audit-left-by-aud-first')).toBeNull();
   });
 
+  describe('the link from an entry to its run', () => {
+    const untraced: AuditLogEntry = { ...forgeRun, id: 'aud-untraced', operationId: 'op-gone' };
+    const noId: AuditLogEntry = { ...forgeRun, id: 'aud-no-id', operationId: undefined };
+
+    it('is offered only on an entry whose run has a lineage graph kept', () => {
+      render(
+        <AuditTrailViewer
+          entries={[forgeRun, untraced, noId]}
+          runsWithLineage={new Set(['op-1'])}
+          onOpenRun={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('audit-view-run-aud-forge').textContent).toBe('View run');
+      expect(screen.queryByTestId('audit-view-run-aud-untraced')).toBeNull();
+      expect(screen.queryByTestId('audit-view-run-aud-no-id')).toBeNull();
+    });
+
+    it('opens the run the entry records', () => {
+      const onOpenRun = vi.fn();
+      render(
+        <AuditTrailViewer
+          entries={[forgeRun]}
+          runsWithLineage={new Set(['op-1'])}
+          onOpenRun={onOpenRun}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('audit-view-run-aud-forge'));
+
+      expect(onOpenRun).toHaveBeenCalledWith('op-1');
+    });
+
+    it('is not offered when nothing can open a run', () => {
+      render(<AuditTrailViewer entries={[forgeRun]} runsWithLineage={new Set(['op-1'])} />);
+      expect(screen.queryByTestId('audit-view-run-aud-forge')).toBeNull();
+    });
+  });
+
   it('should show filters', () => {
     render(<AuditTrailViewer entries={entries} />);
     expect(screen.getByTestId('audit-filters')).toBeDefined();

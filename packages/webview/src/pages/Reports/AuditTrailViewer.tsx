@@ -45,6 +45,13 @@ export interface AuditTrailViewerProps {
   onExport?: (format: AuditExportFormat, action: AuditAction | undefined) => void;
   /** Whether an export is being made: its buttons wait for it. */
   exporting?: boolean;
+  /**
+   * The operation ids a lineage graph is kept for. An entry of one of them
+   * offers "View run", which opens that run's graph through `onOpenRun`.
+   */
+  runsWithLineage?: ReadonlySet<string>;
+  /** Open the lineage graph of the run an entry records. */
+  onOpenRun?: (operationId: string) => void;
   className?: string;
 }
 
@@ -131,6 +138,8 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
   onShowMore,
   onExport,
   exporting = false,
+  runsWithLineage,
+  onOpenRun,
   className,
 }) => {
   const { t } = useTranslation();
@@ -340,6 +349,15 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
               ];
               const target = entry.orgAlias ?? entry.orgId;
               const source = entry.sourceOrgAlias ?? entry.sourceOrgId;
+              // The lineage graph is saved under the run's operation id, in
+              // the same call that writes its entry; an entry whose run has no
+              // graph kept (none traced, or one the store has let go) offers
+              // no link that would open another run's.
+              const operationId = entry.operationId;
+              const runLink =
+                onOpenRun && operationId !== undefined && runsWithLineage?.has(operationId)
+                  ? operationId
+                  : undefined;
               return (
                 <div key={entry.id} data-testid={`audit-${entry.id}`}>
                   <Card>
@@ -368,9 +386,21 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                             </Badge>
                           )}
                         </div>
-                        <span className="text-[10px] text-[var(--sf-text-secondary)]">
-                          {entry.timestamp.slice(0, 19).replace('T', ' ')}
-                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {runLink !== undefined && onOpenRun && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onOpenRun(runLink)}
+                              data-testid={`audit-view-run-${entry.id}`}
+                            >
+                              {t('reports.viewRun')}
+                            </Button>
+                          )}
+                          <span className="text-[10px] text-[var(--sf-text-secondary)]">
+                            {entry.timestamp.slice(0, 19).replace('T', ' ')}
+                          </span>
+                        </div>
                       </div>
                       {source && source !== target && (
                         <div className="mt-1 text-[10px] text-[var(--sf-text-secondary)]">

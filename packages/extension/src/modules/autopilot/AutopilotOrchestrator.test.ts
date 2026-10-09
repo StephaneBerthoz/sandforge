@@ -432,6 +432,27 @@ describe('AutopilotOrchestrator', () => {
       await run;
     });
 
+    it("hands the run's stop to its executor", async () => {
+      const controller = new AbortController();
+
+      await orchestrator.executePlan(
+        mockPlan(),
+        mockGraph(),
+        [],
+        new Map(),
+        undefined,
+        controller.signal,
+      );
+
+      expect(executors[0].execute).toHaveBeenCalledWith(
+        mockPlan(),
+        mockGraph().edges,
+        [],
+        new Map(),
+        controller.signal,
+      );
+    });
+
     it('pause with no running execution is a no-op and does not leak into the next one', async () => {
       orchestrator.pause();
       await orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());

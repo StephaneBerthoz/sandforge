@@ -19,64 +19,103 @@ describe('PipelineGenerator', () => {
 
   // --- Keyword extraction ---
 
-  it('should extract sync step from "sync" keyword', async () => {
-    const pipeline = await generator.generatePipeline('sync account data', testOrgs);
-    expect(pipeline.steps.some((s) => s.type === 'sync')).toBe(true);
+  /** The step types the step executor registers, as the Automation page lists them. */
+  const RUNNABLE = ['delay', 'condition', 'backup', 'compare', 'precheck', 'notification'];
+
+  it('draws a Backup step, which a pipeline runs, from a wish to back up', async () => {
+    const pipeline = await generator.generatePipeline('backup accounts daily', testOrgs);
+    expect(pipeline.steps.map((s) => s.type)).toEqual(['backup']);
+    expect(pipeline.steps[0].config['objects']).toEqual(['Account']);
+    expect(pipeline.schedule).toBe('0 0 * * *');
+    expect(mockProvider).not.toHaveBeenCalled();
   });
 
-  it('should extract seed step from "generate" keyword', async () => {
-    const pipeline = await generator.generatePipeline('generate test contact records', testOrgs);
-    expect(pipeline.steps.some((s) => s.type === 'seed')).toBe(true);
+  it('reads "back up" in two words as a wish to back up', async () => {
+    const pipeline = await generator.generatePipeline('back up contact records', testOrgs);
+    expect(pipeline.steps.map((s) => s.type)).toEqual(['backup']);
   });
 
-  it('should extract compare step from "diff" keyword', async () => {
-    const pipeline = await generator.generatePipeline('diff production and devbox', testOrgs);
-    expect(pipeline.steps.some((s) => s.type === 'compare')).toBe(true);
+  it.each([
+    ['diff production and devbox', 'compare'],
+    ['check the org every morning', 'precheck'],
+    ['monitor devbox hourly', 'precheck'],
+    ['alert me, then compare.', 'notification'],
+  ])('draws from "%s" a %s step', async (description, type) => {
+    const pipeline = await generator.generatePipeline(description, testOrgs);
+    expect(pipeline.steps.map((s) => s.type)).toContain(type);
   });
 
-  it('should extract dataops step from "anonymize" keyword', async () => {
-    const pipeline = await generator.generatePipeline('anonymize contact email data', testOrgs);
-    expect(pipeline.steps.some((s) => s.type === 'dataops')).toBe(true);
+  it.each([
+    'backup accounts daily',
+    'compare then sync account data and monitor',
+    'anonymize contact email data, then back up and alert',
+    'diff production and devbox, purge and seed, then check',
+  ])('draws from "%s" only step types a pipeline runs', async (description) => {
+    const pipeline = await generator.generatePipeline(description, testOrgs);
+    expect(pipeline.steps.length).toBeGreaterThan(0);
+    for (const step of pipeline.steps) expect(RUNNABLE).toContain(step.type);
   });
 
-  it('should extract multiple step types from description', async () => {
+  it.each([
+    ['sync accounts', 'Sync'],
+    ['generate test contact records', 'Seed'],
+    ['anonymize contact email data', 'DataOps'],
+    ['delete old cases', 'DataOps'],
+  ])(
+    'draws no step from "%s", which writes to an org, and points to the %s page',
+    async (description, page) => {
+      const pipeline = await generator.generatePipeline(description, testOrgs);
+      expect(pipeline.steps).toEqual([]);
+      expect(pipeline.suggestions).toHaveLength(1);
+      expect(pipeline.suggestions?.[0]).toContain(`from the ${page} page`);
+      // The model is not asked: its draft would hold the step a pipeline refuses.
+      expect(mockProvider).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the steps it can run and says where the writing work runs', async () => {
     const pipeline = await generator.generatePipeline(
       'compare then sync account data and monitor',
       testOrgs,
     );
-    const types = pipeline.steps.map((s) => s.type);
-    expect(types).toContain('compare');
-    expect(types).toContain('sync');
-    expect(types).toContain('monitor');
+    expect(pipeline.steps.map((s) => s.type)).toEqual(['compare', 'precheck']);
+    expect(pipeline.suggestions).toEqual([expect.stringContaining('from the Sync page')]);
+  });
+
+  it('gives one suggestion per page, however many of its words appear', async () => {
+    const pipeline = await generator.generatePipeline('sync and synchronize data', testOrgs);
+    expect(pipeline.suggestions).toHaveLength(1);
   });
 
   it('should not produce duplicate step types', async () => {
-    const pipeline = await generator.generatePipeline('sync and synchronize data', testOrgs);
-    const syncSteps = pipeline.steps.filter((s) => s.type === 'sync');
-    expect(syncSteps).toHaveLength(1);
+    const pipeline = await generator.generatePipeline('check and monitor and watch', testOrgs);
+    expect(pipeline.steps.filter((s) => s.type === 'precheck')).toHaveLength(1);
   });
 
   // --- Org resolution ---
 
-  it('should resolve org aliases in step config', async () => {
-    const pipeline = await generator.generatePipeline('sync from production to devbox', testOrgs);
-    const syncStep = pipeline.steps.find((s) => s.type === 'sync');
-    expect(syncStep?.config['sourceOrg']).toBe('production');
-    expect(syncStep?.config['targetOrg']).toBe('devbox');
+  it('puts the two orgs a comparison names under the ids its check reads', async () => {
+    const pipeline = await generator.generatePipeline('compare production to devbox', testOrgs);
+    const compareStep = pipeline.steps.find((s) => s.type === 'compare');
+    expect(compareStep?.config['sourceOrgId']).toBe('org-001');
+    expect(compareStep?.config['targetOrgId']).toBe('org-002');
   });
 
-  it('should assign single org when only one matches', async () => {
-    const pipeline = await generator.generatePipeline('seed data in devbox', testOrgs);
-    const seedStep = pipeline.steps.find((s) => s.type === 'seed');
-    expect(seedStep?.config['org']).toBe('devbox');
+  it('puts the one org a backup names under orgId', async () => {
+    const pipeline = await generator.generatePipeline('backup account in devbox', testOrgs);
+    const backupStep = pipeline.steps.find((s) => s.type === 'backup');
+    expect(backupStep?.config['orgId']).toBe('org-002');
   });
 
   // --- Salesforce object detection ---
 
   it('should detect Salesforce object names in description', async () => {
-    const pipeline = await generator.generatePipeline('sync account and contact records', testOrgs);
-    const syncStep = pipeline.steps.find((s) => s.type === 'sync');
-    const objects = syncStep?.config['objects'] as string[];
+    const pipeline = await generator.generatePipeline(
+      'backup account and contact records',
+      testOrgs,
+    );
+    const backupStep = pipeline.steps.find((s) => s.type === 'backup');
+    const objects = backupStep?.config['objects'] as string[];
     expect(objects).toContain('Account');
     expect(objects).toContain('Contact');
   });
@@ -84,29 +123,29 @@ describe('PipelineGenerator', () => {
   // --- Schedule extraction ---
 
   it('should extract daily schedule', async () => {
-    const pipeline = await generator.generatePipeline('sync data daily', testOrgs);
+    const pipeline = await generator.generatePipeline('compare data daily', testOrgs);
     expect(pipeline.schedule).toBe('0 0 * * *');
   });
 
   it('should extract nightly schedule', async () => {
-    const pipeline = await generator.generatePipeline('nightly sync of account', testOrgs);
+    const pipeline = await generator.generatePipeline('nightly backup of account', testOrgs);
     expect(pipeline.schedule).toBe('0 2 * * *');
   });
 
   // --- Trigger extraction ---
 
   it.each([
-    'sync data on deploy to devbox',
-    'sync data after deploy to devbox',
-    'sync data on error',
-    'sync data on change',
+    'backup data on deploy to devbox',
+    'backup data after deploy to devbox',
+    'backup data on error',
+    'backup data on change',
   ])(
     'draws no trigger from a wish no trigger that starts runs can meet: %s',
     async (description) => {
       // A Deployment Complete trigger starts nothing; a schedule or a refresh
       // trigger would start the pipeline at a time the wish did not name.
       const pipeline = await generator.generatePipeline(description, testOrgs);
-      expect(pipeline.steps.some((s) => s.type === 'sync')).toBe(true);
+      expect(pipeline.steps.some((s) => s.type === 'backup')).toBe(true);
       expect(pipeline.triggers).toBeUndefined();
     },
   );
@@ -115,7 +154,7 @@ describe('PipelineGenerator', () => {
     mockProvider.mockResolvedValue(
       JSON.stringify({
         name: 'x',
-        steps: [{ name: 's', type: 'seed' }],
+        steps: [{ name: 's', type: 'backup' }],
         triggers: ['deployment_complete', 'event', 'webhook', 'on_deploy', 'sandbox_refresh'],
       }),
     );
@@ -136,7 +175,7 @@ describe('PipelineGenerator', () => {
     mockProvider.mockResolvedValue(
       JSON.stringify({
         name: 'x',
-        steps: [{ name: 's', type: 'seed' }],
+        steps: [{ name: 's', type: 'backup' }],
         triggers: ['sandbox_refresh', 'manual'],
       }),
     );
@@ -148,7 +187,7 @@ describe('PipelineGenerator', () => {
   // --- Pipeline name ---
 
   it('should generate a descriptive pipeline name', async () => {
-    const pipeline = await generator.generatePipeline('sync account data daily', testOrgs);
+    const pipeline = await generator.generatePipeline('backup account data daily', testOrgs);
     expect(pipeline.name).toMatch(/^Pipeline_/);
     expect(pipeline.name.length).toBeGreaterThan('Pipeline_'.length);
   });
@@ -160,7 +199,7 @@ describe('PipelineGenerator', () => {
       JSON.stringify({
         name: 'AI Pipeline',
         description: 'Generated by AI',
-        steps: [{ name: 'step1', type: 'custom', config: {}, description: 'AI step' }],
+        steps: [{ name: 'step1', type: 'compare', config: {}, description: 'AI step' }],
       }),
     );
 
@@ -176,7 +215,7 @@ describe('PipelineGenerator', () => {
   it('reads the steps of a draft the model wrapped in a markdown fence', async () => {
     const draft = {
       name: 'Fenced Pipeline',
-      steps: [{ name: 'step1', type: 'custom', config: {}, description: 'AI step' }],
+      steps: [{ name: 'step1', type: 'compare', config: {}, description: 'AI step' }],
     };
     mockProvider.mockResolvedValue(`\`\`\`json\n${JSON.stringify(draft, null, 2)}\n\`\`\``);
 
@@ -184,7 +223,30 @@ describe('PipelineGenerator', () => {
 
     expect(pipeline.name).toBe('Fenced Pipeline');
     expect(pipeline.steps).toEqual([
-      { name: 'step1', type: 'custom', config: {}, description: 'AI step' },
+      { name: 'step1', type: 'compare', config: {}, description: 'AI step' },
+    ]);
+  });
+
+  it('leaves out of a model draft every step a pipeline cannot run, and says why', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({
+        name: 'x',
+        steps: [
+          { name: 'a', type: 'sync', config: {}, description: '' },
+          { name: 'b', type: 'backup', config: {}, description: '' },
+          { name: 'c', type: 'monitor', config: {}, description: '' },
+          { name: 'd', type: 'seed', config: {}, description: '' },
+        ],
+      }),
+    );
+
+    const pipeline = await generator.generatePipeline('prepare the box', testOrgs);
+
+    expect(pipeline.steps.map((s) => s.type)).toEqual(['backup']);
+    expect(pipeline.suggestions).toEqual([
+      expect.stringContaining('from the Sync page'),
+      expect.stringContaining('cannot run a monitor step'),
+      expect.stringContaining('from the Seed page'),
     ]);
   });
 
@@ -207,7 +269,7 @@ describe('PipelineGenerator', () => {
   });
 
   it('should not call AI when keyword-based steps are found', async () => {
-    await generator.generatePipeline('sync account data', testOrgs);
+    await generator.generatePipeline('backup account data', testOrgs);
     expect(mockProvider).not.toHaveBeenCalled();
   });
 

@@ -116,7 +116,11 @@
     "aliasPlaceholder": "minha-sandbox",
     "bannerConnected": "Orgs conectadas: {{count}} de {{total}}",
     "bannerEmpty": "Importe suas orgs do Salesforce CLI ou conecte manualmente",
-    "installCli": "Instalar a CLI do Salesforce"
+    "installCli": "Instalar a CLI do Salesforce",
+    "openInBrowser": "Abrir no navegador",
+    "openRefusedUrl": "{{alias}} não foi aberta: a URL da instância não é um endereço HTTPS.",
+    "openNotFound": "{{alias}} não está mais registrada, então não foi aberta.",
+    "openFailed": "O navegador não abriu {{alias}}: {{reason}}"
   },
   "monitor": {
     "refresh": "Atualizar",
@@ -1267,6 +1271,11 @@
       "action": "Executar sincronização",
       "running": "Em execução…",
       "orgsRequired": "Escolha duas orgs diferentes para executar esta importação."
+    },
+    "edit": {
+      "noObjects": "Mantenha pelo menos um objeto: uma execução sem objetos não moveria nada.",
+      "upsertNeedsKey": "Um upsert de {{object}} precisa de um campo External ID que as duas orgs compartilhem: corresponder por Id não funciona. Informe um, ou mude a operação para insert.",
+      "invalid": "Esta configuração não pode ser executada como foi editada — {{reason}}"
     }
   },
   "dataops": {
@@ -1808,6 +1817,7 @@
     "noMessages": "Envie uma mensagem para iniciar a conversa",
     "placeholder": "Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)",
     "send": "Enviar",
+    "stop": "Parar",
     "waitingIn": "Aguardando a resposta à sua pergunta em “{{title}}”.",
     "answeredIn": "Sua pergunta em “{{title}}” foi respondida.",
     "openConversation": "Abrir conversa",
@@ -1946,6 +1956,7 @@
     "lineageEmptyDesc": "Quando uma execução grava registros em uma org, esta aba mostra de onde eles vieram — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos registros de cada objeto chegaram.",
     "lineageUnreadable": "Não foi possível ler a linhagem de dados: {{error}}",
     "lineageRun": "Execução",
+    "viewRun": "Ver a execução",
     "lineageOrigin": {
       "org": "Org",
       "generator": "Dados gerados",
@@ -3560,6 +3571,10 @@
       "pause": "Pausar",
       "resume": "Retomar",
       "skip": "Ignorar nó",
+      "stop": "Parar",
+      "stopping": "Parando…",
+      "stoppedNotWritten": "Execução parada: nada foi gravado depois da parada. Objetos não gravados, ou não por completo: {{list}}.",
+      "stoppedAllWritten": "Execução parada depois de cada objeto gravado: as atualizações seguintes não foram enviadas.",
       "recordsProcessed": "Registros processados",
       "apiCalls": "Chamadas de API",
       "elapsed": "Tempo decorrido",

@@ -159,6 +159,21 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     expect(JSON.stringify(config)).not.toContain('sk-test');
   });
 
+  // A question stopped on the AI page aborts its request: the signal the
+  // assistant hands its call function has to reach the client's chat.
+  it('hands the client the signal a chat call is given', async () => {
+    fakeClient.chat.mockResolvedValue({ text: 'ok', usage: { output: 1 }, model: 'm' });
+    await initAIComposition(makeDeps());
+    const [callFn, config] = vi.mocked(AIAssistant).mock.calls[0];
+    const controller = new AbortController();
+
+    await callFn([{ role: 'user', content: 'hi' }], config, { signal: controller.signal });
+
+    expect(fakeClient.chat).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it('subscribes nothing when AI is disabled', async () => {
     await initAIComposition(makeDeps({ aiEnabled: false }));
     expect(stateChangeListener).toBeUndefined();

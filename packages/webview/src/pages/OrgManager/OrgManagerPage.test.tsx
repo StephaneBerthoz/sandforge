@@ -49,6 +49,17 @@ let mockUpdateState = {
   reset: mockUpdateReset,
 };
 
+const mockOpenMutate = vi.fn();
+
+let mockOpenState = {
+  mutate: mockOpenMutate,
+  data: null as { status: 'opened' } | { status: 'error'; message: string } | null,
+  loading: false,
+  error: null as string | null,
+  errorCode: null as string | null,
+  reset: vi.fn(),
+};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => mockQueryState,
 }));
@@ -63,6 +74,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'org:update') {
       return mockUpdateState;
+    }
+    if (type === 'org:open-in-browser') {
+      return mockOpenState;
     }
     return {
       mutate: vi.fn(),
@@ -144,6 +158,14 @@ describe('OrgManagerPage', () => {
       loading: false,
       error: null,
       reset: mockUpdateReset,
+    };
+    mockOpenState = {
+      mutate: mockOpenMutate,
+      data: null,
+      loading: false,
+      error: null,
+      errorCode: null,
+      reset: vi.fn(),
     };
   });
 
@@ -561,6 +583,58 @@ describe('OrgManagerPage', () => {
 
       expect(screen.getByTestId('org-update-error').textContent).toContain('Unknown org: org-1');
       expect(useOrgStore.getState().orgs[0].alias).toBe('Dev Sandbox');
+    });
+  });
+
+  describe('opening an org in the browser', () => {
+    it('asks the host to open the org by its id alone, without selecting the card', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(screen.getByTestId('org-open-org-1'));
+
+      expect(mockOpenMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+      expect(useOrgStore.getState().selectedOrgId).toBeNull();
+    });
+
+    it('says in the page language that an instance URL that is not HTTPS was refused', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      const { rerender } = render(<OrgManagerPage />);
+      fireEvent.click(screen.getByTestId('org-open-org-1'));
+
+      mockOpenState = {
+        ...mockOpenState,
+        error: 'Cannot open "Dev Sandbox": its instance URL must use HTTPS, got "http:".',
+        errorCode: 'INVALID_INSTANCE_URL',
+      };
+      rerender(<OrgManagerPage />);
+
+      expect(screen.getByTestId('org-open-error').textContent).toBe(
+        'Dev Sandbox was not opened: its instance URL is not an HTTPS address.',
+      );
+    });
+
+    it('says the browser did not open, with the reason VS Code gave', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      const { rerender } = render(<OrgManagerPage />);
+      fireEvent.click(screen.getByTestId('org-open-org-1'));
+
+      mockOpenState = {
+        ...mockOpenState,
+        data: { status: 'error', message: 'VS Code did not open the page.' },
+      };
+      rerender(<OrgManagerPage />);
+
+      expect(screen.getByTestId('org-open-error').textContent).toBe(
+        'The browser did not open Dev Sandbox: VS Code did not open the page.',
+      );
+    });
+
+    it('shows nothing once the browser opened the org', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      mockOpenState = { ...mockOpenState, data: { status: 'opened' } };
+      render(<OrgManagerPage />);
+      expect(screen.queryByTestId('org-open-error')).toBeNull();
     });
   });
 

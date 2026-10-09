@@ -193,6 +193,16 @@ export class SeedCsvHandler implements DomainHandler {
           source: undefined,
           code: PRODUCTION_GUARD_MISSING.code,
         });
+        // On seed:csv:error too, which the page's request waits on: sent
+        // `operation:failed` alone, the page waited out its two minutes.
+        sendHandlerError(
+          this.deps,
+          'seed:csv:execute',
+          'seed:csv:error',
+          msg,
+          new Error(PRODUCTION_GUARD_MISSING.message),
+          { code: PRODUCTION_GUARD_MISSING.code, retryable: false },
+        );
         sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
           context: failure,
           extraPayload: { code: PRODUCTION_GUARD_MISSING.code },

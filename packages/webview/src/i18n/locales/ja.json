@@ -109,7 +109,11 @@
     "aliasPlaceholder": "my-sandbox",
     "bannerConnected": "{{total}}件の組織のうち{{count}}件が接続済み",
     "bannerEmpty": "Salesforce CLIから組織をインポートするか、手動で接続してください",
-    "installCli": "Salesforce CLI をインストール"
+    "installCli": "Salesforce CLI をインストール",
+    "openInBrowser": "ブラウザーで開く",
+    "openRefusedUrl": "{{alias}} を開きませんでした。インスタンス URL が HTTPS のアドレスではありません。",
+    "openNotFound": "{{alias}} は登録されていないため、開きませんでした。",
+    "openFailed": "ブラウザーで {{alias}} を開けませんでした: {{reason}}"
   },
   "monitor": {
     "refresh": "更新",
@@ -1197,6 +1201,11 @@
       "action": "同期を実行",
       "running": "実行中…",
       "orgsRequired": "このインポートを実行するには、異なる 2 つの組織を選択してください。"
+    },
+    "edit": {
+      "noObjects": "オブジェクトを少なくとも 1 つ残してください。オブジェクトのない実行では何も移動しません。",
+      "upsertNeedsKey": "{{object}} の upsert には、両方の組織で共有される External ID 項目が必要です。Id での照合は機能しません。項目を指定するか、操作を insert に変更してください。",
+      "invalid": "この設定は編集されたままでは実行できません — {{reason}}"
     }
   },
   "dataops": {
@@ -1706,6 +1715,7 @@
     "noMessages": "メッセージを送信して会話を開始してください",
     "placeholder": "メッセージを入力...（Enterで送信、Shift+Enterで改行）",
     "send": "送信",
+    "stop": "停止",
     "waitingIn": "「{{title}}」での質問への回答を待っています。",
     "answeredIn": "「{{title}}」での質問に回答がありました。",
     "openConversation": "会話を開く",
@@ -1836,6 +1846,7 @@
     "lineageEmptyDesc": "実行が組織にレコードを書き込むと、このタブにその出所（別の組織、生成データ、CSVファイル、バックアップ、凍結データセット）と、オブジェクトごとに届いたレコード数が表示されます。",
     "lineageUnreadable": "データリネージを読み込めませんでした: {{error}}",
     "lineageRun": "実行",
+    "viewRun": "実行を表示",
     "lineageOrigin": {
       "org": "組織",
       "generator": "生成データ",
@@ -3377,6 +3388,10 @@
       "pause": "一時停止",
       "resume": "再開",
       "skip": "ノードをスキップ",
+      "stop": "停止",
+      "stopping": "停止中…",
+      "stoppedNotWritten": "実行を停止しました。停止後は何も書き込まれていません。書き込まれていない、または一部のみのオブジェクト: {{list}}。",
+      "stoppedAllWritten": "すべてのオブジェクトの書き込み後に実行を停止しました。その後の更新は送信されていません。",
       "recordsProcessed": "処理レコード数",
       "apiCalls": "APIコール",
       "elapsed": "経過時間",

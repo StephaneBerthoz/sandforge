@@ -37,6 +37,7 @@ export interface RuleModules {
 /** Message types handled by AIHandler. */
 const AI_TYPES = new Set([
   'ai:chat',
+  'ai:chat:cancel',
   'ai:conversation:create',
   'ai:conversation:load',
   'ai:conversation:list',

@@ -40,6 +40,8 @@ export const AutopilotPage: React.FC = () => {
   const { t } = useTranslation();
   const step = useAutopilotStore((s) => s.step);
   const [showReport, setShowReport] = useState(false);
+  /** Set once a stopped run has ended: the objects it did not write whole. */
+  const [notWritten, setNotWritten] = useState<string[] | undefined>();
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -82,6 +84,8 @@ export const AutopilotPage: React.FC = () => {
       processing: 'extracting',
       completed: 'completed',
       failed: 'failed',
+      // Cut short or never reached by a stop: not written whole.
+      stopped: 'skipped',
     };
     const mappedStatus = statusMap[msg.payload.status] ?? 'pending';
     store.updateNodeStatus(msg.payload.objectName, mappedStatus);
@@ -135,9 +139,12 @@ export const AutopilotPage: React.FC = () => {
         totalFailureCount: number;
         totalElapsedMs: number;
         totalApiCalls: number;
+        stopped?: boolean;
+        notWritten?: string[];
       };
     }
   >('autopilot:completed', (msg) => {
+    setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     useAutopilotStore.getState().setExecutionStatus('completed');
     useAutopilotStore.getState().setStep('completed');
     useAutopilotStore.getState().updateLiveStats({
@@ -169,6 +176,7 @@ export const AutopilotPage: React.FC = () => {
 
   /** Start execution: flip to the execution view and post `autopilot:execute`. */
   const handleExecute = useCallback((): void => {
+    setNotWritten(undefined);
     const store = useAutopilotStore.getState();
     const plan = store.plan;
     store.setExecutionStatus('executing');
@@ -293,7 +301,7 @@ export const AutopilotPage: React.FC = () => {
             <AutopilotGraph />
           </div>
           <div className="w-[40%] overflow-hidden">
-            <ControlPanel />
+            <ControlPanel runOperationId={executeMutation.requestId} notWritten={notWritten} />
           </div>
         </div>
       </div>

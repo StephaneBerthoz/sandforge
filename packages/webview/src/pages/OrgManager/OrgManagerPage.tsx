@@ -66,6 +66,9 @@ interface OrgStatusPayload {
   status: string;
 }
 
+/** What the host answers to `org:open-in-browser`: what the browser did. */
+type OrgOpenOutcome = { status: 'opened' } | { status: 'error'; message: string };
+
 /**
  * Above this many orgs the list gets a filter box. Below it every card is
  * on screen at once and a search field would only add noise.
@@ -231,6 +234,14 @@ export const OrgManagerPage: React.FC = () => {
       useOrgStore.getState().setOrgs(updateMutation.data.orgs);
     }
   }, [updateMutation.data]);
+
+  // VS Code may ask before opening an external site, and the host answers
+  // once the user has decided: the 30 s default would call a page that did
+  // open a failure.
+  const openMutation = useBridgeMutation<OrgOpenOutcome>('org:open-in-browser', {
+    timeoutMs: 300_000,
+  });
+  const [openingOrg, setOpeningOrg] = useState<SalesforceOrg | null>(null);
 
   const isConnecting = connectMutation.loading || deviceMutation.loading;
   const connectError = connectMutation.error ?? deviceMutation.error;
@@ -451,6 +462,30 @@ export const OrgManagerPage: React.FC = () => {
     [updateMutate],
   );
 
+  // The card names the org and nothing else: the host opens the org's own
+  // stored instance URL, never an address from this page.
+  const openMutate = openMutation.mutate;
+  const handleOpenInBrowser = useCallback(
+    (org: SalesforceOrg) => {
+      setOpeningOrg(org);
+      openMutate({ orgId: org.id });
+    },
+    [openMutate],
+  );
+  // A refusal answers on `org:error` with a code, a browser that did not open
+  // answers `status: 'error'`; the host words both in English, for its log.
+  const openOutcome = openMutation.data;
+  const openAlias = openingOrg?.alias || openingOrg?.username || '';
+  const openError =
+    openMutation.errorCode === 'INVALID_INSTANCE_URL'
+      ? t('org.openRefusedUrl', { alias: openAlias })
+      : openMutation.errorCode === 'ORG_NOT_FOUND'
+        ? t('org.openNotFound', { alias: openAlias })
+        : (openMutation.error ??
+          (openOutcome?.status === 'error'
+            ? t('org.openFailed', { alias: openAlias, reason: openOutcome.message })
+            : null));
+
   const disconnectMutate = disconnectMutation.mutate;
 
   // Disconnect drops the registry entry host-side, so the alias, tags, colour
@@ -550,6 +585,16 @@ export const OrgManagerPage: React.FC = () => {
             data-testid="org-update-error"
           >
             {updateMutation.error}
+          </div>
+        )}
+
+        {openError && (
+          <div
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-status-error"
+            role="alert"
+            data-testid="org-open-error"
+          >
+            {openError}
           </div>
         )}
 
@@ -758,6 +803,7 @@ export const OrgManagerPage: React.FC = () => {
                   onEdit={handleEdit}
                   onDisconnect={handleDisconnect}
                   onReconnect={handleReconnect}
+                  onOpenInBrowser={handleOpenInBrowser}
                 />
               ))}
             </div>

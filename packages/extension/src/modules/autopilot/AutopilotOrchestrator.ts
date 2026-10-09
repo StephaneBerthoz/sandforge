@@ -243,6 +243,12 @@ export class AutopilotOrchestrator {
      * waves showed "0 / 243 records, 0 / 131 API calls" throughout.
      */
     onNodeSettled?: (event: AutopilotNodeCompletedEvent | AutopilotNodeFailedEvent) => void,
+    /**
+     * Stops the run between two calls, paused or not: see
+     * `AutopilotExecutor.execute`. The result then says it was stopped and
+     * which objects it did not write.
+     */
+    signal?: AbortSignal,
   ): Promise<ExecutionResult> {
     const totalRecords = Array.from(recordCounts.values()).reduce((s, c) => s + c, 0);
     const grappeActive = this.isGrappeActive(totalRecords);
@@ -282,7 +288,7 @@ export class AutopilotOrchestrator {
     this.runningExecutors.push(executor);
     let result: ExecutionResult;
     try {
-      result = await executor.execute(plan, graph.edges, rules, recordCounts);
+      result = await executor.execute(plan, graph.edges, rules, recordCounts, signal);
     } finally {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
       offCompleted();

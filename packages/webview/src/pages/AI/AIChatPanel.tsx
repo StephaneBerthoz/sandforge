@@ -48,6 +48,8 @@ export interface AIChatPanelProps {
   errorMessage?: string;
   onDismissError?: () => void;
   onSendMessage?: (conversationId: string, message: string) => void;
+  /** Stop waiting for the answer to the question this conversation asked. */
+  onCancel?: () => void;
   onNewConversation?: (title: string) => void;
   onSelectConversation?: (conversationId: string) => void;
   onDeleteConversation?: (conversationId: string) => void;
@@ -72,6 +74,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   errorMessage,
   onDismissError,
   onSendMessage,
+  onCancel,
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
@@ -352,15 +355,24 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   data-testid="chat-input"
                   disabled={composerLocked}
                 />
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSend}
-                  disabled={!inputValue.trim() || composerLocked}
-                  data-testid="send-btn"
-                >
-                  {t('ai.send', 'Send')}
-                </Button>
+                {/* While its question waits, the conversation can stop it: the
+                    composer was locked under a spinner until the model
+                    answered, with no way to give up on the question. */}
+                {isLoading && onCancel ? (
+                  <Button variant="secondary" size="sm" onClick={onCancel} data-testid="stop-btn">
+                    {t('ai.stop')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSend}
+                    disabled={!inputValue.trim() || composerLocked}
+                    data-testid="send-btn"
+                  >
+                    {t('ai.send', 'Send')}
+                  </Button>
+                )}
               </div>
             </>
           )}

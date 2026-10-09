@@ -11,10 +11,23 @@ import { ComplianceStatus } from './ComplianceStatus';
 /** Tab identifiers for the control panel. */
 type ControlTab = 'stats' | 'node' | 'anonymization' | 'compliance';
 
+/** ControlPanel component props. */
+export interface ControlPanelProps {
+  /**
+   * The id of the run's `autopilot:execute` request, under which the
+   * extension registers the run: what `execution:abort` names to stop it.
+   */
+  runOperationId?: string | null;
+  /** Set once a stopped run has ended: the objects it did not write whole. */
+  notWritten?: string[];
+}
+
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
-export const ControlPanel: React.FC = () => {
+export const ControlPanel: React.FC<ControlPanelProps> = ({ runOperationId, notWritten }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<ControlTab>('stats');
+  /** The run Stop was sent for: its button waits for the run to end. */
+  const [stopSentFor, setStopSentFor] = useState<string | null>(null);
   const executionStatus = useAutopilotStore((s) => s.executionStatus);
   const setExecutionStatus = useAutopilotStore((s) => s.setExecutionStatus);
   const selectedNodeName = useAutopilotStore((s) => s.selectedNodeName);
@@ -36,6 +49,22 @@ export const ControlPanel: React.FC = () => {
     sendMessage(buildMessage(isPaused ? 'autopilot:resume' : 'autopilot:pause'));
     setExecutionStatus(isPaused ? 'executing' : 'paused');
   };
+
+  /**
+   * Stop the run. The run had pause and skip and no way to end it: a run
+   * started on the wrong objects wrote wave after wave until it was done.
+   * `execution:abort` reaches the run through the registry, as Live
+   * Operations' Cancel does; the batch in flight is answered, and nothing is
+   * written after it.
+   */
+  const handleStop = (): void => {
+    if (!runOperationId) return;
+    sendMessage(
+      buildMessage<{ operationId: string }>('execution:abort', { operationId: runOperationId }),
+    );
+    setStopSentFor(runOperationId);
+  };
+  const stopping = runOperationId !== undefined && stopSentFor === runOperationId;
 
   /** Skip the selected node — bridge command, optimistic local status. */
   const handleSkipNode = (): void => {
@@ -70,6 +99,18 @@ export const ControlPanel: React.FC = () => {
         ))}
       </div>
 
+      {notWritten !== undefined && (
+        <p
+          className="px-4 py-2 text-xs text-text-primary border-b border-(--sf-border)"
+          role="status"
+          data-testid="control-stopped"
+        >
+          {notWritten.length > 0
+            ? t('autopilot.control.stoppedNotWritten', { list: notWritten.join(', ') })
+            : t('autopilot.control.stoppedAllWritten')}
+        </p>
+      )}
+
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'stats' && <LiveStats />}
@@ -99,6 +140,16 @@ export const ControlPanel: React.FC = () => {
           >
             {t('autopilot.control.skip')}
           </button>
+          {runOperationId && (
+            <button
+              className="px-3 py-1.5 text-xs font-medium rounded-sm bg-(--sf-bg-input) text-status-error hover:bg-(--sf-bg-hover) transition-colors disabled:opacity-50"
+              onClick={handleStop}
+              disabled={stopping}
+              data-testid="control-stop"
+            >
+              {stopping ? t('autopilot.control.stopping') : t('autopilot.control.stop')}
+            </button>
+          )}
         </div>
       )}
     </div>

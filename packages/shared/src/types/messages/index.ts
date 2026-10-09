@@ -39,6 +39,8 @@ import type {
   OrgSelectRequest,
   OrgUpdateRequest,
   OrgConnectCancelRequest,
+  OrgOpenInBrowserRequest,
+  OrgOpenInBrowserResponse,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
@@ -343,6 +345,7 @@ import type {
   AIStatusRequest,
   AISaveKeyRequest,
   AIChatResponse,
+  AIChatCancelRequest,
   AIConversationCreatedResponse,
   AIConversationLoadedResponse,
   AIConversationDeletedResponse,
@@ -482,6 +485,7 @@ export type WebViewToExtensionMessage =
   | OrgSelectRequest
   | OrgUpdateRequest
   | OrgConnectCancelRequest
+  | OrgOpenInBrowserRequest
   // Seed
   | SeedExecuteRequest
   | SeedDescribeGlobalRequest
@@ -604,6 +608,7 @@ export type WebViewToExtensionMessage =
   | ForgeUsersRequest
   // AI
   | AIChatRequest
+  | AIChatCancelRequest
   | AIConversationCreateRequest
   | AIConversationLoadRequest
   | AIConversationDeleteRequest
@@ -674,6 +679,7 @@ export type ExtensionToWebViewMessage =
   | OrgSelected
   | OrgErrorResponse
   | OrgDeviceCodeMessage
+  | OrgOpenInBrowserResponse
   // Bridge control
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage

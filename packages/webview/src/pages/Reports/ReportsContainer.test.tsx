@@ -357,6 +357,26 @@ describe('ReportsContainer', () => {
     expect(screen.queryByTestId('reports-lineage-soon')).toBeNull();
   });
 
+  it('asks for the lineage of the run an audit entry records, from the entry', () => {
+    answer('reports:audit', { entries: [entry], total: 1, facets });
+    answer('reports:lineage', {
+      lineage: graph('op-2'),
+      runs: [
+        { operationId: 'op-2', generatedAt: '2026-09-09T11:00:00.000Z', action: 'forge_execute' },
+        { operationId: 'op-1', generatedAt: '2026-09-09T10:00:00.000Z', action: 'sync_execute' },
+      ],
+    });
+
+    render(<ReportsContainer />);
+    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByTestId('audit-view-run-aud-1'));
+
+    expect(lastPayload('reports:lineage')).toEqual({ operationId: 'op-1' });
+    expect(screen.getByRole('tab', { name: 'Data Lineage' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
   it('draws the latest run’s lineage, and asks for another run when one is picked', () => {
     answer('reports:lineage', {
       lineage: graph('op-2'),

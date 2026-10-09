@@ -158,6 +158,22 @@ describe('AIToolsHandler', () => {
     expect(response.payload.error).toMatch(/no steps/);
   });
 
+  it('answers a wish for work that writes to an org with the page that runs it', async () => {
+    const provider = vi.fn().mockResolvedValue('{}');
+    handler.setAIModules({
+      pipelineGenerator: new PipelineGenerator(provider),
+    } as unknown as AIModules);
+
+    await handler.handle(createMsg('ai:generate-pipeline', { description: 'sync accounts' }));
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:generate-pipeline:response');
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.error).toContain('from the Sync page');
+    expect(response.payload.error).not.toMatch(/no steps/);
+    expect(provider).not.toHaveBeenCalled();
+  });
+
   it('handles ai:generate-pipeline with modules with correlationId', async () => {
     const mockModules: Partial<AIModules> = {
       pipelineGenerator: {

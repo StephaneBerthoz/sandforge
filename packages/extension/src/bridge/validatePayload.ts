@@ -1014,6 +1014,8 @@ export const aiConversationCreatePayloadSchema = z.object({
   title: z.string().min(1).max(300),
 });
 export const aiConversationIdPayloadSchema = z.object({ conversationId: opaqueIdSchema });
+/** `ai:chat:cancel`: the conversation whose question is stopped. */
+export const aiChatCancelPayloadSchema = aiConversationIdPayloadSchema;
 export const aiSaveKeyPayloadSchema = z.object({
   apiKey: z.string().min(1).max(500),
 });
@@ -1226,6 +1228,12 @@ export const orgDeviceConnectPayloadSchema = z
 export const orgConnectCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
 export const orgDisconnectPayloadSchema = z.object({ orgId: orgIdSchema });
 export const orgSelectPayloadSchema = z.object({ orgId: orgIdSchema });
+/**
+ * `org:open-in-browser`: an org id and nothing else. Strict, because the
+ * address opened is the org's stored instance URL; a `url` sent by a page is
+ * refused, never read.
+ */
+export const orgOpenInBrowserPayloadSchema = z.object({ orgId: orgIdSchema }).strict();
 /**
  * What the org edit dialog saves. The colour is one of the dialog's hex
  * swatches and each tag a trimmed word; the bounds keep a crafted payload from

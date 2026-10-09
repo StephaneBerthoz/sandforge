@@ -4,6 +4,7 @@ import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
   aiChatPayloadSchema,
+  aiChatCancelPayloadSchema,
   aiConversationCreatePayloadSchema,
   aiConversationIdPayloadSchema,
   aiSaveKeyPayloadSchema,
@@ -53,6 +54,7 @@ interface PersistedConversation {
 /** Message types handled by AIChatHandler. */
 const AI_CHAT_TYPES = new Set([
   'ai:chat',
+  'ai:chat:cancel',
   'ai:conversation:create',
   'ai:conversation:load',
   'ai:conversation:delete',
@@ -70,6 +72,14 @@ const AI_CHAT_TYPES = new Set([
  */
 export class AIChatHandler implements DomainHandler {
   private aiAssistant?: AIAssistant;
+
+  /**
+   * The call each conversation's question waits on, so `ai:chat:cancel` can
+   * stop it. The composer stayed locked under a spinner until the model
+   * answered or the request timed out: there was no way to give up on a
+   * question asked by mistake, or one the model was slow to answer.
+   */
+  private readonly asking = new Map<string, AbortController>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -95,6 +105,9 @@ export class AIChatHandler implements DomainHandler {
     switch (msg.type) {
       case 'ai:chat':
         await this.handleChat(msg);
+        return true;
+      case 'ai:chat:cancel':
+        this.handleChatCancel(msg);
         return true;
       case 'ai:conversation:create':
         this.handleConversationCreate(msg);
@@ -285,8 +298,17 @@ export class AIChatHandler implements DomainHandler {
 
     this.restoreConversationIfNeeded(payload.conversationId);
 
+    // One per conversation, as the assistant asks one question at a time in
+    // each: a second question there is refused before it is sent, and must
+    // not take the place of the first's.
+    const controller = new AbortController();
+    const asked = !this.asking.has(payload.conversationId);
+    if (asked) this.asking.set(payload.conversationId, controller);
+
     try {
-      const aiResponse = await assistant.chat(payload.conversationId, payload.message);
+      const aiResponse = await assistant.chat(payload.conversationId, payload.message, {
+        signal: controller.signal,
+      });
 
       // Persist conversation to ConfigStore after chat
       const conversation = assistant.getConversation(payload.conversationId);
@@ -307,11 +329,37 @@ export class AIChatHandler implements DomainHandler {
       this.deps.broker.postToWebview(chatResponse);
       this.deps.log(`[TX] ai:chat:response`);
     } catch (err: unknown) {
+      // Stopped by the user: answered as such, not as a failure to show.
+      if (controller.signal.aborted) {
+        const cancelled = buildResponse(this.deps, msg, 'ai:chat:response', {
+          conversationId: payload.conversationId,
+          code: 'CANCELLED',
+        });
+        this.deps.broker.postToWebview(cancelled);
+        this.deps.log(`[TX] ai:chat:response cancelled`);
+        return;
+      }
       const message = extractErrorMessage(err);
       const errResponse = buildResponse(this.deps, msg, 'ai:error', { message });
       this.deps.broker.postToWebview(errResponse);
       this.deps.log(`[TX] ai:error: ${message}`);
+    } finally {
+      if (asked && this.asking.get(payload.conversationId) === controller) {
+        this.asking.delete(payload.conversationId);
+      }
     }
+  }
+
+  /**
+   * Stop the question a conversation waits on. Its `ai:chat` request answers
+   * for itself, with code `CANCELLED`; a conversation that waits on nothing
+   * is left as it is.
+   */
+  private handleChatCancel(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(aiChatCancelPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    this.asking.get(parsed.conversationId)?.abort();
   }
 
   private handleConversationCreate(msg: InboundRequest): void {

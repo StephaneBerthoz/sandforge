@@ -27,6 +27,18 @@ export interface AIChatRequest extends BaseMessage {
   payload: { conversationId: string; message: string };
 }
 
+/**
+ * Stop waiting for the answer to the question asked in a conversation. The
+ * call to the model is aborted, the question is not kept, and the `ai:chat`
+ * request it was asked in is answered on `ai:chat:response` with code
+ * `CANCELLED` rather than an answer: a question the user stopped is not an
+ * error.
+ */
+export interface AIChatCancelRequest extends BaseMessage {
+  type: 'ai:chat:cancel';
+  payload: { conversationId: string };
+}
+
 /** Request to create a new AI conversation */
 export interface AIConversationCreateRequest extends BaseMessage {
   type: 'ai:conversation:create';
@@ -68,13 +80,18 @@ export interface AISaveKeyResponse extends BaseMessage {
 }
 
 /** AI messages (Extension → WebView) */
-/** AI chat response with a single assistant message */
+/**
+ * AI chat response with a single assistant message, or, for a question the
+ * user stopped (`ai:chat:cancel`), code `CANCELLED` and no message.
+ */
 export interface AIChatResponse extends BaseMessage {
   type: 'ai:chat:response';
-  payload: {
-    conversationId: string;
-    message: AIConversationEntry;
-  };
+  payload:
+    | {
+        conversationId: string;
+        message: AIConversationEntry;
+      }
+    | { conversationId: string; code: 'CANCELLED' };
 }
 
 /** Response confirming a new AI conversation was created */

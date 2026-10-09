@@ -55,6 +55,8 @@ const OrgMessages = [
   msg('org:disconnect'),
   msg('org:select'),
   msg('org:update'),
+  msg('org:open-in-browser'),
+  msg('org:open-in-browser:response'),
   msg('org:statusChanged'),
   msg('org:selected'),
   msg('org:error'),
@@ -401,6 +403,7 @@ export const ExecutionMessageSchema = z.discriminatedUnion('type', ExecutionMess
 const AIMessages = [
   msg('ai:chat'),
   msg('ai:chat:response'),
+  msg('ai:chat:cancel'),
   msg('ai:conversation:create'),
   msg('ai:conversation:created'),
   msg('ai:conversation:load'),

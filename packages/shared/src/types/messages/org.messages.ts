@@ -96,6 +96,30 @@ export interface OrgUpdateRequest extends BaseMessage {
   payload: { orgId: string; alias: string; color: string; tags: string[] };
 }
 
+/**
+ * Open the org in the system browser, from its card on the Organizations
+ * page. The page names the org and nothing else: the extension opens the
+ * org's stored instance URL, bare, behind the HTTPS gate the
+ * `sandforge.openOrgInBrowser` command uses, and its payload schema refuses
+ * any other key. No session token goes into the address, so none lands in the
+ * browser's history: the browser's own Salesforce session signs the user in,
+ * or the login page asks.
+ */
+export interface OrgOpenInBrowserRequest extends BaseMessage {
+  type: 'org:open-in-browser';
+  payload: { orgId: string };
+}
+
+/**
+ * What the browser did. A refused request (an unknown org, an instance URL
+ * that is not HTTPS) is answered on `org:error` instead, correlated to the
+ * request, with code `ORG_NOT_FOUND` or `INVALID_INSTANCE_URL`.
+ */
+export interface OrgOpenInBrowserResponse extends BaseMessage {
+  type: 'org:open-in-browser:response';
+  payload: { status: 'opened' } | { status: 'error'; message: string };
+}
+
 /** Notification that an org's connection status has changed */
 export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';

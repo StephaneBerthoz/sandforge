@@ -169,6 +169,28 @@ describe('AIChatPanel', () => {
     expect(sendBtn.disabled).toBe(true);
   });
 
+  it('offers Stop in place of Send while the question here waits, and stops it', () => {
+    const onCancel = vi.fn();
+    render(<AIChatPanel activeConversationId="conv-1" isLoading onCancel={onCancel} />);
+
+    expect(screen.queryByTestId('send-btn')).toBeNull();
+    fireEvent.click(screen.getByTestId('stop-btn'));
+
+    expect(screen.getByTestId('stop-btn').textContent).toBe('Stop');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Stop once nothing waits here, nor for a question of another conversation', () => {
+    const { rerender } = render(<AIChatPanel activeConversationId="conv-1" onCancel={vi.fn()} />);
+    expect(screen.queryByTestId('stop-btn')).toBeNull();
+    expect(screen.getByTestId('send-btn')).toBeDefined();
+
+    rerender(
+      <AIChatPanel activeConversationId="conv-2" waitingElsewhere="Seed Help" onCancel={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('stop-btn')).toBeNull();
+  });
+
   // The page asks one question at a time: while one awaits its answer in
   // another conversation, the composer of this one sends nothing, Enter
   // included, and the thread says which conversation the wait is for.

@@ -409,6 +409,45 @@ describe('Autopilot bridge flow', () => {
     expect(refusals.textContent).toContain('80 records');
   });
 
+  it('stops the run by the id of its execute request, and says what the stop left unwritten', () => {
+    render(<AutopilotPage />);
+    driveToReview();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const executeRequest = lastRequestOfType('autopilot:execute');
+
+    fireEvent.click(screen.getByTestId('control-stop'));
+
+    expect(lastRequestOfType('execution:abort').payload).toEqual({
+      operationId: executeRequest.id,
+    });
+
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Contact', objectName: 'Contact', status: 'stopped', wave: 1, recordCount: 0 },
+      executeRequest.id,
+    );
+    dispatchBridgeMessage(
+      'autopilot:completed',
+      {
+        totalRecords: 100,
+        totalSuccessCount: 100,
+        totalFailureCount: 0,
+        totalElapsedMs: 900,
+        totalApiCalls: 0,
+        stopped: true,
+        notWritten: ['Contact'],
+      },
+      executeRequest.id,
+    );
+
+    const contact = useAutopilotStore
+      .getState()
+      .graph?.nodes.find((node) => node.objectApiName === 'Contact');
+    expect(contact?.status).toBe('skipped');
+    expect(screen.getByTestId('control-stopped').textContent).toContain('Contact');
+    expect(screen.queryByTestId('control-stop')).toBeNull();
+  });
+
   it('should surface a scan error and stay on the connect step', () => {
     render(<AutopilotPage />);
     fireEvent.click(screen.getByTestId('source-org-org-1'));

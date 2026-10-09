@@ -2149,3 +2149,109 @@ describe("AutopilotExecutor — an email's task, which the platform fills in its
     ]);
   });
 });
+
+describe('AutopilotExecutor — a run stopped part way', () => {
+  const twoWaves = (): ExecutionPlan =>
+    makePlan(
+      [
+        { order: 0, objects: ['Account'], dependsOn: [] },
+        { order: 1, objects: ['Contact'], dependsOn: [0] },
+      ],
+      8,
+    );
+  const counts = (): Map<string, number> =>
+    new Map([
+      ['Account', 5],
+      ['Contact', 3],
+    ]);
+
+  it('answers and counts the batch in flight, then writes no further batch', async () => {
+    const controller = new AbortController();
+    const deps = makeDeps({ update: vi.fn<UpdateFn>().mockResolvedValue([]) });
+    vi.mocked(deps.query).mockImplementation(async (_object, offset) => [
+      { Id: `a${String(offset)}` },
+      { Id: `a${String(offset + 1)}` },
+    ]);
+    // The stop comes while the first batch is with the target.
+    vi.mocked(deps.insert).mockImplementation(async (_object, records) => {
+      controller.abort();
+      return written(...records.map((r) => `t-${String(r.Id)}`));
+    });
+    const executor = new AutopilotExecutor(deps);
+
+    const result = await executor.execute(twoWaves(), [], [], counts(), controller.signal);
+
+    expect(deps.insert).toHaveBeenCalledTimes(1);
+    expect(deps.query).toHaveBeenCalledTimes(1);
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(result.stopped).toBe(true);
+    expect(result.totalSuccess).toBe(2);
+    expect(result.completedObjects).toEqual([]);
+    expect(result.failedObjects).toEqual([]);
+    // The objects it did not write, each with what it never sent.
+    expect(result.stoppedObjects).toEqual(['Account', 'Contact']);
+    expect(result.objectOutcomes?.Account).toMatchObject({ written: 2, failed: 0, notSent: 3 });
+    expect(result.objectOutcomes?.Contact).toMatchObject({ written: 0, notSent: 3 });
+  });
+
+  it('stops while paused instead of waiting for a resume', async () => {
+    const controller = new AbortController();
+    const deps = makeDeps();
+    vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'a1' }]);
+    vi.mocked(deps.insert).mockResolvedValueOnce(written('t1'));
+    const executor = new AutopilotExecutor(deps);
+    executor.on('wave-completed', () => {
+      executor.pause();
+      setTimeout(() => controller.abort(), 5);
+    });
+
+    const result = await executor.execute(
+      twoWaves(),
+      [],
+      [],
+      new Map([
+        ['Account', 1],
+        ['Contact', 3],
+      ]),
+      controller.signal,
+    );
+
+    expect(result.stopped).toBe(true);
+    expect(result.completedObjects).toEqual(['Account']);
+    expect(result.stoppedObjects).toEqual(['Contact']);
+    expect(deps.query).not.toHaveBeenCalledWith('Contact', expect.anything(), expect.anything());
+    expect(deps.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes nothing when stopped before it starts', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const deps = makeDeps();
+    const executor = new AutopilotExecutor(deps);
+
+    const result = await executor.execute(twoWaves(), [], [], counts(), controller.signal);
+
+    expect(deps.query).not.toHaveBeenCalled();
+    expect(deps.insert).not.toHaveBeenCalled();
+    expect(result.stopped).toBe(true);
+    expect(result.stoppedObjects).toEqual(['Account', 'Contact']);
+    expect(result.totalSuccess).toBe(0);
+  });
+
+  it('runs to its end, unmarked, when its signal never aborts', async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.query).mockResolvedValue([]);
+    const executor = new AutopilotExecutor(deps);
+
+    const result = await executor.execute(
+      twoWaves(),
+      [],
+      [],
+      counts(),
+      new AbortController().signal,
+    );
+
+    expect(result.stopped).toBeUndefined();
+    expect(result.stoppedObjects).toBeUndefined();
+  });
+});

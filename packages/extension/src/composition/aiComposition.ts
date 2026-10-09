@@ -159,7 +159,11 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   // Seed personas and AI field rules — calls `services.aiClient().chat()`, and
   // the factory builds that adapter with the window's one token budget. They
   // are metered from the first call, including calls made while this runs.
-  const aiCallFn: import('../modules/ai/AIAssistant').AICallFn = async (messages, callConfig) => {
+  const aiCallFn: import('../modules/ai/AIAssistant').AICallFn = async (
+    messages,
+    callConfig,
+    options,
+  ) => {
     const start = Date.now();
     const result = await services.aiClient().chat({
       messages: messages
@@ -167,6 +171,8 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       system: messages.find((m) => m.role === 'system')?.content,
       maxTokens: callConfig.maxTokens,
+      // A question stopped on the AI page aborts its request, and that one only.
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
     return {
       content: result.text,

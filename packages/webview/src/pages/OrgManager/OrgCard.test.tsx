@@ -87,6 +87,23 @@ describe('OrgCard', () => {
     expect(onDisconnect).toHaveBeenCalledWith('org-1');
   });
 
+  it('opens the org in the browser without selecting the card', () => {
+    const onOpenInBrowser = vi.fn();
+    const onSelect = vi.fn();
+    render(<OrgCard {...defaultProps} onSelect={onSelect} onOpenInBrowser={onOpenInBrowser} />);
+
+    fireEvent.click(screen.getByTestId('org-open-org-1'));
+
+    expect(screen.getByTestId('org-open-org-1').textContent).toBe('Open in browser');
+    expect(onOpenInBrowser).toHaveBeenCalledWith(mockOrg);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('offers no Open button when the page gives no way to open the org', () => {
+    render(<OrgCard {...defaultProps} />);
+    expect(screen.queryByTestId('org-open-org-1')).toBeNull();
+  });
+
   it.each(['expired', 'error'] as const)(
     'should offer a reconnect on a %s org without selecting the card',
     (status) => {

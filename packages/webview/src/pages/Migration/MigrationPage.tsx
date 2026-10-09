@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileJson, FileUp } from 'lucide-react';
-import type { SyncExecutionResult } from '@sandforge/shared';
+import type { SyncExecutionResult, SyncOperation } from '@sandforge/shared';
+import { syncConfigSchema } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -14,6 +15,8 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { JsonViewer } from '../../components/ui/JsonViewer';
+import { ObjectSetEditor } from '../Sync/ObjectSetEditor';
+import type { ObjectSetEntry } from '../Sync/ObjectSetEditor';
 
 /** Import source supported by the migration bridge messages. */
 type ImportType = 'sfdmu' | 'universal';
@@ -125,12 +128,75 @@ function extractObjectPreviews(config: Record<string, unknown>): ImportedObjectP
   return previews;
 }
 
+/** The objects of a config, each the record the importer wrote. */
+function configObjects(config: Record<string, unknown>): Array<Record<string, unknown>> {
+  const objects = config.objects;
+  if (!Array.isArray(objects)) return [];
+  return objects.filter(
+    (raw): raw is Record<string, unknown> =>
+      typeof raw === 'object' && raw !== null && typeof raw.objectApiName === 'string',
+  );
+}
+
+/** What the object set editor shows of an imported object. */
+function toEntry(obj: Record<string, unknown>): ObjectSetEntry {
+  return {
+    objectApiName: String(obj.objectApiName),
+    operation: (typeof obj.operation === 'string' ? obj.operation : 'insert') as SyncOperation,
+    externalIdField: typeof obj.externalIdField === 'string' ? obj.externalIdField : '',
+    batchSize: typeof obj.batchSize === 'number' ? obj.batchSize : 200,
+    where: typeof obj.where === 'string' ? obj.where : '',
+  };
+}
+
+/**
+ * The config as Sync checks it, the org ids aside: the importer's are
+ * placeholders the run replaces with the orgs picked here.
+ */
+const editedConfigSchema = syncConfigSchema.omit({ sourceOrgId: true, targetOrgId: true });
+
+/** Why a config edited here cannot run, or null when it can. */
+type EditProblem =
+  | { kind: 'noObjects' }
+  | { kind: 'upsertNeedsKey'; objectApiName: string }
+  | { kind: 'invalid'; reason: string };
+
+/**
+ * What keeps the edited config from running: no object left, an upsert with
+ * no External ID field to match on (the extension refuses one keyed on `Id`,
+ * which the target has never issued), or anything else Sync's own schema
+ * refuses, by its first issue.
+ */
+function editProblem(config: Record<string, unknown>): EditProblem | null {
+  const objects = configObjects(config);
+  if (objects.length === 0) return { kind: 'noObjects' };
+  const unkeyed = objects.find(
+    (obj) =>
+      obj.operation === 'upsert' &&
+      (typeof obj.externalIdField !== 'string' ||
+        obj.externalIdField.trim() === '' ||
+        obj.externalIdField === 'Id'),
+  );
+  if (unkeyed) return { kind: 'upsertNeedsKey', objectApiName: String(unkeyed.objectApiName) };
+  const checked = editedConfigSchema.safeParse(config);
+  if (checked.success) return null;
+  const [issue] = checked.error.issues;
+  return {
+    kind: 'invalid',
+    reason: issue ? `${issue.path.join('.')}: ${issue.message}` : checked.error.message,
+  };
+}
+
 /**
  * Migration page — exposes the SFDMU and universal importers.
  *
  * The import itself is non-destructive: the extension reads the file, converts
- * it to a SandForge SyncConfig and returns it for preview. Nothing is
- * persisted or executed from this screen.
+ * it to a SandForge SyncConfig and returns it for preview. The objects can be
+ * edited here before a run (operation, External ID, batch size, filter, or
+ * left out), on a copy of the converted config: what the editor does not show
+ * (field mappings, excluded and add-on fields, transform rules, query, order)
+ * is sent as the import gave it. Handing the config to the Sync wizard instead
+ * would have lost those, which its draft does not hold.
  */
 export const MigrationPage: React.FC = () => {
   const { t } = useTranslation();
@@ -169,11 +235,76 @@ export const MigrationPage: React.FC = () => {
   const displayedError = activeMutation.error ?? responseError;
   const successResult =
     activeMutation.data?.success && activeMutation.data.config ? activeMutation.data : null;
-  const objectPreviews = successResult?.config ? extractObjectPreviews(successResult.config) : [];
+  /**
+   * The copy of the converted config the editor changes, kept with the import
+   * it was made from: a new import starts from its own config again.
+   */
+  const [edited, setEdited] = useState<{
+    source: Record<string, unknown>;
+    config: Record<string, unknown>;
+  } | null>(null);
+  const importedConfig = successResult?.config;
+  const workingConfig =
+    importedConfig && edited?.source === importedConfig ? edited.config : importedConfig;
+  const objectPreviews = workingConfig ? extractObjectPreviews(workingConfig) : [];
   const configName =
-    successResult?.config && typeof successResult.config.name === 'string'
-      ? successResult.config.name
-      : undefined;
+    workingConfig && typeof workingConfig.name === 'string' ? workingConfig.name : undefined;
+  const workingObjects = workingConfig ? configObjects(workingConfig) : [];
+  const problem = workingConfig ? editProblem(workingConfig) : null;
+
+  /** Replace the copy's objects, every other key of the config as imported. */
+  const writeObjects = (objects: Array<Record<string, unknown>>): void => {
+    if (!importedConfig || !workingConfig) return;
+    setEdited({ source: importedConfig, config: { ...workingConfig, objects } });
+  };
+
+  /**
+   * Write one edited field back into its object. An empty External ID or
+   * filter is no key and no filter, not an empty one; every key the editor
+   * does not show is left as it was.
+   */
+  const handleObjectChange = (
+    index: number,
+    field: keyof ObjectSetEntry,
+    value: string | number,
+  ): void => {
+    writeObjects(
+      workingObjects.map((obj, i) => {
+        if (i !== index) return obj;
+        const next: Record<string, unknown> = { ...obj, [field]: value };
+        if ((field === 'externalIdField' || field === 'where') && String(value).trim() === '') {
+          delete next[field];
+        }
+        return next;
+      }),
+    );
+  };
+
+  const handleObjectRemove = (index: number): void => {
+    writeObjects(workingObjects.filter((_, i) => i !== index));
+  };
+
+  /** The imported objects left out, which can be put back as imported. */
+  const removedObjects = importedConfig
+    ? configObjects(importedConfig).filter(
+        (obj) => !workingObjects.some((kept) => kept.objectApiName === obj.objectApiName),
+      )
+    : [];
+
+  /** Put a left-out object back, as imported, where it stood in the import. */
+  const handleObjectAdd = (objectApiName: string): void => {
+    if (!importedConfig) return;
+    const order = configObjects(importedConfig).map((obj) => obj.objectApiName);
+    const restored = configObjects(importedConfig).find(
+      (obj) => obj.objectApiName === objectApiName,
+    );
+    if (!restored) return;
+    writeObjects(
+      [...workingObjects, restored].sort(
+        (a, b) => order.indexOf(a.objectApiName) - order.indexOf(b.objectApiName),
+      ),
+    );
+  };
 
   const handleTypeChange = (type: ImportType): void => {
     if (type === importType) return;
@@ -189,6 +320,7 @@ export const MigrationPage: React.FC = () => {
 
   const handleReset = (): void => {
     setFilePath('');
+    setEdited(null);
     sfdmuMutation.reset();
     universalMutation.reset();
     runMutation.reset();
@@ -197,8 +329,20 @@ export const MigrationPage: React.FC = () => {
   };
 
   /** Both orgs picked and distinct — a sync into its own source is not a sync. */
-  const canRunImported =
+  const orgsPicked =
     runSourceOrgId.length > 0 && runTargetOrgId.length > 0 && runSourceOrgId !== runTargetOrgId;
+  /** The orgs picked, and a config Sync accepts as edited. */
+  const canRunImported = orgsPicked && problem === null;
+
+  /** Why the edited config cannot run, in the page's language. */
+  const problemMessage =
+    problem === null
+      ? null
+      : problem.kind === 'noObjects'
+        ? t('migration.edit.noObjects')
+        : problem.kind === 'upsertNeedsKey'
+          ? t('migration.edit.upsertNeedsKey', { object: problem.objectApiName })
+          : t('migration.edit.invalid', { reason: problem.reason });
 
   /**
    * Run the imported config through the existing sync pipeline.
@@ -209,10 +353,11 @@ export const MigrationPage: React.FC = () => {
    * was rendered and then dropped on unmount.
    */
   const handleRunImported = (): void => {
-    if (!successResult?.config || !canRunImported || runMutation.loading) return;
+    if (!workingConfig || !canRunImported || runMutation.loading) return;
     runMutation.mutate({
       config: {
-        ...successResult.config,
+        // The copy as edited here: what the editor does not show is the import's.
+        ...workingConfig,
         // The importer's org ids are generated placeholders; substitute the
         // orgs the user actually picked.
         sourceOrgId: runSourceOrgId,
@@ -394,6 +539,25 @@ export const MigrationPage: React.FC = () => {
                   </li>
                 ))}
               </ul>
+              {/* The objects as they will run, edited on a copy of the import. */}
+              <div data-testid="migration-edit">
+                <ObjectSetEditor
+                  entries={workingObjects.map(toEntry)}
+                  availableObjects={removedObjects.map((obj) => String(obj.objectApiName))}
+                  onAdd={handleObjectAdd}
+                  onRemove={handleObjectRemove}
+                  onChange={handleObjectChange}
+                />
+              </div>
+              {problemMessage !== null && (
+                <div
+                  className="text-xs text-status-error"
+                  role="alert"
+                  data-testid="migration-edit-problem"
+                >
+                  {problemMessage}
+                </div>
+              )}
               {/* Until now the import ended here: the converted config was
                   rendered as JSON and dropped when the page unmounted, with no
                   way to save or run what had just been imported. */}
@@ -431,7 +595,7 @@ export const MigrationPage: React.FC = () => {
                   >
                     {runMutation.loading ? t('migration.run.running') : t('migration.run.action')}
                   </Button>
-                  {!canRunImported && (
+                  {!orgsPicked && (
                     <div className="text-xs text-text-secondary" data-testid="migration-run-hint">
                       {t('migration.run.orgsRequired')}
                     </div>
@@ -488,7 +652,7 @@ export const MigrationPage: React.FC = () => {
                   {t('migration.rawConfig')}
                 </summary>
                 <div className="mt-2 rounded-sm bg-surface-1 border border-subtle p-2 overflow-auto">
-                  <JsonViewer data={successResult.config} collapsed />
+                  <JsonViewer data={workingConfig ?? successResult.config} collapsed />
                 </div>
               </details>
             </div>

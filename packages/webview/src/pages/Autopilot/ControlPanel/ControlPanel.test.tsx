@@ -90,6 +90,47 @@ describe('ControlPanel', () => {
     expect(screen.getByTestId('control-skip')).toHaveProperty('disabled', true);
   });
 
+  describe('Stop', () => {
+    it('posts execution:abort for the run, and waits for it to end', () => {
+      render(<ControlPanel runOperationId="exec-1" />);
+
+      fireEvent.click(screen.getByTestId('control-stop'));
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'execution:abort', payload: { operationId: 'exec-1' } }),
+      );
+      expect(screen.getByTestId('control-stop')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('control-stop').textContent).toBe('Stopping…');
+    });
+
+    it('is offered while the run goes or stands paused, and not once it has ended', () => {
+      const { rerender } = render(<ControlPanel runOperationId="exec-1" />);
+      expect(screen.getByTestId('control-stop').textContent).toBe('Stop');
+
+      mockStoreState.executionStatus = 'paused';
+      rerender(<ControlPanel runOperationId="exec-1" />);
+      expect(screen.getByTestId('control-stop')).toBeDefined();
+
+      mockStoreState.executionStatus = 'completed';
+      rerender(<ControlPanel runOperationId="exec-1" />);
+      expect(screen.queryByTestId('control-stop')).toBeNull();
+    });
+
+    it('is not offered before the run has an id to name', () => {
+      render(<ControlPanel />);
+      expect(screen.queryByTestId('control-stop')).toBeNull();
+    });
+
+    it('lists the objects a stopped run did not write whole', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runOperationId="exec-1" notWritten={['Contact', 'Case']} />);
+
+      expect(screen.getByTestId('control-stopped').textContent).toBe(
+        'Run stopped: nothing was written after the stop. Not written, or not whole: Contact, Case.',
+      );
+    });
+  });
+
   it('should post autopilot:skip-node with the selected object when skip is clicked', () => {
     mockStoreState.selectedNodeName = 'Account';
     render(<ControlPanel />);

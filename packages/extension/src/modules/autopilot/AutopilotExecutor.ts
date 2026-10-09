@@ -169,6 +169,11 @@ export interface ObjectOutcome {
    * without one it does, a comment on it. Neither written nor failed.
    */
   leftToThePlatform?: RowsLeftOut[];
+  /**
+   * Records the run had to write and never sent: it was stopped before it
+   * reached them. Neither written nor failed. Absent when there are none.
+   */
+  notSent?: number;
 }
 
 /**
@@ -211,6 +216,17 @@ export interface ExecutionResult {
   failedObjects: string[];
   /** Objects that were skipped */
   skippedObjects: string[];
+  /**
+   * Set when the run was stopped (its signal aborted): it wrote no batch
+   * after the one in flight, and none of the passes that follow the waves.
+   */
+  stopped?: boolean;
+  /**
+   * The objects the stop cut short or kept from the target whole, each with
+   * what it wrote and what it never sent in {@link objectOutcomes}. Neither
+   * completed nor failed.
+   */
+  stoppedObjects?: string[];
   /**
    * First error per failed object, keyed by API name — `STATUS_CODE: message`
    * whenever the target gave a code. The aggregate counters cannot carry it,
@@ -386,6 +402,8 @@ interface ObjectState {
   apiCallsUsed: number;
   /** Lookups left to the target's default → records that held a value. */
   defaulted: Map<string, number>;
+  /** Records the stop kept from the target, once the run was stopped. */
+  notSent?: number;
 }
 
 /** An object's totals before any of its records is written. */
@@ -411,6 +429,8 @@ interface ObjectResult {
   apiCallsUsed: number;
   elapsedMs: number;
   leftToDefault: DefaultedLookup[];
+  /** Set when the stop cut the object short: the records it never sent. */
+  notSent?: number;
 }
 
 /** A lookup a written record went in without, owed until the record it points at is in. */
@@ -445,6 +465,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private pausePromise: Promise<void> | null = null;
   private pauseResolve: (() => void) | null = null;
   private skippedObjects = new Set<string>();
+  /** The run's stop, when its caller gave one. */
+  private signal: AbortSignal | undefined;
   /** One describe of the target per object, kept for the run. */
   private readonly creatableByObject = new Map<string, ReadonlySet<string> | null>();
   /** The target's key prefix per object, kept for the run. */
@@ -645,6 +667,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * @param edges - Dependency edges for ID remapping
    * @param rules - Anonymization rules to apply
    * @param recordCounts - Map of object API name to record count
+   * @param signal - Stops the run between two calls: the batch in flight is
+   *   answered and counted, and nothing is written after it
    * @returns Execution result summary
    */
   async execute(
@@ -652,8 +676,14 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     edges: AutopilotEdge[],
     rules: AnonymizationRule[],
     recordCounts: Map<string, number>,
+    signal?: AbortSignal,
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
+    this.signal = signal;
+    // A run stopped while paused stops there, rather than waiting for a resume
+    // nobody will send: the pause is let go, and the stop read after it.
+    const letThePauseGo = (): void => this.pauseResolve?.();
+    signal?.addEventListener('abort', letThePauseGo, { once: true });
     const nodeErrors: Record<string, string> = {};
     const objectOutcomes: Record<string, ObjectOutcome> = {};
     const result: ExecutionResult = {
@@ -668,6 +698,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       nodeErrors,
       objectOutcomes,
     };
+    const stoppedObjects: string[] = [];
 
     this.emit(
       'execution-started',
@@ -694,9 +725,20 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         return;
       }
 
-      await this.checkPause();
-
       const totalRecords = recordCounts.get(objectApiName) ?? 0;
+      if (await this.checkPause()) {
+        // Stopped before its turn: none of it went to the target.
+        stoppedObjects.push(objectApiName);
+        objectOutcomes[objectApiName] = {
+          written: 0,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          ...(totalRecords > 0 ? { notSent: totalRecords } : {}),
+        };
+        return;
+      }
+
       try {
         const objResult = await this.executeObject(
           objectApiName as ApiName,
@@ -716,7 +758,17 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           refusals: objResult.refusals,
           ...(objResult.leftToDefault.length > 0 ? { leftToDefault: objResult.leftToDefault } : {}),
           ...(leftToThePlatform.length > 0 ? { leftToThePlatform } : {}),
+          ...(objResult.notSent !== undefined && objResult.notSent > 0
+            ? { notSent: objResult.notSent }
+            : {}),
         };
+
+        // Cut short by the stop: neither completed nor failed, and said so
+        // once the run ends, with what it wrote and what it never sent.
+        if (objResult.notSent !== undefined) {
+          stoppedObjects.push(objectApiName);
+          return;
+        }
 
         // A node that wrote nothing is still whole when every record it
         // holds is in the target: linked to, its children point at it.
@@ -781,6 +833,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
       for (const wave of plan.waves) {
         await this.writeWave(wave.objects, edges, writeNode);
+        // Stopped: no wave after this one, and none of the updates that
+        // follow a wave or the run. Each is a write, and the stop is one of
+        // writing nothing more.
+        if (this.stopped()) break;
         // What the wave's records went in without, now that what they point
         // at is in: before the next wave, whose records may read it.
         await this.fillOwedLookups(lookups);
@@ -792,6 +848,32 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             timestamp: '',
           }),
         );
+      }
+
+      if (this.stopped()) {
+        // The objects of the waves the stop kept the run from: none written.
+        const reached = new Set([
+          ...result.completedObjects,
+          ...result.failedObjects,
+          ...result.skippedObjects,
+          ...stoppedObjects,
+        ]);
+        for (const objectApiName of plan.waves.flatMap((wave) => wave.objects)) {
+          if (reached.has(objectApiName)) continue;
+          const totalRecords = recordCounts.get(objectApiName) ?? 0;
+          stoppedObjects.push(objectApiName);
+          objectOutcomes[objectApiName] = {
+            written: 0,
+            linked: 0,
+            failed: 0,
+            refusals: [],
+            ...(totalRecords > 0 ? { notSent: totalRecords } : {}),
+          };
+        }
+        result.stopped = true;
+        result.stoppedObjects = stoppedObjects;
+        result.elapsedMs = Date.now() - startTime;
+        return result;
       }
 
       // Emails still waiting for the task each names — the task node never
@@ -808,6 +890,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const statuses = await this.applyDeferredStatuses();
       if (Object.keys(statuses).length > 0) result.statuses = statuses;
       if (Object.keys(lookups).length > 0) result.lookups = lookups;
+      // Stopped during the passes after the waves: every object was reached,
+      // and the updates after the stop were not sent.
+      if (this.stopped()) {
+        result.stopped = true;
+        result.stoppedObjects = stoppedObjects;
+      }
 
       result.elapsedMs = Date.now() - startTime;
       this.emit(
@@ -834,6 +922,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // Rethrow: returning hands the caller partial counters indistinguishable
       // from a finished run, which is how a crash reaches the user as a success.
       throw err;
+    } finally {
+      signal?.removeEventListener('abort', letThePauseGo);
     }
   }
 
@@ -888,7 +978,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })(),
       );
     }
-    await Promise.all(written);
+    // Every group settled before the wave ends, failed or not: a run that
+    // returned while a group still wrote would report a batch it never
+    // counted.
+    const settled = await Promise.allSettled(written);
+    const failed = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 
   /**
@@ -946,6 +1041,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const refusals = new RefusalTally();
       for (const refusal of known?.refusals ?? []) refusals.addCounted(refusal);
       for (let i = 0; i < records.length; i += this.batchSize) {
+        if (this.stopped()) break;
         const part = records.slice(i, i + this.batchSize);
         const results = await updateEach(update, objectApiName, part);
         part.forEach((_, index) => {
@@ -983,6 +1079,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       apiCallsUsed: state.apiCallsUsed,
       elapsedMs: Date.now() - objStart,
       leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
+      ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
     });
 
     // Held back whole, before its first page: a run translates a record type
@@ -1031,7 +1128,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // own before the custom ones.
       const rows: Record<string, unknown>[] = [];
       while (offset < totalRecords) {
-        await this.checkPause();
+        if (await this.checkPause()) {
+          state.notSent = totalRecords;
+          return finish();
+        }
         const batch = await this.deps.query(objectApiName, offset, this.batchSize);
         state.apiCallsUsed++;
         if (batch.length === 0) break;
@@ -1044,7 +1144,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       let processed = 0;
       for (const round of [standard, custom]) {
         for (let i = 0; i < round.length; i += this.batchSize) {
-          await this.checkPause();
+          if (await this.checkPause()) {
+            state.notSent = rows.length - processed;
+            return finish();
+          }
           const batch = round.slice(i, i + this.batchSize);
           await this.writeBatch(objectApiName, batch, edges, state);
           processed += batch.length;
@@ -1055,7 +1158,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     while (offset < totalRecords) {
-      await this.checkPause();
+      if (await this.checkPause()) {
+        // What the run never read is what it never sent.
+        state.notSent = totalRecords - offset;
+        break;
+      }
 
       // 1. Query from source
       const read = await this.deps.query(objectApiName, offset, this.batchSize);
@@ -1305,8 +1412,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * invites — and the invitee's answer, its status, response and when it
    * responded, where the target's describe lets an update set them, and say
    * what it could not give. See `giveLinkedRelationsTheirFlags`. A run given
-   * no update of the target asks nothing. An Autopilot run has no cancel, so
-   * none is handed to the updates.
+   * no update of the target asks nothing; a run stopped sends no update after
+   * the stop.
    */
   private async giveFlagsBack(
     objectApiName: string,
@@ -1326,6 +1433,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         state.apiCallsUsed++;
         return update(objectApiName, records);
       },
+      () => this.stopped(),
     );
     if (flagsNotKept) {
       logger.warn('Autopilot linked relations without a flag or an answer their rows carried', {
@@ -1418,7 +1526,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     if (emails.length === 0) return;
     const state = emptyObjectState();
     for (let i = 0; i < emails.length; i += this.batchSize) {
-      await this.checkPause();
+      if (await this.checkPause()) break;
       await this.writeBatch(
         EMAIL_MESSAGE as ApiName,
         emails.slice(i, i + this.batchSize),
@@ -1615,6 +1723,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       let applied = 0;
       const refusals = new RefusalTally();
       for (let i = 0; i < entries.length; i += this.batchSize) {
+        if (this.stopped()) break;
         const part = entries.slice(i, i + this.batchSize);
         const results = await updateEach(
           update,
@@ -1673,11 +1782,21 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     this.skippedObjects.add(objectApiName);
   }
 
-  /** Check if paused and wait until resumed. */
-  private async checkPause(): Promise<void> {
+  /** Whether the run's stop has come. */
+  private stopped(): boolean {
+    return this.signal?.aborted === true;
+  }
+
+  /**
+   * Wait out a pause, before each batch, and say whether the run is stopped:
+   * stopped before the pause or during it, the caller writes nothing more.
+   */
+  private async checkPause(): Promise<boolean> {
+    if (this.stopped()) return true;
     if (this.paused && this.pausePromise) {
       await this.pausePromise;
     }
+    return this.stopped();
   }
 
   /** Create a timestamped event, overriding the timestamp field. */

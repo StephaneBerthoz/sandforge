@@ -316,6 +316,7 @@ export class ExtensionHandlers {
     this.seedCloneHandler.setLiveOperationTracker(tracker);
     this.seedCsvHandler.setLiveOperationTracker(tracker);
     this.frozenHandler.setLiveOperationTracker(tracker);
+    this.autopilotHandler.setLiveOperationTracker(tracker);
   }
 
   /** Inject the file-backed store that holds backup record payloads. */
@@ -365,6 +366,9 @@ export class ExtensionHandlers {
     // A real-time session writes until it is stopped: Live Operations lists it
     // and its Cancel stops it.
     this.realtimeHandler.setRegistry(registry);
+    // An Autopilot run writes wave after wave: without the registry no
+    // execution:abort could reach it, and the run had pause and nothing else.
+    this.autopilotHandler.setRegistry(registry);
     this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
@@ -527,6 +531,7 @@ export class ExtensionHandlers {
         'org:disconnect',
         'org:select',
         'org:update',
+        'org:open-in-browser',
       ],
       this.orgHandler,
     );
@@ -716,6 +721,7 @@ export class ExtensionHandlers {
     route(
       [
         'ai:chat',
+        'ai:chat:cancel',
         'ai:conversation:create',
         'ai:conversation:load',
         'ai:conversation:list',
