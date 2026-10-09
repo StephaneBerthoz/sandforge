@@ -1195,6 +1195,23 @@ describe('sandforge-clone contact points', () => {
     );
   });
 
+  it('says how many phone numbers went empty once the fictional numbers ran out', () => {
+    const lines = contactPointLines(
+      {
+        neutralized: true,
+        fields: [{ objectApiName: 'Contact', field: 'Phone', kind: 'phone' as const, values: 3 }],
+        values: 3,
+        numbersExhausted: 2,
+      },
+      false,
+    );
+
+    expect(lines.at(-1)).toBe(
+      '  2 phone number(s) left out, their field empty: the 10 000 fictional numbers were all ' +
+        'given to other numbers of the run',
+    );
+  });
+
   it('says the records went with their own addresses and numbers under --keep-contact-points', () => {
     expect(contactPointLines({ neutralized: false, fields: [], values: 0 }, false)).toEqual([
       "contact points: written as read (--keep-contact-points): the target's flows and email " +
@@ -1541,6 +1558,69 @@ describe('sandforge-clone describes', () => {
       expect(await run(argv('--list-objects', '--exclude-object', 'Contact'))).toBeUndefined();
 
       expect(printed.join('\n')).toMatch(/Contact\s+1\s+depth 1\s+\(excluded\)/);
+    });
+
+    describe('with --upsert by an email external id', () => {
+      /** The contact's describe, with an email external id an upsert matches by. */
+      const keyed = object('Contact', '003', [
+        { name: 'LastName' },
+        { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+        { name: 'Login_Email__c', type: 'email', externalId: true },
+      ]);
+      let plain: DescribeSObjectResult;
+      beforeEach(() => {
+        plain = DESCRIBES.Contact;
+        DESCRIBES.Contact = keyed;
+      });
+      afterEach(() => {
+        DESCRIBES.Contact = plain;
+      });
+
+      it('says before the run that the key goes neutralized and matches no copy holding the real address', async () => {
+        withFakeOrgs();
+
+        expect(await run(argv('--dry-run', '--skip-preflight', '--upsert'))).toBeUndefined();
+
+        const at = printed.findIndex((line) => line.startsWith('upsert keys: '));
+        expect(printed[at]).toBe(
+          'upsert keys: --upsert matches the records of TGT by these external ids, which the ' +
+            'run writes neutralized (emails under .invalid, phone numbers in a fictional range): ' +
+            'a record of TGT holding the real address or number is not matched, and the run ' +
+            'creates another beside it; one an earlier run wrote neutralized is. ' +
+            '--keep-contact-points matches the real ones',
+        );
+        expect(printed[at + 1]).toBe('  Contact.Login_Email__c (email)');
+        expect(at).toBeLessThan(printed.indexOf('record-type mapping…'));
+      });
+
+      it('hands the key to a CI job in the JSON summary', async () => {
+        withFakeOrgs();
+        let stdout = '';
+        vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+          stdout += String(chunk);
+          return true;
+        });
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        expect(
+          await run(argv('--dry-run', '--skip-preflight', '--upsert', '--json')),
+        ).toBeUndefined();
+
+        expect((JSON.parse(stdout) as Record<string, unknown>).neutralizedUpsertKeys).toEqual([
+          { objectApiName: 'Contact', field: 'Login_Email__c', kind: 'email' },
+        ]);
+      });
+
+      it('says nothing of it with --keep-contact-points, or without --upsert', async () => {
+        for (const extra of [['--upsert', '--keep-contact-points'], []]) {
+          withFakeOrgs();
+          printed = [];
+
+          expect(await run(argv('--dry-run', '--skip-preflight', ...extra))).toBeUndefined();
+
+          expect(printed.some((line) => line.startsWith('upsert keys: '))).toBe(false);
+        }
+      });
     });
 
     it("writes a record type's default in place of a value it does not keep, read once from the target's UI API", async () => {

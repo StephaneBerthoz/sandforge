@@ -22,8 +22,9 @@
  *     [--max <n>] [--anonymize] [--dry-run]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
+ *       [--audit <file>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
- *     --verify <summary.json> --target <alias> [--source <alias>] [--json]
+ *     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
  *
  * Example:
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
@@ -31,15 +32,17 @@
  *     --source SOURCE-UAT --target TARGET-DEV \
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn } from './sfSession.js';
+import { fileConfigStore } from './fileConfigStore.js';
 
 import type {
   ForgeConfig,
   ForgeConfigInput,
+  ForgeContactPointKind,
   ForgeContactPointsReport,
   ForgeDecisionApplied,
   ForgeFieldRefusal,
@@ -62,6 +65,7 @@ import {
   fileCopyRefusal,
   forgeConfigSchema,
   forgeConfigSchemaStrict,
+  forgeRemovalPlanLeft,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
   forgeTemplateSchema,
@@ -105,7 +109,11 @@ import type {
 } from '../src/modules/forge/ForgeExecutor.js';
 import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
 import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
-import { PIIDetector, personalFieldsByApiName } from '../src/core/precheck/PIIDetector.js';
+import {
+  PIIDetector,
+  contactPointOf,
+  personalFieldsByApiName,
+} from '../src/core/precheck/PIIDetector.js';
 import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
@@ -122,7 +130,23 @@ import {
   setBackToDraftOf,
   type RunRemovalOutcome,
 } from '../src/modules/forge/ForgeRunRemoval.js';
-import { removalStatus } from '../src/modules/forge/removalOutcome.js';
+import {
+  removalAuditObjects,
+  removalAuditOutcome,
+  removalStatus,
+} from '../src/modules/forge/removalOutcome.js';
+import { recordWriteRun } from '../src/modules/audit/auditTrail.js';
+import type { AuditDeps, WriteRun } from '../src/modules/audit/auditTrail.js';
+import {
+  RUN_CANCELLED,
+  auditTalliesOf,
+  cancelledRunOutcome,
+  contactPointsAudit,
+  forgeAuditObjects,
+  forgeCarried,
+} from '../src/modules/forge/forgeAudit.js';
+import { ForgeRunAudit } from '../src/modules/forge/forgeRunAudit.js';
+import { finishedRunStatus } from '../src/modules/forge/runResult.js';
 import {
   TargetAutomationReader,
   answerOf,
@@ -162,6 +186,7 @@ import {
 import type { ForgeRunVerification } from '@sandforge/shared';
 import {
   RunVerifier,
+  verificationTotals,
   verifiedOrg,
   writtenWithoutByObject,
   type SourceOrg,
@@ -244,6 +269,11 @@ export interface CliArgs {
   anonymizeFields: Array<{ objectApiName: string; fieldNames: string[] }> | undefined;
   /** The file the run's choices were read from, as its output names it. */
   choicesFrom: { flag: ChoicesFlag; path: string } | undefined;
+  /**
+   * The file the run's entry in the audit trail goes to (`--audit`), the
+   * store the panel keeps its trail in; undefined = no entry.
+   */
+  audit: string | undefined;
 }
 
 /** The flags that read a run's choices from a file. */
@@ -257,8 +287,9 @@ Usage:
     --record <id> --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
+      [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
-    --verify <summary.json> --target <alias> [--source <alias>] [--json]
+    --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
 
   Run from the repository root of a checkout, after pnpm install and
   pnpm build:shared.
@@ -442,6 +473,15 @@ Options:
   --files-as-is          accept that files are copied as they are: their
                          content cannot be anonymized. Required with --files
                          when --anonymize is on.
+  --audit <file>         record the run in an audit trail kept in <file>
+                         The entry the panel keeps in Reports -> Audit Trail:
+                         per object the records created, updated and lost,
+                         the orgs, the outcome, the user as a hash of the
+                         username, and, for a run refused before it wrote,
+                         the code of what refused it. Counts only, never a
+                         value of a record. Each run adds its entry to the
+                         file; a dry run, --list-objects and --rehearse write
+                         nothing, and add none.
   -h, --help             show this help and exit
 
 Remove what a run created:
@@ -466,6 +506,7 @@ Remove what a run created:
                          say what it runs                       (default: off)
   --json                 print what became of the records as JSON on stdout,
                          every other line on stderr
+  --audit <file>         record the removal in the audit trail kept in <file>
 
 Verify what a run created:
   --verify <file>        the summary a run printed with --json, saved to a file
@@ -487,6 +528,8 @@ Verify what a run created:
                          one left empty.
   --json                 print the verification as JSON on stdout, every other
                          line on stderr
+  --audit <file>         record the verification in the audit trail kept in
+                         <file>
 
 Exit codes:
   0  the clone ran; the rehearsal ran, whatever it found refused; the removal
@@ -928,7 +971,70 @@ export function parseArgs(argv: string[]): CliArgs {
     anonymizationRules: { ...template?.anonymization?.rules },
     anonymizeFields: template?.anonymization?.fields,
     choicesFrom: choicesFlag && choicesPath ? { flag: choicesFlag, path: choicesPath } : undefined,
+    audit: auditArg(args),
   };
+}
+
+/**
+ * Where `--audit` keeps the audit trail, read and checked; exits 2 on a flag
+ * given no file, and on a file there that is not a store the command can add
+ * to — refused before any org is contacted, where it would otherwise lose the
+ * run's entry once the run had written.
+ */
+function auditArg(args: readonly string[]): string | undefined {
+  const at = args.indexOf('--audit');
+  if (at < 0) return undefined;
+  const path = args[at + 1];
+  if (path === undefined || path.startsWith('--')) {
+    process.stderr.write('--audit takes the file the audit trail is kept in.\n');
+    process.exit(2);
+  }
+  try {
+    fileConfigStore(path);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--audit ${path} is not an audit trail the command can add to (${extractErrorMessage(err)}): ` +
+        'give another file, or move it.\n',
+    );
+    process.exit(2);
+  }
+  return path;
+}
+
+/** An org an entry of `--audit` names: the alias it was reached by, and the user the command ran as. */
+export type AuditedOrg = { alias: string; username: string };
+
+/**
+ * What `--audit` records with: the panel's own store, kept in the file, and
+ * the orgs the command reached by their own ids, the way the Frozen command
+ * registers them. Exported so it can be tested.
+ */
+export function auditDepsOf(path: string, orgs: ReadonlyMap<string, AuditedOrg>): AuditDeps {
+  return {
+    configStore: fileConfigStore(path),
+    orgManager: { getOrg: (id) => orgs.get(id) },
+    log: (message) => process.stderr.write(`${message}\n`),
+  };
+}
+
+/**
+ * Add one run's entry to the audit trail `--audit` keeps, as the panel adds
+ * its own (`recordWriteRun`); nothing without the flag. A file that can no
+ * longer be written is said, and the run's own outcome stands.
+ */
+function recordCliRun(
+  path: string | undefined,
+  orgs: ReadonlyMap<string, AuditedOrg>,
+  run: WriteRun,
+): void {
+  if (!path) return;
+  try {
+    recordWriteRun(auditDepsOf(path, orgs), run);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `The run's entry could not be added to the audit trail in ${path} (${extractErrorMessage(err)}).\n`,
+    );
+  }
 }
 
 /**
@@ -1441,6 +1547,67 @@ export function contactPointLines(report: ForgeContactPointsReport, dryRun: bool
     ...report.fields.map(
       ({ objectApiName, field, values }) => `  ${objectApiName}.${field}  ${values}`,
     ),
+    ...(report.numbersExhausted
+      ? [
+          `  ${report.numbersExhausted} phone number(s) left out, their field empty: the ` +
+            '10 000 fictional numbers were all given to other numbers of the run',
+        ]
+      : []),
+  ];
+}
+
+/** An external id `--upsert` may match the target's records by, written neutralized. */
+export interface NeutralizedUpsertKey {
+  objectApiName: string;
+  field: string;
+  kind: ForgeContactPointKind;
+}
+
+/**
+ * The external ids `--upsert` may match the target's records by that hold an
+ * email address or a phone number, which the run writes neutralized unless
+ * `--keep-contact-points`: of each object the run writes, the createable
+ * external ids the source describes, the fields the writer picks its key
+ * among. Exported so it can be tested.
+ *
+ * @param objects - Per object, its fields as the source describes them.
+ */
+export function neutralizedUpsertKeys(
+  objects: ReadonlyArray<{
+    objectApiName: string;
+    fields: ReadonlyArray<{
+      name: string;
+      type: string;
+      externalId?: boolean;
+      createable?: boolean;
+    }>;
+  }>,
+): NeutralizedUpsertKey[] {
+  return objects.flatMap(({ objectApiName, fields }) =>
+    fields.flatMap((field) => {
+      if (field.externalId !== true || field.createable === false) return [];
+      const kind = contactPointOf(field.name, String(field.type).toLowerCase());
+      return kind ? [{ objectApiName, field: field.name, kind }] : [];
+    }),
+  );
+}
+
+/**
+ * What a run that upserts by a neutralized contact point is told before it
+ * writes: the key it writes is not the address the target's own copy holds,
+ * so that copy is not matched, and the run creates a record beside it. A copy
+ * an earlier neutralized run wrote is matched: the key is written the same
+ * from one run to the next. Exported so it can be tested.
+ */
+export function upsertKeyLines(keys: readonly NeutralizedUpsertKey[], target: string): string[] {
+  if (keys.length === 0) return [];
+  return [
+    `upsert keys: --upsert matches the records of ${target} by these external ids, which the run ` +
+      'writes neutralized (emails under .invalid, phone numbers in a fictional range): a record ' +
+      `of ${target} holding the real address or number is not matched, and the run creates ` +
+      'another beside it; one an earlier run wrote neutralized is. --keep-contact-points matches ' +
+      'the real ones',
+    ...keys.map(({ objectApiName, field, kind }) => `  ${objectApiName}.${field} (${kind})`),
   ];
 }
 
@@ -1984,6 +2151,8 @@ export interface RemoveArgs {
   json: boolean;
   /** Delete although the target runs automation as the records go, or could not say what it runs. */
   acceptAutomation: boolean;
+  /** The file the removal's entry in the audit trail goes to; undefined = no entry. */
+  audit: string | undefined;
 }
 
 /** The flags a removal reads. */
@@ -1993,10 +2162,11 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--include-changed',
   '--json',
   '--accept-automation',
+  '--audit',
 ]);
 
 /** The flags of a removal that take a value. */
-const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target', '--audit']);
 
 /**
  * The command line of a removal read and checked; exits on `--help` or a bad
@@ -2025,7 +2195,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --accept-automation and --json, not "${arg}". ` +
+        `--remove takes --target, --include-changed, --accept-automation, --json and --audit, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -2046,6 +2216,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     includeChanged: has('--include-changed'),
     json: has('--json'),
     acceptAutomation: has('--accept-automation'),
+    audit: auditArg(args),
   };
 }
 
@@ -2297,9 +2468,11 @@ const orgDateSchema = z
  * What a removal keeps beside the summary for the next one: what the
  * removals of the run left on records they did not delete, by record id, and
  * when each that wrote to the org ran and as which user — what the wizard
- * keeps in a run's history entry (`removalStamps`, `removalSpans`). External
- * input as the summary is: every id is checked for an id, every date for a
- * date.
+ * keeps in a run's history entry (`removalStamps`, `removalSpans`) — and the
+ * run's records they have not taken (`removalLeft`). External input as the
+ * summary is: every id is checked for an id, every date for a date. A file
+ * written before removals kept `removalLeft` reads all the same: the next
+ * removal sets out to take every record the run created.
  */
 const runRemovalsSchema = z.object({
   tool: z.literal('sandforge-clone'),
@@ -2310,13 +2483,14 @@ const runRemovalsSchema = z.object({
   removalSpans: z.array(
     z.object({ first: orgDateSchema, last: orgDateSchema, userId: summaryIdSchema }),
   ),
+  removalLeft: z.array(summaryIdSchema).optional(),
 });
 
 /** What a removal keeps beside the summary for the next one. */
 export type RunRemovals = z.infer<typeof runRemovalsSchema>;
 
 /** What earlier removals of a run left on its records, for the next removal to be told. */
-export type EarlierRemovals = Pick<RunRemovals, 'removalStamps' | 'removalSpans'>;
+export type EarlierRemovals = Pick<RunRemovals, 'removalStamps' | 'removalSpans' | 'removalLeft'>;
 
 /**
  * What the removals file beside a summary says of the earlier removals of
@@ -2357,29 +2531,47 @@ export function readEarlierRemovals(
       .map((issue) => `${issue.path.map(String).join('.') || 'the file'}: ${issue.message}`);
     return { refusal: `is not a record of removals a removal can read: ${issues.join('; ')}.` };
   }
-  const { removalStamps, removalSpans } = parsed.data;
-  return { earlier: { removalStamps, removalSpans } };
+  const { removalStamps, removalSpans, removalLeft } = parsed.data;
+  return { earlier: { removalStamps, removalSpans, ...(removalLeft ? { removalLeft } : {}) } };
 }
 
 /**
  * What the removals file holds once a removal has run: what the earlier
  * removals of the run left, with what this one left over it for a record both
- * stamped, and when this one ran — as the wizard adds a removal's to the run's
- * history entry. Nothing when this removal stamped nothing and did not say
- * when it ran: it has nothing to add. Exported so it can be tested.
+ * stamped, when this one ran, and the records of the run still to take — those
+ * it set out to take less those it deleted or found gone — as the wizard adds
+ * a removal's to the run's history entry. Nothing when this removal stamped
+ * nothing, took nothing and did not say when it ran: it has nothing to add.
+ * Exported so it can be tested.
+ *
+ * A second removal of a summary once set out to take every record the run
+ * created again: a record the first deleted from an object that skips the
+ * recycle bin was found neither in the org nor in the bin, and counted as not
+ * visible to the user, and the removal exited 3 for records already gone.
+ *
+ * @param plan - What this removal set out to take.
  */
 export function removalsAfter(
   run: string,
   earlier: EarlierRemovals | undefined,
-  outcome: Pick<RunRemovalOutcome, 'stamps' | 'span'>,
+  outcome: Pick<RunRemovalOutcome, 'stamps' | 'span'> & { gone?: readonly string[] },
+  plan: readonly ForgeRunObjectRecords[] = [],
 ): RunRemovals | undefined {
-  if (Object.keys(outcome.stamps).length === 0 && !outcome.span) return undefined;
+  const gone = new Set(outcome.gone ?? []);
+  if (Object.keys(outcome.stamps).length === 0 && !outcome.span && gone.size === 0) {
+    return undefined;
+  }
+  const left =
+    gone.size > 0
+      ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)))
+      : earlier?.removalLeft;
   return {
     tool: 'sandforge-clone',
     version: 1,
     run,
     removalStamps: { ...earlier?.removalStamps, ...outcome.stamps },
     removalSpans: [...(earlier?.removalSpans ?? []), ...(outcome.span ? [outcome.span] : [])],
+    ...(left ? { removalLeft: left } : {}),
   };
 }
 
@@ -2458,6 +2650,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     (sum, { sourceIds }) => sum + sourceIds.length,
     0,
   );
+  /** Records of the run an earlier removal of this summary took: not planned again. */
+  let removedEarlier = 0;
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -2484,6 +2678,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               planned: objects.reduce((sum, o) => sum + o.planned, 0),
               objects,
               ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
+              ...(removedEarlier > 0 ? { removedEarlier } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
@@ -2504,8 +2699,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     console.log(`\ndone in ${Date.now() - t0}ms`);
   };
 
-  const plan = removalPlan(summary);
-  if (plan.length === 0) {
+  const created = removalPlan(summary);
+  if (created.length === 0) {
     say('The run created no record: there is nothing of it to remove.');
     output('success', []);
     return;
@@ -2517,7 +2712,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // left — a status given back, an amount its deleted children changed — for
   // a change since the run, and keep the record. Read and checked before any
   // org is contacted, as the summary is.
-  const run = runKey(plan);
+  const run = runKey(created);
   const removalsFile = removalsPath(args.summaryPath);
   let removalsText: string | undefined;
   try {
@@ -2537,11 +2732,40 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
+  // What earlier removals took is not planned again, as the panel plans only
+  // what a run's history entry says is left (`forgeRemovalPlanLeft`).
+  const plan = forgeRemovalPlanLeft({
+    objects: created,
+    removalLeft: before.earlier?.removalLeft,
+  });
+  const count = (objects: readonly ForgeRunObjectRecords[]): number =>
+    objects.reduce((sum, object) => sum + object.ids.length, 0);
+  removedEarlier = count(created) - count(plan);
+  if (removedEarlier > 0) {
+    say(`${removedEarlier} record(s) removed by an earlier --remove of this summary`);
+  }
+  if (plan.length === 0) {
+    say('nothing left of the run to remove');
+    output('success', []);
+    return;
+  }
   const session = await loadOrg(args.target);
   const conn = makeConn(session);
   const org = await typeOrg(conn);
+  /** The removal's entry in the audit trail, with --audit; one operation id for the process. */
+  const audited = new Map([[org.id, { alias: args.target, username: session.username }]]);
+  const operationId = `sandforge-clone-${randomUUID()}`;
+  const recordRemoval = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) =>
+    recordCliRun(args.audit, audited, {
+      action: 'cleanup_delete',
+      module: 'forge',
+      operationId,
+      orgId: org.id,
+      ...run,
+    });
   const refusal = productionRefusal(args.target, org, 'remove');
   if (refusal) {
+    recordRemoval({ outcome: 'stopped', code: 'PRODUCTION_TARGET' });
     process.stderr.write(`${refusal}\n`);
     process.exit(1);
   }
@@ -2573,6 +2797,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     ),
   });
   if (automationStop && !args.acceptAutomation) {
+    recordRemoval({ outcome: 'stopped', code: 'AUTOMATION_NOT_ACCEPTED' });
     process.stderr.write(`${automationStop}\n`);
     process.exit(1);
   }
@@ -2620,11 +2845,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.off('SIGINT', interrupt);
   }
   const status = removalStatus(outcome.objects, outcome.cancelled);
+  // A removal after an earlier one of the summary takes what that one left,
+  // as the panel records it: with when that one ended, by the org's clock.
+  const leftBy = before.earlier?.removalSpans.at(-1)?.last;
+  recordRemoval({
+    outcome: removalAuditOutcome({ status, objects: outcome.objects }),
+    objects: removalAuditObjects(outcome.objects),
+    ...(leftBy ? { leftBy } : {}),
+  });
   // Kept beside the summary whatever the removal ended on, cancelled
   // included, as the wizard adds it to the run's history. A file that cannot
   // be written is said, and the removal's own outcome stands: the next one may
   // then read what this one wrote as changes since the run.
-  const removals = removalsAfter(run, before.earlier, outcome);
+  const removals = removalsAfter(run, before.earlier, outcome, plan);
   const failure = removals ? writeWhole(removalsFile, removals) : undefined;
   if (failure) {
     process.stderr.write(
@@ -2652,13 +2885,26 @@ export interface VerifyArgs {
   source: string | undefined;
   /** Print the verification as JSON on stdout, and every other line on stderr. */
   json: boolean;
+  /** The file the verification's entry in the audit trail goes to; undefined = no entry. */
+  audit: string | undefined;
 }
 
 /** The flags a verification reads. */
-const VERIFY_FLAGS: ReadonlySet<string> = new Set(['--verify', '--target', '--source', '--json']);
+const VERIFY_FLAGS: ReadonlySet<string> = new Set([
+  '--verify',
+  '--target',
+  '--source',
+  '--json',
+  '--audit',
+]);
 
 /** The flags of a verification that take a value. */
-const VERIFY_VALUE_FLAGS: ReadonlySet<string> = new Set(['--verify', '--target', '--source']);
+const VERIFY_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '--verify',
+  '--target',
+  '--source',
+  '--audit',
+]);
 
 /**
  * The command line of a verification read and checked; exits on `--help` or
@@ -2685,7 +2931,7 @@ export function parseVerifyArgs(argv: string[]): VerifyArgs {
     }
     if (!VERIFY_FLAGS.has(arg)) {
       process.stderr.write(
-        `--verify takes --target, --source and --json, not "${arg}". Run with --help for usage.\n`,
+        `--verify takes --target, --source, --json and --audit, not "${arg}". Run with --help for usage.\n`,
       );
       process.exit(2);
     }
@@ -2699,7 +2945,13 @@ export function parseVerifyArgs(argv: string[]): VerifyArgs {
     );
     process.exit(2);
   }
-  return { summaryPath, target, source: get('--source'), json: args.includes('--json') };
+  return {
+    summaryPath,
+    target,
+    source: get('--source'),
+    json: args.includes('--json'),
+    audit: auditArg(args),
+  };
 }
 
 /**
@@ -2866,7 +3118,8 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   const written = writtenWithoutSchema.safeParse(raw);
 
   say(`sandforge-clone --verify  ${args.summaryPath}  in ${args.target}`);
-  const conn = makeConn(await loadOrg(args.target));
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
   const org = await typeOrg(conn);
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
     process.stderr.write(
@@ -2884,21 +3137,42 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
       unavailable: `the org the run read from, ${sourceAlias}, could not be reached: ${extractErrorMessage(err)}`,
     };
   }
-  const verification = await new RunVerifier({
-    target: verifiedOrg(conn, 'sandforge-clone --verify'),
-    source,
-  }).verify({
-    records,
-    remapTable: summary.result.remapTable,
-    ...(summary.result.writtenBetween
-      ? { runEndedAt: new Date(summary.result.writtenBetween.last) }
-      : summary.finishedAt
-        ? { runRecordedAt: new Date(summary.finishedAt) }
+  /** The verification's entry in the audit trail, with --audit, as the panel records one. */
+  const audited = new Map([[org.id, { alias: args.target, username: session.username }]]);
+  const recordVerification = (run: Pick<WriteRun, 'outcome' | 'verdict' | 'details'>) =>
+    recordCliRun(args.audit, audited, {
+      action: 'forge_verify',
+      module: 'forge',
+      operationId: `sandforge-clone-${randomUUID()}`,
+      orgId: org.id,
+      ...run,
+    });
+  let verification: ForgeRunVerification;
+  try {
+    verification = await new RunVerifier({
+      target: verifiedOrg(conn, 'sandforge-clone --verify'),
+      source,
+    }).verify({
+      records,
+      remapTable: summary.result.remapTable,
+      ...(summary.result.writtenBetween
+        ? { runEndedAt: new Date(summary.result.writtenBetween.last) }
+        : summary.finishedAt
+          ? { runRecordedAt: new Date(summary.finishedAt) }
+          : {}),
+      ...(removalStamps ? { removalStamps } : {}),
+      ...(written.success
+        ? { writtenWithout: writtenWithoutByObject(written.data.result.writtenWithoutFields) }
         : {}),
-    ...(removalStamps ? { removalStamps } : {}),
-    ...(written.success
-      ? { writtenWithout: writtenWithoutByObject(written.data.result.writtenWithoutFields) }
-      : {}),
+    });
+  } catch (err: unknown) {
+    recordVerification({ outcome: 'failure' });
+    throw err;
+  }
+  recordVerification({
+    outcome: verification.verdict === 'verified' ? 'success' : 'partial',
+    verdict: verification.verdict,
+    details: verificationTotals(verification),
   });
 
   if (args.json) {
@@ -2969,20 +3243,68 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const sourceOrg = await loadOrg(args.source);
   const targetOrg = await loadOrg(args.target);
+  /**
+   * How the run was set up and let through, as the panel's entry says it: its
+   * anonymization, its contact points, its decisions, what fired as it
+   * inserted, and what --accept-automation let through. A command-line run
+   * goes without the Review screen.
+   */
+  let audit: ForgeRunAudit | undefined;
+  const runAudit = (): ForgeRunAudit =>
+    (audit ??= new ForgeRunAudit(
+      {
+        inputMode: 'record',
+        recordId: args.record,
+        depth: args.depth,
+        sourceOrgId: args.source,
+        targetOrgId: args.target,
+        anonymizePII: args.anonymize,
+        keepContactPoints: args.keepContactPoints,
+        skipEmpty: true,
+        batchSize: 'auto',
+        excludedObjects: args.excludedObjects,
+        ...args.decisions,
+      },
+      { reviewSkipped: true },
+    ));
   const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
   // Typed before discovery reads a row, so a production target is refused
   // before the run has cost anything. A dry run and a listing only read.
   let targetOrgId: string | undefined;
+  /**
+   * The orgs the run's entry in the audit trail names, with --audit, by their
+   * own ids: the target once typed, the source typed for it alone.
+   */
+  const audited = new Map<string, AuditedOrg>();
+  let sourceOrgId: string | undefined;
+  const operationId = `sandforge-clone-${randomUUID()}`;
+  /** A real run's entry; a dry run, a listing and a rehearsal write nothing, and record nothing. */
+  const recordClone = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) => {
+    if (targetOrgId === undefined || args.dryRun || args.listObjects || args.rehearse) return;
+    recordCliRun(args.audit, audited, {
+      action: 'forge_execute',
+      module: 'forge',
+      operationId,
+      orgId: targetOrgId,
+      ...run,
+    });
+  };
   if (!args.dryRun && !args.listObjects) {
     const target = await typeOrg(conns.get(args.target)!);
+    targetOrgId = target.id;
+    audited.set(target.id, { alias: args.target, username: targetOrg.username });
+    if (args.audit && !args.rehearse) {
+      sourceOrgId = (await typeOrg(conns.get(args.source)!)).id;
+      audited.set(sourceOrgId, { alias: args.source, username: sourceOrg.username });
+    }
     const refusal = productionRefusal(args.target, target, 'clone');
     if (refusal) {
+      recordClone({ outcome: 'stopped', code: 'PRODUCTION_TARGET', context: runAudit().context() });
       process.stderr.write(`${refusal}\n`);
       process.exit(1);
     }
-    targetOrgId = target.id;
   }
   // Every request either org is sent: the run's calls are the record types'
   // read for it and those sent while the executor has it, as the extension
@@ -3141,6 +3463,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
   say('');
   for (const line of gapLines(targetGaps, args.target)) say(line);
+  // What --upsert matches the target's records by, when the run writes it
+  // neutralized: an email key went out as `x@y.com.invalid` and matched no
+  // copy holding the real address. Said before anything is written, and
+  // given to a CI job under `neutralizedUpsertKeys`.
+  const upsertKeys =
+    args.upsert && !args.keepContactPoints
+      ? neutralizedUpsertKeys(
+          await Promise.all(
+            graph.nodes
+              .filter((node) => node.included)
+              .map(async ({ objectApiName }) => ({
+                objectApiName,
+                fields: await describe(args.source, objectApiName)
+                  .then((described) => described.fields)
+                  .catch(() => []),
+              })),
+          ),
+        )
+      : [];
+  for (const line of upsertKeyLines(upsertKeys, args.target)) say(line);
   // What fires as the clone inserts its records is no longer only said: the
   // panel puts it to the user before it reads anything, and the command,
   // with no one to ask, writes nothing unless told to go on regardless. A
@@ -3164,8 +3506,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       targetOrg.username ? { alias: args.target, username: targetOrg.username } : undefined,
     ),
   });
+  runAudit().automationRead({ automation: targetAutomation }, updated);
+  if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
   if (automationStop && !args.acceptAutomation) {
     if (!args.dryRun) {
+      recordClone({
+        outcome: 'stopped',
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        context: runAudit().context(),
+      });
       process.stderr.write(`${automationStop}\n`);
       process.exit(1);
     }
@@ -3536,6 +3885,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // the run: each gap with its kind, severity, object, field and the
     // decisions it allows; what could not be read, and what the read cost.
     targetGaps,
+    // The external ids --upsert may match by that the run writes neutralized.
+    ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
     result: jsonResult(counted),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
@@ -3599,6 +3950,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
     summary = withRecordTypeCalls(executed);
   } catch (err: unknown) {
+    // Recorded as the panel records a run that did not end: stopped at its
+    // gate under the gate's code; stopped by Ctrl-C, partial once it wrote;
+    // failed otherwise, with what it wrote before it threw.
+    const gate = err instanceof ForgeRunGateError ? err : undefined;
+    const stoppedPartial = gate ? undefined : partialSummaryOf(err);
+    const tallies = stoppedPartial ? auditTalliesOf(stoppedPartial) : undefined;
+    const objects = tallies ? forgeAuditObjects(tallies) : [];
+    const cancelled = interrupted || err instanceof ForgeAbortedError;
+    const stoppedOutcome = gate
+      ? 'stopped'
+      : cancelled
+        ? cancelledRunOutcome(stoppedPartial, objects)
+        : 'failure';
+    recordClone({
+      outcome: stoppedOutcome,
+      ...(gate ? { code: gate.code } : stoppedOutcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
+      ...(tallies
+        ? {
+            objects,
+            ...(sourceOrgId ? { source: { origin: 'org' as const, orgId: sourceOrgId } } : {}),
+            carried: forgeCarried(tallies),
+          }
+        : {}),
+      ...contactPointsAudit(stoppedPartial?.contactPoints),
+      context: runAudit().context(stoppedPartial?.decisionsApplied),
+    });
     // Refused before anything was written — the files do not fit in the
     // target, its storage could not be read, or the files could not all be
     // looked up in the source; the records are more than --max-total, or
@@ -3608,7 +3985,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
     }
-    const partial = partialSummaryOf(err);
+    const partial = stoppedPartial;
     if (partial && (interrupted || err instanceof ForgeAbortedError)) {
       const document = runDocument(withRecordTypeCalls(partial), new Date(), {
         interrupted: true,
@@ -3634,6 +4011,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   } finally {
     process.off('SIGINT', interrupt);
   }
+
+  // The run's entry, as the panel records a run that ended: per object what it
+  // created, updated and lost, what it carried from the source, the contact
+  // points it neutralized, and how it was set up.
+  const tallies = auditTalliesOf(summary);
+  recordClone({
+    outcome: finishedRunStatus(summary),
+    objects: forgeAuditObjects(tallies),
+    ...(sourceOrgId ? { source: { origin: 'org' as const, orgId: sourceOrgId } } : {}),
+    carried: forgeCarried(tallies),
+    ...contactPointsAudit(summary.contactPoints),
+    context: runAudit().context(summary.decisionsApplied),
+  });
 
   // When the run ended, on this machine's clock: a removal dates by it a run
   // whose writes the target did not date, as the wizard dates a history entry.

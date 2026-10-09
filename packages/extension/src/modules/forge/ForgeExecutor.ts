@@ -2619,7 +2619,11 @@ export class ForgeExecutor {
       readAtItsTurn: new Map(),
       statusChildrenRead: new Map(),
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
-      contactPoints: config.keepContactPoints ? null : new ContactPointNeutralizer(),
+      // An upsert matches by external id: one written neutralized is drawn the
+      // same from one run to the next, or the next run matches nothing.
+      contactPoints: config.keepContactPoints
+        ? null
+        : new ContactPointNeutralizer(undefined, { upsertKeys: config.upsertMode === 'auto' }),
       detectedPersonalFields: new Map<string, string[]>(),
       fileScope: new Map<string, string[]>(),
       files: null,

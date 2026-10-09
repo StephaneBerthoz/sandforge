@@ -150,6 +150,7 @@ stages:
                 $(automationFlag) \
                 --json \
                 --remap-csv remap.csv \
+                --audit clone-audit.json \
                 > clone-summary.json
             displayName: 'Clone record graph (sandforge-clone)'
 
@@ -168,6 +169,7 @@ stages:
                     --remove clone-summary.json \
                     --target ci-target \
                     --json \
+                    --audit clone-audit.json \
                     > clone-removal.json
                 displayName: 'Remove what the clone created (sandforge-clone --remove)'
 
@@ -181,6 +183,7 @@ stages:
                 clone-summary.json
                 clone-summary.removals.json
                 clone-removal.json
+                clone-audit.json
                 remap.csv
               TargetFolder: $(Build.ArtifactStagingDirectory)/clone-report
             displayName: 'Collect the clone report'

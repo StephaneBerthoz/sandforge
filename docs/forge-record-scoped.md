@@ -176,8 +176,10 @@ for.
   becomes a short address of its own under `example.invalid`.
 - A phone field's number becomes a fictional one of the mobile range kept for
   fiction, `+3363998XXXX`, drawn as the Frozen dataset draws its numbers: the
-  same number gives the same one throughout the run, another in the next. A
-  field too short for the country code takes the national form, `063998XXXX`.
+  same number gives the same one throughout the run, another in the next, and
+  two numbers never the same one. A field too short for the country code takes
+  the national form, `063998XXXX`. Past the 10 000 numbers of the range, a
+  number is left out, its field empty, and counted (`numbersExhausted`).
 - A text field whose API name gives it to either — `Notification_Email__c`,
   `SMS_Number__c` — has each address, or each run of seven digits or more, in
   its value treated so; a checkbox or a picklist named like one is left alone.

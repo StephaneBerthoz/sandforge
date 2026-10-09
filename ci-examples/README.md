@@ -38,11 +38,11 @@ The clone, the cleanup, Sync and Seed take `--dry-run`: the pipelines default th
 Every pipeline implements the same four stages:
 
 1. **Quality gates**: `pnpm validate` — chains `pnpm build:shared` → `pnpm typecheck` → `pnpm lint` → `pnpm test` → `pnpm check:i18n` → `pnpm build`. If you split it into separate stages for per-step reporting, keep `pnpm build:shared` first: the other packages import `@sandforge/shared` from its `dist/`, so a typecheck that runs before it fails on a fresh checkout.
-2. **Clone**: `sandforge-clone.ts --dry-run --json --remap-csv` against sf-authenticated orgs, its summary saved to `clone-summary.json` (skipped unless org secrets and a record Id are configured)
+2. **Clone**: `sandforge-clone.ts --dry-run --json --remap-csv --audit clone-audit.json` against sf-authenticated orgs, its summary saved to `clone-summary.json` (skipped unless org secrets and a record Id are configured)
 3. **Removal**: `sandforge-clone.ts --remove clone-summary.json` on the target sandbox, off unless you ask for it, and only after a real clone (see [Removal](#removal)). It takes back what that clone created and nothing else: never a record the target already held, and not one changed since the clone.
 4. **VSIX package**: `pnpm package`, uploaded/archived as an artifact
 
-The clone's report — `clone-summary.json`, `remap.csv`, and after a removal `clone-removal.json` and `clone-summary.removals.json` — is kept as an artifact whether the job passed or not.
+The clone's report — `clone-summary.json`, `remap.csv`, `clone-audit.json` (the audit trail entry of a real clone and of a removal, as the panel's Reports → Audit Trail keeps one; a dry run adds none), and after a removal `clone-removal.json` and `clone-summary.removals.json` — is kept as an artifact whether the job passed or not.
 
 ## Setup
 

@@ -10,11 +10,11 @@ import type {
   ForgeVerificationVerdict,
   GuardDecision,
   LineageOrigin,
+  SalesforceOrg,
 } from '@sandforge/shared';
 import { AUDIT_TRAIL_LIMIT } from '@sandforge/shared';
 
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
-import type { OrgManager } from '../../core/connection/OrgManager.js';
 import type { Services } from '../../services.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { buildLineageGraph, LineageStore } from './lineage.js';
@@ -206,7 +206,12 @@ export function auditUserKey(username: string | undefined): string | undefined {
 /** What {@link recordWriteRun} needs from the window. */
 export interface AuditDeps {
   configStore: Pick<ConfigStore, 'get' | 'set'>;
-  orgManager: Pick<OrgManager, 'getOrg'>;
+  /**
+   * The orgs by id, as the registry holds them: the entry names an org by its
+   * alias and its user by a hash of the username. The window's `OrgManager`;
+   * the command-line clone's own map of the orgs it reached.
+   */
+  orgManager: { getOrg(orgId: string): Pick<SalesforceOrg, 'alias' | 'username'> | undefined };
   log: (msg: string) => void;
   /**
    * The window's settings, for `sandforge.safety.auditLogging`. Absent, the

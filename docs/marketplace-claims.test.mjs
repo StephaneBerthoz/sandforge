@@ -835,18 +835,21 @@ test('anchor: Forge refuses a production target before it runs or rehearses', ()
 });
 
 /**
- * Where a buyer is told what Production Guard does: both READMEs and the guide
- * they link first. "Double confirmation" was sold there since the first
- * release; a Forge run now refuses a production target, and every other
- * module's write to one is one modal, which a setting turns off.
+ * Where a buyer is told what Production Guard does: both READMEs, the guide
+ * they link first, and the FAQ's "Does SandForge modify production data?".
+ * "Double confirmation" was sold there since the first release; a Forge run
+ * now refuses a production target, and every other module's write to one is
+ * one modal, which a setting turns off. The FAQ answer was rewritten by hand
+ * once already, outside any gate, so it is held to the same claim.
  */
 const PRODUCTION_SURFACES = () => [
   ['README.md', read('README.md')],
   ['packages/extension/README.md', read(...EXT, 'README.md')],
   ['docs/getting-started.md', read('docs', 'getting-started.md')],
+  ['docs/faq.md', read('docs', 'faq.md')],
 ];
 
-test('the READMEs and the guide say Forge refuses a production org, and promise no double confirmation', () => {
+test('the READMEs, the guide and the FAQ say Forge refuses a production org, and promise no double confirmation', () => {
   const offenders = [];
   for (const [label, text] of PRODUCTION_SURFACES()) {
     if (/double confirmation/i.test(text)) {
@@ -920,7 +923,7 @@ test('anchor: what the first steps say of Forge is what its code does', () => {
   const executor = read(...EXT, 'src', 'modules', 'forge', 'ForgeExecutor.ts');
   assert.match(
     executor,
-    /config\.keepContactPoints \? null : new ContactPointNeutralizer\(\)/,
+    /config\.keepContactPoints\s*\?\s*null\s*:\s*new ContactPointNeutralizer\(/,
     'a run no longer neutralizes contact points unless told to keep them — step 4 is false',
   );
 

@@ -144,6 +144,75 @@ describe('ContactPointNeutralizer', () => {
     expect(next).not.toEqual(once);
   });
 
+  it('never gives two numbers of a run the same fictional one', () => {
+    // Drawn freely from the 10 000 numbers of the range, 100 numbers shared
+    // one about 39 % of the time, 2 000 almost always.
+    const neutralizer = new ContactPointNeutralizer('salt');
+    const sources = Array.from({ length: 2_000 }, (_, i) => `07${String(i).padStart(8, '0')}`);
+
+    const rows = neutralized(
+      neutralizer,
+      [field('Phone', 'phone', 40)],
+      sources.map((Phone) => ({ Phone })),
+    );
+
+    const drawn = rows.map((row) => String(row['Phone']));
+    for (const number of drawn) expect(number).toMatch(FICTIONAL);
+    expect(new Set(drawn).size).toBe(2_000);
+  });
+
+  it('gives a number met again the fictional one it got first, after other numbers took theirs', () => {
+    const neutralizer = new ContactPointNeutralizer('salt');
+    const sources = Array.from({ length: 500 }, (_, i) => `07${String(i).padStart(8, '0')}`);
+
+    const rows = neutralized(
+      neutralizer,
+      [field('Phone', 'phone', 40), field('MobilePhone', 'phone', 40)],
+      sources.map((number, i) => ({ Phone: number, MobilePhone: sources[(i + 7) % 500] })),
+    );
+
+    const byNumber = new Map(rows.map((row, i) => [sources[i], row['Phone']]));
+    rows.forEach((row, i) => {
+      expect(row['MobilePhone']).toBe(byNumber.get(sources[(i + 7) % 500]));
+    });
+  });
+
+  it('gives no other number of the run a fictional one a record already holds', () => {
+    const fields = [field('Phone', 'phone', 40)];
+    const [{ Phone: drawn }] = neutralized(new ContactPointNeutralizer('salt'), fields, [
+      { Phone: '0612345678' },
+    ]);
+
+    // The same key: that number would draw the one a record already holds.
+    const rows = neutralized(new ContactPointNeutralizer('salt'), fields, [
+      { Phone: drawn },
+      { Phone: '0612345678' },
+    ]);
+
+    expect(rows[0]['Phone']).toBe(drawn);
+    expect(String(rows[1]['Phone'])).toMatch(FICTIONAL);
+    expect(rows[1]['Phone']).not.toBe(drawn);
+  });
+
+  it('leaves a number out once every fictional number of the range is taken, and counts it', () => {
+    const neutralizer = new ContactPointNeutralizer('salt');
+    const sources = Array.from({ length: 10_001 }, (_, i) => `07${String(i).padStart(8, '0')}`);
+
+    const rows = neutralized(
+      neutralizer,
+      [field('Phone', 'phone', 40), field('SMS_Number__c', 'string', 40)],
+      [...sources.map((Phone) => ({ Phone })), { SMS_Number__c: 'Rappeler au 06 98 76 54 32' }],
+    );
+
+    expect(new Set(rows.slice(0, 10_000).map((row) => row['Phone'])).size).toBe(10_000);
+    // Left out, the field goes in empty, and a text holding such a number too.
+    expect(rows[10_000]).toEqual({});
+    expect(rows[10_001]).toEqual({});
+    const report = neutralizer.report();
+    expect(report.numbersExhausted).toBe(2);
+    expect(report.values).toBe(10_002);
+  });
+
   it('leaves a phone value with no digit, and a number already in the fictional range', () => {
     const neutralizer = new ContactPointNeutralizer('salt');
     const rows = neutralized(

@@ -685,6 +685,7 @@ describe('sandforge-clone --remove', () => {
         run: runKey(PLAN),
         removalStamps: FIRST_STAMPS,
         removalSpans: [FIRST_SPAN],
+        removalLeft: [TGT('001', 1)],
       });
       expect(readFileSync(path, 'utf8')).toBe(summaryText);
       expect(printed).toContain(
@@ -720,6 +721,57 @@ describe('sandforge-clone --remove', () => {
         removalStamps: FIRST_STAMPS,
         removalSpans: [FIRST_SPAN, SECOND_SPAN],
       });
+    });
+
+    it('plans for a second removal only what the first left, and says the rest went with the first', async () => {
+      // The contacts' object skips the recycle bin: planned again, a contact
+      // the first removal deleted was found neither in the org nor in the bin,
+      // counted as not visible to the user, and the removal exited 3.
+      const path = file(runSummary());
+      vi.mocked(removeRunRecords)
+        .mockResolvedValueOnce(STOPPED_AFTER_CONTACTS)
+        .mockResolvedValueOnce({
+          objects: [objectResult('Account', 1)],
+          cancelled: false,
+          gone: [TGT('001', 1)],
+          stamps: {},
+          span: SECOND_SPAN,
+        });
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      const [, second] = vi.mocked(removeRunRecords).mock.calls.map(([, plan]) => plan);
+      expect(second).toEqual([{ objectApiName: 'Account', ids: [TGT('001', 1)] }]);
+      expect(printed).toContain('2 record(s) removed by an earlier --remove of this summary');
+      expect(printed).toContain('  Account: 1 deleted of 1');
+      expect(printed.join('\n')).not.toContain('not visible');
+      expect(removalsOf(path)).toMatchObject({ removalLeft: [] });
+    });
+
+    it('contacts no org once earlier removals took every record of the run, and exits 0', async () => {
+      const path = file(runSummary());
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey(PLAN),
+          removalStamps: {},
+          removalSpans: [FIRST_SPAN],
+          removalLeft: [],
+        },
+        'clone-summary.removals.json',
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
+
+      expect(stderr).toContain('3 record(s) removed by an earlier --remove of this summary');
+      expect(stderr).toContain('nothing left of the run to remove');
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: { status: 'success', planned: 0, objects: [], removedEarlier: 3 },
+      });
+      expect(loadOrg).not.toHaveBeenCalled();
+      expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
     it('reads nothing from the removals file of another run, and replaces it', async () => {
@@ -855,8 +907,17 @@ describe('sandforge-clone removals file', () => {
       });
 
     expect(readEarlierRemovals(undefined, run)).toEqual({});
+    // Written before removals kept what they left: read all the same.
     expect(readEarlierRemovals(kept(run), run)).toEqual({
       earlier: { removalStamps: FIRST_STAMPS, removalSpans: [FIRST_SPAN] },
+    });
+    const withLeft = JSON.stringify({ ...JSON.parse(kept(run)), removalLeft: [TGT('001', 1)] });
+    expect(readEarlierRemovals(withLeft, run)).toEqual({
+      earlier: {
+        removalStamps: FIRST_STAMPS,
+        removalSpans: [FIRST_SPAN],
+        removalLeft: [TGT('001', 1)],
+      },
     });
     expect(readEarlierRemovals(kept('another run'), run)).toEqual({ otherRun: true });
     // A clone's summary saved under that name.
@@ -874,8 +935,29 @@ describe('sandforge-clone removals file', () => {
     expect(runKey([{ objectApiName: 'Account', ids: [TGT('001', 1)] }])).not.toBe(runKey(PLAN));
   });
 
-  it('adds nothing for a removal that stamped nothing and did not say when it ran', () => {
+  it('adds nothing for a removal that stamped nothing, took nothing and did not say when it ran', () => {
     expect(removalsAfter(runKey(PLAN), undefined, { stamps: {} })).toBeUndefined();
+    expect(removalsAfter(runKey(PLAN), undefined, { stamps: {}, gone: [] }, PLAN)).toBeUndefined();
+  });
+
+  it('keeps the records of the run a removal set out to take less those it took, and carries them when it took none', () => {
+    const after = removalsAfter(
+      runKey(PLAN),
+      undefined,
+      { stamps: {}, gone: [TGT('003', 2)] },
+      PLAN,
+    );
+
+    expect(after?.removalLeft).toEqual([TGT('003', 1), TGT('001', 1)]);
+    // A later removal that took nothing keeps what the earlier left.
+    expect(
+      removalsAfter(
+        runKey(PLAN),
+        { removalStamps: {}, removalSpans: [], removalLeft: [TGT('001', 1)] },
+        { stamps: {}, span: SECOND_SPAN, gone: [] },
+        [{ objectApiName: 'Account', ids: [TGT('001', 1)] }],
+      )?.removalLeft,
+    ).toEqual([TGT('001', 1)]);
   });
 
   it("adds a removal's stamps over the earlier ones for a record both stamped, and its span after theirs", () => {

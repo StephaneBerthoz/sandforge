@@ -96,6 +96,57 @@ describe('cleanNodeRecords', () => {
 
       expect(out.cleaned).toEqual({ Name: 'X', Email: 'jane@acme.com', Phone__c: '0612345678' });
     });
+
+    it('gives an upsert key too long for .invalid the same short address in every run, and no other field', () => {
+      // Salted per run, the short address of the key matched nothing the run
+      // before had written, and the upsert created the record a second time.
+      const keyed: FieldInfo[] = [
+        ...FIELDS,
+        {
+          name: 'Login_Email__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'email',
+          length: 40,
+          externalId: true,
+        },
+        {
+          name: 'Backup_Email__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'email',
+          length: 40,
+        },
+      ];
+      const long = 'jane.doe.from.the.accounts.team@acme-holdings.com';
+      const keyRow = { Id: '003A', Name: 'X', Login_Email__c: long, Backup_Email__c: long };
+      const cleanedBy = (neutralizer: ContactPointNeutralizer) =>
+        cleanNodeRecords(
+          makeInput({
+            records: [keyRow],
+            fieldInfos: keyed,
+            creatableFields: new Set(['Name', 'Login_Email__c', 'Backup_Email__c']),
+            contactPoints: neutralizer,
+          }),
+        )[0].cleaned;
+
+      const first = cleanedBy(new ContactPointNeutralizer('first run', { upsertKeys: true }));
+      const next = cleanedBy(new ContactPointNeutralizer('next run', { upsertKeys: true }));
+
+      expect(first['Login_Email__c']).toMatch(/^user-[0-9a-f]{16}@example\.invalid$/);
+      expect(next['Login_Email__c']).toBe(first['Login_Email__c']);
+      // A field no upsert matches by keeps the run's own key.
+      expect(next['Backup_Email__c']).not.toBe(first['Backup_Email__c']);
+      for (const value of [...Object.values(first), ...Object.values(next)]) {
+        expect(String(value)).not.toContain('jane.doe');
+      }
+      // A run that does not upsert draws the key with its own key as well.
+      expect(cleanedBy(new ContactPointNeutralizer('first run'))['Login_Email__c']).not.toBe(
+        first['Login_Email__c'],
+      );
+    });
   });
 
   it('remaps lookup values through the IdRemapper', () => {

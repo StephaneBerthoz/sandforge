@@ -99,6 +99,7 @@ clone:
         $AUTOMATION_FLAG \
         --json \
         --remap-csv remap.csv \
+        --audit clone-audit.json \
         > clone-summary.json
     # Your checks against the cloned records go here.
     #
@@ -115,6 +116,7 @@ clone:
           --remove clone-summary.json \
           --target ci-target \
           --json \
+          --audit clone-audit.json \
           > clone-removal.json
       fi
   artifacts:
@@ -122,6 +124,7 @@ clone:
       - clone-summary.json
       - clone-summary.removals.json
       - clone-removal.json
+      - clone-audit.json
       - remap.csv
     expire_in: 30 days
     when: always

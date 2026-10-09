@@ -3,8 +3,14 @@
  * Phase A — Forge "5 niveaux" recette (READ-ONLY).
  *
  * Replays the production Forge discovery + plan pipeline against real orgs,
- * using the live tokens from the `sf` CLI. Does NOT call ForgeExecutor —
- * no writes are performed against the target org.
+ * using the live tokens from the `sf` CLI, then the executor as a simulation.
+ * Nothing is written to the target org: the executor always runs with
+ * `dryRun: true`, and the writers it is handed throw. This tool once kept the
+ * dry run in an editable constant, beside live insert, upsert and update
+ * writers on jsforce: flipping it wrote to whatever the target alias pointed
+ * at, past every check a run passes — no production refusal, no automation
+ * confirmation, no volume or storage limit. A run that writes goes through
+ * the command line (`sandforge-clone`), which passes them.
  *
  * Usage:
  *   pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
@@ -12,7 +18,6 @@
  * Default scenario: clone Case 500XX00000000001AAA from SOURCE-UAT → TARGET-DEV
  * with depth=custom=5 (matches the Forge wizard screenshot).
  */
-import { recordWriteHeaders } from '@sandforge/shared';
 import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
@@ -40,10 +45,6 @@ const SCENARIO = {
   anonymizePII: true,
   skipEmpty: true,
   apiVersion: '66.0',
-  /** When true, the recipe runs read-only (Phase B preview). When false, the
-   *  executor performs real inserts on the target org. Default to
-   *  true for safety — flip explicitly to write. */
-  dryRun: true,
   /** Per-object hard cap. */
   maxRecordsPerObject: 5,
   /** Auto-fetch missing required parents (single-hop). */
@@ -354,158 +355,7 @@ async function main(): Promise<void> {
   if (!rootObjectApiName) {
     console.log('  (no root node in graph — skipping Phase B)');
   } else {
-    const insertLog: InsertLogEntry[] = [];
-    const executorDeps: ForgeExecutorDeps = {
-      queryRecords: async (orgId, soql) => {
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const t = Date.now();
-        try {
-          const result = await conn.query<Record<string, unknown>>(soql);
-          queryLog.push({
-            object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
-            soql,
-            count: result.totalSize,
-            durationMs: Date.now() - t,
-          });
-          return result.records;
-        } catch (err) {
-          queryLog.push({
-            object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
-            soql,
-            count: -1,
-            durationMs: Date.now() - t,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return [];
-        }
-      },
-      upsertRecords: async (orgId, objectName, externalIdField, records) => {
-        if (SCENARIO.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const results = await conn
-          .sobject(objectName)
-          .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
-            headers: recordWriteHeaders(),
-          });
-        const arr = Array.isArray(results) ? results : [results];
-        return arr.map((r) => ({
-          id: r.id ?? '',
-          success: r.success,
-          errors:
-            r.errors?.map((e: { message?: string; statusCode?: string }) =>
-              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-            ) ?? [],
-        }));
-      },
-      updateRecords: async (orgId, objectName, records) => {
-        if (SCENARIO.dryRun) return [];
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const results = await conn
-          .sobject(objectName)
-          .update(records as unknown as { Id: string }[], {
-            headers: recordWriteHeaders(),
-          });
-        const arr = Array.isArray(results) ? results : [results];
-        return arr.map((r, i) => ({
-          id: r.id ?? (records[i]['Id'] as string) ?? '',
-          success: r.success,
-          errors:
-            r.errors?.map((e: { message?: string; statusCode?: string }) =>
-              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-            ) ?? [],
-        }));
-      },
-      insertRecords: async (orgId, objectName, records) => {
-        if (SCENARIO.dryRun) {
-          throw new Error('insertRecords called in dry-run mode — should not happen');
-        }
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const t = Date.now();
-        try {
-          // The same waiver every other write path sends: this tool copies a
-          // record graph into an org that already resembles its source.
-          const results = await conn
-            .sobject(objectName)
-            .create(records, { headers: recordWriteHeaders() });
-          const arr = Array.isArray(results) ? results : [results];
-          let succ = 0;
-          let fail = 0;
-          const errorSamples: InsertErrorSample[] = [];
-          const mapped = arr.map((r, idx) => {
-            const messages = (r.errors ?? []).map((e: { message?: string; statusCode?: string }) =>
-              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-            );
-            if (r.success) {
-              succ++;
-            } else {
-              fail++;
-              if (errorSamples.length < 3) {
-                errorSamples.push({
-                  recordSample: summarizeRecord(records[idx]),
-                  messages,
-                });
-              }
-            }
-            return { id: r.id ?? '', success: r.success, errors: messages };
-          });
-          insertLog.push({
-            object: objectName,
-            attempted: records.length,
-            succeeded: succ,
-            failed: fail,
-            durationMs: Date.now() - t,
-            errorSamples,
-          });
-          return mapped;
-        } catch (err) {
-          insertLog.push({
-            object: objectName,
-            attempted: records.length,
-            succeeded: 0,
-            failed: records.length,
-            durationMs: Date.now() - t,
-            errorSamples: [
-              {
-                recordSample: summarizeRecord(records[0] ?? {}),
-                messages: [err instanceof Error ? err.message : String(err)],
-              },
-            ],
-          });
-          throw err;
-        }
-      },
-      describeFields: async (orgId, objectName) => {
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const meta = await conn.sobject(objectName).describe();
-        return meta.fields.map<FieldInfo>((f) => ({
-          name: f.name,
-          queryable: true,
-          createable: f.createable ?? false,
-          isReference: f.type === 'reference',
-          referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
-          nillable: f.nillable ?? true,
-          picklistValues: (f.picklistValues ?? [])
-            .filter((p) => p?.active !== false && typeof p?.value === 'string')
-            .map((p) => p.value as string),
-          externalId: f.externalId === true,
-        }));
-      },
-      isObjectCreatable: async (orgId, objectName) => {
-        const conn = connections.get(orgId);
-        if (!conn) throw new Error(`No connection for ${orgId}`);
-        const meta = await conn.sobject(objectName).describe();
-        // Default to true when jsforce omits the flag — only opt out when
-        // the org explicitly says false (read-only system entities).
-        return meta.createable !== false;
-      },
-    };
-
-    const executor = new ForgeExecutor(executorDeps);
+    const executor = new ForgeExecutor(buildExecutorDeps(connections, queryLog));
 
     await executor.execute(
       graph,
@@ -523,7 +373,7 @@ async function main(): Promise<void> {
       {
         rootRecordId: SCENARIO.recordId,
         rootObjectApiName,
-        dryRun: SCENARIO.dryRun,
+        dryRun: true,
         recordTypeMappings,
         maxRecordsPerObject: SCENARIO.maxRecordsPerObject,
         expandOrphanParents: SCENARIO.expandOrphanParents,
@@ -532,9 +382,6 @@ async function main(): Promise<void> {
     );
 
     printPhaseB(queryLog, skipLog, Date.now() - phaseBStart, recordTypeMappings);
-    if (!SCENARIO.dryRun) {
-      printInsertLog(insertLog);
-    }
   }
 
   console.log(`\n══════════ SUMMARY ══════════`);
@@ -551,68 +398,6 @@ interface QueryLogEntry {
   error?: string;
 }
 
-interface InsertErrorSample {
-  recordSample: string;
-  messages: string[];
-}
-
-interface InsertLogEntry {
-  object: string;
-  attempted: number;
-  succeeded: number;
-  failed: number;
-  durationMs: number;
-  errorSamples: InsertErrorSample[];
-}
-
-function summarizeRecord(record: Record<string, unknown>): string {
-  const keys = Object.keys(record).slice(0, 4);
-  const parts = keys.map((k) => {
-    const v = record[k];
-    const s = typeof v === 'string' ? v : v === null ? 'null' : JSON.stringify(v);
-    return `${k}=${truncate(String(s), 30)}`;
-  });
-  return parts.join(' ');
-}
-
-function printInsertLog(log: InsertLogEntry[]): void {
-  if (log.length === 0) return;
-  const totalAttempted = log.reduce((s, e) => s + e.attempted, 0);
-  const totalSucceeded = log.reduce((s, e) => s + e.succeeded, 0);
-  const totalFailed = log.reduce((s, e) => s + e.failed, 0);
-
-  console.log(`\n══════════ WAVE 3 — REAL EXECUTION ══════════`);
-  console.log(
-    `Inserts attempted: ${totalAttempted}  |  Succeeded: ${totalSucceeded}  |  Failed: ${totalFailed}`,
-  );
-  console.log(
-    `\n${'object'.padEnd(45)} ${'attempt'.padStart(7)} ${'ok'.padStart(5)} ${'fail'.padStart(5)} ${'ms'.padStart(6)}`,
-  );
-  console.log('-'.repeat(80));
-  for (const entry of log) {
-    const failStr =
-      entry.failed > 0
-        ? `\x1b[31m${String(entry.failed).padStart(4)}!\x1b[0m`
-        : `${String(entry.failed).padStart(5)}`;
-    console.log(
-      `${entry.object.padEnd(45)} ${String(entry.attempted).padStart(7)} ${String(entry.succeeded).padStart(5)} ${failStr} ${String(entry.durationMs).padStart(6)}`,
-    );
-  }
-
-  const withErrors = log.filter((e) => e.errorSamples.length > 0);
-  if (withErrors.length === 0) return;
-  console.log(`\n══════════ INSERT ERRORS (${withErrors.length} object(s)) ══════════`);
-  for (const entry of withErrors) {
-    console.log(`\n  \x1b[31m✗ ${entry.object}\x1b[0m — ${entry.failed}/${entry.attempted} failed`);
-    for (const sample of entry.errorSamples) {
-      console.log(`    sample: ${sample.recordSample}`);
-      for (const msg of sample.messages) {
-        console.log(`    \x1b[33m└── ${truncate(msg, 200)}\x1b[0m`);
-      }
-    }
-  }
-}
-
 function extractObjectFromSoql(soql: string): string | null {
   const m = /FROM\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(soql);
   return m ? m[1] : null;
@@ -621,6 +406,83 @@ function extractObjectFromSoql(soql: string): string | null {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + '…';
+}
+
+/** What each writer of the recipe throws: it reads, and writes nothing. */
+export const READ_ONLY_RECIPE =
+  'read-only recipe: it writes nothing to the target org — write through sandforge-clone, ' +
+  'which refuses a production org and asks before what the target runs';
+
+/**
+ * The executor deps the recipe runs on: reads and describes go to the orgs,
+ * each query logged; insert, upsert and update throw {@link READ_ONLY_RECIPE}.
+ * A simulation never calls them; should a change of the executor ever send a
+ * write through them, the recipe stops instead of writing.
+ *
+ * @param connections - The orgs by alias.
+ * @param queryLog - Where each query the executor makes is logged.
+ */
+export function buildExecutorDeps(
+  connections: Map<string, Connection>,
+  queryLog: QueryLogEntry[],
+): ForgeExecutorDeps {
+  const refuse = (): never => {
+    throw new Error(READ_ONLY_RECIPE);
+  };
+  return {
+    queryRecords: async (orgId, soql) => {
+      const conn = connections.get(orgId);
+      if (!conn) throw new Error(`No connection for ${orgId}`);
+      const t = Date.now();
+      try {
+        const result = await conn.query<Record<string, unknown>>(soql);
+        queryLog.push({
+          object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
+          soql,
+          count: result.totalSize,
+          durationMs: Date.now() - t,
+        });
+        return result.records;
+      } catch (err) {
+        queryLog.push({
+          object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
+          soql,
+          count: -1,
+          durationMs: Date.now() - t,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      }
+    },
+    insertRecords: async () => refuse(),
+    upsertRecords: async () => refuse(),
+    updateRecords: async () => refuse(),
+    describeFields: async (orgId, objectName) => {
+      const conn = connections.get(orgId);
+      if (!conn) throw new Error(`No connection for ${orgId}`);
+      const meta = await conn.sobject(objectName).describe();
+      return meta.fields.map<FieldInfo>((f) => ({
+        name: f.name,
+        queryable: true,
+        createable: f.createable ?? false,
+        isReference: f.type === 'reference',
+        referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+        nillable: f.nillable ?? true,
+        picklistValues: (f.picklistValues ?? [])
+          .filter((p) => p?.active !== false && typeof p?.value === 'string')
+          .map((p) => p.value as string),
+        externalId: f.externalId === true,
+      }));
+    },
+    isObjectCreatable: async (orgId, objectName) => {
+      const conn = connections.get(orgId);
+      if (!conn) throw new Error(`No connection for ${orgId}`);
+      const meta = await conn.sobject(objectName).describe();
+      // Default to true when jsforce omits the flag — only opt out when
+      // the org explicitly says false (read-only system entities).
+      return meta.createable !== false;
+    },
+  };
 }
 
 async function loadRecordTypeMappings(

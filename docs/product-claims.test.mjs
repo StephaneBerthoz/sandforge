@@ -5175,3 +5175,54 @@ test('the FAQ counts the generators the code has', () => {
     `the FAQ says ${counted[1]} generators, the generator implements ${expected}`,
   );
 });
+
+// ── which read finds the rows a lookup filter refuses ─────────────────────
+
+/**
+ * Whether a lookup filter refuses a row depends on the record the lookup
+ * points at in the target and on the user the run writes as. The simulation
+ * evaluates no filter, so a clean simulation says nothing about them; the read
+ * of the target's metadata lists each filter as a warning, and the rehearsal
+ * names the rows the platform refused with FIELD_FILTER_VALIDATION_EXCEPTION.
+ * The guide has to say which of the three finds them, or a reader takes a
+ * clean simulation for a clean run.
+ */
+const FORGE_SRC = ['packages', 'extension', 'src', 'modules', 'forge'];
+
+test('anchor: a lookup filter is a metadata warning and a rehearsal refusal, never a simulation gap', () => {
+  assert.doesNotMatch(
+    read(...FORGE_SRC, 'stages', 'SimulationGaps.ts'),
+    /'lookup_filter'/,
+    'a simulation now gives a lookup_filter gap: the Forge guide says it does not',
+  );
+  assert.match(
+    read(...FORGE_SRC, 'TargetGapReader.ts'),
+    /kind: 'lookup_filter'/,
+    'the metadata read no longer lists lookup filters — re-point this gate',
+  );
+  assert.match(
+    read(...FORGE_SRC, 'rehearsal', 'rehearsalGaps.ts'),
+    /'FIELD_FILTER_VALIDATION_EXCEPTION',\s*\{\s*kind: 'lookup_filter'/,
+    'the rehearsal no longer maps a lookup filter refusal to its gap — re-point this gate',
+  );
+});
+
+test('the Forge guide sends the rows a lookup filter refuses to the rehearsal', () => {
+  const guide = read('docs', 'forge-quickstart.md');
+  const start = guide.indexOf('## Simulate a run');
+  const end = guide.indexOf('\n## ', start + 1);
+  assert.ok(start !== -1 && end !== -1, 'docs/forge-quickstart.md has no "## Simulate a run"');
+  const simulate = guide.slice(start, end);
+  assert.match(
+    simulate,
+    /lookup filter is not among them[^\n]*rehearsal/i,
+    'the simulation section does not say that a lookup filter is left to the rehearsal',
+  );
+  const metadataLine = guide.split('\n').find((line) => line.startsWith('- **Lookup filters.**'));
+  assert.ok(metadataLine, 'docs/forge-quickstart.md no longer lists lookup filters in the read');
+  assert.match(
+    metadataLine,
+    /rehearsal[^\n]*FIELD_FILTER_VALIDATION_EXCEPTION/i,
+    'the metadata read of lookup filters does not say a rehearsal names the rows they refuse',
+  );
+});

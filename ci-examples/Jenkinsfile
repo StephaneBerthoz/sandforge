@@ -116,6 +116,7 @@ pipeline {
                                 ${automationFlag} \\
                                 --json \\
                                 --remap-csv remap.csv \\
+                                --audit clone-audit.json \\
                                 > clone-summary.json
                         """
                         // Your checks against the cloned records go here.
@@ -138,6 +139,7 @@ pipeline {
                                     --remove clone-summary.json \\
                                     --target ci-target \\
                                     --json \\
+                                    --audit clone-audit.json \\
                                     > clone-removal.json
                             '''
                         }
@@ -146,7 +148,7 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'clone-summary.json, clone-summary.removals.json, clone-removal.json, remap.csv', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'clone-summary.json, clone-summary.removals.json, clone-removal.json, clone-audit.json, remap.csv', allowEmptyArchive: true
                 }
             }
         }

@@ -993,6 +993,12 @@ export interface ForgeContactPointsReport {
   fields: ForgeContactPointField[];
   /** The values neutralized, every field together. */
   values: number;
+  /**
+   * The phone numbers left out, their field empty, because every fictional
+   * number of the range was already given to another number of the run: the
+   * range holds 10 000. Absent when none was.
+   */
+  numbersExhausted?: number;
 }
 
 /**
