@@ -15,8 +15,9 @@
  * Each step is one message the panel sends:
  *   select   pick one root record per combination of the coverage matrix
  *   extract  read those roots' graphs, pseudonymize, check, freeze
- *   load     replay the frozen dataset into a sandbox — writes; with --dry-run,
- *            what it would do, read from the sandbox, and nothing written
+ *   load     replay the frozen dataset into a sandbox or a Developer Edition —
+ *            writes; with --dry-run, what it would do, read from the target,
+ *            and nothing written
  *   verify   check the last load against the dataset, read-only
  *   remove   delete from the sandbox the records the last load created — what an
  *            earlier removal left of them, or, once they all went, those of the
@@ -56,7 +57,8 @@ Usage:
 Steps:
   select     pick one root per combination of the coverage matrix   (needs --source)
   extract    read, pseudonymize, check and freeze those roots        (needs --source)
-  load       replay the frozen dataset into a sandbox — WRITES       (needs --target)
+  load       replay the frozen dataset into a sandbox or a Developer Edition
+             — WRITES                                                 (needs --target)
   verify     check the last load against the dataset                 (needs --target)
   remove     delete the records a load created, the last first — DELETES (needs --target)
   status     what the store knows so far
