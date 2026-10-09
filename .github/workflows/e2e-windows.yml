@@ -29,7 +29,8 @@ jobs:
     runs-on: windows-latest
     # The suite took 43 to 44 minutes here at 778 tests; at 794 it was
     # cancelled at the 45-minute mark, before its count could say anything.
-    timeout-minutes: 60
+    # At 990 tests (1.47.0) the hour ran out the same way.
+    timeout-minutes: 90
     # Measured, not gated: see the header.
     continue-on-error: true
 
