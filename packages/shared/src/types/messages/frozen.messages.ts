@@ -1,6 +1,7 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
   FrozenControlReport,
+  FrozenLoadPlanInfo,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenManifestInfo,
@@ -60,6 +61,16 @@ export interface FrozenManifestGetRequest extends BaseMessage {
  */
 export interface FrozenLoadRequest extends BaseMessage {
   type: 'frozen:load';
+  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean };
+}
+
+/**
+ * `frozen:load:preview`. WebView -> Extension. What a load with the same
+ * options would do, read from the target and the sas with nothing written:
+ * per object, what it would insert, link, drop, rewrite and purge.
+ */
+export interface FrozenLoadPreviewRequest extends BaseMessage {
+  type: 'frozen:load:preview';
   payload: { targetOrgId: string; pilot?: boolean; reload?: boolean };
 }
 
@@ -155,6 +166,12 @@ export interface FrozenLoadResponse extends BaseMessage {
   payload: { report: FrozenLoadReportInfo };
 }
 
+/** `frozen:load:preview:response`. Extension -> WebView. What the load would do. */
+export interface FrozenLoadPreviewResponse extends BaseMessage {
+  type: 'frozen:load:preview:response';
+  payload: { plan: FrozenLoadPlanInfo };
+}
+
 /**
  * `frozen:load:progress`. Extension -> WebView. Throttled per-phase progress
  * event pushed during load and verification.
@@ -223,6 +240,16 @@ export interface FrozenExtractErrorMessage extends BaseMessage {
 /** `frozen:load:error`. Extension -> WebView. `code` classified by errorCodeFor. */
 export interface FrozenLoadErrorMessage extends BaseMessage {
   type: 'frozen:load:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:load:preview:error`. Extension -> WebView. What the load would be
+ * refused before its first write — an entry guard (`GUARD_REFUSED`), a
+ * required field left uncovered (`LOAD_CONFIG`) — or a read that failed.
+ */
+export interface FrozenLoadPreviewErrorMessage extends BaseMessage {
+  type: 'frozen:load:preview:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

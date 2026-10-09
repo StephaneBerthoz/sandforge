@@ -3732,7 +3732,32 @@
       "reload": "Neuladen ohne Refresh",
       "run": "Ladevorgang starten",
       "runPilot": "Pilot starten",
-      "progress": "Fortschritt"
+      "progress": "Fortschritt",
+      "preview": "Vorschau",
+      "stopping": "Wird angehalten: Der Ladevorgang endet vor seinem nächsten Schreibvorgang. Was er geschrieben hat, bleibt in der Org und ist im Mapping für ein Entfernen oder ein Neuladen benannt.",
+      "cancelRefused": "Der Ladevorgang konnte nicht abgebrochen werden",
+      "cancelRefusedDetail": "Der Ladevorgang läuft nicht mehr, oder er wurde nicht aus diesem Fenster gestartet."
+    },
+    "preview": {
+      "title": "Was ein Ladevorgang in {{org}} tun würde",
+      "hint": "Aus dem Ziel gelesen, nichts geschrieben. Das Ziel kann Datensätze noch ablehnen oder als Duplikate überspringen, und die direkte Beziehung eines Kontakts oder die Aufgabe einer E-Mail wird mit der verknüpft, die die Plattform schreibt, sobald ihr Datensatz angelegt ist.",
+      "earlierLoads_one": "Neuladen: entfernt, was {{count}} früherer Ladevorgang in diese Org erstellt hat und dieser nicht wiederfindet.",
+      "earlierLoads_other": "Neuladen: entfernt, was {{count}} frühere Ladevorgänge in diese Org erstellt haben und dieser nicht wiederfindet.",
+      "fromFiles": "Im Datensatz",
+      "toInsert": "Einzufügen",
+      "reusedByKeys": "Über Identitätsschlüssel gefunden",
+      "reusedFromCatalog": "Im Katalog gefunden",
+      "fieldsDropped": "Entfernte Felder",
+      "picklistsRewritten": "Umgeschriebene Auswahllistenwerte",
+      "notSent": "Nicht gesendet",
+      "toPurge": "Zu bereinigen",
+      "toDeactivate": "Zu deaktivieren",
+      "placeholders": "Anzulegende Platzhalter und die Datensätze, die jeder füllt: {{fields}}",
+      "defaults": "Deklarierte Standardwerte und die Datensätze, die jeder füllt: {{fields}}",
+      "personContacts_one": "{{count}} Kontakt eines Personenkontos kommt mit seinem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigener Kontakt gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
+      "personContacts_other": "{{count}} Kontakte von Personenkonten kommen mit ihrem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigene Kontakte gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
+      "recordTypeIssues_one": "{{count}} Datensatztyp-Verweis, den das Ziel nicht auflöst",
+      "recordTypeIssues_other": "{{count}} Datensatztyp-Verweise, die das Ziel nicht auflöst"
     },
     "verify": {
       "run": "Erneut prüfen",

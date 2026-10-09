@@ -29,7 +29,10 @@ interface RemoveAnswer {
 
 /** Props for {@link FrozenLoadRemoval}. */
 export interface FrozenLoadRemovalProps {
-  /** The records of the load whose mapping the sas holds; absent when none. */
+  /**
+   * The records of the last load into the target the tab has selected, as the
+   * sas mapping of that org names them; absent when no load went into it.
+   */
   records: FrozenLoadRecordsInfo | undefined;
   /**
    * Read the module status again, once per answer to a removal: once the

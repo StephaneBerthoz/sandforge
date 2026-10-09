@@ -41,6 +41,22 @@ function normalizeForCompare(p: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
+/**
+ * A registered org id as it names a file of the sas — the mapping and the
+ * counting contract of the loads into that org. An org id is letters and
+ * digits; one holding anything else is refused, so that no id handed in can
+ * name a file outside the sas.
+ *
+ * @throws {Error} When `orgId` is empty or holds anything but letters,
+ *   digits, `-` and `_`.
+ */
+export function orgFileKey(orgId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(orgId)) {
+    throw new Error(`Not an org id a file of the sas can be named after: "${orgId}"`);
+  }
+  return orgId;
+}
+
 /** Error thrown when an output path points inside the repository. */
 export class InsideRepoPathError extends Error {
   constructor(

@@ -55,6 +55,8 @@ import {
 } from '@sandforge/shared';
 import type {
   ForgeWrittenBetween,
+  FrozenLoadPlanInfo,
+  FrozenLoadPlanObject,
   FrozenRefusedField,
   FrozenWrittenWithoutFields,
   GuardDecision,
@@ -235,6 +237,13 @@ export interface FrozenLoadOptions {
   now?: () => Date;
 }
 
+/**
+ * Options of a preview of a load ({@link FrozenDatasetLoader.planLoad}): a
+ * load's, but for what only a write hears — Production Guard's decisions and
+ * the cancel.
+ */
+export type FrozenLoadPlanOptions = Omit<FrozenLoadOptions, 'onGuardDecision' | 'signal'>;
+
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
   constructor(message: string) {
@@ -370,6 +379,51 @@ interface RunningLoad {
    * See `emailsWrittenFirst`.
    */
   endOpenLine?: (stoppedBy: unknown) => void;
+}
+
+/**
+ * What a load has read before its first write, and what a preview of it
+ * reports from: see `prepare`.
+ */
+interface PreparedLoad {
+  /** The loads before it into the target, as the sas mapping records them: what a reload purges. */
+  previousLoads: PreviousLoad[];
+  /** The dataset, a pilot's root folder only for a pilot. */
+  working: FrozenDataset;
+  /** The object of each record, by referenceId. */
+  refIndex: Map<string, string>;
+  /** The person accounts' contacts, each with its account: see `personContactsOf`. */
+  personContacts: Map<string, string>;
+  /** The objects by insertion group, parents first. */
+  groups: string[][];
+  /** The objects in insertion order. */
+  groupOrder: string[];
+  /** The records the platform writes itself, left out. */
+  leftToThePlatform: RowsLeftToThePlatform;
+  /** The feed items whose type the dataset does not carry, left out. */
+  untypedFeedItems: RowsLeftToThePlatform;
+  /** The dataset without the records left out. */
+  loading: FrozenDataset;
+  /** What the target already holds of the dataset, by referenceId: found, never written. */
+  mapping: Map<string, string>;
+  /** The records the load links rather than writes. */
+  reused: Set<string>;
+  /** Of those, the ones a reload's identity keys found; the others are the catalog's. */
+  reusedByKeys: ReadonlySet<string>;
+  recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'];
+  alignment: SchemaAlignmentReport;
+  /** Per object, the records as the target takes them, those hanging from a record left out gone. */
+  alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>;
+  /** Lookups the target will not take empty, per object. */
+  requiredLookups: Map<string, Set<string>>;
+  /** Fields no update can set, per object. */
+  fixedAtInsert: Map<string, Set<string>>;
+  /** The objects the load sends nothing of, counted as their insert would have counted them. */
+  lostObjects: Map<string, PerObjectLoadResult>;
+  /** Whether the target has person accounts; unknown when the dataset holds no account. */
+  targetHasPersonAccounts: boolean | undefined;
+  /** The placeholders and defaults the required fields take. */
+  plans: RequiredFieldPlan[];
 }
 
 /** What a load that fails part way has to keep, handed over by the load before its first write. */
@@ -912,16 +966,53 @@ export class FrozenDatasetLoader {
   }
 
   /**
-   * {@link load}, handing `running` what a failure keeps before its first
-   * write, and the line it leaves open from its insert pass on.
+   * What a load with these options would do, read from the target and the
+   * sas with nothing written: the entry guards, what the target already holds
+   * — what a reload's identity keys find, the catalog — the schema alignment,
+   * the required fields, and on a reload, what its purge would take of the
+   * loads before it. Per object: the records it would insert, those it would
+   * link, the fields it would drop, the picklist values it would rewrite, the
+   * records it would not send, and what it would purge or deactivate.
+   *
+   * It reads what the load reads before its first write, through the same
+   * code (`prepare`), so a preview and the load that follows it count alike —
+   * but for what only a write tells: a record the target refuses, a duplicate
+   * it skips, a relation the platform writes with the record it goes with.
+   *
+   * @throws What the load would be refused before its first write, as it
+   *   would be: an entry guard, a required field the configuration leaves
+   *   uncovered, a read of the target that fails.
    */
-  private async loadInto(
-    options: FrozenLoadOptions,
-    running: RunningLoad,
-  ): Promise<FrozenLoadReport> {
+  async planLoad(options: FrozenLoadPlanOptions): Promise<FrozenLoadPlanInfo> {
     const now = options.now ?? (() => new Date());
-    const startedAt = now();
     const emit = (event: FrozenLoadProgressEvent): void => options.onProgress?.(event);
+    const prepared = await this.prepare(options, emit, {});
+    // A pilot's reload purges nothing, as its load does not.
+    const purge =
+      options.reload && !options.pilot
+        ? await this.planPurge(options.orgId, prepared.previousLoads, prepared.mapping)
+        : undefined;
+    return loadPlanOf(prepared, purge, {
+      orgId: options.orgId,
+      mode: { pilot: options.pilot !== undefined, reload: options.reload === true },
+      plannedAt: now().toISOString(),
+      undeletableObjects: this.config.undeletableObjects ?? {},
+    });
+  }
+
+  /**
+   * What a load reads before its first write, and all a preview of it reads:
+   * the entry guards, the mapping of the loads before it, a pilot's root
+   * folder, what the target already holds — what a reload's identity keys
+   * find, then the catalog — the record types and the schema alignment, and
+   * the required fields the configuration has to cover. Writes nothing: a
+   * load's first write, and its cancel's first check, come after it.
+   */
+  private async prepare(
+    options: FrozenLoadOptions,
+    emit: (event: FrozenLoadProgressEvent) => void,
+    running: RunningLoad,
+  ): Promise<PreparedLoad> {
     const { orgId } = options;
 
     // 1. Entry guards — refusal is actionable, never a DML on the source.
@@ -1039,101 +1130,8 @@ export class FrozenDatasetLoader {
     //    joining what the load links.
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
-    const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
-    const placeholders: PlaceholderCreation[] = [];
-    const perObject: PerObjectLoadResult[] = [];
-    const created = new CreatedKeys();
-    /** The records the target took once written again without a field, for the contract. */
-    const writtenWithout: WrittenWithout = new Map();
-    /** Records earlier loads created that this load reuses, by the keys it maps them under. */
-    let carried: LoadCreatedRecords[] = [];
-    /**
-     * Records of the earlier loads that are no longer theirs, by id: the ones
-     * this load purged, and the ones it reuses and keeps as its own. What is
-     * left of those loads is kept with this one's mapping, so a removal still
-     * takes it and the next reload still purges it.
-     */
-    const settled = new Set<string>();
-    /**
-     * What became of the person accounts' contacts, from the contact
-     * object's turn on: see `linkPersonContacts`. Unset until then.
-     */
-    let personContactOutcome: PersonContactOutcome | undefined;
-    /**
-     * The other records the load links to one the platform wrote with
-     * another, by their key, each with the key of that record: a contact's
-     * direct relation, with the contact (`matchDirectRelations`); an email's
-     * task, with the email (`matchTasksWrittenWithEmails`).
-     */
-    const withTheirRecord = new Map<string, string>();
-
-    /**
-     * Whether the mapping was kept. Kept a second time, the load would also
-     * read as one of the loads before it, and be offered for removal twice.
-     */
-    let mappingKept = false;
-
-    /*
-     * Keep the mapping of what this load wrote — with what it created, the
-     * target's dates of it, the person accounts' contacts it linked, which go
-     * with their accounts, the relations and tasks it linked, which go with
-     * their contact or email, and the loads before it with what they still
-     * have in the org — at its end, at a cancel, and at a failure once it
-     * wrote.
-     */
-    const persistMapping = async (): Promise<void> => {
-      const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
-      const linkedContacts = personContactOutcome?.linked ?? new Map<string, string>();
-      await this.deps.mappingStore.persist(mapping, {
-        created: created.list(carried),
-        startedAt,
-        ...(writtenBetween ? { writtenBetween } : {}),
-        earlier: { settled: [...settled] },
-        ...(linkedContacts.size > 0 ? { personContacts: Object.fromEntries(linkedContacts) } : {}),
-        ...(withTheirRecord.size > 0
-          ? { withTheirRecord: Object.fromEntries(withTheirRecord) }
-          : {}),
-      });
-      mappingKept = true;
-    };
-
-    /**
-     * Whether this load created a record, or purged one an earlier load
-     * created: known from the moment the target answers the write.
-     */
-    const wroteSome = (): boolean =>
-      created.list().length > 0 ||
-      Object.keys(purge.deleted).length > 0 ||
-      Object.keys(purge.deactivated).length > 0;
-
-    /*
-     * Stop at a cancel, before the next write. A load read no cancel: once
-     * started it purged, inserted and patched to its end. The mapping is kept
-     * first, with the loads before it and what they still have in the org: a
-     * reload then finds and purges what this load wrote, and the records of
-     * those loads it had not purged yet; a removal takes either. Kept as this
-     * load's alone, the mapping would lose them.
-     *
-     * A load that created and purged nothing keeps no mapping of its own, as
-     * one that fails before its first write keeps none. Cancelled at its first
-     * purge, a reload kept one with nothing in it: the load before it read as
-     * an earlier one, and a verification refused the last load as one that
-     * stopped part way.
-     */
-    const checkpoint = async (): Promise<void> => {
-      if (!options.signal?.aborted) return;
-      const wrote = wroteSome();
-      if (wrote) await persistMapping();
-      throw new FrozenLoadCancelledError({ perObject, placeholders, purge }, wrote);
-    };
-
-    // What a failure keeps from here on, as the cancel does.
-    running.load = {
-      keepMapping: persistMapping,
-      mappingKept: () => mappingKept,
-      wroteSome,
-      written: { perObject, placeholders, purge },
-    };
+    /** What a reload's identity keys found, apart from what the catalog finds after them. */
+    let reusedByKeys: ReadonlySet<string> = new Set();
 
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
@@ -1142,6 +1140,7 @@ export class FrozenDatasetLoader {
       running.endOpenLine = (stoppedBy) =>
         emit(endOfACheck('reload', 10, 'Reference data not reused', stoppedBy));
       await this.reuseByIdentityKeys(options, loading, mapping, reused);
+      reusedByKeys = new Set(reused);
       // Ended here, with what it reused, before the catalog is looked up; the
       // purge has a line of its own once the required fields are checked.
       // Ended by the purge's line alone, it held the alignment and the check:
@@ -1362,7 +1361,6 @@ export class FrozenDatasetLoader {
       progress: 22,
       message: 'Checking required fields',
     });
-    const requiredDefaults: FrozenLoadReport['requiredDefaults'] = [];
     // Everything the dataset needs is settled before the first write: a
     // reload's purge, the first placeholder. One at a time, a load created the
     // placeholders it could, then stopped on the first default nobody had
@@ -1384,6 +1382,162 @@ export class FrozenDatasetLoader {
       progress: 22,
       message: 'Required fields checked',
     });
+
+    return {
+      previousLoads,
+      working,
+      refIndex,
+      personContacts,
+      groups,
+      groupOrder,
+      leftToThePlatform,
+      untypedFeedItems,
+      loading,
+      mapping,
+      reused,
+      reusedByKeys,
+      recordTypeIssues,
+      alignment,
+      alignedByObject,
+      requiredLookups,
+      fixedAtInsert,
+      lostObjects,
+      targetHasPersonAccounts,
+      plans,
+    };
+  }
+
+  /**
+   * {@link load}, handing `running` what a failure keeps before its first
+   * write, and the line it leaves open from its insert pass on.
+   */
+  private async loadInto(
+    options: FrozenLoadOptions,
+    running: RunningLoad,
+  ): Promise<FrozenLoadReport> {
+    const now = options.now ?? (() => new Date());
+    const startedAt = now();
+    const emit = (event: FrozenLoadProgressEvent): void => options.onProgress?.(event);
+    const { orgId } = options;
+
+    const {
+      previousLoads,
+      working,
+      refIndex,
+      personContacts,
+      groups,
+      groupOrder,
+      leftToThePlatform,
+      untypedFeedItems,
+      mapping,
+      reused,
+      recordTypeIssues,
+      alignment,
+      alignedByObject,
+      requiredLookups,
+      fixedAtInsert,
+      lostObjects,
+      targetHasPersonAccounts,
+      plans,
+    } = await this.prepare(options, emit, running);
+
+    const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
+    const placeholders: PlaceholderCreation[] = [];
+    const perObject: PerObjectLoadResult[] = [];
+    const created = new CreatedKeys();
+    /** The records the target took once written again without a field, for the contract. */
+    const writtenWithout: WrittenWithout = new Map();
+    /** Records earlier loads created that this load reuses, by the keys it maps them under. */
+    let carried: LoadCreatedRecords[] = [];
+    /**
+     * Records of the earlier loads that are no longer theirs, by id: the ones
+     * this load purged, and the ones it reuses and keeps as its own. What is
+     * left of those loads is kept with this one's mapping, so a removal still
+     * takes it and the next reload still purges it.
+     */
+    const settled = new Set<string>();
+    /**
+     * What became of the person accounts' contacts, from the contact
+     * object's turn on: see `linkPersonContacts`. Unset until then.
+     */
+    let personContactOutcome: PersonContactOutcome | undefined;
+    /**
+     * The other records the load links to one the platform wrote with
+     * another, by their key, each with the key of that record: a contact's
+     * direct relation, with the contact (`matchDirectRelations`); an email's
+     * task, with the email (`matchTasksWrittenWithEmails`).
+     */
+    const withTheirRecord = new Map<string, string>();
+
+    /**
+     * Whether the mapping was kept. Kept a second time, the load would also
+     * read as one of the loads before it, and be offered for removal twice.
+     */
+    let mappingKept = false;
+
+    /*
+     * Keep the mapping of what this load wrote — with what it created, the
+     * target's dates of it, the person accounts' contacts it linked, which go
+     * with their accounts, the relations and tasks it linked, which go with
+     * their contact or email, and the loads before it with what they still
+     * have in the org — at its end, at a cancel, and at a failure once it
+     * wrote.
+     */
+    const persistMapping = async (): Promise<void> => {
+      const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
+      const linkedContacts = personContactOutcome?.linked ?? new Map<string, string>();
+      await this.deps.mappingStore.persist(mapping, {
+        created: created.list(carried),
+        startedAt,
+        ...(writtenBetween ? { writtenBetween } : {}),
+        earlier: { settled: [...settled] },
+        ...(linkedContacts.size > 0 ? { personContacts: Object.fromEntries(linkedContacts) } : {}),
+        ...(withTheirRecord.size > 0
+          ? { withTheirRecord: Object.fromEntries(withTheirRecord) }
+          : {}),
+      });
+      mappingKept = true;
+    };
+
+    /**
+     * Whether this load created a record, or purged one an earlier load
+     * created: known from the moment the target answers the write.
+     */
+    const wroteSome = (): boolean =>
+      created.list().length > 0 ||
+      Object.keys(purge.deleted).length > 0 ||
+      Object.keys(purge.deactivated).length > 0;
+
+    /*
+     * Stop at a cancel, before the next write. A load read no cancel: once
+     * started it purged, inserted and patched to its end. The mapping is kept
+     * first, with the loads before it and what they still have in the org: a
+     * reload then finds and purges what this load wrote, and the records of
+     * those loads it had not purged yet; a removal takes either. Kept as this
+     * load's alone, the mapping would lose them.
+     *
+     * A load that created and purged nothing keeps no mapping of its own, as
+     * one that fails before its first write keeps none. Cancelled at its first
+     * purge, a reload kept one with nothing in it: the load before it read as
+     * an earlier one, and a verification refused the last load as one that
+     * stopped part way.
+     */
+    const checkpoint = async (): Promise<void> => {
+      if (!options.signal?.aborted) return;
+      const wrote = wroteSome();
+      if (wrote) await persistMapping();
+      throw new FrozenLoadCancelledError({ perObject, placeholders, purge }, wrote);
+    };
+
+    // What a failure keeps from here on, as the cancel does.
+    running.load = {
+      keepMapping: persistMapping,
+      mappingKept: () => mappingKept,
+      wroteSome,
+      written: { perObject, placeholders, purge },
+    };
+
+    const requiredDefaults: FrozenLoadReport['requiredDefaults'] = [];
 
     // 6b. Reload: purge what earlier loads created and this one does not
     //     reuse (children before parents — reverse insertion order; unknown
@@ -4464,10 +4618,120 @@ export class FrozenDatasetLoader {
     );
   }
 
-  /** Exposed for tests/docs: the contract path inside a sas directory. */
-  contractPath(sasDir: string): string {
-    return countingContractPath(this.sasGuard, sasDir);
+  /** Exposed for tests/docs: the contract path of the loads into `orgId` inside a sas directory. */
+  contractPath(sasDir: string, orgId: string): string {
+    return countingContractPath(this.sasGuard, sasDir, orgId);
   }
+}
+
+/** Whether a field of a record holds no value: what a placeholder or a default fills. */
+function leftEmpty(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
+/**
+ * What a load would do, from what it read before its first write and what
+ * its purge would take: see {@link FrozenDatasetLoader.planLoad}. Counted as
+ * the load counts: the records it writes are the aligned ones it does not
+ * link; a placeholder or a default fills those of them that leave the field
+ * empty; an object it does not send counts the records it links as linked.
+ */
+function loadPlanOf(
+  prepared: PreparedLoad,
+  purge: PurgePlan | undefined,
+  context: {
+    orgId: string;
+    mode: FrozenLoadPlanInfo['mode'];
+    plannedAt: string;
+    undeletableObjects: Readonly<Record<string, string>>;
+  },
+): FrozenLoadPlanInfo {
+  const { working, loading, alignedByObject, reused, reusedByKeys, alignment } = prepared;
+  // A person account's contact goes in with its account, and is counted
+  // apart — unless the target has no person accounts, which take it as any
+  // contact of a business account.
+  const withTheirAccount =
+    prepared.targetHasPersonAccounts === false ? new Set<string>() : prepared.personContacts;
+  const written = (objectApiName: string) =>
+    (alignedByObject.get(objectApiName) ?? []).filter((r) => !reused.has(r.referenceId));
+  const order = [
+    ...new Set([
+      ...prepared.groupOrder,
+      ...working.objects.map((o) => o.objectApiName),
+      ...(purge ? [...purge.residuals.keys()].sort() : []),
+    ]),
+  ];
+  let personContacts = 0;
+  const perObject: FrozenLoadPlanObject[] = [];
+  for (const objectApiName of order) {
+    const fromFiles =
+      working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ?? 0;
+    const purged = purge?.residuals.get(objectApiName)?.length ?? 0;
+    if (fromFiles === 0 && purged === 0) continue;
+    const aligned = alignedByObject.get(objectApiName);
+    // What the load links of it: of the rows it aligned, or, of an object it
+    // does not send, of the rows it would have.
+    const considered =
+      aligned ?? loading.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
+    const linked = considered.filter((r) => reused.has(r.referenceId));
+    const byKeys = linked.filter((r) => reusedByKeys.has(r.referenceId)).length;
+    const toWrite = aligned ? written(objectApiName) : [];
+    const ofTheirAccount = toWrite.filter((r) => withTheirAccount.has(r.referenceId)).length;
+    personContacts += ofTheirAccount;
+    const deactivates = context.undeletableObjects[objectApiName] !== undefined;
+    perObject.push({
+      objectApiName,
+      fromFiles,
+      toInsert: toWrite.length - ofTheirAccount,
+      reusedByKeys: byKeys,
+      reusedFromCatalog: linked.length - byKeys,
+      fieldsDropped: alignment.removals.filter((r) => r.objectApiName === objectApiName).length,
+      picklistsRewritten: alignment.adjustments.filter((a) => a.objectApiName === objectApiName)
+        .length,
+      notSent: fromFiles - (aligned ? aligned.length : linked.length),
+      toPurge: deactivates ? 0 : purged,
+      toDeactivate: deactivates ? purged : 0,
+    });
+  }
+  const emptyIn = (objectApiName: string, field: string): number =>
+    written(objectApiName).filter((r) => leftEmpty(r.fields[field])).length;
+  const leftUnrecorded = purge?.leftUnrecorded ?? {};
+  return {
+    orgId: context.orgId,
+    mode: context.mode,
+    plannedAt: context.plannedAt,
+    perObject,
+    excludedObjects: alignment.excludedObjects,
+    removals: alignment.removals,
+    placeholders: prepared.plans.flatMap((plan) =>
+      plan.kind === 'placeholder'
+        ? [
+            {
+              objectApiName: plan.missing.objectApiName,
+              field: plan.missing.field,
+              placeholderObjectApiName: plan.targetObject,
+              placeholderName: plan.name,
+              affectedRecords: emptyIn(plan.missing.objectApiName, plan.missing.field),
+            },
+          ]
+        : [],
+    ),
+    requiredDefaults: prepared.plans.flatMap((plan) =>
+      plan.kind === 'default'
+        ? [
+            {
+              objectApiName: plan.missing.objectApiName,
+              field: plan.missing.field,
+              affectedRecords: emptyIn(plan.missing.objectApiName, plan.missing.field),
+            },
+          ]
+        : [],
+    ),
+    recordTypeIssues: prepared.recordTypeIssues.length,
+    personContacts,
+    earlierLoads: prepared.previousLoads.length,
+    ...(Object.keys(leftUnrecorded).length > 0 ? { leftUnrecorded } : {}),
+  };
 }
 
 /**

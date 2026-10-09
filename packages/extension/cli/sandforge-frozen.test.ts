@@ -49,6 +49,13 @@ describe('parseArgs', () => {
     });
   });
 
+  it('reads a dry run of a load, which writes nothing', () => {
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--dry-run', '--reload')),
+    ).toMatchObject({ step: 'load', dryRun: true, reload: true });
+    expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT')).dryRun).toBe(false);
+  });
+
   it('does not write without being told to, unless --yes says so', () => {
     expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT')).yes).toBe(false);
   });
@@ -187,6 +194,71 @@ describe('removalAsks', () => {
 });
 
 describe('messageLines', () => {
+  it('says what a dry run of a load found, per object, and that nothing was written', () => {
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          plannedAt: '2026-10-09T10:00:00.000Z',
+          perObject: [
+            {
+              objectApiName: 'Account',
+              fromFiles: 3,
+              toInsert: 1,
+              reusedByKeys: 2,
+              reusedFromCatalog: 0,
+              fieldsDropped: 1,
+              picklistsRewritten: 0,
+              notSent: 0,
+              toPurge: 4,
+              toDeactivate: 0,
+            },
+            {
+              objectApiName: 'Pricebook2',
+              fromFiles: 1,
+              toInsert: 0,
+              reusedByKeys: 0,
+              reusedFromCatalog: 1,
+              fieldsDropped: 0,
+              picklistsRewritten: 2,
+              notSent: 0,
+              toPurge: 0,
+              toDeactivate: 0,
+            },
+          ],
+          excludedObjects: [
+            { objectApiName: 'ErrorLog__c', reason: 'Not createable in target org' },
+          ],
+          removals: [],
+          placeholders: [
+            {
+              objectApiName: 'Contact',
+              field: 'Owner__c',
+              placeholderObjectApiName: 'User__c',
+              placeholderName: 'SANDFORGE-PLACEHOLDER',
+              affectedRecords: 2,
+            },
+          ],
+          requiredDefaults: [],
+          recordTypeIssues: 0,
+          personContacts: 1,
+          earlierLoads: 2,
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'dry run (reload): 1 record(s) to insert, 3 to link, 0 not sent, 4 to purge and 0 to deactivate of 2 earlier load(s) — nothing written',
+      '  Account: 1 to insert, 2 found by identity keys, 1 field(s) dropped, 4 to purge of 3',
+      '  Pricebook2: 0 to insert, 1 found in the catalog, 2 picklist value(s) rewritten of 1',
+      '  ErrorLog__c: not loaded — Not createable in target org',
+      'placeholder for Contact.Owner__c: 2 record(s)',
+      '1 person account contact(s) go in with their account, not counted above',
+    ]);
+  });
+
   it('says a removal took up what an earlier one left', () => {
     const lines = messageLines({
       type: 'frozen:remove:response',

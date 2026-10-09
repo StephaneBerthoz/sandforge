@@ -436,6 +436,19 @@ const FORGE_VERIFICATION = {
  * with its items, a contact and a technical placeholder, and linked the
  * standard price book and a selling model the sandbox already held.
  */
+const FROZEN_LAST_LOAD_RECORDS = {
+  orgId: QA_SANDBOX.id,
+  loadedAt: '2026-09-24T10:05:00.000Z',
+  created: [
+    { objectApiName: 'OrderItem', count: 24 },
+    { objectApiName: 'Order', count: 11 },
+    { objectApiName: 'Contact', count: 2 },
+    { objectApiName: 'Account', count: 1 },
+  ],
+  linked: 2,
+  recorded: true,
+};
+
 const FROZEN_STATUS_AFTER_LOAD = {
   configured: true,
   sasDir: '/home/dev/.sandforge-sas',
@@ -446,18 +459,7 @@ const FROZEN_STATUS_AFTER_LOAD = {
   manifest: null,
   lastLoad: { status: 'completed', orgId: QA_SANDBOX.id, at: '2026-09-24T10:05:00.000Z' },
   lastVerify: null,
-  lastLoadRecords: {
-    orgId: QA_SANDBOX.id,
-    loadedAt: '2026-09-24T10:05:00.000Z',
-    created: [
-      { objectApiName: 'OrderItem', count: 24 },
-      { objectApiName: 'Order', count: 11 },
-      { objectApiName: 'Contact', count: 2 },
-      { objectApiName: 'Account', count: 1 },
-    ],
-    linked: 2,
-    recorded: true,
-  },
+  loadRecords: [FROZEN_LAST_LOAD_RECORDS],
 };
 
 /** What removing that load's records did: the Forge removal's outcomes, on a load. */
@@ -523,21 +525,23 @@ const FORGE_REMOVAL_OF_WHAT_WAS_LEFT = {
 /** The last load once a removal left part of its records in the org: its orders and their items. */
 const FROZEN_STATUS_PARTLY_REMOVED = {
   ...FROZEN_STATUS_AFTER_LOAD,
-  lastLoadRecords: {
-    ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
-    created: [
-      { objectApiName: 'OrderItem', count: 6 },
-      { objectApiName: 'Order', count: 2 },
-      { objectApiName: 'Account', count: 1 },
-    ],
-    removed: {
-      removedAt: FROZEN_REMOVAL_RESULT.finishedAt,
-      deleted: 29,
-      alreadyGone: 0,
-      kept: 3,
-      refused: 6,
+  loadRecords: [
+    {
+      ...FROZEN_LAST_LOAD_RECORDS,
+      created: [
+        { objectApiName: 'OrderItem', count: 6 },
+        { objectApiName: 'Order', count: 2 },
+        { objectApiName: 'Account', count: 1 },
+      ],
+      removed: {
+        removedAt: FROZEN_REMOVAL_RESULT.finishedAt,
+        deleted: 29,
+        alreadyGone: 0,
+        kept: 3,
+        refused: 6,
+      },
     },
-  },
+  ],
 };
 
 /**
@@ -666,6 +670,70 @@ const REPORTS_LINEAGE = {
 };
 
 /** The Frozen status once a dataset is frozen: what the load tab needs to offer a run. */
+/**
+ * What a reload into the QA sandbox would do: accounts found by their keys,
+ * the standard price book found in the catalog, contacts with a field and a
+ * picklist value the target refuses, an error log it takes no insert of, and
+ * what the purge would take of the two loads before it.
+ */
+const FROZEN_RELOAD_PLAN = {
+  orgId: QA_SANDBOX.id,
+  mode: { pilot: false, reload: true },
+  plannedAt: '2026-10-09T10:00:00.000Z',
+  perObject: [
+    {
+      objectApiName: 'Account',
+      fromFiles: 3,
+      toInsert: 1,
+      reusedByKeys: 2,
+      reusedFromCatalog: 0,
+      fieldsDropped: 0,
+      picklistsRewritten: 0,
+      notSent: 0,
+      toPurge: 4,
+      toDeactivate: 0,
+    },
+    {
+      objectApiName: 'Contact',
+      fromFiles: 5,
+      toInsert: 5,
+      reusedByKeys: 0,
+      reusedFromCatalog: 0,
+      fieldsDropped: 1,
+      picklistsRewritten: 2,
+      notSent: 0,
+      toPurge: 7,
+      toDeactivate: 0,
+    },
+    {
+      objectApiName: 'ErrorLog__c',
+      fromFiles: 1,
+      toInsert: 0,
+      reusedByKeys: 0,
+      reusedFromCatalog: 0,
+      fieldsDropped: 0,
+      picklistsRewritten: 0,
+      notSent: 1,
+      toPurge: 0,
+      toDeactivate: 0,
+    },
+  ],
+  excludedObjects: [
+    {
+      objectApiName: 'ErrorLog__c',
+      reason: 'Not createable in target org: 1 record of the dataset not loaded',
+    },
+  ],
+  removals: [
+    { objectApiName: 'Contact', field: 'Legacy__c', reason: 'not-in-target', affectedRecords: 5 },
+  ],
+  placeholders: [],
+  requiredDefaults: [{ objectApiName: 'Account', field: 'Rating', affectedRecords: 1 }],
+  recordTypeIssues: 0,
+  personContacts: 0,
+  earlierLoads: 2,
+};
+
 const FROZEN_STATUS_WITH_DATASET = {
   configured: true,
   sasDir: '/home/qa/.sandforge-sas',
@@ -1037,6 +1105,13 @@ async function openFrozenLastLoad(
   await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
   await answerAll(page, 'frozen:status', 'frozen:status:response', { status });
   await page.getByTestId('page-tab-load').click();
+  // The card shows the load into the target the tab has selected: the org
+  // the records name, which the panel did not select first.
+  const [records] = (status.loadRecords as Array<{ orgId: string }> | undefined) ?? [];
+  if (records) {
+    await page.getByTestId('frozen-load-target').click();
+    await page.getByTestId(`frozen-load-target-option-${records.orgId}`).click();
+  }
   await page.getByTestId('frozen-removal').waitFor({ timeout: 10_000 });
 }
 
@@ -4853,17 +4928,19 @@ for (const theme of SCANNED_THEMES) {
     test('Frozen last load whose records were removed', async ({ page }) => {
       await openFrozenLastLoad(bridge, page, theme, {
         ...FROZEN_STATUS_AFTER_LOAD,
-        lastLoadRecords: {
-          ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
-          created: [],
-          removed: {
-            removedAt: '2026-09-24T11:00:00.000Z',
-            deleted: 36,
-            alreadyGone: 1,
-            kept: 1,
-            refused: 0,
+        loadRecords: [
+          {
+            ...FROZEN_LAST_LOAD_RECORDS,
+            created: [],
+            removed: {
+              removedAt: '2026-09-24T11:00:00.000Z',
+              deleted: 36,
+              alreadyGone: 1,
+              kept: 1,
+              refused: 0,
+            },
           },
-        },
+        ],
       });
       await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
 
@@ -4873,12 +4950,7 @@ for (const theme of SCANNED_THEMES) {
     test('Frozen last load recorded before loads kept what they created', async ({ page }) => {
       await openFrozenLastLoad(bridge, page, theme, {
         ...FROZEN_STATUS_AFTER_LOAD,
-        lastLoadRecords: {
-          ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords,
-          created: [],
-          linked: 0,
-          recorded: false,
-        },
+        loadRecords: [{ ...FROZEN_LAST_LOAD_RECORDS, created: [], linked: 0, recorded: false }],
       });
       await expect(page.getByTestId('frozen-removal-not-recorded')).toBeVisible();
 
@@ -4890,7 +4962,7 @@ for (const theme of SCANNED_THEMES) {
     }) => {
       await openFrozenLastLoad(bridge, page, theme, {
         ...FROZEN_STATUS_AFTER_LOAD,
-        lastLoadRecords: { ...FROZEN_STATUS_AFTER_LOAD.lastLoadRecords, earlier: true },
+        loadRecords: [{ ...FROZEN_LAST_LOAD_RECORDS, earlier: true }],
       });
       await expect(page.getByTestId('frozen-removal-earlier')).toBeVisible();
       await expect(page.getByTestId('frozen-removal-remove')).toBeVisible();
@@ -6731,6 +6803,56 @@ for (const theme of STATE_THEMES) {
       await expect(lines).toHaveCount(4, { timeout: 10_000 });
       await expect(lines.last().locator('span').first()).toHaveClass(/bg-status-warning/);
       await page.getByTestId('frozen-error').waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset load running, with its Cancel and the note once it is asked', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      await page.getByTestId('frozen-load-cancel').waitFor({ state: 'visible', timeout: 10_000 });
+      await expectReadable(page, theme);
+
+      await page.getByTestId('frozen-load-cancel').click();
+      await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+      await page.getByTestId('frozen-load-stopping').waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset preview of a reload, per object, with nothing written', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-preview')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-load-reload').check();
+      await page.getByTestId('frozen-load-preview').click();
+      await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+      await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+        plan: FROZEN_RELOAD_PLAN,
+      });
+      await expect(page.getByTestId('frozen-preview').locator('tbody tr')).toHaveCount(3, {
+        timeout: 10_000,
+      });
+      await page
+        .getByTestId('frozen-preview-excluded')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

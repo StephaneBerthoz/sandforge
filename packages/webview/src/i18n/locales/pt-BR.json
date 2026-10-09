@@ -3732,7 +3732,32 @@
       "reload": "Recarga sem refresh",
       "run": "Executar carga",
       "runPilot": "Executar piloto",
-      "progress": "Progresso"
+      "progress": "Progresso",
+      "preview": "Pré-visualizar",
+      "stopping": "Parando: a carga termina antes da próxima gravação. O que ela gravou fica na org, nomeado no mapeamento para uma remoção ou uma recarga.",
+      "cancelRefused": "Não foi possível cancelar a carga",
+      "cancelRefusedDetail": "A carga não está mais em andamento, ou não foi iniciada a partir desta janela."
+    },
+    "preview": {
+      "title": "O que uma carga em {{org}} faria",
+      "hint": "Lido do destino, nada gravado. O destino ainda pode recusar registros ou ignorar duplicatas, e a relação direta de um contato ou a tarefa de um e-mail é vinculada à que a plataforma grava assim que seu registro entra.",
+      "earlierLoads_one": "Recarga: purga o que {{count}} carga anterior nesta org criou e esta não reencontra.",
+      "earlierLoads_other": "Recarga: purga o que {{count}} cargas anteriores nesta org criaram e esta não reencontra.",
+      "fromFiles": "No conjunto de dados",
+      "toInsert": "A inserir",
+      "reusedByKeys": "Encontrados por chaves de identidade",
+      "reusedFromCatalog": "Encontrados no catálogo",
+      "fieldsDropped": "Campos removidos",
+      "picklistsRewritten": "Valores de lista reescritos",
+      "notSent": "Não enviados",
+      "toPurge": "A purgar",
+      "toDeactivate": "A desativar",
+      "placeholders": "Marcadores a criar, e os registros que cada um preenche: {{fields}}",
+      "defaults": "Valores padrão declarados, e os registros que cada um preenche: {{fields}}",
+      "personContacts_one": "{{count}} contato de conta pessoal entra com sua conta, contado à parte: vinculado ao contato que a plataforma grava com ela, ou enviado como contato próprio onde o destino tem a conta como conta comercial.",
+      "personContacts_other": "{{count}} contatos de contas pessoais entram com sua conta, contados à parte: vinculados ao contato que a plataforma grava com ela, ou enviados como contatos próprios onde o destino tem a conta como conta comercial.",
+      "recordTypeIssues_one": "{{count}} referência de tipo de registro que o destino não resolve",
+      "recordTypeIssues_other": "{{count}} referências de tipo de registro que o destino não resolve"
     },
     "verify": {
       "run": "Verificar novamente",

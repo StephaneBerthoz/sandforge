@@ -300,6 +300,65 @@ describe('frozen:remove', () => {
     expect(errors()).toEqual([]);
   });
 
+  describe('after a load into another org', () => {
+    // One mapping per sas, a load into a second org replaced the first org's:
+    // the first load's records could no longer be removed, nor purged by a
+    // reload into its org.
+    const OTHER_ORG = 'org-qa';
+    const OTHER_ACCOUNT = id('001', 9);
+
+    async function loadedIntoTheOther(): Promise<void> {
+      await new SasReferenceIdMappingStore(sasDir, {
+        orgId: OTHER_ORG,
+        organizationId: '00DXX00000QaOrg2A1',
+        now: () => new Date('2026-09-20T12:05:00.000Z'),
+      }).persist(new Map([['Account-000001', OTHER_ACCOUNT]]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: new Date('2026-09-20T12:00:00.000Z'),
+        earlier: { settled: [] },
+      });
+    }
+
+    it('still removes what the load into the first org created', async () => {
+      await loadedIntoTheOther();
+
+      await remove();
+
+      expect(errors()).toEqual([]);
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [CONTACTS[1], CONTACTS[0]] },
+        { object: 'Account', ids: [ACCOUNT] },
+      ]);
+      // The other org's load is left as it was, for its own removal.
+      const other = await new SasReferenceIdMappingStore(sasDir, { orgId: OTHER_ORG }).recorded();
+      expect(other?.mapping).toEqual(new Map([['Account-000001', OTHER_ACCOUNT]]));
+      expect(other?.removal).toBeUndefined();
+    });
+
+    it('tells the page of the loads into each org', async () => {
+      await loadedIntoTheOther();
+
+      await handler.handle(buildMsg('frozen:status'));
+
+      const [{ payload }] = posted<BaseMessage & { payload: { status: FrozenStatusInfo } }>(
+        'frozen:status:response',
+      );
+      expect(
+        payload.status.loadRecords?.map((load) => [load.orgId, load.loadedAt, load.created]),
+      ).toEqual([
+        [
+          TARGET_ORG,
+          LOAD_ENDED,
+          [
+            { objectApiName: 'Contact', count: 2 },
+            { objectApiName: 'Account', count: 1 },
+          ],
+        ],
+        [OTHER_ORG, '2026-09-20T12:05:00.000Z', [{ objectApiName: 'Account', count: 1 }]],
+      ]);
+    });
+  });
+
   it('records the removal in the audit trail with what it deleted per object, and no id', async () => {
     await remove();
 
@@ -419,7 +478,7 @@ describe('frozen:remove', () => {
     it('is what the page is told a removal takes, with the mark of the one that left it', async () => {
       const first = await partlyRemoved();
 
-      expect((await status()).lastLoadRecords).toEqual({
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toEqual({
         orgId: TARGET_ORG,
         loadedAt: LOAD_ENDED,
         created: [
@@ -487,17 +546,19 @@ describe('frozen:remove', () => {
         leftBy: first?.finishedAt,
         objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
       });
-      expect((await status()).lastLoadRecords).toMatchObject({
-        created: [{ objectApiName: 'Account', count: 1 }],
-        removed: {
-          removedAt: cancelled?.finishedAt,
-          deleted: 2,
-          alreadyGone: 0,
-          kept: 0,
-          refused: 0,
-          notReached: 1,
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toMatchObject(
+        {
+          created: [{ objectApiName: 'Account', count: 1 }],
+          removed: {
+            removedAt: cancelled?.finishedAt,
+            deleted: 2,
+            alreadyGone: 0,
+            kept: 0,
+            refused: 0,
+            notReached: 1,
+          },
         },
-      });
+      );
 
       org.onDelete(() => {});
       vi.mocked(deps.broker.postToWebview).mockClear();
@@ -724,15 +785,17 @@ describe('frozen:remove', () => {
 
     it('is offered, and removed, once the last load was', async () => {
       await loadedAgain();
-      expect((await status()).lastLoadRecords).toMatchObject({
-        loadedAt: SECOND_ENDED,
-        created: [{ objectApiName: 'Account', count: 1 }],
-      });
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toMatchObject(
+        {
+          loadedAt: SECOND_ENDED,
+          created: [{ objectApiName: 'Account', count: 1 }],
+        },
+      );
 
       await remove({ loadedAt: SECOND_ENDED });
       expect(org.deletes).toEqual([{ object: 'Account', ids: [SECOND_ACCOUNT] }]);
 
-      expect((await status()).lastLoadRecords).toEqual({
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toEqual({
         orgId: TARGET_ORG,
         loadedAt: LOAD_ENDED,
         created: [
@@ -779,13 +842,20 @@ describe('frozen:remove', () => {
   });
 
   describe('refusals, before anything is read from the org', () => {
-    it.each([
-      ['a load another one replaced since it was shown', { loadedAt: '2026-09-21T08:00:00.000Z' }],
-      ['a load into another org than the one named', { targetOrgId: 'org-other' }],
-    ])('refuses %s', async (_, payload) => {
-      await remove(payload);
+    it('refuses a load another one replaced since it was shown', async () => {
+      await remove({ loadedAt: '2026-09-21T08:00:00.000Z' });
 
       expect(errors().map((e) => e.payload.code)).toEqual(['LOAD_CHANGED']);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(trail()).toEqual([]);
+    });
+
+    it('refuses an org no load went into, whatever the loads into another', async () => {
+      await remove({ targetOrgId: 'org-other' });
+
+      expect(errors().map((e) => [e.payload.code, e.payload.message])).toEqual([
+        ['NO_LOAD', 'No load into this org was recorded in this sas: there is nothing to remove.'],
+      ]);
       expect(mockGetConn).not.toHaveBeenCalled();
       expect(trail()).toEqual([]);
     });
@@ -957,7 +1027,7 @@ describe('frozen:remove', () => {
     };
 
     it('counts what a removal would take and the records it leaves, without reaching the org', async () => {
-      expect((await status()).lastLoadRecords).toEqual({
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toEqual({
         orgId: TARGET_ORG,
         loadedAt: LOAD_ENDED,
         created: [
@@ -973,10 +1043,12 @@ describe('frozen:remove', () => {
     it('carries the mark once the records went', async () => {
       await remove();
 
-      expect((await status()).lastLoadRecords).toMatchObject({
-        created: [],
-        removed: { deleted: 3, kept: 0 },
-      });
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toMatchObject(
+        {
+          created: [],
+          removed: { deleted: 3, kept: 0 },
+        },
+      );
     });
 
     it('refuses to verify a load whose records went, rather than call each one missing', async () => {

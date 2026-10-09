@@ -9,6 +9,7 @@ import {
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
   LoadGuardError,
+  PostLoadVerifier,
   SasPathGuard,
   serializeManifest,
   writeCountingContract,
@@ -19,6 +20,7 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
+import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import type { BaseMessage, FrozenLoadReportInfo, FrozenProjectConfig } from '@sandforge/shared';
@@ -51,6 +53,8 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
  * stays the real one.
  */
 const loaderLoad = vi.hoisted(() => vi.fn());
+/** The loader's `planLoad`, scripted the same way: unscripted, the real one's. */
+const loaderPlan = vi.hoisted(() => vi.fn());
 vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../modules/frozendataset/index.js')>();
   return {
@@ -64,6 +68,8 @@ vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
       return {
         load: (options: Parameters<typeof real.load>[0]) =>
           loaderLoad.getMockImplementation() ? loaderLoad(options) : real.load(options),
+        planLoad: (options: Parameters<typeof real.planLoad>[0]) =>
+          loaderPlan.getMockImplementation() ? loaderPlan(options) : real.planLoad(options),
       };
     }),
   };
@@ -612,6 +618,228 @@ describe('FrozenDatasetHandler', () => {
       return store;
     }
 
+    describe('its preview', () => {
+      const PLAN = {
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        plannedAt: '2026-10-09T10:00:00.000Z',
+        perObject: [
+          {
+            objectApiName: 'Account',
+            fromFiles: 2,
+            toInsert: 1,
+            reusedByKeys: 1,
+            reusedFromCatalog: 0,
+            fieldsDropped: 0,
+            picklistsRewritten: 0,
+            notSent: 0,
+            toPurge: 3,
+            toDeactivate: 0,
+          },
+        ],
+        excludedObjects: [],
+        removals: [],
+        placeholders: [],
+        requiredDefaults: [],
+        recordTypeIssues: 0,
+        personContacts: 0,
+        earlierLoads: 1,
+      };
+
+      it('answers with what the load would do, starting no run and recording nothing', async () => {
+        const { config, sasDir } = writeDataset();
+        const store = wire(config);
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        loaderPlan.mockResolvedValueOnce(PLAN);
+
+        await handler.handle(
+          buildMsg('frozen:load:preview', { targetOrgId: 'org-2', reload: true }),
+        );
+
+        expect(posted(deps, 'frozen:load:preview:response').map((m) => m.payload)).toEqual([
+          { plan: PLAN },
+        ]);
+        expect(loaderPlan).toHaveBeenCalledWith(
+          expect.objectContaining({ orgId: 'org-2', reload: true, sasDir }),
+        );
+        expect(posted(deps, 'frozen:load:preview:error')).toEqual([]);
+        expect(posted(deps, 'operation:started')).toEqual([]);
+        expect(registry.getRunning()).toEqual([]);
+        expect(new AuditTrailStore(store).list().entries).toEqual([]);
+        expect(deps.configStore.get('frozen:lastRun')).toBeUndefined();
+      });
+
+      it('hands the loader a writer that refuses every write', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderPlan.mockResolvedValueOnce(PLAN);
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        const [loaderDeps] = vi.mocked(FrozenDatasetLoader).mock.calls.at(-1) ?? [];
+        await expect(loaderDeps?.writer.insert('org-2', 'Account', [{}])).rejects.toThrow(
+          'A preview writes nothing.',
+        );
+        await expect(loaderDeps?.writer.update('org-2', 'Account', [{}])).rejects.toThrow(
+          'A preview writes nothing.',
+        );
+        await expect(loaderDeps?.writer.delete('org-2', 'Account', ['x'])).rejects.toThrow(
+          'A preview writes nothing.',
+        );
+      });
+
+      it('is refused, saying why, by the entry guard that would refuse the load', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderPlan.mockReset();
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue({ orgType: 'Production' } as never);
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        const errors = posted(deps, 'frozen:load:preview:error');
+        expect(errors.map((error) => error.payload.code)).toEqual(['GUARD_REFUSED']);
+        expect(posted(deps, 'frozen:load:preview:response')).toEqual([]);
+      });
+
+      it('validates its payload as a load does', async () => {
+        const { config } = writeDataset();
+        wire(config);
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: '' }));
+
+        expect(posted(deps, 'frozen:load:preview:error')).toHaveLength(1);
+        expect(loaderPlan).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('into two orgs', () => {
+      // Kept for the last load alone, the pointers of a load into the first
+      // org were replaced by the second org's, whose contract the
+      // verification of the first then read.
+      const STARTED_A = '2026-09-02T10:00:00.000Z';
+      const STARTED_B = '2026-09-02T11:00:00.000Z';
+
+      /** A load into `orgId` as the loader writes it: its mapping and its contract, both that org's. */
+      function loadWritesInto(sasDir: string, orgId: string, started: string, account: string) {
+        loaderLoad.mockImplementationOnce(
+          async (options: { onGuardDecision?: (d: string) => void }) => {
+            options.onGuardDecision?.('allowed');
+            await new SasReferenceIdMappingStore(sasDir, { orgId }).persist(
+              new Map([['A1', account]]),
+              {
+                created: [{ objectApiName: 'Account', referenceIds: ['A1'] }],
+                startedAt: new Date(started),
+                earlier: { settled: [] },
+              },
+            );
+            const contractPath = writeCountingContract(new SasPathGuard(), sasDir, {
+              version: 1,
+              orgId,
+              datasetVersion: '1.2.0',
+              writtenAt: started,
+              loadStartedAt: started,
+              objects: {
+                Account: { fromFiles: 2, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+              },
+            });
+            return { ...report(), orgId, startedAt: started, contractPath };
+          },
+        );
+      }
+
+      it('verifies the load into the first org after a load into the second, by its own contract and mapping', async () => {
+        const { config, sasDir } = writeDataset();
+        wire(config);
+        loadWritesInto(sasDir, 'org-a', STARTED_A, '001000000000001AAA');
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-a' }));
+        loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+        const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+          status: 'passed',
+          checks: [],
+          attempts: 2,
+          measuredAt: '2026-09-02T12:00:00.000Z',
+        });
+        onTestFinished(() => verify.mockRestore());
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-a' }));
+
+        expect(posted(deps, 'frozen:verify:error')).toEqual([]);
+        expect(verify).toHaveBeenCalledTimes(1);
+        const [args] = verify.mock.calls[0];
+        expect(args.orgId).toBe('org-a');
+        expect(args.contractPath).toBe(path.join(sasDir, 'counting-contract.org-a.json'));
+        expect(args.mapping).toEqual(new Map([['A1', '001000000000001AAA']]));
+        expect(posted(deps, 'frozen:verify:result')).toHaveLength(1);
+      });
+
+      it('verifies a load recorded when the pointers were kept for the last load alone, once a load went into another org', async () => {
+        const { config, sasDir } = writeDataset();
+        const store = wire(config);
+        // What the last load into the first org left: its mapping and contract,
+        // and the pointers kept as the last load's.
+        await new SasReferenceIdMappingStore(sasDir, { orgId: 'org-a' }).persist(
+          new Map([['A1', '001000000000001AAA']]),
+          {
+            created: [{ objectApiName: 'Account', referenceIds: ['A1'] }],
+            startedAt: new Date(STARTED_A),
+          },
+        );
+        store.set(
+          'frozen:lastRun',
+          {
+            contractPath: writeCountingContract(new SasPathGuard(), sasDir, {
+              version: 1,
+              orgId: 'org-a',
+              datasetVersion: '1.2.0',
+              writtenAt: STARTED_A,
+              loadStartedAt: STARTED_A,
+              objects: {},
+            }),
+            datasetDir: path.join(sasDir, 'dataset'),
+            manifestPath: path.join(sasDir, 'dataset', 'manifest.json'),
+            targetOrgId: 'org-a',
+            status: 'completed',
+            at: STARTED_A,
+          },
+          'frozen',
+        );
+        loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+        const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+          status: 'passed',
+          checks: [],
+          attempts: 2,
+          measuredAt: '2026-09-02T12:00:00.000Z',
+        });
+        onTestFinished(() => verify.mockRestore());
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-a' }));
+
+        expect(posted(deps, 'frozen:verify:error')).toEqual([]);
+        expect(verify.mock.calls[0]?.[0].contractPath).toBe(
+          path.join(sasDir, 'counting-contract.org-a.json'),
+        );
+      });
+
+      it('refuses to verify an org no load went into', async () => {
+        const { config, sasDir } = writeDataset();
+        wire(config);
+        loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-a' }));
+
+        expect(posted(deps, 'frozen:verify:error').map((error) => error.payload.code)).toEqual([
+          'NO_LOAD',
+        ]);
+      });
+    });
+
     describe('audit trail', () => {
       it('records a load once, counted per object from the mapping it persisted', async () => {
         const { config, sasDir } = writeDataset();
@@ -621,7 +849,7 @@ describe('FrozenDatasetHandler', () => {
             options.onGuardDecision?.('allowed');
             // What the loader persists: this run's reference ids, and their real ids.
             fs.writeFileSync(
-              path.join(sasDir, 'referenceid-mapping.json'),
+              path.join(sasDir, 'referenceid-mapping.org-2.json'),
               JSON.stringify({
                 version: 1,
                 orgId: 'org-2',
@@ -1097,6 +1325,39 @@ describe('FrozenDatasetHandler', () => {
               error: 'INVALID_SESSION_ID: Session expired or invalid',
             }),
           ]);
+        });
+
+        it('runs under the id of the request that started it, which the Load tab cancels it by', async () => {
+          // Minted by the handler, the id was one the page never saw: the
+          // Load tab could not stop the load it had started.
+          wireListed();
+          const msg = buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true });
+          let running: string[] = [];
+          let signal: AbortSignal | undefined;
+          loaderLoad.mockImplementation(async (options: { signal?: AbortSignal }) => {
+            running = registry.getRunning().map((op) => op.operationId);
+            signal = options.signal;
+            // What the page's Cancel sends: execution:abort with the request's id.
+            await new ExecutionHandler(deps, registry).handle(
+              buildMsg('execution:abort', { operationId: msg.id }),
+            );
+            throw new FrozenLoadCancelledError({
+              perObject: [],
+              placeholders: [],
+              purge: { deleted: {}, deactivated: {}, failures: [] },
+            });
+          });
+
+          await handler.handle(msg);
+
+          expect(running).toEqual([msg.id]);
+          expect(signal?.aborted).toBe(true);
+          expect(posted(deps, 'execution:abort:response')[0]?.payload).toMatchObject({
+            success: true,
+            operationId: msg.id,
+          });
+          expect(posted(deps, 'operation:started')[0]?.payload.operationId).toBe(msg.id);
+          expect(tracker.get(msg.id)?.status).toBe('cancelled');
         });
 
         it('ends a load a cancel stopped as cancelled', async () => {
@@ -1587,7 +1848,7 @@ describe('FrozenDatasetHandler', () => {
 
       it('reads a contract gone from the sas the load wrote to as the sas having changed, not as a file error', async () => {
         const { sasDir } = await endedLoad();
-        fs.rmSync(path.join(sasDir, 'counting-contract.json'));
+        fs.rmSync(path.join(sasDir, 'counting-contract.org-2.json'));
         vi.mocked(getJsforceConnection).mockResolvedValue({
           query: async () => ({ records: [], done: true, totalSize: 1 }),
         } as never);
@@ -1622,7 +1883,7 @@ describe('FrozenDatasetHandler', () => {
 
       it('refuses when the sas holds no mapping to say which records to count', async () => {
         const { sasDir } = await endedLoad();
-        fs.rmSync(path.join(sasDir, 'referenceid-mapping.json'));
+        fs.rmSync(path.join(sasDir, 'referenceid-mapping.org-2.json'));
 
         await verify();
 

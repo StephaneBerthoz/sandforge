@@ -8,10 +8,20 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SasPathGuard } from './SasPathGuard.js';
+import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 
-/** File name of the counting contract inside the sas directory. */
+/**
+ * File name of the one counting contract a sas kept, whichever org its load
+ * went to, before contracts were kept per target org. A load into another
+ * org replaced it, and the last load into the first could no longer be
+ * verified. A run recorded then names it by its path, which is still read.
+ */
 export const COUNTING_CONTRACT_FILENAME = 'counting-contract.json';
+
+/** File name of the counting contract of the last load into one registered org. */
+export function countingContractFileName(orgId: string): string {
+  return `counting-contract.${orgFileKey(orgId)}.json`;
+}
 
 /** Per-object entry of the counting contract. */
 export interface CountingContractEntry {
@@ -50,18 +60,21 @@ export interface CountingContract {
   objects: Record<string, CountingContractEntry>;
 }
 
-/** Absolute path of the contract file inside `sasDir` (repo-containment checked). */
-export function countingContractPath(guard: SasPathGuard, sasDir: string): string {
-  return guard.assertOutsideRepo(path.join(sasDir, COUNTING_CONTRACT_FILENAME));
+/**
+ * Absolute path of the contract of the loads into `orgId` inside `sasDir`
+ * (repo-containment checked).
+ */
+export function countingContractPath(guard: SasPathGuard, sasDir: string, orgId: string): string {
+  return guard.assertOutsideRepo(path.join(sasDir, countingContractFileName(orgId)));
 }
 
-/** Persist the counting contract in the sas. */
+/** Persist the counting contract in the sas, in the file of the org it counts a load into. */
 export function writeCountingContract(
   guard: SasPathGuard,
   sasDir: string,
   contract: CountingContract,
 ): string {
-  const filePath = countingContractPath(guard, sasDir);
+  const filePath = countingContractPath(guard, sasDir, contract.orgId);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(contract, null, 2)}\n`, 'utf8');
   return filePath;

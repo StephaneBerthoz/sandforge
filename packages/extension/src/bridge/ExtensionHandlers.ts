@@ -782,6 +782,7 @@ export class ExtensionHandlers {
         'frozen:extract',
         'frozen:manifest:get',
         'frozen:load',
+        'frozen:load:preview',
         'frozen:verify',
         'frozen:remove',
         'frozen:status',

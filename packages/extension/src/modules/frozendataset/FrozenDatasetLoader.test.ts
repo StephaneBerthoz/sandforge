@@ -4145,7 +4145,7 @@ describe('FrozenDatasetLoader — a cancel', () => {
 
     expect(writer.update).toHaveBeenCalledTimes(1);
     // A contract would count the status as applied.
-    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
+    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.00D-target.json'))).toBe(false);
   });
 
   it('counts for the audit trail the rows of an object it stopped before their insert, though it linked none of them', async () => {
@@ -5336,7 +5336,7 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     // twice.
     const dataset = makeAccountContactDataset();
     const deps = makeDeps({ dataset, writer: makeIdWriter([]) });
-    fs.mkdirSync(path.join(deps.sasDir, 'counting-contract.json'));
+    fs.mkdirSync(path.join(deps.sasDir, 'counting-contract.00D-target.json'));
 
     const error = await failureOf(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset)));
 

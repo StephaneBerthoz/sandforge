@@ -924,7 +924,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
     expect(load && loadCreatedRecords(load)).toEqual([
       { objectApiName: 'Account', ids: ['001000000000002', PERSON] },
     ]);
-    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
+    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.00D-target.json'))).toBe(false);
   });
 
   it("stops before the contacts when the cancel comes as the person accounts' contacts are read, and writes no contract", async () => {
@@ -952,7 +952,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
         (o) => o.objectApiName === 'Contact',
       ),
     ).toMatchObject({ inserted: 0, reused: 1, notInserted: 1 });
-    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
+    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.00D-target.json'))).toBe(false);
     // The mapping kept says the contact goes with its account.
     const [load] = await recordedLoads(deps.sasDir);
     expect(load.personContacts).toEqual({ 'Contact-000001': 'Account-000001' });

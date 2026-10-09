@@ -3732,7 +3732,32 @@
       "reload": "Recarga sin refresco",
       "run": "Ejecutar carga",
       "runPilot": "Ejecutar piloto",
-      "progress": "Progreso"
+      "progress": "Progreso",
+      "preview": "Vista previa",
+      "stopping": "Deteniendo: la carga termina antes de su próxima escritura. Lo que escribió queda en la org, nombrado en el mapeo para una eliminación o una recarga.",
+      "cancelRefused": "No se pudo cancelar la carga",
+      "cancelRefusedDetail": "La carga ya no está en curso, o no se inició desde esta ventana."
+    },
+    "preview": {
+      "title": "Lo que haría una carga en {{org}}",
+      "hint": "Leído del destino, sin escribir nada. El destino aún puede rechazar registros u omitir duplicados, y la relación directa de un contacto o la tarea de un correo se vincula a la que escribe la plataforma una vez que su registro está dentro.",
+      "earlierLoads_one": "Recarga: purga lo que {{count}} carga anterior en esta org creó y esta no vuelve a encontrar.",
+      "earlierLoads_other": "Recarga: purga lo que {{count}} cargas anteriores en esta org crearon y esta no vuelve a encontrar.",
+      "fromFiles": "En el conjunto de datos",
+      "toInsert": "Por insertar",
+      "reusedByKeys": "Encontrados por claves de identidad",
+      "reusedFromCatalog": "Encontrados en el catálogo",
+      "fieldsDropped": "Campos quitados",
+      "picklistsRewritten": "Valores de lista reescritos",
+      "notSent": "No enviados",
+      "toPurge": "Por purgar",
+      "toDeactivate": "Por desactivar",
+      "placeholders": "Marcadores por crear, y los registros que llena cada uno: {{fields}}",
+      "defaults": "Valores predeterminados declarados, y los registros que llena cada uno: {{fields}}",
+      "personContacts_one": "{{count}} contacto de cuenta personal entra con su cuenta, contado aparte: vinculado al contacto que la plataforma escribe con ella, o enviado como contacto propio donde el destino tiene la cuenta como cuenta empresarial.",
+      "personContacts_other": "{{count}} contactos de cuentas personales entran con su cuenta, contados aparte: vinculados al contacto que la plataforma escribe con ella, o enviados como contactos propios donde el destino tiene la cuenta como cuenta empresarial.",
+      "recordTypeIssues_one": "{{count}} referencia de tipo de registro que el destino no resuelve",
+      "recordTypeIssues_other": "{{count}} referencias de tipo de registro que el destino no resuelve"
     },
     "verify": {
       "run": "Volver a verificar",

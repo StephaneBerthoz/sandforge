@@ -476,6 +476,91 @@ export interface FrozenLoadReportInfo {
 }
 
 /**
+ * What a load would do with one object, read from the target and the sas
+ * before anything is written.
+ */
+export interface FrozenLoadPlanObject {
+  objectApiName: string;
+  /** Records the dataset holds of it: of a pilot's root folder only, for a pilot. */
+  fromFiles: number;
+  /**
+   * Records the load would send to be inserted. The target may still refuse
+   * some, or skip one as a duplicate; and a contact's direct relation or an
+   * email's task counted here is linked instead to the one the platform
+   * writes, once its contact or email is in.
+   */
+  toInsert: number;
+  /** Records a reload would find in the target by their identity keys, and link. */
+  reusedByKeys: number;
+  /**
+   * Records found in what the target holds of the catalog — the standard
+   * price book, a selling model or option by its natural key — and linked.
+   */
+  reusedFromCatalog: number;
+  /** Fields of its records the target lacks or takes no value of: dropped from them. */
+  fieldsDropped: number;
+  /** Picklist values of its records the target refuses: cleared, or replaced as the rules declare. */
+  picklistsRewritten: number;
+  /**
+   * Records the load would not send: the platform writes them itself, the
+   * dataset does not carry a feed item's type, the target lacks the object or
+   * takes no insert of it, or a lookup they may not leave empty names one of
+   * those. A person account's contact is counted apart: see
+   * `FrozenLoadPlanInfo.personContacts`.
+   */
+  notSent: number;
+  /** On a reload, records earlier loads created that its purge would delete. */
+  toPurge: number;
+  /** On a reload, records earlier loads created that its purge would deactivate, undeletable. */
+  toDeactivate: number;
+}
+
+/**
+ * What a load would do, read from the target and the sas before anything is
+ * written (`frozen:load:preview`): counts and names only — no record id.
+ */
+export interface FrozenLoadPlanInfo {
+  /** The registered org the load would write to. */
+  orgId: string;
+  mode: { pilot: boolean; reload: boolean };
+  /** When it was read, ISO 8601. */
+  plannedAt: string;
+  /** Per object, in the order the load writes them, then the objects only a reload's purge reaches. */
+  perObject: FrozenLoadPlanObject[];
+  /** Each object the load would not send, and why. */
+  excludedObjects: Array<{ objectApiName: string; reason: string }>;
+  /** Each field dropped at alignment, and how many records hold a value of it. */
+  removals: FrozenFieldRemoval[];
+  /** The technical placeholders the load would create for required lookups, and the records each fills. */
+  placeholders: Array<{
+    objectApiName: string;
+    field: string;
+    placeholderObjectApiName: string;
+    placeholderName: string;
+    affectedRecords: number;
+  }>;
+  /** The declared defaults the load would give required fields, and the records each fills. */
+  requiredDefaults: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+  /** Record type references the target does not resolve. */
+  recordTypeIssues: number;
+  /**
+   * The person accounts' contacts: the platform writes one with each person
+   * account, and the load links it once the account is in — or sends it as a
+   * contact of its own, where the target holds the account as a business
+   * account. Counted apart from the contacts it would insert.
+   */
+  personContacts: number;
+  /** How many loads into the target the sas mapping records: what a reload judges. */
+  earlierLoads: number;
+  /**
+   * On a reload, per object, records of a load recorded before loads kept
+   * what they created that the purge would leave in place: that load may have
+   * linked them. Absent when none would be.
+   */
+  leftUnrecorded?: Record<string, number>;
+}
+
+/**
  * Load/verify phases surfaced in progress events. `mapping` reads what earlier
  * loads wrote, from the sas, and `pilot` selects a pilot's root folder, both
  * between the entry guards and what the load reuses. `catalog` looks up what
@@ -628,10 +713,12 @@ export interface FrozenStatusInfo {
   /** Last verification verdict, when one ran. */
   lastVerify: { status: string; measuredAt: string } | null;
   /**
-   * The records of the load whose mapping the sas holds — from this window or
-   * from the command line — for their removal: the last load, or, once its
-   * records went, the newest load before it whose records are still there.
-   * Absent when no load wrote one.
+   * Per target org the sas holds a mapping of, the records of the load a
+   * removal takes next there — from this window or from the command line —
+   * for their removal: the last load into that org, or, once its records
+   * went, the newest load before it whose records are still there. Each org's
+   * loads are kept apart: a load into one org leaves the loads into another
+   * named. Absent when no load wrote a mapping.
    */
-  lastLoadRecords?: FrozenLoadRecordsInfo;
+  loadRecords?: FrozenLoadRecordsInfo[];
 }

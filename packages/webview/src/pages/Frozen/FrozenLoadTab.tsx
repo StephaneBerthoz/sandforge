@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, ShieldCheck } from 'lucide-react';
+import { Eye, Play, ShieldCheck, Square } from 'lucide-react';
 import type {
+  ExecutionAbortResponse,
   ForgeFieldRefusal,
+  FrozenLoadPlanInfo,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
@@ -10,6 +12,8 @@ import type {
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -115,6 +119,49 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const loadMutation = useFrozenMutation<FrozenLoadResponse['payload']>('frozen:load', {
     timeoutMs: 1_800_000,
   });
+  // Read before anything is written: the target is asked what the load reads
+  // before its first write, and the purge a reload would run is planned.
+  const previewMutation = useFrozenMutation<{ plan: FrozenLoadPlanInfo }>('frozen:load:preview', {
+    timeoutMs: 600_000,
+  });
+  // The load runs under the id of the request that started it: Cancel sends
+  // it on `execution:abort`, as Live Operations' Cancel does, and the load
+  // stops before its next write. The page had no Cancel, and could not have
+  // named the load: its id was minted where the page never saw it.
+  const abortMutation = useBridgeMutation<ExecutionAbortResponse['payload']>('execution:abort', {
+    responseType: 'execution:abort:response',
+  });
+  const addNotification = useNotificationStore((s) => s.addNotification);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const loadRequestId = loadMutation.requestId;
+  // Another load starts as nothing has been asked of it.
+  useEffect(() => {
+    setCancelRequested(false);
+  }, [loadRequestId]);
+  // A cancel the extension refused — the load already over, or not found —
+  // is said, and Cancel is offered again while the load runs. Each answer is
+  // read once.
+  const abortAnswered = useRef<unknown>(null);
+  const abortReply = abortMutation.data;
+  const abortError = abortMutation.error;
+  useEffect(() => {
+    const reply = abortReply ?? abortError;
+    if (!reply || abortAnswered.current === reply) return;
+    abortAnswered.current = reply;
+    if (abortError || !abortReply?.success) {
+      setCancelRequested(false);
+      addNotification({
+        level: 'warning',
+        title: t('frozen.load.cancelRefused'),
+        message: t('frozen.load.cancelRefusedDetail'),
+      });
+    }
+  }, [abortReply, abortError, addNotification, t]);
+  const cancelLoad = (): void => {
+    if (!loadRequestId) return;
+    setCancelRequested(true);
+    abortMutation.mutate({ operationId: loadRequestId });
+  };
   const verifyMutation = useFrozenMutation<{ verdict: FrozenVerifyVerdict }>('frozen:verify', {
     responseType: 'frozen:verify:result',
     timeoutMs: 300_000,
@@ -141,16 +188,59 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const effectiveTarget = targetOrgId || selectedOrgId || '';
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
 
+  const loadOptions = (): Record<string, unknown> => ({
+    targetOrgId: effectiveTarget,
+    ...(pilot ? { pilot: true } : {}),
+    ...(reload ? { reload: true } : {}),
+  });
+
   const handleLoad = (): void => {
     clearProgress();
     setLoadReport(null);
     setVerdict(null);
-    loadMutation.mutate({
-      targetOrgId: effectiveTarget,
-      ...(pilot ? { pilot: true } : {}),
-      ...(reload ? { reload: true } : {}),
-    });
+    previewMutation.reset();
+    loadMutation.mutate(loadOptions());
   };
+
+  const plan = previewMutation.data?.plan;
+  const planOrg = plan ? (orgs.find((o) => o.id === plan.orgId)?.alias ?? plan.orgId) : '';
+  const planColumns = plan
+    ? [
+        { key: 'objectApiName', header: t('frozen.control.object'), sortable: true },
+        { key: 'fromFiles', header: t('frozen.preview.fromFiles'), align: 'right' as const },
+        { key: 'toInsert', header: t('frozen.preview.toInsert'), align: 'right' as const },
+        { key: 'reusedByKeys', header: t('frozen.preview.reusedByKeys'), align: 'right' as const },
+        {
+          key: 'reusedFromCatalog',
+          header: t('frozen.preview.reusedFromCatalog'),
+          align: 'right' as const,
+        },
+        {
+          key: 'fieldsDropped',
+          header: t('frozen.preview.fieldsDropped'),
+          align: 'right' as const,
+        },
+        {
+          key: 'picklistsRewritten',
+          header: t('frozen.preview.picklistsRewritten'),
+          align: 'right' as const,
+        },
+        // Said only when some are: most datasets send every record they hold.
+        ...(plan.perObject.some((o) => o.notSent > 0)
+          ? [{ key: 'notSent', header: t('frozen.preview.notSent'), align: 'right' as const }]
+          : []),
+        ...(plan.mode.reload
+          ? [
+              { key: 'toPurge', header: t('frozen.preview.toPurge'), align: 'right' as const },
+              {
+                key: 'toDeactivate',
+                header: t('frozen.preview.toDeactivate'),
+                align: 'right' as const,
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   const latestProgress = progress.length > 0 ? progress[progress.length - 1] : null;
 
@@ -326,6 +416,17 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             <Button
               variant="secondary"
               size="sm"
+              icon={<Eye className="w-3 h-3" />}
+              loading={previewMutation.loading}
+              disabled={!effectiveTarget || !status?.manifest || loadMutation.loading}
+              onClick={() => previewMutation.mutate(loadOptions())}
+              data-testid="frozen-load-preview"
+            >
+              {t('frozen.load.preview')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               loading={verifyMutation.loading}
               disabled={!effectiveTarget || !status?.lastLoad}
               onClick={() => verifyMutation.mutate({ targetOrgId: effectiveTarget })}
@@ -333,15 +434,125 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             >
               {t('frozen.verify.run')}
             </Button>
+            {loadMutation.loading && loadRequestId && (
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Square className="w-3 h-3" />}
+                disabled={cancelRequested}
+                focusableWhenDisabled
+                onClick={cancelLoad}
+                data-testid="frozen-load-cancel"
+              >
+                {t('common.cancelRun')}
+              </Button>
+            )}
           </div>
+          {loadMutation.loading && cancelRequested && (
+            <p
+              className="text-[11px] text-text-secondary"
+              role="status"
+              data-testid="frozen-load-stopping"
+            >
+              {t('frozen.load.stopping')}
+            </p>
+          )}
           {loadMutation.error && <ErrorBanner message={loadMutation.error} />}
           {verifyMutation.error && <ErrorBanner message={verifyMutation.error} />}
         </CardBody>
       </Card>
 
-      {/* ── Last load, and taking it back ─────────────────────────────── */}
+      {/* ── What the load would do, nothing written ───────────────────── */}
+      {plan && (
+        <Card className="border border-subtle bg-surface-1">
+          <CardBody>
+            <div className="flex flex-col gap-2" data-testid="frozen-preview">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-text-primary">
+                  {t('frozen.preview.title', { org: planOrg })}
+                </h2>
+                {plan.mode.pilot && <Badge variant="info">{t('frozen.load.pilot')}</Badge>}
+                {plan.mode.reload && <Badge variant="info">{t('frozen.load.reload')}</Badge>}
+              </div>
+              <p className="text-[11px] text-text-secondary">{t('frozen.preview.hint')}</p>
+              {plan.mode.reload && !plan.mode.pilot && (
+                <p className="text-[11px] text-text-secondary" data-testid="frozen-preview-reload">
+                  {t('frozen.preview.earlierLoads', { count: plan.earlierLoads })}
+                </p>
+              )}
+              <DataTable
+                columns={planColumns}
+                data={plan.perObject.map((o) => ({ ...o }))}
+                keyExtractor={(row) => String(row.objectApiName)}
+              />
+              {plan.excludedObjects.length > 0 && (
+                <div data-testid="frozen-preview-excluded">
+                  <p className="text-[11px] text-text-secondary">
+                    {t('frozen.report.excludedObjects')}
+                  </p>
+                  <ul className="flex flex-col gap-0.5">
+                    {plan.excludedObjects.map((o) => (
+                      <li key={o.objectApiName} className="text-[11px] text-text-secondary">
+                        {o.objectApiName}: {o.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {plan.placeholders.length > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-placeholders"
+                >
+                  {t('frozen.preview.placeholders', {
+                    fields: plan.placeholders
+                      .map((p) => `${p.objectApiName}.${p.field} (${p.affectedRecords})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {plan.requiredDefaults.length > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-defaults"
+                >
+                  {t('frozen.preview.defaults', {
+                    fields: plan.requiredDefaults
+                      .map((d) => `${d.objectApiName}.${d.field} (${d.affectedRecords})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {plan.personContacts > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-person-contacts"
+                >
+                  {t('frozen.preview.personContacts', { count: plan.personContacts })}
+                </p>
+              )}
+              {plan.recordTypeIssues > 0 && (
+                <p className="text-[11px] text-text-secondary">
+                  {t('frozen.preview.recordTypeIssues', { count: plan.recordTypeIssues })}
+                </p>
+              )}
+              {Object.keys(plan.leftUnrecorded ?? {}).length > 0 && (
+                <p className="text-[11px] text-text-secondary">
+                  {t('frozen.report.purge.leftUnrecorded', {
+                    objects: Object.entries(plan.leftUnrecorded ?? {})
+                      .map(([objectApiName, records]) => `${objectApiName} (${records})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* ── Last load into the selected target, and taking it back ────── */}
       <FrozenLoadRemoval
-        records={status?.lastLoadRecords}
+        records={status?.loadRecords?.find((load) => load.orgId === effectiveTarget)}
         onAnswered={onRefetchStatus}
         busy={loadMutation.loading}
       />

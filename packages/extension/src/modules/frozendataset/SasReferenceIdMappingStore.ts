@@ -16,13 +16,16 @@
  * by this machine's clock, and by the target's — and what earlier removals of
  * it did; and the same of the loads before it that no reload purged, whose
  * records are still in the org. Record ids stay in the sas with the rest.
+ *
+ * One file per target org: a load into one org leaves the loads into another
+ * named, for their removal, their reload and their verification.
  */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark, ForgeWrittenBetween } from '@sandforge/shared';
-import { SasPathGuard } from './SasPathGuard.js';
+import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 import type {
   LoadCreatedRecords,
   PersistedLoad,
@@ -30,8 +33,75 @@ import type {
   ReferenceIdMappingStore,
 } from './types.js';
 
-/** File name of the persisted mapping inside the sas directory. */
+/**
+ * File name of the one mapping a sas kept, whichever org its load went to,
+ * before mappings were kept per target org — and of the mapping of a store
+ * bound to no org. A load into another org replaced it: the loads before it
+ * were no longer named, and could not be removed or purged. Read for the org
+ * it names while that org has no file of its own, then rewritten as that
+ * org's file.
+ */
 export const REFERENCEID_MAPPING_FILENAME = 'referenceid-mapping.json';
+
+/** The per-org file names, and the org each is of. */
+const PER_ORG_MAPPING = /^referenceid-mapping\.([A-Za-z0-9_-]{1,128})\.json$/;
+
+/** File name of the mapping of the loads into one registered org, inside the sas directory. */
+export function referenceIdMappingFileName(orgId: string): string {
+  return `referenceid-mapping.${orgFileKey(orgId)}.json`;
+}
+
+/** The file as written, or `undefined` when there is none. */
+async function readMappingFile(filePath: string): Promise<MappingFilePayload | undefined> {
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, 'utf8');
+  } catch (err: unknown) {
+    // Only an absent file is a first load. A file that exists but cannot
+    // be read still raises: a mapping read as empty would re-insert
+    // records that are already in the target org.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw err;
+  }
+  return JSON.parse(content) as MappingFilePayload;
+}
+
+/**
+ * The registered orgs a sas holds a mapping of, each once, sorted: one per
+ * file kept per org, and the org the one file of before names while it has no
+ * file of its own. None when the sas does not exist yet.
+ */
+export async function mappedOrgIds(sasDir: string, guard: SasPathGuard): Promise<string[]> {
+  const dir = guard.assertOutsideRepo(sasDir);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  const orgs = new Set(names.flatMap((name) => PER_ORG_MAPPING.exec(name)?.[1] ?? []));
+  if (names.includes(REFERENCEID_MAPPING_FILENAME)) {
+    const single = await readMappingFile(
+      guard.assertOutsideRepo(path.join(dir, REFERENCEID_MAPPING_FILENAME)),
+    );
+    const orgId = single?.orgId;
+    if (typeof orgId === 'string' && namesAFile(orgId)) orgs.add(orgId);
+  }
+  return [...orgs].sort();
+}
+
+/** Whether a file of the sas can be named after an org id: see {@link orgFileKey}. */
+function namesAFile(orgId: string): boolean {
+  try {
+    orgFileKey(orgId);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** What the file keeps of one load: the last one, or one before it. */
 interface LoadPayload {
@@ -269,7 +339,11 @@ export interface RecordedRemoval {
 export interface SasReferenceIdMappingStoreOptions {
   /** Sas path guard — injected in tests, auto-detected otherwise. */
   guard?: SasPathGuard;
-  /** Target org ID recorded in the file (informational). */
+  /**
+   * The registered target org: recorded in the file, and naming it — each
+   * org's loads have a file of their own. Absent, the store is bound to no
+   * org, and reads and writes the one file of the sas.
+   */
   orgId?: string;
   /**
    * The id the target org answers with now (`Organization.Id`), or how to ask
@@ -388,9 +462,28 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     this.now = options?.now ?? (() => new Date());
   }
 
-  /** Absolute path of the mapping file (validated outside the repo). */
+  /**
+   * Absolute path of the mapping file (validated outside the repo): the file
+   * of the loads into the store's org, or, for a store bound to no org, the
+   * one file of the sas.
+   */
   get filePath(): string {
-    return this.guard.assertOutsideRepo(path.join(this.sasDir, REFERENCEID_MAPPING_FILENAME));
+    return this.guard.assertOutsideRepo(
+      path.join(
+        this.sasDir,
+        this.orgId === '' ? REFERENCEID_MAPPING_FILENAME : referenceIdMappingFileName(this.orgId),
+      ),
+    );
+  }
+
+  /**
+   * The one file the sas kept before mappings were kept per org, for a store
+   * bound to an org: read for that org while it has no file of its own.
+   */
+  private get singleFilePath(): string | undefined {
+    return this.orgId === ''
+      ? undefined
+      : this.guard.assertOutsideRepo(path.join(this.sasDir, REFERENCEID_MAPPING_FILENAME));
   }
 
   /**
@@ -497,29 +590,37 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     return this.organizationId;
   }
 
-  /** The file as written, or `undefined` when there is none yet. */
+  /**
+   * The file as written, or `undefined` when there is none yet: the store's
+   * own — or, while its org has none, the one file of before when that file
+   * names its org. A file of before written to another org is that org's,
+   * and none of this one's.
+   */
   private async read(): Promise<MappingFilePayload | undefined> {
-    const filePath = this.filePath;
-    let content: string;
-    try {
-      content = await fs.readFile(filePath, 'utf8');
-    } catch (err: unknown) {
-      // Only an absent file is a first load. A file that exists but cannot
-      // be read still raises: a mapping read as empty would re-insert
-      // records that are already in the target org.
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return undefined;
-      }
-      throw err;
-    }
-    return JSON.parse(content) as MappingFilePayload;
+    const own = await readMappingFile(this.filePath);
+    if (own !== undefined) return own;
+    const single = this.singleFilePath;
+    if (single === undefined) return undefined;
+    const payload = await readMappingFile(single);
+    return payload?.orgId === this.orgId ? payload : undefined;
   }
 
-  /** Write the file whole. */
+  /**
+   * Write the file whole, as the store's own: the one file of before, when
+   * it names the store's org, is then rewritten as that org's, and goes.
+   */
   private async write(payload: MappingFilePayload): Promise<void> {
     const filePath = this.filePath;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    const single = this.singleFilePath;
+    if (single === undefined) return;
+    try {
+      if ((await readMappingFile(single))?.orgId === this.orgId) await fs.rm(single);
+    } catch {
+      // Left in place, it is read for its org no more: the org's own file
+      // comes first.
+    }
   }
 
   /**

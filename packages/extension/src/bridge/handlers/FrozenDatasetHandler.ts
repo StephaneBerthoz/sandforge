@@ -8,6 +8,7 @@ import type {
   ForgeGraph,
   FrozenControlReport,
   FrozenGraphCoverage,
+  FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
@@ -18,6 +19,7 @@ import type {
   GuardDecision,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import {
   consultProductionGuard,
   strongerDecision,
@@ -103,6 +105,7 @@ import {
   loadRecordsLeft,
   loadToRemove,
   loadTokensFromSas,
+  mappedOrgIds,
   parseManifest,
   parsePseudonymRules,
   readCountingContract,
@@ -111,6 +114,7 @@ import {
   type ControlViolation,
   type CoverageSelectionResult,
   type FrozenDataset,
+  type FrozenDmlWriter,
   type FrozenLoadConfig,
   type FrozenLoadProgressEvent,
   type FrozenLoadReport,
@@ -123,6 +127,23 @@ import {
   type TargetOrgAccess,
 } from '../../modules/frozendataset/index.js';
 
+/**
+ * The writer of a preview: it writes nothing, and says so if a write ever
+ * reaches it — a preview reads what the load reads before its first write,
+ * and stops there.
+ */
+const PREVIEW_WRITER: FrozenDmlWriter = {
+  insert: async () => {
+    throw new Error('A preview writes nothing.');
+  },
+  update: async () => {
+    throw new Error('A preview writes nothing.');
+  },
+  delete: async () => {
+    throw new Error('A preview writes nothing.');
+  },
+};
+
 /** Message types handled by FrozenDatasetHandler. */
 const FROZEN_TYPES = new Set([
   'frozen:config:get',
@@ -131,6 +152,7 @@ const FROZEN_TYPES = new Set([
   'frozen:extract',
   'frozen:manifest:get',
   'frozen:load',
+  'frozen:load:preview',
   'frozen:verify',
   'frozen:remove',
   'frozen:status',
@@ -142,8 +164,16 @@ const FROZEN_CATEGORY = 'frozen';
 /** ConfigStore key of the per-project configuration. */
 const CONFIG_KEY = 'frozen:config';
 
-/** ConfigStore key of the last load run pointers (verify/status). */
+/** ConfigStore key of the last load run pointers, whichever org it went to (status). */
 const LAST_RUN_KEY = 'frozen:lastRun';
+
+/**
+ * ConfigStore key of the last load run pointers of each target org, by its
+ * registered id (verify). Kept for the last load alone, a load into another
+ * org replaced the pointers of the first: its verification read the other
+ * org's contract, and was refused.
+ */
+const LAST_RUNS_KEY = 'frozen:lastRuns';
 
 /** ConfigStore key of the last verification verdict. */
 const LAST_VERIFY_KEY = 'frozen:lastVerify';
@@ -592,6 +622,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         return true;
       case 'frozen:load':
         await this.handleLoad(msg);
+        return true;
+      case 'frozen:load:preview':
+        await this.handlePreview(msg);
         return true;
       case 'frozen:verify':
         await this.handleVerify(msg);
@@ -1348,7 +1381,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       return;
     }
 
-    const operationId = `frozen-load-${this.deps.nextId()}`;
+    // The id of the request that started it, as Sync's runs use theirs: the
+    // page knows it, and its Cancel reaches the registry's controller below,
+    // as Live Operations' does. Minted here, it was an id the page never saw,
+    // and the Load tab could not stop the load it started.
+    const operationId = msg.id;
     const description = parsed.pilot ? 'Pilot load (one root folder)' : 'Loading frozen dataset';
     sendOperationStarted(this.deps, operationId, 'frozen', description);
     // Listed in Live Operations while it runs, where Cancel reaches the
@@ -1497,7 +1534,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         status: report.status,
         at: new Date().toISOString(),
       };
-      this.deps.configStore.set(LAST_RUN_KEY, lastRun, FROZEN_CATEGORY);
+      this.recordLastRun(lastRun);
 
       const response = buildResponse(this.deps, msg, 'frozen:load:response', {
         report: toLoadReportInfo(report),
@@ -1572,6 +1609,104 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Keep the pointers of a load: as the last load, and as the last load into
+   * its org. The last load of before, recorded when the pointers were kept
+   * for the last load alone, is kept for its org first, so that a load into
+   * another org does not take its verification away.
+   */
+  private recordLastRun(run: FrozenLastRun): void {
+    const byOrg = { ...this.lastRuns() };
+    const before = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
+    if (before && byOrg[before.targetOrgId] === undefined) byOrg[before.targetOrgId] = before;
+    byOrg[run.targetOrgId] = run;
+    this.deps.configStore.set(LAST_RUNS_KEY, byOrg, FROZEN_CATEGORY);
+    this.deps.configStore.set(LAST_RUN_KEY, run, FROZEN_CATEGORY);
+  }
+
+  /** The pointers of the last load into each org, by its registered id. */
+  private lastRuns(): Record<string, FrozenLastRun> {
+    return this.deps.configStore.get<Record<string, FrozenLastRun>>(LAST_RUNS_KEY) ?? {};
+  }
+
+  /**
+   * The pointers of the last load into `orgId`: kept per org, or the last
+   * load of before when it went to that org.
+   */
+  private lastRunOf(orgId: string): FrozenLastRun | undefined {
+    const own = this.lastRuns()[orgId];
+    if (own) return own;
+    const last = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
+    return last?.targetOrgId === orgId ? last : undefined;
+  }
+
+  // ── frozen:load:preview ────────────────────────────────────────────────
+
+  /**
+   * What a load into the target with the same options would do, read before
+   * anything is written: see {@link FrozenDatasetLoader.planLoad}. It reads
+   * the dataset, the sas and the target as the load does before its first
+   * write — the entry guards included, so a target the load would refuse is
+   * refused here, saying why — and writes nothing: the loader it builds holds
+   * a writer that refuses every write. No run is started, nothing goes into
+   * the audit trail, and Production Guard, which judges writes, is not asked.
+   */
+  private async handlePreview(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenLoadPayloadSchema,
+      msg,
+      'frozen:load:preview:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:load:preview:error');
+    if (!config) return;
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
+      const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
+      const orgAccess = this.buildTargetOrgAccess();
+      const conn = await getJsforceConnection(
+        parsed.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetClock = removalOrg(conn, 'frozen:load:preview');
+      const loader = new FrozenDatasetLoader({
+        orgAccess,
+        writer: PREVIEW_WRITER,
+        guard: this.deps.infraServices?.productionGuard ?? new ProductionGuard(),
+        mockDetector: config.mockDetection
+          ? new CustomMetadataCalloutMockDetector(orgAccess, config.mockDetection)
+          : { areCalloutsMocked: async (): Promise<boolean> => true },
+        recordTypeResolver: new TargetRecordTypeIdResolver(orgAccess),
+        mappingStore: this.mappingStoreFor(sasDir, parsed.targetOrgId, guard),
+        config: this.toLoadConfig(config),
+        sasGuard: guard,
+        serverTime: () => targetClock.serverTime(),
+      });
+      const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
+      const plan = await loader.planLoad({
+        orgId: parsed.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        dataset,
+        manifest,
+        sasDir,
+        reload: parsed.reload,
+        pilot: parsed.pilot ? {} : undefined,
+      });
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:load:preview:response', { plan }),
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'frozen:load:preview', 'frozen:load:preview:error', msg, err, {
+        code: this.errorCodeFor(err, 'PREVIEW_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
+    }
+  }
+
   // ── frozen:verify ──────────────────────────────────────────────────────
 
   private async handleVerify(msg: InboundRequest): Promise<void> {
@@ -1584,14 +1719,18 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:verify:error');
     if (!config) return;
-    const lastRun = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
+    // The last load into the org asked about: a load into another org since
+    // leaves it its contract, its mapping and its dataset.
+    const lastRun = this.lastRunOf(parsed.targetOrgId);
     if (!lastRun) {
       sendHandlerError(
         this.deps,
         'frozen:verify',
         'frozen:verify:error',
         msg,
-        new Error('No load run recorded — run a load (frozen:load) before verifying.'),
+        new Error(
+          'No load into this org is recorded — run a load (frozen:load) into it before verifying.',
+        ),
         { code: 'NO_LOAD' },
       );
       return;
@@ -1610,8 +1749,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       // `sasDir` set to another since, every refusal below described that
       // other sas's mapping — a refresh, a removal, no mapping at all — and a
       // sas moved there rather than copied ended on the contract it took with
-      // it, as a file that could not be read.
-      const sasChanged = lastRun.contractPath !== countingContractPath(guard, sasDir);
+      // it, as a file that could not be read. Told by its folder: a load
+      // recorded when the sas kept one contract for every org names that one.
+      const sasChanged =
+        path.dirname(lastRun.contractPath) !==
+        path.dirname(countingContractPath(guard, sasDir, parsed.targetOrgId));
       const contractThere = await pathExists(lastRun.contractPath);
       if (sasChanged || !contractThere) {
         const loadSas = path.dirname(lastRun.contractPath);
@@ -1822,7 +1964,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       return;
     }
     if (!load) {
-      refuse('No load was recorded in this sas: there is nothing to remove.', 'NO_LOAD');
+      refuse(
+        'No load into this org was recorded in this sas: there is nothing to remove.',
+        'NO_LOAD',
+      );
       return;
     }
     if (load.orgId !== parsed.targetOrgId || load.endedAt !== parsed.loadedAt) {
@@ -2174,17 +2319,25 @@ export class FrozenDatasetHandler implements DomainHandler {
     );
 
     // Read as written: the page is told what a removal would take without
-    // anything being asked of the org — of the load a removal takes next.
-    let lastLoad: RecordedLoad | undefined;
+    // anything being asked of the org — of the load a removal takes next, in
+    // each org the sas holds a mapping of. The page shows the one of the
+    // target it has selected.
+    const loadRecords: FrozenLoadRecordsInfo[] = [];
     try {
       const guard = new SasPathGuard();
-      lastLoad = loadToRemove(
-        await new SasReferenceIdMappingStore(guard.assertOutsideRepo(sasDir), {
-          guard,
-        }).recordedLoads(),
-      );
+      const sas = guard.assertOutsideRepo(sasDir);
+      for (const orgId of await mappedOrgIds(sas, guard)) {
+        try {
+          const load = loadToRemove(
+            await new SasReferenceIdMappingStore(sas, { guard, orgId }).recordedLoads(),
+          );
+          if (load) loadRecords.push(loadRecordsInfo(load));
+        } catch {
+          // A mapping that cannot be read hides no other org's.
+        }
+      }
     } catch {
-      lastLoad = undefined;
+      loadRecords.length = 0;
     }
 
     const status: FrozenStatusInfo = {
@@ -2199,7 +2352,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ? { status: lastRun.status, orgId: lastRun.targetOrgId, at: lastRun.at }
         : null,
       lastVerify: lastVerify ?? null,
-      ...(lastLoad ? { lastLoadRecords: loadRecordsInfo(lastLoad) } : {}),
+      ...(loadRecords.length > 0 ? { loadRecords } : {}),
     };
     const response = buildResponse(this.deps, msg, 'frozen:status:response', { status });
     this.deps.broker.postToWebview(response);

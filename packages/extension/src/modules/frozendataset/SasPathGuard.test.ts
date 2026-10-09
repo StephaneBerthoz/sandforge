@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { findRepoRoot, InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
+import { findRepoRoot, InsideRepoPathError, orgFileKey, SasPathGuard } from './SasPathGuard.js';
 
 // Tests run with cwd = packages/extension → the repo root is two levels up.
 const repoRoot = findRepoRoot(process.cwd());
@@ -58,5 +58,18 @@ describe('SasPathGuard', () => {
   it('defaults to detecting the repo root from cwd', () => {
     const defaultGuard = new SasPathGuard();
     expect(defaultGuard.repoRoot).toBe(path.resolve(repoRoot));
+  });
+});
+
+describe('orgFileKey', () => {
+  it('names a file after a registered org id as it is', () => {
+    expect(orgFileKey('00DXX0000000001AAA')).toBe('00DXX0000000001AAA');
+    expect(orgFileKey('org-dev_2')).toBe('org-dev_2');
+  });
+
+  it('refuses an id that could name a file outside the sas, or none', () => {
+    for (const orgId of ['', '../elsewhere', 'a/b', 'a\\b', 'org.dev', 'x'.repeat(129)]) {
+      expect(() => orgFileKey(orgId)).toThrow(/Not an org id/);
+    }
   });
 });

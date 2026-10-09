@@ -3732,7 +3732,32 @@
       "reload": "Reload without refresh",
       "run": "Run load",
       "runPilot": "Run pilot",
-      "progress": "Progress"
+      "progress": "Progress",
+      "preview": "Preview",
+      "stopping": "Stopping: the load ends before its next write. What it wrote stays in the org, named in the mapping for a removal or a reload.",
+      "cancelRefused": "Could not cancel the load",
+      "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window."
+    },
+    "preview": {
+      "title": "What a load into {{org}} would do",
+      "hint": "Read from the target, nothing written. The target may still refuse records or skip duplicates, and a contact's direct relation or an email's task is linked to the one the platform writes once its record is in.",
+      "earlierLoads_one": "Reload: purges what {{count}} earlier load into this org created and this one does not find again.",
+      "earlierLoads_other": "Reload: purges what {{count}} earlier loads into this org created and this one does not find again.",
+      "fromFiles": "In the dataset",
+      "toInsert": "To insert",
+      "reusedByKeys": "Found by identity keys",
+      "reusedFromCatalog": "Found in the catalog",
+      "fieldsDropped": "Fields dropped",
+      "picklistsRewritten": "Picklist values rewritten",
+      "notSent": "Not sent",
+      "toPurge": "To purge",
+      "toDeactivate": "To deactivate",
+      "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
+      "defaults": "Declared defaults, and the records each fills: {{fields}}",
+      "personContacts_one": "{{count}} person account's contact goes in with its account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
+      "personContacts_other": "{{count}} person accounts' contacts go in with their account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
+      "recordTypeIssues_one": "{{count}} record type reference the target does not resolve",
+      "recordTypeIssues_other": "{{count}} record type references the target does not resolve"
     },
     "verify": {
       "run": "Re-verify",

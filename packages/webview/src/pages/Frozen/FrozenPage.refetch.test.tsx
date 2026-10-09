@@ -61,13 +61,15 @@ const STATUS: FrozenStatusInfo = {
   },
   lastLoad: null,
   lastVerify: null,
-  lastLoadRecords: {
-    orgId: 'org-dev',
-    loadedAt: '2026-09-24T10:05:00.000Z',
-    created: [{ objectApiName: 'Account', count: 1 }],
-    linked: 0,
-    recorded: true,
-  },
+  loadRecords: [
+    {
+      orgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+      created: [{ objectApiName: 'Account', count: 1 }],
+      linked: 0,
+      recorded: true,
+    },
+  ],
 };
 
 const REPORT: FrozenLoadReportInfo = {
@@ -201,13 +203,15 @@ describe('FrozenPage — the status it reads again', () => {
     answer(reads[0], 'frozen:status:response', {
       status: {
         ...STATUS,
-        lastLoadRecords: {
-          orgId: 'org-dev',
-          loadedAt: '2026-09-24T11:05:00.000Z',
-          created: [{ objectApiName: 'Contact', count: 3 }],
-          linked: 0,
-          recorded: true,
-        },
+        loadRecords: [
+          {
+            orgId: 'org-dev',
+            loadedAt: '2026-09-24T11:05:00.000Z',
+            created: [{ objectApiName: 'Contact', count: 3 }],
+            linked: 0,
+            recorded: true,
+          },
+        ],
       },
     });
     expect(answerStatuses(before + 1)).toBe(0);

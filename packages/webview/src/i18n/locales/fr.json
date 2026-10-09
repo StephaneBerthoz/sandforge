@@ -3732,7 +3732,32 @@
       "reload": "Rechargement sans refresh",
       "run": "Lancer le chargement",
       "runPilot": "Lancer le pilote",
-      "progress": "Progression"
+      "progress": "Progression",
+      "preview": "Aperçu",
+      "stopping": "Arrêt en cours : le chargement s'arrête avant sa prochaine écriture. Ce qu'il a écrit reste dans l'org, nommé dans le mapping pour une suppression ou un rechargement.",
+      "cancelRefused": "Impossible d'annuler le chargement",
+      "cancelRefusedDetail": "Le chargement n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre."
+    },
+    "preview": {
+      "title": "Ce que ferait un chargement dans {{org}}",
+      "hint": "Lu dans la cible, rien n'est écrit. La cible peut encore refuser des enregistrements ou en écarter comme doublons, et la relation directe d'un contact ou la tâche d'un e-mail est liée à celle qu'écrit la plateforme une fois son enregistrement entré.",
+      "earlierLoads_one": "Rechargement : purge ce que {{count}} chargement antérieur dans cette org a créé et que celui-ci ne retrouve pas.",
+      "earlierLoads_other": "Rechargement : purge ce que {{count}} chargements antérieurs dans cette org ont créé et que celui-ci ne retrouve pas.",
+      "fromFiles": "Dans le jeu de données",
+      "toInsert": "À insérer",
+      "reusedByKeys": "Trouvés par les clés d'identité",
+      "reusedFromCatalog": "Trouvés dans le catalogue",
+      "fieldsDropped": "Champs retirés",
+      "picklistsRewritten": "Valeurs de liste réécrites",
+      "notSent": "Non envoyés",
+      "toPurge": "À purger",
+      "toDeactivate": "À désactiver",
+      "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
+      "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
+      "personContacts_one": "{{count}} contact de compte personnel entre avec son compte, compté à part : lié au contact que la plateforme écrit avec lui, ou envoyé comme contact à part entière là où la cible tient le compte pour un compte professionnel.",
+      "personContacts_other": "{{count}} contacts de comptes personnels entrent avec leur compte, comptés à part : liés au contact que la plateforme écrit avec lui, ou envoyés comme contacts à part entière là où la cible tient le compte pour un compte professionnel.",
+      "recordTypeIssues_one": "{{count}} référence de type d'enregistrement que la cible ne résout pas",
+      "recordTypeIssues_other": "{{count}} références de type d'enregistrement que la cible ne résout pas"
     },
     "verify": {
       "run": "Re-vérifier",

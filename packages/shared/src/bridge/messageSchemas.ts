@@ -538,6 +538,8 @@ const FrozenMessages = [
   msg('frozen:load'),
   msg('frozen:load:response'),
   msg('frozen:load:progress'),
+  msg('frozen:load:preview'),
+  msg('frozen:load:preview:response'),
   msg('frozen:verify'),
   msg('frozen:verify:result'),
   msg('frozen:remove'),
@@ -549,6 +551,7 @@ const FrozenMessages = [
   msg('frozen:select:error'),
   msg('frozen:extract:error'),
   msg('frozen:load:error'),
+  msg('frozen:load:preview:error'),
   msg('frozen:verify:error'),
   msg('frozen:remove:error'),
 ] as const;

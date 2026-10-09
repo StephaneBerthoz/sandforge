@@ -15,7 +15,8 @@
  * Each step is one message the panel sends:
  *   select   pick one root record per combination of the coverage matrix
  *   extract  read those roots' graphs, pseudonymize, check, freeze
- *   load     replay the frozen dataset into a sandbox — writes
+ *   load     replay the frozen dataset into a sandbox — writes; with --dry-run,
+ *            what it would do, read from the sandbox, and nothing written
  *   verify   check the last load against the dataset, read-only
  *   remove   delete from the sandbox the records the last load created — what an
  *            earlier removal left of them, or, once they all went, those of the
@@ -30,6 +31,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts select  --config frozen.json --source SRC
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts extract --config frozen.json --source SRC
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load    --config frozen.json --target TGT
+ *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load    --config frozen.json --target TGT --dry-run
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove  --config frozen.json --target TGT
  *
  * Run from the repository root of a checkout, after pnpm install and
@@ -68,6 +70,8 @@ Options:
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
   --reload               purge what earlier loads created, then load again
+  --dry-run              with load: say what the load would do — per object, what it
+                         would insert, link, drop, rewrite and purge — and write nothing
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --yes                  do not ask before a load writes or a removal deletes
@@ -93,6 +97,8 @@ interface CliArgs {
   storePath?: string;
   pilot: boolean;
   reload: boolean;
+  /** With load: what the load would do, and nothing written. */
+  dryRun: boolean;
   includeChanged: boolean;
   yes: boolean;
   json: boolean;
@@ -140,6 +146,7 @@ export function parseArgs(argv: string[]): CliArgs {
     storePath: get('--store'),
     pilot: args.includes('--pilot'),
     reload: args.includes('--reload'),
+    dryRun: args.includes('--dry-run'),
     includeChanged: args.includes('--include-changed'),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
@@ -547,6 +554,82 @@ export function messageLines(message: Posted): string[] {
       }
       return lines;
     }
+    case 'frozen:load:preview:response': {
+      const plan = p.plan as {
+        mode: { pilot: boolean; reload: boolean };
+        perObject: Array<{
+          objectApiName: string;
+          fromFiles: number;
+          toInsert: number;
+          reusedByKeys: number;
+          reusedFromCatalog: number;
+          fieldsDropped: number;
+          picklistsRewritten: number;
+          notSent: number;
+          toPurge: number;
+          toDeactivate: number;
+        }>;
+        excludedObjects: Array<{ objectApiName: string; reason: string }>;
+        placeholders: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+        requiredDefaults: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+        personContacts: number;
+        earlierLoads: number;
+        leftUnrecorded?: Record<string, number>;
+      };
+      const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
+        plan.perObject.reduce((total, o) => total + pick(o), 0);
+      const lines = [
+        `dry run${plan.mode.pilot ? ' (pilot)' : ''}${plan.mode.reload ? ' (reload)' : ''}: ` +
+          `${sum((o) => o.toInsert)} record(s) to insert, ` +
+          `${sum((o) => o.reusedByKeys + o.reusedFromCatalog)} to link, ` +
+          `${sum((o) => o.notSent)} not sent` +
+          (plan.mode.reload
+            ? `, ${sum((o) => o.toPurge)} to purge and ${sum((o) => o.toDeactivate)} to deactivate ` +
+              `of ${plan.earlierLoads} earlier load(s)`
+            : '') +
+          ' — nothing written',
+      ];
+      for (const o of plan.perObject) {
+        const parts = [
+          `${o.toInsert} to insert`,
+          o.reusedByKeys > 0 ? `${o.reusedByKeys} found by identity keys` : '',
+          o.reusedFromCatalog > 0 ? `${o.reusedFromCatalog} found in the catalog` : '',
+          o.fieldsDropped > 0 ? `${o.fieldsDropped} field(s) dropped` : '',
+          o.picklistsRewritten > 0 ? `${o.picklistsRewritten} picklist value(s) rewritten` : '',
+          o.notSent > 0 ? `${o.notSent} not sent` : '',
+          o.toPurge > 0 ? `${o.toPurge} to purge` : '',
+          o.toDeactivate > 0 ? `${o.toDeactivate} to deactivate` : '',
+        ].filter(Boolean);
+        lines.push(`  ${o.objectApiName}: ${parts.join(', ')} of ${o.fromFiles}`);
+      }
+      for (const excluded of plan.excludedObjects) {
+        lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
+      }
+      for (const placeholder of plan.placeholders) {
+        lines.push(
+          `placeholder for ${placeholder.objectApiName}.${placeholder.field}: ` +
+            `${placeholder.affectedRecords} record(s)`,
+        );
+      }
+      for (const fill of plan.requiredDefaults) {
+        lines.push(
+          `default for ${fill.objectApiName}.${fill.field}: ${fill.affectedRecords} record(s)`,
+        );
+      }
+      if (plan.personContacts > 0) {
+        lines.push(
+          `${plan.personContacts} person account contact(s) go in with their account, not counted above`,
+        );
+      }
+      const left = Object.entries(plan.leftUnrecorded ?? {});
+      if (left.length > 0) {
+        lines.push(
+          'left in place, of a load recorded before loads kept what they created — it may have linked them:',
+        );
+        for (const [objectApiName, count] of left) lines.push(`  ${objectApiName}: ${count}`);
+      }
+      return lines;
+    }
     case 'frozen:verify:result': {
       const v = p.verdict as {
         status: string;
@@ -661,6 +744,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       });
       break;
     case 'load': {
+      if (args.dryRun) {
+        // Nothing is written: nothing to confirm.
+        log(`reading what a load into ${args.target}${args.pilot ? ' (pilot)' : ''} would do…`);
+        await send('frozen:load:preview', {
+          targetOrgId,
+          ...(args.pilot ? { pilot: true } : {}),
+          ...(args.reload ? { reload: true } : {}),
+        });
+        break;
+      }
       if (!args.yes) {
         const ok = await confirm(
           `Load the frozen dataset into ${args.target}${args.reload ? ', purging first what earlier loads created' : ''}?`,
@@ -687,10 +780,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       quiet = true;
       await send('frozen:status', {});
       quiet = false;
+      // The loads into the target, which a load into another org leaves named.
       const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
-        ?.status as { lastLoadRecords?: LoadRecords } | undefined;
-      const records = status?.lastLoadRecords;
-      if (!records || records.orgId !== targetOrgId) {
+        ?.status as { loadRecords?: LoadRecords[] } | undefined;
+      const records = status?.loadRecords?.find((load) => load.orgId === targetOrgId);
+      if (!records) {
         log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
         process.exitCode = 1;
         return;

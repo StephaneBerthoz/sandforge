@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import {
   contractCountsLoad,
+  countingContractPath,
   readCountingContract,
   writeCountingContract,
   type CountingContract,
@@ -46,6 +47,39 @@ describe('the counting contract', () => {
     );
 
     expect(readCountingContract(guard, written).loadStartedAt).toBe('2026-09-24T10:00:00.000Z');
+  });
+
+  it('is kept per target org: a load into another org leaves the first one its contract', () => {
+    // One contract per sas, the load into a second org replaced the first
+    // org's, and a verification of that org's last load was refused.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-contract-test-'));
+    tmpDirs.push(dir);
+    const guard = new SasPathGuard(repoRoot);
+
+    const intoA = writeCountingContract(
+      guard,
+      dir,
+      contract({ orgId: 'org-a', loadStartedAt: '2026-09-24T10:00:00.000Z' }),
+    );
+    const intoB = writeCountingContract(
+      guard,
+      dir,
+      contract({ orgId: 'org-b', loadStartedAt: '2026-09-24T11:00:00.000Z' }),
+    );
+
+    expect(intoA).toBe(countingContractPath(guard, dir, 'org-a'));
+    expect(intoB).toBe(countingContractPath(guard, dir, 'org-b'));
+    expect(intoA).not.toBe(intoB);
+    expect(readCountingContract(guard, intoA)).toMatchObject({
+      orgId: 'org-a',
+      loadStartedAt: '2026-09-24T10:00:00.000Z',
+    });
+    expect(readCountingContract(guard, intoB).orgId).toBe('org-b');
+  });
+
+  it('refuses an org id that would name a file outside the sas', () => {
+    const guard = new SasPathGuard(repoRoot);
+    expect(() => countingContractPath(guard, os.tmpdir(), '../elsewhere')).toThrow(/Not an org id/);
   });
 
   describe('which load it counts', () => {

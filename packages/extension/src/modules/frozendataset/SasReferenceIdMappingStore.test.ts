@@ -6,6 +6,8 @@ import { InsideRepoPathError, SasPathGuard, findRepoRoot } from './SasPathGuard.
 import {
   REFERENCEID_MAPPING_FILENAME,
   SasReferenceIdMappingStore,
+  mappedOrgIds,
+  referenceIdMappingFileName,
 } from './SasReferenceIdMappingStore.js';
 
 const repoRoot = findRepoRoot(process.cwd());
@@ -45,7 +47,8 @@ describe('SasReferenceIdMappingStore', () => {
 
     await store.persist(mapping);
 
-    expect(store.filePath).toBe(path.join(dir, REFERENCEID_MAPPING_FILENAME));
+    // The file of the loads into the target org, which a load into another leaves alone.
+    expect(store.filePath).toBe(path.join(dir, 'referenceid-mapping.00D-target.json'));
     const payload = JSON.parse(fs.readFileSync(store.filePath, 'utf8')) as {
       version: number;
       orgId: string;
@@ -60,6 +63,7 @@ describe('SasReferenceIdMappingStore', () => {
 
     const reloaded = await new SasReferenceIdMappingStore(dir, {
       guard: new SasPathGuard(repoRoot),
+      orgId: '00D-target',
     }).load();
     expect(reloaded).toEqual(mapping);
   });
@@ -109,7 +113,7 @@ describe('SasReferenceIdMappingStore', () => {
       await writtenTo(dir, LOADED_INTO);
 
       const payload = JSON.parse(
-        fs.readFileSync(path.join(dir, REFERENCEID_MAPPING_FILENAME), 'utf8'),
+        fs.readFileSync(path.join(dir, referenceIdMappingFileName('org-target')), 'utf8'),
       ) as { organizationId?: string };
       expect(payload.organizationId).toBe(LOADED_INTO);
     });
@@ -178,7 +182,7 @@ describe('SasReferenceIdMappingStore', () => {
 
       expect(asked).toBe(1);
       const payload = JSON.parse(
-        fs.readFileSync(path.join(dir, REFERENCEID_MAPPING_FILENAME), 'utf8'),
+        fs.readFileSync(path.join(dir, referenceIdMappingFileName('org-target')), 'utf8'),
       ) as { organizationId?: string };
       expect(payload.organizationId).toBe(REFRESHED_TO);
     });
@@ -268,6 +272,7 @@ describe('SasReferenceIdMappingStore', () => {
       await loaded(dir);
       const store = new SasReferenceIdMappingStore(dir, {
         guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
         now: () => new Date('2026-09-24T11:00:00.000Z'),
       });
       const span = {
@@ -745,7 +750,7 @@ describe('SasReferenceIdMappingStore', () => {
         await firstLoad(dir);
         await secondLoad(dir, []);
         const store = storeAt(dir, '2026-09-24T12:00:00.000Z');
-        const file = path.join(dir, REFERENCEID_MAPPING_FILENAME);
+        const file = path.join(dir, referenceIdMappingFileName('org-dev'));
         const before = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
 
         const written = await store.recordStamps({ [FIRST_ACCOUNT]: LEFT_AT });
@@ -784,7 +789,7 @@ describe('SasReferenceIdMappingStore', () => {
       it('writes nothing for a record no load names', async () => {
         const dir = makeTmpDir();
         await firstLoad(dir);
-        const file = path.join(dir, REFERENCEID_MAPPING_FILENAME);
+        const file = path.join(dir, referenceIdMappingFileName('org-dev'));
         const before = fs.readFileSync(file, 'utf8');
 
         const written = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordStamps({
@@ -805,6 +810,175 @@ describe('SasReferenceIdMappingStore', () => {
         const [, first] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
         expect(first.removalStamps).toEqual({ [FIRST_ACCOUNT]: LEFT_AT });
       });
+    });
+  });
+
+  describe('the loads of each target org', () => {
+    // One file per sas, a load into a second org replaced the first org's
+    // mapping: its loads were no longer named, and neither removed nor
+    // purged by a reload.
+    const A_ACCOUNT = '001XX00000OrgAaAAA';
+    const B_ACCOUNT = '001XX00000OrgBbAAA';
+    const A_ORGANIZATION = '00DXX00000OrgAa2A1';
+    const B_ORGANIZATION = '00DXX00000OrgBb2A1';
+
+    function storeOf(dir: string, orgId: string, organizationId: string, ended: string) {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId,
+        organizationId,
+        now: () => new Date(ended),
+      });
+    }
+
+    /** A load of one account into `orgId`, keeping the loads before it into that org. */
+    async function loadInto(
+      dir: string,
+      orgId: string,
+      organizationId: string,
+      account: string,
+      ended: string,
+    ): Promise<void> {
+      await storeOf(dir, orgId, organizationId, ended).persist(
+        new Map([['Account-000001', account]]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: new Date(Date.parse(ended) - 60_000),
+          earlier: { settled: [] },
+        },
+      );
+    }
+
+    it('keeps the loads into one org whole when a load goes into another', async () => {
+      const dir = makeTmpDir();
+      await loadInto(dir, 'org-a', A_ORGANIZATION, A_ACCOUNT, '2026-09-24T10:05:00.000Z');
+
+      await loadInto(dir, 'org-b', B_ORGANIZATION, B_ACCOUNT, '2026-09-24T11:05:00.000Z');
+
+      const ofA = storeOf(dir, 'org-a', A_ORGANIZATION, '2026-09-24T12:00:00.000Z');
+      const ofB = storeOf(dir, 'org-b', B_ORGANIZATION, '2026-09-24T12:00:00.000Z');
+      const loadsOfA = await ofA.recordedLoads();
+      expect(loadsOfA).toHaveLength(1);
+      expect(loadsOfA[0]).toMatchObject({
+        orgId: 'org-a',
+        endedAt: '2026-09-24T10:05:00.000Z',
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+      });
+      expect(loadsOfA[0].mapping).toEqual(new Map([['Account-000001', A_ACCOUNT]]));
+      // A reload into the first org still purges what its load created.
+      const previousOfA = await ofA.previousLoads();
+      expect(previousOfA.map((load) => [...load.mapping.values()])).toEqual([[A_ACCOUNT]]);
+      // And the second org's load stands on its own, with nothing of the first.
+      const loadsOfB = await ofB.recordedLoads();
+      expect(loadsOfB.map((load) => [load.orgId, load.earlier === true])).toEqual([
+        ['org-b', false],
+      ]);
+      expect(loadsOfB[0].mapping).toEqual(new Map([['Account-000001', B_ACCOUNT]]));
+      expect(ofA.filePath).not.toBe(ofB.filePath);
+    });
+
+    it('empties the mapping of a refreshed org only', async () => {
+      const dir = makeTmpDir();
+      await loadInto(dir, 'org-a', A_ORGANIZATION, A_ACCOUNT, '2026-09-24T10:05:00.000Z');
+      await loadInto(dir, 'org-b', B_ORGANIZATION, B_ACCOUNT, '2026-09-24T11:05:00.000Z');
+
+      // The first sandbox was refreshed: it answers with another id now.
+      const refreshed = storeOf(dir, 'org-a', '00DXX00000NewAa2A1', '2026-09-24T12:00:00.000Z');
+
+      await expect(refreshed.isStale()).resolves.toBe(true);
+      await expect(refreshed.load()).resolves.toEqual(new Map());
+      const ofB = storeOf(dir, 'org-b', B_ORGANIZATION, '2026-09-24T12:00:00.000Z');
+      await expect(ofB.isStale()).resolves.toBe(false);
+      await expect(ofB.load()).resolves.toEqual(new Map([['Account-000001', B_ACCOUNT]]));
+    });
+
+    describe('in a sas that kept one file for every org', () => {
+      /** The one file of before, written by a load into `org-a`. */
+      async function singleFileOfA(dir: string): Promise<void> {
+        await loadInto(dir, 'org-a', A_ORGANIZATION, A_ACCOUNT, '2026-09-24T10:05:00.000Z');
+        fs.renameSync(
+          path.join(dir, referenceIdMappingFileName('org-a')),
+          path.join(dir, REFERENCEID_MAPPING_FILENAME),
+        );
+      }
+
+      it('reads it for the org it names, and for no other', async () => {
+        const dir = makeTmpDir();
+        await singleFileOfA(dir);
+
+        const loadsOfA = await storeOf(
+          dir,
+          'org-a',
+          A_ORGANIZATION,
+          '2026-09-24T12:00:00.000Z',
+        ).recordedLoads();
+        expect(loadsOfA.map((load) => load.endedAt)).toEqual(['2026-09-24T10:05:00.000Z']);
+        await expect(
+          storeOf(dir, 'org-b', B_ORGANIZATION, '2026-09-24T12:00:00.000Z').recordedLoads(),
+        ).resolves.toEqual([]);
+        await expect(mappedOrgIds(dir, new SasPathGuard(repoRoot))).resolves.toEqual(['org-a']);
+      });
+
+      it('leaves it to its org when a load goes into another', async () => {
+        const dir = makeTmpDir();
+        await singleFileOfA(dir);
+
+        await loadInto(dir, 'org-b', B_ORGANIZATION, B_ACCOUNT, '2026-09-24T11:05:00.000Z');
+
+        expect(fs.existsSync(path.join(dir, REFERENCEID_MAPPING_FILENAME))).toBe(true);
+        const [ofB] = await storeOf(
+          dir,
+          'org-b',
+          B_ORGANIZATION,
+          '2026-09-24T12:00:00.000Z',
+        ).recordedLoads();
+        expect(ofB.mapping).toEqual(new Map([['Account-000001', B_ACCOUNT]]));
+        await expect(mappedOrgIds(dir, new SasPathGuard(repoRoot))).resolves.toEqual([
+          'org-a',
+          'org-b',
+        ]);
+      });
+
+      it('rewrites it as the file of its org at the next load into that org', async () => {
+        const dir = makeTmpDir();
+        await singleFileOfA(dir);
+
+        await loadInto(
+          dir,
+          'org-a',
+          A_ORGANIZATION,
+          '001XX00000OrgA2AAA',
+          '2026-09-24T11:05:00.000Z',
+        );
+
+        expect(fs.existsSync(path.join(dir, REFERENCEID_MAPPING_FILENAME))).toBe(false);
+        const loads = await storeOf(
+          dir,
+          'org-a',
+          A_ORGANIZATION,
+          '2026-09-24T12:00:00.000Z',
+        ).recordedLoads();
+        // The load before, which the single file held, is kept behind the new one.
+        expect(loads.map((load) => [load.endedAt, load.earlier === true])).toEqual([
+          ['2026-09-24T11:05:00.000Z', false],
+          ['2026-09-24T10:05:00.000Z', true],
+        ]);
+        await expect(mappedOrgIds(dir, new SasPathGuard(repoRoot))).resolves.toEqual(['org-a']);
+      });
+    });
+
+    it('lists no org of a sas that does not exist yet', async () => {
+      await expect(
+        mappedOrgIds(path.join(makeTmpDir(), 'not-yet'), new SasPathGuard(repoRoot)),
+      ).resolves.toEqual([]);
+    });
+
+    it('refuses an org id that would name a file outside the sas', () => {
+      const store = new SasReferenceIdMappingStore(makeTmpDir(), {
+        guard: new SasPathGuard(repoRoot),
+        orgId: '../elsewhere',
+      });
+      expect(() => store.filePath).toThrow(/Not an org id/);
     });
   });
 
