@@ -4,7 +4,6 @@ import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
   aiChatPayloadSchema,
-  aiChatCancelPayloadSchema,
   aiConversationCreatePayloadSchema,
   aiConversationIdPayloadSchema,
   aiSaveKeyPayloadSchema,
@@ -357,7 +356,7 @@ export class AIChatHandler implements DomainHandler {
    */
   private handleChatCancel(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(aiChatCancelPayloadSchema, msg, 'ai:error', this.deps);
+    const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
     this.asking.get(parsed.conversationId)?.abort();
   }

@@ -1015,8 +1015,6 @@ export const aiConversationCreatePayloadSchema = z.object({
   title: z.string().min(1).max(300),
 });
 export const aiConversationIdPayloadSchema = z.object({ conversationId: opaqueIdSchema });
-/** `ai:chat:cancel`: the conversation whose question is stopped. */
-export const aiChatCancelPayloadSchema = aiConversationIdPayloadSchema;
 export const aiSaveKeyPayloadSchema = z.object({
   apiKey: z.string().min(1).max(500),
 });

@@ -10,14 +10,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 
-/**
- * File name of the one counting contract a sas kept, whichever org its load
- * went to, before contracts were kept per target org. A load into another
- * org replaced it, and the last load into the first could no longer be
- * verified. A run recorded then names it by its path, which is still read.
- */
-export const COUNTING_CONTRACT_FILENAME = 'counting-contract.json';
-
 /** File name of the counting contract of the last load into one registered org. */
 export function countingContractFileName(orgId: string): string {
   return `counting-contract.${orgFileKey(orgId)}.json`;

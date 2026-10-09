@@ -5,6 +5,42 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.46.0] - 2026-10-09
+
+Every module can now be previewed, stopped and taken back, and the clone
+command does what its flags say.
+
+### Added
+
+- **DataOps**: a Preview of a template on five rows of each object, before
+  and after; Resume an anonymization where it stopped; saved templates take
+  Constant and Truncate, and a Mask keeps its last characters.
+- **Frozen**: a Preview of a load (`load --dry-run`), Cancel from the Load
+  tab, and loads into a Developer Edition.
+- **Forge**: a rehearsal judges the updates a run makes after its inserts; a
+  validation rule's bypass comes with the permission set holding it; Forge
+  asks before an uncapped read past 50 000 rows of an object.
+- **Autopilot** runs and **AI** chat questions can be stopped; Migration edits
+  the imported config before it runs; an org opens in the browser from its
+  card; an audit entry links to its run.
+- **CLI**: `--audit <file>` on the clone command.
+
+### Changed
+
+- A Seed clone or a Forge run whose second pass leaves lookups empty ends
+  partial.
+- Sync offers managed-package objects again.
+- Every module's Production Guard refusal reads in the user's language.
+
+### Fixed
+
+- `--upsert` upserts: every run inserted.
+- On an org in another language than English, validation rules had no field.
+- A second `--remove`, and `--verify` after one, look only at what is left.
+- Two phone numbers of a run never share a fictional one.
+- The sync command refuses User, histories and file objects, as the panel
+  does.
+
 ## [1.45.0] - 2026-10-09
 
 A clone says before it writes when the target would run out of emails, and
