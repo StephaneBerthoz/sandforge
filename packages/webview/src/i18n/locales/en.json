@@ -2874,6 +2874,8 @@
       "fieldsScanned_other": "{{count}} fields scanned in all",
       "automation": {
         "loading": "Reading what the target org runs on the records this run writes…",
+        "readAgain": "Read again",
+        "readingAgain": "Reading again…",
         "intro": "As the run writes its records, the target org runs:",
         "none_one": "Nothing the target org automates runs on the object this run writes: no active flow, process, workflow rule, Apex trigger, assignment rule or duplicate rule.",
         "none_other": "Nothing the target org automates runs on the {{count}} objects this run writes: no active flow, process, workflow rule, Apex trigger, assignment rule or duplicate rule.",
@@ -2963,7 +2965,9 @@
           "copy": "Copy the command that assigns {{permissionSet}}",
           "copied": "Command copied",
           "none": "No permission set of the target org holds {{permission}}: an admin creates one that includes it, and assigns it to the user the run writes as.",
-          "neverRun": "SandForge shows this command and never runs it: an admin of the target org decides whether to."
+          "neverRun": "SandForge shows this command and never runs it: an admin of the target org decides whether to.",
+          "readAgain": "Read the target org again",
+          "readAgainHint": "Once the command has run, read the target org again: the bypass then shows as held."
         }
       },
       "gapsTab": "Gaps",

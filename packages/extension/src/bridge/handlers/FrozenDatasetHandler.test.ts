@@ -23,7 +23,12 @@ import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.j
 import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
-import type { BaseMessage, FrozenLoadReportInfo, FrozenProjectConfig } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  FrozenLoadReportInfo,
+  FrozenProjectConfig,
+  FrozenStatusInfo,
+} from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -903,6 +908,123 @@ describe('FrozenDatasetHandler', () => {
           'NO_LOAD',
         ]);
       });
+
+      describe('the last verification of each', () => {
+        // Kept as one verdict whichever org was verified, the status strip
+        // showed the second org's verdict with the first selected as target.
+
+        /** What a verification found, measured at `measuredAt`. */
+        const verdict = (status: 'passed' | 'failed', measuredAt: string) => ({
+          status,
+          checks: [],
+          attempts: 2,
+          measuredAt,
+        });
+
+        /** The last verification of each org, as the status reports it. */
+        async function lastVerifies(): Promise<FrozenStatusInfo['lastVerifies']> {
+          vi.mocked(deps.broker.postToWebview).mockClear();
+          await handler.handle(buildMsg('frozen:status'));
+          const [response] = posted(deps, 'frozen:status:response');
+          return (response.payload.status as FrozenStatusInfo).lastVerifies;
+        }
+
+        /** The pointers a load into `orgId` recorded, as `recordLastRun` keeps them. */
+        const pointers = (sasDir: string, orgId: string, at: string) => ({
+          contractPath: path.join(sasDir, `counting-contract.${orgId}.json`),
+          datasetDir: path.join(sasDir, 'dataset'),
+          manifestPath: path.join(sasDir, 'dataset', 'manifest.json'),
+          targetOrgId: orgId,
+          status: 'completed',
+          at,
+        });
+
+        it('keeps each org its own, and reports each under its org', async () => {
+          const { config, sasDir } = writeDataset();
+          wire(config);
+          const verify = vi
+            .spyOn(PostLoadVerifier.prototype, 'verify')
+            .mockResolvedValueOnce(verdict('passed', '2026-09-02T10:30:00.000Z'))
+            .mockResolvedValueOnce(verdict('failed', '2026-09-02T11:30:00.000Z'))
+            .mockResolvedValueOnce(verdict('passed', '2026-09-02T12:00:00.000Z'));
+          onTestFinished(() => verify.mockRestore());
+          loadWritesInto(sasDir, 'org-a', STARTED_A, '001000000000001AAA');
+          await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-a' }));
+          loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+          await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+
+          expect(verify).toHaveBeenCalledTimes(2);
+          expect(await lastVerifies()).toEqual([
+            { orgId: 'org-a', status: 'passed', measuredAt: '2026-09-02T10:30:00.000Z' },
+            { orgId: 'org-b', status: 'failed', measuredAt: '2026-09-02T11:30:00.000Z' },
+          ]);
+
+          // Verified again, the first org's verdict changes; the second's stays.
+          await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-a' }));
+          expect(await lastVerifies()).toEqual([
+            { orgId: 'org-a', status: 'passed', measuredAt: '2026-09-02T12:00:00.000Z' },
+            { orgId: 'org-b', status: 'failed', measuredAt: '2026-09-02T11:30:00.000Z' },
+          ]);
+        });
+
+        it('gives the verdict kept for every org at once to the org of the load it followed, where a load into another org leaves it', async () => {
+          const { config, sasDir } = writeDataset();
+          const store = wire(config);
+          store.set('frozen:lastRun', pointers(sasDir, 'org-a', STARTED_A), 'frozen');
+          store.set(
+            'frozen:lastVerify',
+            { status: 'passed', measuredAt: '2026-09-02T10:30:00.000Z' },
+            'frozen',
+          );
+
+          expect(await lastVerifies()).toEqual([
+            { orgId: 'org-a', status: 'passed', measuredAt: '2026-09-02T10:30:00.000Z' },
+          ]);
+
+          const verify = vi
+            .spyOn(PostLoadVerifier.prototype, 'verify')
+            .mockResolvedValueOnce(verdict('failed', '2026-09-02T11:30:00.000Z'));
+          onTestFinished(() => verify.mockRestore());
+          loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+          await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+
+          expect(await lastVerifies()).toEqual([
+            { orgId: 'org-a', status: 'passed', measuredAt: '2026-09-02T10:30:00.000Z' },
+            { orgId: 'org-b', status: 'failed', measuredAt: '2026-09-02T11:30:00.000Z' },
+          ]);
+          expect(store.get('frozen:lastVerify')).toBeUndefined();
+        });
+
+        it('gives the verdict kept for every org at once to no org when it may be of another load', async () => {
+          const { config, sasDir } = writeDataset();
+          const store = wire(config);
+          store.set('frozen:lastRun', pointers(sasDir, 'org-a', STARTED_A), 'frozen');
+
+          // Measured before the last load into the org: of a load before it.
+          store.set(
+            'frozen:lastVerify',
+            { status: 'passed', measuredAt: '2026-09-02T09:00:00.000Z' },
+            'frozen',
+          );
+          expect(await lastVerifies()).toEqual([]);
+
+          // Measured after it, with a load into another org recorded too: of either.
+          store.set(
+            'frozen:lastRuns',
+            {
+              'org-a': pointers(sasDir, 'org-a', STARTED_A),
+              'org-b': pointers(sasDir, 'org-b', '2026-09-02T09:30:00.000Z'),
+            },
+            'frozen',
+          );
+          store.set(
+            'frozen:lastVerify',
+            { status: 'passed', measuredAt: '2026-09-02T10:30:00.000Z' },
+            'frozen',
+          );
+          expect(await lastVerifies()).toEqual([]);
+        });
+      });
     });
 
     describe('audit trail', () => {
@@ -1777,7 +1899,7 @@ describe('FrozenDatasetHandler', () => {
         expect(posted(deps, 'frozen:verify:result')).toEqual([]);
         // No verdict written anywhere.
         expect(fs.readFileSync(manifestPath, 'utf8')).toBe(before);
-        expect(deps.configStore.get('frozen:lastVerify')).toBeUndefined();
+        expect(deps.configStore.get('frozen:lastVerifies')).toBeUndefined();
       });
 
       it('says the sas changed since the last load, not that the load stopped, when it did', async () => {
@@ -1970,6 +2092,7 @@ describe('FrozenDatasetHandler', () => {
       expect(status.selection).toBeNull();
       expect(status.manifest).toBeNull();
       expect(status.lastLoad).toBeNull();
+      expect(status.lastVerifies).toEqual([]);
     });
 
     it('reports the selection lying in the sas', async () => {

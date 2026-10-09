@@ -74,6 +74,7 @@ const LOAD_REPORT = { status: 'completed', orgId: 'org-1' } as unknown as Frozen
 /** Every action the store exposes, as exercised by the tests below. */
 const EXERCISED_ACTIONS = [
   'setTab',
+  'setTargetOrgId',
   'setConfig',
   'setStatus',
   'setSelection',
@@ -100,6 +101,7 @@ describe('useFrozenStore', () => {
   it('starts on the extract tab with nothing collected', () => {
     const state = useFrozenStore.getState();
     expect(state.tab).toBe('extract');
+    expect(state.targetOrgId).toBe('');
     expect(state.config).toBeNull();
     expect(state.status).toBeNull();
     expect(state.selection).toBeNull();
@@ -132,6 +134,13 @@ describe('useFrozenStore', () => {
       expect(useFrozenStore.getState().tab).toBe('load');
       useFrozenStore.getState().setTab('extract');
       expect(useFrozenStore.getState().tab).toBe('extract');
+    });
+
+    it('keeps the target org the Load tab picked, and lets it go', () => {
+      useFrozenStore.getState().setTargetOrgId('org-2');
+      expect(useFrozenStore.getState().targetOrgId).toBe('org-2');
+      useFrozenStore.getState().setTargetOrgId('');
+      expect(useFrozenStore.getState().targetOrgId).toBe('');
     });
 
     it('stores and clears the project config', () => {

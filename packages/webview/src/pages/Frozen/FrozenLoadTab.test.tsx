@@ -71,7 +71,7 @@ const STATUS: FrozenStatusInfo = {
     },
   },
   lastLoad: null,
-  lastVerify: null,
+  lastVerifies: [],
   loadRecords: [
     loadInto('org-dev', '2026-09-24T10:05:00.000Z', 1),
     loadInto('org-qa', '2026-09-24T11:05:00.000Z', 4),
@@ -143,6 +143,7 @@ describe('FrozenLoadTab', () => {
     useNotificationStore.setState({ notifications: [] });
     useFrozenStore.setState({
       status: STATUS,
+      targetOrgId: '',
       progress: [],
       loadReport: null,
       verdict: null,

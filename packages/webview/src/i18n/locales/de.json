@@ -2874,6 +2874,8 @@
       "fieldsScanned_other": "{{count}} Felder insgesamt geprüft",
       "automation": {
         "loading": "Es wird gelesen, was die Ziel-Org für die Datensätze ausführt, die dieser Durchlauf schreibt…",
+        "readAgain": "Erneut lesen",
+        "readingAgain": "Wird erneut gelesen…",
         "intro": "Während der Durchlauf seine Datensätze schreibt, führt die Ziel-Org aus:",
         "none_one": "Nichts, was die Ziel-Org automatisiert, läuft für das Objekt, das dieser Durchlauf schreibt: kein aktiver Flow, kein Prozess, keine Workflow-Regel, kein Apex-Trigger, keine Zuweisungsregel und keine Duplikatsregel.",
         "none_other": "Nichts, was die Ziel-Org automatisiert, läuft für die {{count}} Objekte, die dieser Durchlauf schreibt: kein aktiver Flow, kein Prozess, keine Workflow-Regel, kein Apex-Trigger, keine Zuweisungsregel und keine Duplikatsregel.",
@@ -2963,7 +2965,9 @@
           "copy": "Befehl kopieren, der {{permissionSet}} zuweist",
           "copied": "Befehl kopiert",
           "none": "Kein Berechtigungssatz der Ziel-Org enthält {{permission}}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Durchlauf schreibt.",
-          "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org."
+          "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org.",
+          "readAgain": "Ziel-Org erneut lesen",
+          "readAgainHint": "Sobald der Befehl ausgeführt ist, lesen Sie die Ziel-Org erneut: Die Berechtigung erscheint dann als vorhanden."
         }
       },
       "gapsTab": "Abweichungen",

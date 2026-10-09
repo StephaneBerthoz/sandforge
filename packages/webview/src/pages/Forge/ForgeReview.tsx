@@ -56,6 +56,17 @@ function graphForAutomation(graph: ForgeGraph): ForgeGraph {
 }
 
 /**
+ * Ask what the target runs on the objects a run of the graph writes: as
+ * Review opens, and again when the user asks.
+ */
+function requestTargetAutomation(targetOrgId: string, graph: ForgeGraph): void {
+  sendBridgeMessage<{ targetOrgId: string; graph: ForgeGraph }>('forge:automation:request', {
+    targetOrgId,
+    graph: graphForAutomation(graph),
+  });
+}
+
+/**
  * Objects sent per diff request.
  *
  * The extension-side Zod schema caps the array at 100 (each entry costs a
@@ -132,6 +143,8 @@ export const ForgeReview: React.FC = () => {
   const metadataRequested = useRef(false);
   const [automation, setAutomation] = useState<ForgeTargetAutomation | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
+  /** A read of the target's automation the user asked for is on its way. */
+  const [automationReading, setAutomationReading] = useState(false);
   const gapsRead = useForgeGaps();
   const requestGaps = gapsRead.request;
   /** The objects of the graph the user has left out: their automation fires no more. */
@@ -170,27 +183,42 @@ export const ForgeReview: React.FC = () => {
     // What the target runs on the records the run writes, read with the diff
     // and once as well: a clone fired the target's flows on every record it
     // created, emails among them, and nothing said so before the run.
-    sendBridgeMessage<{ targetOrgId: string; graph: ForgeGraph }>('forge:automation:request', {
-      targetOrgId: config.targetOrgId,
-      graph: graphForAutomation(graph),
-    });
+    requestTargetAutomation(config.targetOrgId, graph);
     // And what the target's metadata holds against the rows: its validation
     // and duplicate rules, the fields only it requires, its lookup filters,
     // its API budget. The extension reads an object the user left out too.
     requestGaps(config, graph);
   }, [graph, config, requestGaps]);
 
+  /**
+   * Read the target's automation again: the extension reads the org for each
+   * request, and keeps the newer read for the run Execute starts. A question
+   * about what fires, declined, sent the page back here, which read the
+   * target before the user had run the command the question copied; the tab
+   * then said the bypass was not held until Review was opened again. The
+   * read shown stays until the answer lands.
+   */
+  const readAutomationAgain = useCallback(() => {
+    if (!graph || !config) return;
+    setAutomationReading(true);
+    requestTargetAutomation(config.targetOrgId, graph);
+  }, [graph, config]);
+
   useMessageListener<ForgeAutomationResponse>(
     'forge:automation:response',
     useCallback((msg) => {
       setAutomation(msg.payload.automation);
       setAutomationError(null);
+      setAutomationReading(false);
     }, []),
   );
 
   useMessageListener<BaseMessage & { payload: { message: string } }>(
     'forge:automation:error',
-    useCallback((msg) => setAutomationError(msg.payload.message), []),
+    useCallback((msg) => {
+      setAutomationError(msg.payload.message);
+      setAutomationReading(false);
+    }, []),
   );
 
   /** What fires as the run inserts its records, on the objects it still writes. */
@@ -378,6 +406,8 @@ export const ForgeReview: React.FC = () => {
                 automation={automation}
                 error={automationError}
                 leftOut={leftOut}
+                onReadAgain={readAutomationAgain}
+                readingAgain={automationReading}
                 {...(targetOrg?.alias && targetOrg.username
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}

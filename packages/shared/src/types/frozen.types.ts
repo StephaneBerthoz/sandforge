@@ -687,6 +687,15 @@ export interface FrozenRemovalResult {
   leftBy?: string;
 }
 
+/** The verdict of the last verification of a load into a target org. */
+export interface FrozenLastVerifyInfo {
+  /** The registered org the verified load wrote to. */
+  orgId: string;
+  status: FrozenVerifyVerdict['status'];
+  /** When the verification measured the org, ISO 8601. */
+  measuredAt: string;
+}
+
 /** Module status snapshot returned by `frozen:status`. */
 export interface FrozenStatusInfo {
   /** True when a project config is persisted. */
@@ -710,8 +719,13 @@ export interface FrozenStatusInfo {
   manifest: FrozenManifestInfo | null;
   /** Last load outcome, when a load ran in this workspace. */
   lastLoad: { status: string; orgId: string; at: string } | null;
-  /** Last verification verdict, when one ran. */
-  lastVerify: { status: string; measuredAt: string } | null;
+  /**
+   * Per target org, by its registered id, the verdict of the last
+   * verification of a load into it; an org never verified is not listed.
+   * Kept as one verdict whichever org was verified, the page showed one
+   * org's beside another selected as the target.
+   */
+  lastVerifies: FrozenLastVerifyInfo[];
   /**
    * Per target org the sas holds a mapping of, the records of the load a
    * removal takes next there — from this window or from the command line —

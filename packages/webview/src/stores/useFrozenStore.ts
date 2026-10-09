@@ -39,6 +39,13 @@ export interface FrozenExtractSummary {
  */
 export interface FrozenState {
   tab: FrozenTab;
+  /**
+   * The org the Load tab loads into, verifies and removes from, picked in
+   * it: empty until one is picked, the selected org standing in. Here rather
+   * than in the tab, which switching tabs remounts, as the page's status
+   * strip shows that org's last verification.
+   */
+  targetOrgId: string;
   /** Last saved/loaded project config. */
   config: FrozenProjectConfig | null;
   /** Module status snapshot (frozen:status). */
@@ -68,6 +75,7 @@ export interface FrozenState {
   lastRequestIdByType: Record<string, string>;
 
   setTab: (tab: FrozenTab) => void;
+  setTargetOrgId: (orgId: string) => void;
   setConfig: (config: FrozenProjectConfig | null) => void;
   setStatus: (status: FrozenStatusInfo | null) => void;
   setSelection: (selection: FrozenSelectionSummary | null) => void;
@@ -94,6 +102,7 @@ const MAX_ACTIVE_REQUESTS = 20;
 /** Zustand store for the Frozen Reference Dataset page. */
 export const useFrozenStore = create<FrozenState>((set) => ({
   tab: 'extract',
+  targetOrgId: '',
   config: null,
   status: null,
   selection: null,
@@ -109,6 +118,9 @@ export const useFrozenStore = create<FrozenState>((set) => ({
 
   setTab(tab: FrozenTab): void {
     set({ tab });
+  },
+  setTargetOrgId(targetOrgId: string): void {
+    set({ targetOrgId });
   },
   setConfig(config: FrozenProjectConfig | null): void {
     set({ config });

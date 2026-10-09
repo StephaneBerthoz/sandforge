@@ -458,7 +458,7 @@ const FROZEN_STATUS_AFTER_LOAD = {
   selection: null,
   manifest: null,
   lastLoad: { status: 'completed', orgId: QA_SANDBOX.id, at: '2026-09-24T10:05:00.000Z' },
-  lastVerify: null,
+  lastVerifies: [],
   loadRecords: [FROZEN_LAST_LOAD_RECORDS],
 };
 
@@ -766,7 +766,7 @@ const FROZEN_STATUS_WITH_DATASET = {
     },
   },
   lastLoad: null,
-  lastVerify: null,
+  lastVerifies: [],
 };
 
 /**
@@ -2092,11 +2092,19 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      // The results read the run back from the history once the removal has
+      // answered, a render later, and offer nothing until that read answers.
+      // The form asked for the history as the page opened: waiting for "a"
+      // history read returned that one at once, and under load the results'
+      // own read was posted after every read there was had been answered.
+      const historyReads = (await bridge.getMessages('forge:history:list')).length;
       await answerAll(page, 'forge:undo', 'forge:undo:response', {
         result: { ...FORGE_REMOVAL_RESULT, forgeId: acted.forgeId },
         operationId: 'forge-undo-1',
       });
-      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await expect
+        .poll(async () => (await bridge.getMessages('forge:history:list')).length)
+        .toBeGreaterThan(historyReads);
       await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
         history: [{ ...FORGE_PARTLY_REMOVED_RUN, forgeId: acted.forgeId }],
       });
@@ -3071,6 +3079,37 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, read, '[data-testid="bypass-assistant"]'),
       ).toBeGreaterThan(0);
+
+      // The command run, the target is read again from the tab, and the
+      // bypass shows as held where it showed as not held.
+      const automationReads = (await bridge.getMessages('forge:automation:request')).length;
+      await page.getByTestId('bypass-assistant-read-again').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('forge:automation:request')).length)
+        .toBeGreaterThan(automationReads);
+      await expect(page.getByTestId('automation-read-again')).toHaveText('Reading again…');
+      expectNoViolations(await checkAccessibility(page));
+      await answerAll(page, 'forge:automation:request', 'forge:automation:response', {
+        automation: {
+          ...FORGE_TARGET_AUTOMATION,
+          objects: FORGE_TARGET_AUTOMATION.objects.map((object) => ({
+            ...object,
+            flows: object.flows.map((flow) => ({
+              ...flow,
+              permissions: flow.permissions.map((permission) =>
+                permission.name === 'Load_Data' ? { ...permission, held: true } : permission,
+              ),
+            })),
+          })),
+        },
+      });
+      await page.getByTestId('automation-bypass-held').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('bypass-assistant')).toHaveCount(0);
+      const held = await checkAccessibility(page);
+      expectNoViolations(held);
+      expect(
+        await contrastMeasuredIn(page, held, '[data-testid="automation-read-again"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Forge Review saying what it read from the target’s metadata against the rows, and what the target would not give', async ({
@@ -3877,6 +3916,72 @@ for (const theme of SCANNED_THEMES) {
       });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Migration page editing an imported config: an object left out, an upsert with no key', async ({
+      page,
+    }) => {
+      /** A config as the SFDMU importer converts it, its org ids placeholders the run replaces. */
+      const imported = {
+        id: 'cfg-sfdmu',
+        name: 'SFDMU Import',
+        sourceOrgId: 'imported-source',
+        targetOrgId: 'imported-target',
+        direction: 'source_to_target',
+        mode: 'full',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            externalIdField: 'External_Id__c',
+            fieldMappings: [],
+            transformRules: [],
+            excludedFields: ['CreatedDate'],
+            addOnFields: [],
+            batchSize: 200,
+            insertOrder: 1,
+          },
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            fieldMappings: [],
+            transformRules: [],
+            excludedFields: [],
+            addOnFields: [],
+            batchSize: 200,
+            insertOrder: 2,
+          },
+        ],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+        createdAt: '2026-09-01T08:00:00.000Z',
+        updatedAt: '2026-09-01T08:00:00.000Z',
+      };
+      await navigateToModule(bridge, page, 'migration', 'migration-page', { theme, orgs: true });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('migration-path-input').fill('/home/qa/sfdmu/export.json');
+      await page.getByTestId('migration-import-btn').click();
+      await bridge.waitForMessage('migration:import-sfdmu', { timeout: 10_000 });
+      await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
+        success: true,
+        detectedFormat: 'sfdmu',
+        config: imported,
+      });
+      await page.getByTestId('migration-edit').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('object-entry-Contact')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      // The contact left out, and offered back; the accounts upserted with no key.
+      await page.getByTestId('remove-obj-Contact').click();
+      await expect(page.getByTestId('object-entry-Contact')).toHaveCount(0);
+      await page.getByLabel('External ID — Account').fill('');
+      await page.getByTestId('migration-edit-problem').waitFor({ timeout: 10_000 });
+      const edited = await checkAccessibility(page);
+      expectNoViolations(edited);
+      expect(
+        await contrastMeasuredIn(page, edited, '[data-testid="migration-edit-problem"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Reports page', async ({ page }) => {

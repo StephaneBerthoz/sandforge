@@ -2874,6 +2874,8 @@
       "fieldsScanned_other": "{{count}} champs analysés au total",
       "automation": {
         "loading": "Lecture de ce que l'org cible exécute sur les enregistrements que cette exécution écrit…",
+        "readAgain": "Relire",
+        "readingAgain": "Nouvelle lecture…",
         "intro": "À mesure que l'exécution écrit ses enregistrements, l'org cible exécute :",
         "none_one": "Rien de ce que l'org cible automatise ne s'exécute sur l'objet que cette exécution écrit : ni Flow actif, ni processus, ni règle de workflow, ni déclencheur Apex, ni règle d'attribution, ni règle de doublons.",
         "none_other": "Rien de ce que l'org cible automatise ne s'exécute sur les {{count}} objets que cette exécution écrit : ni Flow actif, ni processus, ni règle de workflow, ni déclencheur Apex, ni règle d'attribution, ni règle de doublons.",
@@ -2963,7 +2965,9 @@
           "copy": "Copier la commande qui attribue {{permissionSet}}",
           "copied": "Commande copiée",
           "none": "Aucun ensemble d'autorisations de l'org cible ne détient {{permission}} : un administrateur en crée un qui l'inclut, et l'attribue à l'utilisateur sous lequel l'exécution écrit.",
-          "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider."
+          "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider.",
+          "readAgain": "Relire l'org cible",
+          "readAgainHint": "Une fois la commande exécutée, relisez l'org cible : l'autorisation apparaît alors comme détenue."
         }
       },
       "gapsTab": "Écarts",

@@ -2874,6 +2874,8 @@
       "fieldsScanned_other": "{{count}} campos analizados en total",
       "automation": {
         "loading": "Leyendo lo que la org de destino ejecuta en los registros que escribe esta ejecución…",
+        "readAgain": "Leer de nuevo",
+        "readingAgain": "Leyendo de nuevo…",
         "intro": "A medida que la ejecución escribe sus registros, la org de destino ejecuta:",
         "none_one": "Nada de lo que automatiza la org de destino se ejecuta en el objeto que escribe esta ejecución: ningún flujo activo, proceso, regla de flujo de trabajo, desencadenador de Apex, regla de asignación ni regla de duplicados.",
         "none_other": "Nada de lo que automatiza la org de destino se ejecuta en los {{count}} objetos que escribe esta ejecución: ningún flujo activo, proceso, regla de flujo de trabajo, desencadenador de Apex, regla de asignación ni regla de duplicados.",
@@ -2963,7 +2965,9 @@
           "copy": "Copiar el comando que asigna {{permissionSet}}",
           "copied": "Comando copiado",
           "none": "Ningún conjunto de permisos de la org de destino contiene {{permission}}: un administrador crea uno que lo incluya y lo asigna al usuario con el que la ejecución escribe.",
-          "neverRun": "SandForge muestra este comando y nunca lo ejecuta: lo decide un administrador de la org de destino."
+          "neverRun": "SandForge muestra este comando y nunca lo ejecuta: lo decide un administrador de la org de destino.",
+          "readAgain": "Leer de nuevo la org de destino",
+          "readAgainHint": "Una vez ejecutado el comando, lea de nuevo la org de destino: el permiso aparece entonces como asignado."
         }
       },
       "gapsTab": "Discrepancias",

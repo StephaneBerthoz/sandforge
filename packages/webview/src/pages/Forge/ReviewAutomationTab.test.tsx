@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
@@ -188,6 +188,87 @@ describe('ReviewAutomationTab', () => {
     expect(within(bypass).getByTestId('bypass-assistant-Skip_All').textContent).toContain(
       'No permission set of the target org holds Skip_All',
     );
+  });
+
+  describe('reading the target again', () => {
+    /** A flow a bypass the user does not hold would keep quiet, and the permission set holding it. */
+    const NOT_HELD = automation({
+      objects: [
+        {
+          objectApiName: 'Case',
+          flows: [flow({ permissions: [{ name: 'Case_BypassFlow', bypass: true, held: false }] })],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Case_BypassFlow',
+          permissionSets: [{ name: 'Bypass_Flows', label: 'Bypass flows', grants: 1 }],
+        },
+      ],
+    });
+    const TARGET = { alias: 'DEV-SANDBOX', username: 'loader@example.com.dev' };
+
+    it('offers it under the command that assigns the bypass and below the read, and asks for it from either', () => {
+      const onReadAgain = vi.fn();
+      render(
+        <ReviewAutomationTab automation={NOT_HELD} target={TARGET} onReadAgain={onReadAgain} />,
+      );
+
+      const bypass = screen.getByTestId('automation-bypass');
+      expect(within(bypass).getByTestId('bypass-assistant').textContent).toContain(
+        'Once the command has run, read the target org again: the bypass then shows as held.',
+      );
+      const fromAssistant = within(bypass).getByTestId('bypass-assistant-read-again');
+      expect(fromAssistant.textContent).toBe('Read the target org again');
+      fireEvent.click(fromAssistant);
+      const fromTab = screen.getByTestId('automation-read-again');
+      expect(fromTab.textContent).toBe('Read again');
+      fireEvent.click(fromTab);
+
+      expect(onReadAgain).toHaveBeenCalledTimes(2);
+    });
+
+    it('says it is reading while the read is on its way, keeps the read shown, and asks nothing more meanwhile', () => {
+      const onReadAgain = vi.fn();
+      render(
+        <ReviewAutomationTab
+          automation={NOT_HELD}
+          target={TARGET}
+          onReadAgain={onReadAgain}
+          readingAgain
+        />,
+      );
+
+      const fromTab = screen.getByTestId('automation-read-again');
+      const fromAssistant = screen.getByTestId('bypass-assistant-read-again');
+      for (const button of [fromTab, fromAssistant]) {
+        expect(button.textContent).toBe('Reading again…');
+        expect(button.getAttribute('aria-busy')).toBe('true');
+        expect(button.getAttribute('aria-disabled')).toBe('true');
+        fireEvent.click(button);
+      }
+      expect(onReadAgain).not.toHaveBeenCalled();
+      expect(screen.getByTestId('automation-bypass')).toBeDefined();
+    });
+
+    it('offers it after a read that could not run', () => {
+      const onReadAgain = vi.fn();
+      render(
+        <ReviewAutomationTab automation={null} error="session expired" onReadAgain={onReadAgain} />,
+      );
+
+      fireEvent.click(screen.getByTestId('automation-read-again'));
+
+      expect(onReadAgain).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers nothing when nobody can ask for the read', () => {
+      render(<ReviewAutomationTab automation={NOT_HELD} target={TARGET} />);
+
+      expect(screen.queryByTestId('automation-read-again')).toBeNull();
+      expect(screen.queryByTestId('bypass-assistant-read-again')).toBeNull();
+    });
   });
 
   it('names a permission a start condition names any other way, without saying to assign it', () => {

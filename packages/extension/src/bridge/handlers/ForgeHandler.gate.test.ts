@@ -923,6 +923,53 @@ describe('forge:execute, the gate before the first write', () => {
       expect(orchestrator.execute).toHaveBeenCalledTimes(1);
     });
 
+    it('reads the target for each read Review asks for, and takes the newest for the run', async () => {
+      // Review's Automation tab reads the target again on request: once the
+      // user has run the command that assigns the bypass, that read shows it
+      // held, and the run that follows takes it, not the read Review made as
+      // it opened.
+      const flowWith = (held: boolean): ForgeTargetAutomation => ({
+        ...QUIET,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Contact_Welcome',
+                label: 'Contact welcome',
+                timing: 'afterSave',
+                startsOn: 'create',
+                condition: 'read',
+                permissions: [{ name: 'Load_Data', bypass: true, held }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      });
+      let target = flowWith(false);
+      const reader = {
+        readForGraph: vi.fn(async () => target),
+      } as unknown as TargetAutomationReader & { readForGraph: ReturnType<typeof vi.fn> };
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: reader });
+      await reviewReads(graphOf());
+
+      target = flowWith(true);
+      await reviewReads(graphOf());
+
+      expect(reader.readForGraph).toHaveBeenCalledTimes(2);
+      expect(posted('forge:automation:response').map((m) => m.payload)).toEqual([
+        { automation: flowWith(false) },
+        { automation: flowWith(true) },
+      ]);
+      await execute();
+      // The bypass is held: the flow stays quiet, and nothing else fires.
+      expect(reader.readForGraph).toHaveBeenCalledTimes(2);
+      expect(questions).toEqual([]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+    });
+
     it('still takes Review’s read for a run whose question was confirmed', async () => {
       const reader = readerOf(FIRES);
       const orchestrator = orchestratorHanding();

@@ -763,6 +763,57 @@ describe('ForgeReview', () => {
       );
     });
 
+    it('reads the target again when asked, and shows the bypass held once that read lands', () => {
+      // The question about what fires was declined, and the page came back
+      // here, which read the target before the command it copied was run.
+      const withBypass = (held: boolean) => ({
+        ...automation,
+        objectsRead: ['Account'],
+        objects: [
+          {
+            ...createdFlow('Account'),
+            flows: [
+              {
+                ...createdFlow('Account').flows[0],
+                permissions: [{ name: 'Load_Data', bypass: true, held }],
+              },
+            ],
+          },
+        ],
+      });
+      render(<ForgeReview />);
+      sendFromExtension('forge:automation:response', { automation: withBypass(false) });
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      expect(screen.getByTestId('automation-bypass').textContent).toContain('Load_Data');
+
+      fireEvent.click(screen.getByTestId('automation-read-again'));
+
+      const asked = ['forge:automation:request', { targetOrgId: 'tgt-org', graph: defaultGraph }];
+      expect(automationRequests()).toEqual([asked, asked]);
+      expect(screen.getByTestId('automation-read-again').textContent).toBe('Reading again…');
+      // The read shown stays until the answer lands.
+      expect(screen.getByTestId('automation-bypass')).toBeDefined();
+
+      sendFromExtension('forge:automation:response', { automation: withBypass(true) });
+
+      expect(screen.queryByTestId('automation-bypass')).toBeNull();
+      expect(screen.getByTestId('automation-bypass-held').textContent).toContain('Load_Data');
+      expect(screen.getByTestId('automation-read-again').textContent).toBe('Read again');
+    });
+
+    it('stops saying it is reading again once that read fails, and offers it again', () => {
+      render(<ForgeReview />);
+      sendFromExtension('forge:automation:response', { automation });
+      fireEvent.click(screen.getByTestId('tab-automation'));
+      fireEvent.click(screen.getByTestId('automation-read-again'));
+
+      sendFromExtension('forge:automation:error', { message: 'session expired' });
+
+      expect(screen.getByTestId('automation-error').textContent).toBe('session expired');
+      fireEvent.click(screen.getByTestId('automation-read-again'));
+      expect(automationRequests()).toHaveLength(3);
+    });
+
     it('never holds back the run while the read is on its way', () => {
       render(<ForgeReview />);
       expect((screen.getByTestId('execute-button') as HTMLButtonElement).disabled).toBe(false);

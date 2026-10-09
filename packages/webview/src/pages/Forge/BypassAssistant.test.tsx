@@ -70,6 +70,19 @@ describe('BypassAssistant', () => {
     expect(screen.getByTestId('bypass-assistant').textContent).not.toContain('never runs it');
   });
 
+  it('offers to read the target again once the command has run, and only where a command is shown', () => {
+    const onReadAgain = vi.fn();
+    const { rerender } = render(
+      <BypassAssistant assignments={ASSIGNMENTS} target={TARGET} onReadAgain={onReadAgain} />,
+    );
+
+    fireEvent.click(screen.getByTestId('bypass-assistant-read-again'));
+    expect(onReadAgain).toHaveBeenCalledTimes(1);
+
+    rerender(<BypassAssistant assignments={ASSIGNMENTS} onReadAgain={onReadAgain} />);
+    expect(screen.queryByTestId('bypass-assistant-read-again')).toBeNull();
+  });
+
   it('shows nothing when there is no bypass to assign', () => {
     const { container } = render(<BypassAssistant assignments={[]} target={TARGET} />);
     expect(container.textContent).toBe('');

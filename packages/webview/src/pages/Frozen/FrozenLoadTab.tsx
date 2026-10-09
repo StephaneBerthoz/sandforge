@@ -112,7 +112,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const setVerdict = useFrozenStore((s) => s.setVerdict);
   const lastError = useFrozenStore((s) => s.lastError);
 
-  const [targetOrgId, setTargetOrgId] = useState('');
+  const targetOrgId = useFrozenStore((s) => s.targetOrgId);
+  const setTargetOrgId = useFrozenStore((s) => s.setTargetOrgId);
   const [pilot, setPilot] = useState(false);
   const [reload, setReload] = useState(false);
 

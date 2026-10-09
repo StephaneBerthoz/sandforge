@@ -60,7 +60,7 @@ const STATUS: FrozenStatusInfo = {
     },
   },
   lastLoad: null,
-  lastVerify: null,
+  lastVerifies: [],
   loadRecords: [
     {
       orgId: 'org-dev',
@@ -139,6 +139,7 @@ describe('FrozenPage — the status it reads again', () => {
     useOrgStore.setState({ orgs: [DEV], selectedOrgId: DEV.id });
     useFrozenStore.setState({
       tab: 'load',
+      targetOrgId: '',
       status: null,
       loadReport: null,
       progress: [],

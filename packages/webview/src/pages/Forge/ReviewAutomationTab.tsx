@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { RefreshCw } from 'lucide-react';
 import type {
   ForgeAutomationFired,
   ForgeAutomationWrite,
@@ -19,6 +20,7 @@ import {
   removalRisksOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
 import { BypassAssistant, type BypassTarget } from './BypassAssistant';
@@ -102,6 +104,16 @@ export interface ReviewAutomationTabProps {
    * command is shown.
    */
   target?: BypassTarget;
+  /**
+   * Read the target's automation again, as it stands now. The tab shows the
+   * read Review made as it opened: a permission set assigned since — the
+   * command the bypass assistant copied, run once a question about what fires
+   * was declined — showed as not held until Review was opened again. Without
+   * it, nothing offers to.
+   */
+  onReadAgain?: () => void;
+  /** The read asked for with {@link onReadAgain} is on its way. */
+  readingAgain?: boolean;
 }
 
 /**
@@ -114,23 +126,42 @@ export interface ReviewAutomationTabProps {
  *
  * A clone fired the target's flows on every record it created, emails and
  * text messages among them, and nothing said so before the run. The request
- * lives in ForgeReview, sent once as Review opens with the metadata diff; the
- * props carry its outcome.
+ * lives in ForgeReview, sent as Review opens with the metadata diff, and
+ * again when the user asks; the props carry its outcome.
  */
 export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   automation,
   error = null,
   leftOut = new Set<string>(),
   target,
+  onReadAgain,
+  readingAgain = false,
 }) => {
   const { t } = useTranslation();
+  const readAgain = onReadAgain ? (
+    <Button
+      variant="secondary"
+      size="sm"
+      icon={<RefreshCw size={12} aria-hidden="true" />}
+      loading={readingAgain}
+      focusableWhenDisabled
+      onClick={onReadAgain}
+      data-testid="automation-read-again"
+      className="shrink-0"
+    >
+      {readingAgain
+        ? t('forge.review.automation.readingAgain')
+        : t('forge.review.automation.readAgain')}
+    </Button>
+  ) : null;
 
   if (error) {
     return (
-      <div data-testid="review-automation-tab" className="py-4">
+      <div data-testid="review-automation-tab" className="flex flex-col items-center gap-2 py-4">
         <p data-testid="automation-error" className="text-xs text-status-error text-center">
           {error}
         </p>
+        {readAgain}
       </div>
     );
   }
@@ -177,6 +208,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           <BypassAssistant
             assignments={bypassAssignmentsOf(automation, toAssign)}
             {...(target ? { target } : {})}
+            {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
           />
         </div>
       )}
@@ -248,9 +280,12 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           {t(UNREAD_KEYS[unread.part], { reason: unread.reason })}
         </p>
       ))}
-      <p data-testid="automation-cost" className="text-text-secondary">
-        {t('forge.review.automation.cost', { count: automation.requests })}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p data-testid="automation-cost" className="text-text-secondary">
+          {t('forge.review.automation.cost', { count: automation.requests })}
+        </p>
+        {readAgain}
+      </div>
     </div>
   );
 };

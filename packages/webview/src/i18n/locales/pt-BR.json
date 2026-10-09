@@ -2874,6 +2874,8 @@
       "fieldsScanned_other": "{{count}} campos analisados no total",
       "automation": {
         "loading": "Lendo o que a org de destino executa nos registros que esta execução grava…",
+        "readAgain": "Ler de novo",
+        "readingAgain": "Lendo de novo…",
         "intro": "À medida que a execução grava seus registros, a org de destino executa:",
         "none_one": "Nada do que a org de destino automatiza é executado no objeto que esta execução grava: nenhum fluxo ativo, processo, regra de fluxo de trabalho, gatilho Apex, regra de atribuição nem regra de duplicidade.",
         "none_other": "Nada do que a org de destino automatiza é executado nos {{count}} objetos que esta execução grava: nenhum fluxo ativo, processo, regra de fluxo de trabalho, gatilho Apex, regra de atribuição nem regra de duplicidade.",
@@ -2963,7 +2965,9 @@
           "copy": "Copiar o comando que atribui {{permissionSet}}",
           "copied": "Comando copiado",
           "none": "Nenhum conjunto de permissões da org de destino contém {{permission}}: um administrador cria um que a inclua e o atribui ao usuário com o qual a execução grava.",
-          "neverRun": "O SandForge mostra este comando e nunca o executa: quem decide é um administrador da org de destino."
+          "neverRun": "O SandForge mostra este comando e nunca o executa: quem decide é um administrador da org de destino.",
+          "readAgain": "Ler a org de destino de novo",
+          "readAgainHint": "Depois que o comando for executado, leia a org de destino de novo: a permissão então aparece como atribuída."
         }
       },
       "gapsTab": "Divergências",

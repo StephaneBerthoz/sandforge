@@ -8,6 +8,7 @@ import type {
   ForgeGraph,
   FrozenControlReport,
   FrozenGraphCoverage,
+  FrozenLastVerifyInfo,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
   FrozenManifestInfo,
@@ -176,8 +177,19 @@ const LAST_RUN_KEY = 'frozen:lastRun';
  */
 const LAST_RUNS_KEY = 'frozen:lastRuns';
 
-/** ConfigStore key of the last verification verdict. */
+/**
+ * ConfigStore key of the last verification verdict, whichever org it was of,
+ * as it was kept before each org kept its own: read to be moved to the org it
+ * was of, then dropped.
+ */
 const LAST_VERIFY_KEY = 'frozen:lastVerify';
+
+/**
+ * ConfigStore key of the last verification verdict of each target org, by its
+ * registered id. Kept as one verdict, a verification of one org replaced the
+ * other's, and the page showed it beside whichever org was selected.
+ */
+const LAST_VERIFIES_KEY = 'frozen:lastVerifies';
 
 /** Token file name inside the sas ({{TOKEN}} values for SOQL templates). */
 const TOKENS_FILE_NAME = 'tokens.json';
@@ -194,6 +206,9 @@ const EXTRACT_TIMEOUT_MS = 15 * 60_000;
 
 /** Violations per check sent to the webview (cap + see sanitizeViolationDetail). */
 const MAX_VIOLATIONS_PER_CHECK = 50;
+
+/** A verification's verdict as it is kept, its org by the key it is kept under. */
+type FrozenLastVerify = Omit<FrozenLastVerifyInfo, 'orgId'>;
 
 /** Pointers persisted after a load so verify/status can chain onto it. */
 interface FrozenLastRun {
@@ -1630,12 +1645,78 @@ export class FrozenDatasetHandler implements DomainHandler {
    * another org does not take its verification away.
    */
   private recordLastRun(run: FrozenLastRun): void {
+    // While the load it followed is still the last one: see `orgOfOldVerify`.
+    this.moveOldVerify();
     const byOrg = { ...this.lastRuns() };
     const before = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
     if (before && byOrg[before.targetOrgId] === undefined) byOrg[before.targetOrgId] = before;
     byOrg[run.targetOrgId] = run;
     this.deps.configStore.set(LAST_RUNS_KEY, byOrg, FROZEN_CATEGORY);
     this.deps.configStore.set(LAST_RUN_KEY, run, FROZEN_CATEGORY);
+  }
+
+  /** Keep the verdict of a verification as the last one of its org. */
+  private recordLastVerify(orgId: string, verify: FrozenLastVerify): void {
+    this.moveOldVerify();
+    this.deps.configStore.set(
+      LAST_VERIFIES_KEY,
+      { ...this.lastVerifies(), [orgId]: verify },
+      FROZEN_CATEGORY,
+    );
+  }
+
+  /** The verdict of the last verification of each org, by its registered id. */
+  private lastVerifies(): Record<string, FrozenLastVerify> {
+    return this.deps.configStore.get<Record<string, FrozenLastVerify>>(LAST_VERIFIES_KEY) ?? {};
+  }
+
+  /**
+   * The org the verdict kept for every org at once was of, when that can be
+   * told. It names none: it is the last load's when it was measured after
+   * that load — every verification is of the last load into its org — and
+   * no other org has a load recorded, which it could have been of instead.
+   * Until loads were kept per org, that was always so: a verification read
+   * the last load's contract alone. Measured before the last load, or when
+   * another org has a load it may have been of, it is given to no org rather
+   * than shown as the verdict of one it was not of.
+   */
+  private orgOfOldVerify(verify: FrozenLastVerify): string | undefined {
+    const last = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
+    if (!last || Date.parse(last.at) > Date.parse(verify.measuredAt)) return undefined;
+    const others = Object.keys(this.lastRuns()).filter((orgId) => orgId !== last.targetOrgId);
+    return others.length === 0 ? last.targetOrgId : undefined;
+  }
+
+  /**
+   * Move the verdict kept for every org at once to the org it was of, unless
+   * that org has one of its own, and drop it: the org it was of is told by
+   * the loads recorded, which the next load changes.
+   */
+  private moveOldVerify(): void {
+    const old = this.deps.configStore.get<FrozenLastVerify>(LAST_VERIFY_KEY);
+    if (!old) return;
+    const orgId = this.orgOfOldVerify(old);
+    const byOrg = this.lastVerifies();
+    if (orgId !== undefined && byOrg[orgId] === undefined) {
+      this.deps.configStore.set(LAST_VERIFIES_KEY, { ...byOrg, [orgId]: old }, FROZEN_CATEGORY);
+    }
+    this.deps.configStore.delete(LAST_VERIFY_KEY);
+  }
+
+  /**
+   * The verdict of the last verification of each org, the one kept for every
+   * org at once given to the org it was of: read as kept, nothing moved.
+   */
+  private lastVerifyInfos(): FrozenLastVerifyInfo[] {
+    const byOrg = { ...this.lastVerifies() };
+    const old = this.deps.configStore.get<FrozenLastVerify>(LAST_VERIFY_KEY);
+    const oldOrg = old ? this.orgOfOldVerify(old) : undefined;
+    if (old && oldOrg !== undefined && byOrg[oldOrg] === undefined) byOrg[oldOrg] = old;
+    return Object.entries(byOrg).map(([orgId, verify]) => ({
+      orgId,
+      status: verify.status,
+      measuredAt: verify.measuredAt,
+    }));
   }
 
   /** The pointers of the last load into each org, by its registered id. */
@@ -1910,11 +1991,10 @@ export class FrozenDatasetHandler implements DomainHandler {
         author: 'sandforge',
         onProgress: args.onProgress,
       });
-      this.deps.configStore.set(
-        LAST_VERIFY_KEY,
-        { status: verdict.status, measuredAt: verdict.measuredAt },
-        FROZEN_CATEGORY,
-      );
+      this.recordLastVerify(args.orgId, {
+        status: verdict.status,
+        measuredAt: verdict.measuredAt,
+      });
       const response = buildResponse(this.deps, msg, 'frozen:verify:result', { verdict });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
@@ -2328,9 +2408,6 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
 
     const lastRun = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
-    const lastVerify = this.deps.configStore.get<{ status: string; measuredAt: string }>(
-      LAST_VERIFY_KEY,
-    );
 
     // Read as written: the page is told what a removal would take without
     // anything being asked of the org — of the load a removal takes next, in
@@ -2365,7 +2442,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       lastLoad: lastRun
         ? { status: lastRun.status, orgId: lastRun.targetOrgId, at: lastRun.at }
         : null,
-      lastVerify: lastVerify ?? null,
+      lastVerifies: this.lastVerifyInfos(),
       ...(loadRecords.length > 0 ? { loadRecords } : {}),
     };
     const response = buildResponse(this.deps, msg, 'frozen:status:response', { status });

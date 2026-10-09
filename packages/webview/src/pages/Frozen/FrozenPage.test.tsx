@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
@@ -71,7 +71,7 @@ function statusFixture(overrides?: Partial<FrozenStatusInfo>): FrozenStatusInfo 
       },
     },
     lastLoad: null,
-    lastVerify: null,
+    lastVerifies: [],
     ...overrides,
   };
 }
@@ -80,6 +80,7 @@ function statusFixture(overrides?: Partial<FrozenStatusInfo>): FrozenStatusInfo 
 function resetStore(): void {
   useFrozenStore.setState({
     tab: 'extract',
+    targetOrgId: '',
     config: null,
     status: null,
     selection: null,
@@ -992,6 +993,82 @@ describe('FrozenPage', () => {
     expect(screen.getByTestId('frozen-verify-result')).toBeDefined();
     expect(screen.getByText('stability')).toBeDefined();
     expect(screen.getByText('counts')).toBeDefined();
+  });
+
+  describe('last verification', () => {
+    // Kept as one verdict whichever org was verified, the strip showed the
+    // verdict of the org verified last beside another picked as the target.
+    beforeEach(() => {
+      mockOrgState = {
+        orgs: [
+          { id: 'org-1', alias: 'Dev', status: 'connected' },
+          { id: 'org-2', alias: 'QA', status: 'connected' },
+          { id: 'org-3', alias: 'UAT', status: 'connected' },
+        ],
+        selectedOrgId: 'org-1',
+      };
+      useFrozenStore.setState({
+        status: statusFixture({
+          lastVerifies: [
+            { orgId: 'org-1', status: 'passed', measuredAt: '2026-08-01T11:05:00Z' },
+            { orgId: 'org-2', status: 'failed', measuredAt: '2026-08-01T12:05:00Z' },
+          ],
+        }),
+      });
+    });
+
+    /** The strip's card of the last verification. */
+    function lastVerifyCard(): HTMLElement {
+      const card = within(screen.getByTestId('frozen-status-strip'))
+        .getAllByTestId('kpi-card')
+        .find((element) => element.textContent?.includes('Last verification'));
+      if (!card) throw new Error('no last verification card');
+      return card;
+    }
+
+    it("shows the selected org's, named, as long as no target is picked", () => {
+      render(<FrozenPage />);
+
+      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('Passed');
+      expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('Dev');
+    });
+
+    it("shows the target's once one is picked in the Load tab, and none for an org never verified", () => {
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('page-tab-load'));
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-2'));
+
+      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('Failed');
+      expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('QA');
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-3'));
+
+      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('—');
+      expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('UAT');
+    });
+
+    it('keeps the target picked when the Load tab is left and shown again', () => {
+      useFrozenStore.setState({
+        status: statusFixture({
+          lastLoad: { status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' },
+          lastVerifies: [{ orgId: 'org-2', status: 'failed', measuredAt: '2026-08-01T12:05:00Z' }],
+        }),
+      });
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('page-tab-load'));
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-2'));
+
+      fireEvent.click(screen.getByTestId('page-tab-extract'));
+      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('Failed');
+      fireEvent.click(screen.getByTestId('page-tab-load'));
+
+      fireEvent.click(screen.getByTestId('frozen-verify-run'));
+      expect(mockMutate).toHaveBeenCalledWith('frozen:verify', { targetOrgId: 'org-2' });
+    });
   });
 
   describe('salt fingerprint', () => {

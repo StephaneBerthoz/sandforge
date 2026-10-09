@@ -29,6 +29,7 @@ export const FrozenPage: React.FC = () => {
   const setStatus = useFrozenStore((s) => s.setStatus);
   const setManifest = useFrozenStore((s) => s.setManifest);
   const manifest = useFrozenStore((s) => s.manifest);
+  const targetOrgId = useFrozenStore((s) => s.targetOrgId);
 
   useFrozenPushChannels();
 
@@ -72,6 +73,15 @@ export const FrozenPage: React.FC = () => {
     status?.manifest?.volumetry.measured != null
       ? Object.values(status.manifest.volumetry.measured).reduce((sum, n) => sum + n, 0)
       : 0;
+
+  /*
+   * The last verification of the org the Load tab loads into, as it picks
+   * it: each org keeps its own. Kept as one, the strip showed the verdict of
+   * whichever org was verified last beside another picked as the target.
+   */
+  const target = targetOrgId || selectedOrgId;
+  const lastVerify = status?.lastVerifies.find((verify) => verify.orgId === target);
+  const targetAlias = orgs.find((org) => org.id === target)?.alias;
 
   /*
    * The salt keys every pseudonym an extraction writes. A load replays the
@@ -136,14 +146,9 @@ export const FrozenPage: React.FC = () => {
         <KPICard
           icon="verified"
           label={t('frozen.status.lastVerify')}
-          value={status?.lastVerify ? t(`frozen.verify.status.${status.lastVerify.status}`) : '—'}
-          variant={
-            status?.lastVerify?.status === 'passed'
-              ? 'success'
-              : status?.lastVerify
-                ? 'error'
-                : 'default'
-          }
+          value={lastVerify ? t(`frozen.verify.status.${lastVerify.status}`) : '—'}
+          subtitle={targetAlias}
+          variant={lastVerify?.status === 'passed' ? 'success' : lastVerify ? 'error' : 'default'}
         />
       </div>
 
