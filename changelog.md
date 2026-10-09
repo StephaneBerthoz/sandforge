@@ -5,6 +5,33 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.0] - 2026-10-09
+
+A clone says before it writes when the target would run out of emails, and
+a partial backup says what it holds.
+
+### Added
+
+- **Email budget**: before a clone writes, the emails the target's flows
+  would send for its records are counted against what the org has left
+  today (single emails for a Send Email, workflow emails for an alert). Past
+  that limit a record whose flow fails is refused, so the panel asks and the
+  command says it.
+- **`sandforge.showWhatsNew`** turns the What's New panel off.
+
+### Changed
+
+- A Block duplicate rule read from the target's metadata is a warning: it
+  refuses only the rows it matches. A rehearsal that meets a refusal makes it
+  blocking.
+- A patch release no longer opens the What's New panel.
+
+### Fixed
+
+- A backup the tier's bound cut short says so on the DataOps page, with the
+  objects it holds only part of.
+- `--rehearse --json` prints what the target refused on stderr.
+
 ## [1.44.2] - 2026-10-07
 
 ### Fixed
