@@ -159,6 +159,24 @@ export interface AutomationConfirmation {
   removal?: ForgeRemovalRisk[];
 }
 
+/**
+ * What a run asks before it reads anything, when it reads source tables with
+ * no cap per object past the most rows of one object it holds at once: it
+ * holds every row it reads of an object until it writes them.
+ */
+export interface ReadConfirmation {
+  stage: 'read';
+  /** The org the run writes to, as the user knows it. */
+  org: string;
+  orgTier: SafetyTier;
+  /** The org the tables are read from, as the user knows it. */
+  source: string;
+  /** The objects past the ceiling, with the rows discovery counted in each table, the most first. */
+  objects: Array<{ objectApiName: string; rows: number }>;
+  /** The most rows of one object a run reads without asking. */
+  ceiling: number;
+}
+
 /** The data storage a run's rows take, and what the target has: read, or not. */
 export type WriteConfirmationStorage =
   | {
@@ -225,7 +243,8 @@ export interface RehearsalConfirmation {
 }
 
 /** A question a run puts to the user through the guard's confirmation channel. */
-export type RunConfirmation = AutomationConfirmation | WriteConfirmation | RehearsalConfirmation;
+export type RunConfirmation =
+  AutomationConfirmation | ReadConfirmation | WriteConfirmation | RehearsalConfirmation;
 
 /** What came of a run's question: answered, or never put, for want of anyone to ask. */
 export type RunConfirmationAnswer = 'confirmed' | 'declined' | 'unavailable';
@@ -250,7 +269,8 @@ export interface ProductionGuardOptions {
   requestConfirmation?: (impactSummary: string, orgTier: SafetyTier) => Promise<boolean>;
   /**
    * Puts a run's question ({@link RunConfirmation}) to the user: what the
-   * target runs as the run inserts, before it reads; how much it writes and
+   * target runs as the run inserts, and the source tables it reads with no
+   * cap past the ceiling, before it reads; how much it writes and
    * the storage that takes, before it writes. Resolves to the user's consent.
    * Wired in the extension to the same modal as {@link requestConfirmation};
    * absent, there is nobody to ask, and {@link confirmRun} says so.

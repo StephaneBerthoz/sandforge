@@ -8,19 +8,25 @@ import { useForgeRunGateStore } from './runGate';
 const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   PRODUCTION_TARGET: 'forge.gate.productionTarget',
   AUTOMATION_DECLINED: 'forge.gate.automationDeclined',
+  READ_DECLINED: 'forge.gate.readDeclined',
   WRITE_DECLINED: 'forge.gate.writeDeclined',
   STORAGE_EXCEEDED: 'forge.gate.storageExceeded',
   CONFIRMATION_UNAVAILABLE: 'forge.gate.confirmationUnavailable',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
-const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set(['AUTOMATION_DECLINED', 'WRITE_DECLINED']);
+const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
+  'AUTOMATION_DECLINED',
+  'READ_DECLINED',
+  'WRITE_DECLINED',
+]);
 
 /**
- * Why the last run stopped at its gate, said on Review, where the page goes
- * back to: refused — a production target, rows the target has no storage
- * left for — or cancelled at a question. Nothing was written either way.
- * Shown until the next run starts or it is dismissed.
+ * Why the last run stopped at its gate, said where the page goes back to —
+ * Review, or the results a retry was started from: refused — a production
+ * target, rows the target has no storage left for — or cancelled at a
+ * question. Nothing was written either way. Shown until the next run starts
+ * or it is dismissed.
  */
 export const ForgeRunGateNotice: React.FC = () => {
   const { t } = useTranslation();

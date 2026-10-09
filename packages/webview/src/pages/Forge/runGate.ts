@@ -8,9 +8,10 @@ import { useForgeStore } from '../../stores/useForgeStore';
  * between Execute and the first record a run writes — for Review to say.
  *
  * A run refused there, or cancelled at one of its questions, wrote nothing
- * and failed nothing: the page goes back to Review, where it was sent from,
- * rather than holding the execution screen on an error. The stop is kept here
- * until the next run starts or the notice is dismissed.
+ * and failed nothing: the page goes back to where it was sent from — Review,
+ * or the results a retry was started from — rather than holding the execution
+ * screen on an error. The stop is kept here until the next run starts or the
+ * notice is dismissed.
  */
 export interface ForgeRunGateState {
   stop: ForgeRunGateStop | null;
@@ -33,12 +34,15 @@ export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
 
 /**
  * Take the error of a run stopped at its gate: keep why, and go back to
- * Review. Only the run on screen counts, as the store's own listener counts
- * it; every panel receives every panel's messages.
+ * Review, or, for a retry, to the results it was started from. Only the run
+ * on screen counts, as the store's own listener counts it; every panel
+ * receives every panel's messages.
  *
  * The store's listener has taken the error first — it is registered when the
  * store's module loads, before this one, which imports it — and holds the
- * run as stopped on it: Review is where a stopped run goes back to.
+ * run as stopped on it: Review is where a stopped run goes back to. A retry
+ * went there too, and Review's Execute then started a new clone over the
+ * records the run it retried had written.
  */
 export function takeGateStop(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview host.
@@ -51,7 +55,8 @@ export function takeGateStop(event: MessageEvent): void {
   const forge = useForgeStore.getState();
   if (forge.executionRequestId === null || forge.executionRequestId !== data.correlationId) return;
   useForgeRunGateStore.getState().setStop(stop);
-  forge.reviewAgain();
+  if (forge.retrying && forge.result) forge.backToResults();
+  else forge.reviewAgain();
 }
 
 // HMR-safe listener registration, as the store registers the run's: re-imported

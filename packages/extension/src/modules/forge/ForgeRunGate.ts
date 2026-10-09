@@ -92,6 +92,49 @@ export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
 export const DEFAULT_MAX_TOTAL = 10_000;
 
 /**
+ * The most rows of one object a run of the panel reads without asking first.
+ *
+ * A run holds every row it reads of an object until it has cleaned and
+ * written them: the second pass, the rows held back for want of a parent and
+ * the check that no two rows share an upsert key all take the object whole.
+ * With Records per object on "All", nothing bounded that read — a cap is the
+ * only bound a run of whole tables has, and a clone of one record reads all
+ * its record reaches — and a table of millions of rows would go into the
+ * extension host's memory, with nothing said before it.
+ */
+export const READ_CEILING_PER_OBJECT = 50_000;
+
+/**
+ * The objects a run reads past `ceiling` rows: those it writes whose table
+ * holds more, as discovery counted it, that the run's cap per object does not
+ * bring under it, the most first. A table is the most a node's read can take;
+ * a clone of one record reads only what its record reaches of it, which no
+ * count before the read can say. A table discovery could not count is not
+ * among them: no figure says it is past.
+ *
+ * @param maxRecordsPerObject - The run's cap per object, `undefined` for none.
+ */
+export function objectsAboveReadCeiling(
+  graph: Pick<ForgeGraph, 'nodes'>,
+  maxRecordsPerObject: number | undefined,
+  ceiling: number = READ_CEILING_PER_OBJECT,
+): Array<{ objectApiName: string; rows: number }> {
+  const cap =
+    maxRecordsPerObject !== undefined && maxRecordsPerObject > 0
+      ? Math.floor(maxRecordsPerObject)
+      : undefined;
+  if (cap !== undefined && cap <= ceiling) return [];
+  return graph.nodes
+    .filter((node) => node.included && node.recordCountUnknown !== true)
+    .map((node) => ({
+      objectApiName: node.objectApiName,
+      rows: cap === undefined ? node.recordCount : Math.min(node.recordCount, cap),
+    }))
+    .filter((object) => object.rows > ceiling)
+    .sort((a, b) => b.rows - a.rows);
+}
+
+/**
  * Share of the data storage the target has left past which a run is said to
  * come near it. Salesforce counts storage a while after a load, so what an
  * org says it has left right after one is more than it has: the margin is

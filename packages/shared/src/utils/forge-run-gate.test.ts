@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the five ways a run stops at its gate', () => {
+  it('names the six ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
+      'READ_DECLINED',
       'WRITE_DECLINED',
       'STORAGE_EXCEEDED',
       'CONFIRMATION_UNAVAILABLE',
@@ -23,6 +24,7 @@ describe('forge run gate stops', () => {
     expect(forgeRunGateStopOf({ code: 'AUTOMATION_DECLINED' })).toEqual({
       code: 'AUTOMATION_DECLINED',
     });
+    expect(forgeRunGateStopOf({ code: 'READ_DECLINED' })).toEqual({ code: 'READ_DECLINED' });
     expect(
       forgeRunGateStopOf({
         code: 'STORAGE_EXCEEDED',

@@ -1,9 +1,22 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
-import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
+import type { ForgeConfig, ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { ReviewAutomationTab } from './ReviewAutomationTab';
+
+/** The run Review is about to start. */
+const RUN: ForgeConfig = {
+  inputMode: 'record',
+  recordId: '001000000000001AAA',
+  depth: 'direct',
+  sourceOrgId: 'org-source',
+  targetOrgId: 'org-target',
+  anonymizePII: false,
+  skipEmpty: false,
+  batchSize: 'auto',
+};
 
 /** A flow of the target that starts after a case is created, its start condition read. */
 function flow(overrides: Partial<ForgeTargetFlow> = {}): ForgeTargetFlow {
@@ -34,6 +47,7 @@ function automation(overrides: Partial<ForgeTargetAutomation> = {}): ForgeTarget
 describe('ReviewAutomationTab', () => {
   afterEach(async () => {
     await i18n.changeLanguage('en');
+    useForgeStore.setState({ config: null });
   });
 
   it('says it is reading until the read answers', () => {
@@ -488,12 +502,57 @@ describe('ReviewAutomationTab', () => {
       'Duplicate rules: Lead email, Lead name' +
         'The run saves a record a rule only alerts on; a rule that blocks still refuses it.',
     ]);
+    // No run to set it on, no switch.
+    expect(screen.queryByTestId('automation-Lead-apply-assignment')).toBeNull();
 
-    rerender(<ReviewAutomationTab automation={ruled} applyAssignmentRules />);
+    act(() => useForgeStore.setState({ config: { ...RUN, applyAssignmentRules: true } }));
+    rerender(<ReviewAutomationTab automation={ruled} />);
     expect(rules()[0]).toBe(
       'Assignment rule: Lead routing' +
-        'Applied: this run asks the target org to apply it, and it can give the records another owner and email that owner',
+        'Applied: this run asks the target org to apply it, and it can give the records another owner and email that owner' +
+        "Apply the target org's assignment rules on this run: they can give the records another owner, and email that owner",
     );
+  });
+
+  it('lets the run apply the assignment rules from the line that says whether it does, off by default', () => {
+    useForgeStore.setState({ config: { ...RUN } });
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objectsRead: ['Lead'],
+          objects: [
+            {
+              objectApiName: 'Lead',
+              flows: [],
+              triggers: [],
+              assignmentRules: [{ name: 'Lead routing' }],
+            },
+          ],
+        })}
+      />,
+    );
+    const toggle = screen.getByRole('checkbox', {
+      name: "Apply the target org's assignment rules on this run: they can give the records another owner, and email that owner",
+    }) as HTMLInputElement;
+    const line = () => within(screen.getByTestId('automation-Lead-rules')).getByRole('listitem');
+
+    expect(toggle.checked).toBe(false);
+    expect(line().textContent).toContain('Not applied');
+    expect(useForgeStore.getState().config).not.toHaveProperty('applyAssignmentRules');
+
+    fireEvent.click(toggle);
+    expect(useForgeStore.getState().config?.applyAssignmentRules).toBe(true);
+    expect(toggle.checked).toBe(true);
+    expect(line().textContent).toContain(
+      'Applied: this run asks the target org to apply it, and it can give the records another owner and email that owner',
+    );
+
+    // Turned off again, the run says nothing of them: off is the default.
+    fireEvent.click(toggle);
+    expect(useForgeStore.getState().config).not.toHaveProperty('applyAssignmentRules');
+    expect(line().textContent).toContain('Not applied');
+    // The rest of the run is left as it was.
+    expect(useForgeStore.getState().config).toEqual(RUN);
   });
 
   it('says what it left unread of the processes and workflow rules, and the parts it could not read', () => {

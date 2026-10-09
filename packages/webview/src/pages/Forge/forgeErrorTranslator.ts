@@ -487,6 +487,18 @@ const REFUSALS: ReadonlyMap<string, { keys: HintKeys; severity: 'info' | 'warnin
         severity: 'warning',
       },
     ],
+    // Not a failure: the user's own Abort, which came before the run started.
+    // Without it the page showed the extension's English message as it was.
+    [
+      'ABORTED_BEFORE_START',
+      {
+        keys: [
+          'forge.error.abortedBeforeStart.explanation',
+          'forge.error.abortedBeforeStart.action',
+        ],
+        severity: 'info',
+      },
+    ],
   ]);
 
 function mapping(

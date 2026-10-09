@@ -6,6 +6,7 @@ import { ProductionGuard } from '../core/precheck/ProductionGuard';
 import type {
   AutomationConfirmation,
   FiredOnInsert,
+  ReadConfirmation,
   RehearsalConfirmation,
   RunConfirmation,
   RunUpdateStep,
@@ -176,9 +177,26 @@ function assignCommands(question: RunConfirmation): string[] {
     : [];
 }
 
-/** What a run's question says of what fires in the target as the run inserts and updates. */
+/**
+ * What a run's question says of what fires in the target as the run inserts
+ * and updates. One asked only for what may refuse a removal — a run started
+ * with Clone directly, which never showed Review — says first that nothing
+ * fires: the lines that follow are the whole of why it asks.
+ */
 function automationQuestion(question: AutomationConfirmation): string[] {
   const lines: string[] = [];
+  if (
+    question.fired.length === 0 &&
+    question.firedOnUpdate.length === 0 &&
+    question.unread.length === 0
+  ) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} runs no automation as this clone inserts and updates its records.',
+        question.org,
+      ),
+    );
+  }
   if (question.fired.length > 0) {
     lines.push(
       vscode.l10n.t('{0} runs automation on the records this clone inserts:', question.org),
@@ -262,6 +280,43 @@ function removalRiskLines(risks: readonly ForgeRemovalRisk[]): string[] {
   if (risks.length > LISTED_IN_A_QUESTION) {
     lines.push(vscode.l10n.t('• and {0} more', risks.length - LISTED_IN_A_QUESTION));
   }
+  return lines;
+}
+
+/**
+ * What a run's question says of the source tables it reads with no cap past
+ * the ceiling, before it reads them: the rows each holds, and why that many
+ * may be too many to hold at once.
+ */
+function readQuestion(question: ReadConfirmation): string[] {
+  const lines = [
+    vscode.l10n.t(
+      'This clone reads these tables of {0} with no cap per object, and each holds more than {1} records:',
+      question.source,
+      question.ceiling,
+    ),
+  ];
+  // Names and counts alone: nothing in them to translate.
+  for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
+    lines.push(`• ${objectApiName}: ${rows}`);
+  }
+  const rest = question.objects.slice(LISTED_IN_A_QUESTION);
+  if (rest.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '• and {0} more objects, {1} records',
+        rest.length,
+        rest.reduce((sum, object) => sum + object.rows, 0),
+      ),
+    );
+  }
+  lines.push(
+    vscode.l10n.t(
+      'The clone holds every record it reads of an object until it writes them: past {0} records of one object, VS Code may run out of memory. A clone of one record reads only what its record reaches of each table. To read fewer, set Records per object on the Forge page.',
+      question.ceiling,
+    ),
+    vscode.l10n.t('Nothing has been read or written yet.'),
+  );
   return lines;
 }
 
@@ -401,17 +456,20 @@ function rehearsalQuestion(question: RehearsalConfirmation): string[] {
 
 /**
  * What the modal says of a run's question, in the user's language: before
- * it reads, what fires in the target as it inserts; before it writes, the
- * records per object and the storage they take; before a rehearsal's first
- * call, what it creates and what still goes out. Exported so it can be tested.
+ * it reads, what fires in the target as it inserts, and the tables it reads
+ * past the ceiling; before it writes, the records per object and the storage
+ * they take; before a rehearsal's first call, what it creates and what still
+ * goes out. Exported so it can be tested.
  */
 export function runQuestionDetail(question: RunConfirmation): string {
   return (
     question.stage === 'automation'
       ? automationQuestion(question)
-      : question.stage === 'rehearsal'
-        ? rehearsalQuestion(question)
-        : writeQuestion(question)
+      : question.stage === 'read'
+        ? readQuestion(question)
+        : question.stage === 'rehearsal'
+          ? rehearsalQuestion(question)
+          : writeQuestion(question)
   ).join('\n');
 }
 

@@ -51,6 +51,8 @@ import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
 import { ForgeResultsVerify } from './ForgeResultsVerify';
+import { ForgeRunGateNotice } from './ForgeRunGateNotice';
+import { useForgeRunGateStore } from './runGate';
 import { createdTargets, idMapCsv, idMapRows, objectResultsCsv } from './forgeResultsExport';
 
 /**
@@ -592,8 +594,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const handleRetryFailed = useCallback(
     (fix?: Pick<ForgeConfig, 'expandOrphanParents'>) => {
       if (!graph || !config || !result) return;
+      // The screen as it stands, for a retry stopped at its gate to come back
+      // to: the statuses below are what says what failed.
+      const shown = useForgeStore.getState();
+      const from = {
+        graph: shown.graph,
+        statusesBeyondGraph: shown.statusesBeyondGraph,
+        runError: shown.runError,
+        stoppedAt: shown.stoppedAt,
+        logs: shown.logs,
+        runClock: shown.runClock,
+      };
       // A new run, from the statuses up, as Review starts one.
       useForgeStore.getState().resetNodeStatuses();
+      // Why the run before stopped at its gate is that run's: this one has its own.
+      useForgeRunGateStore.getState().clear();
       const { graph: retried, anonymizationRules, fileCopy } = useForgeStore.getState();
       if (!retried) return;
       // A fix the retry runs with is the run's configuration from then on: its
@@ -617,6 +632,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         retryOf: result.forgeId,
       });
       useForgeStore.getState().setExecutionRequestId(requestId);
+      useForgeStore.getState().markRetry(from);
       setPhase('execution');
     },
     [graph, config, result, setPhase],
@@ -693,6 +709,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         immediate
         testId="forge-results-status"
       />
+      {/* Why a retry started from here stopped at its gate: it wrote nothing,
+          and these are still the results of the run it retried. */}
+      <ForgeRunGateNotice />
       {/* Above what the run wrote, which is not the whole clone: the error
           that stopped it went with the execution screen. */}
       {stoppedOn !== null && (

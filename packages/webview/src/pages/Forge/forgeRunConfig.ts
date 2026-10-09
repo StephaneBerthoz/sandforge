@@ -58,8 +58,9 @@ export function withoutOrgs(config: ForgeConfig): StoredForgeConfig {
 /**
  * The parts of a run's config the form has no control for, which a template
  * or a past run brings back and a Discover sends on: the decisions taken on
- * the Gaps tab, the objects left out, the rows held back, and what Review's
- * Controls tab sets — field exclusions, filters, owners and field mappings.
+ * the Gaps tab, the objects left out, the rows held back, what Review's
+ * Controls tab sets — field exclusions, filters, owners and field mappings —
+ * and whether its Automation tab lets the target's assignment rules apply.
  * Built from the form alone, the config Discover sent dropped every one.
  */
 const CARRIED_KEYS = [
@@ -74,6 +75,7 @@ const CARRIED_KEYS = [
   'excludedObjects',
   'ignoredGaps',
   'skippedRows',
+  'applyAssignmentRules',
 ] as const satisfies ReadonlyArray<keyof ForgeConfig>;
 
 /** What a run carries that the form does not show (see `CARRIED_KEYS`). */

@@ -33,6 +33,7 @@ import {
 import type { Services } from '../services';
 import type {
   AutomationConfirmation,
+  ReadConfirmation,
   RehearsalConfirmation,
   SafetyCheckResult,
   WriteConfirmation,
@@ -330,6 +331,26 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(runQuestionDetail({ ...automation, removal: [] })).not.toContain('A removal');
   });
 
+  it('asked for the removal alone, says nothing fires before it says what may refuse one', () => {
+    // A run started with Clone directly, which never showed Review's
+    // Automation tab: nothing fires as it writes, and these lines are why it asks.
+    expect(
+      runQuestionDetail({
+        ...automation,
+        fired: [],
+        bypass: [],
+        removal: [{ objectApiName: 'Account', kind: 'flow', name: 'Account guard' }],
+      }).split('\n'),
+    ).toEqual([
+      'DEV runs no automation as this clone inserts and updates its records.',
+      'A removal of the records this clone creates may be refused:',
+      '• Account: Flow "Account guard" runs before a record is deleted, and can refuse the delete',
+      'Nothing has been read or written yet.',
+    ]);
+    // Something fires: that is said instead.
+    expect(runQuestionDetail(automation)).not.toContain('runs no automation');
+  });
+
   it('says what could not be read, and that what fires is then not known', () => {
     expect(
       runQuestionDetail({
@@ -440,6 +461,38 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
     expect(call.slice(2)).toEqual(['Execute', 'Copy the command']);
     expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith(command);
+  });
+
+  it('before the read, lists the tables read with no cap past the ceiling, and why that many is a risk', async () => {
+    const read: ReadConfirmation = {
+      stage: 'read',
+      org: 'DEV',
+      orgTier: 'development',
+      source: 'UAT',
+      objects: [
+        { objectApiName: 'Task', rows: 2_400_000 },
+        { objectApiName: 'EmailMessage', rows: 80_000 },
+      ],
+      ceiling: 50_000,
+    };
+    expect(runQuestionDetail(read).split('\n')).toEqual([
+      'This clone reads these tables of UAT with no cap per object, and each holds more than 50000 records:',
+      '• Task: 2400000',
+      '• EmailMessage: 80000',
+      'The clone holds every record it reads of an object until it writes them: past 50000 records of one object, VS Code may run out of memory. A clone of one record reads only what its record reaches of each table. To read fewer, set Records per object on the Forge page.',
+      'Nothing has been read or written yet.',
+    ]);
+
+    // Execute goes on; there is no command to copy.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    await expect(productionGuard.confirmRun(read)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call[0]).toBe('SandForge: confirm this clone');
+    expect(call.slice(2)).toEqual(['Execute']);
   });
 
   it('lists the records per object, the setting the total is past, and the storage they take', () => {

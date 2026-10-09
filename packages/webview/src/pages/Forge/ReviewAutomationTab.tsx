@@ -19,6 +19,7 @@ import {
   removalRisksOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
 import { BypassAssistant, type BypassTarget } from './BypassAssistant';
 
@@ -95,8 +96,6 @@ export interface ReviewAutomationTabProps {
    * target runs on them no longer fires, and is not shown.
    */
   leftOut?: ReadonlySet<string>;
-  /** Whether the run lets the target's assignment rules apply (`ForgeConfig.applyAssignmentRules`). */
-  applyAssignmentRules?: boolean;
   /**
    * The target org and the user the run writes as, whom the command that
    * assigns a bypass names; without them, the permission set is named and no
@@ -122,7 +121,6 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   automation,
   error = null,
   leftOut = new Set<string>(),
-  applyAssignmentRules = false,
   target,
 }) => {
   const { t } = useTranslation();
@@ -221,7 +219,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
               </ul>
             </div>
           ))}
-          <ObjectRules object={object} applyAssignmentRules={applyAssignmentRules} />
+          <ObjectRules object={object} />
         </section>
       ))}
       <RemovalRisks automation={automation} leftOut={leftOut} blind={blind} />
@@ -306,15 +304,27 @@ const RemovalRisks: React.FC<{
 /**
  * The assignment rule and the duplicate rules of an object: whether the run
  * lets the first apply, and what the second still refuse.
+ *
+ * Whether the rules apply is the run's choice (`ForgeConfig.applyAssignmentRules`),
+ * made here, beside the rule it lets through: the panel had no control for it,
+ * and a run started from it could only keep the owners it set. Off unless
+ * turned on, and for every object the run writes at once.
  */
-const ObjectRules: React.FC<{
-  object: ForgeTargetObjectAutomation;
-  applyAssignmentRules: boolean;
-}> = ({ object, applyAssignmentRules }) => {
+const ObjectRules: React.FC<{ object: ForgeTargetObjectAutomation }> = ({ object }) => {
   const { t } = useTranslation();
+  const hasConfig = useForgeStore((s) => s.config !== null);
+  const applyAssignmentRules = useForgeStore((s) => s.config?.applyAssignmentRules === true);
+  const updateConfig = useForgeStore((s) => s.updateConfig);
   const assignment = object.assignmentRules ?? [];
   const duplicates = object.duplicateRules ?? [];
   if (assignment.length === 0 && duplicates.length === 0) return null;
+  const setApply = (apply: boolean): void =>
+    updateConfig((config) => {
+      const next = { ...config };
+      if (apply) next.applyAssignmentRules = true;
+      else delete next.applyAssignmentRules;
+      return next;
+    });
   // Under a heading of their own: listed straight after the writes, they read
   // as one more thing the last write fires.
   return (
@@ -329,6 +339,18 @@ const ObjectRules: React.FC<{
                 ? t('forge.review.automation.assignmentApplied')
                 : t('forge.review.automation.assignmentNotApplied')}
             </span>
+            {hasConfig && (
+              <label className="mt-0.5 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  data-testid={`automation-${object.objectApiName}-apply-assignment`}
+                  checked={applyAssignmentRules}
+                  onChange={(e) => setApply(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>{t('forge.review.automation.assignmentApply')}</span>
+              </label>
+            )}
           </li>
         ))}
         {duplicates.length > 0 && (

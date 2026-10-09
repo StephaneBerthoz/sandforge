@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import type { ForgeConfig, ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { takeGateStop, useForgeRunGateStore } from './runGate';
 import { startForgeRun } from './startForgeRun';
@@ -142,5 +142,85 @@ describe('a Forge run stopped at its gate', () => {
     startForgeRun();
 
     expect(useForgeRunGateStore.getState().stop).toBeNull();
+  });
+});
+
+describe('a retry stopped at its gate', () => {
+  /** The run the results show, which failed its only object. */
+  const FAILED: ForgeExecutionResult = {
+    forgeId: 'forge-failed',
+    status: 'failure',
+    graph: GRAPH,
+    duration: 1000,
+    timestamp: '2026-10-01T08:00:00.000Z',
+    idRemapCount: 0,
+  };
+
+  /** Start a retry of the results on screen, as their Retry failed does. */
+  function retry(): void {
+    const shown = useForgeStore.getState();
+    const from = {
+      graph: shown.graph,
+      statusesBeyondGraph: shown.statusesBeyondGraph,
+      runError: shown.runError,
+      stoppedAt: shown.stoppedAt,
+      logs: shown.logs,
+      runClock: shown.runClock,
+    };
+    shown.resetNodeStatuses();
+    useForgeRunGateStore.getState().clear();
+    shown.setExecutionRequestId('wv-run-1');
+    shown.markRetry(from);
+    shown.setPhase('execution');
+  }
+
+  beforeEach(() => {
+    useForgeStore.getState().reset();
+    useForgeRunGateStore.getState().clear();
+    useForgeStore.getState().setConfig(CONFIG);
+    useForgeStore.getState().setGraph(GRAPH);
+    useForgeStore.getState().setPhase('review');
+    startForgeRun();
+    useForgeStore.getState().updateNodeStatus('Account', 'error');
+    fromTheExtension({
+      type: 'forge:execute:response',
+      id: 'ext-0',
+      correlationId: 'wv-run-1',
+      payload: { result: FAILED },
+    });
+  });
+
+  it('goes back to the results it was started from, the run it retries and what failed in it kept', () => {
+    expect(useForgeStore.getState().phase).toBe('results');
+    retry();
+    expect(useForgeStore.getState().graph?.nodes[0].status).toBe('idle');
+
+    fromTheExtension(stoppedAtTheGate({ code: 'AUTOMATION_DECLINED' }));
+
+    const forge = useForgeStore.getState();
+    expect(forge.phase).toBe('results');
+    expect(forge.result?.forgeId).toBe('forge-failed');
+    expect(forge.runError).toBeNull();
+    // What failed is what Retry failed is offered for, again.
+    expect(forge.graph?.nodes[0].status).toBe('error');
+    expect(forge.retrying).toBeNull();
+    expect(useForgeRunGateStore.getState().stop).toEqual({ code: 'AUTOMATION_DECLINED' });
+  });
+
+  it('is a retry no more once it answered: the next run stopped at its gate goes back to Review', () => {
+    retry();
+    fromTheExtension({
+      type: 'forge:execute:response',
+      id: 'ext-3',
+      correlationId: 'wv-run-1',
+      payload: { result: { ...FAILED, forgeId: 'forge-retry', status: 'success' } },
+    });
+    expect(useForgeStore.getState().retrying).toBeNull();
+
+    useForgeStore.getState().setPhase('review');
+    startForgeRun();
+    fromTheExtension(stoppedAtTheGate({ code: 'WRITE_DECLINED' }));
+
+    expect(useForgeStore.getState().phase).toBe('review');
   });
 });

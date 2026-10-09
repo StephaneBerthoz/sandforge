@@ -156,6 +156,12 @@ const REFUSALS: ReadonlyArray<{
     hint: 'filesNotAccepted',
     severity: 'warning',
   },
+  {
+    message: 'Forge execution was aborted before it started. Nothing was written.',
+    code: 'ABORTED_BEFORE_START',
+    hint: 'abortedBeforeStart',
+    severity: 'info',
+  },
 ];
 
 /** One message per code of the guide's table the translator mapped before the ten. */
@@ -457,6 +463,7 @@ describe('translateForgeError', () => {
     for (const code of [
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
+      'READ_DECLINED',
       'WRITE_DECLINED',
       'STORAGE_EXCEEDED',
       'CONFIRMATION_UNAVAILABLE',

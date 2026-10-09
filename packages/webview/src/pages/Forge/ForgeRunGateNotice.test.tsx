@@ -44,6 +44,10 @@ describe('ForgeRunGateNotice', () => {
       'You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.',
     ],
     [
+      'READ_DECLINED' as const,
+      'You cancelled the run at the confirmation of the tables it reads with no cap per object, each past 50,000 records. Nothing was read or written. Set Records per object to read fewer.',
+    ],
+    [
       'WRITE_DECLINED' as const,
       'You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.',
     ],

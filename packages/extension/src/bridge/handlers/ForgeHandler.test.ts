@@ -3256,6 +3256,12 @@ describe('ForgeHandler', () => {
           details: { code: 'RUN_CANCELLED' },
         }),
       ]);
+      // The page is told the same code: a cancel, not a run that failed.
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload?: { code?: string } })
+        .filter((m) => m.type === 'forge:execute:error');
+      expect(errors.map((m) => m.payload?.code)).toEqual(['RUN_CANCELLED']);
     });
 
     it('records a run a cancel stopped after the target refused all it was sent as failed', async () => {
@@ -4295,10 +4301,14 @@ describe('ForgeHandler', () => {
       expect(orchestrator.execute).not.toHaveBeenCalled();
       const errors = vi
         .mocked(deps.broker.postToWebview)
-        .mock.calls.map((call) => call[0] as BaseMessage & { payload?: { message?: string } })
+        .mock.calls.map(
+          (call) => call[0] as BaseMessage & { payload?: { message?: string; code?: string } },
+        )
         .filter((m) => m.type === 'forge:execute:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload?.message).toContain('aborted before it started');
+      // Under the code the trail records it with, not as a run that failed.
+      expect(errors[0].payload?.code).toBe('ABORTED_BEFORE_START');
     });
 
     describe('sent while Production Guard waits on a person', () => {
@@ -4369,7 +4379,8 @@ describe('ForgeHandler', () => {
           correlationId: msg.id,
           payload: {
             message: 'Forge execution was aborted before it started. Nothing was written.',
-            code: 'EXECUTE_ERROR',
+            // The trail's code, which the page says in the user's language.
+            code: 'ABORTED_BEFORE_START',
             retryable: true,
           },
         });

@@ -2592,6 +2592,7 @@
     "gate": {
       "productionTarget": "A execução não começou: a org de destino é uma org de produção, ou uma que o SandForge não consegue dizer que é um sandbox, uma scratch org ou uma org Developer Edition. O Forge grava apenas nessas, e nada foi lido nem gravado. Escolha uma delas como destino.",
       "automationDeclined": "Você cancelou a execução na confirmação do que a org de destino executa ao inserir os registros. Nada foi lido nem gravado.",
+      "readDeclined": "Você cancelou a execução na confirmação das tabelas que ela lê sem limite por objeto, cada uma com mais de 50.000 registros. Nada foi lido nem gravado. Ajuste Registros por objeto para ler menos.",
       "writeDeclined": "Você cancelou a execução antes que ela gravasse qualquer coisa. Os registros de origem foram lidos; nada foi gravado na org de destino.",
       "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
       "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida."
@@ -2881,6 +2882,7 @@
         "assignmentRule": "Regra de atribuição: {{name}}",
         "assignmentNotApplied": "Não aplicada: a execução mantém o proprietário que define e pede à org de destino que não aplique suas regras de atribuição (Sforce-Auto-Assign: FALSE)",
         "assignmentApplied": "Aplicada: esta execução pede à org de destino que a aplique, e ela pode dar aos registros outro proprietário e avisá-lo por e-mail",
+        "assignmentApply": "Aplicar as regras de atribuição da org de destino nesta execução: elas podem dar aos registros outro proprietário e avisá-lo por e-mail",
         "duplicateRules_one": "Regra de duplicidade: {{names}}",
         "duplicateRules_other": "Regras de duplicidade: {{names}}",
         "duplicateNote": "A execução salva um registro sobre o qual uma regra só alerta; uma regra que bloqueia continua a recusá-lo.",
@@ -3154,6 +3156,10 @@
       "filesNotAccepted": {
         "explanation": "Esta execução anonimiza seus registros e copia os arquivos deles, cujo conteúdo não pode ser anonimizado: os arquivos só são copiados quando você aceita que sejam copiados como estão. Nada foi lido nem gravado.",
         "action": "Na revisão, aceite que os arquivos sejam copiados como estão, ou desative a cópia, e execute de novo."
+      },
+      "abortedBeforeStart": {
+        "explanation": "Você interrompeu a execução antes que ela começasse. Nada foi gravado.",
+        "action": "Execute-a de novo a partir da revisão quando estiver pronto."
       },
       "unknown": {
         "explanation": "{{detail}}",

@@ -78,9 +78,11 @@ export interface ForgeRunError {
   message: string;
   /**
    * The kind of failure, as the extension keys it rather than by its English
-   * text: `EXECUTE_ERROR` for a run that failed or was cancelled once it had
-   * started, a refusal's own code — `GUARD_DECLINED`, `FORGE_RUNNING`… — for
-   * a run stopped before it started. Absent when the error carried none.
+   * text: `EXECUTE_ERROR` for a run that failed, or was cancelled once it had
+   * written; `RUN_CANCELLED` for one a cancel stopped before it wrote;
+   * `ABORTED_BEFORE_START` for one aborted before it started; a refusal's own
+   * code — `GUARD_DECLINED`, `FORGE_RUNNING`… — for a run stopped before it
+   * started. Absent when the error carried none.
    */
   code?: string;
   /**
@@ -113,6 +115,22 @@ export interface ForgeRunClock {
 export function runElapsedSeconds(clock: ForgeRunClock, now: number): number {
   const at = clock.pausedSince ?? clock.endedAt ?? now;
   return Math.max(0, Math.floor((at - clock.startedAt - clock.pausedMs) / 1000));
+}
+
+/**
+ * The results screen a retry was started from, as it stood: the statuses of
+ * the run it retries, on the graph and beyond it, the error that run stopped
+ * on, and its log and clock. A retry starts from idle statuses and an empty
+ * log, as every run does; stopped at its gate, it wrote nothing, and the page
+ * goes back to the results it left, which still say what failed.
+ */
+export interface ForgeRetryOrigin {
+  graph: ForgeGraph | null;
+  statusesBeyondGraph: Record<string, ForgeNodeStatus>;
+  runError: ForgeRunError | null;
+  stoppedAt: number | null;
+  logs: ForgeLogEntry[];
+  runClock: ForgeRunClock | null;
 }
 
 /** `clock` stopped now, unless it had stopped already. */
@@ -361,6 +379,7 @@ const INITIAL_STATE = {
   directDiscoveryError: null as string | null,
   reviewSkipped: false,
   simulation: false,
+  retrying: null as ForgeRetryOrigin | null,
 };
 
 /** Forge state machine store — state and actions. */
@@ -484,6 +503,20 @@ export interface ForgeState {
    * graph as discovery left it for the next run.
    */
   reviewAgain: () => void;
+  /**
+   * The results screen a retry was started from, as it stood, while the
+   * retry is on screen; null for any other run. Set as a retry starts, and
+   * dropped as the next run starts or the retry ends.
+   */
+  retrying: ForgeRetryOrigin | null;
+  /** Mark the run just started as a retry of the results `from` showed. */
+  markRetry: (from: ForgeRetryOrigin) => void;
+  /**
+   * Leave a retry that stopped for the results it was started from, as they
+   * stood: the run it retries is still the one to retry, or to take back.
+   * Nothing for a run that is not a retry, or that has not stopped.
+   */
+  backToResults: () => void;
   /**
    * Leave the results of a simulation for Review, the graph as discovery left
    * it and the gaps the simulation found kept, to decide on them and run.
@@ -841,6 +874,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set({ simulation: true });
   },
 
+  markRetry(from: ForgeRetryOrigin): void {
+    set({ retrying: from });
+  },
+
   setFileCopy(change: Partial<ForgeFileCopyChoice>): void {
     set((state) => {
       const next = { ...state.fileCopy, ...change };
@@ -871,6 +908,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       apiCallsSoFar: null,
       reviewSkipped: false,
       simulation: false,
+      retrying: null,
       runClock:
         executionRequestId === null
           ? null
@@ -1014,6 +1052,30 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         runClock: null,
         ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
         statusesBeyondGraph: {},
+        retrying: null,
+      };
+    });
+  },
+
+  /*
+   * Only from a retry that stopped, with the results it was started from
+   * still held: a retry stopped at its gate wrote nothing, and Review, where
+   * any other stopped run goes back to, would start a new clone over the
+   * records the run it retries wrote, the retry and its removal gone.
+   */
+  backToResults(): void {
+    set((state) => {
+      const from = state.retrying;
+      if (state.phase !== 'execution' || !state.runError || !from || !state.result) return state;
+      return {
+        phase: 'results' as ForgePhase,
+        graph: from.graph,
+        statusesBeyondGraph: from.statusesBeyondGraph,
+        runError: from.runError,
+        stoppedAt: from.stoppedAt,
+        logs: from.logs,
+        runClock: from.runClock,
+        retrying: null,
       };
     });
   },
@@ -1226,6 +1288,9 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         result: result ?? null,
         stopRequestedAt: null,
         runClock: endedClock(state.runClock),
+        // A retry that answered is the run on screen now: its results replace
+        // the ones it was started from.
+        retrying: null,
         ...(result ? { history: [result, ...state.history].slice(0, MAX_HISTORY) } : {}),
       };
     });
@@ -1349,6 +1414,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       directDiscoveryId: null,
       directDiscoveryError: null,
       reviewSkipped: false,
+      retrying: null,
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
   },

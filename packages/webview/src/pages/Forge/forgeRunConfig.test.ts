@@ -206,6 +206,17 @@ describe('carriedChoices', () => {
     expect(carriedChoices(null)).toEqual({});
   });
 
+  it('keeps the choice to apply the assignment rules, which only Review can set, through the next Discover', () => {
+    const fromTemplate = carriedChoices({ ...RECORD_RUN, applyAssignmentRules: true });
+
+    expect(fromTemplate.applyAssignmentRules).toBe(true);
+    // Rebuilt by the form, which has no control for it, the run still applies them.
+    const rebuilt = { ...RECORD_RUN };
+    delete (rebuilt as Partial<ForgeConfig>).fieldMappings;
+    expect(withCarried(rebuilt, fromTemplate).applyAssignmentRules).toBe(true);
+    expect(carriedChoices(RECORD_RUN)).not.toHaveProperty('applyAssignmentRules');
+  });
+
   it('leaves the filter of a query’s root to the query, and carries those of other objects', () => {
     const soqlRun = {
       ...RECORD_RUN,

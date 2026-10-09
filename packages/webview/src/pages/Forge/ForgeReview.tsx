@@ -378,7 +378,6 @@ export const ForgeReview: React.FC = () => {
                 automation={automation}
                 error={automationError}
                 leftOut={leftOut}
-                applyAssignmentRules={config?.applyAssignmentRules === true}
                 {...(targetOrg?.alias && targetOrg.username
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}

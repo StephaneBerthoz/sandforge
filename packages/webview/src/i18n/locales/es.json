@@ -2592,6 +2592,7 @@
     "gate": {
       "productionTarget": "La ejecución no empezó: la org de destino es una org de producción, o una que SandForge no puede confirmar que sea un sandbox, una scratch org o una org Developer Edition. Forge solo escribe en esas, y no se leyó ni escribió nada. Elija una de ellas como destino.",
       "automationDeclined": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada.",
+      "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de 50.000 registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
       "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino.",
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
       "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir."
@@ -2881,6 +2882,7 @@
         "assignmentRule": "Regla de asignación: {{name}}",
         "assignmentNotApplied": "No se aplica: la ejecución mantiene el propietario que fija y pide a la org de destino que no aplique sus reglas de asignación (Sforce-Auto-Assign: FALSE)",
         "assignmentApplied": "Se aplica: esta ejecución pide a la org de destino que la aplique, y puede dar a los registros otro propietario y avisarle por correo electrónico",
+        "assignmentApply": "Aplicar las reglas de asignación de la org de destino en esta ejecución: pueden dar a los registros otro propietario y avisarle por correo electrónico",
         "duplicateRules_one": "Regla de duplicados: {{names}}",
         "duplicateRules_other": "Reglas de duplicados: {{names}}",
         "duplicateNote": "La ejecución guarda un registro sobre el que una regla solo alerta; una regla que bloquea lo sigue rechazando.",
@@ -3154,6 +3156,10 @@
       "filesNotAccepted": {
         "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",
         "action": "En la revisión, acepte que los archivos se copien tal como están, o desactive la copia, y vuelva a ejecutar."
+      },
+      "abortedBeforeStart": {
+        "explanation": "Detuvo la ejecución antes de que empezara. No se escribió nada.",
+        "action": "Vuelva a ejecutarla desde la revisión cuando esté listo."
       },
       "unknown": {
         "explanation": "{{detail}}",

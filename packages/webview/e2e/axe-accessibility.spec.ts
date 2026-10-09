@@ -1922,6 +1922,28 @@ for (const theme of SCANNED_THEMES) {
       expect(retry.retryOf).toBe('forge-run-partial');
       expect(retry.graph.nodes.map((n) => n.status)).toEqual(['idle', 'idle']);
       await expect(page.getByTestId('forge-execution-status')).toHaveText('FORGING...');
+
+      // Cancelled at the gate, the retry wrote nothing: back to the results it
+      // was started from, which still offer it, with why it stopped.
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'err-forge-retry-gate',
+        correlationId: String(runs[1].id),
+        payload: {
+          message: 'Forge execution was cancelled at the confirmation of what the target org runs.',
+          code: 'AUTOMATION_DECLINED',
+          retryable: true,
+          gate: { code: 'AUTOMATION_DECLINED' },
+        },
+      });
+      await page.getByTestId('forge-run-gate-notice').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results')).toBeVisible();
+      await expect(page.getByTestId('forge-retry-failed')).toBeVisible();
+      const stopped = await checkAccessibility(page);
+      expectNoViolations(stopped);
+      expect(
+        await contrastMeasuredIn(page, stopped, '[data-testid="forge-run-gate-notice"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Forge results acting on the run: opening a record, retrying, removing its records', async ({
@@ -2912,6 +2934,16 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, read, '[data-testid="review-automation-tab"]'),
       ).toBeGreaterThan(5);
+      // The run's choice to let the rule apply, made beside it.
+      await page.getByTestId('automation-Lead-apply-assignment').check();
+      await expect(page.getByTestId('automation-Lead-rules')).toContainText(
+        'Applied: this run asks the target org to apply it',
+      );
+      const applied = await checkAccessibility(page);
+      expectNoViolations(applied);
+      expect(
+        await contrastMeasuredIn(page, applied, '[data-testid="automation-Lead-rules"]'),
+      ).toBeGreaterThan(0);
       // The notes at the foot of the tab, scrolled to: what the read could not
       // read is said in the warning colour.
       await page.getByTestId('automation-cost').scrollIntoViewIfNeeded();

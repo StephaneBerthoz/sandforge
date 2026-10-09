@@ -2592,6 +2592,7 @@
     "gate": {
       "productionTarget": "Le clonage n'a pas démarré : l'org cible est une org de production, ou une org dont SandForge ne peut pas dire qu'elle est une sandbox, une scratch org ou une org Developer Edition. Forge n'écrit que dans celles-ci, et rien n'a été lu ni écrit. Choisissez l'une d'elles comme cible.",
       "automationDeclined": "Vous avez annulé le clonage à la confirmation de ce que l'org cible exécute à l'insertion des enregistrements. Rien n'a été lu ni écrit.",
+      "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de 50 000 enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
       "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
       "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée."
@@ -2881,6 +2882,7 @@
         "assignmentRule": "Règle d'attribution : {{name}}",
         "assignmentNotApplied": "Non appliquée : l'exécution garde le propriétaire qu'elle fixe et demande à l'org cible de ne pas appliquer ses règles d'attribution (Sforce-Auto-Assign: FALSE)",
         "assignmentApplied": "Appliquée : cette exécution demande à l'org cible de l'appliquer, qui peut donner aux enregistrements un autre propriétaire et le prévenir par e-mail",
+        "assignmentApply": "Appliquer les règles d'attribution de l'org cible à cette exécution : elles peuvent donner aux enregistrements un autre propriétaire, et le prévenir par e-mail",
         "duplicateRules_one": "Règle de doublons : {{names}}",
         "duplicateRules_other": "Règles de doublons : {{names}}",
         "duplicateNote": "L'exécution passe outre une règle qui ne fait qu'alerter ; une règle qui bloque refuse toujours l'enregistrement.",
@@ -3154,6 +3156,10 @@
       "filesNotAccepted": {
         "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
         "action": "Dans la revue, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie, puis relancez."
+      },
+      "abortedBeforeStart": {
+        "explanation": "Vous avez arrêté l'exécution avant qu'elle ne démarre. Rien n'a été écrit.",
+        "action": "Relancez-la depuis la revue quand vous êtes prêt."
       },
       "unknown": {
         "explanation": "{{detail}}",

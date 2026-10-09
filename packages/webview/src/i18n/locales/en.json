@@ -2592,6 +2592,7 @@
     "gate": {
       "productionTarget": "The run did not start: the target org is a production org, or one SandForge cannot tell is a sandbox, a scratch org or a Developer Edition org. Forge writes to those only, and nothing was read or written. Pick one of them as the target.",
       "automationDeclined": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.",
+      "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past 50,000 records. Nothing was read or written. Set Records per object to read fewer.",
       "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
@@ -2881,6 +2882,7 @@
         "assignmentRule": "Assignment rule: {{name}}",
         "assignmentNotApplied": "Not applied: the run keeps the owner it sets, and asks the target org not to apply its assignment rules (Sforce-Auto-Assign: FALSE)",
         "assignmentApplied": "Applied: this run asks the target org to apply it, and it can give the records another owner and email that owner",
+        "assignmentApply": "Apply the target org's assignment rules on this run: they can give the records another owner, and email that owner",
         "duplicateRules_one": "Duplicate rule: {{names}}",
         "duplicateRules_other": "Duplicate rules: {{names}}",
         "duplicateNote": "The run saves a record a rule only alerts on; a rule that blocks still refuses it.",
@@ -3154,6 +3156,10 @@
       "filesNotAccepted": {
         "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",
         "action": "On Review, accept that the files are copied as they are, or turn the copy off, then run again."
+      },
+      "abortedBeforeStart": {
+        "explanation": "You stopped the run before it started. Nothing was written.",
+        "action": "Run it again from Review when you are ready."
       },
       "unknown": {
         "explanation": "{{detail}}",

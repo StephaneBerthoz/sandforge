@@ -15,6 +15,7 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
+import { useForgeRunGateStore } from './runGate';
 
 /* ---- Mocks ---- */
 
@@ -242,6 +243,8 @@ const mockResetNodeStatuses = vi.fn(() => {
   };
 });
 const mockSetExecutionRequestId = vi.fn();
+/** The results screen a retry was started from, as the store is told it. */
+const mockMarkRetry = vi.fn();
 /** The configuration of the run on screen. */
 let mockConfig: ForgeConfig = RUN_CONFIG;
 /** What the screen wrote into the store directly: a retry's fix, into its config. */
@@ -289,8 +292,13 @@ vi.mock('../../stores/useForgeStore', () => {
         logs: mockLogs,
         anonymizationRules: RUN_RULES,
         fileCopy: mockFileCopy,
+        statusesBeyondGraph: mockStatusesBeyondGraph,
+        runError: mockRunError,
+        stoppedAt: null,
+        runClock: null,
         resetNodeStatuses: mockResetNodeStatuses,
         setExecutionRequestId: mockSetExecutionRequestId,
+        markRetry: mockMarkRetry,
       }),
       setState: (partial: { config?: ForgeConfig }) => mockSetState(partial),
     },
@@ -309,6 +317,7 @@ describe('ForgeResults', () => {
     mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
     mockRunError = null;
     mockConfig = RUN_CONFIG;
+    useForgeRunGateStore.getState().clear();
   });
 
   it('should render with forge-results test id', () => {
@@ -1138,6 +1147,39 @@ describe('ForgeResults', () => {
       expect(mockSetExecutionRequestId).toHaveBeenCalledWith(envelope.payload.id);
       expect(mockSetPhase).toHaveBeenCalledWith('execution');
       expect(mockSetGraph).not.toHaveBeenCalled();
+    });
+
+    it('marks the run a retry of these results as they stand, and forgets why the last run stopped at its gate', () => {
+      failedRun();
+      const shown = mockGraph;
+      useForgeRunGateStore.getState().setStop({ code: 'AUTOMATION_DECLINED' });
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+
+      // The statuses before they went back to idle: what failed, for a retry
+      // stopped at its gate to come back to.
+      expect(mockMarkRetry).toHaveBeenCalledWith(
+        expect.objectContaining({ graph: shown, statusesBeyondGraph: {}, runError: null }),
+      );
+      expect(mockMarkRetry.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockSetExecutionRequestId.mock.invocationCallOrder[0],
+      );
+      expect(useForgeRunGateStore.getState().stop).toBeNull();
+    });
+
+    it('says why a retry started from here stopped at its gate, above the results it retried', () => {
+      failedRun();
+      useForgeRunGateStore.getState().setStop({ code: 'AUTOMATION_DECLINED' });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        'You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.',
+      );
+      expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('forge-run-gate-dismiss'));
+      expect(screen.queryByTestId('forge-run-gate-notice')).toBeNull();
     });
 
     it('copies the files of what it writes when the run it retries did', () => {

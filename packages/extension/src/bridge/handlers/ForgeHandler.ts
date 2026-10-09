@@ -101,7 +101,9 @@ import {
   forgeTargetTier,
   formatMB,
   isForgeRunGateError,
+  objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
+  READ_CEILING_PER_OBJECT,
   runBypassesOf,
   updateStepsOf,
   type UpdatedAfterInsert,
@@ -769,6 +771,12 @@ export class ForgeHandler implements DomainHandler {
     string,
     { orgId: string; at: number; read: Promise<ForgeTargetAutomation> }
   >();
+
+  /**
+   * The orgs whose next run reads their automation again, whatever read is
+   * kept for it: a question about it was declined (`readAutomationAgain`).
+   */
+  private readonly automationReadAgain = new Set<string>();
 
   /**
    * The tracker the Monitor's Live Operations panel lists, where a removal
@@ -1506,7 +1514,9 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     // Aborted while the guard waited on a person: the run never starts, and
-    // the page, stopping, is told it wrote nothing.
+    // the page, stopping, is told it wrote nothing — under the code the trail
+    // records, which the page says in the user's language. Told
+    // EXECUTE_ERROR, it showed the English message of a run that failed.
     if (runController.signal.aborted) {
       recordWriteRun(this.deps, {
         action: 'forge_execute',
@@ -1524,7 +1534,7 @@ export class ForgeHandler implements DomainHandler {
         'forge:execute:error',
         msg,
         new Error(ABORTED_BEFORE_START_MESSAGE),
-        { code: 'EXECUTE_ERROR', retryable: true },
+        { code: ABORTED_BEFORE_START, retryable: true },
       );
       return;
     }
@@ -1714,12 +1724,34 @@ export class ForgeHandler implements DomainHandler {
         audit.automationRead(automation, updated);
         const automationAnswer = await this.confirmAutomation(
           guard,
-          { org: targetName, orgTier, username: targetOrg?.username },
+          { orgId: config.targetOrgId, org: targetName, orgTier, username: targetOrg?.username },
           automation,
           updated,
+          reviewSkipped === true,
         );
         if (automationAnswer === 'confirmed') audit.confirm('automation');
         guardDecision = strongerDecision(guardDecision, automationAnswer);
+        // The tables the run reads with no cap past the most rows of one
+        // object it holds at once, put to the user before the first is read:
+        // the run holds each object whole until it writes it.
+        const aboveCeiling = objectsAboveReadCeiling(graph, config.maxRecordsPerObject);
+        if (aboveCeiling.length > 0) {
+          if (runController.signal.aborted) {
+            stoppedBeforeStart = true;
+            throw new Error(ABORTED_BEFORE_START_MESSAGE);
+          }
+          const readAnswer = await this.confirmReadCeiling(
+            guard,
+            {
+              org: targetName,
+              orgTier,
+              source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? config.sourceOrgId,
+            },
+            aboveCeiling,
+          );
+          if (readAnswer === 'confirmed') audit.confirm('volume');
+          guardDecision = strongerDecision(guardDecision, readAnswer);
+        }
       }
       if (runController.signal.aborted) {
         stoppedBeforeStart = true;
@@ -1824,7 +1856,11 @@ export class ForgeHandler implements DomainHandler {
       // before the first record was written: no failure, whatever the reads
       // had met, and nothing for the history to keep.
       const gate = isForgeRunGateError(error) ? error : undefined;
-      if (gate?.code === 'AUTOMATION_DECLINED' || gate?.code === 'WRITE_DECLINED') {
+      if (
+        gate?.code === 'AUTOMATION_DECLINED' ||
+        gate?.code === 'READ_DECLINED' ||
+        gate?.code === 'WRITE_DECLINED'
+      ) {
         guardDecision = strongerDecision(guardDecision, 'declined');
       }
       // A cancel, not a failure: stopped before the executor started, or by
@@ -1912,8 +1948,12 @@ export class ForgeHandler implements DomainHandler {
       // stopped clone as running for the rest of the session. The run kept in
       // the history goes with it: the error alone said nothing of the records
       // the run had left in the target, and the screen had nothing to show.
+      // Its code is the one the trail records — a run stopped before it
+      // started, or by a cancel before it wrote, is not a failure — which the
+      // page says in the user's language: told EXECUTE_ERROR, it showed the
+      // English message of a run that failed.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
-        code: gate ? gate.code : 'EXECUTE_ERROR',
+        code: code ?? 'EXECUTE_ERROR',
         retryable: true,
         ...(stoppedRun
           ? { extraPayload: { result: stoppedRun } }
@@ -2169,6 +2209,20 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * Make the next run of `orgId` read its automation again: the reads kept
+   * for it go, and so does one Review keeps before that run. The page goes
+   * back to Review as the question is declined, and Review reads the target
+   * again as it opens — before the user has run the command the question
+   * copied.
+   */
+  private readAutomationAgain(orgId: string): void {
+    for (const [key, kept] of this.automationReads) {
+      if (kept.orgId === orgId) this.automationReads.delete(key);
+    }
+    this.automationReadAgain.add(orgId);
+  }
+
+  /**
    * What the target runs on the objects the run writes, for the question put
    * before it reads anything: Review's read of the same graph while it
    * stands, a read of its own otherwise — or why it could not be read, which
@@ -2181,7 +2235,11 @@ export class ForgeHandler implements DomainHandler {
     const notWritten = new Set(
       graph.nodes.filter((node) => !node.included).map((node) => node.objectApiName),
     );
-    const kept = this.automationReads.get(automationKey(targetOrgId, graph));
+    // Once only: the run after a declined question reads the org afresh.
+    const readAgain = this.automationReadAgain.delete(targetOrgId);
+    const kept = readAgain
+      ? undefined
+      : this.automationReads.get(automationKey(targetOrgId, graph));
     if (kept && Date.now() - kept.at < AUTOMATION_REUSE_MS) {
       try {
         return { automation: withoutObjects(await kept.read, notWritten), reused: true };
@@ -2211,17 +2269,31 @@ export class ForgeHandler implements DomainHandler {
    * bypass the user the run writes as does not hold is put with the command
    * that would assign the permission set holding it.
    *
-   * @param target - The org as the user knows it, its tier, and the user the
-   *   run writes as, whom a bypass's command assigns it to.
+   * What may refuse a removal of the run's records is said with the rest. A
+   * run started with Clone directly never showed Review, whose Automation tab
+   * says it whatever fires: when nothing else is asked, it is asked alone,
+   * where a run let through said nothing of it, and the command line always
+   * prints it.
+   *
+   * A question declined, or never put, leaves the next run of the org to read
+   * it again: its answer may have been to assign the command it copied, and
+   * the read the question came from — or the one Review makes as the page
+   * goes back to it, before the command is run — would ask it again for ten
+   * minutes, the bypass still not held.
+   *
+   * @param target - The org's id, the org as the user knows it, its tier, and
+   *   the user the run writes as, whom a bypass's command assigns it to.
+   * @param reviewSkipped - Whether the run was started with Clone directly.
    * @returns The decision recorded with the run: `confirmed` once a person
    *   answered, `allowed` when nothing was asked.
    * @throws ForgeRunGateError when the user declines, or nobody can be asked.
    */
   private async confirmAutomation(
     guard: ProductionGuard,
-    target: { org: string; orgTier: SafetyTier; username?: string },
+    target: { orgId: string; org: string; orgTier: SafetyTier; username?: string },
     read: { automation: ForgeTargetAutomation; reused: boolean } | { unread: string },
     updated: readonly UpdatedAfterInsert[],
+    reviewSkipped: boolean,
   ): Promise<GuardDecision> {
     const known = 'automation' in read ? read.automation : undefined;
     const updatedNames = updated.map((object) => object.objectApiName);
@@ -2237,9 +2309,12 @@ export class ForgeHandler implements DomainHandler {
       firedOnUpdate: firedOnUpdate.length,
       unread: unread.map((u) => u.part),
     });
-    if (fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0) return 'allowed';
-    const bypass = known ? runBypassesOf(known, updatedNames) : [];
+    const quiet = fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0;
     const removal = known ? removalRisksOf(known) : [];
+    if (quiet && !(reviewSkipped && removal.length > 0)) return 'allowed';
+    // Asked for the removal alone, the question holds its lines alone: no
+    // bypass to name, and no command to copy for a flow that does not fire.
+    const bypass = known && !quiet ? runBypassesOf(known, updatedNames) : [];
     const answer = await guard.confirmRun({
       stage: 'automation',
       org: target.org,
@@ -2253,27 +2328,75 @@ export class ForgeHandler implements DomainHandler {
       ),
       unread,
       bypass,
-      assign: known
-        ? bypassesToAssign(
-            known,
-            bypass,
-            target.username ? { alias: target.org, username: target.username } : undefined,
-          )
-        : [],
+      assign:
+        known && !quiet
+          ? bypassesToAssign(
+              known,
+              bypass,
+              target.username ? { alias: target.org, username: target.username } : undefined,
+            )
+          : [],
       // What may refuse taking the run back, said where the user decides on it.
       ...(removal.length > 0 ? { removal } : {}),
     });
     if (answer === 'confirmed') return 'confirmed';
+    this.readAutomationAgain(target.orgId);
     throw answer === 'declined'
       ? new ForgeRunGateError(
           'AUTOMATION_DECLINED',
-          'Forge execution was cancelled at the confirmation of what the target org runs as ' +
-            'it inserts and updates the records. Nothing was read or written.',
+          quiet
+            ? 'Forge execution was cancelled at the confirmation of what may refuse a removal ' +
+                'of the records it creates. Nothing was read or written.'
+            : 'Forge execution was cancelled at the confirmation of what the target org runs as ' +
+                'it inserts and updates the records. Nothing was read or written.',
         )
       : new ForgeRunGateError(
           'CONFIRMATION_UNAVAILABLE',
           'Forge execution needed a confirmation of what the target org runs as it inserts and ' +
             'updates the records, and there was no one to ask. Nothing was read or written.',
+        );
+  }
+
+  /**
+   * Put to the user, before the run reads anything, the source tables it
+   * reads with no cap per object past `READ_CEILING_PER_OBJECT` rows
+   * (`objectsAboveReadCeiling`): the run holds every row of an object until
+   * it writes them, and the question the write gate asks comes once they are
+   * all read — too late for a read that does not fit in memory.
+   *
+   * @returns `confirmed`: a person answered.
+   * @throws ForgeRunGateError when the user declines, or nobody can be asked.
+   */
+  private async confirmReadCeiling(
+    guard: ProductionGuard,
+    target: { org: string; orgTier: SafetyTier; source: string },
+    objects: Array<{ objectApiName: string; rows: number }>,
+  ): Promise<GuardDecision> {
+    logger.info('Forge read past the ceiling', {
+      ceiling: READ_CEILING_PER_OBJECT,
+      objects: Object.fromEntries(
+        objects.slice(0, 20).map((object) => [object.objectApiName, object.rows]),
+      ),
+    });
+    const answer = await guard.confirmRun({
+      stage: 'read',
+      org: target.org,
+      orgTier: target.orgTier,
+      source: target.source,
+      objects,
+      ceiling: READ_CEILING_PER_OBJECT,
+    });
+    if (answer === 'confirmed') return 'confirmed';
+    throw answer === 'declined'
+      ? new ForgeRunGateError(
+          'READ_DECLINED',
+          'Forge execution was cancelled at the confirmation of the tables it reads with no cap ' +
+            'per object. Nothing was read or written.',
+        )
+      : new ForgeRunGateError(
+          'CONFIRMATION_UNAVAILABLE',
+          'Forge execution needed a confirmation of the tables it reads with no cap per object, ' +
+            'and there was no one to ask. Nothing was read or written.',
         );
   }
 

@@ -2592,6 +2592,7 @@
     "gate": {
       "productionTarget": "Der Lauf wurde nicht gestartet: Die Ziel-Org ist eine Produktions-Org oder eine, von der SandForge nicht sagen kann, dass sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org ist. Forge schreibt nur in solche, und es wurde nichts gelesen oder geschrieben. Wählen Sie eine davon als Ziel.",
       "automationDeclined": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben.",
+      "readDeclined": "Sie haben den Lauf bei der Bestätigung der Tabellen abgebrochen, die er ohne Obergrenze pro Objekt liest, jede mit mehr als 50.000 Datensätzen. Es wurde nichts gelesen oder geschrieben. Stellen Sie Datensätze pro Objekt ein, um weniger zu lesen.",
       "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben.",
       "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden."
@@ -2881,6 +2882,7 @@
         "assignmentRule": "Zuweisungsregel: {{name}}",
         "assignmentNotApplied": "Nicht angewendet: Der Durchlauf behält den Inhaber, den er setzt, und bittet die Ziel-Org, ihre Zuweisungsregeln nicht anzuwenden (Sforce-Auto-Assign: FALSE)",
         "assignmentApplied": "Angewendet: Dieser Durchlauf bittet die Ziel-Org, sie anzuwenden, und sie kann den Datensätzen einen anderen Inhaber geben und ihn per E-Mail benachrichtigen",
+        "assignmentApply": "Die Zuweisungsregeln der Ziel-Org in diesem Durchlauf anwenden: Sie können den Datensätzen einen anderen Inhaber geben und ihn per E-Mail benachrichtigen",
         "duplicateRules_one": "Duplikatsregel: {{names}}",
         "duplicateRules_other": "Duplikatsregeln: {{names}}",
         "duplicateNote": "Der Durchlauf speichert einen Datensatz, bei dem eine Regel nur warnt; eine Regel, die blockiert, lehnt ihn weiterhin ab.",
@@ -3154,6 +3156,10 @@
       "filesNotAccepted": {
         "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",
         "action": "Akzeptieren Sie in der Überprüfung, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus, und starten Sie dann erneut."
+      },
+      "abortedBeforeStart": {
+        "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",
+        "action": "Starten Sie ihn erneut aus der Überprüfung, wenn Sie bereit sind."
       },
       "unknown": {
         "explanation": "{{detail}}",

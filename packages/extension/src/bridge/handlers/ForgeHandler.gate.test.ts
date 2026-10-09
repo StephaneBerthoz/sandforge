@@ -867,6 +867,256 @@ describe('forge:execute, the gate before the first write', () => {
       expect(runs()).toEqual([
         expect.objectContaining({ outcome: 'stopped', details: { code: 'ABORTED_BEFORE_START' } }),
       ]);
+      // The page is told what the trail records, not that the run failed.
+      expect(posted('forge:execute:error').map((e) => e.payload.code)).toEqual([
+        'ABORTED_BEFORE_START',
+      ]);
+    });
+
+    it('reads the target again for the run after a declined question, not the read Review made meanwhile', async () => {
+      // "Copy the command" cancels the clone, and the page goes back to Review,
+      // which reads the target again as it opens — before the command is run.
+      // Execute again within ten minutes took that read, the bypass still not
+      // held, and asked the same question.
+      const flowWith = (held: boolean): ForgeTargetAutomation => ({
+        ...QUIET,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Contact_Welcome',
+                label: 'Contact welcome',
+                timing: 'afterSave',
+                startsOn: 'create',
+                condition: 'read',
+                permissions: [{ name: 'Load_Data', bypass: true, held }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      });
+      let target = flowWith(false);
+      const reader = {
+        readForGraph: vi.fn(async () => target),
+      } as unknown as TargetAutomationReader & { readForGraph: ReturnType<typeof vi.fn> };
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: reader });
+      await reviewReads(graphOf());
+      answers = [false];
+
+      await execute();
+      expect(questions).toHaveLength(1);
+      expect(posted('forge:execute:error').map((e) => e.payload.code)).toEqual([
+        'AUTOMATION_DECLINED',
+      ]);
+
+      await reviewReads(graphOf());
+      // The user ran the command: the permission set is assigned.
+      target = flowWith(true);
+      await execute(graphOf(), 'wv-execute-again');
+
+      expect(reader.readForGraph).toHaveBeenCalledTimes(3);
+      // The flow is kept quiet now, and nothing else fires: nothing is asked.
+      expect(questions).toHaveLength(1);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('still takes Review’s read for a run whose question was confirmed', async () => {
+      const reader = readerOf(FIRES);
+      const orchestrator = orchestratorHanding();
+      // Wrote nothing: the second run is not refused as the first sent twice.
+      orchestrator.execute.mockResolvedValue({ ...RESULT, createdCount: 0, idRemapCount: 0 });
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: reader });
+      await reviewReads(graphOf());
+
+      await execute();
+      await execute(graphOf(), 'wv-execute-again');
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(questions).toHaveLength(2);
+      expect(reader.readForGraph).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('what may refuse a removal, for a run Review was skipped for', () => {
+    /** Nothing fires as the run writes; a flow before an account's delete may refuse it. */
+    const GUARDED: ForgeTargetAutomation = {
+      ...QUIET,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Guard',
+              label: 'Account guard',
+              timing: 'beforeDelete',
+              startsOn: 'delete',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    };
+
+    /** Clone directly: the run started with no stop on Review. */
+    function cloneDirectly(): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: graphOf(), config: CONFIG, reviewSkipped: true },
+        } as BaseMessage),
+      );
+    }
+
+    it('asks about it alone when nothing else is asked: Review, which says it, was never shown', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(GUARDED) });
+
+      await cloneDirectly();
+
+      expect(questions).toEqual([
+        {
+          stage: 'automation',
+          org: 'DEV',
+          orgTier: 'development',
+          fired: [],
+          firedOnUpdate: [],
+          updateSteps: [],
+          unread: [],
+          bypass: [],
+          assign: [],
+          removal: [{ objectApiName: 'Account', kind: 'flow', name: 'Account guard' }],
+        },
+      ]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(runs()).toEqual([expect.objectContaining({ guard: 'confirmed' })]);
+    });
+
+    it('stops the run when the user declines it, with nothing read or written', async () => {
+      answers = [false];
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(GUARDED) });
+
+      await cloneDirectly();
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expectStoppedAtTheGate('AUTOMATION_DECLINED');
+      expect(posted('forge:execute:error')[0].payload.message).toBe(
+        'Forge execution was cancelled at the confirmation of what may refuse a removal of the ' +
+          'records it creates. Nothing was read or written.',
+      );
+    });
+
+    it('asks nothing of a run started from Review, whose Automation tab said it', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(GUARDED) });
+
+      await execute();
+
+      expect(questions).toEqual([]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks nothing when nothing may refuse it', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await cloneDirectly();
+
+      expect(questions).toEqual([]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(runs()).toEqual([expect.objectContaining({ guard: 'allowed' })]);
+    });
+  });
+
+  describe('the tables it reads past the most rows of one object it holds', () => {
+    /** Contacts whose table holds 80 000 rows, past the ceiling of 50 000. */
+    const big = () => graphOf({ recordCount: 80_000 });
+
+    it('asks before anything is read when nothing caps the read of a table past 50 000 rows', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expect(questions).toEqual([
+        {
+          stage: 'read',
+          org: 'DEV',
+          orgTier: 'development',
+          source: 'UAT',
+          objects: [{ objectApiName: 'Contact', rows: 80_000 }],
+          ceiling: 50_000,
+        },
+      ]);
+      // Asked before either org was read.
+      expect(calls[0]).toBe('asked read');
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      expect(runs()[0]).toMatchObject({ guard: 'confirmed', context: { confirmed: ['volume'] } });
+    });
+
+    it('stops the run when the user declines, with nothing read or written, under a code of its own', async () => {
+      answers = [false];
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expectStoppedAtTheGate('READ_DECLINED');
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          guard: 'declined',
+          details: { code: 'READ_DECLINED' },
+        }),
+      ]);
+    });
+
+    it('asks after what fires on insert, each question in turn', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(FIRES) });
+
+      await execute(big());
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation', 'read']);
+    });
+
+    it('asks nothing of a run whose cap per object keeps every read under the ceiling', async () => {
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: big(), config: { ...CONFIG, maxRecordsPerObject: 1_000 } },
+        } as BaseMessage),
+      );
+
+      expect(questions).toEqual([]);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('never runs on a host with nobody to answer the question', async () => {
+      deps.infraServices = {
+        productionGuard: new ProductionGuard(),
+      } as unknown as HandlerDeps['infraServices'];
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expectStoppedAtTheGate('CONFIRMATION_UNAVAILABLE');
     });
   });
 

@@ -12,6 +12,9 @@ import { z } from 'zod';
  *   cannot tell is a sandbox. Refused before anything is read.
  * - `AUTOMATION_DECLINED`: cancelled at the confirmation of what the target
  *   runs as the run inserts its records. Nothing was read.
+ * - `READ_DECLINED`: cancelled at the confirmation of the source tables the
+ *   run reads with no cap past the most rows of one object it holds at once.
+ *   Nothing was read.
  * - `WRITE_DECLINED`: cancelled at the confirmation of what the run was about
  *   to write, once it had read it.
  * - `STORAGE_EXCEEDED`: the rows to write take more data storage than the
@@ -22,6 +25,7 @@ import { z } from 'zod';
 export const FORGE_RUN_GATE_CODES = [
   'PRODUCTION_TARGET',
   'AUTOMATION_DECLINED',
+  'READ_DECLINED',
   'WRITE_DECLINED',
   'STORAGE_EXCEEDED',
   'CONFIRMATION_UNAVAILABLE',

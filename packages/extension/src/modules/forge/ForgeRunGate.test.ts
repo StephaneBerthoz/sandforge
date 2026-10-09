@@ -9,6 +9,7 @@ import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
+  READ_CEILING_PER_OBJECT,
   automationRefusal,
   automationUnreadOf,
   bypassesToAssign,
@@ -21,6 +22,7 @@ import {
   formatMB,
   isDeveloperEdition,
   isForgeRunGateError,
+  objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
   readDataStorage,
   readEmailLimits,
@@ -445,6 +447,42 @@ function lookup(
     ...overrides,
   };
 }
+
+describe('the tables a run reads past the ceiling', () => {
+  const graph = {
+    nodes: [
+      graphNode('Account', { recordCount: 12_000 }),
+      graphNode('Task', { recordCount: 2_400_000 }),
+      graphNode('EmailMessage', { recordCount: 80_000 }),
+      graphNode('Event', { recordCount: 900_000, included: false }),
+      graphNode('Custom__c', { recordCount: 0, recordCountUnknown: true }),
+    ],
+  };
+
+  it('names, the most first, the tables written past 50 000 rows when nothing caps the read', () => {
+    expect(READ_CEILING_PER_OBJECT).toBe(50_000);
+    expect(objectsAboveReadCeiling(graph, undefined)).toEqual([
+      { objectApiName: 'Task', rows: 2_400_000 },
+      { objectApiName: 'EmailMessage', rows: 80_000 },
+    ]);
+  });
+
+  it('names none under a cap per object at or below the ceiling', () => {
+    expect(objectsAboveReadCeiling(graph, 1_000)).toEqual([]);
+    expect(objectsAboveReadCeiling(graph, 50_000)).toEqual([]);
+  });
+
+  it('counts a table under a cap above the ceiling for no more than the cap', () => {
+    expect(objectsAboveReadCeiling(graph, 60_000)).toEqual([
+      { objectApiName: 'Task', rows: 60_000 },
+      { objectApiName: 'EmailMessage', rows: 60_000 },
+    ]);
+  });
+
+  it('takes a cap of zero or less for none, as the read does', () => {
+    expect(objectsAboveReadCeiling(graph, 0)).toEqual(objectsAboveReadCeiling(graph, undefined));
+  });
+});
 
 describe('the objects a run updates after inserting them', () => {
   it('counts an object holding a lookup at itself: the second pass fills it in', () => {
