@@ -64,7 +64,8 @@ const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
  * declined)." — and Compare, Frozen, DataOps, Sync, Seed and Autopilot showed
  * them as they came, in every language. The reason the guard gave stays as it
  * gave it, after the translated sentence. Before i18next is initialised the
- * host's own words are kept.
+ * host's own words are kept. A masking template DataOps no longer finds is
+ * said here too.
  */
 function guardRefusal(code: string | null, message: string | undefined): string | undefined {
   if (!i18n.isInitialized) return undefined;
@@ -76,6 +77,8 @@ function guardRefusal(code: string | null, message: string | undefined): string 
     return i18n.t('common.refusal.guardBlocked', { reason });
   }
   if (code === 'GUARD_DECLINED') return i18n.t('common.refusal.guardDeclined');
+  // Not the guard's, but worded in English the same way and shown as it came.
+  if (code === 'TEMPLATE_NOT_FOUND') return i18n.t('common.refusal.templateNotFound');
   return undefined;
 }
 

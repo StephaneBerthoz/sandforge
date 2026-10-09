@@ -53,7 +53,8 @@
     "estimatedApiCallCount_other": "{{count}} appels d'API estimés",
     "refusal": {
       "guardBlocked": "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. Sa raison : {{reason}}",
-      "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org."
+      "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
+      "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle."
     }
   },
   "status": {

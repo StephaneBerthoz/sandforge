@@ -53,7 +53,8 @@
     "estimatedApiCallCount_other": "{{count}} geschätzte API-Aufrufe",
     "refusal": {
       "guardBlocked": "Production Guard hat diesen Vorgang abgelehnt, und in der Org wurde nichts geändert. Begründung: {{reason}}",
-      "guardDeclined": "Bei der Bestätigung von Production Guard abgebrochen: In der Org wurde nichts geändert."
+      "guardDeclined": "Bei der Bestätigung von Production Guard abgebrochen: In der Org wurde nichts geändert.",
+      "templateNotFound": "Die Maskierungsvorlage wurde nicht gefunden: Sie wurde vielleicht gelöscht. Wählen Sie eine andere Vorlage."
     }
   },
   "status": {

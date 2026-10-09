@@ -53,7 +53,8 @@
     "estimatedApiCallCount_other": "{{count}} estimated API calls",
     "refusal": {
       "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
-      "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org."
+      "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
+      "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template."
     }
   },
   "status": {

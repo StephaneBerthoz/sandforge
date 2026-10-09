@@ -46,7 +46,8 @@
     "estimatedApiCallCount_other": "推定APIコール {{count}}回",
     "refusal": {
       "guardBlocked": "Production Guard がこの操作を拒否したため、組織では何も変更されていません。理由: {{reason}}",
-      "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。"
+      "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。",
+      "templateNotFound": "マスキングテンプレートが見つかりません。削除された可能性があります。別のテンプレートを選択してください。"
     }
   },
   "status": {

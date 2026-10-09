@@ -53,7 +53,8 @@
     "estimatedApiCallCount_other": "{{count}} chamadas de API estimadas",
     "refusal": {
       "guardBlocked": "O Production Guard recusou esta operação, e nada foi alterado na org. O motivo: {{reason}}",
-      "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org."
+      "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org.",
+      "templateNotFound": "O modelo de mascaramento não foi encontrado: talvez tenha sido excluído. Escolha outro modelo."
     }
   },
   "status": {

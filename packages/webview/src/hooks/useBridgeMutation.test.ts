@@ -309,7 +309,9 @@ describe('useBridgeMutation', () => {
 
       expect(result.current.errorCode).toBe('TEMPLATE_NOT_FOUND');
       // A code with no translation of its own leaves the host's words as they are.
-      expect(result.current.error).toBe('Template "tpl-gone" not found.');
+      expect(result.current.error).toBe(
+        'The masking template was not found: it may have been deleted. Pick another template.',
+      );
 
       act(() => {
         result.current.mutate({ orgId: 'org-1', templateId: 'tpl-1' });
@@ -360,6 +362,28 @@ describe('useBridgeMutation', () => {
       expect(result.current.error).toBe(
         "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
       );
+    });
+
+    it('says a masking template DataOps no longer finds in the panel’s language', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      const { result } = renderHook(() => useBridgeMutation('dataops:anonymize'));
+
+      act(() => {
+        result.current.mutate({ orgId: 'org-1', templateId: 'gone' });
+      });
+      act(() => {
+        replyToLastRequest('dataops:error', {
+          message: 'Template "gone" not found.',
+          code: 'TEMPLATE_NOT_FOUND',
+          retryable: false,
+        });
+      });
+
+      expect(result.current.error).toBe(
+        'Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle.',
+      );
+      expect(result.current.errorCode).toBe('TEMPLATE_NOT_FOUND');
     });
   });
 });
