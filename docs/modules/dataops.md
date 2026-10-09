@@ -108,7 +108,9 @@ your own:
   last record it handled, and the records the org refused. The Anonymize tab
   then offers **Resume where it stopped** beside Apply: the resume first tries
   the refused records again, by `Id`, then reads each object on from where the
-  run stopped, so no record the first run masked is masked again -- an address
+  run stopped, so no record the first run masked is masked again. The records
+  of a write whose answer never came are read back first: those holding what
+  the run sent are done, the others go again -- an address
   already hashed would be hashed once more, and no longer give the same
   pseudonym as on the objects masked once. Apply still masks every record. A
   run that leaves nothing unmasked forgets where the last one stopped; a
