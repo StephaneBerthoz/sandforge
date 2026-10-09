@@ -149,6 +149,37 @@ export function productionGuardMissingError(): Error & { code: string } {
   });
 }
 
+/**
+ * The codes a write Production Guard stopped goes out with, on every write
+ * path: refused by the guard, or cancelled at its confirmation. The page says
+ * them in the interface language by these codes; their messages are English.
+ */
+export const GUARD_REFUSAL = {
+  blocked: 'GUARD_BLOCKED',
+  declined: 'GUARD_DECLINED',
+} as const;
+
+/**
+ * A write Production Guard refused, as an error to throw: the message every
+ * write path words it with, and the code for the catch that answers it.
+ */
+export function guardBlockedError(reason: string): Error & { code: string } {
+  return Object.assign(new Error(`Operation blocked by Production Guard: ${reason}`), {
+    code: GUARD_REFUSAL.blocked,
+  });
+}
+
+/**
+ * The code a refusal thrown as {@link guardBlockedError} carries, for the
+ * catch that answers it on the error channel; undefined for any other error,
+ * which goes out with the default code as before.
+ */
+export function guardRefusalCode(err: unknown): string | undefined {
+  return err instanceof Error && (err as { code?: unknown }).code === GUARD_REFUSAL.blocked
+    ? GUARD_REFUSAL.blocked
+    : undefined;
+}
+
 /** The retry, timeout and bulk settings of a run. */
 export function robustnessConfigOf(deps: Pick<HandlerDeps, 'robustness'>): RobustnessConfig {
   return deps.robustness ?? DEFAULT_ROBUSTNESS_CONFIG;

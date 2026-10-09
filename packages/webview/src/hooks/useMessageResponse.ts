@@ -52,6 +52,33 @@ function requestError(
   return i18n.isInitialized ? i18n.t(key, options) : key;
 }
 
+/** What every write path writes before the reason Production Guard gave. */
+const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
+
+/**
+ * A refusal of Production Guard's in the interface language, by the code the
+ * host sends beside its message, or `undefined` for any other error.
+ *
+ * Every write path words these in English — "Operation blocked by Production
+ * Guard: …", "Operation cancelled by user (production confirmation
+ * declined)." — and Compare, Frozen, DataOps, Sync, Seed and Autopilot showed
+ * them as they came, in every language. The reason the guard gave stays as it
+ * gave it, after the translated sentence. Before i18next is initialised the
+ * host's own words are kept.
+ */
+function guardRefusal(code: string | null, message: string | undefined): string | undefined {
+  if (!i18n.isInitialized) return undefined;
+  if (code === 'GUARD_BLOCKED') {
+    const said = message ?? '';
+    const reason = said.startsWith(GUARD_BLOCKED_PREFIX)
+      ? said.slice(GUARD_BLOCKED_PREFIX.length)
+      : said;
+    return i18n.t('common.refusal.guardBlocked', { reason });
+  }
+  if (code === 'GUARD_DECLINED') return i18n.t('common.refusal.guardDeclined');
+  return undefined;
+}
+
 /**
  * Return value of the useMessageResponse hook.
  */
@@ -64,6 +91,12 @@ export interface MessageResponseHandler<T> {
   loading: boolean;
   /** Error message if the request timed out. */
   error: string | null;
+  /**
+   * The code the handler's error carried (`payload.code`), or null: no error,
+   * one with no code, a timeout or a rejection at the bridge. Lets a page key
+   * off the kind of refusal rather than its English.
+   */
+  errorCode: string | null;
   /** Whether the response has been waiting longer than 10 seconds without a reply. */
   timedOut: boolean;
   /** Manually set the loading state. */
@@ -95,6 +128,7 @@ export function useMessageResponse<T>(
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [timedOut, setTimedOut] = useState(false);
 
   const mountedRef = useRef(true);
@@ -115,6 +149,7 @@ export function useMessageResponse<T>(
     (messageId: string): (() => void) => {
       activeRequestId.current = messageId;
       setTimedOut(false);
+      setErrorCode(null);
 
       // Start feedback timer — sets timedOut after 10s if still waiting
       if (feedbackTimerRef.current !== null) {
@@ -178,6 +213,7 @@ export function useMessageResponse<T>(
         // Clears any provisional error claimed off the uncorrelated error
         // channel (see below): this request's own answer is the last word.
         setError(null);
+        setErrorCode(null);
         setTimedOut(false);
       }
 
@@ -193,7 +229,7 @@ export function useMessageResponse<T>(
             return;
           }
           const eventData = event.data as
-            (BaseMessage & { payload?: { message?: unknown } }) | undefined;
+            (BaseMessage & { payload?: { message?: unknown; code?: unknown } }) | undefined;
           if (!eventData || eventData.type !== errorType) {
             return;
           }
@@ -216,10 +252,14 @@ export function useMessageResponse<T>(
           activeRequestId.current = null;
 
           const payloadMessage = eventData.payload?.message;
+          const payloadCode = eventData.payload?.code;
+          const code = typeof payloadCode === 'string' ? payloadCode : null;
+          const said = typeof payloadMessage === 'string' ? payloadMessage : undefined;
+          setErrorCode(code);
           setError(
-            typeof payloadMessage === 'string'
-              ? payloadMessage
-              : requestError('bridge.failed', { request: requestType }),
+            guardRefusal(code, said) ??
+              said ??
+              requestError('bridge.failed', { request: requestType }),
           );
           setLoading(false);
           setTimedOut(false);
@@ -286,8 +326,9 @@ export function useMessageResponse<T>(
     setData(null);
     setLoading(false);
     setError(null);
+    setErrorCode(null);
     setTimedOut(false);
   }, []);
 
-  return { listen, data, loading, error, timedOut, setLoading, setError, reset };
+  return { listen, data, loading, error, errorCode, timedOut, setLoading, setError, reset };
 }

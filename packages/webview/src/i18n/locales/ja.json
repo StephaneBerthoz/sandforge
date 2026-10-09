@@ -43,7 +43,11 @@
     "fieldCount_other": "{{count}}個の項目",
     "itemCount_other": "{{count}}項目",
     "dependencyCount_other": "{{count}}件の依存関係",
-    "estimatedApiCallCount_other": "推定APIコール {{count}}回"
+    "estimatedApiCallCount_other": "推定APIコール {{count}}回",
+    "refusal": {
+      "guardBlocked": "Production Guard がこの操作を拒否したため、組織では何も変更されていません。理由: {{reason}}",
+      "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。"
+    }
   },
   "status": {
     "apiUsage": "API使用量",
@@ -1320,8 +1324,15 @@
       "noRules": "テンプレートを保存するには、ルールを1つ以上追加してください。",
       "fieldInvalid": "項目は「オブジェクト.項目」の形式で入力してください（例: Contact.Email）。",
       "fieldDuplicate": "この項目には既にルールがあります。",
-      "methodUnavailable": "{{method}} には、このページでは設定できない値が必要です。別の方法を選んでください。",
-      "save": "テンプレートを保存"
+      "methodUnavailable": "{{method}} はテンプレートに保存できません。別の方法を選んでください。",
+      "save": "テンプレートを保存",
+      "constantValue": "書き込む値",
+      "constantValueMissing": "定数には、項目の値の代わりに書き込む値が必要です。",
+      "truncateLength": "残す文字数",
+      "truncateLengthMissing": "切り詰めには、残す文字数（1～{{max}} の整数）が必要です。",
+      "truncateKeep": "残す位置",
+      "truncateKeepLast": "末尾",
+      "truncateKeepFirst": "先頭"
     },
     "objectPicker": {
       "loading": "組織のオブジェクトを読み込んでいます…",
@@ -1481,6 +1492,17 @@
       "confirmTitle_other": "{{formatted}} 件を削除しますか？",
       "confirmDescription": "レコードは、組織が一緒に削除するものとともに組織のごみ箱に移り、ごみ箱が空になるまで残ります。必要になる可能性があれば、先にエクスポートしてください。",
       "confirmWord": "削除"
+    },
+    "preview": {
+      "description": "各オブジェクトの最初のレコードを、このウィンドウで適用した場合と同じようにマスクして表示します。何も書き込まれていません。実行時には、前のレコードが先に同じ名前を引いた場合、作成された名前が異なることがあります。",
+      "record": "レコード",
+      "field": "項目",
+      "original": "元の値",
+      "masked": "マスク後",
+      "empty": "（空）",
+      "notRead": "読み取れませんでした: {{error}}",
+      "noRecords": "マスクするレコードはありません。",
+      "fieldsNotFound": "{{fields}} では何もマスクされません。組織にその項目がありません。"
     }
   },
   "automation": {

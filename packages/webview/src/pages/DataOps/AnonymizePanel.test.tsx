@@ -86,15 +86,96 @@ describe('AnonymizePanel', () => {
     expect(screen.getByTestId('template-rule-count').textContent).toBe('1 rule');
   });
 
-  it('offers no Preview button, and no "coming soon" in its place', () => {
+  describe('previewing a template', () => {
     // Preview and Apply were wired to one handler, so "Preview" ran the
-    // irreversible org write; then it sat disabled under "Coming soon", since
-    // no dry run exists in the message contract. Apply is all there is.
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
-    expect(screen.getByTestId('apply-btn')).toBeDefined();
-    expect(screen.queryByTestId('preview-btn')).toBeNull();
-    expect(screen.queryByText('Preview')).toBeNull();
-    expect(screen.queryByText('Coming soon')).toBeNull();
+    // irreversible org write; then it sat disabled under "Coming soon", and
+    // then it was gone. It asks a read-only request of its own now.
+    const preview = {
+      templateId: 'tpl-1',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          fields: ['Email', 'Phone'],
+          rows: [
+            {
+              id: '003000000000001',
+              before: { Email: 'ada@example.org', Phone: null },
+              after: { Email: '***@*******.***', Phone: null },
+            },
+          ],
+        },
+        { objectApiName: 'Lead', fields: [], rows: [], error: 'INVALID_TYPE: no Lead here' },
+      ],
+      fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Loyalty__c' }],
+    };
+
+    it('asks for a preview of the template on screen, with no confirmation, since it writes nothing', () => {
+      const onPreview = vi.fn();
+      const onApply = vi.fn();
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onPreview={onPreview}
+          onApply={onApply}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('preview-btn'));
+      expect(onPreview).toHaveBeenCalledWith('tpl-1');
+      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('danger-title')).toBeNull();
+      expect(screen.queryByText('Coming soon')).toBeNull();
+    });
+
+    it('shows each masked field of each record, the original beside the masked value', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onPreview={vi.fn()}
+          preview={preview}
+        />,
+      );
+      const contact = within(screen.getByTestId('preview-object-Contact'));
+      const headers = contact.getAllByRole('columnheader').map((th) => th.textContent);
+      expect(headers).toEqual(['Record', 'Field', 'Original', 'Masked']);
+      const emailRow = contact.getByText('ada@example.org').closest('tr') as HTMLElement;
+      expect(within(emailRow).getByText('003000000000001')).toBeDefined();
+      expect(within(emailRow).getByText('***@*******.***')).toBeDefined();
+      // An empty field says so on both sides: Apply writes nothing into it.
+      const phoneRow = contact.getByText('Phone').closest('tr') as HTMLElement;
+      expect(within(phoneRow).getAllByText('(empty)')).toHaveLength(2);
+      expect(screen.getByTestId('preview-object-Lead').textContent).toContain(
+        'Not read: INVALID_TYPE: no Lead here',
+      );
+      expect(screen.getByTestId('preview-fields-not-found').textContent).toContain(
+        'Contact.Loyalty__c',
+      );
+    });
+
+    it('shows no preview taken for another template', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-saved-1"
+          onPreview={vi.fn()}
+          preview={preview}
+        />,
+      );
+      expect(screen.queryByTestId('preview-data')).toBeNull();
+    });
+
+    it('holds Preview while a run masks the org', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onPreview={vi.fn()}
+          isApplying
+        />,
+      );
+      expect((screen.getByTestId('preview-btn') as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 
   it('should not anonymize on the apply click alone', () => {
@@ -358,15 +439,6 @@ describe('AnonymizePanel', () => {
       );
       expect((screen.getByTestId('resume-btn') as HTMLButtonElement).disabled).toBe(true);
     });
-  });
-
-  it('should show preview data table', () => {
-    const previewData = [{ Name: 'J***', Email: '***@***.com' }];
-    render(
-      <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" previewData={previewData} />,
-    );
-    expect(screen.getByTestId('preview-data')).toBeDefined();
-    expect(screen.getByText('J***')).toBeDefined();
   });
 
   describe('creating a template', () => {

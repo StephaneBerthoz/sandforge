@@ -21,10 +21,9 @@ import {
   DEPLOY_TEST_LEVELS,
   DEPLOY_TEST_NAME_PATTERN,
   SUBJECT_SEARCH_LIMIT,
-  SAVED_TEMPLATE_METHODS,
-  TEMPLATE_FIELD_PATTERN,
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,
+  savedTemplateRuleSchema,
 } from '@sandforge/shared';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
@@ -592,20 +591,19 @@ export const dataOpsAnonymizeCoveragePayloadSchema = z.object({
   orgId: orgIdSchema,
   templateId: opaqueIdSchema,
 });
+export const dataOpsAnonymizePreviewPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  templateId: opaqueIdSchema,
+});
 /**
- * Rules the user saves as a template of their own: each an `Object.Field` and
- * a method a DataOps run applies with no setting (SAVED_TEMPLATE_METHODS), no
- * field twice.
+ * Rules the user saves as a template of their own: each an `Object.Field`, a
+ * method a DataOps run applies, and the setting a Constant or a Truncate needs
+ * (savedTemplateRuleSchema), no field twice.
  */
 export const anonymizationTemplateSavePayloadSchema = z.object({
   name: z.string().trim().min(1).max(TEMPLATE_NAME_MAX_LENGTH),
   rules: z
-    .array(
-      z.object({
-        fieldPattern: z.string().max(170).regex(TEMPLATE_FIELD_PATTERN, 'Expected Object.Field'),
-        ruleType: z.enum(SAVED_TEMPLATE_METHODS),
-      }),
-    )
+    .array(savedTemplateRuleSchema)
     .min(1)
     .max(TEMPLATE_MAX_RULES)
     .refine(

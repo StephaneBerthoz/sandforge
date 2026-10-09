@@ -125,18 +125,26 @@ your own:
   records of one run get the same name while names last, nor the same
   address, which carries a short token, `first.last.ab12`. A resume is a run
   of its own, and can give a record a name the run it resumes gave
-- **No preview.** The panel offers no Preview: the one it used to show
-  applied the mask to the org for real, and nothing can run a template without
-  writing. Apply is the only path, and it is irreversible -- back up first.
+- **Preview before Apply.** **Preview** reads the first five records of each
+  object the template masks, in `Id` order -- the ones a run masks first --
+  and shows each masked field as the org holds it beside the value Apply
+  would write, masked in this window as Apply masks it. It writes nothing,
+  so it asks no confirmation. An empty field stays empty, as Apply leaves it;
+  an object the org will not read is listed with what the org said, and a
+  field the org does not have is named. A made-up name is the one Apply
+  writes on the first object; on the next ones Apply may draw another for a
+  record whose name an earlier record of the run took first. Apply is
+  irreversible -- back up first.
 - **Your own templates.** **Create Template** opens an editor on the rules of
   the template on screen, or on none: change a rule's field or method, add or
   remove rules, name the set and save it. A rule names its field as
-  `Object.Field`, one rule per field, and uses a method that needs no setting
-  of its own -- Fake, Mask, Hash, Nullify, Shuffle or Preserve Format.
-  Constant needs a value and Truncate a length, and the editor sets neither:
-  a rule it starts from that uses one is shown with the reason, and the
-  template cannot be saved until that rule is changed or removed. A name
-  another template already goes by is refused.
+  `Object.Field`, one rule per field, and uses any of the methods: Fake, Mask,
+  Hash, Nullify, Shuffle, Preserve Format, Constant or Truncate. Constant
+  asks for the value it writes, Truncate for how many characters it keeps
+  (1 to 255) and from which end, and the template cannot be saved while one
+  is missing; a rule it starts from keeps its own -- the placeholder URL of
+  Sandbox Data Scrub, the first three digits HIPAA keeps of a postal code. A
+  name another template already goes by is refused.
 - A saved template is kept in extension storage on this machine, listed after
   the ones that ship, marked as saved, and applied like them. It can be deleted;
   a template that ships cannot. There is no import or export.

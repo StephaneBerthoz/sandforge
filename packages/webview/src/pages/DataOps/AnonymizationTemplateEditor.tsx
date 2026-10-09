@@ -6,16 +6,29 @@ import {
   TEMPLATE_FIELD_PATTERN,
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,
+  TEMPLATE_SETTING_MAX,
   isSavedTemplateMethod,
+  savedRuleSettingProblem,
 } from '@sandforge/shared';
-import type { AnonymizationTemplateRule, SavedTemplateMethod } from '@sandforge/shared';
+import type {
+  AnonymizationTemplateRule,
+  SavedTemplateMethod,
+  SavedTemplateRuleConfig,
+} from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 
-/** What the editor hands over on Save: a name, and each rule's field and method. */
+/**
+ * What the editor hands over on Save: a name, and each rule's field, method
+ * and — for a Constant or a Truncate — the setting it needs.
+ */
 export interface AnonymizationTemplateDraft {
   name: string;
-  rules: Array<{ fieldPattern: string; ruleType: SavedTemplateMethod }>;
+  rules: Array<{
+    fieldPattern: string;
+    ruleType: SavedTemplateMethod;
+    config?: SavedTemplateRuleConfig;
+  }>;
 }
 
 /** The label key of each masking method a template rule can name. */
@@ -36,11 +49,30 @@ export function ruleTypeLabel(t: TFunction, method: string): string {
   return key ? t(key) : method;
 }
 
-/** One row of the editor. */
+/**
+ * One row of the editor. The settings of a Constant and a Truncate are held
+ * as typed, whichever method is picked, so switching away and back keeps them.
+ */
 interface RuleRow {
   key: number;
   fieldPattern: string;
   ruleType: string;
+  constantValue: string;
+  truncateLength: string;
+  truncateKeep: 'first' | 'last';
+}
+
+/** What a row's method carries to the host: the setting a Constant or a Truncate needs, or none. */
+function settingsOf(row: RuleRow): SavedTemplateRuleConfig | undefined {
+  if (row.ruleType === 'constant') return { constantValue: row.constantValue };
+  if (row.ruleType === 'truncate') {
+    const length = row.truncateLength.trim();
+    return {
+      ...(length === '' ? {} : { truncateLength: Number(length) }),
+      truncateKeep: row.truncateKeep,
+    };
+  }
+  return undefined;
 }
 
 /** Why a row cannot be saved, as a translation key and its values; undefined when it can. */
@@ -56,7 +88,32 @@ function rowProblem(
   if (!isSavedTemplateMethod(row.ruleType)) {
     return { key: 'dataops.templateEditor.methodUnavailable', values: { method: row.ruleType } };
   }
+  // The host's own reading of the setting. A setting of another method cannot
+  // reach it from here: `settingsOf` hands each method its own alone.
+  const setting = savedRuleSettingProblem(row.ruleType, settingsOf(row));
+  if (setting === 'constantValueMissing') {
+    return { key: 'dataops.templateEditor.constantValueMissing' };
+  }
+  if (setting === 'truncateLengthMissing') {
+    return {
+      key: 'dataops.templateEditor.truncateLengthMissing',
+      values: { max: String(TEMPLATE_SETTING_MAX) },
+    };
+  }
   return undefined;
+}
+
+/** A row of the editor for a rule it starts from, with the settings that rule carries. */
+function rowOf(rule: AnonymizationTemplateRule, key: number): RuleRow {
+  return {
+    key,
+    fieldPattern: rule.fieldPattern,
+    ruleType: rule.ruleType,
+    constantValue: rule.config?.constantValue ?? '',
+    truncateLength:
+      rule.config?.truncateLength === undefined ? '' : String(rule.config.truncateLength),
+    truncateKeep: rule.config?.truncateKeep ?? 'last',
+  };
 }
 
 /** AnonymizationTemplateEditor props. */
@@ -76,11 +133,13 @@ export interface AnonymizationTemplateEditorProps {
 /**
  * Names a set of masking rules and saves it as a template of the user's.
  *
- * Each rule is an `Object.Field` and a method a DataOps run applies with no
- * setting of its own (SAVED_TEMPLATE_METHODS). A rule it starts from that uses
- * another method — the placeholder URL of Sandbox Data Scrub, say — is kept on
- * screen with the reason, and the template cannot be saved until it is changed
- * or removed: carried over without its value, it would not do what it says.
+ * Each rule is an `Object.Field` and a method a DataOps run applies
+ * (SAVED_TEMPLATE_METHODS). A Constant asks for the value it writes and a
+ * Truncate for how many characters it keeps and from which end, and the
+ * template cannot be saved while one is missing: without its value a constant
+ * writes an empty one, and without a length a truncation keeps nothing. A rule
+ * it starts from keeps its setting — the placeholder URL of Sandbox Data
+ * Scrub, the three digits HIPAA keeps of a postal code.
  */
 export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorProps> = ({
   initialRules,
@@ -97,11 +156,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
   const nextKey = useRef(initialRules.length);
   const [name, setName] = useState('');
   const [rows, setRows] = useState<RuleRow[]>(() =>
-    initialRules.map((rule, index) => ({
-      key: index,
-      fieldPattern: rule.fieldPattern,
-      ruleType: rule.ruleType,
-    })),
+    initialRules.map((rule, index) => rowOf(rule, index)),
   );
 
   const nameTaken = useMemo(() => {
@@ -123,7 +178,10 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
   const addRule = (): void => {
     const key = nextKey.current;
     nextKey.current += 1;
-    setRows((current) => [...current, { key, fieldPattern: '', ruleType: 'fake' }]);
+    setRows((current) => [
+      ...current,
+      rowOf({ fieldPattern: '', ruleType: 'fake', description: '' }, key),
+    ]);
   };
 
   const submit = (event: React.FormEvent): void => {
@@ -131,10 +189,14 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
     if (!canSave) return;
     onSave({
       name: name.trim(),
-      rules: rows.map((row) => ({
-        fieldPattern: row.fieldPattern.trim(),
-        ruleType: row.ruleType as SavedTemplateMethod,
-      })),
+      rules: rows.map((row) => {
+        const config = settingsOf(row);
+        return {
+          fieldPattern: row.fieldPattern.trim(),
+          ruleType: row.ruleType as SavedTemplateMethod,
+          ...(config ? { config } : {}),
+        };
+      }),
     });
   };
 
@@ -182,6 +244,12 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
         {rows.map((row, index) => {
           const problem = problems[index];
           const problemId = `${titleId}-rule-${row.key}-problem`;
+          // Each reason marks the input it is about: the field, the method, or its setting.
+          const fieldWrong =
+            problem?.key === 'dataops.templateEditor.fieldInvalid' ||
+            problem?.key === 'dataops.templateEditor.fieldDuplicate';
+          const methodWrong = problem?.key === 'dataops.templateEditor.methodUnavailable';
+          const settingWrong = problem !== undefined && !fieldWrong && !methodWrong;
           const methods: string[] = isSavedTemplateMethod(row.ruleType)
             ? [...SAVED_TEMPLATE_METHODS]
             : [row.ruleType, ...SAVED_TEMPLATE_METHODS];
@@ -202,12 +270,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
                     value={row.fieldPattern}
                     placeholder="Contact.Email"
                     onChange={(event) => updateRow(row.key, { fieldPattern: event.target.value })}
-                    aria-invalid={
-                      problem !== undefined &&
-                      problem.key !== 'dataops.templateEditor.methodUnavailable'
-                        ? true
-                        : undefined
-                    }
+                    aria-invalid={fieldWrong || undefined}
                     aria-describedby={problem ? problemId : undefined}
                     data-testid={`template-rule-field-${index}`}
                   />
@@ -218,9 +281,7 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
                     className={inputClass}
                     value={row.ruleType}
                     onChange={(event) => updateRow(row.key, { ruleType: event.target.value })}
-                    aria-invalid={
-                      problem?.key === 'dataops.templateEditor.methodUnavailable' ? true : undefined
-                    }
+                    aria-invalid={methodWrong || undefined}
                     aria-describedby={problem ? problemId : undefined}
                     data-testid={`template-rule-method-${index}`}
                   >
@@ -241,6 +302,58 @@ export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorPr
                   <Icon name="trash" />
                 </button>
               </div>
+              {row.ruleType === 'constant' && (
+                <label className="flex flex-col gap-1 text-xs text-text-primary">
+                  <span>{t('dataops.templateEditor.constantValue')}</span>
+                  <input
+                    className={inputClass}
+                    value={row.constantValue}
+                    maxLength={TEMPLATE_SETTING_MAX}
+                    onChange={(event) => updateRow(row.key, { constantValue: event.target.value })}
+                    aria-invalid={settingWrong || undefined}
+                    aria-describedby={settingWrong ? problemId : undefined}
+                    data-testid={`template-rule-constant-${index}`}
+                  />
+                </label>
+              )}
+              {row.ruleType === 'truncate' && (
+                <div className="flex items-end gap-2">
+                  <label className="flex flex-1 flex-col gap-1 text-xs text-text-primary">
+                    <span>{t('dataops.templateEditor.truncateLength')}</span>
+                    <input
+                      className={inputClass}
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={TEMPLATE_SETTING_MAX}
+                      step={1}
+                      value={row.truncateLength}
+                      onChange={(event) =>
+                        updateRow(row.key, { truncateLength: event.target.value })
+                      }
+                      aria-invalid={settingWrong || undefined}
+                      aria-describedby={settingWrong ? problemId : undefined}
+                      data-testid={`template-rule-truncate-length-${index}`}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-text-primary">
+                    <span>{t('dataops.templateEditor.truncateKeep')}</span>
+                    <select
+                      className={inputClass}
+                      value={row.truncateKeep}
+                      onChange={(event) =>
+                        updateRow(row.key, {
+                          truncateKeep: event.target.value === 'first' ? 'first' : 'last',
+                        })
+                      }
+                      data-testid={`template-rule-truncate-keep-${index}`}
+                    >
+                      <option value="last">{t('dataops.templateEditor.truncateKeepLast')}</option>
+                      <option value="first">{t('dataops.templateEditor.truncateKeepFirst')}</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               {problem && (
                 <p id={problemId} className="text-xs text-status-error">
                   {t(problem.key, {

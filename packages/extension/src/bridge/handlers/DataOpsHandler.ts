@@ -4,6 +4,8 @@ import type {
   AnonymizationRuleConfig,
   AnonymizationTemplateRule,
   AnonymizeCoverageObject,
+  AnonymizePreviewObject,
+  AnonymizePreviewValue,
   AuditObjectCounts,
   BackupSummary,
   DataOpsAnonymizationRule,
@@ -25,6 +27,9 @@ import {
   sendOperationFailed,
   sendHandlerError,
   PRODUCTION_GUARD_MISSING,
+  GUARD_REFUSAL,
+  guardBlockedError,
+  guardRefusalCode,
 } from './HandlerTypes.js';
 import type { Connection } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -44,6 +49,7 @@ import {
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsAnonymizeCoveragePayloadSchema,
+  dataOpsAnonymizePreviewPayloadSchema,
   dataOpsQualityScanPayloadSchema,
   anonymizationTemplateSavePayloadSchema,
   anonymizationTemplateDeletePayloadSchema,
@@ -141,6 +147,7 @@ const DATAOPS_TYPES = new Set([
   'dataops:anonymization-template:save',
   'dataops:anonymization-template:delete',
   'dataops:anonymize:coverage',
+  'dataops:anonymize:preview',
   'precheck:pii-scan',
 ]);
 
@@ -214,6 +221,16 @@ function plannedAnonymizeObjects(
     .filter((v, i, a) => a.indexOf(v) === i);
 }
 
+/** The rules of a template a masking run applies to one object: those naming it, and a wildcard. */
+function rulesOfObject(
+  template: ListedAnonymizationTemplate,
+  objectName: string,
+): AnonymizationTemplateRule[] {
+  return template.rules.filter(
+    (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
+  );
+}
+
 /** A backup kept on this machine, as its metadata records it. */
 interface KeptBackup {
   operationId: string;
@@ -264,6 +281,25 @@ interface MaskingWork {
 
 /** The code of a resume refused because the checkpoint it names is not the one kept. */
 const NOTHING_TO_RESUME = 'NOTHING_TO_RESUME';
+
+/** The code of a request naming a template neither shipped nor saved. */
+const TEMPLATE_NOT_FOUND = 'TEMPLATE_NOT_FOUND';
+
+/** Rows of each object a preview reads: the first ones a masking run masks. */
+const PREVIEW_ROWS = 5;
+
+/**
+ * A value read from the org as a preview hands it to the page: text, a number
+ * or a flag as it is, nothing as null, anything else — a compound address —
+ * as its JSON.
+ */
+function previewValue(value: unknown): AnonymizePreviewValue {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  return JSON.stringify(value);
+}
 
 /**
  * Rows of an object the run never reached, counted from the rows it held: none
@@ -507,6 +543,52 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
+   * The rules a masking run applies to one object of a template, as the
+   * engine takes them: the field after the dot, the method, and the settings
+   * `ruleConfig` gives it. A preview reads them from here too, so what it
+   * shows is what the run writes.
+   */
+  private maskingRules(
+    objectName: string,
+    objectRules: readonly AnonymizationTemplateRule[],
+  ): DataOpsAnonymizationRule[] {
+    return objectRules.map((r) => ({
+      objectApiName: objectName,
+      fieldApiName: r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
+      method: r.ruleType as
+        | 'mask'
+        | 'hash'
+        | 'fake'
+        | 'nullify'
+        | 'shuffle'
+        | 'truncate'
+        | 'constant'
+        | 'preserve_format',
+      config: this.ruleConfig(r),
+    }));
+  }
+
+  /**
+   * Answer a request naming a template neither shipped nor saved, on the
+   * error channel the page waits on. A masking run used to say so in a
+   * notification alone, and the page's request waited out its hour.
+   */
+  private refuseUnknownTemplate(
+    context: 'dataops:anonymize' | 'dataops:anonymize:coverage' | 'dataops:anonymize:preview',
+    msg: InboundRequest,
+    templateId: string,
+  ): void {
+    sendHandlerError(
+      this.deps,
+      context,
+      'dataops:error',
+      msg,
+      new Error(`Template "${templateId}" not found.`),
+      { code: TEMPLATE_NOT_FOUND },
+    );
+  }
+
+  /**
    * Inject the file-backed record store so backups stop inflating globalState.
    * Called from composition, which owns the extension's storage path.
    */
@@ -553,6 +635,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'dataops:anonymize:coverage':
         await this.handleAnonymizeCoverage(msg);
+        return true;
+      case 'dataops:anonymize:preview':
+        await this.handleAnonymizePreview(msg);
         return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
@@ -1351,15 +1436,15 @@ export class DataOpsHandler implements DomainHandler {
         recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
       }
       if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
+        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
       if (decision === 'declined') {
         const message = 'Operation cancelled by user (production confirmation declined).';
-        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
+        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message), {
+          code: GUARD_REFUSAL.declined,
+        });
         sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
         return;
       }
@@ -1589,7 +1674,9 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err);
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err, {
+        code: guardRefusalCode(err),
+      });
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true, {
         context: failure,
       });
@@ -1685,7 +1772,7 @@ export class DataOpsHandler implements DomainHandler {
                 `(${leftByObject(tallies)}).`,
             )
           : err,
-        { extraPayload },
+        { code: guardRefusalCode(err), extraPayload },
       );
       sendOperationFailed(this.deps, operationId, reason, retryable, {
         context: failure,
@@ -1756,12 +1843,7 @@ export class DataOpsHandler implements DomainHandler {
       }
       // Before anything is counted: an unknown template has nothing to count.
       if (!template) {
-        sendNotification(
-          this.deps,
-          'error',
-          'Anonymize',
-          `Template "${payload.templateId}" not found.`,
-        );
+        this.refuseUnknownTemplate('dataops:anonymize', msg, payload.templateId);
         return;
       }
 
@@ -1818,9 +1900,7 @@ export class DataOpsHandler implements DomainHandler {
       // counts what the run it resumes left: the rows past where it stopped,
       // and the ones the org refused.
       for (const objectName of plannedObjects) {
-        const objectRules = template.rules.filter(
-          (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
-        );
+        const objectRules = rulesOfObject(template, objectName);
         if (objectRules.length === 0) continue;
         const safeObj = sanitizeSoqlObjectName(objectName);
         failure.objectName = safeObj;
@@ -1870,15 +1950,15 @@ export class DataOpsHandler implements DomainHandler {
         recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
       }
       if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
+        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
       if (decision === 'declined') {
         const message = 'Operation cancelled by user (production confirmation declined).';
-        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message));
+        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message), {
+          code: GUARD_REFUSAL.declined,
+        });
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
         return;
       }
@@ -1971,22 +2051,7 @@ export class DataOpsHandler implements DomainHandler {
           return;
         }
 
-        const templateRules: DataOpsAnonymizationRule[] = objectRules.map((r) => ({
-          objectApiName: objectName,
-          fieldApiName: r.fieldPattern.includes('.')
-            ? r.fieldPattern.split('.')[1]
-            : r.fieldPattern,
-          method: r.ruleType as
-            | 'mask'
-            | 'hash'
-            | 'fake'
-            | 'nullify'
-            | 'shuffle'
-            | 'truncate'
-            | 'constant'
-            | 'preserve_format',
-          config: this.ruleConfig(r),
-        }));
+        const templateRules = this.maskingRules(objectName, objectRules);
         const {
           rules,
           select: fields,
@@ -2313,9 +2378,12 @@ export class DataOpsHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
+    const template = this.findTemplate(parsed.templateId);
+    if (!template) {
+      this.refuseUnknownTemplate('dataops:anonymize:coverage', msg, parsed.templateId);
+      return;
+    }
     try {
-      const template = this.findTemplate(parsed.templateId);
-      if (!template) throw new Error(`Template "${parsed.templateId}" not found.`);
       const backup = this.latestBackup(parsed.orgId);
       const conn = await getJsforceConnection(
         parsed.orgId,
@@ -2362,6 +2430,102 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'dataops:anonymize:coverage', 'dataops:error', msg, err);
+    }
+  }
+
+  /**
+   * Answer `dataops:anonymize:preview`: before an Anonymize, the first rows of
+   * each object the template masks, each masked field as the org holds it
+   * and as Apply would write it.
+   *
+   * Read-only: a describe and one page of {@link PREVIEW_ROWS} rows per object,
+   * the page a run reads first, and no update — so neither the guard nor the
+   * org lock stands in its way. The panel offered a Preview that ran the
+   * irreversible mutation itself, and then none: Apply masked every row of
+   * the org with nothing shown before.
+   *
+   * The rows are masked as a run of this window masks them: the same rules,
+   * settings and key, one engine across the objects in the run's order. A
+   * digest, a mask, a constant or a truncation is what Apply writes. A made-up
+   * name is too on the first object; on the next ones Apply may draw another
+   * for a record whose name an earlier record of the run already took, which
+   * only a run through every record before it can tell. An object the org will
+   * not describe or read is listed with what it said rather than failing the
+   * answer.
+   */
+  private async handleAnonymizePreview(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsAnonymizePreviewPayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const template = this.findTemplate(parsed.templateId);
+    if (!template) {
+      this.refuseUnknownTemplate('dataops:anonymize:preview', msg, parsed.templateId);
+      return;
+    }
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
+      // The window's key, as Apply's engine is given: see `maskingKey`.
+      const engine = new AnonymizationEngine(undefined, this.maskingKey);
+      const objects: AnonymizePreviewObject[] = [];
+      const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
+      for (const objectName of plannedAnonymizeObjects({}, template)) {
+        const objectRules = rulesOfObject(template, objectName);
+        if (objectRules.length === 0) continue;
+        const objectApiName = sanitizeSoqlObjectName(objectName);
+        try {
+          const { rules, select, missing } = await this.maskedFields(
+            conn,
+            objectApiName,
+            this.maskingRules(objectName, objectRules),
+          );
+          fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
+          const page = await maskingPage(conn, objectApiName, select, PREVIEW_ROWS, undefined);
+          checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
+          const masked = engine.anonymize(page.records, rules);
+          const fields = rules
+            .map((r) => r.fieldApiName)
+            .filter((field, i, all) => field !== 'Id' && all.indexOf(field) === i);
+          objects.push({
+            objectApiName,
+            fields,
+            rows: page.records.slice(0, PREVIEW_ROWS).map((original, index) => {
+              const before: Record<string, AnonymizePreviewValue> = {};
+              const after: Record<string, AnonymizePreviewValue> = {};
+              for (const field of fields) {
+                before[field] = previewValue(original[field]);
+                // An empty field is left as it is: Apply writes nothing into it.
+                after[field] = isFilledValue(original[field])
+                  ? previewValue(masked[index][field])
+                  : before[field];
+              }
+              return { id: String(original.Id ?? ''), before, after };
+            }),
+          });
+        } catch (err: unknown) {
+          const reason = extractErrorMessage(err);
+          this.deps.log(`[WARN] dataops:anonymize:preview: ${objectApiName} not read: ${reason}`);
+          objects.push({ objectApiName, fields: [], rows: [], error: reason });
+        }
+      }
+      const response = buildResponse(this.deps, msg, 'dataops:anonymize:preview:response', {
+        templateId: parsed.templateId,
+        objects,
+        fieldsNotFound,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:anonymize:preview', 'dataops:error', msg, err);
     }
   }
 

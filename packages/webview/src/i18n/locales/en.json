@@ -50,7 +50,11 @@
     "dependencyCount_one": "{{count}} dependency",
     "dependencyCount_other": "{{count}} dependencies",
     "estimatedApiCallCount_one": "{{count}} estimated API call",
-    "estimatedApiCallCount_other": "{{count}} estimated API calls"
+    "estimatedApiCallCount_other": "{{count}} estimated API calls",
+    "refusal": {
+      "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
+      "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org."
+    }
   },
   "status": {
     "apiUsage": "API usage",
@@ -1394,8 +1398,15 @@
       "noRules": "Add at least one rule to save the template.",
       "fieldInvalid": "Write the field as Object.Field, for example Contact.Email.",
       "fieldDuplicate": "This field already has a rule.",
-      "methodUnavailable": "{{method}} needs a setting this page cannot give it: pick another method.",
-      "save": "Save template"
+      "methodUnavailable": "{{method}} cannot be saved in a template: pick another method.",
+      "save": "Save template",
+      "constantValue": "Value written",
+      "constantValueMissing": "Constant needs the value it writes in place of the field's.",
+      "truncateLength": "Characters kept",
+      "truncateLengthMissing": "Truncate needs how many characters it keeps: a whole number from 1 to {{max}}.",
+      "truncateKeep": "Kept from",
+      "truncateKeepLast": "the end",
+      "truncateKeepFirst": "the start"
     },
     "objectPicker": {
       "loading": "Loading the org's objects…",
@@ -1579,6 +1590,17 @@
       "confirmTitle_other": "Delete {{formatted}} records?",
       "confirmDescription": "They go to the org's recycle bin, with what the org deletes along with them, and stay there until it is emptied. Export them first if you may need them.",
       "confirmWord": "delete"
+    },
+    "preview": {
+      "description": "The first records of each object, as Apply would mask them in this window. Nothing was written. A made-up name can differ in the run when an earlier record draws it first.",
+      "record": "Record",
+      "field": "Field",
+      "original": "Original",
+      "masked": "Masked",
+      "empty": "(empty)",
+      "notRead": "Not read: {{error}}",
+      "noRecords": "No records to mask.",
+      "fieldsNotFound": "Apply masks nothing in {{fields}}: the org has no such field."
     }
   },
   "automation": {

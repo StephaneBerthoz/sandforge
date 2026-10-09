@@ -2794,7 +2794,57 @@ describe('SeedOpsHandler', () => {
         .map((c) => c[0] as BaseMessage & { payload?: Record<string, unknown> })
         .filter((m) => m.type === 'seed:error');
       expect(seedErrors).toHaveLength(1);
-      expect(seedErrors[0].payload?.code).toBe('PROD_CONFIRMATION_DECLINED');
+      // The code every write path declines with, which the page translates.
+      expect(seedErrors[0].payload?.code).toBe('GUARD_DECLINED');
+    });
+
+    it('answers a seed the guard refuses on seed:error with GUARD_BLOCKED, and seeds nothing', async () => {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        id: 'org-1',
+        orgType: 'Production',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: false,
+            requiresConfirmation: false,
+            blockedReason: 'insert is not allowed on production org org-1',
+            warnings: [],
+            impactSummary: '',
+          }),
+          confirmIfNeeded: vi.fn(),
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      const execute = vi.fn();
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({ execute })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-guard-blocked',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        } as BaseMessage),
+      );
+
+      expect(execute).not.toHaveBeenCalled();
+      const seedErrors = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: Record<string, unknown> })
+        .filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload).toMatchObject({
+        code: 'GUARD_BLOCKED',
+        message:
+          'Operation blocked by Production Guard: insert is not allowed on production org org-1',
+      });
     });
 
     it('refuses with NOT_INITIALIZED, and seeds nothing, when no Production Guard was injected', async () => {

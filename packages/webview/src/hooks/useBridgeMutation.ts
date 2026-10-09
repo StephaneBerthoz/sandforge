@@ -15,8 +15,17 @@ export interface BridgeMutationState<T> {
   data: T | null;
   /** Whether the mutation is currently in flight. */
   loading: boolean;
-  /** Error message if the mutation failed or timed out. */
+  /**
+   * Error message if the mutation failed or timed out. A refusal of
+   * Production Guard's (`GUARD_BLOCKED`, `GUARD_DECLINED`) comes in the
+   * interface language, the guard's reason after it.
+   */
   error: string | null;
+  /**
+   * The code the handler's error carried, or null: no error, one with no
+   * code, a timeout or a rejection at the bridge.
+   */
+  errorCode: string | null;
   /** Reset the mutation state back to idle. */
   reset: () => void;
   /**
@@ -62,6 +71,7 @@ export function useBridgeMutation<T>(
     data,
     loading,
     error,
+    errorCode,
     setLoading,
     setError,
     reset: resetResponse,
@@ -130,7 +140,7 @@ export function useBridgeMutation<T>(
   // memoised components as a prop, and a fresh object each render re-rendered
   // them every time.
   return useMemo(
-    () => ({ mutate, data, loading, error, reset, requestId }),
-    [mutate, data, loading, error, reset, requestId],
+    () => ({ mutate, data, loading, error, errorCode, reset, requestId }),
+    [mutate, data, loading, error, errorCode, reset, requestId],
   );
 }

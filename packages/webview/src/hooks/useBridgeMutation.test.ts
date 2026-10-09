@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import type { BaseMessage } from '@sandforge/shared';
-import '../i18n';
+import i18n from '../i18n';
+import fr from '../i18n/locales/fr.json';
 
 /**
  * Mock the useVSCodeApi hook so tests do not depend on acquireVsCodeApi.
@@ -285,5 +286,80 @@ describe('useBridgeMutation', () => {
 
     expect(result.current.loading).toBe(false);
     expect(result.current.data).toEqual({ orgs: ['org-2'] });
+  });
+
+  describe('a refusal the handler names by its code', () => {
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('exposes the code the error carried, and forgets it when the next mutation starts', () => {
+      const { result } = renderHook(() => useBridgeMutation('dataops:anonymize'));
+
+      act(() => {
+        result.current.mutate({ orgId: 'org-1', templateId: 'tpl-gone' });
+      });
+      act(() => {
+        replyToLastRequest('dataops:error', {
+          message: 'Template "tpl-gone" not found.',
+          code: 'TEMPLATE_NOT_FOUND',
+          retryable: false,
+        });
+      });
+
+      expect(result.current.errorCode).toBe('TEMPLATE_NOT_FOUND');
+      // A code with no translation of its own leaves the host's words as they are.
+      expect(result.current.error).toBe('Template "tpl-gone" not found.');
+
+      act(() => {
+        result.current.mutate({ orgId: 'org-1', templateId: 'tpl-1' });
+      });
+      expect(result.current.errorCode).toBeNull();
+    });
+
+    it('says a write Production Guard refused in the panel’s language, the guard’s reason after it, not the English sentence', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      const { result } = renderHook(() => useBridgeMutation('compare:deploy'));
+
+      act(() => {
+        result.current.mutate({ deployId: 'd-1' });
+      });
+      act(() => {
+        replyToLastRequest('compare:error', {
+          message: 'Operation blocked by Production Guard: deploy is not allowed on production',
+          code: 'GUARD_BLOCKED',
+          retryable: false,
+        });
+      });
+
+      expect(result.current.errorCode).toBe('GUARD_BLOCKED');
+      expect(result.current.error).toBe(
+        "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. " +
+          'Sa raison : deploy is not allowed on production',
+      );
+      expect(result.current.error).not.toContain('Operation blocked');
+    });
+
+    it('says a write cancelled at the guard’s confirmation in the panel’s language', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      const { result } = renderHook(() => useBridgeMutation('sync:execute'));
+
+      act(() => {
+        result.current.mutate({ configId: 'cfg-1' });
+      });
+      act(() => {
+        replyToLastRequest('sync:error', {
+          message: 'Operation cancelled by user (production confirmation declined).',
+          code: 'GUARD_DECLINED',
+          retryable: false,
+        });
+      });
+
+      expect(result.current.error).toBe(
+        "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
+      );
+    });
   });
 });

@@ -50,7 +50,11 @@
     "dependencyCount_one": "{{count}} dépendance",
     "dependencyCount_other": "{{count}} dépendances",
     "estimatedApiCallCount_one": "{{count}} appel d'API estimé",
-    "estimatedApiCallCount_other": "{{count}} appels d'API estimés"
+    "estimatedApiCallCount_other": "{{count}} appels d'API estimés",
+    "refusal": {
+      "guardBlocked": "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. Sa raison : {{reason}}",
+      "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org."
+    }
   },
   "status": {
     "apiUsage": "Utilisation API",
@@ -1394,8 +1398,15 @@
       "noRules": "Ajoutez au moins une règle pour enregistrer le modèle.",
       "fieldInvalid": "Écrivez le champ sous la forme Objet.Champ, par exemple Contact.Email.",
       "fieldDuplicate": "Ce champ a déjà une règle.",
-      "methodUnavailable": "{{method}} nécessite un réglage que cette page ne peut pas lui donner : choisissez une autre méthode.",
-      "save": "Enregistrer le modèle"
+      "methodUnavailable": "{{method}} ne peut pas être enregistré dans un modèle : choisissez une autre méthode.",
+      "save": "Enregistrer le modèle",
+      "constantValue": "Valeur écrite",
+      "constantValueMissing": "Constante a besoin de la valeur qu'elle écrit à la place de celle du champ.",
+      "truncateLength": "Caractères conservés",
+      "truncateLengthMissing": "Tronquer a besoin du nombre de caractères qu'il conserve : un nombre entier de 1 à {{max}}.",
+      "truncateKeep": "Conservés depuis",
+      "truncateKeepLast": "la fin",
+      "truncateKeepFirst": "le début"
     },
     "objectPicker": {
       "loading": "Chargement des objets de l'org…",
@@ -1579,6 +1590,17 @@
       "confirmTitle_other": "Supprimer {{formatted}} enregistrements ?",
       "confirmDescription": "Ils vont dans la corbeille de l'org, avec ce que l'org supprime en même temps qu'eux, et y restent jusqu'à ce qu'elle soit vidée. Exportez-les d'abord si vous risquez d'en avoir besoin.",
       "confirmWord": "supprimer"
+    },
+    "preview": {
+      "description": "Les premiers enregistrements de chaque objet, tels qu'Appliquer les masquerait dans cette fenêtre. Rien n'a été écrit. Un nom inventé peut différer pendant l'exécution si un enregistrement précédent le tire en premier.",
+      "record": "Enregistrement",
+      "field": "Champ",
+      "original": "Original",
+      "masked": "Masqué",
+      "empty": "(vide)",
+      "notRead": "Non lu : {{error}}",
+      "noRecords": "Aucun enregistrement à masquer.",
+      "fieldsNotFound": "Appliquer ne masque rien dans {{fields}} : l'org n'a pas ce champ."
     }
   },
   "automation": {

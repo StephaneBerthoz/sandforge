@@ -249,6 +249,8 @@ const DataOpsMessages = [
   msg('dataops:anonymization-template:delete:response'),
   msg('dataops:anonymize:coverage'),
   msg('dataops:anonymize:coverage:response'),
+  msg('dataops:anonymize:preview'),
+  msg('dataops:anonymize:preview:response'),
   msg('precheck:pii-scan'),
   msg('precheck:pii-scan:response'),
   msg('governance:policies:list'),

@@ -50,7 +50,11 @@
     "dependencyCount_one": "{{count}} dependência",
     "dependencyCount_other": "{{count}} dependências",
     "estimatedApiCallCount_one": "{{count}} chamada de API estimada",
-    "estimatedApiCallCount_other": "{{count}} chamadas de API estimadas"
+    "estimatedApiCallCount_other": "{{count}} chamadas de API estimadas",
+    "refusal": {
+      "guardBlocked": "O Production Guard recusou esta operação, e nada foi alterado na org. O motivo: {{reason}}",
+      "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org."
+    }
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -1394,8 +1398,15 @@
       "noRules": "Adicione pelo menos uma regra para salvar o modelo.",
       "fieldInvalid": "Escreva o campo como Objeto.Campo, por exemplo Contact.Email.",
       "fieldDuplicate": "Este campo já tem uma regra.",
-      "methodUnavailable": "{{method}} precisa de uma configuração que esta página não pode dar: escolha outro método.",
-      "save": "Salvar modelo"
+      "methodUnavailable": "{{method}} não pode ser salvo em um modelo: escolha outro método.",
+      "save": "Salvar modelo",
+      "constantValue": "Valor gravado",
+      "constantValueMissing": "Constante precisa do valor que grava no lugar do valor do campo.",
+      "truncateLength": "Caracteres mantidos",
+      "truncateLengthMissing": "Truncar precisa de quantos caracteres mantém: um número inteiro de 1 a {{max}}.",
+      "truncateKeep": "Mantidos a partir de",
+      "truncateKeepLast": "o fim",
+      "truncateKeepFirst": "o início"
     },
     "objectPicker": {
       "loading": "Carregando os objetos da org…",
@@ -1579,6 +1590,17 @@
       "confirmTitle_other": "Excluir {{formatted}} registros?",
       "confirmDescription": "Eles vão para a lixeira da org, com o que a org exclui junto com eles, e ficam lá até que ela seja esvaziada. Exporte-os antes, caso venha a precisar deles.",
       "confirmWord": "excluir"
+    },
+    "preview": {
+      "description": "Os primeiros registros de cada objeto, como Aplicar os mascararia nesta janela. Nada foi gravado. Um nome inventado pode ser diferente na execução se um registro anterior o sortear primeiro.",
+      "record": "Registro",
+      "field": "Campo",
+      "original": "Original",
+      "masked": "Mascarado",
+      "empty": "(vazio)",
+      "notRead": "Não lido: {{error}}",
+      "noRecords": "Nenhum registro para mascarar.",
+      "fieldsNotFound": "Aplicar não mascara nada em {{fields}}: a org não tem esse campo."
     }
   },
   "automation": {

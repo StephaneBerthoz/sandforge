@@ -35,6 +35,9 @@ import {
   syntheticRequest,
   PRODUCTION_GUARD_MISSING,
   productionGuardMissingError,
+  GUARD_REFUSAL,
+  guardBlockedError,
+  guardRefusalCode,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -1233,20 +1236,18 @@ export class SyncOpsHandler implements DomainHandler {
         this.recordStopped(operationId, config.targetOrgId, decision);
       }
       if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
+        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
       if (decision === 'declined') {
         const message = 'Operation cancelled by user (production confirmation declined).';
         // Settle the in-flight useBridgeMutation listener on sync:error
-        // (same dual-channel contract as the catch paths below). Stable
-        // code, same as seed's decline path — this prose is SandForge's own,
-        // not a pass-through Salesforce error.
+        // (same dual-channel contract as the catch paths below), with the
+        // code every write path declines with: the page says it in the
+        // interface language by it, where this prose is English.
         sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
-          code: 'PROD_CONFIRMATION_DECLINED',
+          code: GUARD_REFUSAL.declined,
         });
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
         return;
@@ -1308,7 +1309,9 @@ export class SyncOpsHandler implements DomainHandler {
       // `<domain>:error` channel useBridgeMutation listens on — it settles the
       // in-flight mutation with the real message. The webview surfaces the
       // error from sync:error only, so the user sees it exactly once.
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, {
+        code: guardRefusalCode(err),
+      });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });

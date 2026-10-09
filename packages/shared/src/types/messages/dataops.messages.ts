@@ -14,7 +14,10 @@ import type {
   SubjectRequestLogEntry,
   SubjectSearchResult,
 } from '../dataops.types.js';
-import type { SavedTemplateMethod } from '../../constants/saved-anonymization-templates.js';
+import type {
+  SavedTemplateMethod,
+  SavedTemplateRuleConfig,
+} from '../../constants/saved-anonymization-templates.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
 
 /** Backup messages */
@@ -82,8 +85,7 @@ export interface AnonymizationTemplateRule {
   description: string;
   /**
    * What the method needs that the template itself decides: a constant's
-   * value, a truncation's length. Absent on a rule whose method needs nothing,
-   * and on every rule of a template the user saved.
+   * value, a truncation's length. Absent on a rule whose method needs nothing.
    */
   config?: AnonymizationTemplateRuleConfig;
 }
@@ -113,7 +115,12 @@ export interface AnonymizationTemplateSaveRequest extends BaseMessage {
   type: 'dataops:anonymization-template:save';
   payload: {
     name: string;
-    rules: Array<{ fieldPattern: string; ruleType: SavedTemplateMethod }>;
+    /** Each rule's field and method, and the settings a Constant or a Truncate needs. */
+    rules: Array<{
+      fieldPattern: string;
+      ruleType: SavedTemplateMethod;
+      config?: SavedTemplateRuleConfig;
+    }>;
   };
 }
 
@@ -170,6 +177,49 @@ export interface DataOpsAnonymizeCoverageResponse extends BaseMessage {
      * when it stopped.
      */
     checkpoint?: { id: string; savedAt: string };
+  };
+}
+
+/**
+ * Before an Anonymize: the first rows of each object a template masks, each
+ * masked field as the org holds it and as Apply would write it (validated by
+ * dataOpsAnonymizePreviewPayloadSchema). Read-only: nothing is written.
+ */
+export interface DataOpsAnonymizePreviewRequest extends BaseMessage {
+  type: 'dataops:anonymize:preview';
+  payload: { orgId: string; templateId: string };
+}
+
+/** A masked field's value, as the org holds it or as Apply writes it. */
+export type AnonymizePreviewValue = string | number | boolean | null;
+
+/** One object of a preview: the fields its rules mask, and its first rows before and after. */
+export interface AnonymizePreviewObject {
+  objectApiName: string;
+  /** The fields the template masks that the object has, as the org names them. */
+  fields: string[];
+  /**
+   * Its first rows in Id order — those a run masks first — each masked field
+   * as it is and as Apply writes it. An empty field stays empty: Apply writes
+   * nothing into it.
+   */
+  rows: Array<{
+    id: string;
+    before: Record<string, AnonymizePreviewValue>;
+    after: Record<string, AnonymizePreviewValue>;
+  }>;
+  /** What the org said when it would not describe or read the object. */
+  error?: string;
+}
+
+/** What a template would write over the first rows of each object it masks. */
+export interface DataOpsAnonymizePreviewResponse extends BaseMessage {
+  type: 'dataops:anonymize:preview:response';
+  payload: {
+    templateId: string;
+    objects: AnonymizePreviewObject[];
+    /** The fields the template's rules name that their object lacks: Apply masks nothing there. */
+    fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
   };
 }
 

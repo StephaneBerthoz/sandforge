@@ -17,6 +17,9 @@ import {
   robustnessConfigOf,
   bulkManagerOf,
   PRODUCTION_GUARD_MISSING,
+  GUARD_REFUSAL,
+  guardBlockedError,
+  guardRefusalCode,
 } from './HandlerTypes.js';
 import { validatePayload, seedCsvPayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -213,12 +216,22 @@ export class SeedCsvHandler implements DomainHandler {
         recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
       }
       if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
+        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       if (decision === 'declined') {
         const declined = 'Operation cancelled by user (production confirmation declined).';
+        // On seed:csv:error too, which the page's request waits on, with the
+        // code every write path declines with.
+        sendHandlerError(
+          this.deps,
+          'seed:csv:execute',
+          'seed:csv:error',
+          msg,
+          new Error(declined),
+          {
+            code: GUARD_REFUSAL.declined,
+          },
+        );
         sendOperationFailed(this.deps, operationId, declined, false, { context: failure });
         // Registered before the question was asked: left unsettled, the
         // import stayed listed as running for the rest of the session.
@@ -391,9 +404,14 @@ export class SeedCsvHandler implements DomainHandler {
       settle(importFailed === undefined ? undefined : new Error(importFailed));
     } catch (err: unknown) {
       if (unrecorded) recordWriteRun(this.deps, run);
-      // Single failure emission: `operation:failed` only (same convention as
-      // seed:execute / sync:execute — the webview consumes that channel).
-      this.deps.log(`[ERR] seed:csv:execute: ${extractErrorMessage(err)}`);
+      // Dual channel, as seed:execute and sync:execute fail: `operation:failed`
+      // carries the lifecycle, and seed:csv:error settles the page's request,
+      // which waits on it — it was sent `operation:failed` alone, and the page
+      // waited out its two minutes on an import Production Guard had refused.
+      sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, err, {
+        code: guardRefusalCode(err),
+        retryable: true,
+      });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });

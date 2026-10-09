@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AnonymizePreviewValue,
   DataOpsAnonymizeCoverageResponse,
+  DataOpsAnonymizePreviewResponse,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
@@ -36,7 +38,15 @@ export interface AnonymizePanelProps {
    */
   onResume?: (templateId: string, resumeFrom: string) => void;
   isApplying?: boolean;
-  previewData?: Record<string, unknown>[];
+  /**
+   * Reads the first rows of each object the template masks and masks them as
+   * Apply would, writing nothing. Preview shows them, original beside masked.
+   */
+  onPreview?: (templateId: string) => void;
+  /** Whether a preview is on its way back from the host. */
+  isPreviewing?: boolean;
+  /** What the host answered the last preview with. */
+  preview?: AnonymizePreview | null;
   /**
    * For the selected template, the rows of each object it masks in the org
    * against those the org's latest backup holds: what a restore can bring
@@ -47,6 +57,103 @@ export interface AnonymizePanelProps {
 
 /** What the host answers `dataops:anonymize:coverage` with. */
 type AnonymizeCoverage = DataOpsAnonymizeCoverageResponse['payload'];
+
+/** What the host answers `dataops:anonymize:preview` with. */
+type AnonymizePreview = DataOpsAnonymizePreviewResponse['payload'];
+
+/** One line of a preview table: a field of a record, as it is and as Apply writes it. */
+type PreviewLine = {
+  key: string;
+  id: string;
+  field: string;
+  before: AnonymizePreviewValue;
+  after: AnonymizePreviewValue;
+};
+
+/**
+ * What a template would write over the first rows of each object it masks:
+ * per object, each masked field of each record, the value the org holds
+ * beside the one Apply writes. Nothing was written to show it.
+ */
+const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => {
+  const { t } = useTranslation();
+  const shown = (value: AnonymizePreviewValue): string =>
+    value === null || value === '' ? t('dataops.preview.empty') : String(value);
+  return (
+    <div data-testid="preview-data">
+      <Card>
+        <CardHeader
+          title={t('dataops.previewAnonymization')}
+          subtitle={t('dataops.preview.description')}
+        />
+        <CardBody>
+          <div className="flex flex-col gap-3">
+            {preview.fieldsNotFound.length > 0 && (
+              <span className="text-xs text-text-primary" data-testid="preview-fields-not-found">
+                {t('dataops.preview.fieldsNotFound', {
+                  fields: preview.fieldsNotFound
+                    .map((f) => `${f.objectApiName}.${f.fieldApiName}`)
+                    .join(', '),
+                })}
+              </span>
+            )}
+            {preview.objects.map((object) => {
+              const lines: PreviewLine[] = object.rows.flatMap((row) =>
+                object.fields.map((field) => ({
+                  key: `${row.id}-${field}`,
+                  id: row.id,
+                  field,
+                  before: row.before[field] ?? null,
+                  after: row.after[field] ?? null,
+                })),
+              );
+              return (
+                <section
+                  key={object.objectApiName}
+                  className="flex flex-col gap-1"
+                  data-testid={`preview-object-${object.objectApiName}`}
+                >
+                  <h3 className="text-xs font-semibold text-text-primary">
+                    {object.objectApiName}
+                  </h3>
+                  {object.error !== undefined ? (
+                    <span className="text-xs text-status-error">
+                      {t('dataops.preview.notRead', { error: object.error })}
+                    </span>
+                  ) : lines.length === 0 ? (
+                    <span className="text-xs text-text-secondary">
+                      {t('dataops.preview.noRecords')}
+                    </span>
+                  ) : (
+                    <DataTable<PreviewLine>
+                      columns={[
+                        { key: 'id', header: t('dataops.preview.record') },
+                        { key: 'field', header: t('dataops.preview.field') },
+                        {
+                          key: 'before',
+                          header: t('dataops.preview.original'),
+                          render: (line) => shown(line.before),
+                        },
+                        {
+                          key: 'after',
+                          header: t('dataops.preview.masked'),
+                          render: (line) => shown(line.after),
+                        },
+                      ]}
+                      data={lines}
+                      keyExtractor={(line) => line.key}
+                      stickyHeader={false}
+                    />
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  );
+};
 
 /**
  * Per object, the rows a restore of the latest backup can never bring back
@@ -151,7 +258,9 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   onApply,
   onResume,
   isApplying = false,
-  previewData,
+  onPreview,
+  isPreviewing = false,
+  preview,
   coverage,
 }) => {
   const { t } = useTranslation();
@@ -167,6 +276,9 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
     coverage && selectedTemplate && coverage.templateId === selectedTemplate.id ? coverage : null;
   const checkpoint = selectedCoverage?.checkpoint;
   const lost = selectedCoverage ? unrestorable(selectedCoverage) : [];
+  // Nor is a preview of another template this one's.
+  const selectedPreview =
+    preview && selectedTemplate && preview.templateId === selectedTemplate.id ? preview : null;
 
   // The editor closes when a save it sent lands, and stays open, with what was
   // typed, when the host refuses it.
@@ -275,12 +387,22 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 )}
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="flex flex-wrap gap-2">
-                    {/* No Preview button. One ran the very same irreversible
-                        mutation as Apply, through one handler wired to both,
-                        and was then left disabled under "Coming soon":
-                        `dataops:anonymize` carries no dry-run flag, so there
-                        is nothing a preview could run. Apply, behind its typed
-                        confirmation, is the one way to run a template. */}
+                    {/* A preview of its own request, which reads and writes
+                        nothing: one ran the very same irreversible mutation as
+                        Apply, through one handler wired to both, and was then
+                        left disabled under "Coming soon". */}
+                    {onPreview && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onPreview(selectedTemplate.id)}
+                        loading={isPreviewing}
+                        disabled={isApplying}
+                        data-testid="preview-btn"
+                      >
+                        {t('dataops.previewAnonymization')}
+                      </Button>
+                    )}
                     <Button
                       variant="primary"
                       size="sm"
@@ -388,20 +510,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
         </div>
       )}
 
-      {previewData && previewData.length > 0 && (
-        <div data-testid="preview-data">
-          <Card>
-            <CardHeader title={t('dataops.previewAnonymization')} />
-            <CardBody>
-              <DataTable
-                columns={Object.keys(previewData[0]).map((key) => ({ key, header: key }))}
-                data={previewData}
-                keyExtractor={(_row, i) => String(i)}
-              />
-            </CardBody>
-          </Card>
-        </div>
-      )}
+      {!editing && selectedPreview && <PreviewResult preview={selectedPreview} />}
     </div>
   );
 };

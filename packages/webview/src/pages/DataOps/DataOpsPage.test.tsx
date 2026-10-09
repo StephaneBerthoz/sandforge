@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -103,6 +103,17 @@ let mockExportMutationState = {
   reset: vi.fn(),
 };
 
+/** Mutable mutation state for dataops:anonymize:preview. */
+const mockPreviewMutate = vi.fn();
+const mockPreviewReset = vi.fn();
+let mockPreviewMutationState = {
+  mutate: mockPreviewMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: mockPreviewReset,
+};
+
 /** What `dataops:anonymize:coverage` answers, and how the page last asked it. */
 let mockCoverageData: Record<string, unknown> | null = null;
 let coverageAsked: { payload?: Record<string, unknown>; skip?: boolean } | null = null;
@@ -150,6 +161,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'dataops:anonymization-template:delete') {
       return mockDeleteTemplateMutationState;
+    }
+    if (type === 'dataops:anonymize:preview') {
+      return mockPreviewMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -230,6 +244,15 @@ describe('DataOpsPage', () => {
       loading: false,
       error: null,
       reset: vi.fn(),
+    };
+    mockPreviewMutate.mockClear();
+    mockPreviewReset.mockClear();
+    mockPreviewMutationState = {
+      mutate: mockPreviewMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockPreviewReset,
     };
   });
 
@@ -642,15 +665,60 @@ describe('DataOpsPage', () => {
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
     };
 
-    it('offers no Preview, whose click once masked the org for real', () => {
+    it('previews through a request of its own, which masks nothing, for the org and template on screen', () => {
       openTemplate();
 
       // onPreview and onApply were the same handler, so the button labelled
-      // "Preview" masked the org's records irreversibly; it stayed on screen,
-      // disabled, under "Coming soon".
-      expect(screen.getByTestId('apply-btn')).toBeDefined();
-      expect(screen.queryByTestId('preview-btn')).toBeNull();
+      // "Preview" masked the org's records irreversibly.
+      fireEvent.click(screen.getByTestId('preview-btn'));
+
+      expect(mockPreviewMutate).toHaveBeenCalledWith({ orgId: 'org-1', templateId: 'tpl-1' });
       expect(mockAnonymizeMutate).not.toHaveBeenCalled();
+    });
+
+    it('shows what the preview answered, original beside masked', () => {
+      mockPreviewMutationState = {
+        ...mockPreviewMutationState,
+        data: {
+          templateId: 'tpl-1',
+          objects: [
+            {
+              objectApiName: 'Contact',
+              fields: ['Email'],
+              rows: [
+                {
+                  id: '003000000000001',
+                  before: { Email: 'ada@example.org' },
+                  after: { Email: '***@*******.***' },
+                },
+              ],
+            },
+          ],
+          fieldsNotFound: [],
+        },
+      };
+      openTemplate();
+
+      expect(screen.getByTestId('preview-object-Contact').textContent).toContain('ada@example.org');
+      expect(screen.getByTestId('preview-object-Contact').textContent).toContain('***@*******.***');
+    });
+
+    it('lets go of a preview when the org changes, and when a run masks what it showed', () => {
+      openTemplate();
+      mockPreviewReset.mockClear();
+
+      act(() => {
+        useOrgStore.setState({
+          orgs: [...mockOrgs, { ...mockOrgs[0], id: 'org-2', alias: 'dev2' }],
+          selectedOrgId: 'org-2',
+        });
+      });
+      expect(mockPreviewReset).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(mockPreviewReset).toHaveBeenCalledTimes(2);
     });
 
     it('should require a typed confirmation before sending dataops:anonymize', () => {

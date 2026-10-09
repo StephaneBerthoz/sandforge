@@ -106,31 +106,157 @@ describe('AnonymizationTemplateEditor', () => {
     expect(saveButton().disabled).toBe(true);
   });
 
-  it('keeps a rule whose method cannot run here on screen, says why, and saves once it is changed', () => {
-    // Sandbox Data Scrub writes a placeholder URL it carries itself, and the
-    // page sets no value: copied over silently, the rule would write an empty one.
-    const { onSave } = editor({
-      initialRules: [rule('Account.Website', 'constant'), rule('Contact.Phone', 'nullify')],
-    });
+  it('asks a Constant for its value, and holds Save until it is typed', () => {
+    const { onSave } = editor();
     fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+    fireEvent.click(screen.getByTestId('template-add-rule'));
+    fireEvent.change(screen.getByTestId('template-rule-field-0'), {
+      target: { value: 'Account.Website' },
+    });
+    expect(screen.queryByTestId('template-rule-constant-0')).toBeNull();
 
-    const method = screen.getByTestId('template-rule-method-0') as HTMLSelectElement;
-    expect(method.value).toBe('constant');
+    fireEvent.change(screen.getByTestId('template-rule-method-0'), {
+      target: { value: 'constant' },
+    });
+    const value = screen.getByTestId('template-rule-constant-0');
     expect(screen.getByTestId('template-rule-0').textContent).toContain(
-      'Constant needs a setting this page cannot give it: pick another method.',
+      "Constant needs the value it writes in place of the field's.",
     );
-    expect(method.getAttribute('aria-invalid')).toBe('true');
+    expect(value.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(value.getAttribute('aria-describedby') ?? '')).not.toBeNull();
     expect(saveButton().disabled).toBe(true);
 
-    fireEvent.change(method, { target: { value: 'nullify' } });
+    fireEvent.change(value, { target: { value: 'https://example.com' } });
     expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith({
       name: 'Mine',
       rules: [
-        { fieldPattern: 'Account.Website', ruleType: 'nullify' },
-        { fieldPattern: 'Contact.Phone', ruleType: 'nullify' },
+        {
+          fieldPattern: 'Account.Website',
+          ruleType: 'constant',
+          config: { constantValue: 'https://example.com' },
+        },
       ],
+    });
+  });
+
+  it('asks a Truncate how many characters it keeps and from which end, and holds Save until it has a length', () => {
+    const { onSave } = editor({ initialRules: [rule('Contact.Phone', 'truncate')] });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+
+    const length = screen.getByTestId('template-rule-truncate-length-0');
+    expect(screen.getByTestId('template-rule-0').textContent).toContain(
+      'Truncate needs how many characters it keeps: a whole number from 1 to 255.',
+    );
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(length, { target: { value: '0' } });
+    expect(saveButton().disabled).toBe(true);
+
+    fireEvent.change(length, { target: { value: '4' } });
+    expect(saveButton().disabled).toBe(false);
+    expect(
+      within(screen.getByRole('group', { name: 'Rule 1' })).getByRole('combobox', {
+        name: 'Kept from',
+      }),
+    ).toBeDefined();
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [
+        {
+          fieldPattern: 'Contact.Phone',
+          ruleType: 'truncate',
+          config: { truncateLength: 4, truncateKeep: 'last' },
+        },
+      ],
+    });
+  });
+
+  it('keeps the setting of a rule it starts from: the value a Constant writes, the length and end a Truncate keeps', () => {
+    // Sandbox Data Scrub writes a placeholder URL, HIPAA keeps the first three
+    // digits of a postal code: carried over without them, neither rule would
+    // do what it says.
+    const { onSave } = editor({
+      initialRules: [
+        {
+          ...rule('Account.Website', 'constant'),
+          config: { constantValue: 'https://example.com' },
+        },
+        {
+          ...rule('Contact.MailingPostalCode', 'truncate'),
+          config: { truncateLength: 3, truncateKeep: 'first' },
+        },
+      ],
+    });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+
+    expect((screen.getByTestId('template-rule-constant-0') as HTMLInputElement).value).toBe(
+      'https://example.com',
+    );
+    expect((screen.getByTestId('template-rule-truncate-length-1') as HTMLInputElement).value).toBe(
+      '3',
+    );
+    expect((screen.getByTestId('template-rule-truncate-keep-1') as HTMLSelectElement).value).toBe(
+      'first',
+    );
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [
+        {
+          fieldPattern: 'Account.Website',
+          ruleType: 'constant',
+          config: { constantValue: 'https://example.com' },
+        },
+        {
+          fieldPattern: 'Contact.MailingPostalCode',
+          ruleType: 'truncate',
+          config: { truncateLength: 3, truncateKeep: 'first' },
+        },
+      ],
+    });
+  });
+
+  it('sends no setting with a method that takes none, even one typed before the method changed', () => {
+    const { onSave } = editor({
+      initialRules: [
+        {
+          ...rule('Account.Website', 'constant'),
+          config: { constantValue: 'https://example.com' },
+        },
+      ],
+    });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+    fireEvent.change(screen.getByTestId('template-rule-method-0'), {
+      target: { value: 'nullify' },
+    });
+    expect(screen.queryByTestId('template-rule-constant-0')).toBeNull();
+
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [{ fieldPattern: 'Account.Website', ruleType: 'nullify' }],
+    });
+  });
+
+  it('keeps a rule whose method a template cannot save on screen, says why, and saves once it is changed', () => {
+    const { onSave } = editor({ initialRules: [rule('Contact.Birthdate', 'age_band')] });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+
+    const method = screen.getByTestId('template-rule-method-0') as HTMLSelectElement;
+    expect(method.value).toBe('age_band');
+    expect(screen.getByTestId('template-rule-0').textContent).toContain(
+      'age_band cannot be saved in a template: pick another method.',
+    );
+    expect(method.getAttribute('aria-invalid')).toBe('true');
+    expect(saveButton().disabled).toBe(true);
+
+    fireEvent.change(method, { target: { value: 'nullify' } });
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [{ fieldPattern: 'Contact.Birthdate', ruleType: 'nullify' }],
     });
   });
 
@@ -138,7 +264,6 @@ describe('AnonymizationTemplateEditor', () => {
     const { onSave } = editor({ initialRules: [rule('Contact.Email', 'hash')] });
     fireEvent.change(nameInput(), { target: { value: 'Mine' } });
 
-    expect(screen.getByTestId('template-rule-0').textContent).not.toContain('needs a setting');
     fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith({
       name: 'Mine',
@@ -146,14 +271,23 @@ describe('AnonymizationTemplateEditor', () => {
     });
   });
 
-  it('offers only the methods a saved template can run', () => {
+  it('offers every method a run applies', () => {
     editor();
     fireEvent.click(screen.getByTestId('template-add-rule'));
 
     const options = Array.from(
       (screen.getByTestId('template-rule-method-0') as HTMLSelectElement).options,
     ).map((option) => option.value);
-    expect(options).toEqual(['fake', 'mask', 'hash', 'nullify', 'shuffle', 'preserve_format']);
+    expect(options).toEqual([
+      'fake',
+      'mask',
+      'hash',
+      'nullify',
+      'shuffle',
+      'preserve_format',
+      'constant',
+      'truncate',
+    ]);
   });
 
   it('removes a rule, named by its number for a screen reader', () => {
@@ -195,7 +329,8 @@ describe('AnonymizationTemplateEditor', () => {
     editor({ initialRules: [rule('Contact.MailingPostalCode', 'truncate')] });
 
     expect(screen.getByTestId('template-rule-0').textContent).toContain(
-      'Tronquer nécessite un réglage que cette page ne peut pas lui donner',
+      "Tronquer a besoin du nombre de caractères qu'il conserve",
     );
+    expect(screen.getByText('Caractères conservés')).toBeDefined();
   });
 });

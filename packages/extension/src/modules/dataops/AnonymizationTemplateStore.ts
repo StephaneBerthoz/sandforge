@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import {
-  SAVED_TEMPLATE_METHODS,
-  TEMPLATE_FIELD_PATTERN,
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,
+  savedTemplateRuleSchema,
 } from '@sandforge/shared';
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 
@@ -23,14 +22,10 @@ const savedTemplateSchema = z.object({
   name: z.string().trim().min(1).max(TEMPLATE_NAME_MAX_LENGTH),
   description: z.string().max(500),
   complianceFramework: z.literal('custom'),
+  // The rule the save request takes, with the setting a Constant or a
+  // Truncate needs, and its description.
   rules: z
-    .array(
-      z.object({
-        fieldPattern: z.string().max(170).regex(TEMPLATE_FIELD_PATTERN),
-        ruleType: z.enum(SAVED_TEMPLATE_METHODS),
-        description: z.string().max(500),
-      }),
-    )
+    .array(z.intersection(savedTemplateRuleSchema, z.object({ description: z.string().max(500) })))
     .min(1)
     .max(TEMPLATE_MAX_RULES),
   saved: z.literal(true),

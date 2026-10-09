@@ -332,7 +332,7 @@ describe('SyncOpsHandler', () => {
   describe('sync:error channel', () => {
     /** Extracts all messages posted to the webview. */
     function postedMessages(): Array<
-      BaseMessage & { payload: { message?: string; error?: string } }
+      BaseMessage & { payload: { message?: string; error?: string; code?: string } }
     > {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       return postToWebview.mock.calls.map((c) => c[0]);
@@ -392,6 +392,8 @@ describe('SyncOpsHandler', () => {
       const syncErrors = posted.filter((m) => m.type === 'sync:error');
       expect(syncErrors).toHaveLength(1);
       expect(syncErrors[0].payload.message).toContain('prod org write blocked');
+      // The code the page says it by, in the interface language.
+      expect(syncErrors[0].payload).toMatchObject({ code: 'GUARD_BLOCKED' });
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
 
@@ -1482,7 +1484,8 @@ describe('SyncOpsHandler', () => {
       );
       const syncErrors = posted.filter((m) => m.type === 'sync:error');
       expect(syncErrors).toHaveLength(1);
-      expect(syncErrors[0].payload.code).toBe('PROD_CONFIRMATION_DECLINED');
+      // The code every write path declines with, which the page translates.
+      expect(syncErrors[0].payload.code).toBe('GUARD_DECLINED');
       expect(syncErrors[0].payload.message).toBe(
         'Operation cancelled by user (production confirmation declined).',
       );

@@ -13,6 +13,8 @@ import {
   sendNotification,
   sendHandlerError,
   PRODUCTION_GUARD_MISSING,
+  GUARD_REFUSAL,
+  guardBlockedError,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -349,17 +351,23 @@ export class AutopilotHandler implements DomainHandler {
         guard: decision,
       });
     }
+    // Each with the code every write path is stopped with: the page says it
+    // in the interface language by it, where these messages are English.
     if (decision === 'refused') {
-      const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message));
-      sendNotification(this.deps, 'error', 'Autopilot', message);
+      const refusal = guardBlockedError(check.blockedReason ?? check.impactSummary);
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, refusal, {
+        code: GUARD_REFUSAL.blocked,
+      });
+      sendNotification(this.deps, 'error', 'Autopilot', refusal.message);
       return;
     }
     // `safety.requireProdConfirmation`: explicit user consent before
     // writing to a production org.
     if (decision === 'declined') {
       const message = 'Operation cancelled by user (production confirmation declined).';
-      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message));
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message), {
+        code: GUARD_REFUSAL.declined,
+      });
       sendNotification(this.deps, 'error', 'Autopilot', message);
       return;
     }

@@ -50,7 +50,11 @@
     "dependencyCount_one": "{{count}} dependencia",
     "dependencyCount_other": "{{count}} dependencias",
     "estimatedApiCallCount_one": "{{count}} llamada estimada a la API",
-    "estimatedApiCallCount_other": "{{count}} llamadas estimadas a la API"
+    "estimatedApiCallCount_other": "{{count}} llamadas estimadas a la API",
+    "refusal": {
+      "guardBlocked": "Production Guard rechazó esta operación y no se cambió nada en la org. Su motivo: {{reason}}",
+      "guardDeclined": "Cancelado en la confirmación de Production Guard: no se cambió nada en la org."
+    }
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -1394,8 +1398,15 @@
       "noRules": "Añada al menos una regla para guardar la plantilla.",
       "fieldInvalid": "Escriba el campo como Objeto.Campo, por ejemplo Contact.Email.",
       "fieldDuplicate": "Este campo ya tiene una regla.",
-      "methodUnavailable": "{{method}} necesita un ajuste que esta página no puede darle: elija otro método.",
-      "save": "Guardar plantilla"
+      "methodUnavailable": "{{method}} no se puede guardar en una plantilla: elija otro método.",
+      "save": "Guardar plantilla",
+      "constantValue": "Valor escrito",
+      "constantValueMissing": "Constante necesita el valor que escribe en lugar del del campo.",
+      "truncateLength": "Caracteres conservados",
+      "truncateLengthMissing": "Truncar necesita cuántos caracteres conserva: un número entero de 1 a {{max}}.",
+      "truncateKeep": "Conservados desde",
+      "truncateKeepLast": "el final",
+      "truncateKeepFirst": "el principio"
     },
     "objectPicker": {
       "loading": "Cargando los objetos de la org…",
@@ -1579,6 +1590,17 @@
       "confirmTitle_other": "¿Eliminar {{formatted}} registros?",
       "confirmDescription": "Van a la papelera de la org, con lo que la org elimina junto con ellos, y quedan allí hasta que se vacía. Expórtelos antes si puede necesitarlos.",
       "confirmWord": "eliminar"
+    },
+    "preview": {
+      "description": "Los primeros registros de cada objeto, tal como Aplicar los enmascararía en esta ventana. No se escribió nada. Un nombre inventado puede ser distinto en la ejecución si un registro anterior lo obtiene primero.",
+      "record": "Registro",
+      "field": "Campo",
+      "original": "Original",
+      "masked": "Enmascarado",
+      "empty": "(vacío)",
+      "notRead": "No leído: {{error}}",
+      "noRecords": "No hay registros que enmascarar.",
+      "fieldsNotFound": "Aplicar no enmascara nada en {{fields}}: la org no tiene ese campo."
     }
   },
   "automation": {

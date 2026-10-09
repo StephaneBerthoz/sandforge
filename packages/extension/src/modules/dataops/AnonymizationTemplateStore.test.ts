@@ -73,9 +73,7 @@ describe('AnonymizationTemplateStore', () => {
     configStore.set(
       'anonymization:template:bad',
       template('bad', {
-        rules: [
-          { fieldPattern: 'Account.Website', ruleType: 'constant' as 'fake', description: '' },
-        ],
+        rules: [{ fieldPattern: 'Account.Website', ruleType: 'constant', description: '' }],
       }),
       'anonymizationTemplates',
     );
@@ -85,6 +83,32 @@ describe('AnonymizationTemplateStore', () => {
     expect(templates.list().map((t) => t.id)).toEqual(['good']);
     expect(templates.load('bad')).toBeUndefined();
     expect(templates.load('junk')).toBeUndefined();
+  });
+
+  it('keeps the value of a Constant rule and the length of a Truncate rule, and reads them back', () => {
+    const withSettings = template('tpl-saved-settings', {
+      rules: [
+        {
+          fieldPattern: 'Account.Website',
+          ruleType: 'constant',
+          description: '',
+          config: { constantValue: 'https://example.com' },
+        },
+        {
+          fieldPattern: 'Contact.MailingPostalCode',
+          ruleType: 'truncate',
+          description: '',
+          config: { truncateLength: 3, truncateKeep: 'first' },
+        },
+      ],
+    });
+    templates.save(withSettings);
+
+    expect(templates.load('tpl-saved-settings')).toEqual(withSettings);
+    expect(templates.list()[0]?.rules.map((r) => r.config)).toEqual([
+      { constantValue: 'https://example.com' },
+      { truncateLength: 3, truncateKeep: 'first' },
+    ]);
   });
 
   it('reads nothing of the other categories', () => {

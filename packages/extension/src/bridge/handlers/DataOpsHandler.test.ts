@@ -222,7 +222,7 @@ describe('DataOpsHandler', () => {
   describe('dataops:error channel', () => {
     /** Extracts all messages posted to the webview. */
     function postedMessages(): Array<
-      BaseMessage & { payload: { message?: string; error?: string } }
+      BaseMessage & { payload: { message?: string; error?: string; code?: string } }
     > {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       return postToWebview.mock.calls.map((c) => c[0]);
@@ -459,6 +459,8 @@ describe('DataOpsHandler', () => {
       expect(errors[0].payload.message).toBe(
         'Operation cancelled by user (production confirmation declined).',
       );
+      // The code the page says it by, in the interface language.
+      expect(errors[0].payload.code).toBe('GUARD_DECLINED');
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
       expect(sobject).not.toHaveBeenCalled();
     });
@@ -569,6 +571,7 @@ describe('DataOpsHandler', () => {
       expect(errors[0].payload.message).toBe(
         'Operation blocked by Production Guard: update is not allowed on production org org-prod',
       );
+      expect(errors[0].payload.code).toBe('GUARD_BLOCKED');
     });
 
     it('warns of a run past 50 000 rows on a sandbox, whose tier asks nothing', async () => {
@@ -619,6 +622,32 @@ describe('DataOpsHandler', () => {
       expect(getJsforceConnection).not.toHaveBeenCalled();
       expect(check).not.toHaveBeenCalled();
     });
+
+    it.each(['dataops:anonymize', 'dataops:anonymize:coverage', 'dataops:anonymize:preview'])(
+      'answers %s naming a template it does not hold on dataops:error, with a code, so the page stops waiting',
+      async (type) => {
+        await countingOrg({});
+
+        await handler.handle(
+          inboundRequest({
+            id: 'msg-tpl-gone',
+            type,
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1', templateId: 'tpl-gone' },
+          } as BaseMessage),
+        );
+
+        const errors = postedMessages().filter((m) => m.type === 'dataops:error');
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toMatchObject({
+          correlationId: 'msg-tpl-gone',
+          payload: { code: 'TEMPLATE_NOT_FOUND' },
+        });
+        expect(errors[0].payload.message).toContain('Template "tpl-gone" not found');
+        // Said once, where the page shows it: not again in a notification of its own.
+        expect(postedMessages().some((m) => m.type === 'notification')).toBe(false);
+      },
+    );
   });
 
   describe('payload validation', () => {
@@ -1242,6 +1271,7 @@ describe('DataOpsHandler', () => {
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('Production writes are blocked');
+      expect(errors[0].payload).toMatchObject({ code: 'GUARD_BLOCKED' });
     });
 
     it('aborts a rollback when the production confirmation is declined', async () => {
@@ -1270,6 +1300,7 @@ describe('DataOpsHandler', () => {
       expect(errors[0].payload.message).toBe(
         'Operation cancelled by user (production confirmation declined).',
       );
+      expect(errors[0].payload).toMatchObject({ code: 'GUARD_DECLINED' });
       expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
 
@@ -3207,6 +3238,74 @@ describe('DataOpsHandler — templates the user saves', () => {
     expect(record.Email).toMatch(/^sha256-[0-9a-f]{32}@example\.invalid$/);
   });
 
+  it('saves a Truncate rule with its length, which the run applies: the first or the last characters, as the rule says', async () => {
+    await send('dataops:anonymization-template:save', {
+      name: 'Regions only',
+      rules: [
+        {
+          fieldPattern: 'Contact.MailingPostalCode',
+          ruleType: 'truncate',
+          config: { truncateLength: 3, truncateKeep: 'first' },
+        },
+        { fieldPattern: 'Contact.Phone', ruleType: 'truncate', config: { truncateLength: 4 } },
+        {
+          fieldPattern: 'Contact.Title',
+          ruleType: 'constant',
+          config: { constantValue: 'Masked' },
+        },
+      ],
+    });
+    expect(last('dataops:error')).toBeUndefined();
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () =>
+        answer([
+          {
+            Id: '003000000000001',
+            MailingPostalCode: '94105',
+            Phone: '+1 415 555 0142',
+            Title: 'Chief Scientist',
+          },
+        ]),
+      ),
+      describe: vi.fn().mockResolvedValue({
+        name: 'Contact',
+        label: 'Contact',
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: ['MailingPostalCode', 'Phone', 'Title'].reduce(
+          (fields, name) => [
+            ...fields,
+            { name, label: name, type: 'string', createable: true, updateable: true },
+          ],
+          [{ name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false }],
+        ),
+        recordTypeInfos: [],
+        childRelationships: [],
+      }),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    expect(last('dataops:error')).toBeUndefined();
+    const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(record).toEqual({
+      Id: '003000000000001',
+      MailingPostalCode: '941',
+      Phone: '0142',
+      Title: 'Masked',
+    });
+  });
+
   it('refuses a name a template already goes by, whatever its case', async () => {
     await send('dataops:anonymization-template:save', { name: 'gdpr standard', rules });
 
@@ -3705,5 +3804,246 @@ describe('DataOpsHandler — what a restore can bring back of what a template ma
     const notOffered = (await askCoverage(deps)).at(-1);
     expect(notOffered?.type).toBe('dataops:anonymize:coverage:response');
     expect(notOffered?.payload).not.toHaveProperty('checkpoint');
+  });
+});
+
+describe('DataOpsHandler — a preview of what Apply writes', () => {
+  let deps: HandlerDeps;
+  let handler: DataOpsHandler;
+
+  /** An object of the org below: its rows, in the order the org sorts them, and its fields. */
+  interface HeldObject {
+    rows: Array<Record<string, unknown>>;
+    fields: string[];
+  }
+
+  /** An org holding these objects, read and written the way Salesforce does. */
+  function orgOf(objects: Record<string, HeldObject>) {
+    const query = vi.fn(async (soql: string) => {
+      const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+      const held = objects[object];
+      if (!held) throw new Error(`INVALID_TYPE: sObject type '${object}' is not supported.`);
+      const after = /\bWHERE Id > '(\w+)'/.exec(soql)?.[1];
+      const rows = held.rows.filter((r) => after === undefined || String(r.Id) > after);
+      if (soql.startsWith('SELECT COUNT() ')) {
+        return { totalSize: rows.length, records: [], done: true };
+      }
+      const selected = /^SELECT (.+) FROM /.exec(soql)?.[1].split(', ') ?? [];
+      const limit = Number(/\bLIMIT (\d+)/.exec(soql)?.[1] ?? rows.length);
+      const page = rows
+        .slice(0, limit)
+        .map((r) => Object.fromEntries(selected.map((field) => [field, r[field] ?? null])));
+      return { totalSize: page.length, records: page, done: true };
+    });
+    const update = vi.fn(async (batch: Array<Record<string, unknown>>) =>
+      batch.map((sent) => ({ success: true, id: sent.Id })),
+    );
+    const describe = vi.fn(async (object: string) => ({
+      name: object,
+      label: object,
+      createable: true,
+      updateable: true,
+      deletable: true,
+      queryable: true,
+      fields: [
+        { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+        ...(objects[object]?.fields ?? []).map((name) => ({
+          name,
+          label: name,
+          type: 'string',
+          createable: true,
+          updateable: true,
+        })),
+      ],
+      recordTypeInfos: [],
+      childRelationships: [],
+    }));
+    return { conn: { query, describe, sobject: vi.fn(() => ({ update })) }, query, update };
+  }
+
+  /** `count` records of an object whose ids start with `prefix`, in Id order. */
+  function recordsOf(
+    prefix: string,
+    count: number,
+    fill: (n: number) => Record<string, unknown>,
+  ): Array<Record<string, unknown>> {
+    return Array.from({ length: count }, (_, i) => ({
+      Id: `${prefix}${String(i + 1).padStart(12, '0')}`,
+      ...fill(i + 1),
+    }));
+  }
+
+  function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+  }
+
+  function last(type: string): (BaseMessage & { payload: Record<string, unknown> }) | undefined {
+    return posted()
+      .filter((m) => m.type === type)
+      .at(-1);
+  }
+
+  async function send(type: string, payload: Record<string, unknown>, id = type): Promise<void> {
+    await handler.handle(
+      inboundRequest({ id, type, timestamp: Date.now(), payload } as BaseMessage),
+    );
+  }
+
+  /** Save a template of the user's with these rules, and say its id. */
+  async function saved(rules: Array<Record<string, unknown>>): Promise<string> {
+    await send('dataops:anonymization-template:save', { name: 'People', rules });
+    return (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+  }
+
+  type PreviewRow = {
+    id: string;
+    before: Record<string, unknown>;
+    after: Record<string, unknown>;
+  };
+  type PreviewObject = { objectApiName: string; fields: string[]; rows: PreviewRow[] };
+
+  beforeEach(() => {
+    deps = createMockDeps();
+    const store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    deps.configStore = store;
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+    handler = new DataOpsHandler(deps);
+  });
+
+  const peopleRules = [
+    { fieldPattern: 'Contact.FirstName', ruleType: 'fake' },
+    { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+    { fieldPattern: 'Lead.Email', ruleType: 'hash' },
+  ];
+
+  /** Eight contacts, the third with no email, and three leads. */
+  function people() {
+    return orgOf({
+      Contact: {
+        fields: ['FirstName', 'Email'],
+        rows: recordsOf('003', 8, (n) => ({
+          FirstName: `Person ${n}`,
+          Email: n === 3 ? null : `person${n}@example.org`,
+        })),
+      },
+      Lead: {
+        fields: ['Email'],
+        rows: recordsOf('00Q', 3, (n) => ({ Email: `lead${n}@example.org` })),
+      },
+    });
+  }
+
+  it('writes nothing, and reads at most five rows of each object, the first in Id order', async () => {
+    const templateId = await saved(peopleRules);
+    const { conn, query, update } = people();
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+
+    await send('dataops:anonymize:preview', { orgId: 'org-1', templateId }, 'preview-1');
+
+    expect(update).not.toHaveBeenCalled();
+    expect(conn.sobject).not.toHaveBeenCalled();
+    expect(query.mock.calls.map(([soql]) => String(soql))).toEqual([
+      'SELECT Id, FirstName, Email FROM Contact ORDER BY Id LIMIT 5',
+      'SELECT Id, Email FROM Lead ORDER BY Id LIMIT 5',
+    ]);
+    const answer = last('dataops:anonymize:preview:response');
+    expect(answer?.correlationId).toBe('preview-1');
+    const objects = answer?.payload.objects as PreviewObject[];
+    expect(objects.map((o) => [o.objectApiName, o.fields, o.rows.length])).toEqual([
+      ['Contact', ['FirstName', 'Email'], 5],
+      ['Lead', ['Email'], 3],
+    ]);
+    expect(objects[0].rows[0]).toMatchObject({
+      id: '003000000000001',
+      before: { FirstName: 'Person 1', Email: 'person1@example.org' },
+    });
+    // An empty field is shown empty after too: Apply writes nothing into it.
+    expect(objects[0].rows[2].before.Email).toBeNull();
+    expect(objects[0].rows[2].after.Email).toBeNull();
+    expect(last('dataops:error')).toBeUndefined();
+  });
+
+  it('shows, for every row it read, what Apply then writes over it in the same window — a made-up name and a digest alike', async () => {
+    const templateId = await saved(peopleRules);
+    const { conn, update } = people();
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+
+    await send('dataops:anonymize:preview', { orgId: 'org-1', templateId }, 'preview-2');
+    const previewed = last('dataops:anonymize:preview:response')?.payload
+      .objects as PreviewObject[];
+    await send('dataops:anonymize', { orgId: 'org-1', templateId }, 'apply-2');
+
+    expect(last('dataops:anonymize:response')?.payload.status).toBe('success');
+    const written = new Map(
+      update.mock.calls
+        .flatMap(([batch]) => batch as Array<Record<string, unknown>>)
+        .map((sent) => [String(sent.Id), sent]),
+    );
+    const rows = previewed.flatMap((o) => o.rows);
+    expect(rows).toHaveLength(8);
+    for (const row of rows) {
+      const sent = written.get(row.id) ?? {};
+      for (const [field, value] of Object.entries(row.after)) {
+        // A field Apply leaves empty is not sent at all.
+        expect(sent[field] ?? null).toEqual(value);
+        if (row.before[field] !== null) expect(value).not.toEqual(row.before[field]);
+      }
+    }
+    expect(String(previewed[0].rows[0].after.Email)).toMatch(
+      /^sha256-[0-9a-f]{32}@example\.invalid$/,
+    );
+  });
+
+  it('lists an object the org will not read with what it said, and still previews the others', async () => {
+    const templateId = await saved([
+      { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+      { fieldPattern: 'Loyalty__c.Code__c', ruleType: 'nullify' },
+    ]);
+    const { conn } = orgOf({
+      Contact: { fields: ['Email'], rows: recordsOf('003', 2, (n) => ({ Email: `p${n}@x.org` })) },
+    });
+    conn.describe.mockImplementation(async (object: string) => {
+      if (object === 'Loyalty__c') throw new Error("INVALID_TYPE: sObject type 'Loyalty__c'");
+      return {
+        name: object,
+        fields: [{ name: 'Id' }, { name: 'Email' }],
+      } as never;
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+
+    await send('dataops:anonymize:preview', { orgId: 'org-1', templateId });
+
+    const objects = last('dataops:anonymize:preview:response')?.payload.objects as Array<
+      PreviewObject & { error?: string }
+    >;
+    expect(objects.map((o) => [o.objectApiName, o.rows.length])).toEqual([
+      ['Contact', 2],
+      ['Loyalty__c', 0],
+    ]);
+    expect(objects[1].error).toContain('INVALID_TYPE');
+  });
+
+  it('names a field the template masks that the object does not have', async () => {
+    const templateId = await saved([
+      { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+      { fieldPattern: 'Contact.Loyalty_Code__c', ruleType: 'nullify' },
+    ]);
+    const { conn } = orgOf({
+      Contact: { fields: ['Email'], rows: recordsOf('003', 1, () => ({ Email: 'a@x.org' })) },
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+
+    await send('dataops:anonymize:preview', { orgId: 'org-1', templateId });
+
+    expect(last('dataops:anonymize:preview:response')?.payload.fieldsNotFound).toEqual([
+      { objectApiName: 'Contact', fieldApiName: 'Loyalty_Code__c' },
+    ]);
   });
 });

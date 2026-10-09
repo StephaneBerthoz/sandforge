@@ -1048,6 +1048,10 @@ describe('AutopilotHandler', () => {
       expect(
         (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
       ).toContain('insert is not allowed on production org tgt');
+      // The code the page says it by, in the interface language.
+      expect((errors[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
+        'GUARD_BLOCKED',
+      );
     });
 
     it('cancels the execution when the user declines the production confirmation', async () => {
@@ -1071,6 +1075,9 @@ describe('AutopilotHandler', () => {
       expect(
         (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
       ).toContain('production confirmation declined');
+      expect((errors[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
+        'GUARD_DECLINED',
+      );
     });
 
     it('asks before executing on a target the registry does not know, and inserts nothing when declined', async () => {

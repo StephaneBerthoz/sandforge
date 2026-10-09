@@ -8,6 +8,9 @@ import {
   syntheticRequest,
   uncorrelated,
   PRODUCTION_GUARD_MISSING,
+  GUARD_REFUSAL,
+  guardBlockedError,
+  guardRefusalCode,
   type InboundRequest,
   type SyntheticRequestKind,
   type UncorrelatedReason,
@@ -621,6 +624,28 @@ describe('sendOperationFailed — fix suggestion', () => {
     );
 
     expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+  });
+});
+
+describe('a write Production Guard refused', () => {
+  it('is thrown with the words every write path uses, and the code its catch answers with', () => {
+    const refusal = guardBlockedError('insert is not allowed on production org org-1');
+
+    expect(refusal.message).toBe(
+      'Operation blocked by Production Guard: insert is not allowed on production org org-1',
+    );
+    expect(guardRefusalCode(refusal)).toBe(GUARD_REFUSAL.blocked);
+    expect(GUARD_REFUSAL).toEqual({ blocked: 'GUARD_BLOCKED', declined: 'GUARD_DECLINED' });
+  });
+
+  it('gives no code to any other error, which keeps the default one', () => {
+    expect(guardRefusalCode(new Error('Operation blocked by Production Guard: by hand'))).toBe(
+      undefined,
+    );
+    expect(guardRefusalCode(Object.assign(new Error('socket'), { code: 'ECONNRESET' }))).toBe(
+      undefined,
+    );
+    expect(guardRefusalCode('GUARD_BLOCKED')).toBe(undefined);
   });
 });
 

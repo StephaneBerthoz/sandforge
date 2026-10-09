@@ -5,6 +5,7 @@ import { m } from 'framer-motion';
 import type {
   BackupSummary,
   DataOpsAnonymizeCoverageResponse,
+  DataOpsAnonymizePreviewResponse,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
@@ -154,6 +155,20 @@ export const DataOpsPage: React.FC = () => {
     },
   );
 
+  /**
+   * Bridge mutation: the first rows of each object the selected template
+   * masks, original beside masked, as Apply would write them. Reads only.
+   */
+  const previewMutation = useBridgeMutation<DataOpsAnonymizePreviewResponse['payload']>(
+    'dataops:anonymize:preview',
+    {
+      responseType: 'dataops:anonymize:preview:response',
+      errorType: 'dataops:error',
+      // A describe and one short page per object the template masks.
+      timeoutMs: 120_000,
+    },
+  );
+
   /** Bridge mutation: save rules as a template of the user's, kept in extension storage. */
   const saveTemplateMutation = useBridgeMutation<{ template: ListedAnonymizationTemplate }>(
     'dataops:anonymization-template:save',
@@ -187,6 +202,14 @@ export const DataOpsPage: React.FC = () => {
     if (anonymizeEnded) refetchCoverage.current();
   }, [anonymizeEnded, refetchCoverage]);
 
+  // A preview shows an org's own records: it does not stay on screen under
+  // the name of the next org picked.
+  const resetPreview = useLatestRef(() => previewMutation.reset());
+  const orgId = currentOrg?.id;
+  useEffect(() => {
+    resetPreview.current();
+  }, [orgId, resetPreview]);
+
   /** Show error notifications from bridge hooks. */
   useEffect(() => {
     const bridgeError =
@@ -197,6 +220,7 @@ export const DataOpsPage: React.FC = () => {
       rollbackMutation.error ??
       exportMutation.error ??
       anonymizeMutation.error ??
+      previewMutation.error ??
       templatesQuery.error ??
       saveTemplateMutation.error ??
       deleteTemplateMutation.error;
@@ -214,6 +238,7 @@ export const DataOpsPage: React.FC = () => {
     rollbackMutation.error,
     exportMutation.error,
     anonymizeMutation.error,
+    previewMutation.error,
     templatesQuery.error,
     saveTemplateMutation.error,
     deleteTemplateMutation.error,
@@ -299,9 +324,18 @@ export const DataOpsPage: React.FC = () => {
     deleteTemplateMutation.mutate({ templateId });
   };
 
+  const handlePreviewAnonymize = (templateId: string) => {
+    if (!currentOrg) return;
+    setError(null);
+    previewMutation.mutate({ orgId: currentOrg.id, templateId });
+  };
+
+  // A run writes over the records a preview showed as they were: the preview
+  // goes with it.
   const handleApplyAnonymize = (templateId: string) => {
     if (!currentOrg) return;
     setError(null);
+    previewMutation.reset();
     anonymizeMutation.mutate({
       orgId: currentOrg.id,
       templateId,
@@ -312,6 +346,7 @@ export const DataOpsPage: React.FC = () => {
   const handleResumeAnonymize = (templateId: string, resumeFrom: string) => {
     if (!currentOrg) return;
     setError(null);
+    previewMutation.reset();
     anonymizeMutation.mutate({ orgId: currentOrg.id, templateId, resumeFrom });
   };
 
@@ -467,8 +502,11 @@ export const DataOpsPage: React.FC = () => {
               savingTemplate={saveTemplateMutation.loading}
               saveTemplateError={saveTemplateMutation.error}
               onDeleteTemplate={handleDeleteTemplate}
-              // onPreview was this same handler: clicking "Preview" masked the
-              // org's data for real. AnonymizePanel now inerts that button.
+              // A request of its own, read-only: onPreview used to be Apply's
+              // handler, and clicking "Preview" masked the org's data for real.
+              onPreview={handlePreviewAnonymize}
+              isPreviewing={previewMutation.loading}
+              preview={previewMutation.data}
               onApply={handleApplyAnonymize}
               onResume={handleResumeAnonymize}
               // Nothing held the buttons while a run went on, so a second

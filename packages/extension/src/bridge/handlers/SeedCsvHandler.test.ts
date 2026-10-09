@@ -810,6 +810,14 @@ describe('SeedCsvHandler', () => {
           'Operation blocked by Production Guard: insert is not allowed on production org tgt-org',
         retryable: true,
       });
+      // Answered where the page's request waits, with the code it translates:
+      // it waited out its two minutes on operation:failed alone.
+      const errors = posted(deps, 'seed:csv:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        correlationId: 'msg-seed:csv:execute',
+        payload: { code: 'GUARD_BLOCKED' },
+      });
     });
 
     it('falls back to the impact summary when the guard blocks without a reason', async () => {
@@ -846,6 +854,12 @@ describe('SeedCsvHandler', () => {
         operationId: 'msg-seed:csv:execute',
         error: 'Operation cancelled by user (production confirmation declined).',
         retryable: false,
+      });
+      const errors = posted(deps, 'seed:csv:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        correlationId: 'msg-seed:csv:execute',
+        payload: { code: 'GUARD_DECLINED' },
       });
     });
 

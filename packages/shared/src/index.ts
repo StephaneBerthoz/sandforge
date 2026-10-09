@@ -145,7 +145,12 @@ export {
   TEMPLATE_FIELD_PATTERN,
   TEMPLATE_NAME_MAX_LENGTH,
   TEMPLATE_MAX_RULES,
+  TEMPLATE_SETTING_MAX,
+  savedRuleSettingProblem,
+  savedTemplateRuleSchema,
   type SavedTemplateMethod,
+  type SavedTemplateRuleConfig,
+  type SavedRuleSettingProblem,
 } from './constants/saved-anonymization-templates.js';
 
 // Barrel exports — Utils

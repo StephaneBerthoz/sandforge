@@ -6104,7 +6104,9 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps template editor over a rule whose method cannot run here', async ({ page }) => {
+    test('DataOps template editor over a Constant and a Truncate, with their settings', async ({
+      page,
+    }) => {
       await openPanel(bridge, page, 'dataops', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
@@ -6127,6 +6129,12 @@ for (const theme of STATE_THEMES) {
                   description: '',
                   config: { constantValue: 'https://example.com' },
                 },
+                {
+                  fieldPattern: 'Contact.MailingPostalCode',
+                  ruleType: 'truncate',
+                  description: '',
+                  config: { truncateLength: 3, truncateKeep: 'first' },
+                },
                 { fieldPattern: 'Contact.FirstName', ruleType: 'fake', description: '' },
               ],
             },
@@ -6136,10 +6144,14 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('page-tab-anonymize').click();
       await page.getByTestId('template-select').selectOption('tpl-scrub');
       await page.getByTestId('create-template-btn').click();
-      // A name taken and a method that needs a value: both reasons are on screen.
+      // Each setting carried over from the template it starts from.
+      await expect(page.getByTestId('template-rule-constant-0')).toHaveValue('https://example.com');
+      await expect(page.getByTestId('template-rule-truncate-length-1')).toHaveValue('3');
+      // A name taken and a Constant with no value: both reasons are on screen.
       await page.getByTestId('template-name-input').fill('Sandbox Data Scrub');
+      await page.getByTestId('template-rule-constant-0').fill('');
       await expect(page.getByTestId('template-name-taken')).toBeVisible();
-      await expect(page.getByTestId('template-rule-0')).toContainText('needs a setting');
+      await expect(page.getByTestId('template-rule-0')).toContainText('needs the value it writes');
 
       await expectReadable(page, theme);
     });
@@ -6168,12 +6180,74 @@ for (const theme of STATE_THEMES) {
       );
       await page.getByTestId('page-tab-anonymize').click();
       await page.getByTestId('template-select').selectOption('tpl-saved-1');
-      // No Preview beside Apply: one sat there disabled, under "Coming soon".
+      // Preview beside Apply, live: one sat there disabled, under "Coming soon".
       await expect(page.getByTestId('apply-btn')).toBeVisible();
-      await expect(page.getByTestId('preview-btn')).toHaveCount(0);
+      await expect(page.getByTestId('preview-btn')).toBeEnabled();
       await expect(page.getByTestId('anonymize-panel')).not.toContainText('Coming soon');
       await page.getByTestId('delete-template-btn').click();
       await expect(page.getByTestId('confirm-delete-template-btn')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps Anonymize preview, each original beside its masked value', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-gdpr',
+              name: 'GDPR Standard',
+              description: 'Mask the people.',
+              complianceFramework: 'gdpr',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Contact.Phone', ruleType: 'mask', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+              ],
+            },
+          ],
+        },
+      );
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-gdpr');
+      await page.getByTestId('preview-btn').click();
+      await bridge.waitForMessage('dataops:anonymize:preview', { timeout: 10_000 });
+      await answerAll(page, 'dataops:anonymize:preview', 'dataops:anonymize:preview:response', {
+        templateId: 'tpl-gdpr',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            fields: ['Email', 'Phone'],
+            rows: [
+              {
+                id: '003000000000001',
+                before: { Email: 'ada@example.org', Phone: '+1 415 555 0142' },
+                after: {
+                  Email: 'sha256-0123456789abcdef0123456789abcdef@example.invalid',
+                  Phone: '***********0142',
+                },
+              },
+              {
+                id: '003000000000002',
+                before: { Email: null, Phone: '+1 415 555 0199' },
+                after: { Email: null, Phone: '***********0199' },
+              },
+            ],
+          },
+          { objectApiName: 'Lead', fields: [], rows: [], error: 'INVALID_TYPE: Lead' },
+        ],
+        fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Loyalty__c' }],
+      });
+      await expect(page.getByTestId('preview-object-Contact')).toContainText('ada@example.org');
+      await expect(page.getByTestId('preview-object-Lead')).toContainText('Not read');
+      await expect(page.getByTestId('preview-fields-not-found')).toContainText('Loyalty__c');
 
       await expectReadable(page, theme);
     });

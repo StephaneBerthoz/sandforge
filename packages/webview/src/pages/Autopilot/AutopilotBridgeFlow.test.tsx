@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { AutopilotGraph, ComplianceReport, ExecutionPlan } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
 import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
 import { AutopilotPage } from './AutopilotPage';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 
@@ -443,6 +444,39 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
       'production confirmation declined',
     );
+  });
+
+  it('says a run Production Guard refused in the panel’s language, by the code the host sends, with the guard’s reason', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<AutopilotPage />);
+      driveToReview();
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      dispatchBridgeMessage(
+        'autopilot:error',
+        {
+          message: 'Operation blocked by Production Guard: insert is not allowed on production',
+          code: 'GUARD_BLOCKED',
+          retryable: false,
+        },
+        lastRequestOfType('autopilot:execute').id,
+      );
+
+      const shown = screen.getByTestId('autopilot-execute-error').textContent ?? '';
+      expect(shown).toContain(
+        "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org.",
+      );
+      expect(shown).toContain('insert is not allowed on production');
+      expect(shown).not.toContain('Operation blocked by Production Guard');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it.each([

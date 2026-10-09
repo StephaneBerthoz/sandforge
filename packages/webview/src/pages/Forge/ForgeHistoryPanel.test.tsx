@@ -530,9 +530,12 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
       retryable: false,
     });
 
-    expect(screen.getByTestId('forge-history-remove-error').textContent).toContain(
-      'Operation blocked by Production Guard',
+    // Said by its code in the interface language, the guard's reason after it.
+    const refusal = screen.getByTestId('forge-history-remove-error').textContent;
+    expect(refusal).toContain(
+      'Production Guard refused this operation, and nothing was changed in the org.',
     );
+    expect(refusal).toContain('delete is not allowed on production org');
   });
 
   it('does not offer it again once a removal took all its records: says when', () => {

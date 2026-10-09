@@ -31,6 +31,9 @@ import {
   robustnessConfigOf,
   bulkManagerOf,
   PRODUCTION_GUARD_MISSING,
+  GUARD_REFUSAL,
+  guardBlockedError,
+  guardRefusalCode,
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
@@ -655,9 +658,7 @@ export class SeedOpsHandler implements DomainHandler {
         });
       }
       if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
+        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
@@ -666,11 +667,11 @@ export class SeedOpsHandler implements DomainHandler {
         // Settle the in-flight useBridgeMutation listener on seed:error
         // (same dual-channel contract as sync — without it the mutation
         // spun until its 120 s timeout). Correlated to the request so the
-        // webview can drop stale error responses. The code is stable and
-        // SandForge-authored (unlike pass-through Salesforce messages), so
-        // the UI can key off it instead of matching English prose.
+        // webview can drop stale error responses. The code is the one every
+        // write path declines with, so the page says it in the interface
+        // language instead of showing this English prose.
         sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
-          code: 'PROD_CONFIRMATION_DECLINED',
+          code: GUARD_REFUSAL.declined,
           retryable: false,
         });
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
@@ -720,6 +721,7 @@ export class SeedOpsHandler implements DomainHandler {
       // carry the offline retryHint on transport failures.
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
       sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+        code: guardRefusalCode(err),
         retryable: true,
         extraPayload: offlineHint,
       });

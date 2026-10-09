@@ -6,7 +6,8 @@ import type {
   FrozenRemovalResult,
   SalesforceOrg,
 } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 
 const mockPostMessage = vi.fn();
 
@@ -225,6 +226,34 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('frozen-removal-error').textContent).toContain(
       'refreshed after the load',
     );
+  });
+
+  it('says a removal Production Guard refused in the panel’s language, with the guard’s reason, not the English sentence', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+
+      answerRemoval('frozen:remove:error', {
+        message: 'Operation blocked by Production Guard: delete is not allowed on production',
+        code: 'GUARD_BLOCKED',
+        retryable: false,
+      });
+
+      const banner = screen.getByTestId('frozen-removal-error').textContent ?? '';
+      expect(banner).toContain(
+        "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org.",
+      );
+      expect(banner).toContain('delete is not allowed on production');
+      expect(banner).not.toContain('Operation blocked by Production Guard');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('reads the status again once when a removal is refused', () => {

@@ -12,6 +12,7 @@ import {
   dataOpsBackupPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  anonymizationTemplateSavePayloadSchema,
   dataOpsQualityScanPayloadSchema,
   dataOpsSubjectSearchPayloadSchema,
   dataOpsSubjectErasePayloadSchema,
@@ -322,6 +323,47 @@ describe('dataops payload schemas', () => {
         objects: ['Contact'],
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('anonymizationTemplateSavePayloadSchema', () => {
+  const save = (rule: Record<string, unknown>) =>
+    anonymizationTemplateSavePayloadSchema.safeParse({
+      name: 'Support desk',
+      rules: [{ fieldPattern: 'Account.Website', ...rule }],
+    });
+
+  it('refuses a Constant rule with no value, which would write an empty one', () => {
+    expect(save({ ruleType: 'constant' }).success).toBe(false);
+    expect(save({ ruleType: 'constant', config: { constantValue: '' } }).success).toBe(false);
+  });
+
+  it('refuses a Truncate rule with no length, which would keep nothing', () => {
+    expect(save({ ruleType: 'truncate' }).success).toBe(false);
+    expect(save({ ruleType: 'truncate', config: { truncateKeep: 'first' } }).success).toBe(false);
+    expect(save({ ruleType: 'truncate', config: { truncateLength: 0 } }).success).toBe(false);
+  });
+
+  it('takes a Constant with its value and a Truncate with its length, and keeps both', () => {
+    const constant = save({
+      ruleType: 'constant',
+      config: { constantValue: 'https://example.com' },
+    });
+    expect(constant.success && constant.data.rules[0].config).toEqual({
+      constantValue: 'https://example.com',
+    });
+    const truncate = save({
+      ruleType: 'truncate',
+      config: { truncateLength: 3, truncateKeep: 'first' },
+    });
+    expect(truncate.success && truncate.data.rules[0].config).toEqual({
+      truncateLength: 3,
+      truncateKeep: 'first',
+    });
+  });
+
+  it('refuses a salt in a saved rule: the run that applies the template brings its own', () => {
+    expect(save({ ruleType: 'hash', config: { hashSalt: 'written-down' } }).success).toBe(false);
   });
 });
 
