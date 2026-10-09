@@ -87,6 +87,18 @@ describe('OrgCard', () => {
     expect(onDisconnect).toHaveBeenCalledWith('org-1');
   });
 
+  it('selects the card on Enter on the card, and not on Enter on a button inside it', () => {
+    // Enter on Edit bubbled up to the card and selected it as well.
+    const onSelect = vi.fn();
+    render(<OrgCard {...defaultProps} onSelect={onSelect} />);
+
+    fireEvent.keyDown(screen.getByText('Edit'), { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByTestId('org-card-org-1'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('org-1');
+  });
+
   it('opens the org in the browser without selecting the card', () => {
     const onOpenInBrowser = vi.fn();
     const onSelect = vi.fn();

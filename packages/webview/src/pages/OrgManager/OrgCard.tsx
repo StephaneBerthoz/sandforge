@@ -63,7 +63,9 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onSelect(org.id);
+        // Enter on a button inside the card is that button's: it bubbled up
+        // here and selected the card as well.
+        if (e.key === 'Enter' && e.target === e.currentTarget) onSelect(org.id);
       }}
       data-testid={`org-card-${org.id}`}
     >

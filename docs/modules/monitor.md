@@ -41,8 +41,8 @@ A compact panel below the KPIs showing:
 
 When a run that writes to an org is in progress — Seed, Sync, a Forge clone
 or the removal of the records one created, a record clone, a CSV import, a
-Frozen Dataset load — a Live Operations panel lists it, showing (a Sync
-simulation, which only reads, is listed too):
+Frozen Dataset load, an Autopilot run — a Live Operations panel lists it,
+showing (a Sync simulation and a Forge rehearsal are listed too):
 
 - Each run's module, progress bar and current step, and its records and
   records per second where it counts them: a Frozen load goes by phases and
