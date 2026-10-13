@@ -1823,6 +1823,12 @@ export class ForgeHandler implements DomainHandler {
         await journal.begin(id, config.targetOrgId, new Date(startedAt)).catch((err: unknown) => {
           logger.warn(`Forge run journal not started: ${extractErrorMessage(err)}`);
         });
+        // A Cancel taken while the journal was opened reaches an executor
+        // that has not started, which clears it on entry: the run wrote.
+        if (runController.signal.aborted) {
+          stoppedBeforeStart = true;
+          throw new Error(ABORTED_BEFORE_START_MESSAGE);
+        }
       }
       const keptId = journalId;
       let journalUnwritable = false;
@@ -1945,7 +1951,7 @@ export class ForgeHandler implements DomainHandler {
       /*
        * Aborted during the record type lookup, the run never reached the
        * executor and wrote nothing: stopped, as one aborted while the guard
-       * waited is. Stopped by a cancel once the executor had it: partial when
+       * waited is. Stopped by a cancel once the executor had it: cancelled when
        * it had written, stopped under a code of its own when it had not (see
        * `cancelledRunOutcome`), where the trail read it as a run that failed.
        * Any other error is the run's failure.

@@ -30,8 +30,15 @@ const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | '
   expired: 'warning',
 };
 
-/** One object a backup holds only part of: the rows read, the rows the org held, and why it stopped. */
+/**
+ * One object a backup holds only part of: the rows read, the rows the org
+ * held, and why it stopped — or that the backup failed before it read the
+ * object at all.
+ */
 function shortObjectLine(o: BackupObjectHeld, t: TFunction): string {
+  if (o.stoppedAt === 'not_reached') {
+    return t('dataops.backupNotReached', { object: o.objectApiName });
+  }
   const values = {
     object: o.objectApiName,
     read: formatNumber(o.recordCount),
@@ -52,8 +59,8 @@ function shortObjectLine(o: BackupObjectHeld, t: TFunction): string {
  * brings back those rows only, and the rest of each object stays as it is —
  * masked, after a masking run. A backup taken since the cap says, per object,
  * the rows read against the rows the org held and whether the cap stopped it
- * or the read failed; an older one, which stopped at the tier's bound, says
- * what it recorded.
+ * or the read failed, and names each object a failure kept it from reading;
+ * an older one, which stopped at the tier's bound, says what it recorded.
  */
 export const BackupPartialNote: React.FC<{ backup: BackupSummary; 'data-testid': string }> = ({
   backup,

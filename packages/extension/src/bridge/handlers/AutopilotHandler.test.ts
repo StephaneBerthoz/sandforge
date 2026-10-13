@@ -1067,7 +1067,7 @@ describe('AutopilotHandler', () => {
       tracker.dispose();
     });
 
-    it('records a run stopped after it wrote as partial, with what it never sent', async () => {
+    it('records a run stopped after it wrote as cancelled, with what it never sent', async () => {
       const store = recordingStore();
       const { registry, running } = await startStoppableRun(PART_WRITTEN);
 
@@ -1077,7 +1077,7 @@ describe('AutopilotHandler', () => {
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({
           operationId: 'exec-stop',
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: [
             expect.objectContaining({ objectApiName: 'Account', created: 2, notSent: 3 }),
             expect.objectContaining({ objectApiName: 'Contact', created: 0, notSent: 5 }),
@@ -1119,7 +1119,7 @@ describe('AutopilotHandler', () => {
       });
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: expect.arrayContaining([
             expect.objectContaining({
               objectApiName: 'Account',
@@ -1163,7 +1163,7 @@ describe('AutopilotHandler', () => {
       });
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: expect.arrayContaining([
             expect.objectContaining({ objectApiName: 'EmailMessage', created: 1, notSent: 3 }),
           ]),

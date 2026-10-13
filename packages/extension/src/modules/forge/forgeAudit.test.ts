@@ -106,17 +106,18 @@ describe('contactPointsAudit', () => {
 });
 
 describe('cancelledRunOutcome', () => {
-  it('records a cancelled run partial once it wrote a record, and stopped when it wrote none', () => {
+  it('records a run the user stopped once it wrote a record as cancelled, and stopped when it wrote none', () => {
     const wrote = [{ objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 }];
     const none = [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0 }];
 
-    expect(cancelledRunOutcome(summary(), wrote)).toBe('partial');
+    // Recorded as partial, it read as a run the org cut short.
+    expect(cancelledRunOutcome(summary(), wrote)).toBe('cancelled');
     expect(cancelledRunOutcome(summary(), none)).toBe('stopped');
     expect(cancelledRunOutcome(undefined, [])).toBe('stopped');
   });
 
-  it('keeps a cancelled run whose rows were all refused a failure', () => {
-    expect(cancelledRunOutcome(summary({ failedCount: 2 }), [])).toBe('failure');
+  it('records a run the user stopped after its rows were all refused as cancelled, not failed', () => {
+    expect(cancelledRunOutcome(summary({ failedCount: 2 }), [])).toBe('cancelled');
   });
 });
 

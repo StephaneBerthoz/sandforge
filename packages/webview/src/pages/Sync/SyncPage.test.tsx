@@ -568,7 +568,7 @@ describe('SyncPage', () => {
 
     it('says how many files and how much a run would copy', () => {
       draft.value = {
-        currentStep: 5,
+        currentStep: 3,
         direction: 'source_to_target',
         mode: 'full',
         conflictStrategy: 'source_wins',
@@ -581,6 +581,12 @@ describe('SyncPage', () => {
       };
       useOrgStore.setState({ orgs: mockOrgs });
       const { rerender } = render(<SyncPage />);
+      // Files are simulated for a saved configuration only.
+      fireEvent.click(screen.getByTestId('sync-save-config'));
+      const saved = (mockSaveConfigMutate.mock.calls[0][0] as { config: { id: string } }).config;
+      mockSaveConfigMutationState.data = { success: true, id: saved.id };
+      rerender(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-wizard-next'));
       fireEvent.click(screen.getByTestId('sync-simulate'));
       mockSimulateMutationState.data = {
         configId: 'cfg',
@@ -646,6 +652,56 @@ describe('SyncPage', () => {
 
       expect(screen.getByTestId('sync-files-needs-save').textContent).toContain(
         'save it on the Review step first',
+      );
+    });
+
+    it('keeps Run and Simulate from a configuration copying files until it is saved, and says why beside them', () => {
+      draft.value = {
+        currentStep: 3,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      const { rerender } = render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-wizard-next'));
+
+      // The extension refuses both for a configuration that is not saved: the
+      // page let Run through, to be refused once the execute step had started.
+      const run = screen.getByTestId('sync-run') as HTMLButtonElement;
+      const simulate = screen.getByTestId('sync-simulate') as HTMLButtonElement;
+      const why = screen.getByTestId('sync-files-needs-save');
+      expect(run.disabled).toBe(true);
+      expect(simulate.disabled).toBe(true);
+      expect(run.getAttribute('aria-describedby')).toBe(why.id);
+      expect(simulate.getAttribute('aria-describedby')).toBe(why.id);
+      fireEvent.click(run);
+      fireEvent.click(simulate);
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+      expect(mockSimulateMutate).not.toHaveBeenCalled();
+
+      // Saved on the Review step, it runs.
+      fireEvent.click(screen.getByTestId('sync-wizard-back'));
+      fireEvent.click(screen.getByTestId('sync-save-config'));
+      const saved = (mockSaveConfigMutate.mock.calls[0][0] as { config: { id: string } }).config;
+      mockSaveConfigMutationState.data = { success: true, id: saved.id };
+      rerender(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-wizard-next'));
+
+      expect(screen.queryByTestId('sync-files-needs-save')).toBeNull();
+      const enabled = screen.getByTestId('sync-run') as HTMLButtonElement;
+      expect(enabled.disabled).toBe(false);
+      expect(enabled.hasAttribute('aria-describedby')).toBe(false);
+      fireEvent.click(enabled);
+      expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+      expect((mockExecuteMutate.mock.calls[0][0] as { config: { id: string } }).config.id).toBe(
+        saved.id,
       );
     });
 

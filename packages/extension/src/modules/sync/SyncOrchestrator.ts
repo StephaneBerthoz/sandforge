@@ -9,6 +9,7 @@ import type {
   SyncSimulationResult,
   GrappeConfig,
 } from '@sandforge/shared';
+import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import { buildObjectResult, type DataSync, type OperationOutcome } from './DataSync.js';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
@@ -44,7 +45,10 @@ import {
   SyncFilesRefusedError,
   type SyncFileDeps,
   type SyncFilePlan,
+  type TiedRecords,
 } from './SyncFiles.js';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { idLists } from '../dataops/RecordRemoval.js';
 
 /** How a source read of one object is asked, beyond the object's own filter. */
 export interface SourceRead {
@@ -1008,6 +1012,7 @@ export class SyncOrchestrator {
       config,
       option,
       deps,
+      tie: (objectConfig, sourceIds) => this.tieToTarget(config, objectConfig, sourceIds),
       objects: objects.map((objectConfig) => {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
         return {
@@ -1016,6 +1021,57 @@ export class SyncOrchestrator {
         };
       }),
     });
+  }
+
+  /**
+   * The copies an earlier run made in the target of `sourceIds`, records this
+   * run does not write: each tied by the key the object's write matches on,
+   * computed by the same mapping and transforms the write applies, as a
+   * deletion is tied. The files those records gained since the last run go to
+   * their copies. A record whose key ties it to no target record, or to more
+   * than one, is left out.
+   */
+  private async tieToTarget(
+    config: SyncConfig,
+    objectConfig: SyncObjectConfig,
+    sourceIds: readonly string[],
+  ): Promise<TiedRecords> {
+    const reads = this.deps.deltaReads;
+    const files = this.deps.files;
+    if (!reads || !files) return { held: new Map(), refused: 'the target cannot be asked' };
+    const key = deletionKeyOf(objectConfig);
+    if ('refused' in key) return { held: new Map(), refused: key.refused };
+    const name = objectConfig.objectApiName;
+    const keys = new Map<string, string | number | boolean>();
+    if (key.sourceField === 'Id') {
+      for (const id of sourceIds) keys.set(id, id);
+    } else {
+      const object = sanitizeSoqlObjectName(name);
+      const field = assertSoqlIdentifier(key.sourceField);
+      for (const list of idLists(sourceIds)) {
+        const rows = await files.copy.queryRecords(
+          config.sourceOrgId,
+          `SELECT Id, ${field} FROM ${object} WHERE Id IN (${list})`,
+        );
+        for (const row of rows) {
+          const mapped = this.deps.fieldMapping.apply(row, objectConfig.fieldMappings);
+          const value = this.deps.transformPipeline.transformRecord(mapped, objectConfig)[
+            key.keyField
+          ];
+          if (typeof row.Id === 'string' && simulationKey(value) !== null) {
+            keys.set(row.Id, value as string | number | boolean);
+          }
+        }
+      }
+    }
+    if (keys.size === 0) return { held: new Map() };
+    const found = await reads.targetIdsByKey(name, key.keyField, [...new Set(keys.values())]);
+    const held = new Map<string, string>();
+    for (const [sourceId, value] of keys) {
+      const ids = found.get(simulationKey(value) as string) ?? [];
+      if (ids.length === 1) held.set(sourceId, ids[0]);
+    }
+    return { held };
   }
 }
 

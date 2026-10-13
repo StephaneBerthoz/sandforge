@@ -195,6 +195,7 @@ export const SyncPage: React.FC = () => {
   const deltaHintId = React.useId();
   const deletesHintId = React.useId();
   const filesHintId = React.useId();
+  const filesNeedSaveId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -258,6 +259,7 @@ export const SyncPage: React.FC = () => {
     savedRunLabel,
     savedRunStarting,
     configSaved,
+    filesNeedSave,
     handleApplyTemplate,
     canGoNext,
     isFinished,
@@ -796,10 +798,12 @@ export const SyncPage: React.FC = () => {
                   {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
                 </p>
               )}
-              {/* Files are copied by a saved configuration only: the run says
-                  so, and so does the page before it is asked. */}
-              {!busy && copyFiles && !configSaved && (
+              {/* Files are copied by a saved configuration only: the
+                  extension refuses a run and a simulation of one that is not
+                  saved, so both wait for the save, and say why. */}
+              {!busy && filesNeedSave && (
                 <p
+                  id={filesNeedSaveId}
                   className="text-xs text-status-warning"
                   role="status"
                   data-testid="sync-files-needs-save"
@@ -815,6 +819,8 @@ export const SyncPage: React.FC = () => {
                       variant="secondary"
                       size="sm"
                       onClick={handleSimulate}
+                      disabled={filesNeedSave}
+                      aria-describedby={filesNeedSave ? filesNeedSaveId : undefined}
                       data-testid="sync-simulate"
                     >
                       {t('sync.simulation.start')}
@@ -823,6 +829,8 @@ export const SyncPage: React.FC = () => {
                       variant="primary"
                       size="sm"
                       onClick={handleExecute}
+                      disabled={filesNeedSave}
+                      aria-describedby={filesNeedSave ? filesNeedSaveId : undefined}
                       data-testid="sync-run"
                     >
                       {t('sync.runNow')}

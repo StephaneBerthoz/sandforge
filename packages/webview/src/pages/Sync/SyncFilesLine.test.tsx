@@ -46,6 +46,18 @@ describe('SyncFilesLine', () => {
     ).toBe('2 files copied · 1 new version · 52 B · 3 already copied, unchanged');
   });
 
+  it('says the attachments whose copy was replaced, a run and a simulation alike', () => {
+    expect(
+      textOf(<SyncFilesLine files={outcome({ replaced: 2, bytes: 30 })} testId="line" />),
+    ).toBe('0 files copied · 2 changed attachments replaced · 30 B');
+  });
+
+  it('says what a simulation would replace', () => {
+    expect(
+      textOf(<SyncFilesLine files={outcome({ replaced: 1, bytes: 30 })} simulated testId="line" />),
+    ).toContain('1 changed attachment would be replaced');
+  });
+
   it('says what the caps skipped and what was not copied, never leaving it out', () => {
     const text = textOf(
       <SyncFilesLine

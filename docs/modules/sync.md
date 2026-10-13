@@ -27,11 +27,11 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 ### Files
 
 - **Copy the files of these records** (off unless ticked) -- once an object's records are written, the latest version of each Salesforce File linked to one of them, and the legacy attachments under them, are copied and linked to the records' copies in the target: a file is published on the first of its records the run wrote and linked to the others, an attachment written under its record. A file linked only to records the run did not write -- outside the filter, or refused by the target -- is not copied, and the results say how many. Files are read and written one call each way, as Forge copies them; a file kept outside Salesforce is skipped and counted
-- **Never copied twice** -- files are copied by a saved configuration only, which keeps which file it copied where (5 000 at most). Running it again, in full or in delta, copies a file again only when the source holds a newer version, which is added as a version of the copy in the target, never as a second file; a copy is linked to the records it lacks. A legacy attachment, which has no versions, is copied once: a change to it in the source is not carried. A file the target already holds under the source's own id -- two sandboxes taken from the same production -- is taken as copied. Run full next time keeps that record. A configuration that is not saved is refused before anything is read, and the Execute step says to save it first
-- **Delta** -- a delta run finds the files of the records changed since the watermark and, besides those, the files it copied before whose source has a version stamped after it: a new version reaches the target though its record did not change. A file attached to a record nothing else changed is found when the record changes, or on a full read. An object whose files were not all copied -- one failed, or was past the cap -- keeps its watermark, so the next run reads its records again
+- **Never copied twice** -- files are copied by a saved configuration only, which keeps which file it copied where (5 000 at most). Running it again, in full or in delta, copies a file again only when the source holds a newer version, which is added as a version of the copy in the target, never as a second file; a copy is linked to the records it lacks. A legacy attachment, which has no versions, whose source changed since it was copied has its copy replaced: the new one is written under the target record, then the earlier one deleted -- one the target would not delete is counted as failed and named, the record then holding both. On a target where Production Guard allows no delete -- a production org, a Developer Edition included -- the earlier copy stays and the change is not copied: the run never deletes there. A file the target already holds under the source's own id -- two sandboxes taken from the same production -- is taken as copied; such an attachment is the target's own, and is never replaced. Run full next time keeps that record. A configuration that is not saved is refused before anything is read, and the Execute step says to save it first
+- **Delta** -- a delta run finds the files of the records changed since the watermark and, besides those, the files it copied before whose source has a version stamped after it: a new version reaches the target though its record did not change. It also finds the records of the object's filter whose files changed while nothing else of them did -- a Salesforce File linked to one since the watermark, or whose latest version was published since, and an attachment created or changed under one since -- and copies those files to the copies an earlier run made of them, found by the key the object is written on, as a deletion is: those records are not written again. One the key ties to no target record, or to more than one, keeps its new files for when it changes, or for a full read, and the results say how many. An object whose files were not all copied -- one failed, or was past the cap -- keeps its watermark, so the next run reads its records again
 - **Caps and storage** -- the largest file copied (10 MB unless set, at most 35) and the most a run copies (100 MB unless set, at most 2 000). A larger file, and the files past what a run copies, are skipped and counted, never cut short; the next run copies the latter. Before the run writes anything, the target's file storage is read (`/limits`) and the files of every object are found and measured: a run whose files would not fit is refused, with both numbers, and nothing is written
 - **Simulation** -- says, per object, how many files a run would copy, how many versions it would add and how much they take, what it would skip, and what they would take of the target's file storage
-- **Results and history** -- "3 files, 1.2 MB copied, 1 skipped past the caps" for the run, and per object the files copied, the versions added, those unchanged, those skipped by each cap and those that failed
+- **Results and history** -- "3 files, 1.2 MB copied, 1 skipped past the caps" for the run, and per object the files copied, the versions added, the changed attachments replaced, those unchanged, those skipped by each cap and those that failed
 - **No removal** -- Sync has no undo: what a run writes, records and files alike, stays in the target. Remove a copied file from the target org itself; the configuration's record of it then copies it again on its next run only if the source holds a newer version
 - A file object -- `Attachment`, `ContentVersion`, `ContentDocument`, `Document` -- is still refused as an object of its own: files travel with the records they hang on
 
@@ -76,13 +76,27 @@ Before execution, the Review step shows:
 - A **Sankey Flow Diagram** visualizing data flow from source objects through mappings to target objects
 - A **Save** button, which stores the reviewed configuration under the two orgs it
   runs between. The configuration is checked as a run started by hand is, so one
-  asking for _target to source_, for a mode other than full, or for manual
+  asking for _target to source_, for incremental or CDC, or for manual
   conflict review is refused and nothing is stored. While the Sync page stays
   open, saving the same configuration again updates its entry. Once the orgs,
   objects, mappings, transforms or strategy change, or after the page is
   reopened, saving creates a new entry, so a schedule built on the first keeps
   running what it was built on. The saved confirmation disappears as soon as the configuration on screen
   differs from the one saved.
+
+### Saved configurations
+
+- The Schedules tab lists the saved configurations. **Run now** runs one as it
+  was saved, without a schedule: it is read back from where it is kept and
+  checked as a run from the Sync tab is, Production Guard judges it before
+  anything is written, and it runs on the Execute step with the same progress,
+  Pause and Cancel, and the same results, saying which saved configuration it
+  is. It needs no simulation first. **Run full next time** makes the next run
+  of a delta configuration read every object whole.
+- The sync history says what started each run: by hand, a re-run from the
+  history, a schedule, or a pipeline's Sync step (see
+  [Automation](automation.md)). A pipeline's Sync run is listed as such in
+  Live Operations too, and is not cut by the pipeline's time budget.
 
 ### Schedules
 

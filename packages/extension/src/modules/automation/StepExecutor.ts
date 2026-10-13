@@ -4,7 +4,11 @@ import type {
   PipelineStepResult,
   PipelineStepType,
 } from '@sandforge/shared';
-import { conditionSourceDefect, isRetiredPipelineStepType } from '@sandforge/shared';
+import {
+  conditionSourceDefect,
+  isPipelineStepType,
+  isRetiredPipelineStepType,
+} from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { conditionDefect, evaluateCondition } from './ConditionalRouter.js';
 
@@ -148,11 +152,20 @@ function createFailureResult(
 
 /**
  * Why a step whose type has no handler is refused. A type SandForge no longer
- * has says so, and what to do: it will not run in a later release either.
+ * has says so, and what to do: it will not run in a later release either. So
+ * does a type this release does not have at all: a later release, or a hand,
+ * wrote it.
  */
 function notRunnable(step: PipelineStep): string {
   if (isRetiredPipelineStepType(step.type)) {
     return `Step "${step.name}" is a ${String(step.type)} step, which SandForge no longer supports: remove it from the pipeline.`;
+  }
+  if (!isPipelineStepType(step.type)) {
+    return (
+      `Step "${step.name}" is a "${String(step.type)}" step, a step type this release of ` +
+      'SandForge does not have: the pipeline was saved by a later release, or written by hand. ' +
+      'Remove the step, or update SandForge.'
+    );
   }
   return `Step "${step.name}" is a ${String(step.type)} step, and this step type cannot run in a pipeline yet.`;
 }

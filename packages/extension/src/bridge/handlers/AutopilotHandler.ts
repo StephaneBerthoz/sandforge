@@ -467,7 +467,9 @@ export class AutopilotHandler implements DomainHandler {
     const written = new Map<string, AuditObjectCounts>();
     /** A run is recorded once, whichever way it ends. */
     let recorded = false;
-    const recordRun = (outcome: 'success' | 'partial' | 'failure' | 'stopped'): void => {
+    const recordRun = (
+      outcome: 'success' | 'partial' | 'failure' | 'stopped' | 'cancelled',
+    ): void => {
       if (recorded) return;
       recorded = true;
       recordWriteRun(this.deps, {
@@ -666,10 +668,13 @@ export class AutopilotHandler implements DomainHandler {
         }
       }
 
+      // Stopped by the user, the run is cancelled once it wrote a record or
+      // had one refused, its counts saying which: it was recorded as partial,
+      // as a run the org cut short is.
       recordRun(
         result.stopped
-          ? result.totalSuccess > 0
-            ? 'partial'
+          ? result.totalSuccess + result.totalFailure > 0
+            ? 'cancelled'
             : 'stopped'
           : result.totalFailure === 0 && failedSet.size === 0
             ? 'success'

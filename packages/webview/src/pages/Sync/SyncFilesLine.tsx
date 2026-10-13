@@ -33,6 +33,16 @@ export const SyncFilesLine: React.FC<SyncFilesLineProps> = ({ files, simulated, 
         : t('sync.files.versions', { count: files.versions }),
     );
   }
+  // A legacy attachment the source changed has its copy replaced: it has no
+  // versions, and was never copied again.
+  const replaced = files.replaced ?? 0;
+  if (replaced > 0) {
+    parts.push(
+      simulated
+        ? t('sync.files.wouldReplace', { count: replaced })
+        : t('sync.files.replaced', { count: replaced }),
+    );
+  }
   parts.push(formatFileSize(files.bytes));
   if (files.unchanged > 0) parts.push(t('sync.files.unchanged', { count: files.unchanged }));
 
@@ -70,7 +80,7 @@ export const SyncFilesSummary: React.FC<SyncFilesSummaryProps> = ({ outcomes, te
   let bytes = 0;
   let skipped = 0;
   for (const files of outcomes) {
-    count += files.copied + files.versions;
+    count += files.copied + files.versions + (files.replaced ?? 0);
     bytes += files.bytes;
     skipped += files.tooLarge + files.pastRunCap;
   }

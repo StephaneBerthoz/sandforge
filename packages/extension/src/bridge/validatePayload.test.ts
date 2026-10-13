@@ -544,12 +544,21 @@ describe('the step types a stored pipeline reads with', () => {
     }
   });
 
-  it('refuses a type no release ever had, and a step with no type', () => {
-    expect(savedPipelineSchema.safeParse(saved('dataops')).success).toBe(false);
+  it('reads a type this release does not have, for the run to refuse by name and History to record', () => {
+    expect(savedPipelineSchema.safeParse(saved('dataops')).success).toBe(true);
+    expect(pipelineRunPayloadSchema.safeParse({ pipeline: saved('dataops:backup') }).success).toBe(
+      true,
+    );
+  });
+
+  it('refuses a step with no type, an empty one, one that is no text, and one past any name', () => {
     expect(
       savedPipelineSchema.safeParse({ id: 'pipe-1', name: 'Nightly', steps: [{ config: {} }] })
         .success,
     ).toBe(false);
+    expect(savedPipelineSchema.safeParse(saved(' ')).success).toBe(false);
+    expect(savedPipelineSchema.safeParse(saved(7 as unknown as string)).success).toBe(false);
+    expect(savedPipelineSchema.safeParse(saved('x'.repeat(81))).success).toBe(false);
   });
 });
 

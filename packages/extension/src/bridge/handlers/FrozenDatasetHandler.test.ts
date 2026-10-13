@@ -1244,7 +1244,7 @@ describe('FrozenDatasetHandler', () => {
         expect(posted(deps, 'frozen:load:response')).toEqual([]);
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
           }),
         ]);
@@ -1277,7 +1277,7 @@ describe('FrozenDatasetHandler', () => {
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [
               {
                 objectApiName: 'Account',
@@ -1434,9 +1434,9 @@ describe('FrozenDatasetHandler', () => {
           ]);
         });
 
-        it('is recorded as failed when the target refused every record its purge sent', async () => {
+        it('is recorded as cancelled, not failed, when the target refused every record its purge sent', async () => {
           // The purge's deletes are writes too: refused, they left nothing
-          // purged, and the trail said the load had done part of its work.
+          // purged. The user stopped the load: its counts say what was refused.
           const store = await cancelledReload({
             perObject: [],
             placeholders: [],
@@ -1455,14 +1455,14 @@ describe('FrozenDatasetHandler', () => {
 
           expect(new AuditTrailStore(store).list().entries).toEqual([
             expect.objectContaining({
-              outcome: 'failure',
+              outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 0, failed: 1 })],
               details: {},
             }),
           ]);
         });
 
-        it('is recorded as partial once its purge deleted a record', async () => {
+        it('is recorded as cancelled once its purge deleted a record', async () => {
           const store = await cancelledReload({
             perObject: [],
             placeholders: [],
@@ -1471,7 +1471,7 @@ describe('FrozenDatasetHandler', () => {
 
           expect(new AuditTrailStore(store).list().entries).toEqual([
             expect.objectContaining({
-              outcome: 'partial',
+              outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 2 })],
               details: {},
             }),

@@ -43,6 +43,7 @@ import {
   marketplaceListPayloadSchema,
   marketplaceInstallPayloadSchema,
   savedPipelineSchema,
+  payloadIssues,
 } from '../validatePayload.js';
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -232,6 +233,11 @@ export class AutomationHandler implements DomainHandler {
   private reportTrigger: (report: TriggerReport) => void = () => undefined;
   /** The Approval steps waiting for an answer, in every run of this window; built on first use. */
   private approvalGate?: ApprovalGate;
+  /**
+   * The saved entries that do not read as a pipeline, by key, with why, as
+   * the log was last told: said once, not at every look of the triggers.
+   */
+  private readonly unreadableSaid = new Map<string, string>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -410,14 +416,30 @@ export class AutomationHandler implements DomainHandler {
 
   /**
    * The saved pipelines a trigger can start. An entry that does not read as a
-   * pipeline — written by an older release, or imported — is left out.
+   * pipeline — written by an older release, or imported — is left out, and
+   * the log says which and why, once: it was left out in silence, and its
+   * schedule never ran with nothing anywhere to say so.
    */
   private savedPipelines(): PipelineDefinition[] {
     const saved = this.deps.configStore.getByCategory('pipelines');
-    return Object.values(saved).flatMap((value) => {
+    const unreadable = new Map<string, string>();
+    const pipelines = Object.entries(saved).flatMap(([key, value]) => {
       const parsed = savedPipelineSchema.safeParse(value);
-      return parsed.success ? [parsed.data as unknown as PipelineDefinition] : [];
+      if (parsed.success) return [parsed.data as unknown as PipelineDefinition];
+      unreadable.set(key, payloadIssues(parsed.error));
+      return [];
     });
+    for (const [key, issue] of unreadable) {
+      if (this.unreadableSaid.get(key) === issue) continue;
+      const name = (saved[key] as { name?: unknown } | null)?.name;
+      this.deps.log(
+        `[pipeline-triggers] saved pipeline ${typeof name === 'string' ? `"${name}"` : key} is ` +
+          `not scheduled: it does not read as a pipeline (${issue}).`,
+      );
+    }
+    this.unreadableSaid.clear();
+    for (const [key, issue] of unreadable) this.unreadableSaid.set(key, issue);
+    return pipelines;
   }
 
   /** Why a pipeline would be refused before its first step: what a trigger checks before it arms. */

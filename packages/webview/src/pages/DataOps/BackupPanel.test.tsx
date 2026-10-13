@@ -123,6 +123,39 @@ describe('BackupPanel', () => {
     expect(screen.getByText('failed')).toBeDefined();
   });
 
+  it('names each object a failed backup never reached, and says it holds none of it', () => {
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            status: 'failed',
+            partial: true,
+            objectResults: [
+              { objectApiName: 'Contact', recordCount: 300, orgCount: 300, truncated: false },
+              { objectApiName: 'Lead', recordCount: 0, truncated: true, stoppedAt: 'failure' },
+              {
+                objectApiName: 'Account',
+                recordCount: 0,
+                truncated: true,
+                stoppedAt: 'not_reached',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      [...screen.getByTestId('backup-partial-op-1').querySelectorAll('li')].map(
+        (li) => li.textContent,
+      ),
+    ).toEqual([
+      'Lead: 0 rows read — the read failed there.',
+      'Account: not read — the backup failed before it reached this object, and holds none of its rows.',
+    ]);
+  });
+
   it('should show backup status badges', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByText('completed')).toBeDefined();

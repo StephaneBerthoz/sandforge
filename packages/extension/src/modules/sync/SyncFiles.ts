@@ -15,15 +15,20 @@
  *   in the target, the source version copied and the target records the copy
  *   is linked to. A file found again is not copied again; a document whose
  *   source holds a newer version gets that version added to its copy, never a
- *   second document. Two sandboxes taken from the same production share their
- *   files' ids: a file the target already holds under the source's own id is
- *   taken as copied, rather than copied over itself. A configuration that is
- *   not saved keeps nothing, so it copies no file.
+ *   second document. A legacy attachment, which has no versions, whose source
+ *   changed since it was copied has its copy replaced: the new one written
+ *   under the target record, then the earlier one deleted. Two sandboxes taken
+ *   from the same production share their files' ids: a file the target already
+ *   holds under the source's own id is taken as copied, rather than copied
+ *   over itself. A configuration that is not saved keeps nothing, so it copies
+ *   no file.
  * - **Delta.** A delta read finds the files of the records changed since the
- *   watermark, and besides those the documents an earlier run copied whose
- *   source has a version stamped after it: a new version reaches the target
- *   though its record did not change. A file attached to a record nothing else
- *   changed is found when the record changes, or on a full read.
+ *   watermark, the documents an earlier run copied whose source has a version
+ *   stamped after it, and the files of the records nothing else of which
+ *   changed: a document linked to one since, or whose latest version was
+ *   published since, and an attachment created or changed under one since.
+ *   Those records are not written: their files go to the copies an earlier
+ *   run made of them, found by the key the object's write matches on.
  * - **Measured first.** Before anything is written the target's file storage
  *   is read, and the files of every object are found and measured against the
  *   configuration's caps: a file over the largest size, and the files past
@@ -39,7 +44,7 @@ import type {
   SyncFilesStorage,
   SyncObjectConfig,
 } from '@sandforge/shared';
-import { BYTES_PER_MB, formatFileSize } from '@sandforge/shared';
+import { BYTES_PER_MB, formatFileSize, sanitizeSoqlObjectName } from '@sandforge/shared';
 import {
   copyFiles,
   lookupFailure,
@@ -61,7 +66,8 @@ import {
 } from '../forge/fileTransfer.js';
 import { toSaveOutcomes } from '../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { assertSoqlDateTime } from './SyncDelta.js';
+import { assertSoqlWhere } from '../../core/common/soqlValidator.js';
+import { assertSoqlDateTime, orgDateTime } from './SyncDelta.js';
 
 /**
  * Most copied files one configuration keeps a record of. Every file a run
@@ -91,6 +97,11 @@ export const syncCopiedFileSchema = z.object({
   targetId: recordIdSchema,
   /** For a document: the source version last copied. */
   sourceVersionId: recordIdSchema.optional(),
+  /**
+   * For an attachment: when the source last changed it, as it was copied —
+   * a later change replaces the copy. Absent from a copy kept before it was.
+   */
+  sourceModifiedAt: z.iso.datetime().optional(),
   /** The target records the copy is linked to. */
   linked: z.array(recordIdSchema).max(MAX_LINKS),
   /** When it was last written, by this machine's clock: said, never read from. */
@@ -138,8 +149,25 @@ export interface SyncFileDeps {
   sourceIds(objectConfig: SyncObjectConfig, changedSince?: string): Promise<string[]>;
   /** Where the files a configuration copied are kept. */
   store: SyncFileStore;
+  /**
+   * Delete records of the target in one call: the earlier copy of a legacy
+   * attachment the source changed, once its new copy is written. Without it,
+   * a changed attachment is left as it was copied.
+   */
+  deleteFromTarget?: (objectApiName: string, ids: string[]) => Promise<InsertResult[]>;
   /** Told as each file is copied, for the run's progress: how far, in percent, and what. */
   onProgress?: (percent: number, message: string) => void;
+}
+
+/**
+ * The records an earlier run wrote in the target for some source records,
+ * tied by the key the object's write matches on.
+ */
+export interface TiedRecords {
+  /** Source id to the one target record its key ties it to. */
+  held: ReadonlyMap<string, string>;
+  /** Why none could be tied: no key carried from the source ties a record to one copy. */
+  refused?: string;
 }
 
 /** Raised before anything is written, when a run that copies files may not go ahead. */
@@ -184,6 +212,19 @@ export interface PlannedObjectFiles {
    * copied: recorded once the run writes, never by a simulation.
    */
   shared: SyncCopiedFile[];
+  /**
+   * Source records the run does not write — their files changed, nothing
+   * else of them — with the copy an earlier run made of each in the target,
+   * by source id: their new files go to it.
+   */
+  held: ReadonlyMap<string, string>;
+  /**
+   * Legacy attachments an earlier run copied that the source changed since:
+   * the earlier copy of each, by source id, deleted once the new one is written.
+   */
+  replacing: ReadonlyMap<string, string>;
+  /** When the source last changed each legacy attachment found, as ISO, by id: kept with its copy. */
+  attachmentsChangedAt: ReadonlyMap<string, string>;
 }
 
 /** The files of a run, found and measured before anything is written. */
@@ -242,6 +283,87 @@ function copiedFilesOf(config: SyncConfig, store: SyncFileStore): Map<string, Sy
     }
   }
   return copied;
+}
+
+/**
+ * The records of an object's scope whose files changed after `changedSince`:
+ * a Salesforce File linked to one since — the link's stamp — or whose latest
+ * version was published since — its version's stamp — and a legacy attachment
+ * created or changed under one since. Nothing else of such a record need have
+ * changed, and a delta read, which reads the records stamped since, did not
+ * return it: a file attached to it was found only once the record changed, or
+ * on a full read.
+ */
+async function recordsWithFilesSince(
+  deps: SyncFileDeps,
+  config: SyncConfig,
+  objectConfig: SyncObjectConfig,
+  changedSince: string,
+): Promise<string[]> {
+  const object = sanitizeSoqlObjectName(objectConfig.objectApiName);
+  const own = objectConfig.where?.trim() ? ` WHERE (${assertSoqlWhere(objectConfig.where)})` : '';
+  const scope = `SELECT Id FROM ${object}${own}`;
+  const since = assertSoqlDateTime(changedSince);
+  const found = new Set<string>();
+  const links = await deps.copy.queryRecords(
+    config.sourceOrgId,
+    `SELECT LinkedEntityId FROM ContentDocumentLink WHERE LinkedEntityId IN (${scope}) AND ` +
+      `(SystemModstamp > ${since} OR ContentDocument.LatestPublishedVersion.SystemModstamp > ${since})`,
+  );
+  for (const link of links) {
+    const id = text(link, 'LinkedEntityId');
+    if (id && isRecordId(id)) found.add(id);
+  }
+  const attachments = await deps.copy.queryRecords(
+    config.sourceOrgId,
+    `SELECT ParentId FROM Attachment WHERE ParentId IN (${scope}) AND LastModifiedDate > ${since}`,
+  );
+  for (const attachment of attachments) {
+    const id = text(attachment, 'ParentId');
+    if (id && isRecordId(id)) found.add(id);
+  }
+  return [...found];
+}
+
+/** When the source last changed each legacy attachment of `ids`, as ISO, by id. */
+async function attachmentsChangedAt(
+  deps: SyncFileDeps,
+  config: SyncConfig,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const changedAt = new Map<string, string>();
+  for (const list of idLists(ids)) {
+    const rows = await deps.copy.queryRecords(
+      config.sourceOrgId,
+      `SELECT Id, LastModifiedDate FROM Attachment WHERE Id IN (${list})`,
+    );
+    for (const row of rows) {
+      const id = text(row, 'Id');
+      const at = orgDateTime(row['LastModifiedDate']);
+      if (id && at) changedAt.set(id, at);
+    }
+  }
+  return changedAt;
+}
+
+/**
+ * Whether a legacy attachment an earlier run copied changed in the source
+ * since: its last change is not the one its copy was made from — or, for a
+ * copy kept before that was, it changed after the point a delta read starts
+ * from. A full read cannot tell such a copy from a change, and leaves it.
+ *
+ * One the target held under the source's own id — two sandboxes taken from
+ * the same production — was taken as copied, and is the target's own: it is
+ * never deleted to be replaced.
+ */
+function attachmentChanged(
+  earlier: SyncCopiedFile,
+  changedAt: string | undefined,
+  changedSince: string | undefined,
+): boolean {
+  if (changedAt === undefined || earlier.targetId === earlier.sourceId) return false;
+  if (earlier.sourceModifiedAt !== undefined) return earlier.sourceModifiedAt !== changedAt;
+  return changedSince !== undefined && Date.parse(changedAt) > Date.parse(changedSince);
 }
 
 /**
@@ -389,6 +511,12 @@ export async function planRunFiles(input: {
   option: SyncFileCopyOption;
   objects: readonly FilePlanObject[];
   deps: SyncFileDeps;
+  /**
+   * On a delta read: the copies an earlier run made in the target of source
+   * records this run does not write, whose files changed since. Without it,
+   * their new files are left for when the record changes.
+   */
+  tie?: (objectConfig: SyncObjectConfig, sourceIds: readonly string[]) => Promise<TiedRecords>;
 }): Promise<SyncFilePlan> {
   const { config, option, objects, deps } = input;
   const copied = copiedFilesOf(config, deps.store);
@@ -422,8 +550,42 @@ export async function planRunFiles(input: {
     if (objectConfig.operation === 'delete') continue;
     const name = objectConfig.objectApiName;
     const ids = await deps.sourceIds(objectConfig, changedSince);
+    const notes: string[] = [];
+    // On a delta read, the records whose files changed while nothing else of
+    // them did: the read does not return them, and their files go to the
+    // copy an earlier run made of each, which the object's key finds.
+    let held: ReadonlyMap<string, string> = new Map();
+    if (changedSince !== undefined) {
+      try {
+        const changed = new Set(ids);
+        const others = (
+          await recordsWithFilesSince(deps, config, objectConfig, changedSince)
+        ).filter((id) => !changed.has(id));
+        if (others.length > 0) {
+          const tied: TiedRecords = input.tie
+            ? await input.tie(objectConfig, others)
+            : { held: new Map() };
+          held = tied.held;
+          const untied = others.filter((id) => !held.has(id)).length;
+          if (untied > 0) {
+            notes.push(
+              `${untied} record(s) whose files changed since the last run, and nothing else of ` +
+                'them, could not be tied to their copy in the target' +
+                (tied.refused ? ` (${tied.refused})` : '') +
+                ': their new files are copied when the record changes, or on a full read.',
+            );
+          }
+        }
+      } catch (err) {
+        throw new SyncFilesRefusedError(
+          `${name}: the files its records gained since the last run could not be looked up ` +
+            `(${extractErrorMessage(err)}). Run it again, or turn the files off. Nothing was written.`,
+        );
+      }
+    }
+    const scope = [...ids, ...held.keys()];
     const selection = await selectFiles({
-      scope: new Map([[name, ids]]),
+      scope: new Map([[name, scope]]),
       sourceOrgId: config.sourceOrgId,
       maxFileBytes,
       queryRecords: deps.copy.queryRecords,
@@ -441,7 +603,6 @@ export async function planRunFiles(input: {
     }
 
     const outcome = emptyFilesOutcome();
-    const notes: string[] = [];
     for (const left of selection.leftOut) {
       if (left.reason === 'too-large') outcome.tooLarge++;
       else if (left.reason === 'external') outcome.external++;
@@ -454,6 +615,7 @@ export async function planRunFiles(input: {
 
     let candidates = selection.files;
     const shared: SyncCopiedFile[] = [];
+    let changedAt = new Map<string, string>();
     try {
       if (changedSince !== undefined) {
         const found = new Set(candidates.map((f) => f.sourceId));
@@ -472,6 +634,17 @@ export async function planRunFiles(input: {
           shared.push(entry);
         }
       }
+      // When the source last changed each attachment: one changed since its
+      // copy was made has the copy replaced. An attachment has no versions,
+      // and one the source changed was never copied again.
+      const attachments = candidates.filter((f) => f.objectApiName === 'Attachment');
+      if (attachments.length > 0 && deps.deleteFromTarget) {
+        changedAt = await attachmentsChangedAt(
+          deps,
+          config,
+          attachments.map((f) => f.sourceId),
+        );
+      }
     } catch (err) {
       throw new SyncFilesRefusedError(
         `${name}: the files an earlier run copied could not be looked up ` +
@@ -480,6 +653,7 @@ export async function planRunFiles(input: {
     }
 
     const files: FileToCopy[] = [];
+    const replacing = new Map<string, string>();
     let mapFull = 0;
     for (const file of candidates) {
       if (plannedEarlier.has(file.sourceId)) {
@@ -490,7 +664,14 @@ export async function planRunFiles(input: {
         continue;
       }
       const earlier = copied.get(mapKey(config.sourceOrgId, config.targetOrgId, file.sourceId));
-      if (earlier && (earlier.kind === 'attachment' || earlier.sourceVersionId === file.body.id)) {
+      const replaces =
+        earlier?.kind === 'attachment' &&
+        attachmentChanged(earlier, changedAt.get(file.sourceId), changedSince);
+      if (
+        earlier &&
+        !replaces &&
+        (earlier.kind === 'attachment' || earlier.sourceVersionId === file.body.id)
+      ) {
         // Copied before and unchanged since: a document is only linked to the
         // records its copy lacks, an attachment left as it is.
         outcome.unchanged++;
@@ -514,7 +695,11 @@ export async function planRunFiles(input: {
       plannedBytes += file.bytes;
       outcome.bytes += file.bytes;
       plannedEarlier.add(file.sourceId);
-      if (earlier) {
+      if (earlier && replaces) {
+        outcome.replaced = (outcome.replaced ?? 0) + 1;
+        replacing.set(file.sourceId, earlier.targetId);
+        files.push(file);
+      } else if (earlier) {
         outcome.versions++;
         files.push({ ...file, into: { documentId: earlier.targetId, linked: earlier.linked } });
       } else {
@@ -535,7 +720,16 @@ export async function planRunFiles(input: {
           `${SYNC_FILE_MAP_MAX} copied files at most, which it holds already.`,
       );
     }
-    plan.objects.set(name, { scope: new Set(ids), files, outcome, notes, shared });
+    plan.objects.set(name, {
+      scope: new Set(scope),
+      files,
+      outcome,
+      notes,
+      shared,
+      held,
+      replacing,
+      attachmentsChangedAt: changedAt,
+    });
   }
 
   plan.storage = {
@@ -595,7 +789,13 @@ export async function copyPlannedFiles(input: {
   waitIfPaused?: () => Promise<void>;
 }): Promise<CopiedObjectFiles> {
   const { config, option, objectApiName, planned, written, deps, signal } = input;
-  const outcome: SyncFilesOutcome = { ...planned.outcome, copied: 0, versions: 0, bytes: 0 };
+  const outcome: SyncFilesOutcome = {
+    ...planned.outcome,
+    copied: 0,
+    versions: 0,
+    bytes: 0,
+    ...(planned.outcome.replaced !== undefined ? { replaced: 0 } : {}),
+  };
   const notes = [...planned.notes];
   const unplanned = [...written.keys()].filter((id) => !planned.scope.has(id)).length;
   if (unplanned > 0) {
@@ -637,13 +837,22 @@ export async function copyPlannedFiles(input: {
   const errors: ExecutionObjectError[] = [];
   let unsaved: string | undefined;
   let cancelled = false;
+  /** The earlier copies of the attachments replaced, to delete once the new ones are kept. */
+  const replaced: string[] = [];
+  /** Those the target would not delete, and why. */
+  let left: EarlierCopiesLeft = { ids: [], note: undefined };
 
   const record = (file: FileToCopy, copy: CopiedFile): void => {
     const key = mapKey(config.sourceOrgId, config.targetOrgId, file.sourceId);
     const linked = [...new Set([...(file.into?.linked ?? []), ...copy.linked])].slice(0, MAX_LINKS);
     const document = file.objectApiName === 'ContentDocument';
+    const earlierCopy = planned.replacing.get(file.sourceId);
+    const changedAt = planned.attachmentsChangedAt.get(file.sourceId);
     if (copy.asVersion) {
       outcome.versions++;
+      outcome.bytes += file.bytes;
+    } else if (earlierCopy !== undefined) {
+      outcome.replaced = (outcome.replaced ?? 0) + 1;
       outcome.bytes += file.bytes;
     } else if (!file.into?.unchanged) {
       outcome.copied++;
@@ -658,9 +867,11 @@ export async function copyPlannedFiles(input: {
         sourceId: file.sourceId,
         targetId: copy.targetId,
         ...(document ? { sourceVersionId: file.body.id } : {}),
+        ...(!document && changedAt !== undefined ? { sourceModifiedAt: changedAt } : {}),
         linked,
         copiedAt: new Date().toISOString(),
       });
+      if (earlierCopy !== undefined && earlierCopy !== copy.targetId) replaced.push(earlierCopy);
     } catch (err) {
       unsaved = `${extractErrorMessage(err)} (${key})`;
     }
@@ -671,9 +882,11 @@ export async function copyPlannedFiles(input: {
       files,
       sourceOrgId: config.sourceOrgId,
       targetOrgId: config.targetOrgId,
+      // A record the run wrote, or one it did not whose files changed: its
+      // files go to the copy an earlier run made of it.
       remapper: {
-        isCreated: (id) => written.has(id),
-        get: (id) => written.get(id),
+        isCreated: (id) => written.has(id) || planned.held.has(id),
+        get: (id) => written.get(id) ?? planned.held.get(id),
         // What the run copied is kept by `record`, from what each file became.
         add: () => undefined,
       },
@@ -697,12 +910,18 @@ export async function copyPlannedFiles(input: {
   } catch (err) {
     if (!(err instanceof FilesStopped)) throw err;
     cancelled = unsaved === undefined;
+  } finally {
+    // The earlier copy of each attachment replaced goes once the new one is
+    // kept, a cancel or a failure after it notwithstanding: deleted first, a
+    // copy whose replacement the target then refused was lost.
+    if (replaced.length > 0) left = await deleteEarlierCopies(deps, replaced);
   }
 
   outcome.links = report.links;
-  outcome.failed = report.objects.reduce((sum, entry) => sum + entry.failed, 0);
+  outcome.failed = report.objects.reduce((sum, entry) => sum + entry.failed, 0) + left.ids.length;
   outcome.recordNotWritten = report.leftOut.filter((l) => l.reason === 'record-not-created').length;
   notes.push(...failureLines(errors));
+  if (left.note !== undefined) notes.push(left.note);
   if (outcome.recordNotWritten > 0) {
     notes.push(
       `${outcome.recordNotWritten} file(s) were not copied: no record they hang on was written.`,
@@ -716,6 +935,51 @@ export async function copyPlannedFiles(input: {
     );
   }
   return { outcome, notes, unplanned, cancelled };
+}
+
+/** The most records one delete call takes. */
+const DELETE_BATCH = 200;
+
+/** The earlier copies of replaced attachments the target would not delete, and the line that names them. */
+interface EarlierCopiesLeft {
+  ids: string[];
+  note: string | undefined;
+}
+
+/**
+ * Delete from the target the earlier copies of the attachments a run
+ * replaced. A copy the target would not delete is counted as failed and
+ * named: the record then holds the new copy and the old one.
+ */
+async function deleteEarlierCopies(
+  deps: SyncFileDeps,
+  ids: readonly string[],
+): Promise<EarlierCopiesLeft> {
+  const left: string[] = [];
+  const messages = new Set<string>();
+  for (let at = 0; at < ids.length; at += DELETE_BATCH) {
+    const batch = ids.slice(at, at + DELETE_BATCH);
+    try {
+      const answers = (await deps.deleteFromTarget?.('Attachment', batch)) ?? [];
+      batch.forEach((id, index) => {
+        const answer = answers[index];
+        if (answer?.success) return;
+        left.push(id);
+        messages.add(answer?.errors.join('; ') || 'The target gave no reason.');
+      });
+    } catch (err) {
+      left.push(...batch);
+      messages.add(extractErrorMessage(err));
+    }
+  }
+  if (left.length === 0) return { ids: [], note: undefined };
+  return {
+    ids: left,
+    note:
+      `${left.length} earlier copy(ies) of an attachment replaced could not be deleted from the ` +
+      `target (${[...messages].join('; ')}): the record holds the new copy and the old one, ` +
+      `${left.join(', ')}.`,
+  };
 }
 
 /** The calls a run's files make to an org, over its connection. */
@@ -758,7 +1022,7 @@ export function filesSummaryLine(outcomes: readonly SyncFilesOutcome[]): string 
   let bytes = 0;
   let skipped = 0;
   for (const o of outcomes) {
-    files += o.copied + o.versions;
+    files += o.copied + o.versions + (o.replaced ?? 0);
     bytes += o.bytes;
     skipped += o.tooLarge + o.pastRunCap;
   }

@@ -2243,11 +2243,12 @@ describe('DataOpsHandler', () => {
           ],
         });
         // The 200 masked stay masked: the trail keeps them, the run as
-        // partial, and the rows the cancel kept from the org as not sent.
+        // cancelled — the user stopped it, where partial read as a run the
+        // org cut short — and the rows the cancel kept from the org as not sent.
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
             action: 'anonymize_execute',
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [
               {
                 objectApiName: 'Contact',
@@ -2691,7 +2692,33 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     });
   });
 
-  it('stops at a cancel after the first page as partial, and counts the 500 rows it never reached', async () => {
+  it('records a run the user cancelled before it masked a row as stopped, under the code that says so', async () => {
+    const rows = contactsOf(300);
+    const { conn, query, update } = orgOf(rows);
+    // The cancel lands while the first page is read: nothing is written.
+    const read = query.getMockImplementation();
+    if (!read) throw new Error('the org reads nothing');
+    query.mockImplementation(async (soql: string) => {
+      if (!soql.startsWith('SELECT COUNT() ')) cancelTheRun();
+      return read(soql);
+    });
+
+    await maskContacts(conn);
+
+    expect(update).not.toHaveBeenCalled();
+    expect(unmasked(rows)).toBe(300);
+    // Recorded as partial, a run that masked nothing read as one the org had
+    // refused part of.
+    expect(audited()).toEqual([
+      expect.objectContaining({
+        action: 'anonymize_execute',
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'RUN_CANCELLED' }),
+      }),
+    ]);
+  });
+
+  it('stops at a cancel after the first page, recorded as cancelled, and counts the 500 rows it never reached', async () => {
     const rows = contactsOf(2500);
     const { conn, query } = orgOf(rows, {
       afterBatch: (written) => {
@@ -2715,7 +2742,7 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     expect(audited()).toEqual([
       expect.objectContaining({
         action: 'anonymize_execute',
-        outcome: 'partial',
+        outcome: 'cancelled',
         objects: [
           {
             objectApiName: 'Contact',

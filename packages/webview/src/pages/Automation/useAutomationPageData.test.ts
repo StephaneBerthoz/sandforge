@@ -672,6 +672,48 @@ describe('useAutomationPageData — a failed run says why', () => {
     expect(result.current.error).toBe('The pipeline run failed: Step execution timed out');
   });
 
+  it("says in the reader's language a run refused for a step type SandForge does not have, naming the step", async () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('pipeline:execute').data = {
+      id: 'run-4',
+      status: 'failed',
+      error:
+        'Pipeline did not start: Step "Archive cases" is a "archive" step, a step type this ' +
+        'release of SandForge does not have.',
+      stepResults: [
+        { stepId: 's2', stepName: 'Archive cases', stepType: 'archive', status: 'failed' },
+      ],
+    };
+    rerender();
+
+    expect(result.current.error).toBe(
+      'The pipeline did not start: step "Archive cases" is a "archive" step, a step type ' +
+        'SandForge does not have. Remove the step, or update SandForge.',
+    );
+
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      mutationFor('pipeline:execute').data = {
+        id: 'run-5',
+        status: 'failed',
+        stepResults: [{ stepName: 'Archiver', stepType: 'archive', status: 'failed' }],
+      };
+      rerender();
+      expect(result.current.error).toBe(
+        fr.automation.runRefusedUnknownType
+          .replace('{{step}}', 'Archiver')
+          .replace('{{type}}', 'archive'),
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
   it('adds nothing to a run that completed', () => {
     const { result, rerender } = renderHook(() => useAutomationPageData());
 

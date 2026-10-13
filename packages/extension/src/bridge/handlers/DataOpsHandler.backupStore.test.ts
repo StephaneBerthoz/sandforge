@@ -465,6 +465,53 @@ describe('DataOpsHandler backup record storage', () => {
       });
     });
 
+    it('lists every object it never reached, holding none of it, and says the backup is partial', async () => {
+      const { handler, deps, config } = createHarness();
+      // Contact reads in one page; the first page of Lead fails; Account is never read.
+      pagedOrg(contactsOf(300), { failPage: 2 });
+
+      await handler.handle(backupMsg('bk-short', ['Contact', 'Lead', 'Account']));
+
+      // Account was in no list: the Backup and Restore tabs, and a restore's
+      // warning, named nothing of what the backup never read.
+      expect(config.get('backup:bk-short')).toMatchObject({
+        status: 'failed',
+        partial: true,
+        totalRecords: 300,
+        objects: [
+          { objectApiName: 'Contact', recordCount: 300, truncated: false },
+          { objectApiName: 'Lead', recordCount: 0, truncated: true, stoppedAt: 'failure' },
+          { objectApiName: 'Account', recordCount: 0, truncated: true, stoppedAt: 'not_reached' },
+        ],
+      });
+      const [error] = postedOf(deps, 'dataops:error');
+      expect(String(error?.payload.message)).toContain(
+        'listed as partial: Lead 0 (the read failed), Account none (the backup stopped before it).',
+      );
+
+      await handler.handle(
+        inboundRequest({
+          id: 'list-short',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+      expect(postedOf(deps, 'backup:list:result')[0]?.payload).toMatchObject({
+        backups: [
+          {
+            status: 'failed',
+            partial: true,
+            objectResults: [
+              { objectApiName: 'Contact' },
+              { objectApiName: 'Lead', stoppedAt: 'failure' },
+              { objectApiName: 'Account', recordCount: 0, stoppedAt: 'not_reached' },
+            ],
+          },
+        ],
+      });
+    });
+
     it('keeps nothing when the read fails before a row is written', async () => {
       const { handler, config, files } = createHarness();
       pagedOrg(contactsOf(10), { failPage: 1 });
@@ -785,6 +832,33 @@ describe('DataOpsHandler backup record storage', () => {
         level: 'warning',
         message,
       });
+    });
+
+    it('names in its warning each object the backup never reached, which a restore leaves as it is', async () => {
+      const { handler, deps, config, files } = createHarness();
+      await files.store.begin('bk-short', 'Contact');
+      await files.store.append('bk-short', 'Contact', contactsOf(300));
+      keepMeta(
+        config,
+        'bk-short',
+        [
+          { objectApiName: 'Contact', recordCount: 300, orgCount: 300, truncated: false },
+          { objectApiName: 'Account', recordCount: 0, truncated: true, stoppedAt: 'not_reached' },
+        ],
+        { status: 'failed', partial: true },
+      );
+      restoringOrg();
+
+      await handler.handle(rollbackMsg('bk-short'));
+
+      const message =
+        "Rollback completed: 300 records restored. The backup held only part of the org's " +
+        'records, and the rest were left as they are: Account none (the backup stopped before it).';
+      expect(postedOf(deps, 'dataops:rollback:response')[0]?.payload).toMatchObject({
+        partial: true,
+        message,
+      });
+      expect(postedOf(deps, 'notification')[0]?.payload).toMatchObject({ message });
     });
 
     it('says so when an object’s records are no longer on disk', async () => {

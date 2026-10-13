@@ -43,8 +43,10 @@ Take a snapshot of the objects an Anonymize writes over:
   a stopped run leaves no half-saved snapshot -- run it again for a complete
   one
 - A backup whose read the org fails part-way keeps the records it read,
-  listed as failed and partial with the object it stopped on, and says so;
-  one the disk could not take a page of keeps nothing
+  listed as failed and partial with the object it stopped on and each object
+  it never reached, which it holds none of -- the Backup and Restore tabs and
+  a restore's warning name them -- and says so; one the disk could not take a
+  page of keeps nothing
 
 ### Restore
 
@@ -122,7 +124,9 @@ your own:
   then ends partial -- failed when it masked nothing -- and says, per object,
   how many records still hold their original values: in its result, in the
   message the page shows, in the audit trail (Reports: refused records as
-  failed, records never reached as not sent) and in the output log.
+  failed, records never reached as not sent; a run you cancelled as
+  cancelled, or as stopped under `RUN_CANCELLED` when it had masked nothing
+  and the org had refused nothing) and in the output log.
 - **Resume where it stopped.** A run that stopped before the end keeps, on
   this machine, where it got: per object, whether it was read to the end, the
   last record it handled, and the records the org refused. The Anonymize tab

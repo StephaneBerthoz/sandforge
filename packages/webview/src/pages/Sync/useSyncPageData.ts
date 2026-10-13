@@ -198,6 +198,11 @@ export interface SyncPageData {
   savedRunStarting: boolean;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
   configSaved: boolean;
+  /**
+   * Whether the configuration on screen copies files and is not saved: the
+   * extension refuses a run and a simulation of it, so neither is sent.
+   */
+  filesNeedSave: boolean;
   /** Apply a pre-built sync template to populate wizard state. */
   handleApplyTemplate: (template: SyncTemplateConfig) => void;
   /** Whether the wizard can advance to the next step. */
@@ -831,6 +836,14 @@ export function useSyncPageData(): SyncPageData {
       ? lastSaved.id
       : null;
 
+  /**
+   * Files are copied by a saved configuration only, which keeps which file it
+   * copied where: the extension refuses a run, and a simulation, of one that
+   * is not saved. The page warned and sent the run all the same, to be
+   * refused once the execute step had started.
+   */
+  const filesNeedSave = copyFiles && savedIdOnScreen === null;
+
   /** The objects a delta run would be refused for: see {@link DELTA_OPERATIONS}. */
   const deltaBlockers =
     mode === 'delta'
@@ -838,7 +851,7 @@ export function useSyncPageData(): SyncPageData {
       : [];
 
   const handleExecute = () => {
-    if (!sourceOrgId || !targetOrgId || busy) return;
+    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
     setError(null);
 
     const config = buildConfig(
@@ -900,7 +913,7 @@ export function useSyncPageData(): SyncPageData {
    * in conflict. Nothing is written, and nothing is recorded as a run.
    */
   const handleSimulate = () => {
-    if (!sourceOrgId || !targetOrgId || busy) return;
+    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
     setError(null);
 
     // Under the saved id too: a simulation of a delta configuration reads
@@ -1015,6 +1028,7 @@ export function useSyncPageData(): SyncPageData {
     savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved: savedIdOnScreen !== null,
+    filesNeedSave,
     handleApplyTemplate,
     canGoNext,
     isFinished,

@@ -138,6 +138,65 @@ describe('planRunFiles — refusals before anything is written', () => {
     );
   });
 
+  it('refuses when the files the records gained since the last run could not be looked up', async () => {
+    const d = deps(
+      { kind: 'none' },
+      {
+        queryRecords: vi.fn(async (_org: string, soql: string) => {
+          if (soql.includes('IN (SELECT Id FROM Account')) throw new Error('MALFORMED_QUERY');
+          return [];
+        }),
+      },
+    );
+
+    const planned = planRunFiles({
+      config,
+      option,
+      objects: [{ objectConfig: account, changedSince: '2026-10-13T08:55:00Z' }],
+      deps: d,
+    });
+
+    await expect(planned).rejects.toBeInstanceOf(SyncFilesRefusedError);
+    await expect(planned).rejects.toThrow(
+      'Account: the files its records gained since the last run could not be looked up ' +
+        '(MALFORMED_QUERY). Run it again, or turn the files off. Nothing was written.',
+    );
+  });
+
+  it('asks, on a delta read, which records of the scope gained a file or an attachment since, within its filter', async () => {
+    const asked: string[] = [];
+    const d = deps(
+      { kind: 'none' },
+      {
+        queryRecords: vi.fn(async (_org: string, soql: string) => {
+          asked.push(soql);
+          return [];
+        }),
+      },
+    );
+
+    await planRunFiles({
+      config,
+      option,
+      objects: [
+        {
+          objectConfig: { ...account, where: "Type = 'Customer'" },
+          changedSince: '2026-10-13T08:55:00Z',
+        },
+      ],
+      deps: d,
+    });
+
+    // The link's stamp, or its document's latest version's; and an
+    // attachment's last change: a record nothing else of which changed is
+    // returned by no delta read.
+    expect(asked.slice(0, 2)).toEqual([
+      "SELECT LinkedEntityId FROM ContentDocumentLink WHERE LinkedEntityId IN (SELECT Id FROM Account WHERE (Type = 'Customer')) AND " +
+        '(SystemModstamp > 2026-10-13T08:55:00Z OR ContentDocument.LatestPublishedVersion.SystemModstamp > 2026-10-13T08:55:00Z)',
+      "SELECT ParentId FROM Attachment WHERE ParentId IN (SELECT Id FROM Account WHERE (Type = 'Customer')) AND LastModifiedDate > 2026-10-13T08:55:00Z",
+    ]);
+  });
+
   it('copies no new file past the record a configuration keeps, and says why', async () => {
     const full: SyncCopiedFile[] = Array.from({ length: SYNC_FILE_MAP_MAX }, (_, n) =>
       copied({ sourceId: fakeId('069', 1000 + n) }),
@@ -259,5 +318,11 @@ describe('filesSummaryLine', () => {
     ];
 
     expect(filesSummaryLine(outcomes)).toBe('3 file(s), 3 MB copied, 3 skipped past the caps');
+  });
+
+  it('counts an attachment whose copy was replaced among the files copied', () => {
+    expect(filesSummaryLine([{ ...emptyFilesOutcome(), replaced: 2, bytes: MB }])).toBe(
+      '2 file(s), 1 MB copied, 0 skipped past the caps',
+    );
   });
 });

@@ -3174,7 +3174,7 @@ describe('ForgeHandler', () => {
       return cancel;
     }
 
-    it('records a run a cancel stopped after it wrote as partial, with what it wrote', async () => {
+    it('records a run a cancel stopped after it wrote as cancelled, with what it wrote', async () => {
       // Recorded as failed, while the history kept it as partial and Seed
       // records a cancel so: the trail read a run the user stopped as one
       // that went wrong.
@@ -3193,7 +3193,7 @@ describe('ForgeHandler', () => {
 
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: [{ objectApiName: 'Account', created: 2, updated: 0, deleted: 0, failed: 0 }],
           details: {},
         }),
@@ -3219,7 +3219,7 @@ describe('ForgeHandler', () => {
       await execute();
 
       expect(new AuditTrailStore(store).list().entries[0]).toMatchObject({
-        outcome: 'partial',
+        outcome: 'cancelled',
         details: { contactPoints: 'neutralized', contactPointFields: 1, contactPointValues: 2 },
       });
     });
@@ -3270,9 +3270,9 @@ describe('ForgeHandler', () => {
       expect(errors.map((m) => m.payload?.code)).toEqual(['RUN_CANCELLED']);
     });
 
-    it('records a run a cancel stopped after the target refused all it was sent as failed', async () => {
-      // Nothing written, and not for want of trying: what the target refused
-      // is a failure, as a finished run with those tallies is one.
+    it('records a run a cancel stopped after the target refused all it was sent as cancelled, not failed', async () => {
+      // Nothing written, and not for want of trying: the user stopped it all
+      // the same, and its counts say what the target refused.
       const store = recordingStore();
       vi.mocked(orchestrator.execute).mockRejectedValue(
         cancelledWith({
@@ -3294,7 +3294,7 @@ describe('ForgeHandler', () => {
 
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({
-          outcome: 'failure',
+          outcome: 'cancelled',
           objects: [{ objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 2 }],
           details: {},
         }),
@@ -3354,7 +3354,7 @@ describe('ForgeHandler', () => {
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [
               {
                 objectApiName: 'Account',
@@ -3449,7 +3449,7 @@ describe('ForgeHandler', () => {
         });
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [
               {
                 objectApiName: 'Account',
@@ -3592,7 +3592,7 @@ describe('ForgeHandler', () => {
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [
               { objectApiName: 'Project__c', created: 1, updated: 0, deleted: 0, failed: 0 },
               { objectApiName: 'Task__c', created: 0, updated: 0, deleted: 0, failed: 2 },

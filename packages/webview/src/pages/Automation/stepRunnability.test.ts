@@ -63,8 +63,8 @@ describe('typeBlocker', () => {
     }
   });
 
-  it('refuses a type the page has never heard of', () => {
-    expect(typeBlocker('dataops:backup')).toBe('typeCannotRun');
+  it('says a type the page has never heard of is one SandForge does not have', () => {
+    expect(typeBlocker('dataops:backup')).toBe('unknownType');
   });
 });
 

@@ -78,7 +78,12 @@ describe('StepExecutor', () => {
           createContext(),
         );
         expect(result.status).toBe('failed');
-        expect(result.error).toContain('cannot run in a pipeline yet');
+        // Not "yet": no release has the type, and the reader is told what to do.
+        expect(result.error).toBe(
+          `Step "Test Step" is a "${type}" step, a step type this release of SandForge does not ` +
+            'have: the pipeline was saved by a later release, or written by hand. Remove the ' +
+            'step, or update SandForge.',
+        );
       }
     });
 

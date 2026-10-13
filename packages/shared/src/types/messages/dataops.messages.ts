@@ -47,16 +47,17 @@ export interface BackupListResult extends BaseMessage {
  * Why a backup holds fewer rows of an object than the object had: `cap`, the
  * backup reached the cap of rows per object the user sets
  * (`sandforge.backup.maxRecordsPerObject`); `failure`, the read failed past
- * the rows it holds.
+ * the rows it holds; `not_reached`, the backup failed before it read the
+ * object at all, which it holds none of.
  */
-export type BackupStopReason = 'cap' | 'failure';
+export type BackupStopReason = 'cap' | 'failure' | 'not_reached';
 
 /** One object of a backup, as the backup's metadata records it. */
 export interface BackupObjectHeld {
   objectApiName: string;
   /** Rows the backup holds of it. */
   recordCount: number;
-  /** Whether the object held more rows than the backup read. */
+  /** Whether the object held more rows than the backup read, or the backup never read it. */
   truncated?: boolean;
   /**
    * Rows the object held when the backup read it, as the org counted them;

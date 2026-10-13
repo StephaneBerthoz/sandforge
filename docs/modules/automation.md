@@ -64,6 +64,8 @@ The other four are not offered by the palette, and a pipeline that holds one -- 
 
 Script, Loop and Parallel steps, which never ran, are gone. A pipeline saved with one still opens: the step is marked as no longer supported, and the pipeline is refused before it starts until the step is removed.
 
+A step of a type SandForge does not have -- a pipeline saved by a later release, or written by hand -- is marked so where it sits, and the pipeline is refused before its first step, written to History as failed with the step and the reason; its triggers start nothing, and the SandForge output channel says why, once.
+
 Every step is read before the run the way its module's own request is read: a Backup with no org or with an object that is not an API name, a Compare of an org with itself, a Pre-Check naming a check SandForge does not have, a Notification with no message, an Approval waiting less than a minute or more than a day, a Sync naming no saved configuration, a timeout longer than 24 days. The page marks such a step, and the extension refuses it with the same reason.
 
 ### Triggers

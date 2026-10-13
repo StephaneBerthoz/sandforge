@@ -279,3 +279,18 @@ describe('a saved configuration that copies files', () => {
     expect(orgs.requests).toEqual([]);
   });
 });
+
+describe('replacing a changed attachment in the target', () => {
+  it('is allowed only where Production Guard would let Sync delete there', async () => {
+    const { ProductionGuard } = await import('../../core/precheck/ProductionGuard.js');
+    const { targetAllowsDeletes } = await import('./SyncOpsHandler.js');
+    const guard = new ProductionGuard({ requestConfirmation: async () => true });
+
+    // A sandbox: the earlier copy can go once the new one is written.
+    expect(targetAllowsDeletes(guard, 'tgt-org', 'Sandbox')).toBe(true);
+    // A production org, a Developer Edition included: the guard allows no delete there.
+    expect(targetAllowsDeletes(guard, 'tgt-org', 'Production')).toBe(false);
+    // No guard to ask: no delete.
+    expect(targetAllowsDeletes(undefined, 'tgt-org', 'Sandbox')).toBe(false);
+  });
+});

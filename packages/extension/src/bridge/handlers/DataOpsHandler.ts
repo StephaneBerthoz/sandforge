@@ -7,6 +7,7 @@ import type {
   AnonymizePreviewObject,
   AnonymizePreviewValue,
   AuditObjectCounts,
+  AuditOutcome,
   BackupExportObject,
   BackupObjectHeld,
   BackupSummary,
@@ -37,6 +38,7 @@ import type { Connection, QueryOptions, QueryResult } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
@@ -305,7 +307,7 @@ interface BackupMeta {
   /** Absent from backups taken before it was recorded. */
   organizationId?: string;
   objects?: BackupObjectHeld[];
-  /** True when any object stopped with the object holding more. */
+  /** True when any object stopped with the object holding more, or was never read. */
   partial?: boolean;
   /** `failed` when the read failed part-way and the backup keeps the rows read before; absent otherwise. */
   status?: 'failed';
@@ -335,6 +337,9 @@ function backupShortfall(
         return [`${o.objectApiName} ${rows} of the ${o.recordCount} it listed (not found on disk)`];
       }
       if (!o.truncated) return [];
+      if (o.stoppedAt === 'not_reached') {
+        return [`${o.objectApiName} none (the backup stopped before it)`];
+      }
       const held = o.orgCount !== undefined ? ` of ${o.orgCount}` : '';
       const why =
         o.stoppedAt === 'cap'
@@ -498,6 +503,27 @@ function maskingStatus(
   if (recordsNotMasked === 0) return 'success';
   if (recordsProcessed > 0) return 'partial';
   return cancelled && recordsFailed === 0 ? 'partial' : 'failure';
+}
+
+/**
+ * How the audit trail records a masking run: as it came to, unless the user
+ * stopped it short of a row — cancelled once it masked a row or had one
+ * refused, its counts saying which; stopped, under the code of a run
+ * cancelled before it wrote, when it had done neither. A run the user stopped
+ * was recorded as partial whether or not it had masked anything, as a run the
+ * org refused part of is. One that stopped at the org's API limit keeps its
+ * status: the limit stopped it, not the user.
+ */
+function maskingAuditOutcome(
+  tallies: readonly MaskingTally[],
+  status: 'success' | 'partial' | 'failure',
+  cancelled: boolean,
+): { outcome: AuditOutcome; code?: string } {
+  if (!cancelled || status === 'success') return { outcome: status };
+  const { recordsProcessed, recordsFailed } = maskingTotals(tallies);
+  return recordsProcessed + recordsFailed > 0
+    ? { outcome: 'cancelled' }
+    : { outcome: 'stopped', code: RUN_CANCELLED };
 }
 
 /** Per object, the rows a run left holding their original values: `Contact 500, Lead 450`. */
@@ -1296,8 +1322,7 @@ export class DataOpsHandler implements DomainHandler {
           : await this.keepFailedBackup(
               { operationId, orgId: payload.orgId, cap },
               connection,
-              taken,
-              reading,
+              { taken, reading, planned: payload.objects },
               writer,
             );
       if (kept === undefined) {
@@ -1479,8 +1504,8 @@ export class DataOpsHandler implements DomainHandler {
         ...(r.orgCount !== undefined ? { orgCount: r.orgCount } : {}),
         ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
       })),
-      // True when any object stopped short, so the listing can say so
-      // without reading every object of every snapshot.
+      // True when any object stopped short, or was never reached, so the
+      // listing can say so without reading every object of every snapshot.
       partial: objects.some((r) => r.truncated),
       ...(failed ? { status: 'failed' as const } : {}),
       cap: backup.cap,
@@ -1497,22 +1522,43 @@ export class DataOpsHandler implements DomainHandler {
 
   /**
    * Keep a snapshot whose read the org failed part-way, as far as it got:
-   * the objects read whole, and the one it failed on with the rows it wrote,
-   * listed as partial and failed, so that neither the listing nor a restore
-   * takes it for the org's data. Nothing is kept when no row was written.
+   * the objects read whole, the one it failed on with the rows it wrote, and
+   * every object it was to read and never reached, with none — listed as
+   * partial and failed, so that neither the listing nor a restore takes it
+   * for the org's data. Nothing is kept when no row was written.
    *
+   * A backup that failed between two objects was kept as failed and not
+   * partial, and the objects after the failure were in no list: the Backup
+   * and Restore tabs, and a restore's warning, named none of them.
+   *
+   * @param read - The objects read whole, the one being read when it failed,
+   *   and every object the backup was to read, in its order.
    * @returns The metadata written, or undefined when nothing was kept.
    */
   private async keepFailedBackup(
     backup: { operationId: string; orgId: string; cap: number },
     conn: Connection | undefined,
-    taken: readonly BackupObjectRead[],
-    reading: BackupObjectRead | undefined,
+    read: {
+      taken: readonly BackupObjectRead[];
+      reading: BackupObjectRead | undefined;
+      planned: readonly string[];
+    },
     writer: BackupWriter,
   ): Promise<(BackupMeta & { objects: BackupObjectRead[]; totalRecords: number }) | undefined> {
-    const objects = reading
+    const { taken, reading } = read;
+    const reached = reading
       ? [...taken, { ...reading, truncated: true, stoppedAt: 'failure' as const }]
       : [...taken];
+    const seen = new Set(reached.map((o) => o.objectApiName.toLowerCase()));
+    const notReached = read.planned
+      .filter((objectApiName) => !seen.has(objectApiName.toLowerCase()))
+      .map((objectApiName): BackupObjectRead => ({
+        objectApiName,
+        recordCount: 0,
+        truncated: true,
+        stoppedAt: 'not_reached',
+      }));
+    const objects = [...reached, ...notReached];
     if (objects.every((o) => o.recordCount === 0)) return undefined;
     try {
       const organizationId = conn ? await this.organizationIdOf(conn) : undefined;
@@ -2905,7 +2951,11 @@ export class DataOpsHandler implements DomainHandler {
       const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
       const left = leftByObject(tallies);
       unrecorded = false;
-      recordWriteRun(this.deps, { ...run, outcome: status, objects: maskingAuditCounts(tallies) });
+      recordWriteRun(this.deps, {
+        ...run,
+        ...maskingAuditOutcome(tallies, status, cancelled),
+        objects: maskingAuditCounts(tallies),
+      });
       const resumable = settleCheckpoint();
       if (recordsNotMasked > 0) {
         const why = cancelled

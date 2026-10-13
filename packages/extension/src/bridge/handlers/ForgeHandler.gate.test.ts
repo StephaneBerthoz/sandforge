@@ -1296,6 +1296,48 @@ describe('forge:execute, the gate before the first write', () => {
       expect(posted('forge:execute:error')).toEqual([]);
     });
 
+    it('never starts a run the user stopped while its journal was opened, and drops the journal', async () => {
+      // The journal is opened after the run's last check of its cancel and
+      // before the executor has it; the executor clears an abort on entry.
+      // A Cancel landing there was taken, Live Operations listed the run as
+      // stopped, and the run wrote all the same.
+      const journal = journalOf();
+      let opened: () => void = () => {};
+      journal.begin.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            opened = resolve;
+          }),
+      );
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journal as unknown as ForgeRunJournal,
+      });
+
+      const run = runOfWholeTables();
+      await vi.waitFor(() => expect(journal.begin).toHaveBeenCalledTimes(1));
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-abort',
+          type: 'forge:abort',
+          timestamp: Date.now(),
+        } as BaseMessage),
+      );
+      opened();
+      await run;
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(posted('forge:execute:response')).toEqual([]);
+      expect(posted('forge:execute:error')).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({ code: 'ABORTED_BEFORE_START' }),
+        }),
+      ]);
+      const [id] = journal.begin.mock.calls[0] as unknown as [string];
+      expect(journal.end).toHaveBeenCalledWith(id);
+    });
+
     it('keeps no journal of a run from a record, which writes once it has read', async () => {
       const journal = journalOf();
       handler.setForgeOrchestrator(orchestratorHanding(), {

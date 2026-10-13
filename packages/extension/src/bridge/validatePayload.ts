@@ -1343,14 +1343,27 @@ export const smartActionAnalyzePayloadSchema = z.object({
 // Mirror what useAutomationPageData / MonitorPage post.
 
 /**
- * A step's type as a pipeline holds it: one SandForge has, or one it no
- * longer has — Script, Loop, Parallel — which a pipeline saved by an earlier
- * release can hold. That one still reads, so the pipeline loads and the page
- * shows the step marked; the run refuses it before its first step, naming the
- * step (StepExecutor). A type nobody ever had does not read.
+ * The longest step type a stored pipeline is read with: far past any type a
+ * release has, short enough that a name made up is no burden in a log line.
+ */
+const MAX_STEP_TYPE_LENGTH = 80;
+
+/**
+ * A step's type as a pipeline holds it: one SandForge has, one it no longer
+ * has — Script, Loop, Parallel — which a pipeline saved by an earlier release
+ * can hold, or one this release does not have, which a later release or a
+ * hand can write. Each reads, so the pipeline loads and the page shows the
+ * step marked; the run refuses it before its first step, naming the step
+ * (StepExecutor), and History records the refusal. A type nobody ever had was
+ * refused at the door as an invalid payload, with nothing in History, and a
+ * saved pipeline holding one was left out of its triggers in silence. A type
+ * that is no text does not read.
  */
 const storedStepTypeSchema = z.custom<PipelineStepType | RetiredPipelineStepType>(
-  (value) => isPipelineStepType(value) || isRetiredPipelineStepType(value),
+  (value) =>
+    isPipelineStepType(value) ||
+    isRetiredPipelineStepType(value) ||
+    (typeof value === 'string' && value.trim() !== '' && value.length <= MAX_STEP_TYPE_LENGTH),
   { message: 'Not a pipeline step type' },
 );
 
@@ -1407,6 +1420,14 @@ export const marketplaceListPayloadSchema = z
   .optional();
 export const marketplaceInstallPayloadSchema = z.object({ templateId: opaqueIdSchema });
 
+/** The first issues a payload failed on, each with where: `steps.0.type: Not a pipeline step type`. */
+export function payloadIssues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+    .join('; ');
+}
+
 /**
  * Validate a webview message payload against a zod schema. Returns parsed
  * data on success; on failure, posts a handler error and returns null so
@@ -1425,10 +1446,7 @@ export function validatePayload<T>(
 ): T | null {
   const result = schema.safeParse(msg.payload);
   if (!result.success) {
-    const summary = result.error.issues
-      .slice(0, 3)
-      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-      .join('; ');
+    const summary = payloadIssues(result.error);
     sendHandlerError(deps, msg.type, responseType, msg, new Error(`Invalid payload — ${summary}`), {
       code: 'INVALID_PAYLOAD',
     });

@@ -182,6 +182,11 @@ export class PipelineTriggerScheduler {
   /** The soonest planned start, found by the last look. */
   private soonest: number | undefined;
   private readonly busyMisses = new Map<string, BusyMisses>();
+  /**
+   * Why each pipeline whose triggers start nothing cannot run, as the log was
+   * last told, by pipeline id: said once, and again only when it changes.
+   */
+  private readonly unscheduled = new Map<string, string>();
 
   constructor(private readonly deps: PipelineTriggerSchedulerDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -345,25 +350,61 @@ export class PipelineTriggerScheduler {
     }
 
     const kept = new Set<string>();
+    const looked = new Set<string>();
     let soonest: number | undefined;
     for (const pipeline of this.deps.pipelines()) {
+      looked.add(pipeline.id);
       let problems: string[] | undefined;
       for (const trigger of this.triggersOf(pipeline)) {
         kept.add(stateKey(pipeline.id, trigger.id));
+        // A sandbox refresh trigger is not planned, but a pipeline it would
+        // start and cannot run is said in the log as a schedule's is.
+        const own = this.engine.idleReason(trigger, this.orgOf(trigger), now);
+        if (!own) problems ??= await this.problemsOf(pipeline);
         if (trigger.type !== 'schedule') continue;
-        let idle: TriggerIdle | undefined = this.engine.idleReason(trigger, undefined, now);
-        if (!idle) {
-          problems ??= await this.problemsOf(pipeline);
-          if (problems.length > 0) idle = { idle: 'cannotRun' };
-        }
+        let idle: TriggerIdle | undefined = own;
+        if (!idle && problems && problems.length > 0) idle = { idle: 'cannotRun' };
         const next = idle
           ? this.unplan(pipeline, trigger)
           : this.lookAt(pipeline, trigger, now, closed);
         if (next !== undefined && (soonest === undefined || next < soonest)) soonest = next;
       }
+      this.sayWhyUnscheduled(pipeline, problems);
+    }
+    for (const id of [...this.unscheduled.keys()]) {
+      if (!looked.has(id)) this.unscheduled.delete(id);
     }
     this.soonest = soonest;
     this.forgetAllBut(kept);
+  }
+
+  /**
+   * Say in the log why a pipeline's triggers start nothing: a step of it
+   * cannot run — a type this release does not have, one that writes to an
+   * org, a configuration its handler cannot act on. Its triggers were left
+   * idle with nothing in the log, and the status on the page was the only
+   * place it was said. Said once, and again when the reason changes or the
+   * pipeline can run again.
+   *
+   * @param problems - Why the pipeline cannot run; undefined when no trigger
+   *   of it would fire on its own, which leaves what was said as it was.
+   */
+  private sayWhyUnscheduled(pipeline: PipelineDefinition, problems: string[] | undefined): void {
+    if (problems === undefined) return;
+    const said = this.unscheduled.get(pipeline.id);
+    if (problems.length === 0) {
+      if (said === undefined) return;
+      this.unscheduled.delete(pipeline.id);
+      this.deps.log(`[pipeline-triggers] "${pipeline.name}" can run again: its triggers start it`);
+      return;
+    }
+    const reason = problems.join(' ');
+    if (said === reason) return;
+    this.unscheduled.set(pipeline.id, reason);
+    this.deps.log(
+      `[pipeline-triggers] "${pipeline.name}" is not scheduled: its triggers start nothing while ` +
+        `a step cannot run. ${reason}`,
+    );
   }
 
   /**

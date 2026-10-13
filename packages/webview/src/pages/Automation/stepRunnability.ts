@@ -75,7 +75,7 @@ const API_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 /** Why a step cannot run, as its key under `automation.runnability`. */
 export type StepBlocker =
   | 'writesToOrg'
-  | 'typeCannotRun'
+  | 'unknownType'
   | 'noLongerSupported'
   | 'conditionNeedsCondition'
   | 'conditionNeedsEarlierStep'
@@ -142,12 +142,15 @@ function listed(value: unknown): unknown[] | undefined {
  * Why a step of `type` cannot run in a pipeline, however it is configured, or
  * undefined when the type runs. `type` is a plain string because a saved
  * pipeline or a Marketplace template can name step types this page has no
- * label for — among them the types SandForge no longer has.
+ * label for — the types SandForge no longer has, and those it does not have
+ * at all, which a later release or a hand wrote. Such a step was said to be
+ * one that "cannot run in a pipeline yet", as if a release to come would run
+ * it.
  */
 export function typeBlocker(type: string): StepBlocker | undefined {
   if (RUNNABLE_STEP_TYPES.has(type)) return undefined;
   if (isRetiredPipelineStepType(type)) return 'noLongerSupported';
-  return WRITES_TO_AN_ORG.has(type) ? 'writesToOrg' : 'typeCannotRun';
+  return WRITES_TO_AN_ORG.has(type) ? 'writesToOrg' : 'unknownType';
 }
 
 /** Why the palette will not add a step of `type`: its type cannot run. */

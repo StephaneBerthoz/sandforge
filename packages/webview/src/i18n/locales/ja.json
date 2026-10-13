@@ -1214,7 +1214,9 @@
       "recordNotWritten_other": "{{count}} 件は未コピー: リンク先のレコードが書き込まれていません",
       "failed_other": "{{count}} 件のファイルをコピーできませんでした。理由は下のメモを参照してください",
       "storage": "これらのファイルは、ターゲット組織に残っているファイルストレージ {{left}} のうち {{size}} を使います。",
-      "wouldNotFit": "これらのファイルは {{size}} を使いますが、ターゲット組織に残っているファイルストレージは {{left}} です。実行は何かを書き込む前に拒否されます。"
+      "wouldNotFit": "これらのファイルは {{size}} を使いますが、ターゲット組織に残っているファイルストレージは {{left}} です。実行は何かを書き込む前に拒否されます。",
+      "replaced_other": "変更された添付ファイル {{count}} 件を置き換え",
+      "wouldReplace_other": "変更された添付ファイル {{count}} 件を置き換え予定"
     }
   },
   "migration": {
@@ -1290,6 +1292,7 @@
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} 行を読み取り — 上限で停止しました (sandforge.backup.maxRecordsPerObject)。",
     "backupReadFailed": "{{object}}: {{held}} 行のうち {{read}} 行を読み取り — そこで読み取りに失敗しました。",
     "backupReadFailedUncounted": "{{object}}: {{read}} 行を読み取り — そこで読み取りに失敗しました。",
+    "backupNotReached": "{{object}}: 未読 — バックアップはこのオブジェクトに達する前に失敗し、その行を 1 行も保持していません。",
     "restorePartialBadge": "一部のみ",
     "backupExported": "{{path}} に保存しました。オブジェクトごとのレコード数: {{records}}。",
     "backupDesc": "データバックアップの作成と管理",
@@ -1748,9 +1751,10 @@
     "noMarketplaceTemplatesDesc": "コミュニティテンプレートがここに表示されます",
     "installTemplate": "インストール",
     "runFailed": "パイプラインの実行に失敗しました：{{reason}}",
+    "runRefusedUnknownType": "パイプラインは開始されませんでした。ステップ「{{step}}」の種類「{{type}}」は SandForge にない種類です。ステップを削除するか、SandForge を更新してください。",
     "runnability": {
       "cannotRun": "実行できません",
-      "typeCannotRun": "このステップタイプはまだパイプラインで実行できません。",
+      "unknownType": "SandForge にはこの種類のステップがありません。パイプラインは新しいリリースで保存されたか、手で書かれたものです。ステップを削除するか、SandForge を更新してください。",
       "writesToOrg": "このステップはパイプラインでは実行されません。専用のページから実行してください。そのページでは、本番組織への書き込みの前に Production Guard が確認します。",
       "conditionNeedsCondition": "この条件ステップで評価する内容を選択してください。",
       "delayNeedsSeconds": "この遅延ステップの待機秒数を設定してください（0秒から24日まで）。",

@@ -50,11 +50,14 @@ export type AuditAction =
  * How a recorded run ended. `stopped` is a run stopped before it wrote
  * anything: by Production Guard — refused by the guard, or declined at its
  * confirmation, which the entry's `guard` says — or by a check of its own path
- * or a cancel, which the entry's `details.code` names. `cancelled` is a
- * removal of the records a run or a load created that the user stopped once
- * it had started, its counts saying what it deleted by then: it was recorded
- * as partial, or failed when it had deleted nothing, and only Live Operations
- * said the user had stopped it.
+ * or a cancel, which the entry's `details.code` names. `cancelled` is a run
+ * the user stopped once it had written, or had a write refused — a Forge
+ * clone, a Frozen load, an Autopilot run, a masking run, a Sync run — its
+ * counts saying what it did by then; and a removal of the records a run or a
+ * load created that the user stopped once it had started, its counts saying
+ * what it deleted by then. Each was recorded as partial, or failed when it had
+ * written nothing, and only Live Operations said the user had stopped it. A
+ * run the org or a limit stopped keeps the outcome its counts give it.
  */
 export type AuditOutcome = 'success' | 'partial' | 'failure' | 'stopped' | 'cancelled';
 

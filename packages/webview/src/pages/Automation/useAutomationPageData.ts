@@ -258,16 +258,38 @@ export interface MarketplaceTemplate {
 }
 
 /**
- * The sentence a failed run is reported with: the run's own error, or else the
- * error of its first failed step. The host writes both in English, for its log;
- * the headline around it is translated.
+ * The sentence a failed run is reported with, in the reader's language: the
+ * run's own error, or else the error of its first failed step, around which
+ * the headline is translated — the host writes both in English, for its log.
+ *
+ * A run refused for a step of a type SandForge does not have — a pipeline a
+ * later release saved, or one written by hand — is said in full in the
+ * reader's language, naming the step: the page knows the type from the step's
+ * result. The extension used to refuse it as an invalid payload, in the
+ * schema's words.
  */
-function runFailureReason(run: Record<string, unknown>): string | undefined {
-  if (typeof run.error === 'string' && run.error.length > 0) return run.error;
-  const steps = Array.isArray(run.stepResults) ? run.stepResults : [];
-  for (const step of steps) {
-    const result = asRecord(step);
-    if (result.status === 'failed' && typeof result.error === 'string') return result.error;
+function runFailureMessage(t: TFunction, run: Record<string, unknown>): string | undefined {
+  const steps = Array.isArray(run.stepResults) ? run.stepResults.map(asRecord) : [];
+  const unknown = steps.find(
+    (result) =>
+      result.status === 'failed' &&
+      typeof result.stepType === 'string' &&
+      !isPipelineStepType(result.stepType) &&
+      !isRetiredPipelineStepType(result.stepType),
+  );
+  if (unknown) {
+    return t('automation.runRefusedUnknownType', {
+      step: typeof unknown.stepName === 'string' ? unknown.stepName : '',
+      type: unknown.stepType,
+    });
+  }
+  if (typeof run.error === 'string' && run.error.length > 0) {
+    return t('automation.runFailed', { reason: run.error });
+  }
+  for (const result of steps) {
+    if (result.status === 'failed' && typeof result.error === 'string') {
+      return t('automation.runFailed', { reason: result.error });
+    }
   }
   return undefined;
 }
@@ -705,9 +727,8 @@ export function useAutomationPageData(): AutomationPageData {
   const settleRun = useLatestRef((run: Record<string, unknown>) => {
     historyQuery.refetch();
     if (run.status !== 'failed') return;
-    const reason = runFailureReason(run);
-    if (reason === undefined) return;
-    const message = t('automation.runFailed', { reason });
+    const message = runFailureMessage(t, run);
+    if (message === undefined) return;
     setError(message);
     addNotification({
       level: 'error',

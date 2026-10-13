@@ -56,6 +56,8 @@ interface Link {
   LinkedEntityId: string;
   ShareType: string;
   Visibility: string;
+  /** When the link was made: a seeded one is older than any run. */
+  SystemModstamp?: string;
 }
 
 /** A legacy attachment. */
@@ -67,7 +69,12 @@ interface AttachmentRow {
   BodyLength: number;
   IsPrivate: boolean;
   content: string;
+  /** When the attachment was created or last changed: a seeded one is older than any run. */
+  LastModifiedDate?: string;
 }
+
+/** Before any run: what a seeded link or attachment is stamped with. */
+const SEEDED_AT = '2026-10-13T07:00:00.000Z';
 
 /** What one org holds of files. */
 class FileTables {
@@ -89,11 +96,22 @@ class FileTables {
       case 'ContentVersion':
         return this.versions as unknown as Row[];
       case 'ContentDocumentLink':
-        return this.links as unknown as Row[];
+        // With the stamp of its document's latest version, which a filter
+        // reaches through the document.
+        return this.links.map((link) => ({
+          ...link,
+          SystemModstamp: link.SystemModstamp ?? SEEDED_AT,
+          'ContentDocument.LatestPublishedVersion.SystemModstamp': this.versions.find(
+            (v) => v.ContentDocumentId === link.ContentDocumentId && v.IsLatest,
+          )?.SystemModstamp,
+        }));
       case 'ContentDocument':
         return this.documents();
       case 'Attachment':
-        return this.attachments as unknown as Row[];
+        return this.attachments.map((a) => ({
+          ...a,
+          LastModifiedDate: a.LastModifiedDate ?? SEEDED_AT,
+        }));
       default:
         throw new Error(`the fake org holds no ${object}`);
     }
@@ -103,13 +121,19 @@ class FileTables {
 /**
  * The rows a statement of the shapes the file stage sends selects:
  * `SELECT … FROM X WHERE` terms joined by AND, each `F IN ('a', …)`,
- * `F = 'a'`, `F = true` or `F > <datetime>`.
+ * `F = 'a'`, `F = true`, `F > <datetime>`, or two of those joined by OR in
+ * parentheses. A field can be a path through a relationship the table gives.
  */
 function select(tables: FileTables, soql: string): Row[] {
   const statement = /^SELECT .+? FROM (\w+) WHERE (.+)$/.exec(soql);
   if (!statement) throw new Error(`not a statement the fake reads: ${soql}`);
   const [, object, where] = statement;
-  const tests = where.split(/ AND /).map((term) => {
+  const tests = where.split(/ AND /).map(function termTest(term: string): (row: Row) => boolean {
+    const either = /^\((.+) OR (.+)\)$/.exec(term);
+    if (either) {
+      const [left, right] = [termTest(either[1]), termTest(either[2])];
+      return (row: Row) => left(row) || right(row);
+    }
     const within = /^(\w+) IN \((.*)\)$/.exec(term);
     if (within) {
       const values = within[2].split(', ').map((v) => v.replace(/^'|'$/g, ''));
@@ -123,7 +147,7 @@ function select(tables: FileTables, soql: string): Row[] {
           ? row[equals[1]] === value.slice(1, -1)
           : String(row[equals[1]]) === value;
     }
-    const after = /^(\w+) > (\S+)$/.exec(term);
+    const after = /^([\w.]+) > (\S+)$/.exec(term);
     if (after) return (row: Row) => String(row[after[1]]) > new Date(after[2]).toISOString();
     throw new Error(`a term the fake does not read: ${term}`);
   });
@@ -190,8 +214,41 @@ class OrgPair {
     ),
     deletedRows: vi.fn(async () => ({ records: [], truncated: false })),
     heldInSource: vi.fn(async () => new Set<string>()),
-    targetIdsByKey: vi.fn(async () => new Map<string, string[]>()),
+    // By the key as `simulationKey` gives it, as the org's lookup answers.
+    targetIdsByKey: vi.fn(async (_object: string, keyField: string, keys: readonly unknown[]) => {
+      const asked = new Set(keys.map((k) => String(k).toLowerCase()));
+      const ids = new Map<string, string[]>();
+      for (const record of this.target.values()) {
+        const key = String(record[keyField]).toLowerCase();
+        if (asked.has(key)) ids.set(key, [...(ids.get(key) ?? []), String(record.Id)]);
+      }
+      return ids;
+    }),
   };
+
+  /** Target attachments the target refuses to delete. */
+  refuseDelete = new Set<string>();
+
+  deleteFromTarget = vi.fn(async (_object: string, ids: string[]) =>
+    ids.map((id) => {
+      if (this.refuseDelete.has(id)) {
+        return { id, success: false, errors: ['ENTITY_IS_LOCKED: locked'] };
+      }
+      this.targetFiles.attachments = this.targetFiles.attachments.filter((a) => a.Id !== id);
+      return { id, success: true, errors: [] };
+    }),
+  );
+
+  /** A legacy attachment of the source changed at `at`: new content, new size. */
+  changeAttachment(id: string, bytes: number, at: string): void {
+    const attachment = this.sourceFiles.attachments.find((a) => a.Id === id);
+    if (!attachment) throw new Error(`no source attachment ${id}`);
+    Object.assign(attachment, {
+      BodyLength: bytes,
+      content: contentOf(bytes, 'z'),
+      LastModifiedDate: at,
+    });
+  }
 
   dataSync(): DataSync {
     return new DataSync({
@@ -225,10 +282,35 @@ class OrgPair {
     });
   }
 
+  /**
+   * A statement with each `IN (SELECT Id FROM Account[ WHERE (Type = '…')])`
+   * replaced by the ids of the source accounts it selects.
+   */
+  private withSemiJoins(soql: string): string {
+    return soql.replace(
+      /IN \(SELECT Id FROM Account(?: WHERE \(Type = '(\w+)'\))?\)/g,
+      (_all, type: string | undefined) =>
+        `IN (${this.source
+          .filter((r) => type === undefined || r.Type === type)
+          .map((r) => `'${r.Id}'`)
+          .join(', ')})`,
+    );
+  }
+
   copy: FileCopyDeps = {
     queryRecords: vi.fn(async (orgId: string, soql: string) => {
       this.fileQueries.push(`${orgId === SOURCE ? 'source' : 'target'}: ${soql}`);
-      return select(orgId === SOURCE ? this.sourceFiles : this.targetFiles, soql).map((r) => ({
+      const resolved = this.withSemiJoins(soql);
+      // The source's own records, as the key a run matches on is read from them.
+      const records = /^SELECT (.+) FROM Account WHERE Id IN \((.*)\)$/.exec(resolved);
+      if (records) {
+        const ids = records[2].split(', ').map((v) => v.replace(/^'|'$/g, ''));
+        const fields = records[1].split(', ');
+        return this.source
+          .filter((r) => ids.includes(r.Id))
+          .map((r) => Object.fromEntries(fields.map((f) => [f, r[f as keyof AccountRecord]])));
+      }
+      return select(orgId === SOURCE ? this.sourceFiles : this.targetFiles, resolved).map((r) => ({
         ...r,
       }));
     }),
@@ -470,6 +552,7 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
         load: (id) => (store.load(id) ? store.loadFiles(id) : null),
         record: (id, entry) => store.recordFile(id, entry),
       },
+      deleteFromTarget: orgs.deleteFromTarget,
     };
   }
 
@@ -699,6 +782,156 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
       expect(orgs.targetDocuments()[0].versions).toBe(1);
     });
 
+    it('copies a file attached since the last run to a record nothing else of which changed, linked to its copy', async () => {
+      await orchestrator().execute(delta());
+      const t1 = orgs.targetIdOf('K-1');
+      // A new file on the first account: its record is not stamped again.
+      const doc = fakeId('069', 7);
+      orgs.sourceFiles.versions.push({
+        Id: fakeId('068', 7),
+        ContentDocumentId: doc,
+        Title: 'Contract',
+        PathOnClient: 'Contract.pdf',
+        ContentSize: 20,
+        ContentLocation: 'S',
+        SharingPrivacy: 'N',
+        IsLatest: true,
+        SystemModstamp: '2026-10-13T10:00:00.000Z',
+        content: contentOf(20),
+      });
+      orgs.sourceFiles.links.push({
+        ContentDocumentId: doc,
+        LinkedEntityId: A1,
+        ShareType: 'V',
+        Visibility: 'AllUsers',
+        SystemModstamp: '2026-10-13T10:00:00.000Z',
+      });
+
+      const result = await orchestrator().execute(delta());
+
+      // The delta read wrote no record; the file found its record's copy all
+      // the same. It was found only once the record changed, or on a full read.
+      expect(result.objectResults[0].delta).toMatchObject({ read: 'delta', changed: 0 });
+      expect(result.objectResults[0].processed).toBe(0);
+      expect(result.objectResults[0].files).toMatchObject({ copied: 1, bytes: 20, failed: 0 });
+      expect(orgs.targetDocuments()).toEqual(
+        expect.arrayContaining([{ id: expect.any(String), versions: 1, linkedTo: [t1] }]),
+      );
+      expect(orgs.targetDocuments()).toHaveLength(2);
+      expect(result.status).toBe('success');
+    });
+
+    it('copies an attachment added since the last run under a record nothing else of which changed', async () => {
+      await orchestrator().execute(delta());
+      orgs.sourceFiles.attachments.push({
+        Id: fakeId('00P', 5),
+        ParentId: A1,
+        Name: 'minutes.txt',
+        ContentType: 'text/plain',
+        BodyLength: 8,
+        IsPrivate: false,
+        content: contentOf(8),
+        LastModifiedDate: '2026-10-13T10:00:00.000Z',
+      });
+
+      const result = await orchestrator().execute(delta());
+
+      expect(result.objectResults[0].delta).toMatchObject({ changed: 0 });
+      expect(orgs.targetFiles.attachments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ ParentId: orgs.targetIdOf('K-1'), Name: 'minutes.txt' }),
+        ]),
+      );
+      expect(result.objectResults[0].files).toMatchObject({ copied: 1, bytes: 8 });
+    });
+
+    it('says how many records whose files changed it could not tie to a copy, and leaves their files', async () => {
+      await orchestrator().execute(delta());
+      // The copy of the first account is gone from the target.
+      orgs.target.delete(orgs.targetIdOf('K-1'));
+      orgs.sourceFiles.links.push({
+        ContentDocumentId: DOC_3,
+        LinkedEntityId: A1,
+        ShareType: 'V',
+        Visibility: 'AllUsers',
+        SystemModstamp: '2026-10-13T10:00:00.000Z',
+      });
+
+      const result = await orchestrator().execute(delta());
+
+      expect(result.objectResults[0].files).toMatchObject({ copied: 0, failed: 0 });
+      expect(result.objectResults[0].errors).toContain(
+        '1 record(s) whose files changed since the last run, and nothing else of them, could not ' +
+          'be tied to their copy in the target: their new files are copied when the record ' +
+          'changes, or on a full read.',
+      );
+    });
+
+    it('replaces the copy of a legacy attachment the source changed: the new one under its record, the old one deleted', async () => {
+      await orchestrator().execute(delta());
+      const [first] = orgs.targetFiles.attachments;
+      orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+
+      const result = await orchestrator().execute(delta());
+
+      // An attachment has no versions: one the source changed was never copied again.
+      expect(orgs.targetFiles.attachments).toEqual([
+        expect.objectContaining({ ParentId: orgs.targetIdOf('K-2'), BodyLength: 30 }),
+      ]);
+      expect(orgs.targetFiles.attachments[0].Id).not.toBe(first.Id);
+      expect(orgs.targetFiles.attachments[0].content).toBe(contentOf(30, 'z'));
+      expect(orgs.deleteFromTarget).toHaveBeenCalledWith('Attachment', [first.Id]);
+      expect(result.objectResults[0].files).toMatchObject({
+        copied: 0,
+        replaced: 1,
+        bytes: 30,
+        failed: 0,
+      });
+      const load = store.loadFiles('cfg-files');
+      expect(load.kind === 'stored' ? load.map.entries : []).toContainEqual(
+        expect.objectContaining({
+          kind: 'attachment',
+          sourceId: ATT_2,
+          targetId: orgs.targetFiles.attachments[0].Id,
+          sourceModifiedAt: '2026-10-13T10:00:00.000Z',
+        }),
+      );
+    });
+
+    it('replaces a changed attachment once, however many runs read it', async () => {
+      await orchestrator().execute(delta());
+      orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+      await orchestrator().execute(delta());
+      // Within the overlap the next read reads the change again.
+      orgs.stampFor(A2, '2026-10-13T10:01:00.000Z');
+
+      const third = await orchestrator().execute(delta());
+
+      expect(third.objectResults[0].files).toMatchObject({ copied: 0, unchanged: 2 });
+      expect(third.objectResults[0].files?.replaced).toBeUndefined();
+      expect(orgs.deleteFromTarget).toHaveBeenCalledTimes(1);
+      expect(orgs.targetFiles.attachments).toHaveLength(1);
+    });
+
+    it('counts and names the earlier copy of a replaced attachment the target would not delete', async () => {
+      await orchestrator().execute(delta());
+      const [first] = orgs.targetFiles.attachments;
+      orgs.refuseDelete.add(first.Id);
+      orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+
+      const result = await orchestrator().execute(delta());
+
+      // The new copy is kept: deleted first, a copy whose replacement the
+      // target then refused would be lost.
+      expect(orgs.targetFiles.attachments).toHaveLength(2);
+      expect(result.objectResults[0].files).toMatchObject({ replaced: 1, failed: 1 });
+      expect(result.status).toBe('partial');
+      expect(result.objectResults[0].errors).toContain(
+        '1 earlier copy(ies) of an attachment replaced could not be deleted from the target ' +
+          `(ENTITY_IS_LOCKED: locked): the record holds the new copy and the old one, ${first.Id}.`,
+      );
+    });
+
     it('copies the version of a file once, however many runs read it', async () => {
       await orchestrator().execute(delta());
       orgs.newVersion(DOC_1, 55, '2026-10-13T10:00:00.000Z');
@@ -708,9 +941,24 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
 
       const third = await orchestrator().execute(delta());
 
-      expect(third.objectResults[0].files).toMatchObject({ versions: 0, unchanged: 1 });
+      // The report, found from the first account, and from the second, to
+      // which it is linked and whose version is stamped within the read; the
+      // note of the second, as copied.
+      expect(third.objectResults[0].files).toMatchObject({ versions: 0, unchanged: 2 });
       expect(orgs.targetDocuments()[0].versions).toBe(2);
     });
+  });
+
+  it('replaces, on a full run, the copy of an attachment the source changed since its copy was made', async () => {
+    await orchestrator().execute(config());
+    orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+
+    const result = await orchestrator().execute(config());
+
+    expect(result.objectResults[0].files).toMatchObject({ replaced: 1, bytes: 30 });
+    expect(orgs.targetFiles.attachments).toEqual([
+      expect.objectContaining({ ParentId: orgs.targetIdOf('K-2'), BodyLength: 30 }),
+    ]);
   });
 
   it('takes as copied a file the target holds under the same id, as a sandbox of the same production does', async () => {
@@ -729,6 +977,23 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
     expect(orgs.targetDocuments().map((d) => d.id)).toEqual([DOC_1]);
     expect(orgs.targetDocuments()[0].versions).toBe(1);
     expect(result.objectResults[0].files).toMatchObject({ copied: 1, unchanged: 1 });
+  });
+
+  it("never deletes an attachment the target held under the source's own id to replace it", async () => {
+    // The target's own, taken as copied: replaced, it would be deleted.
+    orgs.targetFiles.attachments = [
+      { ...orgs.sourceFiles.attachments[0], ParentId: 'placeholder' },
+    ];
+    const delta = config({ mode: 'delta' });
+    store.save(delta);
+    await orchestrator().execute(delta);
+    orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+
+    const result = await orchestrator().execute(delta);
+
+    expect(orgs.deleteFromTarget).not.toHaveBeenCalled();
+    expect(orgs.targetFiles.attachments.map((a) => a.Id)).toEqual([ATT_2]);
+    expect(result.objectResults[0].files?.replaced).toBeUndefined();
   });
 
   describe('a simulation', () => {

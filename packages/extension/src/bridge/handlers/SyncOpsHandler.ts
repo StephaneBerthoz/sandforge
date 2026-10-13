@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 import type {
   AuditObjectCounts,
+  AuditOutcome,
   GuardDecision,
   MappingType,
   SyncConfig,
@@ -43,6 +44,8 @@ import {
   guardRefusalCode,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
+import { toSaveOutcomes } from '../../core/common/existingRecordMatch.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -75,7 +78,7 @@ import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
-import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
+import type { OperationRequest, ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -138,6 +141,34 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
   upsert: 2,
   delete: 3,
 };
+
+/**
+ * Whether Production Guard would let Sync delete in the target without
+ * refusing it: a changed legacy attachment is replaced by writing its new copy
+ * and deleting the earlier one, and the guard allows no delete on a production
+ * org (a Developer Edition counts as one). Where it would refuse, the earlier
+ * copy stays and the change is not copied, as before attachments were
+ * replaced: a run never deletes where a delete of its own would be refused.
+ * No guard, no delete.
+ * @param guard - The window's Production Guard
+ * @param targetOrgId - The org the run writes to
+ * @param targetOrgType - That org's registered type
+ */
+export function targetAllowsDeletes(
+  guard: Pick<ProductionGuard, 'check'> | undefined,
+  targetOrgId: string,
+  targetOrgType: string | undefined,
+): boolean {
+  if (!guard) return false;
+  return guard.check({
+    orgId: targetOrgId,
+    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
+    operation: 'delete',
+    objectName: 'Attachment',
+    recordCount: 1,
+    module: 'sync',
+  }).allowed;
+}
 
 /**
  * Build the Production Guard request describing a sync run on its target org.
@@ -538,6 +569,11 @@ export class SyncOpsHandler implements DomainHandler {
   /**
    * Record a finished run — succeeded, partial, or failed with whatever it
    * wrote before it failed — in the audit trail and the lineage.
+   *
+   * A run the user cancelled is recorded as cancelled once it wrote a record,
+   * carried a deletion or had one refused, its counts saying which; stopped,
+   * under the code of a run cancelled before it wrote, when it had done none.
+   * It was recorded as partial, or failed, as a run the org cut short is.
    */
   private recordRun(
     config: SyncConfig,
@@ -546,14 +582,21 @@ export class SyncOpsHandler implements DomainHandler {
     guardDecision: GuardDecision | undefined,
     triggeredBy: SyncHistoryEntry['triggeredBy'],
   ): void {
+    const objects = syncAuditObjects(result.objectResults ?? []);
+    const touched = objects.some(
+      (o) => o.created + o.updated + o.deleted + o.failed + (o.upserted ?? 0) > 0,
+    );
+    const outcome: AuditOutcome =
+      result.cancelled === true ? (touched ? 'cancelled' : 'stopped') : result.status;
     recordWriteRun(this.deps, {
       action: 'sync_execute',
       module: 'sync',
       operationId,
       orgId: config.targetOrgId,
-      outcome: result.status,
+      outcome,
+      ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
       guard: guardDecision,
-      objects: syncAuditObjects(result.objectResults ?? []),
+      objects,
       source: { origin: 'org', orgId: config.sourceOrgId },
       // What started it: the page, a re-run, a schedule or a pipeline.
       details: { triggeredBy },
@@ -1222,6 +1265,27 @@ export class SyncOpsHandler implements DomainHandler {
       }),
       sourceIds,
       store: this.fileStoreFor(),
+      // The earlier copy of an attachment the source changed, deleted once
+      // the new copy is written: in one call, as a record delete is. Only
+      // where Production Guard would allow a delete in the target.
+      ...(config.files !== undefined &&
+      targetAllowsDeletes(
+        this.deps.infraServices?.productionGuard,
+        config.targetOrgId,
+        this.deps.orgManager.getOrg(config.targetOrgId)?.orgType,
+      )
+        ? {
+            deleteFromTarget: async (objectApiName: string, ids: string[]) =>
+              toSaveOutcomes(
+                await targetConn.sobject(objectApiName).destroy(ids),
+                objectApiName,
+              ).map((outcome) => ({
+                id: outcome.id,
+                success: outcome.success,
+                errors: outcome.errors,
+              })),
+          }
+        : {}),
     };
 
     return {

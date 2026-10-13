@@ -2813,15 +2813,44 @@ describe('SyncOpsHandler', () => {
         .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
         .find((m) => m.type === 'sync:execute:response');
       expect(answer?.payload).toMatchObject({ cancelled: true, totalSuccess: 2 });
-      // And the audit trail keeps the records it wrote.
+      // And the audit trail keeps the records it wrote, as a run the user
+      // cancelled: partial read as a run the org cut short.
       expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
         expect.objectContaining({
           operationId: 'sync-cancel-ends',
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
         }),
       ]);
       tracker.dispose();
+    });
+
+    it('records a run the user cancelled before it wrote anything as stopped, under the code that says so', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      orchestratorUntilTheCancel(() => ({
+        ...stoppedAfterAccount,
+        error: 'Cancelled before Account, Contact were synced.',
+        objectResults: [],
+        totalProcessed: 0,
+        totalSuccess: 0,
+      }));
+      mockWorkingConnection();
+
+      await startSync('sync-cancel-early');
+      registry.abort('sync-cancel-early');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      // Recorded as partial, a run that wrote nothing read as one that had
+      // written part of its objects.
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'sync-cancel-early',
+          outcome: 'stopped',
+          objects: [],
+          details: expect.objectContaining({ code: 'RUN_CANCELLED' }),
+        }),
+      ]);
     });
 
     it('still ends as failed when the run fails while the cancel is pending', async () => {

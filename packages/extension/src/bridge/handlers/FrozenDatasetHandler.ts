@@ -447,8 +447,9 @@ function frozenOutcome(report: FrozenLoadReport): AuditOutcome {
  * before it wrote anything and the org had refused nothing — no record
  * created, none purged — as a run stopped before its first write is recorded;
  * read as partial, a load that wrote nothing said it had put part of the
- * dataset in the target. A failure when the org refused every record it was
- * sent — inserted or purged — and nothing landed.
+ * dataset in the target. Cancelled otherwise, its counts saying what it wrote
+ * and what the org refused by then: recorded as partial, or failed when the
+ * org had refused all it was sent, it read as a load the org cut short.
  */
 function cancelledFrozenOutcome(
   written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
@@ -462,9 +463,7 @@ function cancelledFrozenOutcome(
     total(written.purge.deactivated);
   const refused =
     written.perObject.reduce((sum, o) => sum + o.failed.length, 0) + written.purge.failures.length;
-  if (wrote === 0 && refused === 0) return 'stopped';
-  const reused = written.perObject.reduce((sum, o) => sum + o.reused, 0);
-  return wrote + reused === 0 ? 'failure' : 'partial';
+  return wrote === 0 && refused === 0 ? 'stopped' : 'cancelled';
 }
 
 /**

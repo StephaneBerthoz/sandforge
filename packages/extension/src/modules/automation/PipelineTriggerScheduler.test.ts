@@ -75,6 +75,7 @@ interface HarnessOptions {
   claims?: TriggerClaims;
   store?: ConfigStore;
   run?: () => Promise<PipelineRun | undefined>;
+  log?: (message: string) => void;
 }
 
 /** A scheduler over the pipelines given, with what it starts, records and reports laid bare. */
@@ -98,7 +99,7 @@ function harness(options: HarnessOptions) {
     store,
     claims: options.claims ?? memoryTriggerClaims(),
     report: (report) => reports.push(report),
-    log: () => undefined,
+    log: options.log ?? (() => undefined),
     newId: () => `id-${++ids}`,
   });
   return { scheduler, store, started, history, reports, state };
@@ -403,6 +404,56 @@ describe('PipelineTriggerScheduler', () => {
       expect(one.reports.length + two.reports.length).toBe(1);
       one.scheduler.stop();
       two.scheduler.stop();
+    });
+
+    it('says once in the log why a pipeline its triggers would start cannot run, and again when it can', async () => {
+      const refusal = 'Step "Archive" is a "archive" step, a step type this release does not have.';
+      const lines: string[] = [];
+      const h = harness({
+        pipelines: [
+          pipeline('p1', [schedule('0 2 * * *')], 'Nightly'),
+          pipeline('p2', [refreshOf('org-uat')], 'On refresh'),
+        ],
+        problems: { p1: [refusal], p2: [refusal] },
+        orgs: { 'org-uat': { name: 'uat', sandbox: true } },
+        log: (line) => lines.push(line),
+      });
+      h.scheduler.start();
+      await settle(3 * CHECK_INTERVAL_MS);
+
+      const notScheduled = lines.filter((line) => line.includes('is not scheduled'));
+      // A schedule's pipeline, and a sandbox refresh trigger's, each said once
+      // over three looks: idle with nothing in the log, its triggers started
+      // nothing and nobody reading the log knew why.
+      expect(notScheduled).toEqual([
+        '[pipeline-triggers] "Nightly" is not scheduled: its triggers start nothing while a ' +
+          `step cannot run. ${refusal}`,
+        '[pipeline-triggers] "On refresh" is not scheduled: its triggers start nothing while a ' +
+          `step cannot run. ${refusal}`,
+      ]);
+      h.scheduler.stop();
+    });
+
+    it('says in the log when a pipeline it said could not run can run again', async () => {
+      const problems: Record<string, string[]> = { p1: ['Step "Seed" cannot run.'] };
+      const lines: string[] = [];
+      const h = harness({
+        pipelines: [pipeline('p1', [schedule('0 3 * * *')], 'Nightly')],
+        problems,
+        log: (line) => lines.push(line),
+      });
+      h.scheduler.start();
+      await settle();
+      delete problems.p1;
+      await settle(CHECK_INTERVAL_MS);
+      await settle(CHECK_INTERVAL_MS);
+
+      expect(lines.filter((line) => line.includes('"Nightly"'))).toEqual([
+        '[pipeline-triggers] "Nightly" is not scheduled: its triggers start nothing while a ' +
+          'step cannot run. Step "Seed" cannot run.',
+        '[pipeline-triggers] "Nightly" can run again: its triggers start it',
+      ]);
+      h.scheduler.stop();
     });
 
     it('starts nothing, and plans nothing, while a step of its pipeline cannot run', async () => {

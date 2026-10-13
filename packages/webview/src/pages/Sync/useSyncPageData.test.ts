@@ -49,8 +49,24 @@ const simulation = vi.hoisted(() => ({
   reset: vi.fn(),
 }));
 
+/** State of the sync:config:save mutation: what the host answered the last save with. */
+const saving = vi.hoisted(() => ({
+  data: null as Record<string, unknown> | null,
+  mutate: vi.fn(),
+}));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => {
+    if (requestType === 'sync:config:save') {
+      return {
+        mutate: saving.mutate,
+        data: saving.data,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
     if (requestType === 'sync:simulate') {
       return {
         mutate: simulation.mutate,
@@ -101,6 +117,7 @@ describe('useSyncPageData', () => {
     simulation.loading = false;
     simulation.requestId = null;
     simulation.data = null;
+    saving.data = null;
   });
 
   it('shows the progress of the sync it started, not of another run reporting at the same time', () => {
@@ -360,14 +377,35 @@ describe('useSyncPageData', () => {
       expect(sentConfig()).not.toHaveProperty('files');
     });
 
-    it('sends the files with their caps once turned on, the defaults sensible for a sandbox', () => {
+    it('sends the files with their caps once turned on and saved, the defaults sensible for a sandbox', () => {
       draft.value = base;
-      const { result } = renderHook(() => useSyncPageData());
+      const { result, rerender } = renderHook(() => useSyncPageData());
 
       act(() => result.current.setCopyFiles(true));
+      act(() => result.current.handleSaveConfig('Nightly'));
+      const saved = (saving.mutate.mock.calls[0][0] as { config: { id: string } }).config;
+      saving.data = { success: true, id: saved.id };
+      rerender();
       act(() => result.current.handleExecute());
 
       expect(sentConfig().files).toEqual({ maxFileSizeMB: 10, maxRunMB: 100 });
+      expect(sentConfig().id).toBe(saved.id);
+    });
+
+    it('sends neither a run nor a simulation of a configuration copying files that is not saved', () => {
+      draft.value = base;
+      const { result } = renderHook(() => useSyncPageData());
+      expect(result.current.filesNeedSave).toBe(false);
+
+      act(() => result.current.setCopyFiles(true));
+      expect(result.current.filesNeedSave).toBe(true);
+      act(() => result.current.handleExecute());
+      act(() => result.current.handleSimulate());
+
+      // The extension refuses both: sent, the run was refused once the
+      // execute step had started.
+      expect(execution.mutate).not.toHaveBeenCalled();
+      expect(simulation.mutate).not.toHaveBeenCalled();
     });
 
     it('keeps each cap within what the extension takes', () => {

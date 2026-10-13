@@ -94,7 +94,13 @@ export interface SyncFilesOutcome {
    * source holds a newer version of it: never a second document.
    */
   versions: number;
-  /** The bytes those files and versions took. */
+  /**
+   * Legacy attachments an earlier run copied whose source changed since: each
+   * copy replaced, the new one written under the target record and the old
+   * one deleted. An attachment has no versions. Absent when there are none.
+   */
+  replaced?: number;
+  /** The bytes those files, versions and replaced attachments took. */
   bytes: number;
   /** Links written from a copied file to the other target records it hangs on. */
   links: number;

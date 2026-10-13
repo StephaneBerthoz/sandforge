@@ -727,9 +727,10 @@ describe('AutomationHandler', () => {
     );
 
     it.each(['dataops:backup', 'dataops'])(
-      'refuses at the door a pipeline holding a %s step, a type no release ever had',
+      'refuses a pipeline holding a %s step, a type no release has, before any step runs, and History records it failed',
       async (type) => {
-        deps.services = realServices().services;
+        const { services, ends } = realServices();
+        deps.services = services;
         handler.setStepRunners(fakeRunners());
 
         await run([
@@ -737,12 +738,43 @@ describe('AutomationHandler', () => {
           { type, name: 'Do the work' },
         ]);
 
-        expect(posted(deps, 'pipeline:run:response')).toHaveLength(0);
-        const [refusal] = posted(deps, 'pipeline:error');
-        expect(refusal.payload).toMatchObject({ code: 'INVALID_PAYLOAD' });
-        expect(deps.configStore.getByCategory('pipeline-history')).toEqual({});
+        // Refused at the door as an invalid payload, it reached no History
+        // and the page read the schema's words.
+        expect(posted(deps, 'pipeline:error')).toHaveLength(0);
+        const result = runResponse(deps);
+        expect(result.status).toBe('failed');
+        expect(result.stepResults).toEqual([
+          expect.objectContaining({
+            stepId: 's2',
+            stepType: type,
+            status: 'failed',
+            error:
+              `Step "Do the work" is a "${type}" step, a step type this release of SandForge ` +
+              'does not have: the pipeline was saved by a later release, or written by hand. ' +
+              'Remove the step, or update SandForge.',
+          }),
+        ]);
+        expect(ends).toEqual([{ status: 'failed', executed: 0 }]);
+        const entry = onlyHistoryEntry(deps);
+        expect(entry['status']).toBe('failed');
+        expect(entry['errorCount']).toBe(1);
+        expect(entry['steps']).toEqual([
+          expect.objectContaining({ stepName: 'Do the work', stepType: type, status: 'failed' }),
+        ]);
       },
     );
+
+    it('still refuses at the door a step whose type is no text', async () => {
+      deps.services = realServices().services;
+      handler.setStepRunners(fakeRunners());
+
+      await run([{ type: 42, name: 'Do the work' }]);
+
+      expect(posted(deps, 'pipeline:run:response')).toHaveLength(0);
+      const [refusal] = posted(deps, 'pipeline:error');
+      expect(refusal.payload).toMatchObject({ code: 'INVALID_PAYLOAD' });
+      expect(deps.configStore.getByCategory('pipeline-history')).toEqual({});
+    });
 
     it.each(['backup', 'compare', 'precheck', 'notification'])(
       'refuses a %s step where no module flow was given to run it',

@@ -126,13 +126,12 @@ export function forgeAuditObjects(
 
 /**
  * How the audit trail records a run a cancel stopped once the executor had
- * it. Recorded as failed, it read as a run that went wrong, where the history
- * keeps it as partial (`keepStoppedRun`) and Seed records a cancel so. Partial
- * once it wrote a record — created one, or wrote over one an upsert matched;
- * stopped when it wrote none, as a run stopped before it started is. What its
- * tallies say otherwise stands, as for a run that finished with them: one
- * whose rows the target refused, or whose read failed, with nothing settled,
- * failed.
+ * it. Recorded as failed, it read as a run that went wrong. Cancelled once it
+ * wrote a record — created one, or wrote over one an upsert matched — or once
+ * the target refused one or its read failed: the user stopped it, and its
+ * counts say what it did by then. It was recorded as partial, or failed, as a
+ * run the org cut short is. Stopped when it wrote nothing and met nothing, as
+ * a run stopped before it started is.
  *
  * @param summary - What the executor held when the cancel stopped it; absent
  *   when it held nothing yet.
@@ -142,9 +141,9 @@ export function cancelledRunOutcome(
   summary: ExecutionSummary | undefined,
   objects: readonly AuditObjectCounts[],
 ): AuditOutcome {
-  if (objects.some((object) => object.created + object.updated > 0)) return 'partial';
+  if (objects.some((object) => object.created + object.updated > 0)) return 'cancelled';
   const reached = summary ? finishedRunStatus(summary) : 'success';
-  return reached === 'success' ? 'stopped' : reached;
+  return reached === 'success' ? 'stopped' : 'cancelled';
 }
 
 /**

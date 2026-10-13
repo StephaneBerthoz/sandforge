@@ -252,6 +252,54 @@ describe('AutomationHandler triggers', () => {
     expect(seed?.detail).toContain('"Seed accounts" is a seed step, and this step type cannot run');
   });
 
+  it('lists a saved pipeline holding a step type this release does not have as one that cannot run, and the log says why once', async () => {
+    // Saved by a later release: the page sends what it was given.
+    await save(
+      definition('p1', [{ type: 'archive', name: 'Archive old cases' }], [nightly], 'Nightly'),
+    );
+    handler.startTriggers({ report: (report) => reports.push(report) });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Left out of the triggers, it had no status at all, and its schedule
+    // never ran with nothing to say so.
+    const [status] = await statuses();
+    expect(status).toMatchObject({ pipelineId: 'p1', armed: false, idle: 'cannotRun' });
+    expect(status.detail).toContain(
+      '"Archive old cases" is a "archive" step, a step type this release of SandForge does not have',
+    );
+    const said = (): string[] =>
+      vi
+        .mocked(deps.log)
+        .mock.calls.map(([line]) => line)
+        .filter((line) => line.includes('"Nightly" is not scheduled'));
+    expect(said()).toHaveLength(1);
+    expect(said()[0]).toContain('a step type this release of SandForge does not have');
+
+    // Due at 02:00, and looked at again: it starts nothing, and the log is not told twice.
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(history(deps)).toEqual([]);
+    expect(said()).toHaveLength(1);
+  });
+
+  it('says once in the log which saved entry does not read as a pipeline, and why', async () => {
+    deps.configStore.set(
+      'pipeline:saved:broken',
+      { id: 'broken', name: 'Hand written', steps: [{ type: 42 }], triggers: [nightly] },
+      'pipelines',
+    );
+    handler.startTriggers({ report: (report) => reports.push(report) });
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+    const said = vi
+      .mocked(deps.log)
+      .mock.calls.map(([line]) => line)
+      .filter((line) => line.includes('"Hand written" is not scheduled'));
+    expect(said).toEqual([
+      '[pipeline-triggers] saved pipeline "Hand written" is not scheduled: it does not read as ' +
+        'a pipeline (steps.0.type: Not a pipeline step type).',
+    ]);
+  });
+
   it("refuses the page's run of a pipeline its schedule is running, and names that run", async () => {
     handler.startTriggers({ report: (report) => reports.push(report) });
     const pipeline = definition('p1', [{ type: 'delay', config: { seconds: 120 } }], [nightly]);

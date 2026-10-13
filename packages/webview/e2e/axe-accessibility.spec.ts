@@ -5615,6 +5615,26 @@ async function expectReadable(page: Page, theme: StateTheme, include?: string): 
  * Open the Sync panel on a saved draft at its Execute step: a bidirectional
  * upsert of accounts between the two sandboxes, ready to simulate or run.
  */
+/**
+ * Save the configuration on the Sync page's execute step, back on its Review
+ * step, and come back: a configuration that copies files is run, and
+ * simulated, once it is saved, and Run waits for the save until then.
+ */
+async function saveSyncConfigFromExecuteStep(bridge: MockBridge, page: Page): Promise<void> {
+  await page.getByTestId('sync-wizard-back').click();
+  await page.getByTestId('sync-save-config').click();
+  const request = await bridge.waitForMessage('sync:config:save');
+  const config = (request.payload as { config: { id: string } }).config;
+  await bridge.respond(
+    'sync:config:save:response',
+    { success: true, id: config.id },
+    String(request.id),
+  );
+  await page.getByTestId('sync-config-saved').waitFor({ timeout: 10_000 });
+  await page.getByTestId('sync-wizard-next').click();
+  await page.getByTestId('sync-step-execute').waitFor({ timeout: 10_000 });
+}
+
 async function openSyncExecuteStep(
   bridge: MockBridge,
   page: Page,
@@ -6679,11 +6699,14 @@ for (const theme of STATE_THEMES) {
     test('Sync results of a run that copied files, some skipped past the caps and one failed', async ({
       page,
     }) => {
-      // Not saved: the step says so before the run is asked.
+      // Not saved: the step says so, and Run waits for the save.
       await openSyncExecuteStep(bridge, page, theme, {
         files: { maxFileSizeMB: 10, maxRunMB: 100 },
       });
       await page.getByTestId('sync-files-needs-save').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-run')).toBeDisabled();
+      await expectReadable(page, theme);
+      await saveSyncConfigFromExecuteStep(bridge, page);
       await page.getByTestId('sync-run').click();
       await bridge.respondToNext('sync:execute', 'sync:execute:response', {
         configId: 'cfg-axe',
@@ -6729,6 +6752,7 @@ for (const theme of STATE_THEMES) {
       await openSyncExecuteStep(bridge, page, theme, {
         files: { maxFileSizeMB: 10, maxRunMB: 100 },
       });
+      await saveSyncConfigFromExecuteStep(bridge, page);
       await page.getByTestId('sync-simulate').click();
       await bridge.respondToNext('sync:simulate', 'sync:simulate:response', {
         configId: 'cfg-axe',

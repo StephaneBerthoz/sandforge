@@ -109,6 +109,36 @@ describe('RestorePanel', () => {
       ]);
     });
 
+    it('names, before the click, each object the backup never reached', () => {
+      render(
+        <RestorePanel
+          backups={[
+            {
+              ...failedPartWay,
+              objectResults: [
+                ...failedPartWay.objectResults,
+                {
+                  objectApiName: 'Opportunity',
+                  recordCount: 0,
+                  truncated: true,
+                  stoppedAt: 'not_reached',
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+
+      expect(
+        [...screen.getByTestId('restore-partial-op-3').querySelectorAll('li')].map(
+          (li) => li.textContent,
+        ),
+      ).toEqual([
+        'Contact: 1,000 of 1,234 rows read — the read failed there.',
+        'Opportunity: not read — the backup failed before it reached this object, and holds none of its rows.',
+      ]);
+    });
+
     it('is restored on a click, as a completed one is', () => {
       const onRestore = vi.fn();
       render(
