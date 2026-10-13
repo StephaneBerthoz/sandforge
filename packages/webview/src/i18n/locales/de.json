@@ -2139,6 +2139,8 @@
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "wholeBackups1480": "Vollständige Sicherungen und ein Stopp für jedes Warten",
+      "wholeBackups1480Desc": "Eine DataOps-Sicherung liest jetzt jede Seite eines Objekts bis zu einer von Ihnen festgelegten Obergrenze und sagt, wenn sie vorher aufhört. Eine fortgesetzte Maskierung vergibt keinen fiktiven Namen zweimal. Eine Frozen-Entfernung lässt sich auf ihrer Karte anhalten, und NL2SOQL, der Forge-Plan und der Pipeline-Generator lassen sich stoppen.",
       "readAgain1470": "Erneut lesen und wissen, was ein Halt hinterlässt",
       "readAgain1470Desc": "Der Automatisierungs-Tab der Überprüfung liest die Ziel-Org auf Wunsch erneut, sodass ein gerade zugewiesener Berechtigungssatz als vorhanden erscheint. Ein angehaltener Autopilot-Lauf sagt, welche Lookups er leer ließ und welche Status er nicht zurückgab.",
       "previewResume1460": "Vorschau, Fortsetzen und Anhalten, überall",

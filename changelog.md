@@ -5,6 +5,30 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.48.0] - 2026-10-13
+
+Backups hold whole objects, and every long wait can be stopped.
+
+### Added
+
+- A DataOps backup reads every page of an object, up to
+  `sandforge.backup.maxRecordsPerObject` (50,000 by default), and writes each
+  page to disk as it arrives.
+- A Frozen removal can be stopped from its card.
+- NL2SOQL, the Forge plan and the pipeline generator can be stopped.
+- Migration saves its selection as a Sync config.
+
+### Fixed
+
+- A backup that stops at the cap or fails part-way says so per object, and a
+  restore of it warns that it brings back only part.
+- A masking run's resume gives no fictional name the first part gave.
+- Frozen offers Verify only for a target a load went into.
+- The Gaps tab and the removal confirmation read the target again on demand.
+- A stopped Autopilot run counts the emails it held for their task.
+- Autopilot answers with a translated message when its module is not ready,
+  instead of waiting for the timeout.
+
 ## [1.47.0] - 2026-10-09
 
 What a run leaves is said, and what Review shows can be read again.

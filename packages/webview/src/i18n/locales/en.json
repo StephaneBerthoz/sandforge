@@ -2139,6 +2139,8 @@
       "gaps1430Desc": "Simulate runs a clone through its write stage without writing; Rehearse asks the target itself, inside rolled-back transactions. The Gaps tab lists what they find, with a decision in one click for each, kept in the template.",
       "results1430": "Act from the results",
       "results1430Desc": "Open a created record in the target org, save the results to CSV or JSON, remove the run in place, and retry objects that were skipped. Templates now export and import as JSON files.",
+      "wholeBackups1480": "Whole backups, and a Stop for every wait",
+      "wholeBackups1480Desc": "A DataOps backup now reads every page of an object, up to a cap you set, and says when it stops short. A resumed masking run gives no fictional name twice. A Frozen removal stops from its card, and NL2SOQL, the Forge plan and the pipeline generator can be stopped.",
       "readAgain1470": "Read again, and know what a stop leaves",
       "readAgain1470Desc": "Review's Automation tab reads the target org again on demand, so a permission set you just assigned shows as held. A stopped Autopilot run says which lookups it left empty and which statuses it did not give back.",
       "previewResume1460": "Preview, resume and stop, everywhere",
