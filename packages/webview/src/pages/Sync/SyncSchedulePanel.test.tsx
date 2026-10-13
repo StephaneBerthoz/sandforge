@@ -108,6 +108,83 @@ describe('SyncSchedulePanel', () => {
     expect(savedConfigs.refetch).toHaveBeenCalledTimes(1);
   });
 
+  it('reads the saved configurations again once the Sync wizard saves one, and only then', () => {
+    // Only a migration saved as one was heard: a configuration the wizard
+    // saved in another panel stayed out of this one's picker.
+    render(<SyncSchedulePanel />);
+
+    fromHost({
+      id: 'refused',
+      type: 'sync:config:save:response',
+      correlationId: 'req-1',
+      payload: { success: false, id: 'cfg-refused' },
+    });
+    expect(savedConfigs.refetch).not.toHaveBeenCalled();
+
+    fromHost({
+      id: 'saved',
+      type: 'sync:config:save:response',
+      correlationId: 'req-2',
+      payload: { success: true, id: 'cfg-2' },
+    });
+    expect(savedConfigs.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the saved configurations, on the Sync page', () => {
+    it('lists each one with Run now, which runs it by its id under the label it is listed by', () => {
+      const onRunConfig = vi.fn();
+      savedConfigs.value = [saved('cfg-1', 'dev1 → dev2'), saved('cfg-2', 'Nightly accounts')];
+      render(<SyncSchedulePanel onRunConfig={onRunConfig} />);
+
+      const list = screen.getByTestId('sync-saved-configs');
+      expect(list.querySelectorAll('li')).toHaveLength(2);
+      // Named after the configuration and the time it was saved, as the
+      // picker lists it: two saved under one name are told apart.
+      const run = screen.getByRole('button', {
+        name: /^Run Nightly accounts · 2024-01-0\d .+ now$/,
+      });
+      expect(run.textContent).toBe('Run now');
+
+      fireEvent.click(run);
+
+      expect(onRunConfig).toHaveBeenCalledWith(
+        'cfg-2',
+        expect.stringMatching(/^Nightly accounts · 2024-01-0\d /),
+      );
+      // Nothing is sent from here: the page runs it.
+      expect(mockVSCodeApi.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'sync:execute' }),
+      );
+    });
+
+    it('lists them beside the schedules too', () => {
+      useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')], loading: false });
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      expect(screen.getByText('Schedule s-1')).toBeDefined();
+      expect(screen.getByTestId('run-saved-config-cfg-1')).toBeDefined();
+    });
+
+    it('offers no Run now while a run is under way on the page', () => {
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} runDisabled />);
+
+      expect(screen.getByTestId('run-saved-config-cfg-1')).toHaveProperty('disabled', true);
+    });
+
+    it('lists nothing where no page runs them: the Automation calendar', () => {
+      render(<SyncSchedulePanel />);
+
+      expect(screen.queryByTestId('sync-saved-configs')).toBeNull();
+    });
+
+    it('lists nothing while no configuration is saved', () => {
+      savedConfigs.value = [];
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      expect(screen.queryByTestId('sync-saved-configs')).toBeNull();
+    });
+  });
+
   it('should render the panel with test ID', () => {
     render(<SyncSchedulePanel />);
     expect(screen.getByTestId('sync-schedule-panel')).toBeDefined();

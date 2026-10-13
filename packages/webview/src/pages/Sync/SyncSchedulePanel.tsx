@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useId, useMemo, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { useMessageListener } from '../../hooks/useMessageBus';
@@ -12,11 +12,13 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/Icon';
 import { Card, CardBody } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleFormData } from './CronScheduleBuilder';
 import type {
   MigrationSaveSyncConfigResponse,
   SyncConfigListResponse,
+  SyncConfigSaveResponse,
   SyncScheduleEntry,
 } from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
@@ -103,7 +105,62 @@ export interface SyncSchedulePanelProps {
    * Automation calendar lays them out by the day they next run.
    */
   layout?: React.ComponentType<ScheduleLayoutProps>;
+  /**
+   * Run a saved configuration now, by its id, under the label the panel lists
+   * it by. Given, the panel lists the saved configurations, each with Run
+   * now; the Sync page runs one as its wizard runs its own.
+   */
+  onRunConfig?: (configId: string, label: string) => void;
+  /** A run or a simulation is under way on the page: nothing else is started. */
+  runDisabled?: boolean;
 }
+
+/**
+ * The saved configurations, each with Run now. They were listed nowhere but
+ * in the schedule builder's picker, and none could be run but by a schedule.
+ */
+const SavedConfigRuns: React.FC<{
+  configs: ReadonlyArray<{ id: string; name: string }>;
+  onRun: (configId: string, label: string) => void;
+  disabled: boolean;
+}> = ({ configs, onRun, disabled }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  if (configs.length === 0) return null;
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-(--sf-space-2)"
+      data-testid="sync-saved-configs"
+    >
+      <h3 id={headingId} className="text-sm font-semibold text-text-primary">
+        {t('sync.savedConfigs.title')}
+      </h3>
+      <p className="text-[10px] text-text-secondary">{t('sync.savedConfigs.hint')}</p>
+      <ul className="flex flex-col gap-1">
+        {configs.map((config) => (
+          <li
+            key={config.id}
+            className="flex items-center justify-between gap-(--sf-space-2) text-xs"
+            data-testid={`saved-config-${config.id}`}
+          >
+            <span className="text-text-primary">{config.name}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={disabled}
+              onClick={() => onRun(config.id, config.name)}
+              aria-label={t('sync.savedConfigs.runNamed', { name: config.name })}
+              data-testid={`run-saved-config-${config.id}`}
+            >
+              {t('sync.savedConfigs.runNow')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
 
 /** The Sync tab's layout: one card per schedule, in the order the host lists them. */
 const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor }) => {
@@ -159,10 +216,13 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
  * A schedule runs a *saved* sync configuration by id, so the builder offers
  * the configurations `sync:config:list` returns and nothing else: the panel
  * used to offer one made-up `cfg-default`, and every schedule built on it
- * named a configuration the executor could never load.
+ * named a configuration the executor could never load. On the Sync page it
+ * lists them too, each with Run now (`onRunConfig`).
  */
 export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   layout: Layout = ScheduleCards,
+  onRunConfig,
+  runDisabled = false,
 }) => {
   const { t } = useTranslation();
   const {
@@ -191,7 +251,9 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   );
   // A migration saved as a Sync configuration, from the Migration page in
   // this panel or another, is one more a schedule can run: the list is read
-  // again rather than left as it was when this panel opened.
+  // again rather than left as it was when this panel opened. So is one the
+  // Sync wizard saves, in this panel or another: the list stayed as it was,
+  // and the Automation calendar open beside it never offered it.
   const { refetch: refetchConfigs } = configsQuery;
   useMessageListener<MigrationSaveSyncConfigResponse>(
     'migration:save-sync-config:response',
@@ -199,6 +261,9 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       if (msg.payload.success) refetchConfigs();
     },
   );
+  useMessageListener<SyncConfigSaveResponse>('sync:config:save:response', (msg) => {
+    if (msg.payload.success) refetchConfigs();
+  });
   const availableConfigs = useMemo(
     () => (configsQuery.data?.configs ?? []).map((c) => ({ id: c.id, name: configLabel(c) })),
     [configsQuery.data],
@@ -350,17 +415,23 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     <ErrorBanner message={shownError} data-testid="sync-schedule-error" />
   ) : null;
 
+  // Read apart from the schedules: listed while those load too.
+  const savedConfigRuns = onRunConfig ? (
+    <SavedConfigRuns configs={availableConfigs} onRun={onRunConfig} disabled={runDisabled} />
+  ) : null;
+
   if (loading && schedules.length === 0) {
     return (
-      <div data-testid="sync-schedule-panel">
+      <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
         <SkeletonTable rows={3} columns={5} />
+        {savedConfigRuns}
       </div>
     );
   }
 
   if (!loading && schedules.length === 0) {
     return (
-      <div data-testid="sync-schedule-panel">
+      <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
         {errorBanner}
         <EmptyState
           title={t('sync.schedules.emptyTitle')}
@@ -371,6 +442,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
           actionLabel={canCreate ? t('sync.schedules.createFirst') : undefined}
           onAction={canCreate ? () => setShowBuilder(true) : undefined}
         />
+        {savedConfigRuns}
       </div>
     );
   }
@@ -398,6 +470,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       </div>
 
       <Layout schedules={schedules} actionsFor={actionsFor} />
+      {savedConfigRuns}
     </div>
   );
 };

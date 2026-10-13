@@ -277,6 +277,29 @@ describe('AuditTrailViewer', () => {
     ]);
   });
 
+  it('says a removal the user stopped was cancelled, with what it deleted by then', () => {
+    // Recorded as partial, a stopped removal read as one the org had refused
+    // part of; only Live Operations said the user had stopped it.
+    const stopped: AuditLogEntry = {
+      id: 'aud-removal-cancelled',
+      action: 'cleanup_delete',
+      module: 'forge',
+      orgId: '00D000000000001AAA',
+      orgAlias: 'target-sandbox',
+      outcome: 'cancelled',
+      guard: 'allowed',
+      objects: [{ objectApiName: 'Contact', created: 0, updated: 0, deleted: 2, failed: 0 }],
+      details: {},
+      timestamp: '2026-10-13T10:00:00.000Z',
+    };
+    render(<AuditTrailViewer entries={[stopped]} />);
+    const row = screen.getByTestId('audit-aud-removal-cancelled');
+
+    expect(row.textContent).toContain('Cancelled');
+    expect(row.textContent).not.toContain('Partial');
+    expect(row.querySelector('li')?.textContent).toBe('Contact 2 deleted');
+  });
+
   it('says a removal took up what an earlier one left, and when that one ended', () => {
     // Counted alone, the few records a second removal took read as the
     // removal of the whole run.

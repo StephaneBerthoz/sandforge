@@ -1226,6 +1226,14 @@
     },
     "strategyNotice": {
       "manualReplaced": "Este rascunho pedia uma revisão manual de conflitos, que uma sincronização não oferece: cada execução dele gravou os valores da origem. Agora ele usa “Destino prevalece”, que mantém todos os valores do destino onde as duas orgs diferem. Escolha outra estratégia se a origem deve prevalecer."
+    },
+    "savedConfigs": {
+      "title": "Configurações salvas",
+      "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação.",
+      "runNow": "Executar agora",
+      "runNamed": "Executar {{name}} agora",
+      "ofSaved": "Configuração salva: {{name}}",
+      "gone": "Esta configuração não está mais salva: nada foi executado."
     }
   },
   "migration": {
@@ -1949,7 +1957,8 @@
       "success": "Concluído",
       "partial": "Parcial",
       "failure": "Falhou",
-      "stopped": "Interrompido"
+      "stopped": "Interrompido",
+      "cancelled": "Cancelado"
     },
     "guard": {
       "allowed": "Guard: permitido",
@@ -3901,7 +3910,7 @@
       "cancel": "Parar a remoção",
       "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até lá aparece na lista; o resto fica na org, e uma remoção posterior o retoma.",
       "cancelRefused": "Não foi possível parar a remoção",
-      "cancelRefusedDetail": "A remoção ainda não estava excluindo, ou já tinha terminado. Enquanto estiver em andamento, ela pode ser parada novamente.",
+      "cancelRefusedDetail": "A remoção não está mais em andamento, ou não foi iniciada a partir desta janela.",
       "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui. Uma recarga os expurga, exceto os que a carga pode ter vinculado.",
       "orgGone": "A org em que esta carga gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "nothingCreated": "Esta carga não criou nenhum registro: não há nada a remover.",

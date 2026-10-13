@@ -2870,7 +2870,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // as the panel records it: with when that one ended, by the org's clock.
   const leftBy = before.earlier?.removalSpans.at(-1)?.last;
   recordRemoval({
-    outcome: removalAuditOutcome({ status, objects: outcome.objects }),
+    outcome: removalAuditOutcome({ status }),
     objects: removalAuditObjects(outcome.objects),
     ...(leftBy ? { leftBy } : {}),
   });

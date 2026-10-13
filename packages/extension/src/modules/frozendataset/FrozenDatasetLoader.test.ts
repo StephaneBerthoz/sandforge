@@ -3620,6 +3620,59 @@ describe('FrozenDatasetLoader — a cancel', () => {
     expect(await keptMapping(deps.sasDir)).toEqual(new Map([['Account-000001', 'REAL-Account-1']]));
   });
 
+  it('sends nothing when the cancel came while Production Guard asked about its first write', async () => {
+    // The panel lists a load, and takes its Cancel, before the guard is asked
+    // about a batch: the question waits on a person, and the write it lets go
+    // goes through the writer the cancel stops, which sends nothing.
+    const dataset = makeAccountContactDataset();
+    const stop = new AbortController();
+    const sent: Array<{ objectApiName: string; rows: unknown[] }> = [];
+    const writer = createBulkDmlWriter(
+      new BulkDataWriter({
+        connection: {
+          sobject: (objectApiName: string) => ({
+            create: async (rows: Array<Record<string, unknown>>) => {
+              sent.push({ objectApiName, rows });
+              return rows.map((_, i) => ({ success: true, id: `REAL-${objectApiName}-${i}` }));
+            },
+          }),
+        } as unknown as Connection,
+        bulkExecutor: new BulkApiExecutor(200),
+        bulkManager: new BulkApiManager(),
+        retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+        signal: stop.signal,
+        onProgress: () => undefined,
+        log: () => undefined,
+      }),
+    );
+    const guard = {
+      check: () => ({
+        allowed: true,
+        requiresConfirmation: true,
+        warnings: [],
+        impactSummary: 'INSERT on Account',
+      }),
+      // The Cancel comes while the question is up, and the user then confirms.
+      confirmIfNeeded: async () => {
+        stop.abort();
+        return true;
+      },
+      canAskForConfirmation: true,
+    } as unknown as ProductionGuard;
+    const deps = makeDeps({ dataset, writer, guard });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { signal: stop.signal }))
+      .catch((e: unknown) => e);
+
+    expect(sent).toEqual([]);
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    // Nothing written: the bridge records it as stopped under LOAD_CANCELLED.
+    expect((error as FrozenLoadCancelledError).written.perObject).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', inserted: 0 }),
+    ]);
+  });
+
   it('keeps the residuals it had not purged yet when the cancel comes during a reload', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();

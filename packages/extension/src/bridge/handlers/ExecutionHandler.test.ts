@@ -102,6 +102,33 @@ describe('ExecutionHandler', () => {
       expect(response.payload.error).toContain('not found');
     });
 
+    it('takes a cancel of a run asked for and not started yet, which then does not start', async () => {
+      // The page knows its run's id as soon as it asks for it; the run is
+      // registered only once Production Guard has answered. The cancel was
+      // refused as "not found", and the run started once confirmed.
+      const pending = registry.holdUntilStart('op-pending');
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-abort-pending',
+          type: 'execution:abort',
+          timestamp: Date.now(),
+          payload: { operationId: 'op-pending' },
+        }),
+      );
+
+      expect(pending.signal.aborted).toBe(true);
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: Record<string, unknown>;
+      };
+      expect(response.type).toBe('execution:abort:response');
+      expect(response.correlationId).toBe('req-abort-pending');
+      expect(response.payload).toEqual({ success: true, operationId: 'op-pending' });
+    });
+
     it('refuses to abort a run that already completed, and says how it ended', async () => {
       registry.register('op-done', 'seed', 'Seed', Promise.resolve(), new AbortController());
       await vi.waitFor(() => expect(registry.get('op-done')?.status).toBe('completed'));

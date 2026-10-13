@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
+import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
@@ -55,6 +56,7 @@ import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { clearDescribeCache } from '../../core/connection/describeCache.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -2781,6 +2783,124 @@ describe('SyncOpsHandler', () => {
       });
     });
 
+    describe('sent while Production Guard asked', () => {
+      // The run was registered only once the guard had answered: the page's
+      // Cancel, sent with the id of its request, was refused as a run not
+      // found, and the run started once the question was confirmed.
+
+      /** A guard that asks, and answers once the test says how. */
+      function askingGuard(): { answer: (confirmed: boolean) => void; asked: () => boolean } {
+        let answer: (confirmed: boolean) => void = () => {};
+        const confirmIfNeeded = vi.fn(
+          () =>
+            new Promise<boolean>((resolve) => {
+              answer = resolve;
+            }),
+        );
+        deps.infraServices = {
+          productionGuard: {
+            check: vi.fn().mockReturnValue({
+              allowed: true,
+              requiresConfirmation: true,
+              warnings: [],
+              impactSummary: 'INSERT on Account',
+            }),
+            confirmIfNeeded,
+            canAskForConfirmation: true,
+          },
+        } as unknown as HandlerDeps['infraServices'];
+        return {
+          answer: (confirmed) => answer(confirmed),
+          asked: () => confirmIfNeeded.mock.calls.length > 0,
+        };
+      }
+
+      /** What the page's Cancel sends, and what it is answered. */
+      async function cancelFromPage(
+        registry: BackgroundOperationRegistry,
+        operationId: string,
+      ): Promise<Record<string, unknown> | undefined> {
+        await new ExecutionHandler(deps, registry).handle(
+          inboundRequest({
+            id: `abort-${operationId}`,
+            type: 'execution:abort',
+            timestamp: Date.now(),
+            payload: { operationId },
+          } as BaseMessage),
+        );
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+          .find((m) => m.type === 'execution:abort:response')?.payload;
+      }
+
+      it('does not start once confirmed: nothing is read or written, and it is answered and recorded as cancelled before it started', async () => {
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        const guard = askingGuard();
+        const run = orchestratorUntilTheCancel(() => stoppedAfterAccount);
+        mockWorkingConnection();
+
+        const starting = startSync('sync-cancel-early');
+        await vi.waitFor(() => expect(guard.asked()).toBe(true));
+        const cancelled = await cancelFromPage(registry, 'sync-cancel-early');
+        guard.answer(true);
+        await starting;
+
+        expect(cancelled).toEqual({ success: true, operationId: 'sync-cancel-early' });
+        expect(mockGetConn).not.toHaveBeenCalled();
+        expect(run.signal()).toBeUndefined();
+        expect(registry.has('sync-cancel-early')).toBe(false);
+        const posted = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> });
+        expect(posted.filter((m) => m.type.startsWith('operation:'))).toEqual([]);
+        expect(posted.filter((m) => m.type === 'sync:error')).toEqual([]);
+        expect(posted.find((m) => m.type === 'sync:execute:response')).toMatchObject({
+          correlationId: 'sync-cancel-early',
+          payload: {
+            operationId: 'sync-cancel-early',
+            cancelled: true,
+            objectResults: [],
+            totalProcessed: 0,
+          },
+        });
+        expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'sync_execute',
+            operationId: 'sync-cancel-early',
+            outcome: 'stopped',
+            guard: 'confirmed',
+            objects: [],
+            details: { code: 'ABORTED_BEFORE_START' },
+          }),
+        ]);
+      });
+
+      it('runs as before when no Cancel came while it asked', async () => {
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        const guard = askingGuard();
+        const run = orchestratorUntilTheCancel(() => stoppedAfterAccount);
+        mockWorkingConnection();
+
+        const starting = startSync('sync-confirmed');
+        await vi.waitFor(() => expect(guard.asked()).toBe(true));
+        guard.answer(true);
+        await starting;
+
+        await vi.waitFor(() => expect(run.signal()).toBeDefined());
+        expect(registry.get('sync-confirmed')?.status).toBe('running');
+        // A Cancel once it runs goes to the run, between its objects.
+        expect(await cancelFromPage(registry, 'sync-confirmed')).toEqual({
+          success: true,
+          operationId: 'sync-confirmed',
+        });
+        expect(run.signal()?.aborted).toBe(true);
+        await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+      });
+    });
+
     it('answers a scheduled run with what it reached, cancelled, for the schedule to say so', async () => {
       const registry = new BackgroundOperationRegistry();
       handler.setRegistry(registry);
@@ -2795,6 +2915,134 @@ describe('SyncOpsHandler', () => {
 
       await expect(scheduled).resolves.toMatchObject({ cancelled: true, status: 'partial' });
       expect(runEnds().map((m) => m.payload.result)).toEqual([{ aborted: true }]);
+    });
+  });
+  describe('a saved configuration run now from the Sync page', () => {
+    // The page reads it back on sync:config:load and sends what it reads on
+    // sync:execute, the request its wizard runs with: no write path of its own.
+
+    /** Read a configuration back as the page does. */
+    async function readBack(id: string): Promise<Record<string, unknown> | null> {
+      await handler.handle(
+        inboundRequest({
+          id: `load-${id}`,
+          type: 'sync:config:load',
+          timestamp: Date.now(),
+          payload: { id },
+        } as BaseMessage),
+      );
+      const answer = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          ([m]) => m as BaseMessage & { payload: { config: Record<string, unknown> | null } },
+        )
+        .filter((m) => m.type === 'sync:config:load:response')
+        .pop();
+      return answer?.payload.config ?? null;
+    }
+
+    function executeMsg(id: string, config: Record<string, unknown>): InboundRequest {
+      return inboundRequest({
+        id,
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config },
+      } as BaseMessage);
+    }
+
+    it('runs what was saved through the checks and the Production Guard a run of the wizard passes', async () => {
+      const check = vi.fn().mockReturnValue({
+        allowed: true,
+        requiresConfirmation: false,
+        warnings: [],
+        impactSummary: 'summary',
+      });
+      deps.infraServices = {
+        productionGuard: { check, confirmIfNeeded: vi.fn().mockResolvedValue(true) },
+      } as unknown as HandlerDeps['infraServices'];
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
+      const execute = vi.fn().mockResolvedValue({
+        configId: 'cfg-1',
+        operationId: 'run-saved',
+        status: 'success',
+        objectResults: [],
+        totalProcessed: 0,
+        totalSuccess: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return { execute };
+        }),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+      await handler.handle(
+        inboundRequest({
+          id: 'save-1',
+          type: 'sync:config:save',
+          timestamp: Date.now(),
+          payload: {
+            config: syncConfigWithObjects([
+              { objectApiName: 'Account', operation: 'upsert' },
+              { objectApiName: 'Contact', operation: 'delete' },
+            ]),
+          },
+        } as BaseMessage),
+      );
+
+      const config = await readBack('cfg-1');
+      expect(config).not.toBeNull();
+      await handler.handle(executeMsg('run-saved', config as Record<string, unknown>));
+
+      expect(check).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'tgt-org',
+          operation: 'delete',
+          objectName: 'Account, Contact',
+        }),
+      );
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute.mock.calls[0][0]).toMatchObject({
+        id: 'cfg-1',
+        objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }],
+      });
+      const answer = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { correlationId?: string })
+        .find((m) => m.type === 'sync:execute:response');
+      expect(answer?.correlationId).toBe('run-saved');
+    });
+
+    it('refuses, writing nothing, what a build that offered other modes saved', async () => {
+      // Read back as stored, it meets the boundary a run of the wizard meets.
+      new SyncConfigStore(deps.configStore).save({
+        ...validSyncConfig(),
+        id: 'cfg-old',
+        mode: 'incremental',
+      } as unknown as import('@sandforge/shared').SyncConfig);
+
+      const config = await readBack('cfg-old');
+      await handler.handle(executeMsg('run-old', config as Record<string, unknown>));
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      const refusal = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { message?: string } })
+        .find((m) => m.type === 'sync:error');
+      expect(refusal?.payload.message).toContain('mode "incremental" is not implemented');
     });
   });
 });

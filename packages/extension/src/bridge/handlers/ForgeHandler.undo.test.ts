@@ -657,9 +657,16 @@ describe('forge:undo', () => {
     expect(tracker.getAll()).toEqual([
       expect.objectContaining({ module: 'forge', status: 'cancelled', totalRecords: 3 }),
     ]);
-    // Stopped part way: recorded with what it deleted, marked with it and
-    // with what it did not reach, and offered again for that.
-    expect(trail()[0]).toMatchObject({ outcome: 'partial' });
+    // Stopped part way: recorded as the user's stop with what it deleted —
+    // recorded as partial, the trail read it as a removal the org had
+    // refused part of — marked with it and with what it did not reach, and
+    // offered again for that.
+    expect(trail()[0]).toMatchObject({
+      action: 'cleanup_delete',
+      module: 'forge',
+      outcome: 'cancelled',
+      objects: [{ objectApiName: 'Contact', created: 0, updated: 0, deleted: 2, failed: 0 }],
+    });
     expect(history()[0].undo).toEqual({
       removedAt: answer()?.finishedAt,
       deleted: 2,

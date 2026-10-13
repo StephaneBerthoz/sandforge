@@ -24,6 +24,17 @@ export interface RegisteredOperation {
   notifiedNatively: boolean;
 }
 
+/**
+ * The id of a run that is asked for and not registered yet, held so that a
+ * cancel of it is taken: see {@link BackgroundOperationRegistry.holdUntilStart}.
+ */
+export interface PendingStart {
+  /** Aborted by a cancel of the run sent before it started. */
+  readonly signal: AbortSignal;
+  /** Let go of the id: the run will not start. Registering the run lets go of it too. */
+  release(): void;
+}
+
 /** Event types emitted by the registry during operation lifecycle. */
 export type OperationEventType = 'started' | 'progress' | 'completed' | 'failed' | 'aborted';
 
@@ -47,6 +58,8 @@ export class BackgroundOperationRegistry {
   private operations = new Map<string, RegisteredOperation>();
   private listeners = new Set<OperationEventListener>();
   private maxCompleted = 50;
+  /** The runs asked for and not registered yet, by the id they will run under. */
+  private pendingStarts = new Map<string, AbortController>();
 
   /**
    * Register a new background operation.
@@ -79,6 +92,7 @@ export class BackgroundOperationRegistry {
       notifiedNatively: false,
     };
 
+    this.pendingStarts.delete(operationId);
     this.operations.set(operationId, operation);
     this.emit(operationId, 'started', operation);
 
@@ -143,6 +157,49 @@ export class BackgroundOperationRegistry {
     operation.status = 'aborted';
     operation.completedAt = Date.now();
     this.emit(operationId, 'aborted', operation);
+  }
+
+  /**
+   * Hold the id a run will be registered under while it waits to start, so
+   * that a cancel sent meanwhile is taken rather than refused as a run not
+   * found.
+   *
+   * A run is registered once Production Guard has let it go, and the guard's
+   * confirmation waits on a person: the page that asked for the run already
+   * knows its id and offers Cancel, which `execution:abort` used to answer
+   * "Operation not found" — and the run started all the same once the
+   * question was answered. The run reads `signal` when the wait is over and
+   * does not start if it was aborted. The hold ends when the run is
+   * registered under the id, or on `release`.
+   *
+   * @param operationId - The id the run will be registered under.
+   * @returns The hold: its signal, and how to let it go.
+   */
+  holdUntilStart(operationId: string): PendingStart {
+    const controller = new AbortController();
+    this.pendingStarts.set(operationId, controller);
+    return {
+      signal: controller.signal,
+      release: () => {
+        // Only this hold's: a run registered meanwhile has let go of it already.
+        if (this.pendingStarts.get(operationId) === controller) {
+          this.pendingStarts.delete(operationId);
+        }
+      },
+    };
+  }
+
+  /**
+   * Cancel a run held by {@link holdUntilStart}, before it started.
+   *
+   * @param operationId - The id the run will be registered under.
+   * @returns Whether a run waiting to start was held under this id.
+   */
+  cancelBeforeStart(operationId: string): boolean {
+    const controller = this.pendingStarts.get(operationId);
+    if (!controller) return false;
+    controller.abort();
+    return true;
   }
 
   /**
@@ -230,6 +287,10 @@ export class BackgroundOperationRegistry {
         operation.abortController.abort();
       }
     }
+    // A run still waiting on Production Guard does not start in a window
+    // that has gone.
+    for (const pending of this.pendingStarts.values()) pending.abort();
+    this.pendingStarts.clear();
     this.operations.clear();
     this.listeners.clear();
   }

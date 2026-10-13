@@ -1226,6 +1226,14 @@
     },
     "strategyNotice": {
       "manualReplaced": "Este borrador pedía una revisión manual de conflictos, que una sincronización no ofrece: cada una de sus ejecuciones escribió los valores del origen. Ahora usa «Destino prevalece», que conserva todos los valores del destino donde las dos orgs difieren. Elija otra estrategia si el origen debe prevalecer."
+    },
+    "savedConfigs": {
+      "title": "Configuraciones guardadas",
+      "hint": "Ejecute una ahora, tal como se guardó: se comprueba como una ejecución desde la pestaña Sync, y Production Guard la evalúa antes de escribir nada.",
+      "runNow": "Ejecutar ahora",
+      "runNamed": "Ejecutar {{name}} ahora",
+      "ofSaved": "Configuración guardada: {{name}}",
+      "gone": "Esta configuración ya no está guardada: no se ejecutó nada."
     }
   },
   "migration": {
@@ -1949,7 +1957,8 @@
       "success": "Correcto",
       "partial": "Parcial",
       "failure": "Fallido",
-      "stopped": "Detenido"
+      "stopped": "Detenido",
+      "cancelled": "Cancelado"
     },
     "guard": {
       "allowed": "Guard: permitido",
@@ -3901,7 +3910,7 @@
       "cancel": "Detener la eliminación",
       "stopping": "Deteniendo: la eliminación termina en cuanto se responde la llamada en curso. Lo que eliminó hasta entonces aparece en la lista; el resto queda en la org, y una eliminación posterior lo retoma.",
       "cancelRefused": "No se pudo detener la eliminación",
-      "cancelRefusedDetail": "La eliminación aún no estaba borrando, o ya había terminado. Mientras se ejecute, puede detenerse de nuevo.",
+      "cancelRefusedDetail": "La eliminación ya no está en curso, o no se inició desde esta ventana.",
       "notRecorded": "Cargado antes de que las cargas guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Una recarga los purga, salvo los que la carga pudo haber vinculado.",
       "orgGone": "La org en la que escribió esta carga ya no está registrada: sus registros no se pueden eliminar desde aquí.",
       "nothingCreated": "Esta carga no creó ningún registro: no hay nada que eliminar.",

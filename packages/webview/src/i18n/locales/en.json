@@ -1226,6 +1226,14 @@
     },
     "strategyNotice": {
       "manualReplaced": "This draft asked for manual conflict review, which a sync run does not offer: every run of it wrote the source values. It now uses Target Wins, which keeps every value the target holds where the two orgs differ. Pick another strategy if the source should win."
+    },
+    "savedConfigs": {
+      "title": "Saved configurations",
+      "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written.",
+      "runNow": "Run now",
+      "runNamed": "Run {{name}} now",
+      "ofSaved": "Saved configuration: {{name}}",
+      "gone": "This configuration is no longer saved: nothing was run."
     }
   },
   "migration": {
@@ -1949,7 +1957,8 @@
       "success": "Succeeded",
       "partial": "Partial",
       "failure": "Failed",
-      "stopped": "Stopped"
+      "stopped": "Stopped",
+      "cancelled": "Cancelled"
     },
     "guard": {
       "allowed": "Guard: allowed",
@@ -3901,7 +3910,7 @@
       "cancel": "Stop the removal",
       "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
       "cancelRefused": "Could not stop the removal",
-      "cancelRefusedDetail": "The removal was not deleting yet, or it had ended. While it runs, it can be stopped again.",
+      "cancelRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
       "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them, except those the load may have linked to.",
       "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
       "nothingCreated": "This load created no record: there is nothing to remove.",

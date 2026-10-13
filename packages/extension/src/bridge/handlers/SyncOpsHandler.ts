@@ -33,6 +33,7 @@ import {
   robustnessConfigOf,
   bulkManagerOf,
   syntheticRequest,
+  ABORTED_BEFORE_START,
   PRODUCTION_GUARD_MISSING,
   productionGuardMissingError,
   GUARD_REFUSAL,
@@ -1192,6 +1193,11 @@ export class SyncOpsHandler implements DomainHandler {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
     const failure: OperationFailureContext = { module: 'sync', operation: msg.type };
+    // Held under the run's id until it is registered: the page offers Cancel
+    // as soon as it asks for the run, and a cancel sent while Production
+    // Guard asked was refused as a run not found — the run then started once
+    // the question was answered.
+    const pending = this.registry?.holdUntilStart(operationId);
 
     try {
       // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
@@ -1250,6 +1256,13 @@ export class SyncOpsHandler implements DomainHandler {
           code: GUARD_REFUSAL.declined,
         });
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
+        return;
+      }
+      // Cancelled while the guard asked: the run does not start, nothing is
+      // written, and the page is answered with a run cancelled before it
+      // synced any object.
+      if (pending?.signal.aborted) {
+        this.answerCancelledBeforeStart(msg, config, decision);
         return;
       }
 
@@ -1315,7 +1328,54 @@ export class SyncOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });
+    } finally {
+      pending?.release();
     }
+  }
+
+  /**
+   * Answer a run the user cancelled before it started: recorded as stopped
+   * under the code of a run cancelled before it started, with the guard's
+   * decision, and answered as a run cancelled before it synced any object. It
+   * is no run of the history, which keeps the runs that read or wrote.
+   */
+  private answerCancelledBeforeStart(
+    msg: InboundRequest,
+    config: SyncConfig,
+    decision: GuardDecision,
+  ): void {
+    recordWriteRun(this.deps, {
+      action: 'sync_execute',
+      module: 'sync',
+      operationId: msg.id,
+      orgId: config.targetOrgId,
+      outcome: 'stopped',
+      guard: decision,
+      code: ABORTED_BEFORE_START,
+    });
+    const result: SyncExecutionResult = {
+      configId: config.id,
+      operationId: msg.id,
+      // Never a success, as a run a cancel stopped never is.
+      status: 'partial',
+      objectResults: [],
+      totalProcessed: 0,
+      totalSuccess: 0,
+      totalFailed: 0,
+      totalSkipped: 0,
+      duration: 0,
+      timestamp: new Date().toISOString(),
+      cancelled: true,
+      error: 'Cancelled before it started: nothing was written.',
+    };
+    const response = buildResponse(
+      this.deps,
+      msg,
+      'sync:execute:response',
+      result as unknown as Record<string, unknown>,
+    );
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} (cancelled before it started)`);
   }
 
   /**

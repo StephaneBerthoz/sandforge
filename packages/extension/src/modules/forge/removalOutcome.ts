@@ -37,14 +37,13 @@ export function removalStatus(
 }
 
 /**
- * A removal in the audit trail's words. A removal stopped part way is partial
- * when it deleted something, and failed when it deleted nothing.
+ * A removal in the audit trail's words: as it ended, a removal the user
+ * stopped part way included, which is recorded as cancelled with what it
+ * deleted by then. It was recorded as partial when it had deleted something,
+ * and as failed when it had not: the trail read a stop as the org's refusal.
  */
-export function removalAuditOutcome(
-  result: Pick<ForgeUndoResult, 'status' | 'objects'>,
-): AuditOutcome {
-  if (result.status !== 'cancelled') return result.status;
-  return result.objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
+export function removalAuditOutcome(result: Pick<ForgeUndoResult, 'status'>): AuditOutcome {
+  return result.status;
 }
 
 /** What a removal deleted and what the org refused, per object, for the audit trail. */

@@ -689,7 +689,12 @@ describe('frozen:remove', () => {
     expect(tracker.getAll()).toEqual([
       expect.objectContaining({ module: 'frozen', status: 'cancelled', totalRecords: 3 }),
     ]);
-    expect(trail()[0]).toMatchObject({ outcome: 'partial' });
+    // Recorded as the user's stop, with what it deleted by then: as partial,
+    // the trail read it as a removal the org had refused part of.
+    expect(trail()[0]).toMatchObject({
+      outcome: 'cancelled',
+      objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 2, failed: 0 })],
+    });
     // Marked with what it deleted and what it did not reach: the account is
     // still there, and still the load's to remove.
     const cancelled = answer();
@@ -797,7 +802,7 @@ describe('frozen:remove', () => {
       expect(trail()).toEqual([
         expect.objectContaining({
           operationId: 'req-frozen:remove',
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 2 })],
         }),
       ]);
@@ -808,6 +813,117 @@ describe('frozen:remove', () => {
           removed: { removedAt: cancelled?.finishedAt, deleted: 2, notReached: 1 },
         },
       );
+    });
+
+    describe('sent before the removal started', () => {
+      // The removal was registered only once Production Guard let it go and
+      // the target said it was still the org loaded into: a Cancel sent
+      // meanwhile was refused as a removal not found, and the removal then
+      // deleted the load's records all the same.
+
+      /** A guard that asks, and answers once the test says how. */
+      function askingGuard(): { answer: (confirmed: boolean) => void; asked: () => boolean } {
+        let answer: (confirmed: boolean) => void = () => {};
+        const confirmIfNeeded = vi.fn(
+          () =>
+            new Promise<boolean>((resolve) => {
+              answer = resolve;
+            }),
+        );
+        deps.infraServices = {
+          productionGuard: {
+            check: vi.fn().mockReturnValue({
+              allowed: true,
+              requiresConfirmation: true,
+              warnings: [],
+              impactSummary: 'DELETE 3 records',
+            }),
+            confirmIfNeeded,
+            canAskForConfirmation: true,
+          },
+        } as unknown as HandlerDeps['infraServices'];
+        return {
+          answer: (confirmed) => answer(confirmed),
+          asked: () => confirmIfNeeded.mock.calls.length > 0,
+        };
+      }
+
+      /** Nothing deleted, nothing listed, the load left as it was, and a cancelled answer. */
+      async function expectNothingRemoved(guard: string): Promise<void> {
+        expect(org.deletes).toEqual([]);
+        expect(org.rows.get('Contact')).toHaveLength(2);
+        expect(errors()).toEqual([]);
+        expect(answer()).toEqual({
+          status: 'cancelled',
+          includeChanged: false,
+          objects: [],
+          finishedAt: expect.any(String),
+        });
+        expect(registry.has('req-frozen:remove')).toBe(false);
+        expect(tracker.getAll()).toEqual([]);
+        expect(posted('operation:started')).toEqual([]);
+        expect(trail()).toEqual([
+          expect.objectContaining({
+            operationId: 'req-frozen:remove',
+            outcome: 'stopped',
+            guard,
+            objects: [],
+            details: { code: 'ABORTED_BEFORE_START' },
+          }),
+        ]);
+        expect((await recorded())?.removal).toBeUndefined();
+      }
+
+      it('is taken while Production Guard asks, and the removal does not start once confirmed', async () => {
+        const guard = askingGuard();
+
+        const removing = remove();
+        await vi.waitFor(() => expect(guard.asked()).toBe(true));
+        const cancelled = await cancelFromCard();
+        guard.answer(true);
+        await removing;
+
+        expect(cancelled).toEqual({ success: true, operationId: 'req-frozen:remove' });
+        await expectNothingRemoved('confirmed');
+      });
+
+      it('is taken while the target is asked which org it is', async () => {
+        const query = org.conn.query.getMockImplementation();
+        if (!query) throw new Error('the target answers no query');
+        org.conn.query.mockImplementation(async (soql: string) => {
+          if (soql === 'SELECT Id FROM Organization') await cancelFromCard();
+          return query(soql);
+        });
+
+        await remove();
+
+        await expectNothingRemoved('allowed');
+      });
+
+      it('leaves the load to a removal asked for after it, which runs', async () => {
+        const guard = askingGuard();
+        const removing = remove();
+        await vi.waitFor(() => expect(guard.asked()).toBe(true));
+        await cancelFromCard();
+        guard.answer(true);
+        await removing;
+        deps.infraServices = {
+          productionGuard: new ProductionGuard(),
+        } as unknown as HandlerDeps['infraServices'];
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(
+          inboundRequest({
+            id: 'req-frozen:remove-again',
+            type: 'frozen:remove',
+            timestamp: Date.now(),
+            payload: { targetOrgId: TARGET_ORG, loadedAt: LOAD_ENDED },
+          } as BaseMessage),
+        );
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect(org.rows.get('Contact')).toEqual([]);
+      });
     });
 
     it('leaves what it did not reach to a second removal, which takes it alone', async () => {

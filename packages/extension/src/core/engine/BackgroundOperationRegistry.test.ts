@@ -200,6 +200,62 @@ describe('BackgroundOperationRegistry', () => {
     });
   });
 
+  describe('a run held until it starts', () => {
+    const never = (): Promise<void> => new Promise<void>(() => undefined);
+
+    it('takes a cancel sent before the run is registered, which the run reads once it may start', () => {
+      // execution:abort found no run while Production Guard asked, and the
+      // run started once the question was answered.
+      const pending = registry.holdUntilStart('op-1');
+
+      expect(registry.cancelBeforeStart('op-1')).toBe(true);
+
+      expect(pending.signal.aborted).toBe(true);
+      // Nothing is listed: the run never started.
+      expect(registry.has('op-1')).toBe(false);
+    });
+
+    it('takes no cancel for an id nothing holds, nor once the hold is let go', () => {
+      const pending = registry.holdUntilStart('op-1');
+      pending.release();
+
+      expect(registry.cancelBeforeStart('op-1')).toBe(false);
+      expect(registry.cancelBeforeStart('op-2')).toBe(false);
+      expect(pending.signal.aborted).toBe(false);
+    });
+
+    it('lets go of the id once the run is registered under it: a cancel then goes to the run', () => {
+      const pending = registry.holdUntilStart('op-1');
+      const run = new AbortController();
+      registry.register('op-1', 'sync', 'Sync', never(), run);
+
+      expect(registry.cancelBeforeStart('op-1')).toBe(false);
+      expect(pending.signal.aborted).toBe(false);
+      // Released late, the hold leaves the run's registration as it is.
+      pending.release();
+      registry.abort('op-1');
+      expect(run.signal.aborted).toBe(true);
+    });
+
+    it('does not let go of a later hold of the same id when an earlier one is released', () => {
+      const first = registry.holdUntilStart('op-1');
+      const second = registry.holdUntilStart('op-1');
+      first.release();
+
+      expect(registry.cancelBeforeStart('op-1')).toBe(true);
+      expect(second.signal.aborted).toBe(true);
+    });
+
+    it('stops a run still waiting to start when the window goes', () => {
+      const pending = registry.holdUntilStart('op-1');
+
+      registry.dispose();
+
+      expect(pending.signal.aborted).toBe(true);
+      expect(registry.cancelBeforeStart('op-1')).toBe(false);
+    });
+  });
+
   describe('updateProgress', () => {
     it('should update percent and emit progress event', () => {
       const listener = vi.fn();

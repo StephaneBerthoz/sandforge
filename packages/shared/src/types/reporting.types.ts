@@ -49,9 +49,13 @@ export type AuditAction =
  * How a recorded run ended. `stopped` is a run stopped before it wrote
  * anything: by Production Guard — refused by the guard, or declined at its
  * confirmation, which the entry's `guard` says — or by a check of its own path
- * or a cancel, which the entry's `details.code` names.
+ * or a cancel, which the entry's `details.code` names. `cancelled` is a
+ * removal of the records a run or a load created that the user stopped once
+ * it had started, its counts saying what it deleted by then: it was recorded
+ * as partial, or failed when it had deleted nothing, and only Live Operations
+ * said the user had stopped it.
  */
-export type AuditOutcome = 'success' | 'partial' | 'failure' | 'stopped';
+export type AuditOutcome = 'success' | 'partial' | 'failure' | 'stopped' | 'cancelled';
 
 /**
  * What Production Guard decided about a run.

@@ -16,6 +16,7 @@ import type {
   TransformRuleConfig,
   SyncTemplateConfig,
   SyncConfigSaveResponse,
+  SyncConfigLoadResponse,
   SyncSimulationResult,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
@@ -157,6 +158,15 @@ export interface SyncPageData {
   handleSimulate: () => void;
   /** Save the current configuration under `name` so a schedule can run it. */
   handleSaveConfig: (name: string) => void;
+  /**
+   * Run a saved configuration now, as it was saved: read back by its id, then
+   * sent to the run exactly as the wizard sends its own.
+   */
+  handleRunSavedConfig: (configId: string, label: string) => void;
+  /** The label of the saved configuration the run on the page is of, or null for the wizard's own. */
+  savedRunLabel: string | null;
+  /** Whether a saved configuration asked to run is being read back, before its run starts. */
+  savedRunStarting: boolean;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
   configSaved: boolean;
   /** Apply a pre-built sync template to populate wizard state. */
@@ -420,6 +430,16 @@ export function useSyncPageData(): SyncPageData {
     { responseType: 'sync:config:save:response' },
   );
 
+  // Bridge mutation: read a saved configuration back, to run it as saved
+  const loadConfigMutation = useBridgeMutation<SyncConfigLoadResponse['payload']>(
+    'sync:config:load',
+    { responseType: 'sync:config:load:response' },
+  );
+  /** The saved configuration asked to run now, until it is read back and sent to the run. */
+  const [savedRunAsked, setSavedRunAsked] = useState<string | null>(null);
+  /** The label of the saved configuration the run on the page is of; null for the wizard's own. */
+  const [savedRunLabel, setSavedRunLabel] = useState<string | null>(null);
+
   /**
    * The configuration last sent to be saved, and the id it was saved under. A
    * schedule runs whatever is stored under its configuration id, so the id is
@@ -478,7 +498,9 @@ export function useSyncPageData(): SyncPageData {
   const [simulatedFor, setSimulatedFor] = useState<string | null>(null);
   const simulation = simulatedFor === simulatedConfig ? simulateMutation.data : null;
   const isSimulating = simulateMutation.loading;
-  const busy = isRunning || isSimulating;
+  // Reading a saved configuration back is the start of its run: nothing else
+  // starts meanwhile.
+  const busy = isRunning || isSimulating || loadConfigMutation.loading;
 
   // SyncOpsHandler emits operation:progress throughout the run; nothing
   // consumed it, so the bar sat at 0 % and the timer at 0.0s for the whole
@@ -503,7 +525,8 @@ export function useSyncPageData(): SyncPageData {
       fieldsMutation.error ??
       executeMutation.error ??
       simulateMutation.error ??
-      saveConfigMutation.error;
+      saveConfigMutation.error ??
+      loadConfigMutation.error;
     if (bridgeError) {
       setError(bridgeError);
       addNotification({
@@ -518,6 +541,7 @@ export function useSyncPageData(): SyncPageData {
     executeMutation.error,
     simulateMutation.error,
     saveConfigMutation.error,
+    loadConfigMutation.error,
     addNotification,
     t,
   ]);
@@ -702,10 +726,49 @@ export function useSyncPageData(): SyncPageData {
     // One outcome on the results step at a time: a simulation's findings are
     // not left standing under a run that has started writing.
     simulateMutation.reset();
+    setSavedRunLabel(null);
     setSyncStartedAt(Date.now());
     setCurrentStep(4);
     executeMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
+
+  /**
+   * Run a saved configuration now. It is read back as the store holds it and
+   * sent on `sync:execute`, the request the wizard's Run sends: the same
+   * checks at the boundary, the same Production Guard, the same progress,
+   * Pause and Cancel on the execute step, the same results. A run there needs
+   * no simulation first, and neither does this one. Nothing in the wizard is
+   * replaced: a configuration saved from Migration can hold what the wizard
+   * cannot show — a transform of one object alone — and goes to the run as
+   * it was saved.
+   */
+  const handleRunSavedConfig = (configId: string, label: string) => {
+    if (busy) return;
+    setError(null);
+    executeMutation.reset();
+    simulateMutation.reset();
+    setSavedRunLabel(label);
+    setSavedRunAsked(configId);
+    setCurrentStep(4);
+    loadConfigMutation.mutate({ id: configId });
+  };
+
+  // The saved configuration read back goes to the run, once per answer.
+  const loaded = loadConfigMutation.data;
+  const startSavedRun = useLatestRef(() => {
+    if (!loaded || savedRunAsked === null) return;
+    setSavedRunAsked(null);
+    if (!loaded.config) {
+      setSavedRunLabel(null);
+      setError(t('sync.savedConfigs.gone'));
+      return;
+    }
+    setSyncStartedAt(Date.now());
+    executeMutation.mutate({ config: loaded.config });
+  });
+  useEffect(() => {
+    startSavedRun.current();
+  }, [loaded, startSavedRun]);
 
   /**
    * Simulate the configuration on screen: the extension reads both orgs as a
@@ -719,6 +782,7 @@ export function useSyncPageData(): SyncPageData {
     const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
 
     executeMutation.reset();
+    setSavedRunLabel(null);
     setSimulatedFor(simulatedConfig);
     setSyncStartedAt(Date.now());
     setCurrentStep(4);
@@ -805,6 +869,9 @@ export function useSyncPageData(): SyncPageData {
     handleExecute,
     handleSimulate,
     handleSaveConfig,
+    handleRunSavedConfig,
+    savedRunLabel,
+    savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved:
       saveConfigMutation.data?.success === true &&

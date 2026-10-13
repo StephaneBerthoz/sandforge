@@ -122,6 +122,16 @@ let mockExecuteMutationState = {
 };
 
 const mockSimulateMutate = vi.fn();
+const mockLoadConfigMutate = vi.fn();
+
+/** Mutable mutation state for sync:config:load. */
+let mockLoadConfigMutationState = {
+  mutate: mockLoadConfigMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
 
 /** Mutable mutation state for sync:simulate. */
 let mockSimulateMutationState = {
@@ -142,10 +152,23 @@ let mockSaveConfigMutationState = {
   reset: vi.fn(),
 };
 
+/** The saved configurations `sync:config:list` answers with. */
+const savedConfigList = vi.hoisted(() => ({
+  value: [] as Array<{ id: string; name: string; description: string; updatedAt: string }>,
+}));
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'sync:describe-global') {
       return mockObjectsQueryState;
+    }
+    if (type === 'sync:config:list') {
+      return {
+        data: { configs: savedConfigList.value },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -212,6 +235,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'sync:simulate') {
       return mockSimulateMutationState;
+    }
+    if (type === 'sync:config:load') {
+      return mockLoadConfigMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -940,5 +966,144 @@ describe('SyncPage simulation, pause and cancel', () => {
 
     fireEvent.click(screen.getByTestId('sync-strategy-notice-dismiss'));
     expect(screen.queryByTestId('sync-strategy-notice')).toBeNull();
+  });
+});
+
+describe('SyncPage Run now on a saved configuration', () => {
+  const idleExecute = mockExecuteMutationState;
+
+  /** A configuration as `sync:config:load` reads it back from the store. */
+  const savedConfig = {
+    id: 'cfg-saved',
+    name: 'Nightly accounts',
+    description: 'Saved from Migration',
+    sourceOrgId: 'org-1',
+    targetOrgId: 'org-2',
+    direction: 'source_to_target',
+    mode: 'full',
+    conflictStrategy: 'source_wins',
+    objects: [
+      {
+        objectApiName: 'Account',
+        operation: 'insert',
+        externalIdField: '',
+        batchSize: 200,
+        fieldMappings: [],
+        // A transform of this object alone, which the wizard cannot show.
+        transformRules: [{ type: 'prefix', config: { prefix: 'QA-' } }],
+        excludedFields: [],
+        addOnFields: [],
+        insertOrder: 0,
+      },
+    ],
+    enableRollback: false,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    draft.value = null;
+    savedConfigList.value = [
+      {
+        id: 'cfg-saved',
+        name: 'Nightly accounts',
+        description: 'Saved from Migration',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      },
+    ];
+    mockExecuteMutate.mockClear();
+    mockSimulateMutate.mockClear();
+    mockLoadConfigMutate.mockClear();
+    mockLoadConfigMutationState = {
+      mutate: mockLoadConfigMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  });
+  afterEach(() => {
+    mockExecuteMutationState = idleExecute;
+    savedConfigList.value = [];
+  });
+
+  /** Open the Schedules tab and click Run now on the saved configuration. */
+  function runSaved(): ReturnType<typeof render> {
+    const view = render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('tab-schedules'));
+    fireEvent.click(screen.getByTestId('run-saved-config-cfg-saved'));
+    return view;
+  }
+
+  it('reads it back and sends it to the run as saved, on the request the wizard runs with', () => {
+    const { rerender } = runSaved();
+
+    expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
+    // Shown where a run of the wizard is: the execute step of the Sync tab.
+    expect(screen.getByTestId('tab-sync').getAttribute('aria-selected')).toBe('true');
+    // The wizard's step button shares the testid: the panel is the div.
+    expect(
+      screen.getAllByTestId('sync-step-execute').some((element) => element.tagName === 'DIV'),
+    ).toBe(true);
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: savedConfig } };
+    rerender(<SyncPage />);
+
+    // Exactly what was saved, on sync:execute: the host checks it and asks
+    // Production Guard as it does for the wizard's own run. No simulation
+    // comes first, as none does before the wizard's Run.
+    expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+    expect(mockExecuteMutate).toHaveBeenCalledWith({ config: savedConfig });
+    expect(mockSimulateMutate).not.toHaveBeenCalled();
+
+    // Sent once per answer, however often the page renders.
+    rerender(<SyncPage />);
+    expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('says which saved configuration the run on the execute step is', () => {
+    const { rerender } = runSaved();
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: savedConfig } };
+    mockExecuteMutationState = { ...idleExecute, loading: true, requestId: 'sync-run-1' } as never;
+    rerender(<SyncPage />);
+
+    expect(screen.getByTestId('sync-saved-run').textContent).toMatch(
+      /^Saved configuration: Nightly accounts · /,
+    );
+    // Its Pause and Cancel are the page's, as for the wizard's own run.
+    expect(screen.getByTestId('sync-cancel')).toBeDefined();
+  });
+
+  it("offers no Run of the wizard's while the saved configuration is read back", () => {
+    const { rerender } = runSaved();
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, loading: true };
+    rerender(<SyncPage />);
+
+    expect(screen.queryByTestId('sync-run')).toBeNull();
+    expect(screen.queryByTestId('sync-simulate')).toBeNull();
+    expect(screen.getByTestId('sync-saved-run').textContent).toMatch(
+      /^Saved configuration: Nightly accounts · /,
+    );
+  });
+
+  it('runs nothing, and says so, when the configuration is no longer saved', () => {
+    const { rerender } = runSaved();
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: null } };
+    rerender(<SyncPage />);
+
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sync-error').textContent).toContain(
+      'This configuration is no longer saved: nothing was run.',
+    );
+  });
+
+  it('offers no Run now while a run is under way on the page', () => {
+    mockExecuteMutationState = { ...idleExecute, loading: true, requestId: 'sync-run-1' } as never;
+    render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('tab-schedules'));
+
+    expect(screen.getByTestId('run-saved-config-cfg-saved')).toHaveProperty('disabled', true);
   });
 });

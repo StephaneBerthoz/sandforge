@@ -55,17 +55,16 @@ describe('removalStatus', () => {
 });
 
 describe('removalAuditOutcome', () => {
-  it('records a cancelled removal as partial when it deleted something, as failed otherwise', () => {
-    expect(removalAuditOutcome({ status: 'cancelled', objects: [object({ deleted: 1 })] })).toBe(
-      'partial',
-    );
-    expect(
-      removalAuditOutcome({ status: 'cancelled', objects: [object({ keptChanged: 1 })] }),
-    ).toBe('failure');
+  it('records a removal the user stopped as cancelled, whether or not it had deleted anything', () => {
+    // Recorded as partial, or failed when nothing had gone: the trail read
+    // the user's stop as the org's refusal.
+    expect(removalAuditOutcome({ status: 'cancelled' })).toBe('cancelled');
   });
 
   it('records any other removal as it ended', () => {
-    expect(removalAuditOutcome({ status: 'partial', objects: [] })).toBe('partial');
+    expect(removalAuditOutcome({ status: 'partial' })).toBe('partial');
+    expect(removalAuditOutcome({ status: 'failure' })).toBe('failure');
+    expect(removalAuditOutcome({ status: 'success' })).toBe('success');
   });
 });
 

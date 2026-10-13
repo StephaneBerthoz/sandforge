@@ -35,7 +35,10 @@ import {
   removalStatus,
 } from '../../modules/forge/removalOutcome.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
-import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type {
+  BackgroundOperationRegistry,
+  PendingStart,
+} from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -45,6 +48,7 @@ import {
   sendOperationFailed,
   robustnessConfigOf,
   bulkManagerOf,
+  ABORTED_BEFORE_START,
   PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import {
@@ -2117,15 +2121,21 @@ export class FrozenDatasetHandler implements DomainHandler {
     // Claimed before Production Guard is consulted: its confirmation waits on
     // a person, and a second click meanwhile would ask, and remove, twice.
     this.removing.add(claim);
+    // Held as long, under the id the removal will run under: the card offers
+    // Cancel as soon as it asks, and a cancel sent while the guard asked was
+    // refused as a removal not found — which then ran once confirmed.
+    const pending = this.registry?.holdUntilStart(msg.id);
     try {
       await this.removeLoad(msg, {
         store,
         load,
         plan,
         includeChanged: parsed.includeChanged === true,
+        pending,
       });
     } finally {
       this.removing.delete(claim);
+      pending?.release();
     }
   }
 
@@ -2148,9 +2158,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       load: RecordedLoad;
       plan: ForgeRunObjectRecords[];
       includeChanged: boolean;
+      /** The hold a cancel of the removal before it started reaches. */
+      pending?: PendingStart;
     },
   ): Promise<void> {
-    const { store, load, plan, includeChanged } = args;
+    const { store, load, plan, includeChanged, pending } = args;
     const orgId = load.orgId;
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
@@ -2207,6 +2219,35 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
       return;
     }
+    /**
+     * Whether the card's Cancel came before the removal started — while the
+     * guard asked, or the target was read — in which case it does not start:
+     * recorded as stopped, under the code of a run cancelled before it
+     * started, and answered as a removal cancelled before it deleted anything.
+     */
+    const cancelledBeforeStart = (): boolean => {
+      if (!pending?.signal.aborted) return false;
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId,
+        outcome: 'stopped',
+        guard: decision,
+        code: ABORTED_BEFORE_START,
+      });
+      const result: FrozenRemovalResult = {
+        status: 'cancelled',
+        includeChanged,
+        objects: [],
+        finishedAt: new Date().toISOString(),
+      };
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:remove:response', { result, operationId: msg.id }),
+      );
+      return true;
+    };
+    if (cancelledBeforeStart()) return;
 
     // Asked once the guard let the delete go: a production org it refused
     // must not have been read. A refreshed sandbox took the load's records
@@ -2245,6 +2286,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
       return;
     }
+    if (cancelledBeforeStart()) return;
 
     // The id of the request that started it, as a load runs under its own:
     // the removal card knows it, and its Cancel reaches the registry's

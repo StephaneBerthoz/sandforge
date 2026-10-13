@@ -239,6 +239,9 @@ export const SyncPage: React.FC = () => {
     handleExecute,
     handleSimulate,
     handleSaveConfig,
+    handleRunSavedConfig,
+    savedRunLabel,
+    savedRunStarting,
     configSaved,
     handleApplyTemplate,
     canGoNext,
@@ -291,7 +294,9 @@ export const SyncPage: React.FC = () => {
       value,
       label: t(`sync.conflicts.${value}`),
     }));
-  const busy = isRunning || isSimulating;
+  // Reading a saved configuration back starts its run: the wizard's buttons
+  // are not offered meanwhile.
+  const busy = isRunning || isSimulating || savedRunStarting;
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
@@ -358,8 +363,19 @@ export const SyncPage: React.FC = () => {
       {/* History tab */}
       {activeTab === 'history' && <SyncHistoryPanel />}
 
-      {/* Schedules tab */}
-      {activeTab === 'schedules' && <SyncSchedulePanel />}
+      {/* Schedules tab: the schedules, and the saved configurations, each of
+          which runs from the execute step of the Sync tab, as the wizard's
+          own run does. */}
+      {activeTab === 'schedules' && (
+        <SyncSchedulePanel
+          onRunConfig={(configId, label) => {
+            setQuickSyncActive(false);
+            setActiveTab('sync');
+            handleRunSavedConfig(configId, label);
+          }}
+          runDisabled={busy}
+        />
+      )}
 
       {/* Conflicts tab */}
       {activeTab === 'conflicts' && <ConflictsTabContent />}
@@ -651,6 +667,12 @@ export const SyncPage: React.FC = () => {
           {currentStep === 4 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-execute">
               <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
+              {/* While it runs: back on this step afterwards, Run is the wizard's. */}
+              {busy && savedRunLabel !== null && (
+                <p className="text-xs text-text-primary" data-testid="sync-saved-run">
+                  {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
+                </p>
+              )}
               {!busy && (
                 <>
                   <p className="text-xs text-text-secondary">{t('sync.simulation.hint')}</p>
@@ -698,7 +720,7 @@ export const SyncPage: React.FC = () => {
               <div className="text-[10px] text-text-secondary" data-testid="sync-elapsed">
                 {(elapsedMs / 1000).toFixed(1)}s
               </div>
-              {busy && (
+              {busy && runOperationId !== null && (
                 <SyncRunControls
                   operationId={runOperationId}
                   kind={isSimulating ? 'simulation' : 'run'}
@@ -711,6 +733,11 @@ export const SyncPage: React.FC = () => {
           {/* Step 5: Results */}
           {currentStep === 5 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-results">
+              {savedRunLabel !== null && result && (
+                <p className="text-xs text-text-primary" data-testid="sync-saved-run">
+                  {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
+                </p>
+              )}
               {simulation ? (
                 <SyncSimulationResults simulation={simulation} onRun={handleExecute} />
               ) : !result ? (

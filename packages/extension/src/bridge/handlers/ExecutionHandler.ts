@@ -60,6 +60,17 @@ export class ExecutionHandler implements DomainHandler {
       const operationId = parsed.operationId ?? parsed.executionId ?? '';
 
       const operation = this.registry.get(operationId);
+      // Asked for and not started yet — Production Guard's question still
+      // open: taken, and the run does not start once it is answered.
+      if (!operation && this.registry.cancelBeforeStart(operationId)) {
+        const response = buildResponse(this.deps, msg, 'execution:abort:response', {
+          success: true,
+          operationId,
+        });
+        this.deps.broker.postToWebview(response);
+        this.deps.log(`[TX] ${response.type} id=${response.id} (before it started)`);
+        return;
+      }
       if (!operation) {
         const response = buildResponse(this.deps, msg, 'execution:abort:response', {
           success: false,

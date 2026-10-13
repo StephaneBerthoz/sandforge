@@ -1226,6 +1226,14 @@
     },
     "strategyNotice": {
       "manualReplaced": "Ce brouillon demandait une revue manuelle des conflits, qu'une synchronisation n'offre pas : chacune de ses exécutions a écrit les valeurs de la source. Il utilise désormais « Cible prioritaire », qui garde toutes les valeurs de la cible là où les deux orgs diffèrent. Choisissez une autre stratégie si la source doit l'emporter."
+    },
+    "savedConfigs": {
+      "title": "Configurations enregistrées",
+      "hint": "Exécutez-en une maintenant, telle qu'elle a été enregistrée : elle est vérifiée comme une exécution lancée depuis l'onglet Sync, et Production Guard la juge avant toute écriture.",
+      "runNow": "Exécuter maintenant",
+      "runNamed": "Exécuter {{name}} maintenant",
+      "ofSaved": "Configuration enregistrée : {{name}}",
+      "gone": "Cette configuration n'est plus enregistrée : rien n'a été exécuté."
     }
   },
   "migration": {
@@ -1949,7 +1957,8 @@
       "success": "Réussi",
       "partial": "Partiel",
       "failure": "Échoué",
-      "stopped": "Arrêté"
+      "stopped": "Arrêté",
+      "cancelled": "Annulé"
     },
     "guard": {
       "allowed": "Guard : autorisé",
@@ -3901,7 +3910,7 @@
       "cancel": "Arrêter la suppression",
       "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'elle a supprimé d'ici là est listé ; le reste demeure dans l'org, et une suppression le reprendra plus tard.",
       "cancelRefused": "Impossible d'arrêter la suppression",
-      "cancelRefusedDetail": "La suppression ne supprimait pas encore, ou elle était terminée. Tant qu'elle s'exécute, elle peut être arrêtée à nouveau.",
+      "cancelRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
       "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",

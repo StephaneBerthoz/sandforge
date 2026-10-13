@@ -93,10 +93,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'The gallery lists, loads and saves templates; nothing deletes one yet.',
   },
   {
-    channel: 'sync:config:load',
-    reason: 'The executor loads a saved config host-side; no page reopens one in the wizard.',
-  },
-  {
     channel: 'sync:config:delete',
     reason: 'Nothing deletes a saved sync configuration yet.',
   },

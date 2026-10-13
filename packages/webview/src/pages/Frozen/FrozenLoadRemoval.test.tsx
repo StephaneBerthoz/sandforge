@@ -540,8 +540,9 @@ describe('FrozenLoadRemoval', () => {
         expect.objectContaining({
           level: 'warning',
           title: 'Could not stop the removal',
-          message:
-            'The removal was not deleting yet, or it had ended. While it runs, it can be stopped again.',
+          // A Cancel sent before the removal started is taken now: a refused
+          // one is of a removal that is over.
+          message: 'The removal is no longer in progress, or it was not started from this window.',
         }),
       ]);
       expect(screen.getByTestId('frozen-removal-cancel').getAttribute('aria-disabled')).toBeNull();

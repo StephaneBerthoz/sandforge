@@ -42,6 +42,7 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  ABORTED_BEFORE_START,
   PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { validatePayload } from '../validatePayload.js';
@@ -201,9 +202,6 @@ const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 
 /** Why a retry was stopped before it started: what the run it retries wrote is not known. */
 const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
-
-/** Why a run the user aborted before the executor had it was stopped, as the audit trail records it. */
-const ABORTED_BEFORE_START = 'ABORTED_BEFORE_START';
 
 /** What the page is told of a run aborted before the executor had it. */
 const ABORTED_BEFORE_START_MESSAGE =

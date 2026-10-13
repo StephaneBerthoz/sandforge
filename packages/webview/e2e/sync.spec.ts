@@ -218,3 +218,82 @@ test.describe('Sync panel — simulate, then run', () => {
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 });
+
+/** A configuration as `sync:config:load` reads it back: saved from Migration, say. */
+const SAVED_CONFIG = {
+  id: 'cfg-saved',
+  name: 'Nightly accounts',
+  description: 'Saved from Migration',
+  sourceOrgId: DEV_SANDBOX.id,
+  targetOrgId: QA_SANDBOX.id,
+  direction: 'source_to_target',
+  mode: 'full',
+  conflictStrategy: 'source_wins',
+  objects: [
+    {
+      objectApiName: 'Account',
+      operation: 'insert',
+      externalIdField: '',
+      batchSize: 200,
+      fieldMappings: [],
+      transformRules: [{ type: 'prefix', config: { prefix: 'QA-' } }],
+      excludedFields: [],
+      addOnFields: [],
+      insertOrder: 0,
+    },
+  ],
+  enableRollback: false,
+  createdAt: '2026-10-01T09:00:00.000Z',
+  updatedAt: '2026-10-01T09:00:00.000Z',
+};
+
+test.describe('Sync panel — saved configurations', () => {
+  test('Run now reads a saved configuration back and runs it on the request the wizard runs with', async ({
+    page,
+  }) => {
+    const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
+
+    await page.getByTestId('tab-schedules').click();
+    await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
+    // Every request answered: a development build mounts the panel twice, and
+    // the first request's listener is gone with the first mount.
+    const listRequests = (await bridge.getMessages('sync:config:list')).map((m) => String(m.id));
+    for (const correlationId of listRequests) {
+      await bridge.respond(
+        'sync:config:list:response',
+        {
+          configs: [
+            {
+              id: 'cfg-saved',
+              name: 'Nightly accounts',
+              description: 'Saved from Migration',
+              updatedAt: '2026-10-01T09:00:00.000Z',
+            },
+          ],
+        },
+        correlationId,
+      );
+    }
+    await expect(page.getByTestId('sync-saved-configs')).toContainText('Nightly accounts');
+    const listed = await checkAccessibility(page);
+    expect(listed.violations, formatViolations(listed.violations)).toEqual([]);
+
+    await page.getByTestId('run-saved-config-cfg-saved').click();
+    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    expect(load.payload).toEqual({ id: 'cfg-saved' });
+    await bridge.respond('sync:config:load:response', { config: SAVED_CONFIG }, load.id as string);
+
+    // What was saved, as it was saved, on the wizard's own request: the host
+    // checks it and asks Production Guard as for any run of the page.
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    expect(run.payload).toEqual({ config: SAVED_CONFIG });
+    expect(await bridge.getMessages('sync:simulate')).toEqual([]);
+    await expect(page.getByTestId('sync-saved-run')).toContainText(
+      'Saved configuration: Nightly accounts',
+    );
+    await expect(page.getByTestId('sync-cancel')).toBeVisible();
+
+    const running = await checkAccessibility(page);
+    expect(running.violations, formatViolations(running.violations)).toEqual([]);
+  });
+});

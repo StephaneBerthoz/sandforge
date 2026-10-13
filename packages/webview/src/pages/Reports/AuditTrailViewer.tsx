@@ -64,11 +64,13 @@ function getActionVariant(action: AuditAction): BadgeVariant {
   return 'default';
 }
 
+/** A run the user stopped reads in the neutral colour Home gives a cancelled operation. */
 const OUTCOME_VARIANTS: Record<AuditOutcome, BadgeVariant> = {
   success: 'success',
   partial: 'warning',
   failure: 'error',
   stopped: 'warning',
+  cancelled: 'default',
 };
 
 /** A pass needs no attention; a person's answer, or a refusal, does. */
