@@ -57,6 +57,38 @@ test('fails a URL a HEAD does not reach either, saying both answers', async () =
   });
 });
 
+test('asks a HEAD answered 503 again, and takes the page once it answers', async () => {
+  const { verdict, calls } = verdictOver({ GET: [503, 503, 503], HEAD: [503, 200] });
+
+  assert.deepEqual(await verdict('https://github.com/o/r/blob/main/docs/seed.md'), {
+    ok: true,
+    status: 200,
+  });
+  assert.deepEqual(calls, ['GET', 'GET', 'GET', 'HEAD', 'HEAD']);
+});
+
+test('passes a page that only ever answered 503 as unverified, saying both answers', async () => {
+  // GitHub's runner on 2026-10-13: four documentation pages answered 503 to
+  // every GET and HEAD, then 200 minutes later. A 503 never means missing.
+  const { verdict, calls } = verdictOver({ GET: [503, 503, 503], HEAD: [503, 503, 503] });
+
+  assert.deepEqual(await verdict('https://github.com/o/r/blob/main/docs/seed.md'), {
+    ok: true,
+    status: '503 on GET, 503 on HEAD',
+    unverified: true,
+  });
+  assert.deepEqual(calls, ['GET', 'GET', 'GET', 'HEAD', 'HEAD', 'HEAD']);
+});
+
+test('still fails a page whose HEAD says it is not there after a 503', async () => {
+  const { verdict } = verdictOver({ GET: [503, 503, 503], HEAD: [503, 404] });
+
+  assert.deepEqual(await verdict('https://github.com/o/r/blob/main/gone.md'), {
+    ok: false,
+    status: '503 on GET, 404 on HEAD',
+  });
+});
+
 test('fails a URL a GET says is not there, without a HEAD', async () => {
   // A 404 is the answer the check exists for: nothing to ask again.
   const { verdict, calls } = verdictOver({ GET: [404], HEAD: [200] });

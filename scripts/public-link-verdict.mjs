@@ -28,20 +28,35 @@ export const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
  * that is not there, or a repository a stranger may not read, answers 404 to
  * both — and is not counted against that limit.
  *
+ * A HEAD answered "ask again later" is asked again too, waiting longer. A URL
+ * that got nothing but such answers is unverified, not broken: on 2026-10-13
+ * GitHub answered 503 to the GET and the HEAD of four documentation pages on
+ * its own runner, failing the release's packaging, while each answered 200 to
+ * the same requests minutes later. A missing file or a private repository
+ * answers 404, never 503, so such a URL passes with `unverified` set and the
+ * script names it. A HEAD that cannot connect still fails: no answer at all
+ * says nothing about the server.
+ *
  * @param {object} deps
  * @param {typeof fetch} deps.fetchImpl - The fetch to ask with.
  * @param {(ms: number) => Promise<void>} deps.wait - The wait between tries.
  * @param {() => number} deps.budgetLeft - Milliseconds left to the whole pass.
- * @returns {(url: string) => Promise<{ ok: boolean, status: number | string }>}
+ * @returns {(url: string) => Promise<{ ok: boolean, status: number | string, unverified?: true }>}
  */
 export function createFetchVerdict({ fetchImpl, wait, budgetLeft }) {
-  /** One HEAD, for a URL the GET kept answering "ask again later". */
-  async function headVerdict(url, getStatus) {
+  /** A HEAD, for a URL the GET kept answering "ask again later". */
+  async function headVerdict(url, getStatus, attempt = 0) {
     try {
       const response = await fetchImpl(url, { method: 'HEAD', redirect: 'follow' });
-      return response.ok
-        ? { ok: true, status: response.status }
-        : { ok: false, status: `${getStatus} on GET, ${response.status} on HEAD` };
+      if (response.ok) return { ok: true, status: response.status };
+      const status = `${getStatus} on GET, ${response.status} on HEAD`;
+      if (!RETRYABLE.has(response.status)) return { ok: false, status };
+      const backoff = 4000 * 2 ** attempt;
+      if (attempt < 2 && backoff < budgetLeft()) {
+        await wait(backoff);
+        return headVerdict(url, getStatus, attempt + 1);
+      }
+      return { ok: true, status, unverified: true };
     } catch (error) {
       const why = error instanceof Error ? error.message : 'fetch failed';
       return { ok: false, status: `${getStatus} on GET, ${why} on HEAD` };

@@ -122,6 +122,8 @@ async function isReachable(url) {
 }
 
 const failures = [];
+/** Answered only "ask again later": not broken, not proven reachable either. */
+const unverified = [];
 let checked = 0;
 
 /** Anchors and mailto: are not fetchable; data: URIs carry their own payload. */
@@ -144,11 +146,13 @@ for (const { file, base } of TARGETS) {
       if (url.startsWith('http://') || url.startsWith('https://')) {
         if (LOCAL_ONLY) continue;
         if (!verdicts.has(url)) await wait(120); // spacing is what avoids the 429
-        const { ok, status } = await isReachable(url);
+        const { ok, status, unverified: unsure } = await isReachable(url);
         if (!ok) {
           failures.push(
             `${file}: ${url} → ${status} (a visitor sees a broken ${kind === 'image' ? 'image' : 'link'})`,
           );
+        } else if (unsure) {
+          unverified.push(`${file}: ${url} → ${status}`);
         }
         continue;
       }
@@ -165,9 +169,11 @@ if (!LOCAL_ONLY) {
   for (const [label, url] of manifestUrls()) {
     checked += 1;
     if (!verdicts.has(url)) await wait(120);
-    const { ok, status } = await isReachable(url);
+    const { ok, status, unverified: unsure } = await isReachable(url);
     if (!ok) {
       failures.push(`${MANIFEST} ${label}: ${url} → ${status} (dead link on the listing sidebar)`);
+    } else if (unsure) {
+      unverified.push(`${MANIFEST} ${label}: ${url} → ${status}`);
     }
   }
 }
@@ -184,7 +190,11 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`Public URLs: ${checked} reachable`);
+if (unverified.length > 0) {
+  console.warn(`Public URLs: ${unverified.length} answered only "ask again later" (not failed)`);
+  for (const line of unverified) console.warn(`  ⚠ ${line}`);
+}
+console.log(`Public URLs: ${checked - unverified.length} reachable`);
 
 // Exit explicitly. The failure path above already did, so only a PASSING run
 // hung — the worst possible shape: the gate printed its verdict and then held
