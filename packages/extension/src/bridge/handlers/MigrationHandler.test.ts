@@ -434,7 +434,7 @@ describe('MigrationHandler', () => {
       const response = await save('Changes only', { ...migration(), mode: 'incremental' });
 
       expect(response.payload).toMatchObject({ success: false, code: 'INVALID_CONFIG' });
-      expect(response.payload.reason).toMatch(/^mode: Sync runs a full sync only/);
+      expect(response.payload.reason).toMatch(/^mode: Sync runs a full or a delta sync only/);
       expect(new SyncConfigStore(store).list()).toEqual([]);
     });
   });

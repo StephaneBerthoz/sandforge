@@ -589,6 +589,7 @@ export class ExtensionHandlers {
         'sync:config:load',
         'sync:config:list',
         'sync:config:delete',
+        'sync:config:reset-delta',
       ],
       this.syncHandler,
     );

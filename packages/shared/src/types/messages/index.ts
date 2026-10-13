@@ -117,10 +117,12 @@ import type {
   SyncConfigLoadRequest,
   SyncConfigListRequest,
   SyncConfigDeleteRequest,
+  SyncConfigResetDeltaRequest,
   SyncConfigSaveResponse,
   SyncConfigLoadResponse,
   SyncConfigListResponse,
   SyncConfigDeleteResponse,
+  SyncConfigResetDeltaResponse,
   SyncHistoryListRequest,
   SyncHistoryDetailRequest,
   SyncHistoryRerunRequest,
@@ -515,6 +517,7 @@ export type WebViewToExtensionMessage =
   | SyncConfigLoadRequest
   | SyncConfigListRequest
   | SyncConfigDeleteRequest
+  | SyncConfigResetDeltaRequest
   | SyncHistoryListRequest
   | SyncHistoryDetailRequest
   | SyncHistoryRerunRequest
@@ -713,6 +716,7 @@ export type ExtensionToWebViewMessage =
   | SyncConfigLoadResponse
   | SyncConfigListResponse
   | SyncConfigDeleteResponse
+  | SyncConfigResetDeltaResponse
   | SyncHistoryListResponse
   | SyncHistoryDetailResponse
   | SyncHistoryExportResponse

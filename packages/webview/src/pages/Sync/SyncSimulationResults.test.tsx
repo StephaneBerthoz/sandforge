@@ -133,4 +133,36 @@ describe('SyncSimulationResults', () => {
 
     expect(onRun).toHaveBeenCalledTimes(1);
   });
+
+  it('says how a delta run would read each object, and counts the deletions it would carry', () => {
+    const [account] = simulation().objects;
+    render(
+      <SyncSimulationResults
+        simulation={simulation({
+          objects: [
+            {
+              ...account,
+              delete: 2,
+              delta: {
+                read: 'delta',
+                since: '2026-10-13T09:00:00.000Z',
+                changed: 12,
+                deletionsChecked: true,
+                deleted: 2,
+                deleteFailed: 0,
+              },
+            },
+          ],
+        })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-delta-Account').textContent).toMatch(
+      /^Delta since 2026-10-13 .* · 12 changed · 2 would be deleted$/,
+    );
+    expect(screen.getByTestId('sync-simulation-summary').textContent).toContain('Would delete: 2');
+    const card = screen.getByTestId('sync-simulation-object-Account');
+    expect(within(card).getByText('Would delete:')).toBeDefined();
+  });
 });

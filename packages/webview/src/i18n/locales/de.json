@@ -1233,7 +1233,39 @@
       "runNow": "Jetzt ausführen",
       "runNamed": "{{name}} jetzt ausführen",
       "ofSaved": "Gespeicherte Konfiguration: {{name}}",
-      "gone": "Diese Konfiguration ist nicht mehr gespeichert: Es wurde nichts ausgeführt."
+      "gone": "Diese Konfiguration ist nicht mehr gespeichert: Es wurde nichts ausgeführt.",
+      "resetDelta": "Nächstes Mal vollständig ausführen",
+      "resetDeltaNamed": "{{name}} nächstes Mal vollständig ausführen",
+      "resetDone": "Der nächste Lauf von {{name}} liest alles."
+    },
+    "delta": {
+      "toggle": "Nur kopieren, was sich seit dem letzten erfolgreichen Lauf geändert hat (Delta)",
+      "toggleHint": "Jedes Objekt liest die Datensätze, die seine Quelle seit seinem letzten erfolgreichen Lauf geändert hat, und beginnt fünf Minuten früher, um Speicherungen zu erfassen, die während eines Lesevorgangs festgeschrieben wurden. Der erste Lauf, ein Lauf nach einer Änderung von Filter, Feldern, Schlüssel oder Zuordnung und ein Lauf nach „Nächstes Mal vollständig ausführen“ lesen alles. Was ein Delta-Lauf zweimal liest, schreibt er zweimal; daher muss jedes Objekt per Upsert auf eine External ID oder per Aktualisierung geschrieben werden. Ein Wasserzeichen wird nur für eine gespeicherte Konfiguration aufbewahrt: Speichern Sie sie und führen Sie sie dann hier, aus den gespeicherten Konfigurationen oder per Zeitplan aus.",
+      "deletes": "Im Ziel löschen, was die Quelle gelöscht hat",
+      "deletesHint": "Aus, sofern nicht angehakt. Ein Delta-Lauf liest im Papierkorb der Quelle die seit seinem letzten erfolgreichen Lauf gelöschten Datensätze innerhalb des Objektfilters und löscht den einen Zieldatensatz, mit dem jeder über den Schlüssel verbunden ist, auf den das Schreiben abgleicht. Ein Zieldatensatz, den er nicht genau einem gelöschten Datensatz zuordnen kann oder dessen Schlüssel ein Quelldatensatz noch trägt, bleibt erhalten. Aus dem Papierkorb entfernte Datensätze werden nicht gesehen. Production Guard beurteilt den Lauf als Löschung.",
+      "needsKey": "Ein Delta-Lauf verlangt, dass jedes Objekt per Upsert auf eine External ID oder per Aktualisierung geschrieben wird: {{objects}}.",
+      "withDeletes": "Delta, Löschungen übertragen",
+      "since": "Delta seit {{time}}",
+      "changed_one": "{{count}} geändert",
+      "changed_other": "{{count}} geändert",
+      "deleted_one": "{{count}} gelöscht",
+      "deleted_other": "{{count}} gelöscht",
+      "wouldDelete_one": "{{count}} würde gelöscht",
+      "wouldDelete_other": "{{count}} würden gelöscht",
+      "deleteFailed_one": "{{count}} Löschung vom Ziel abgelehnt",
+      "deleteFailed_other": "{{count}} Löschungen vom Ziel abgelehnt",
+      "deletionsNotCarried": "Die Löschungen wurden diesmal nicht übertragen: Die Hinweise unten sagen, warum.",
+      "recorded": "Der nächste Lauf liest die Änderungen seit {{time}}.",
+      "kept": "Wasserzeichen beibehalten: Der nächste Lauf liest ab derselben Stelle.",
+      "notRecorded": "Kein Wasserzeichen gespeichert: Der nächste Lauf liest wieder alles.",
+      "full": {
+        "first_run": "Vollständig gelesen (erster Lauf)",
+        "reset": "Vollständig gelesen (vollständiger Lauf angefordert)",
+        "scope_changed": "Vollständig gelesen (Filter, Felder, Schlüssel oder Zuordnung geändert)",
+        "unreadable": "Vollständig gelesen (das gespeicherte Wasserzeichen war nicht lesbar)",
+        "no_modstamp": "Vollständig gelesen (die Quelle liefert für dieses Objekt kein SystemModstamp)",
+        "not_saved": "Vollständig gelesen (keine gespeicherte Konfiguration: es wird kein Wasserzeichen aufbewahrt)"
+      }
     }
   },
   "migration": {

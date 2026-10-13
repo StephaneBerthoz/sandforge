@@ -373,13 +373,190 @@ describe('SyncPage', () => {
     expect(screen.getByText('Conflict Strategy')).toBeDefined();
   });
 
-  it('should not offer a Mode selector the extension cannot honour', () => {
-    // SyncMode had zero occurrences in packages/extension/src: picking
-    // "incremental", "delta" or "cdc" changed nothing and every run was a full
-    // sync. The control is gone until the modes exist.
+  it('offers full or delta, never the modes no run performs', () => {
+    // "incremental" and "cdc" changed nothing and every run was a full sync:
+    // the dropdown that offered them is gone, and delta is a switch with what
+    // it needs said beside it.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
     expect(screen.queryByText('Mode')).toBeNull();
+    expect(screen.queryByText('Incremental')).toBeNull();
+    expect(screen.queryByText('CDC')).toBeNull();
+    const toggle = screen.getByTestId('sync-delta-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText(/starting five minutes earlier/)).toBeDefined();
+  });
+
+  describe('delta', () => {
+    const upsertEntry = {
+      objectApiName: 'Account',
+      operation: 'upsert',
+      externalIdField: 'Ext_Id__c',
+      batchSize: 200,
+      where: '',
+    };
+
+    it('offers deletions only on a delta configuration, and turns them off with it', () => {
+      draft.value = {
+        currentStep: 0,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+      const deletes = screen.getByTestId('sync-delta-deletes') as HTMLInputElement;
+      expect(deletes.disabled).toBe(true);
+
+      fireEvent.click(screen.getByTestId('sync-delta-toggle'));
+      expect(deletes.disabled).toBe(false);
+      fireEvent.click(deletes);
+      expect(deletes.checked).toBe(true);
+
+      fireEvent.click(screen.getByTestId('sync-delta-toggle'));
+      expect(deletes.checked).toBe(false);
+      expect(deletes.disabled).toBe(true);
+    });
+
+    it('names the objects a delta run cannot write, and goes no further while one is listed', () => {
+      draft.value = {
+        currentStep: 0,
+        direction: 'source_to_target',
+        mode: 'delta',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [
+          upsertEntry,
+          { ...upsertEntry, objectApiName: 'Contact', operation: 'insert' },
+        ],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-delta-blockers').textContent).toContain('Contact');
+      expect(screen.getByTestId('sync-delta-blockers').textContent).not.toContain('Account');
+      expect(screen.getByTestId('sync-wizard-next').getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('saves a delta configuration with its deletions, and runs it under the id it was saved under', () => {
+      draft.value = {
+        currentStep: 3,
+        direction: 'source_to_target',
+        mode: 'delta',
+        propagateDeletes: true,
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      const { rerender } = render(<SyncPage />);
+      expect(screen.getByTestId('sync-review-delta').textContent).toBe('Delta, deletions carried');
+
+      fireEvent.click(screen.getByTestId('sync-save-config'));
+      const saved = (
+        mockSaveConfigMutate.mock.calls[0][0] as {
+          config: { id: string; mode: string; propagateDeletes?: boolean };
+        }
+      ).config;
+      expect(saved).toMatchObject({ mode: 'delta', propagateDeletes: true });
+      mockSaveConfigMutationState.data = { success: true, id: saved.id };
+      rerender(<SyncPage />);
+
+      fireEvent.click(screen.getByTestId('sync-wizard-next'));
+      fireEvent.click(screen.getByTestId('sync-run'));
+
+      // Its watermarks are kept under that id: a fresh one reads all again.
+      const ran = (mockExecuteMutate.mock.calls[0][0] as { config: { id: string } }).config;
+      expect(ran.id).toBe(saved.id);
+    });
+
+    it('runs a configuration that is not the one saved under a fresh id', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'delta',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockSaveConfigMutationState.data = { success: true, id: 'cfg-saved-elsewhere' };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      fireEvent.click(screen.getByTestId('sync-run'));
+
+      const ran = (
+        mockExecuteMutate.mock.calls[0][0] as { config: { id: string; propagateDeletes?: boolean } }
+      ).config;
+      expect(ran.id).not.toBe('cfg-saved-elsewhere');
+      expect(ran.propagateDeletes).toBeUndefined();
+    });
+
+    it('says on the results how each object was read and what it deleted', () => {
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'delta',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            delta: {
+              read: 'delta',
+              since: '2026-10-13T09:00:00.000Z',
+              changed: 3,
+              deletionsChecked: true,
+              deleted: 1,
+              deleteFailed: 0,
+              recorded: '2026-10-13T10:00:00.000Z',
+            },
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-10-13T10:00:01.000Z',
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      const line = screen.getByTestId('sync-result-delta-Account').textContent ?? '';
+      expect(line).toMatch(/^Delta since 2026-10-13 \d\d:00:00 · 3 changed · 1 deleted/);
+      expect(line).toContain('The next run reads the changes since');
+    });
   });
 
   it('should show 6 step indicators', () => {

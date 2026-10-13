@@ -5,9 +5,11 @@ import { syncConfigSavePayloadSchema, syncExecutePayloadSchema } from './validat
  * The orchestrator has one direction branch, `bidirectional`, and every other
  * value writes source to target. A config asking for `target_to_source` ran
  * the opposite way to what it said, into the org the user meant to read from.
- * The modes behave the same way: only a full sync exists, so `incremental`,
- * `delta` and `cdc` would each replay the whole object set while claiming not
- * to. Both are refused before anything runs.
+ * The modes behave the same way: a full sync and a delta sync exist, so
+ * `incremental` and `cdc` would each replay the whole object set while
+ * claiming not to. Both are refused before anything runs. A delta sync writes
+ * again what its overlap reads twice, which only an upsert or an update does
+ * without a second copy, and carries deletions only when it is a delta.
  */
 
 /** Minimal valid sync config as sent by the webview. */
@@ -39,6 +41,21 @@ function validSyncConfig(): Record<string, unknown> {
   };
 }
 
+/** A delta config of one Account object, with deletions when asked. */
+function deltaConfig(
+  object: Record<string, unknown>,
+  propagateDeletes = false,
+): Record<string, unknown> {
+  const base = validSyncConfig();
+  const [account] = base.objects as Array<Record<string, unknown>>;
+  return {
+    ...base,
+    mode: 'delta',
+    ...(propagateDeletes ? { propagateDeletes: true } : {}),
+    objects: [{ ...account, ...object }],
+  };
+}
+
 /** First issue message the schema produced for `path`, or '' if it raised none. */
 function issueFor(
   result: { success: boolean; error?: { issues: readonly unknown[] } },
@@ -66,12 +83,57 @@ describe('a sync config may only ask for what the sync does', () => {
     expect(syncConfigSavePayloadSchema.safeParse({ config }).success).toBe(false);
   });
 
-  it.each(['incremental', 'delta', 'cdc'])('refuses mode %j', (mode) => {
+  it.each(['incremental', 'cdc'])('refuses mode %j', (mode) => {
     const result = syncExecutePayloadSchema.safeParse({ config: { ...validSyncConfig(), mode } });
 
     expect(result.success).toBe(false);
     expect(issueFor(result, 'config.mode')).toContain(mode);
     expect(issueFor(result, 'config.mode')).toContain('full');
+  });
+
+  it.each(['upsert', 'update'])('accepts a delta sync of an object written by %s', (operation) => {
+    const config = deltaConfig({ operation, externalIdField: 'Ext_Id__c' }, true);
+
+    const result = syncConfigSavePayloadSchema.safeParse({ config });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.config).toMatchObject({ mode: 'delta', propagateDeletes: true });
+  });
+
+  it.each([
+    ['insert', 'create a second copy'],
+    ['delete', 'delete a record already gone'],
+  ])('refuses a delta sync of an object written by %s', (operation, why) => {
+    const result = syncExecutePayloadSchema.safeParse({ config: deltaConfig({ operation }) });
+
+    expect(result.success).toBe(false);
+    expect(issueFor(result, 'config.objects.0.operation')).toContain(why);
+    expect(issueFor(result, 'config.objects.0.operation')).toContain('upsert on an External ID');
+  });
+
+  it('refuses deletions on a full sync, which has no point to look for them from', () => {
+    const config = { ...validSyncConfig(), propagateDeletes: true };
+
+    const result = syncExecutePayloadSchema.safeParse({ config });
+
+    expect(result.success).toBe(false);
+    expect(issueFor(result, 'config.propagateDeletes')).toContain('delta sync only');
+  });
+
+  it('refuses deletions where no source field is carried onto the key', () => {
+    const config = deltaConfig(
+      {
+        operation: 'upsert',
+        externalIdField: 'Ext_Id__c',
+        fieldMappings: [{ sourceField: 'Name', targetField: 'Ext_Id__c', type: 'constant' }],
+      },
+      true,
+    );
+
+    const result = syncExecutePayloadSchema.safeParse({ config });
+
+    expect(result.success).toBe(false);
+    expect(issueFor(result, 'config.objects.0')).toContain('no source field is carried');
   });
 
   it('sync:config:save refuses a mode the sync cannot run', () => {

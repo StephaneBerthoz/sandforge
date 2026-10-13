@@ -2146,6 +2146,42 @@ describe('SyncOpsHandler', () => {
       expect(await countSource('src-org', accountConfig())).toBe(read.length);
     });
 
+    it('tells a delta read that a bound cut it short, so its object keeps its watermark', async () => {
+      const conn = createOrgConnection(1_000_000, 10);
+      mockGetConn.mockResolvedValue(conn as never);
+      const querySource = (await captureQuerySource('Sandbox')) as unknown as (
+        orgId: string,
+        objectConfig: import('@sandforge/shared').SyncObjectConfig,
+        read: import('../../modules/sync/SyncOrchestrator.js').SourceRead,
+      ) => Promise<Record<string, unknown>[]>;
+      const onBoundReached = vi.fn();
+
+      await querySource('src-org', accountConfig(), {
+        changedSince: '2026-10-13T08:55:00Z',
+        onBoundReached,
+      });
+
+      expect(onBoundReached).toHaveBeenCalledTimes(1);
+      expect(conn.query.mock.calls[0][0]).toBe(
+        'SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z',
+      );
+    });
+
+    it('says nothing to a delta read that reached the end of the object', async () => {
+      const conn = createOrgConnection(6_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+      const querySource = (await captureQuerySource('Sandbox')) as unknown as (
+        orgId: string,
+        objectConfig: import('@sandforge/shared').SyncObjectConfig,
+        read: import('../../modules/sync/SyncOrchestrator.js').SourceRead,
+      ) => Promise<Record<string, unknown>[]>;
+      const onBoundReached = vi.fn();
+
+      await querySource('src-org', accountConfig(), { onBoundReached });
+
+      expect(onBoundReached).not.toHaveBeenCalled();
+    });
+
     it('says so when a read bound cuts the object short', async () => {
       // A cursor that never ends. Small pages so the 500-page bound is the one
       // reached: 500 pages of 2 000 rows would materialise a million records

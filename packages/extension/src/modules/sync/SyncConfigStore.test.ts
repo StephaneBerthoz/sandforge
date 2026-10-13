@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SyncConfigStore } from './SyncConfigStore';
 import type { SyncConfig } from '@sandforge/shared';
+import type { SyncWatermark } from './SyncDelta';
 
 /** Minimal in-memory ConfigStore mock. */
 function createMockConfigStore() {
@@ -123,5 +124,81 @@ describe('SyncConfigStore', () => {
     it('should return false when deleting a non-existent config', () => {
       expect(store.delete('non-existent')).toBe(false);
     });
+
+    it('deletes the watermarks of the configuration with it', () => {
+      store.save(createSyncConfig());
+      store.recordWatermark('cfg-1', watermark());
+      store.delete('cfg-1');
+      expect(store.loadDelta('cfg-1')).toEqual({ kind: 'none' });
+    });
+  });
+
+  describe('watermarks', () => {
+    it('keeps them beside the configuration, never listed as one', () => {
+      store.save(createSyncConfig());
+      store.recordWatermark('cfg-1', watermark());
+      expect(store.list().map((c) => c.id)).toEqual(['cfg-1']);
+      expect(configStore.set).toHaveBeenLastCalledWith(
+        'sync:delta:cfg-1',
+        expect.anything(),
+        'syncDelta',
+      );
+    });
+
+    it("replaces an object's watermark for the same pair of orgs and keeps the others", () => {
+      store.recordWatermark('cfg-1', watermark());
+      store.recordWatermark('cfg-1', watermark({ objectApiName: 'Contact' }));
+      store.recordWatermark('cfg-1', watermark({ targetOrgId: 'other-org' }));
+      store.recordWatermark('cfg-1', watermark({ watermark: '2026-10-13T10:00:00.000Z' }));
+
+      const load = store.loadDelta('cfg-1');
+      expect(load.kind).toBe('stored');
+      const entries = load.kind === 'stored' ? load.state.entries : [];
+      expect(entries.map((e) => [e.objectApiName, e.targetOrgId, e.watermark])).toEqual([
+        ['Contact', 'tgt-org', '2026-10-13T09:00:00.000Z'],
+        ['Account', 'other-org', '2026-10-13T09:00:00.000Z'],
+        ['Account', 'tgt-org', '2026-10-13T10:00:00.000Z'],
+      ]);
+    });
+
+    it('reads stored data that is not watermarks as unreadable, and records over it', () => {
+      configStore.set(
+        'sync:delta:cfg-1',
+        { version: 1, entries: [{ watermark: 42 }] },
+        'syncDelta',
+      );
+      expect(store.loadDelta('cfg-1')).toMatchObject({ kind: 'unreadable' });
+
+      store.recordWatermark('cfg-1', watermark());
+      expect(store.loadDelta('cfg-1')).toMatchObject({
+        kind: 'stored',
+        state: { entries: [expect.objectContaining({ objectApiName: 'Account' })] },
+      });
+    });
+
+    it('clears them for "Run full next time", says how many, and remembers it was asked', () => {
+      store.recordWatermark('cfg-1', watermark());
+      store.recordWatermark('cfg-1', watermark({ objectApiName: 'Contact' }));
+
+      expect(store.clearDelta('cfg-1')).toBe(2);
+      expect(store.loadDelta('cfg-1')).toMatchObject({
+        kind: 'stored',
+        state: { entries: [], resetAt: expect.any(String) },
+      });
+      expect(store.clearDelta('cfg-1')).toBe(0);
+    });
   });
 });
+
+/** One object's watermark as a run records it. */
+function watermark(overrides: Partial<SyncWatermark> = {}): SyncWatermark {
+  return {
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    objectApiName: 'Account',
+    watermark: '2026-10-13T09:00:00.000Z',
+    fingerprint: 'a'.repeat(64),
+    recordedAt: '2026-10-13T09:01:00.000Z',
+    ...overrides,
+  };
+}

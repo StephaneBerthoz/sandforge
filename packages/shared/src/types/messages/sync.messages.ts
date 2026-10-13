@@ -2,6 +2,7 @@ import type { BaseMessage } from './base.messages.js';
 import type {
   SyncExecutionResult,
   SyncHistoryEntry,
+  SyncMode,
   SyncScheduleEntry,
   SyncSimulationResult,
 } from '../sync.types.js';
@@ -128,6 +129,15 @@ export interface SyncConfigDeleteRequest extends BaseMessage {
   payload: { id: string };
 }
 
+/**
+ * "Run full next time": clear the watermarks of a saved delta configuration,
+ * so its next run reads every object whole.
+ */
+export interface SyncConfigResetDeltaRequest extends BaseMessage {
+  type: 'sync:config:reset-delta';
+  payload: { id: string };
+}
+
 /** Response for sync config save. */
 export interface SyncConfigSaveResponse extends BaseMessage {
   type: 'sync:config:save:response';
@@ -140,16 +150,36 @@ export interface SyncConfigLoadResponse extends BaseMessage {
   payload: { config: Record<string, unknown> | null };
 }
 
+/** One saved configuration, as the list names it. */
+export interface SyncConfigSummary {
+  id: string;
+  name: string;
+  description: string;
+  updatedAt: string;
+  /** Full, or delta: a delta configuration reads each object from its watermark. */
+  mode?: SyncMode;
+  /** Whether a delta run of it deletes in the target what the source deleted. */
+  propagateDeletes?: boolean;
+  /** How many of its objects hold a watermark: what "Run full next time" clears. */
+  watermarks?: number;
+}
+
 /** Response for sync config list. */
 export interface SyncConfigListResponse extends BaseMessage {
   type: 'sync:config:list:response';
-  payload: { configs: Array<{ id: string; name: string; description: string; updatedAt: string }> };
+  payload: { configs: SyncConfigSummary[] };
 }
 
 /** Response for sync config delete. */
 export interface SyncConfigDeleteResponse extends BaseMessage {
   type: 'sync:config:delete:response';
   payload: { success: boolean };
+}
+
+/** Response for "Run full next time": the watermarks cleared, by object. */
+export interface SyncConfigResetDeltaResponse extends BaseMessage {
+  type: 'sync:config:reset-delta:response';
+  payload: { success: boolean; id: string; cleared: number };
 }
 
 // ─── Sync History Messages ───────────────────────────────────────────────────

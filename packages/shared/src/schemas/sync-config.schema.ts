@@ -93,6 +93,8 @@ export const syncConfigSchema = z.object({
   objects: z.array(syncObjectConfigSchema).min(1),
   conflictStrategy: syncConflictStrategySchema,
   enableRollback: z.boolean().default(false),
+  /** With `mode: 'delta'`: carry the source's deletions to the target. Off unless set. */
+  propagateDeletes: z.boolean().optional(),
 });
 
 /** Inferred type for transform rule configuration input */

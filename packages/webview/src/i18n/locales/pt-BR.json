@@ -1233,7 +1233,39 @@
       "runNow": "Executar agora",
       "runNamed": "Executar {{name}} agora",
       "ofSaved": "Configuração salva: {{name}}",
-      "gone": "Esta configuração não está mais salva: nada foi executado."
+      "gone": "Esta configuração não está mais salva: nada foi executado.",
+      "resetDelta": "Executar completo na próxima vez",
+      "resetDeltaNamed": "Executar {{name}} completo na próxima vez",
+      "resetDone": "A próxima execução de {{name}} lê tudo."
+    },
+    "delta": {
+      "toggle": "Copiar só o que mudou desde a última execução bem-sucedida (delta)",
+      "toggleHint": "Cada objeto lê os registros que sua origem alterou desde sua última execução bem-sucedida, começando cinco minutos antes para pegar gravações confirmadas durante uma leitura. A primeira execução, uma execução após mudar seu filtro, seus campos, sua chave ou seu mapeamento, e uma execução após \"Executar completo na próxima vez\" leem tudo. O que uma execução delta lê duas vezes ela grava duas vezes, então cada objeto deve ser gravado por upsert em um External ID, ou por atualização. Uma marca só é guardada para uma configuração salva: salve-a e execute-a daqui, das configurações salvas ou por um agendamento.",
+      "deletes": "Excluir no destino o que a origem excluiu",
+      "deletesHint": "Desativado, a menos que marcado. Uma execução delta lê a lixeira da origem em busca dos registros excluídos desde sua última execução bem-sucedida, dentro do filtro do objeto, e exclui o único registro de destino ao qual cada um está ligado pela chave com que a gravação faz a correspondência. Um registro de destino que ela não consiga ligar a exatamente um registro excluído, ou cuja chave um registro da origem ainda tenha, é mantido. Registros esvaziados da lixeira não são vistos. O Production Guard julga a execução como uma exclusão.",
+      "needsKey": "Uma execução delta precisa que cada objeto seja gravado por upsert em um External ID, ou por atualização: {{objects}}.",
+      "withDeletes": "Delta, exclusões aplicadas",
+      "since": "Delta desde {{time}}",
+      "changed_one": "{{count}} alterado",
+      "changed_other": "{{count}} alterados",
+      "deleted_one": "{{count}} excluído",
+      "deleted_other": "{{count}} excluídos",
+      "wouldDelete_one": "{{count}} seria excluído",
+      "wouldDelete_other": "{{count}} seriam excluídos",
+      "deleteFailed_one": "{{count}} exclusão recusada pelo destino",
+      "deleteFailed_other": "{{count}} exclusões recusadas pelo destino",
+      "deletionsNotCarried": "Desta vez as exclusões não foram aplicadas: as notas abaixo dizem por quê.",
+      "recorded": "A próxima execução lê as alterações desde {{time}}.",
+      "kept": "Marca mantida: a próxima execução lê a partir do mesmo ponto.",
+      "notRecorded": "Nenhuma marca gravada: a próxima execução lê tudo de novo.",
+      "full": {
+        "first_run": "Leitura completa (primeira execução)",
+        "reset": "Leitura completa (execução completa pedida)",
+        "scope_changed": "Leitura completa (filtro, campos, chave ou mapeamento alterados)",
+        "unreadable": "Leitura completa (a marca guardada não pôde ser lida)",
+        "no_modstamp": "Leitura completa (a origem não fornece SystemModstamp para este objeto)",
+        "not_saved": "Leitura completa (configuração não salva: nenhuma marca é guardada)"
+      }
     }
   },
   "migration": {

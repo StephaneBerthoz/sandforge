@@ -137,6 +137,30 @@ describe('SyncHistoryDetail', () => {
     expect(screen.getByText('Row 72: required field missing')).toBeDefined();
   });
 
+  it('says how a delta run read each object, and what it deleted', () => {
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      delta: {
+        read: 'full',
+        reason: 'first_run',
+        changed: 50,
+        deletionsChecked: false,
+        deleted: 0,
+        deleteFailed: 0,
+        recorded: '2026-10-13T09:00:00.000Z',
+      },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-delta-Contact').textContent).toMatch(
+      /^Full read \(first run\) · 50 changed/,
+    );
+    // A full configuration's object has no such line.
+    expect(screen.queryByTestId('history-delta-Account')).toBeNull();
+  });
+
   it('should call rerun with correct entryId when Run Again is clicked', () => {
     const rerunSpy = vi.fn();
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry(), rerun: rerunSpy });

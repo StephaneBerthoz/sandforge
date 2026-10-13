@@ -18,9 +18,12 @@ import type { CronScheduleFormData } from './CronScheduleBuilder';
 import type {
   MigrationSaveSyncConfigResponse,
   SyncConfigListResponse,
+  SyncConfigResetDeltaResponse,
   SyncConfigSaveResponse,
+  SyncConfigSummary,
   SyncScheduleEntry,
 } from '@sandforge/shared';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { formatStoredDate } from '../../utils/formatters';
 
 /**
@@ -115,15 +118,30 @@ export interface SyncSchedulePanelProps {
   runDisabled?: boolean;
 }
 
+/** A saved configuration as the Run now list shows it. */
+interface SavedConfigRow {
+  id: string;
+  name: string;
+  mode?: SyncConfigSummary['mode'];
+  propagateDeletes?: boolean;
+  watermarks?: number;
+}
+
 /**
  * The saved configurations, each with Run now. They were listed nowhere but
  * in the schedule builder's picker, and none could be run but by a schedule.
+ * A delta configuration says so, and while it holds watermarks offers "Run
+ * full next time", which clears them.
  */
 const SavedConfigRuns: React.FC<{
-  configs: ReadonlyArray<{ id: string; name: string }>;
+  configs: ReadonlyArray<SavedConfigRow>;
   onRun: (configId: string, label: string) => void;
   disabled: boolean;
-}> = ({ configs, onRun, disabled }) => {
+  onResetDelta: (configId: string, label: string) => void;
+  /** The configuration whose watermarks were just cleared, by name. */
+  resetDone: string | null;
+  resetError: string | null;
+}> = ({ configs, onRun, disabled, onResetDelta, resetDone, resetError }) => {
   const { t } = useTranslation();
   const headingId = useId();
   if (configs.length === 0) return null;
@@ -144,20 +162,51 @@ const SavedConfigRuns: React.FC<{
             className="flex items-center justify-between gap-(--sf-space-2) text-xs"
             data-testid={`saved-config-${config.id}`}
           >
-            <span className="text-text-primary">{config.name}</span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={disabled}
-              onClick={() => onRun(config.id, config.name)}
-              aria-label={t('sync.savedConfigs.runNamed', { name: config.name })}
-              data-testid={`run-saved-config-${config.id}`}
-            >
-              {t('sync.savedConfigs.runNow')}
-            </Button>
+            <span className="flex items-center gap-(--sf-space-2) text-text-primary">
+              {config.name}
+              {config.mode === 'delta' && (
+                <Badge variant="info">
+                  {config.propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
+                </Badge>
+              )}
+            </span>
+            <span className="flex items-center gap-1">
+              {config.mode === 'delta' && (config.watermarks ?? 0) > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => onResetDelta(config.id, config.name)}
+                  aria-label={t('sync.savedConfigs.resetDeltaNamed', { name: config.name })}
+                  data-testid={`reset-delta-${config.id}`}
+                >
+                  {t('sync.savedConfigs.resetDelta')}
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={disabled}
+                onClick={() => onRun(config.id, config.name)}
+                aria-label={t('sync.savedConfigs.runNamed', { name: config.name })}
+                data-testid={`run-saved-config-${config.id}`}
+              >
+                {t('sync.savedConfigs.runNow')}
+              </Button>
+            </span>
           </li>
         ))}
       </ul>
+      {resetDone !== null && (
+        <p className="text-[10px] text-text-secondary" role="status" data-testid="reset-delta-done">
+          {t('sync.savedConfigs.resetDone', { name: resetDone })}
+        </p>
+      )}
+      {resetError !== null && (
+        <p className="text-[10px] text-status-error" role="alert" data-testid="reset-delta-error">
+          {resetError}
+        </p>
+      )}
     </section>
   );
 };
@@ -268,6 +317,37 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     () => (configsQuery.data?.configs ?? []).map((c) => ({ id: c.id, name: configLabel(c) })),
     [configsQuery.data],
   );
+  const savedConfigRows = useMemo(
+    () =>
+      (configsQuery.data?.configs ?? []).map((c): SavedConfigRow => ({
+        id: c.id,
+        name: configLabel(c),
+        mode: c.mode,
+        propagateDeletes: c.propagateDeletes,
+        watermarks: c.watermarks,
+      })),
+    [configsQuery.data],
+  );
+
+  // "Run full next time": the host clears the watermarks, and the list is
+  // read again so the button goes with them.
+  const resetDelta = useBridgeMutation<SyncConfigResetDeltaResponse['payload']>(
+    'sync:config:reset-delta',
+    { responseType: 'sync:config:reset-delta:response' },
+  );
+  const [resetAsked, setResetAsked] = useState<string | null>(null);
+  const { mutate: askReset } = resetDelta;
+  const handleResetDelta = useCallback(
+    (configId: string, label: string) => {
+      setResetAsked(label);
+      askReset({ id: configId });
+    },
+    [askReset],
+  );
+  const resetAnswer = resetDelta.data;
+  useEffect(() => {
+    if (resetAnswer?.success) refetchConfigs();
+  }, [resetAnswer, refetchConfigs]);
   const canCreate = availableConfigs.length > 0;
   // "No configuration saved" is only true once the list has answered: while
   // it is loading, or after it was refused, nothing is known yet.
@@ -417,7 +497,14 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
 
   // Read apart from the schedules: listed while those load too.
   const savedConfigRuns = onRunConfig ? (
-    <SavedConfigRuns configs={availableConfigs} onRun={onRunConfig} disabled={runDisabled} />
+    <SavedConfigRuns
+      configs={savedConfigRows}
+      onRun={onRunConfig}
+      disabled={runDisabled || resetDelta.loading}
+      onResetDelta={handleResetDelta}
+      resetDone={resetAnswer?.success && !resetDelta.loading ? resetAsked : null}
+      resetError={resetDelta.error}
+    />
   ) : null;
 
   if (loading && schedules.length === 0) {

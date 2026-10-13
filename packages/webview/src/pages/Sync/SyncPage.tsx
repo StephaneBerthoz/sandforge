@@ -47,6 +47,7 @@ import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
+import { SyncDeltaLine } from './SyncDeltaLine';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -189,6 +190,8 @@ export const SyncPage: React.FC = () => {
   const navigate = useAppStore((s) => s.navigate);
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
+  const deltaHintId = React.useId();
+  const deletesHintId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -215,6 +218,11 @@ export const SyncPage: React.FC = () => {
     targetOrgId,
     direction,
     setDirection,
+    mode,
+    setMode,
+    propagateDeletes,
+    setPropagateDeletes,
+    deltaBlockers,
     conflictStrategy,
     setConflictStrategy,
     strategyNotice,
@@ -441,17 +449,64 @@ export const SyncPage: React.FC = () => {
                   value={direction}
                   onChange={(e) => setDirection(e.target.value as SyncDirection)}
                 />
-                {/* The Mode dropdown was removed: SyncMode never reached the
-                    extension — it has zero occurrences outside the webview, so
-                    picking "incremental", "delta" or "cdc" changed nothing and
-                    every run was a full sync. Offering the choice was the
-                    defect; it comes back when the modes are implemented. */}
                 <Select
                   label={t('sync.conflictStrategy')}
                   options={conflictOptions}
                   value={conflictStrategy}
                   onChange={(e) => setConflictStrategy(e.target.value as SyncConflictStrategy)}
                 />
+              </div>
+
+              {/* Full or delta. The Mode dropdown offered "incremental",
+                  "delta" and "cdc" while every run was a full sync; a delta
+                  run now reads each object from its last good run, so it is
+                  offered alone, with what it needs said beside it. */}
+              <div
+                className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                data-testid="sync-delta-settings"
+              >
+                <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mode === 'delta'}
+                    onChange={(e) => setMode(e.target.checked ? 'delta' : 'full')}
+                    aria-describedby={deltaHintId}
+                    data-testid="sync-delta-toggle"
+                  />
+                  {t('sync.delta.toggle')}
+                </label>
+                <p id={deltaHintId} className="text-[10px] text-text-secondary">
+                  {t('sync.delta.toggleHint')}
+                </p>
+                {/* Dimmed by colour, not opacity: a faded label falls below
+                    AA on the light themes. */}
+                <label
+                  className={`flex items-start gap-2 text-xs ${
+                    mode === 'delta' ? 'text-text-primary cursor-pointer' : 'text-text-secondary'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={propagateDeletes}
+                    disabled={mode !== 'delta'}
+                    onChange={(e) => setPropagateDeletes(e.target.checked)}
+                    aria-describedby={deletesHintId}
+                    data-testid="sync-delta-deletes"
+                  />
+                  {t('sync.delta.deletes')}
+                </label>
+                <p id={deletesHintId} className="text-[10px] text-text-secondary">
+                  {t('sync.delta.deletesHint')}
+                </p>
+                {deltaBlockers.length > 0 && (
+                  <p
+                    className="text-xs text-status-warning"
+                    role="alert"
+                    data-testid="sync-delta-blockers"
+                  >
+                    {t('sync.delta.needsKey', { objects: deltaBlockers.join(', ') })}
+                  </p>
+                )}
               </div>
 
               {/* A draft saved when manual review was offered: it reopens on
@@ -626,6 +681,11 @@ export const SyncPage: React.FC = () => {
               <div className="flex gap-3 text-xs flex-wrap">
                 <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
                 <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
+                {mode === 'delta' && (
+                  <Badge variant="info" data-testid="sync-review-delta">
+                    {propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
+                  </Badge>
+                )}
                 <span className="text-text-primary">
                   {t('common.objectCount', { count: objectEntries.length })}
                 </span>
@@ -779,8 +839,14 @@ export const SyncPage: React.FC = () => {
                         title={obj.objectApiName}
                         subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
                       />
-                      {obj.errors.length > 0 && (
+                      {(obj.errors.length > 0 || obj.delta) && (
                         <CardBody>
+                          {obj.delta && (
+                            <SyncDeltaLine
+                              delta={obj.delta}
+                              testId={`sync-result-delta-${obj.objectApiName}`}
+                            />
+                          )}
                           {obj.errors.map((err, i) => (
                             <p key={i} className="text-[10px] text-status-error">
                               {err}

@@ -1233,7 +1233,39 @@
       "runNow": "Ejecutar ahora",
       "runNamed": "Ejecutar {{name}} ahora",
       "ofSaved": "Configuración guardada: {{name}}",
-      "gone": "Esta configuración ya no está guardada: no se ejecutó nada."
+      "gone": "Esta configuración ya no está guardada: no se ejecutó nada.",
+      "resetDelta": "Ejecutar completo la próxima vez",
+      "resetDeltaNamed": "Ejecutar {{name}} completo la próxima vez",
+      "resetDone": "La próxima ejecución de {{name}} lo lee todo."
+    },
+    "delta": {
+      "toggle": "Copiar solo lo que cambió desde la última ejecución correcta (delta)",
+      "toggleHint": "Cada objeto lee los registros que su origen modificó desde su última ejecución correcta, empezando cinco minutos antes para recoger los guardados confirmados durante una lectura. La primera ejecución, una ejecución tras cambiar su filtro, sus campos, su clave o su asignación, y una ejecución tras «Ejecutar completo la próxima vez» lo leen todo. Lo que una ejecución delta lee dos veces lo escribe dos veces, así que cada objeto debe escribirse por upsert sobre un External ID, o por actualización. Solo se guarda una marca para una configuración guardada: guárdela y ejecútela desde aquí, desde las configuraciones guardadas o con una programación.",
+      "deletes": "Eliminar en el destino lo que el origen eliminó",
+      "deletesHint": "Desactivado salvo que se marque. Una ejecución delta lee la papelera del origen en busca de los registros eliminados desde su última ejecución correcta, dentro del filtro del objeto, y elimina el único registro de destino al que cada uno está vinculado por la clave con la que la escritura empareja. Se conserva un registro de destino que no pueda vincular a exactamente un registro eliminado, o cuya clave aún tenga un registro de origen. Los registros vaciados de la papelera no se ven. Production Guard juzga la ejecución como una eliminación.",
+      "needsKey": "Una ejecución delta necesita que cada objeto se escriba por upsert sobre un External ID, o por actualización: {{objects}}.",
+      "withDeletes": "Delta, eliminaciones aplicadas",
+      "since": "Delta desde {{time}}",
+      "changed_one": "{{count}} modificado",
+      "changed_other": "{{count}} modificados",
+      "deleted_one": "{{count}} eliminado",
+      "deleted_other": "{{count}} eliminados",
+      "wouldDelete_one": "{{count}} se eliminaría",
+      "wouldDelete_other": "{{count}} se eliminarían",
+      "deleteFailed_one": "{{count}} eliminación rechazada por el destino",
+      "deleteFailed_other": "{{count}} eliminaciones rechazadas por el destino",
+      "deletionsNotCarried": "Esta vez no se aplicaron las eliminaciones: las notas de abajo explican por qué.",
+      "recorded": "La próxima ejecución lee los cambios desde {{time}}.",
+      "kept": "Marca conservada: la próxima ejecución lee desde el mismo punto.",
+      "notRecorded": "No se guardó ninguna marca: la próxima ejecución vuelve a leerlo todo.",
+      "full": {
+        "first_run": "Lectura completa (primera ejecución)",
+        "reset": "Lectura completa (se pidió ejecutar completo)",
+        "scope_changed": "Lectura completa (filtro, campos, clave o asignación modificados)",
+        "unreadable": "Lectura completa (no se pudo leer la marca guardada)",
+        "no_modstamp": "Lectura completa (el origen no da SystemModstamp para este objeto)",
+        "not_saved": "Lectura completa (configuración no guardada: no se guarda ninguna marca)"
+      }
     }
   },
   "migration": {

@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { assertSoqlOrderBy, assertSoqlWhere } from '../../core/common/soqlValidator.js';
+import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 import type {
   AuditObjectCounts,
   GuardDecision,
   MappingType,
   SyncConfig,
+  SyncConfigSummary,
   SyncExecutionResult,
   SyncObjectResult,
   SyncOperation,
@@ -84,10 +85,17 @@ import {
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { PauseGate } from '../../modules/sync/PauseGate.js';
 import { targetLookup } from '../../modules/sync/SyncSimulation.js';
+import {
+  orgDeltaReads,
+  sourceReadWhere,
+  type SyncDeltaReads,
+  type SyncDeltaStore,
+} from '../../modules/sync/SyncDelta.js';
 import type {
   OrchestratorCountFn,
   OrchestratorFindFn,
   OrchestratorQueryFn,
+  SourceRead,
 } from '../../modules/sync/SyncOrchestrator.js';
 
 /** Message types handled by SyncOpsHandler. */
@@ -102,6 +110,7 @@ const SYNC_TYPES = new Set([
   'sync:config:load',
   'sync:config:list',
   'sync:config:delete',
+  'sync:config:reset-delta',
 ]);
 
 /**
@@ -124,7 +133,13 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
  */
 function syncAuditObjects(results: readonly SyncObjectResult[]): AuditObjectCounts[] {
   return results.map((result) => {
-    const counts = { ...emptyCounts(result.objectApiName), failed: result.failed };
+    // The deletions a delta run carried for the source's are this object's
+    // deletes, beside what its operation wrote.
+    const counts = {
+      ...emptyCounts(result.objectApiName),
+      failed: result.failed + (result.delta?.deleteFailed ?? 0),
+      deleted: result.delta?.deleted ?? 0,
+    };
     switch (result.operation) {
       case 'insert':
         return { ...counts, created: result.success };
@@ -202,6 +217,8 @@ interface SyncReaders {
   countSource: OrchestratorCountFn;
   describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
   findInTarget: OrchestratorFindFn;
+  /** What a delta configuration asks both orgs: see `SyncDelta`. */
+  deltaReads: SyncDeltaReads;
 }
 
 /**
@@ -315,6 +332,9 @@ export class SyncOpsHandler implements DomainHandler {
       case 'sync:config:delete':
         await this.handleConfigDelete(msg);
         return true;
+      case 'sync:config:reset-delta':
+        await this.handleConfigResetDelta(msg);
+        return true;
       default:
         return false;
     }
@@ -361,12 +381,18 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const configs = this.syncConfigStore.list();
-      const summaries = configs.map((c) => ({
-        id: c.id,
-        name: c.name,
-        description: c.description,
-        updatedAt: c.updatedAt,
-      }));
+      const summaries: SyncConfigSummary[] = configs.map((c) => {
+        const delta = this.syncConfigStore.loadDelta(c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          description: c.description,
+          updatedAt: c.updatedAt,
+          mode: c.mode,
+          propagateDeletes: c.propagateDeletes === true,
+          watermarks: delta.kind === 'stored' ? delta.state.entries.length : 0,
+        };
+      });
       const response = buildResponse(this.deps, msg, 'sync:config:list:response', {
         configs: summaries,
       });
@@ -390,6 +416,44 @@ export class SyncOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'sync:config:delete', 'sync:error', msg, err);
     }
+  }
+
+  /**
+   * "Run full next time": clear the watermarks of a saved configuration, so
+   * its next run reads every object whole. A configuration that is not saved
+   * has none, and is refused rather than answered as cleared.
+   */
+  private async handleConfigResetDelta(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    try {
+      if (!this.syncConfigStore.load(parsed.id)) {
+        throw new Error('This configuration is no longer saved: there is nothing to reset.');
+      }
+      const cleared = this.syncConfigStore.clearDelta(parsed.id);
+      const response = buildResponse(this.deps, msg, 'sync:config:reset-delta:response', {
+        success: true,
+        id: parsed.id,
+        cleared,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} cleared=${cleared}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:config:reset-delta', 'sync:error', msg, err);
+    }
+  }
+
+  /**
+   * Where a delta run keeps its watermarks: beside the saved configuration of
+   * the same id, and nowhere for one that is not saved.
+   */
+  private deltaStoreFor(): SyncDeltaStore {
+    return {
+      load: (configId) =>
+        this.syncConfigStore.load(configId) ? this.syncConfigStore.loadDelta(configId) : null,
+      record: (configId, watermark) => this.syncConfigStore.recordWatermark(configId, watermark),
+    };
   }
 
   /**
@@ -465,6 +529,9 @@ export class SyncOpsHandler implements DomainHandler {
         operation = object.operation;
       }
     }
+    // A delta run that carries the source's deletions deletes target records:
+    // the guard judges it as the delete it is.
+    if (config.mode === 'delta' && config.propagateDeletes === true) operation = 'delete';
     const objectNames = objects.map((o) => o.objectApiName);
     return {
       orgId: config.targetOrgId,
@@ -743,6 +810,9 @@ export class SyncOpsHandler implements DomainHandler {
         signal: abortController.signal,
         findInTarget: readers.findInTarget,
         describeTargetFields: readers.describeTargetFields,
+        // Read as the run reads them; a simulation records no watermark.
+        deltaStore: this.deltaStoreFor(),
+        deltaReads: readers.deltaReads,
         onSimulationProgress: (done, total, objectApiName) => {
           const pct = Math.round((done / total) * 100);
           const label = `Simulating ${objectApiName}`;
@@ -888,15 +958,18 @@ export class SyncOpsHandler implements DomainHandler {
       async (
         _orgId: string,
         objectConfig: import('@sandforge/shared').SyncObjectConfig,
+        read?: SourceRead,
       ): Promise<Record<string, unknown>[]> => {
         const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
         let soql = `SELECT FIELDS(ALL) FROM ${safeObj}`;
         // The boundary refuses a WHERE that does more than filter; checked
         // again here because this is where it becomes query text, and a
         // `LIMIT 1` riding on the filter would cut the read short while the
-        // run still reported itself complete.
-        if (objectConfig.where) {
-          soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
+        // run still reported itself complete. A delta read adds its bound
+        // before it, and keeps the filter whole in parentheses.
+        const where = sourceReadWhere(objectConfig.where, read?.changedSince);
+        if (where) {
+          soql += ` WHERE ${where}`;
         }
         // An SFDMU export carries its read order, and the importer keeps it.
         // The boundary refuses anything but field names, ASC/DESC and NULLS
@@ -964,6 +1037,9 @@ export class SyncOpsHandler implements DomainHandler {
         const records = retryResult.result ?? [];
         const tierCapReached = tier === 'production' && records.length >= limits.defaultQueryLimit;
         if (boundCutTheRead || tierCapReached) {
+          // A delta configuration keeps the object's watermark where it was:
+          // what the bound left unread is read by the next run.
+          read?.onBoundReached?.();
           const bound = tierCapReached
             ? `${limits.defaultQueryLimit} records (production-tier query cap)`
             : `${FORGE_QUERY_MAX_RECORDS} records / ${FORGE_QUERY_MAX_PAGES} pages`;
@@ -1002,11 +1078,13 @@ export class SyncOpsHandler implements DomainHandler {
     const countSource = async (
       orgId: string,
       objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      read?: SourceRead,
     ): Promise<number> => {
       const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
       let soql = `SELECT COUNT() FROM ${safeObj}`;
-      if (objectConfig.where) {
-        soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
+      const where = sourceReadWhere(objectConfig.where, read?.changedSince);
+      if (where) {
+        soql += ` WHERE ${where}`;
       }
       const { totalSize } = await sourceConn.query(soql);
       const { tier, limits } = limitsFor(orgId);
@@ -1045,6 +1123,20 @@ export class SyncOpsHandler implements DomainHandler {
       return held;
     };
 
+    // The source's latest stamp, its recycle bin and the keys both orgs hold:
+    // what a delta configuration reads beside the run's own reads.
+    const deltaReads = orgDeltaReads(
+      {
+        query: async (q, options) => sourceConn.query<Record<string, unknown>>(q, options),
+        queryMore: async (url) => sourceConn.queryMore<Record<string, unknown>>(url),
+      },
+      {
+        query: async (q) => targetConn.query<Record<string, unknown>>(q),
+        queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+      },
+      signal,
+    );
+
     return {
       sourceConn,
       targetConn,
@@ -1053,6 +1145,7 @@ export class SyncOpsHandler implements DomainHandler {
       countSource,
       describeTargetFields,
       findInTarget,
+      deltaReads,
     };
   }
 
@@ -1487,6 +1580,9 @@ export class SyncOpsHandler implements DomainHandler {
         signal: abortController.signal,
         // The page's Pause and Resume.
         pauseGate,
+        // A delta configuration's watermarks, kept beside it.
+        deltaStore: this.deltaStoreFor(),
+        deltaReads: readers.deltaReads,
       };
       if (!this.deps.services) {
         throw new Error(

@@ -54,6 +54,61 @@ export interface SyncConfig {
   enableRollback: boolean;
   createdAt: ISODateString;
   updatedAt: ISODateString;
+  /**
+   * With `mode: 'delta'` only: delete in the target the records the source
+   * deleted since the object's last good run, found by the key the write
+   * matches on. Off unless set.
+   */
+  propagateDeletes?: boolean;
+}
+
+/**
+ * Why an object of a delta configuration was read whole rather than from its
+ * watermark:
+ * - `first_run`: no run of the object has succeeded yet;
+ * - `reset`: "Run full next time" cleared its watermark;
+ * - `scope_changed`: its filter, fields, mapping, key or operation changed
+ *   since the watermark was recorded, so the records it holds in the target
+ *   were written under another scope;
+ * - `unreadable`: the stored watermarks did not read as watermarks;
+ * - `no_modstamp`: the source would not say the object's latest
+ *   `SystemModstamp`, so no watermark can be taken from it;
+ * - `not_saved`: the configuration run is not a saved one, and a watermark is
+ *   kept for a saved configuration only.
+ */
+export type SyncFullReadReason =
+  'first_run' | 'reset' | 'scope_changed' | 'unreadable' | 'no_modstamp' | 'not_saved';
+
+/**
+ * How an object of a delta configuration was read and what came of it.
+ * Absent on an object of a full configuration.
+ */
+export interface SyncDeltaOutcome {
+  /** `delta`: the records changed since `since`; `full`: every record its filter allows. */
+  read: 'delta' | 'full';
+  /** On a delta read: the watermark of the last good run the read started from. */
+  since?: ISODateString;
+  /** On a full read: why. */
+  reason?: SyncFullReadReason;
+  /** Rows the source read returned: on a delta read, the records changed since `since`. */
+  changed: number;
+  /** Whether deletions were looked for: on a delta read of a configuration that propagates them. */
+  deletionsChecked: boolean;
+  /**
+   * Target records deleted because the source deleted the record they were
+   * matched to; in a simulation, the records a run would delete.
+   */
+  deleted: number;
+  /** Target deletes the org refused. */
+  deleteFailed: number;
+  /** Why the deletions could not be carried, when they could not. */
+  deletionError?: string;
+  /**
+   * The watermark recorded for the next run, read from the source before
+   * this one read it. Absent when the object did not finish cleanly — it then
+   * keeps the watermark it had — and in a simulation.
+   */
+  recorded?: ISODateString;
 }
 
 /** Per-object sync configuration */
@@ -212,6 +267,8 @@ export interface SyncObjectResult {
    * neither. Absent for the other operations.
    */
   upsertSplit?: { created: number; updated: number };
+  /** On a delta configuration: how the object was read, and the deletions it carried. */
+  delta?: SyncDeltaOutcome;
 }
 
 /**
@@ -245,6 +302,12 @@ export interface SyncObjectSimulation {
   conflictFields: string[];
   /** What the counts leave unsaid, in words. */
   notes: string[];
+  /**
+   * On a delta configuration: how a run would read the object, and the target
+   * records it would delete for the source's deletions — counted in `delete`
+   * as well.
+   */
+  delta?: SyncDeltaOutcome;
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */

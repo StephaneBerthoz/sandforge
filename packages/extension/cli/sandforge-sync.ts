@@ -28,7 +28,8 @@ import type { Connection } from 'jsforce';
 import type { SyncConfig, SyncObjectConfig, SyncSimulationResult } from '@sandforge/shared';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { loadOrg, makeConn } from './sfSession.js';
-import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
+import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
+import { sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
 import { DataSync } from '../src/modules/sync/DataSync.js';
 import {
   targetWriteFieldsOf,
@@ -224,19 +225,27 @@ export function buildQueryFn(conn: Connection) {
   return async (
     _orgId: string,
     objectConfig: SyncObjectConfig,
+    read?: SourceRead,
   ): Promise<Record<string, unknown>[]> => {
     const object = objectConfig.objectApiName;
     if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
-    const where = objectConfig.where ? ` WHERE ${objectConfig.where}` : '';
+    // The panel's WHERE: the filter checked as query text, and on a delta
+    // read the bound before it.
+    const clause = sourceReadWhere(objectConfig.where, read?.changedSince);
+    const where = clause ? ` WHERE ${clause}` : '';
     const pages = {
       query: async (q: string) => conn.query<Record<string, unknown>>(q),
       queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
+    };
+    const answer = (paged: { records: Record<string, unknown>[]; truncated: boolean }) => {
+      if (paged.truncated) read?.onBoundReached?.();
+      return paged.records;
     };
     try {
       // No LIMIT, as the panel asks: Salesforce answers FIELDS(ALL) only under
       // a LIMIT of 200 at most, and asked so the command synced the first 200
       // rows of every object without a word. Refused, the read goes on by name.
-      return (await queryAllPages(pages, `SELECT FIELDS(ALL) FROM ${object}${where}`)).records;
+      return answer(await queryAllPages(pages, `SELECT FIELDS(ALL) FROM ${object}${where}`));
     } catch {
       const described = await conn.sobject(object).describe();
       const fields = described.fields
@@ -245,7 +254,7 @@ export function buildQueryFn(conn: Connection) {
         .join(', ');
       // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
       // a time: every page is read, as the panel reads them.
-      return (await queryAllPages(pages, `SELECT ${fields} FROM ${object}${where}`)).records;
+      return answer(await queryAllPages(pages, `SELECT ${fields} FROM ${object}${where}`));
     }
   };
 }

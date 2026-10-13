@@ -237,6 +237,98 @@ describe('useSyncPageData', () => {
     expect(result.current.strategyNotice).toBe(false);
   });
 
+  describe('delta', () => {
+    const base = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+
+    it('reopens a draft on delta, and on its deletions only when it is a delta draft', () => {
+      draft.value = { ...base, mode: 'delta', propagateDeletes: true };
+      expect(renderHook(() => useSyncPageData()).result.current).toMatchObject({
+        mode: 'delta',
+        propagateDeletes: true,
+      });
+
+      draft.value = { ...base, mode: 'full', propagateDeletes: true };
+      expect(renderHook(() => useSyncPageData()).result.current).toMatchObject({
+        mode: 'full',
+        propagateDeletes: false,
+      });
+    });
+
+    it('keeps deletions to a delta configuration, and drops them when delta is left', () => {
+      draft.value = { ...base, mode: 'full' };
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.setPropagateDeletes(true));
+      expect(result.current.propagateDeletes).toBe(false);
+
+      act(() => result.current.setMode('delta'));
+      act(() => result.current.setPropagateDeletes(true));
+      expect(result.current.propagateDeletes).toBe(true);
+
+      act(() => result.current.setMode('full'));
+      expect(result.current.propagateDeletes).toBe(false);
+    });
+
+    it('names the objects a delta run cannot write, and holds the first step while there are any', () => {
+      draft.value = {
+        ...base,
+        mode: 'delta',
+        objectEntries: [
+          ...base.objectEntries,
+          { objectApiName: 'Contact', operation: 'insert', externalIdField: '', batchSize: 200 },
+          { objectApiName: 'Case', operation: 'delete', externalIdField: '', batchSize: 200 },
+        ],
+      };
+      const { result } = renderHook(() => useSyncPageData());
+
+      expect(result.current.deltaBlockers).toEqual(['Contact', 'Case']);
+      expect(result.current.canGoNext()).toBe(false);
+
+      act(() => result.current.setMode('full'));
+      expect(result.current.deltaBlockers).toEqual([]);
+      expect(result.current.canGoNext()).toBe(true);
+    });
+
+    it('sends deletions with a delta configuration, and never with a full one', () => {
+      draft.value = { ...base, currentStep: 4, mode: 'delta', propagateDeletes: true };
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleExecute());
+      const sent = execution.mutate.mock.calls[0][0] as {
+        config: { mode: string; propagateDeletes?: boolean };
+      };
+      expect(sent.config).toMatchObject({ mode: 'delta', propagateDeletes: true });
+    });
+
+    it('drops a simulation once the mode changes: it no longer says what a run would do', () => {
+      draft.value = { ...base, currentStep: 4, mode: 'full' };
+      simulation.data = { objects: [] };
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleSimulate());
+      expect(result.current.simulation).toBeDefined();
+
+      act(() => result.current.setMode('delta'));
+      expect(result.current.simulation).toBeUndefined();
+    });
+  });
+
   it('reopens a draft on a strategy no run knows on the default, with nothing to say', () => {
     draft.value = {
       currentStep: 0,

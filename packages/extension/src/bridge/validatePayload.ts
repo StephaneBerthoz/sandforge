@@ -36,6 +36,7 @@ import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { AUDIT_TRAIL_LIMIT } from '../modules/audit/auditTrail.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
 import { isNeverCopiedWhenPicked } from '../modules/forge/excludedObjects.js';
+import { deletionKeyOf } from '../modules/sync/SyncDelta.js';
 
 /**
  * Generic webview-payload validation (defense-in-depth against a compromised
@@ -264,17 +265,61 @@ export const syncConfigPayloadSchema = syncConfigSchema
       });
     }
 
-    // Only a full sync exists: any other mode would replay the whole object
-    // set while the configuration said otherwise.
-    if (config.mode !== 'full') {
+    // A full sync and a delta sync exist: any other mode would replay the
+    // whole object set while the configuration said otherwise.
+    if (config.mode !== 'full' && config.mode !== 'delta') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['mode'],
         message:
-          `Sync runs a full sync only: mode "${config.mode}" is not implemented. ` +
-          `Set mode to "full". The sync was not started, so it cannot replay the whole ` +
-          `object set while you believed it was reading changes only.`,
+          `Sync runs a full or a delta sync only: mode "${config.mode}" is not implemented. ` +
+          `Set mode to "full" or "delta". The sync was not started, so it cannot replay the ` +
+          `whole object set while you believed it was reading changes only.`,
       });
+    }
+
+    // A delta read reads again what changed in its last five minutes, and an
+    // object read whole after a change of scope reads everything again: only
+    // a write that finds its record writes those twice without a second copy.
+    if (config.mode === 'delta') {
+      config.objects.forEach((object, index) => {
+        if (object.operation === 'upsert' || object.operation === 'update') return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['objects', index, 'operation'],
+          message:
+            `A delta sync writes ${object.objectApiName} again for every record it reads ` +
+            `twice, and ${object.operation} would ` +
+            `${object.operation === 'insert' ? 'create a second copy' : 'delete a record already gone'}. ` +
+            `Write it by upsert on an External ID, or by update, or run the configuration in ` +
+            `full. The sync was not started.`,
+        });
+      });
+    }
+
+    if (config.propagateDeletes === true) {
+      if (config.mode !== 'delta') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['propagateDeletes'],
+          message:
+            `Deletions are carried by a delta sync only, which knows since when to look for ` +
+            `them: set mode to "delta", or turn deletions off. The sync was not started.`,
+        });
+      } else {
+        // Each deleted source record has to be tied to one target record by
+        // the key the write matches on: see `deletionKeyOf`.
+        config.objects.forEach((object, index) => {
+          if (object.operation !== 'upsert' && object.operation !== 'update') return;
+          const key = deletionKeyOf(object);
+          if (!('refused' in key)) return;
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['objects', index],
+            message: `${key.refused} Turn deletions off, or carry a source field onto the key. The sync was not started.`,
+          });
+        });
+      }
     }
   });
 

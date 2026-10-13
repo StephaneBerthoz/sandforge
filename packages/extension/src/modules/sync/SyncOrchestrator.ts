@@ -1,6 +1,7 @@
 import type {
   ConflictRecord,
   SyncConfig,
+  SyncDeltaOutcome,
   SyncExecutionResult,
   SyncObjectConfig,
   SyncObjectResult,
@@ -19,21 +20,48 @@ import { SyncRunFailure } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 import { simulateObjectOutcome, simulationKey, targetKeyOf } from './SyncSimulation.js';
 import {
+  changedSinceLiteral,
+  deletionKeyOf,
+  deletionNotes,
+  deltaOutcomeOf,
+  planObjectRead,
+  sourceReadWhere,
+  tallyDeletions,
+  type DeletionTally,
+  type ObjectReadPlan,
+  type SyncDeltaLoad,
+  type SyncDeltaReads,
+  type SyncDeltaStore,
+} from './SyncDelta.js';
+import {
   RowsLeftToThePlatform,
   leftToThePlatformNote,
   lookupsThePlatformFills,
 } from '../../core/common/platformRecords.js';
 
+/** How a source read of one object is asked, beyond the object's own filter. */
+export interface SourceRead {
+  /**
+   * On a delta read: only the records whose `SystemModstamp` is after this
+   * SOQL datetime, as `sourceReadWhere` combines it with the filter.
+   */
+  changedSince?: string;
+  /** Told when a bound stopped the read before the source was exhausted. */
+  onBoundReached?: () => void;
+}
+
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
   orgId: string,
   objectConfig: SyncObjectConfig,
+  read?: SourceRead,
 ) => Promise<Record<string, unknown>[]>;
 
 /** Function counting the records a query of an object would return */
 export type OrchestratorCountFn = (
   orgId: string,
   objectConfig: SyncObjectConfig,
+  read?: SourceRead,
 ) => Promise<number>;
 
 /**
@@ -101,6 +129,14 @@ export interface SyncOrchestratorDeps {
   /** For {@link SyncOrchestrator.simulate}: called before each object is read. */
   onSimulationProgress?: (done: number, total: number, objectApiName: string) => void;
   /**
+   * Where a delta configuration's watermarks are kept, and what it asks the
+   * orgs beside its reads: see `SyncDelta`. Without both, a configuration in
+   * delta mode reads every object whole and says it was not run as a saved
+   * one, since no watermark can be kept for it.
+   */
+  deltaStore?: SyncDeltaStore;
+  deltaReads?: SyncDeltaReads;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -110,6 +146,27 @@ export interface SyncOrchestratorDeps {
 
 /** What {@link SyncOrchestrator.syncObject} answers for an object a cancel stopped before its write. */
 const NOT_WRITTEN: unique symbol = Symbol('not written');
+
+/**
+ * One object's source read as it happened: asked from `changedSince` on a
+ * delta read, the rows it returned, and whether a bound cut it short. Filled
+ * in by {@link SyncOrchestrator.prepare}.
+ */
+interface ObjectRead {
+  readonly changedSince?: string;
+  rows: number;
+  cut: boolean;
+}
+
+/** What a deletion pass carried to the target. */
+interface CarriedDeletions {
+  deleted: number;
+  deleteFailed: number;
+  error?: string;
+  notes: string[];
+  /** Whether the pass read every deleted row it asked for. */
+  complete: boolean;
+}
 
 /** One object's records as the run's write would be handed them. */
 interface PreparedObject {
@@ -139,8 +196,10 @@ interface PreparedObject {
  * carrying `dryRun: true` is refused at that same boundary, so a saved or
  * scheduled run can never believe it only reports.
  *
- * Every run is a full sync: each object is read whole, as its filter allows,
- * every time. Nothing remembers where a previous run stopped.
+ * A configuration in `full` mode reads each object whole, as its filter
+ * allows, every time. One in `delta` mode reads each object from the
+ * watermark its last good run recorded, and carries the source's deletions
+ * when asked to: see `SyncDelta`.
  */
 export class SyncOrchestrator {
   private readonly deps: SyncOrchestratorDeps;
@@ -161,8 +220,9 @@ export class SyncOrchestrator {
     const objectResults: SyncObjectResult[] = [];
 
     const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
+    const deltaLoad = this.deltaLoadOf(config);
 
-    const totalRecords = await this.countForGrappe(config.sourceOrgId, sortedObjects);
+    const totalRecords = await this.countForGrappe(config, sortedObjects, deltaLoad);
     const grappeActive = this.isGrappeActive(totalRecords);
     if (grappeActive) {
       this.deps.onGrappeEvent?.({
@@ -209,9 +269,19 @@ export class SyncOrchestrator {
       // went through alone, and a cancel during the write dropped the tracked
       // change it had left out, and the note saying why.
       const leftOut = new RowsLeftToThePlatform();
-      let result: SyncObjectResult | typeof NOT_WRITTEN;
+      // On a delta configuration: how the object is read, and the watermark
+      // taken from the source before it is — the org's own time.
+      const { plan, mark } = await this.readPlan(config, objectConfig, deltaLoad);
+      const read: ObjectRead = {
+        changedSince: plan?.read === 'delta' ? changedSinceLiteral(plan.since) : undefined,
+        rows: 0,
+        cut: false,
+      };
+      const withPlan = (r: SyncObjectResult, deletions?: CarriedDeletions): SyncObjectResult =>
+        plan ? { ...r, delta: deltaOutcomeOf(plan, read.rows, deletions) } : r;
+      let synced: SyncObjectResult | typeof NOT_WRITTEN;
       try {
-        result = await this.syncObject(config, objectConfig, leftOut);
+        synced = await this.syncObject(config, objectConfig, leftOut, plan ? read : undefined);
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
         // of it, and a REST write stopped before one of its batches wrote the
@@ -228,7 +298,7 @@ export class SyncOrchestrator {
             ),
             leftOut,
           );
-          if (stopped.processed > 0 || stopped.skipped > 0) objectResults.push(stopped);
+          if (stopped.processed > 0 || stopped.skipped > 0) objectResults.push(withPlan(stopped));
           return stopHere(sortedObjects.slice(index));
         }
         /*
@@ -241,13 +311,15 @@ export class SyncOrchestrator {
          * never started.
          */
         objectResults.push(
-          withRowsLeftOut(
-            {
-              ...createEmptyResult(objectConfig),
-              failed: 1,
-              errors: [err instanceof Error ? err.message : String(err)],
-            },
-            leftOut,
+          withPlan(
+            withRowsLeftOut(
+              {
+                ...createEmptyResult(objectConfig),
+                failed: 1,
+                errors: [err instanceof Error ? err.message : String(err)],
+              },
+              leftOut,
+            ),
           ),
         );
         throw new SyncRunFailure(
@@ -256,11 +328,76 @@ export class SyncOrchestrator {
           err,
         );
       }
-      if (result === NOT_WRITTEN) {
+      if (synced === NOT_WRITTEN) {
         // Nothing of it was written; the rows its read left out are said all the same.
         const stopped = withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
-        if (stopped.skipped > 0) objectResults.push(stopped);
+        if (stopped.skipped > 0) objectResults.push(withPlan(stopped));
         return stopHere(sortedObjects.slice(index));
+      }
+      let result: SyncObjectResult = synced;
+
+      // The source's deletions, after its changes: only on a delta read, which
+      // knows since when to look. A full read has no point to start from, and
+      // reading the whole recycle bin would delete what earlier runs never
+      // copied.
+      let deletions: CarriedDeletions | undefined;
+      if (plan?.read === 'delta' && config.propagateDeletes === true && read.changedSince) {
+        await this.deps.pauseGate?.whilePaused(this.deps.signal);
+        if (this.deps.signal?.aborted) {
+          objectResults.push(withPlan(result));
+          return stopHere(sortedObjects.slice(index));
+        }
+        try {
+          deletions = await this.carryDeletions(objectConfig, read.changedSince);
+        } catch (err: unknown) {
+          if (!(err instanceof WriteCancelledError)) throw err;
+          // Stopped between two batches of deletes: those sent are done, the
+          // rest are read again by the next run, from the same watermark.
+          const sent = buildObjectResult(objectConfig.objectApiName, 'delete', err.written);
+          objectResults.push(
+            withPlan(
+              { ...result, errors: [...result.errors, ...sent.errors, ...err.notes] },
+              { deleted: sent.success, deleteFailed: sent.failed, notes: [], complete: false },
+            ),
+          );
+          return stopHere(sortedObjects.slice(index));
+        }
+        result = { ...result, errors: [...result.errors, ...deletions.notes] };
+      }
+
+      // The watermark moves only past an object the run finished cleanly:
+      // every record written, every deletion carried, nothing left past a
+      // read bound. Anything else reads again from the same point next time.
+      const clean =
+        result.failed === 0 &&
+        !read.cut &&
+        (deletions === undefined ||
+          (deletions.deleteFailed === 0 && deletions.error === undefined && deletions.complete));
+      let recorded: string | undefined;
+      if (plan && mark !== null && clean) {
+        try {
+          this.deps.deltaStore?.record(config.id, {
+            sourceOrgId: config.sourceOrgId,
+            targetOrgId: config.targetOrgId,
+            objectApiName: objectConfig.objectApiName,
+            watermark: mark,
+            fingerprint: plan.fingerprint,
+            recordedAt: new Date().toISOString(),
+          });
+          recorded = mark;
+        } catch (err: unknown) {
+          result = {
+            ...result,
+            errors: [
+              ...result.errors,
+              `The watermark could not be saved, so the next run reads from the previous one: ` +
+                `${err instanceof Error ? err.message : String(err)}`,
+            ],
+          };
+        }
+      }
+      if (plan) {
+        result = { ...result, delta: deltaOutcomeOf(plan, read.rows, deletions, recorded) };
       }
       objectResults.push(result);
 
@@ -285,19 +422,143 @@ export class SyncOrchestrator {
   }
 
   /**
+   * The watermarks of a delta configuration: `undefined` for a full one,
+   * `null` when none can be kept — a configuration that is not saved, or a
+   * run given nowhere to keep them.
+   */
+  private deltaLoadOf(config: SyncConfig): SyncDeltaLoad | null | undefined {
+    if (config.mode !== 'delta') return undefined;
+    if (!this.deps.deltaStore || !this.deps.deltaReads) return null;
+    return this.deps.deltaStore.load(config.id);
+  }
+
+  /**
+   * How one object of a delta configuration is read, and the watermark taken
+   * from the source before it is. A source that will not say its latest
+   * `SystemModstamp` has the object read whole, recording nothing: a delta
+   * read filters on that same field.
+   */
+  private async readPlan(
+    config: SyncConfig,
+    objectConfig: SyncObjectConfig,
+    load: SyncDeltaLoad | null | undefined,
+  ): Promise<{ plan: ObjectReadPlan | null; mark: string | null }> {
+    if (load === undefined) return { plan: null, mark: null };
+    const plan = planObjectRead(config, objectConfig, load);
+    const reads = this.deps.deltaReads;
+    if (!reads || (plan.read === 'full' && plan.reason === 'not_saved')) {
+      return { plan, mark: null };
+    }
+    try {
+      return { plan, mark: await reads.latestModstamp(objectConfig.objectApiName) };
+    } catch {
+      return {
+        plan: { read: 'full', reason: 'no_modstamp', fingerprint: plan.fingerprint },
+        mark: null,
+      };
+    }
+  }
+
+  /**
+   * Delete in the target what the source deleted since `changedSince`.
+   *
+   * The deleted rows are read from the source's recycle bin, within the
+   * object's filter, and each is tied to its target record by the key the
+   * write matches on, computed by the same mapping and transforms the write
+   * applies: see `tallyDeletions`. Only a target record that alone holds the
+   * key of a record the source no longer holds is deleted — never one the run
+   * cannot tie to a deleted source record. The deletes go through the run's
+   * writer, its cancel and its pause.
+   */
+  private async carryDeletions(
+    objectConfig: SyncObjectConfig,
+    changedSince: string,
+  ): Promise<CarriedDeletions> {
+    const tallied = await this.tallyObjectDeletions(objectConfig, changedSince);
+    if ('error' in tallied) {
+      return {
+        deleted: 0,
+        deleteFailed: 0,
+        error: tallied.error,
+        notes: [tallied.error],
+        complete: false,
+      };
+    }
+    const { tally, notes } = tallied;
+    if (tally.ids.length === 0) {
+      return { deleted: 0, deleteFailed: 0, notes, complete: !tally.truncated };
+    }
+    const written = await this.deps.dataSync.sync(
+      {
+        ...objectConfig,
+        operation: 'delete',
+        fieldMappings: [],
+        transformRules: [],
+        addOnFields: [],
+      },
+      tally.ids.map((Id) => ({ Id })),
+    );
+    return {
+      deleted: written.success,
+      deleteFailed: written.failed,
+      notes: [...written.errors, ...notes],
+      complete: !tally.truncated,
+    };
+  }
+
+  /**
+   * The target records a deletion pass of `objectConfig` would delete, and
+   * what it would leave alone, in words; or why it cannot run.
+   */
+  private async tallyObjectDeletions(
+    objectConfig: SyncObjectConfig,
+    changedSince: string,
+  ): Promise<{ tally: DeletionTally; notes: string[] } | { error: string }> {
+    const reads = this.deps.deltaReads;
+    if (!reads) return { error: `Deletions need the source's recycle bin, and none was given.` };
+    const key = deletionKeyOf(objectConfig);
+    if ('refused' in key) return { error: key.refused };
+    const where = sourceReadWhere(objectConfig.where, changedSince) ?? '';
+    try {
+      const tally = await tallyDeletions(reads, objectConfig, key, where, (row) => {
+        if (key.sourceField === 'Id') return row.Id;
+        const mapped = this.deps.fieldMapping.apply(row, objectConfig.fieldMappings);
+        return this.deps.transformPipeline.transformRecord(mapped, objectConfig)[key.keyField];
+      });
+      return { tally, notes: deletionNotes(tally, key.keyField) };
+    } catch (err: unknown) {
+      // A cancel that cut a lookup short is the cancel, said as the writer says one.
+      if (this.deps.signal?.aborted) throw new WriteCancelledError(objectConfig.objectApiName, []);
+      return {
+        error:
+          `The source's deletions could not be read, so none was carried; the next run ` +
+          `looks for them again: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  /**
    * The source records the run will read, counted before the first write, or
-   * `undefined` when grappe is off or the count is unavailable.
+   * `undefined` when grappe is off or the count is unavailable. A delta read
+   * is counted from its watermark.
    */
   private async countForGrappe(
-    sourceOrgId: string,
+    config: SyncConfig,
     objects: readonly SyncObjectConfig[],
+    load: SyncDeltaLoad | null | undefined,
   ): Promise<number | undefined> {
     const count = this.deps.countSource;
     if (!this.deps.grappeConfig?.enabled || !count) return undefined;
     let total = 0;
     try {
       for (const objectConfig of objects) {
-        total += await count(sourceOrgId, objectConfig);
+        const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
+        total +=
+          plan?.read === 'delta'
+            ? await count(config.sourceOrgId, objectConfig, {
+                changedSince: changedSinceLiteral(plan.since),
+              })
+            : await count(config.sourceOrgId, objectConfig);
       }
     } catch {
       // Grappe only changes what the Grappe view is told; a count the org
@@ -342,11 +603,13 @@ export class SyncOrchestrator {
       ...ending,
     });
 
+    // A simulation reads the watermarks a run would read, and records none.
+    const deltaLoad = this.deltaLoadOf(config);
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
       try {
-        objects.push(await this.simulateObject(config, objectConfig));
+        objects.push(await this.simulateObject(config, objectConfig, deltaLoad));
       } catch (err: unknown) {
         // A lookup the cancel cut short is the cancel, not an error of the read.
         if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -359,15 +622,27 @@ export class SyncOrchestrator {
     return answer();
   }
 
-  /** One object's line of {@link simulate}. */
+  /**
+   * One object's line of {@link simulate}. On a delta configuration the
+   * object is read as the run would read it — from its watermark, or whole
+   * for the same reason — and the deletions a run would carry are counted,
+   * tied to their target records as a run ties them.
+   */
   private async simulateObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
+    deltaLoad: SyncDeltaLoad | null | undefined,
   ): Promise<SyncObjectSimulation> {
     const find = this.deps.findInTarget;
     if (!find) throw new Error('A simulation needs to look records up in the target org.');
     const leftOut = new RowsLeftToThePlatform();
-    const prepared = await this.prepare(config, objectConfig, leftOut);
+    const { plan } = await this.readPlan(config, objectConfig, deltaLoad);
+    const read: ObjectRead = {
+      changedSince: plan?.read === 'delta' ? changedSinceLiteral(plan.since) : undefined,
+      rows: 0,
+      cut: false,
+    };
+    const prepared = await this.prepare(config, objectConfig, leftOut, plan ? read : undefined);
 
     const keyField = targetKeyOf(objectConfig);
     let inTarget: ReadonlyMap<string, number> = new Map();
@@ -395,7 +670,7 @@ export class SyncOrchestrator {
       }
     }
 
-    return simulateObjectOutcome({
+    const outcome = simulateObjectOutcome({
       objectConfig,
       read: prepared.read,
       records: prepared.records,
@@ -406,6 +681,31 @@ export class SyncOrchestrator {
       matchField: prepared.matchField,
       writable,
     });
+    if (!plan) return outcome;
+
+    // The deletions a run would carry: tied as a run ties them, deleted by none.
+    if (plan.read === 'delta' && config.propagateDeletes === true && read.changedSince) {
+      const tallied = await this.tallyObjectDeletions(objectConfig, read.changedSince);
+      if ('error' in tallied) {
+        return {
+          ...outcome,
+          notes: [...outcome.notes, tallied.error],
+          delta: deltaOutcomeOf(plan, read.rows, {
+            deleted: 0,
+            deleteFailed: 0,
+            error: tallied.error,
+          }),
+        };
+      }
+      const wouldDelete = tallied.tally.ids.length;
+      return {
+        ...outcome,
+        delete: outcome.delete + wouldDelete,
+        notes: [...outcome.notes, ...tallied.notes],
+        delta: deltaOutcomeOf(plan, read.rows, { deleted: wouldDelete, deleteFailed: 0 }),
+      };
+    }
+    return { ...outcome, delta: deltaOutcomeOf(plan, read.rows) };
   }
 
   /**
@@ -413,13 +713,16 @@ export class SyncOrchestrator {
    * cancel came while it was being read, before anything of it was written.
    *
    * @param leftOut - Receives the rows the read leaves to the platform.
+   * @param read - On a delta configuration: how the source is read, filled in
+   *   with what the read returned.
    */
   private async syncObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
+    read?: ObjectRead,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const { records } = await this.prepare(config, objectConfig, leftOut);
+    const { records } = await this.prepare(config, objectConfig, leftOut, read);
 
     if (records.length === 0) {
       return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
@@ -451,13 +754,26 @@ export class SyncOrchestrator {
    * strategy. {@link execute} writes them; {@link simulate} only looks.
    *
    * @param leftOut - Receives the rows the read leaves to the platform.
+   * @param asked - On a delta configuration: how the source is read, filled in
+   *   with the rows the read returned and whether a bound cut it short. The
+   *   target of a bidirectional run is read whole: a conflict is a record both
+   *   orgs hold, whenever either changed it.
    */
   private async prepare(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
+    asked?: ObjectRead,
   ): Promise<PreparedObject> {
-    const read = await this.deps.querySource(config.sourceOrgId, objectConfig);
+    const read = asked
+      ? await this.deps.querySource(config.sourceOrgId, objectConfig, {
+          changedSince: asked.changedSince,
+          onBoundReached: () => {
+            asked.cut = true;
+          },
+        })
+      : await this.deps.querySource(config.sourceOrgId, objectConfig);
+    if (asked) asked.rows = read.length;
     const matchField = objectConfig.externalIdField ?? 'Id';
 
     // What the platform writes itself is left out of a write that creates
@@ -609,12 +925,19 @@ function determineStatus(results: SyncObjectResult[]): 'success' | 'partial' | '
     return 'failure';
   }
 
-  const hasFailed = results.some((r) => r.failed > 0);
+  // A deletion the target refused, or a deletion pass that could not run, is
+  // an object the run did not finish, however its records were written.
+  const hasFailed = results.some((r) => r.failed > 0 || deletionsFell(r.delta));
   if (hasFailed) {
     return 'partial';
   }
 
   return 'success';
+}
+
+/** Whether an object's deletions were not all carried: refused, or never read. */
+function deletionsFell(delta: SyncDeltaOutcome | undefined): boolean {
+  return delta !== undefined && (delta.deleteFailed > 0 || delta.deletionError !== undefined);
 }
 
 /**

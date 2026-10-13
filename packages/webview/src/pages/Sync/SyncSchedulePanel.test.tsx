@@ -43,6 +43,13 @@ function fromHost(data: Record<string, unknown>): void {
   });
 }
 
+/** The "Run full next time" requests the panel posted, envelope-unwrapped. */
+function sentResets(): Array<{ id: string; payload?: unknown }> {
+  return mockVSCodeApi.postMessage.mock.calls
+    .map(([envelope]) => (envelope as { payload: { id: string; type: string } }).payload)
+    .filter((message) => message.type === 'sync:config:reset-delta');
+}
+
 /** A saved configuration summary, as `sync:config:list` answers it. */
 function saved(
   id: string,
@@ -182,6 +189,80 @@ describe('SyncSchedulePanel', () => {
       render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
 
       expect(screen.queryByTestId('sync-saved-configs')).toBeNull();
+    });
+
+    it('says which ones run as delta, and whether they carry deletions', () => {
+      savedConfigs.value = [
+        { ...saved('cfg-1', 'Full one'), mode: 'full' },
+        { ...saved('cfg-2', 'Delta one'), mode: 'delta', watermarks: 0 },
+        { ...saved('cfg-3', 'Delta deletes'), mode: 'delta', propagateDeletes: true },
+      ];
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      expect(screen.getByTestId('saved-config-cfg-1').textContent).not.toContain('Delta,');
+      expect(screen.getByTestId('saved-config-cfg-2').textContent).toContain('Delta');
+      expect(screen.getByTestId('saved-config-cfg-3').textContent).toContain(
+        'Delta, deletions carried',
+      );
+    });
+
+    it('offers "Run full next time" only for a delta configuration holding watermarks', () => {
+      savedConfigs.value = [
+        { ...saved('cfg-1', 'Full one'), mode: 'full', watermarks: 2 },
+        { ...saved('cfg-2', 'Fresh delta'), mode: 'delta', watermarks: 0 },
+        { ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 },
+      ];
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      expect(screen.queryByTestId('reset-delta-cfg-1')).toBeNull();
+      expect(screen.queryByTestId('reset-delta-cfg-2')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: /^Run Running delta · .+ in full next time$/ }),
+      ).toBeDefined();
+    });
+
+    it('clears the watermarks by the id, says so once the host answers, and reads the list again', () => {
+      savedConfigs.value = [{ ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 }];
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('reset-delta-cfg-3'));
+
+      const sent = sentResets()[0];
+      expect(sent?.payload).toEqual({ id: 'cfg-3' });
+      expect(screen.queryByTestId('reset-delta-done')).toBeNull();
+
+      fromHost({
+        id: 'reset-answer',
+        type: 'sync:config:reset-delta:response',
+        correlationId: sent?.id,
+        payload: { success: true, id: 'cfg-3', cleared: 2 },
+      });
+
+      expect(screen.getByTestId('reset-delta-done').textContent).toMatch(
+        /^The next run of Running delta · .+ reads everything\.$/,
+      );
+      expect(savedConfigs.refetch).toHaveBeenCalled();
+    });
+
+    it('says why the watermarks were not cleared when the host refuses', () => {
+      savedConfigs.value = [{ ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 }];
+      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('reset-delta-cfg-3'));
+      const sent = sentResets()[0];
+      fromHost({
+        id: 'reset-refused',
+        type: 'sync:error',
+        correlationId: sent?.id,
+        payload: {
+          message: 'This configuration is no longer saved: there is nothing to reset.',
+          code: 'UNKNOWN',
+          retryable: false,
+        },
+      });
+
+      expect(screen.getByTestId('reset-delta-error').textContent).toContain('no longer saved');
+      expect(screen.queryByTestId('reset-delta-done')).toBeNull();
     });
   });
 

@@ -45,6 +45,7 @@ const CONFLICT_RESOLVER = source('packages/extension/src/modules/sync/ConflictRe
 const BULK_WRITER = source('packages/extension/src/modules/sync/BulkDataWriter.ts');
 const VALIDATE_PAYLOAD = source('packages/extension/src/bridge/validatePayload.ts');
 const SYNC_PAGE_DATA = source('packages/webview/src/pages/Sync/useSyncPageData.ts');
+const SYNC_DELTA = source('packages/extension/src/modules/sync/SyncDelta.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -140,18 +141,32 @@ describe('docs/modules/sync.md', () => {
     );
   });
 
-  it('promises no delta and no metadata: every run reads each object whole', () => {
+  it('says what a delta run reads from and what it keeps, and promises no metadata', () => {
     // Positive control: the tracker no run read back and the metadata stub
-    // are gone, so nothing in the engine could stand behind a delta.
+    // are gone; the delta reads its watermark from the store beside the
+    // configuration, from the org's own stamp, five minutes early.
     for (const gone of ['IncrementalTracker.ts', 'MetadataSync.ts']) {
       expect(existsSync(resolve(REPO_ROOT, 'packages/extension/src/modules/sync', gone))).toBe(
         false,
       );
     }
     expect(SYNC_ORCHESTRATOR).not.toContain('incrementalTracker');
+    expect(SYNC_DELTA).toContain('export const DELTA_OVERLAP_MS = 5 * 60_000;');
+    expect(SYNC_DELTA).toContain('ORDER BY SystemModstamp DESC LIMIT 1');
+    expect(SYNC_ORCHESTRATOR).toContain('if (plan && mark !== null && clean) {');
+    expect(VALIDATE_PAYLOAD).toContain("if (config.mode !== 'full' && config.mode !== 'delta') {");
+    expect(SYNC_HANDLER).toContain(
+      "if (config.mode === 'delta' && config.propagateDeletes === true) operation = 'delete';",
+    );
 
-    expect(DOC).toContain('Nothing remembers where a previous run stopped');
+    expect(DOC).toContain(
+      'A delta run of a saved configuration reads each object from the watermark',
+    );
+    expect(DOC).toContain('less five minutes for saves committed during a read');
+    expect(DOC).toContain('keeps its previous watermark');
+    expect(DOC).toContain('Production Guard judges such a run as a delete');
     expect(DOC).toContain('no metadata is deployed');
+    expect(DOC).not.toContain('Nothing remembers where a previous run stopped');
   });
 
   it("names the objects the picker leaves out as the list every copy reads, a managed package's offered", () => {

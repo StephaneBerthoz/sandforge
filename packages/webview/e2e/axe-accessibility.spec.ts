@@ -5558,11 +5558,13 @@ async function openSyncExecuteStep(
   bridge: MockBridge,
   page: Page,
   theme: StateTheme,
+  draft: Record<string, unknown> = {},
+  ready = 'sync-step-execute',
 ): Promise<void> {
   await bridge.setup(page);
   await paintHostTheme(page, theme);
   await page.addInitScript(
-    (ids: { source: string; target: string }) => {
+    (args: { source: string; target: string; draft: Record<string, unknown> }) => {
       const host = window as unknown as {
         acquireVsCodeApi: () => { setState: (state: unknown) => void };
         __SANDFORGE_MODULE__?: string;
@@ -5573,8 +5575,8 @@ async function openSyncExecuteStep(
           direction: 'bidirectional',
           mode: 'full',
           conflictStrategy: 'target_wins',
-          sourceOrgId: ids.source,
-          targetOrgId: ids.target,
+          sourceOrgId: args.source,
+          targetOrgId: args.target,
           objectEntries: [
             {
               objectApiName: 'Account',
@@ -5586,15 +5588,16 @@ async function openSyncExecuteStep(
           ],
           mappingsByObject: {},
           transforms: [],
+          ...args.draft,
         },
       });
       host.__SANDFORGE_MODULE__ = 'sync';
     },
-    { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+    { source: DEV_SANDBOX.id, target: QA_SANDBOX.id, draft },
   );
   await page.goto('/');
   await bridge.seedOrgs(MOCK_ORGS);
-  await page.getByTestId('sync-step-execute').first().waitFor({ timeout: 10_000 });
+  await page.getByTestId(ready).first().waitFor({ timeout: 10_000 });
 }
 
 /** Open the Org Manager's JWT form, with its key file hint and placeholders on screen. */
@@ -6519,6 +6522,82 @@ for (const theme of STATE_THEMES) {
         timestamp: '2026-10-06T09:00:00.000Z',
       });
       await page.getByTestId('sync-simulation-results').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync first step in delta mode, deletions on, with an object a delta run cannot write', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(
+        bridge,
+        page,
+        theme,
+        {
+          currentStep: 0,
+          mode: 'delta',
+          propagateDeletes: true,
+          objectEntries: [
+            {
+              objectApiName: 'Account',
+              operation: 'upsert',
+              externalIdField: 'Legacy_Key__c',
+              batchSize: 200,
+              where: '',
+            },
+            {
+              objectApiName: 'Contact',
+              operation: 'insert',
+              externalIdField: '',
+              batchSize: 200,
+              where: '',
+            },
+          ],
+        },
+        'sync-delta-settings',
+      );
+      await page.getByTestId('sync-delta-blockers').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results of a delta run, with a deletion carried and one refused', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme, { mode: 'delta', propagateDeletes: true });
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'partial',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: ['ENTITY_IS_LOCKED: locked'],
+            delta: {
+              read: 'delta',
+              since: '2026-10-13T09:00:00.000Z',
+              changed: 3,
+              deletionsChecked: true,
+              deleted: 1,
+              deleteFailed: 1,
+            },
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-result-delta-Account').waitFor({ timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

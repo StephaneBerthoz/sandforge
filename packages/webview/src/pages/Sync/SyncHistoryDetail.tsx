@@ -6,6 +6,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate } from '../../utils/formatters';
+import { SyncDeltaLine } from './SyncDeltaLine';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -155,6 +156,11 @@ export const SyncHistoryDetail: React.FC = () => {
                   {t('sync.history.skippedCount')}: {obj.skipped}
                 </span>
               </div>
+              {obj.delta && (
+                <div className="mt-1">
+                  <SyncDeltaLine delta={obj.delta} testId={`history-delta-${obj.objectApiName}`} />
+                </div>
+              )}
               {obj.errors.length > 0 && (
                 <div className="mt-1">
                   {obj.errors.map((err, i) => (

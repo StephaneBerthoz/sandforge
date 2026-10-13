@@ -1233,7 +1233,39 @@
       "runNow": "Exécuter maintenant",
       "runNamed": "Exécuter {{name}} maintenant",
       "ofSaved": "Configuration enregistrée : {{name}}",
-      "gone": "Cette configuration n'est plus enregistrée : rien n'a été exécuté."
+      "gone": "Cette configuration n'est plus enregistrée : rien n'a été exécuté.",
+      "resetDelta": "Tout relire la prochaine fois",
+      "resetDeltaNamed": "Tout relire la prochaine fois pour {{name}}",
+      "resetDone": "La prochaine exécution de {{name}} lit tout."
+    },
+    "delta": {
+      "toggle": "Ne copier que ce qui a changé depuis la dernière exécution réussie (delta)",
+      "toggleHint": "Chaque objet lit les enregistrements que sa source a modifiés depuis sa dernière exécution réussie, en commençant cinq minutes plus tôt pour rattraper les enregistrements validés pendant une lecture. La première exécution, une exécution après un changement de son filtre, de ses champs, de sa clé ou de son mappage, et une exécution après « Tout relire la prochaine fois » lisent tout. Ce qu'une exécution delta lit deux fois, elle l'écrit deux fois : chaque objet doit donc être écrit par upsert sur un External ID, ou par mise à jour. Un repère n'est conservé que pour une configuration enregistrée : enregistrez-la, puis lancez-la d'ici, depuis les configurations enregistrées ou par une planification.",
+      "deletes": "Supprimer dans la cible ce que la source a supprimé",
+      "deletesHint": "Désactivé sauf si coché. Une exécution delta lit la corbeille de la source pour les enregistrements supprimés depuis sa dernière exécution réussie, dans le filtre de l'objet, et supprime le seul enregistrement cible auquel chacun est relié par la clé sur laquelle l'écriture fait correspondre. Un enregistrement cible qu'elle ne peut relier à exactement un enregistrement supprimé, ou dont un enregistrement source porte encore la clé, est conservé. Les enregistrements vidés de la corbeille ne sont pas vus. Production Guard juge l'exécution comme une suppression.",
+      "needsKey": "Une exécution delta exige que chaque objet soit écrit par upsert sur un External ID, ou par mise à jour : {{objects}}.",
+      "withDeletes": "Delta, suppressions reportées",
+      "since": "Delta depuis le {{time}}",
+      "changed_one": "{{count}} modifié",
+      "changed_other": "{{count}} modifiés",
+      "deleted_one": "{{count}} supprimé",
+      "deleted_other": "{{count}} supprimés",
+      "wouldDelete_one": "{{count}} serait supprimé",
+      "wouldDelete_other": "{{count}} seraient supprimés",
+      "deleteFailed_one": "{{count}} suppression refusée par la cible",
+      "deleteFailed_other": "{{count}} suppressions refusées par la cible",
+      "deletionsNotCarried": "Les suppressions n'ont pas été reportées cette fois : les notes ci-dessous disent pourquoi.",
+      "recorded": "La prochaine exécution lit les modifications depuis le {{time}}.",
+      "kept": "Repère conservé : la prochaine exécution relit depuis le même point.",
+      "notRecorded": "Aucun repère enregistré : la prochaine exécution relit tout.",
+      "full": {
+        "first_run": "Lecture complète (première exécution)",
+        "reset": "Lecture complète (tout relire demandé)",
+        "scope_changed": "Lecture complète (filtre, champs, clé ou mappage modifiés)",
+        "unreadable": "Lecture complète (le repère enregistré n'a pas pu être lu)",
+        "no_modstamp": "Lecture complète (la source ne donne pas de SystemModstamp pour cet objet)",
+        "not_saved": "Lecture complète (configuration non enregistrée : aucun repère n'est conservé)"
+      }
     }
   },
   "migration": {

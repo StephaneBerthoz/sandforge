@@ -230,6 +230,42 @@ describe('the read of an object', () => {
     expect(rows).toHaveLength(250);
     expect(conn.query).not.toHaveBeenCalledWith(expect.stringContaining('LIMIT'));
   });
+
+  it("reads a delta from its bound, with the object's filter kept whole, as the panel does", async () => {
+    const conn = {
+      query: vi.fn(async () => ({ records: [], done: true })),
+      queryMore: vi.fn(),
+    };
+    const [account] = buildConfig(
+      parseArgs(argv(...MINIMAL, '--where', "Account=Type = 'A' OR Type = 'B'")),
+    ).objects;
+
+    await buildQueryFn(conn as unknown as Connection)('SRC', account, {
+      changedSince: '2026-10-13T08:55:00Z',
+    });
+
+    expect(conn.query).toHaveBeenCalledWith(
+      "SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'A' OR Type = 'B')",
+    );
+  });
+
+  it('says when a bound stopped the read, so a delta keeps its watermark', async () => {
+    // A cursor that never ends: the read stops at its page bound.
+    const conn = {
+      query: vi.fn(async () => ({ records: [{ Id: 'a' }], done: false, nextRecordsUrl: '/next' })),
+      queryMore: vi.fn(async () => ({
+        records: [{ Id: 'b' }],
+        done: false,
+        nextRecordsUrl: '/next',
+      })),
+    };
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+    const onBoundReached = vi.fn();
+
+    await buildQueryFn(conn as unknown as Connection)('SRC', account, { onBoundReached });
+
+    expect(onBoundReached).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('what a dry run prints', () => {

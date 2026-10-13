@@ -45,6 +45,8 @@ interface SyncDraftState {
   conflictStrategy: ConflictStrategy;
   sourceOrgId: string;
   targetOrgId: string;
+  /** With mode `delta`: carry the source's deletions. Absent from a draft saved before it existed. */
+  propagateDeletes?: boolean;
   objectEntries: ObjectSetEntry[];
   /**
    * Field mappings, per object.
@@ -107,10 +109,20 @@ export interface SyncPageData {
   direction: SyncDirection;
   /** Set sync direction. */
   setDirection: (d: SyncDirection) => void;
-  /** Sync mode setting. */
+  /** Sync mode setting: full, or delta. */
   mode: SyncMode;
-  /** Set sync mode. */
+  /** Set sync mode. Leaving delta turns deletions off with it. */
   setMode: (m: SyncMode) => void;
+  /** Whether a delta run deletes in the target what the source deleted. */
+  propagateDeletes: boolean;
+  /** Turn deletions on or off; only a delta configuration keeps them on. */
+  setPropagateDeletes: (on: boolean) => void;
+  /**
+   * The objects a delta run cannot write, by API name: those written by
+   * insert or delete. The run is refused for them, so the wizard does not go
+   * on while delta is on and one is listed.
+   */
+  deltaBlockers: string[];
   /** Conflict resolution strategy. */
   conflictStrategy: SyncConflictStrategy;
   /** Set conflict strategy. */
@@ -223,15 +235,23 @@ export function draftConflictStrategy(saved: string): {
  * else reopens on.
  *
  * `target_to_source` wrote into the org you meant to read from and is refused
- * by the bridge; the three partial modes only ever replayed a full sync and are
- * refused too. Both options are gone from the page — and the Mode dropdown is
- * gone entirely — so a draft saved while they were offered reopened on a value
- * with no option to change it, and every run from that draft was refused with
- * no way out but clearing the draft. `conflictStrategy` was already sanitised
- * this way; direction and mode were not.
+ * by the bridge; `incremental` and `cdc` only ever replayed a full sync and are
+ * refused too. Both options are gone from the page, so a draft saved while
+ * they were offered reopened on a value with no option to change it, and every
+ * run from that draft was refused with no way out but clearing the draft.
+ * `conflictStrategy` was already sanitised this way; direction and mode were
+ * not. A delta run reads each object from its last good run: see the delta
+ * switch on the first step.
  */
 export const OFFERED_DIRECTIONS: readonly SyncDirection[] = ['source_to_target', 'bidirectional'];
-export const OFFERED_MODES: readonly SyncMode[] = ['full'];
+export const OFFERED_MODES: readonly SyncMode[] = ['full', 'delta'];
+
+/**
+ * The operations a delta run writes with: the ones that find their record, so
+ * what the overlap reads twice is written twice without a second copy. The
+ * bridge refuses a delta configuration holding any other.
+ */
+const DELTA_OPERATIONS: ReadonlySet<SyncOperation> = new Set<SyncOperation>(['upsert', 'update']);
 
 /** One shared empty list: a fresh `[]` per render would retrigger every memo. */
 const EMPTY_MAPPINGS: FieldMapping[] = [];
@@ -320,8 +340,22 @@ export function useSyncPageData(): SyncPageData {
   const [direction, setDirection] = useState<SyncDirection>(
     offeredOr(OFFERED_DIRECTIONS, initialDraft.current.direction, 'source_to_target'),
   );
-  const [mode, setMode] = useState<SyncMode>(
+  const [mode, setModeValue] = useState<SyncMode>(
     offeredOr(OFFERED_MODES, initialDraft.current.mode, 'full'),
+  );
+  const [propagateDeletes, setPropagateDeletesValue] = useState<boolean>(
+    initialDraft.current.propagateDeletes === true && initialDraft.current.mode === 'delta',
+  );
+  // Deletions are carried by a delta run only: the bridge refuses them on a
+  // full one, so leaving delta turns them off rather than leaving a switch on
+  // that no run would honour.
+  const setMode = useCallback((m: SyncMode) => {
+    setModeValue(m);
+    if (m !== 'delta') setPropagateDeletesValue(false);
+  }, []);
+  const setPropagateDeletes = useCallback(
+    (on: boolean) => setPropagateDeletesValue(on && mode === 'delta'),
+    [mode],
   );
   const [savedStrategy] = useState(() =>
     draftConflictStrategy(initialDraft.current.conflictStrategy),
@@ -373,6 +407,7 @@ export function useSyncPageData(): SyncPageData {
       currentStep,
       direction,
       mode,
+      propagateDeletes,
       conflictStrategy,
       sourceOrgId,
       targetOrgId,
@@ -384,6 +419,7 @@ export function useSyncPageData(): SyncPageData {
     currentStep,
     direction,
     mode,
+    propagateDeletes,
     conflictStrategy,
     sourceOrgId,
     targetOrgId,
@@ -453,6 +489,7 @@ export function useSyncPageData(): SyncPageData {
     targetOrgId,
     direction,
     mode,
+    propagateDeletes,
     conflictStrategy,
     objectEntries,
     mappings,
@@ -490,6 +527,8 @@ export function useSyncPageData(): SyncPageData {
     sourceOrgId,
     targetOrgId,
     direction,
+    mode,
+    propagateDeletes,
     conflictStrategy,
     objectEntries,
     mappingsByObject,
@@ -686,7 +725,7 @@ export function useSyncPageData(): SyncPageData {
       setMappingsByObject({});
       setTransforms([]);
     },
-    [setConflictStrategy],
+    [setConflictStrategy, setMode],
   );
 
   /** The wizard's state as the one config shape both the run and the store take. */
@@ -698,6 +737,8 @@ export function useSyncPageData(): SyncPageData {
     targetOrgId,
     direction,
     mode,
+    // Sent only when on: a full configuration never carries it.
+    ...(mode === 'delta' && propagateDeletes ? { propagateDeletes: true } : {}),
     objects: objectEntries.map((entry, index): SyncObjectConfig => ({
       objectApiName: entry.objectApiName,
       operation: entry.operation,
@@ -717,11 +758,35 @@ export function useSyncPageData(): SyncPageData {
     updatedAt: new Date().toISOString(),
   });
 
+  /**
+   * The id the configuration on screen is saved under, while it is the one
+   * the host last confirmed saving; null otherwise. A run of it is then a run
+   * of that saved configuration: a delta run keeps its watermarks under that
+   * id, and a run under a fresh id would read everything every time.
+   */
+  const savedIdOnScreen =
+    saveConfigMutation.data?.success === true &&
+    lastSaved !== null &&
+    saveConfigMutation.data.id === lastSaved.id &&
+    lastSaved.fingerprint === configFingerprint
+      ? lastSaved.id
+      : null;
+
+  /** The objects a delta run would be refused for: see {@link DELTA_OPERATIONS}. */
+  const deltaBlockers =
+    mode === 'delta'
+      ? objectEntries.filter((e) => !DELTA_OPERATIONS.has(e.operation)).map((e) => e.objectApiName)
+      : [];
+
   const handleExecute = () => {
     if (!sourceOrgId || !targetOrgId || busy) return;
     setError(null);
 
-    const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
+    const config = buildConfig(
+      savedIdOnScreen ?? crypto.randomUUID(),
+      'sync-from-ui',
+      'Sync from SandForge UI',
+    );
 
     // One outcome on the results step at a time: a simulation's findings are
     // not left standing under a run that has started writing.
@@ -779,7 +844,13 @@ export function useSyncPageData(): SyncPageData {
     if (!sourceOrgId || !targetOrgId || busy) return;
     setError(null);
 
-    const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
+    // Under the saved id too: a simulation of a delta configuration reads
+    // from the watermarks its run would read from.
+    const config = buildConfig(
+      savedIdOnScreen ?? crypto.randomUUID(),
+      'sync-from-ui',
+      'Sync from SandForge UI',
+    );
 
     executeMutation.reset();
     setSavedRunLabel(null);
@@ -808,7 +879,11 @@ export function useSyncPageData(): SyncPageData {
     switch (currentStep) {
       case 0:
         return (
-          !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId && objectEntries.length > 0
+          !!sourceOrgId &&
+          !!targetOrgId &&
+          sourceOrgId !== targetOrgId &&
+          objectEntries.length > 0 &&
+          deltaBlockers.length === 0
         );
       case 4:
         // The results step shows what a run or a simulation came to; there is
@@ -845,6 +920,9 @@ export function useSyncPageData(): SyncPageData {
     setDirection,
     mode,
     setMode,
+    propagateDeletes,
+    setPropagateDeletes,
+    deltaBlockers,
     conflictStrategy,
     setConflictStrategy,
     strategyNotice,
@@ -873,11 +951,7 @@ export function useSyncPageData(): SyncPageData {
     savedRunLabel,
     savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
-    configSaved:
-      saveConfigMutation.data?.success === true &&
-      lastSaved !== null &&
-      saveConfigMutation.data.id === lastSaved.id &&
-      lastSaved.fingerprint === configFingerprint,
+    configSaved: savedIdOnScreen !== null,
     handleApplyTemplate,
     canGoNext,
     isFinished,

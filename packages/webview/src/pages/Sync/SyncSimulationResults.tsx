@@ -4,6 +4,7 @@ import type { SyncObjectSimulation, SyncSimulationResult } from '@sandforge/shar
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { SyncDeltaLine } from './SyncDeltaLine';
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
@@ -39,7 +40,10 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
   const { t } = useTranslation();
   const totals = totalsOf(simulation.objects);
   const bidirectional = simulation.direction === 'bidirectional';
-  const deletes = simulation.objects.some((o) => o.operation === 'delete');
+  // A delta run carrying the source's deletions deletes too.
+  const deletes = simulation.objects.some(
+    (o) => o.operation === 'delete' || o.delta?.deletionsChecked === true,
+  );
   const strategy = t(`sync.conflicts.${simulation.conflictStrategy}`);
 
   return (
@@ -96,6 +100,15 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
             })}`}
           />
           <CardBody>
+            {o.delta && (
+              <div className="mb-2">
+                <SyncDeltaLine
+                  delta={o.delta}
+                  simulated
+                  testId={`sync-simulation-delta-${o.objectApiName}`}
+                />
+              </div>
+            )}
             <ul className="flex gap-x-4 gap-y-1 flex-wrap text-xs text-text-primary">
               {o.operation !== 'delete' && (
                 <li>
@@ -107,7 +120,7 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                   {t('sync.simulation.update')}: <strong>{o.update}</strong>
                 </li>
               )}
-              {o.operation === 'delete' && (
+              {(o.operation === 'delete' || o.delta?.deletionsChecked === true) && (
                 <li>
                   {t('sync.simulation.delete')}: <strong>{o.delete}</strong>
                 </li>

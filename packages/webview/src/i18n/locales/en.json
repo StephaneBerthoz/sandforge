@@ -1233,7 +1233,39 @@
       "runNow": "Run now",
       "runNamed": "Run {{name}} now",
       "ofSaved": "Saved configuration: {{name}}",
-      "gone": "This configuration is no longer saved: nothing was run."
+      "gone": "This configuration is no longer saved: nothing was run.",
+      "resetDelta": "Run full next time",
+      "resetDeltaNamed": "Run {{name}} in full next time",
+      "resetDone": "The next run of {{name}} reads everything."
+    },
+    "delta": {
+      "toggle": "Copy only what changed since the last good run (delta)",
+      "toggleHint": "Each object reads the records its source changed since its last successful run, starting five minutes earlier to catch saves that landed during a read. The first run, a run after its filter, fields, key or mapping changed, and a run after \"Run full next time\" read everything. What a delta run reads twice it writes twice, so every object must be written by upsert on an External ID, or by update. A watermark is kept for a saved configuration only: save it, then run it from here, from the saved configurations or on a schedule.",
+      "deletes": "Delete in the target what the source deleted",
+      "deletesHint": "Off unless ticked. A delta run reads the source's recycle bin for the records deleted since its last good run, within the object's filter, and deletes the one target record each is tied to by the key the write matches on. A target record it cannot tie to exactly one deleted record, or whose key a source record still holds, is kept. Records emptied from the recycle bin are not seen. Production Guard judges the run as a delete.",
+      "needsKey": "A delta run needs every object written by upsert on an External ID, or by update: {{objects}}.",
+      "withDeletes": "Delta, deletions carried",
+      "since": "Delta since {{time}}",
+      "changed_one": "{{count}} changed",
+      "changed_other": "{{count}} changed",
+      "deleted_one": "{{count}} deleted",
+      "deleted_other": "{{count}} deleted",
+      "wouldDelete_one": "{{count}} would be deleted",
+      "wouldDelete_other": "{{count}} would be deleted",
+      "deleteFailed_one": "{{count}} deletion refused by the target",
+      "deleteFailed_other": "{{count}} deletions refused by the target",
+      "deletionsNotCarried": "Deletions were not carried this time: the notes below say why.",
+      "recorded": "The next run reads the changes since {{time}}.",
+      "kept": "Watermark kept: the next run reads from the same point.",
+      "notRecorded": "No watermark recorded: the next run reads everything again.",
+      "full": {
+        "first_run": "Full read (first run)",
+        "reset": "Full read (asked to run in full)",
+        "scope_changed": "Full read (filter, fields, key or mapping changed)",
+        "unreadable": "Full read (the stored watermark could not be read)",
+        "no_modstamp": "Full read (the source gives no SystemModstamp for this object)",
+        "not_saved": "Full read (not a saved configuration: no watermark is kept)"
+      }
     }
   },
   "migration": {
