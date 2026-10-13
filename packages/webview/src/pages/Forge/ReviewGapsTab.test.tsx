@@ -225,6 +225,92 @@ describe('ReviewGapsTab', () => {
       expect(within(item(rule)).queryByTestId('bypass-assistant-command')).toBeNull();
     });
 
+    describe('reading the target again', () => {
+      // The tab showed what Review read as it opened: a bypass assigned with
+      // the command it copied showed as not held until Review opened again.
+      const RULE: ForgeGap = {
+        id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        field: 'Email',
+        value: 'Email_Required',
+        rows: 0,
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Bypass_VR'],
+          assign: ['Bypass_VR=Bypass'],
+        },
+        decisions: ['leave_empty', 'ignore'],
+      };
+      const TARGET = { alias: 'TGT', username: 'loader@example.com' };
+
+      it('offers it under the command that assigns the bypass, and asks for it', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        const onReadAgain = vi.fn();
+        render(<ReviewGapsTab target={TARGET} onReadAgain={onReadAgain} />);
+
+        const assistant = within(item(RULE)).getByTestId('bypass-assistant');
+        expect(assistant.textContent).toContain(
+          'Once the command has run, read the target org again: the bypass then shows as held.',
+        );
+        const readAgain = within(assistant).getByTestId('bypass-assistant-read-again');
+        expect(readAgain.textContent).toBe('Read the target org again');
+        fireEvent.click(readAgain);
+
+        expect(onReadAgain).toHaveBeenCalledTimes(1);
+      });
+
+      it('says it is reading while the read is on its way, keeps the gap shown, and asks nothing more meanwhile', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        const onReadAgain = vi.fn();
+        render(<ReviewGapsTab target={TARGET} onReadAgain={onReadAgain} readingAgain />);
+
+        const readAgain = within(item(RULE)).getByTestId('bypass-assistant-read-again');
+        expect(readAgain.textContent).toBe('Reading again…');
+        expect(readAgain.getAttribute('aria-busy')).toBe('true');
+        fireEvent.click(readAgain);
+        expect(onReadAgain).not.toHaveBeenCalled();
+        expect(within(item(RULE)).getByTestId('bypass-assistant-command')).toBeTruthy();
+      });
+
+      it('shows the rule kept quiet once the read finds the bypass held', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        render(<ReviewGapsTab target={TARGET} onReadAgain={vi.fn()} />);
+
+        // What the read answers once the permission set is assigned.
+        act(() =>
+          useForgeStore.getState().setGaps('metadata', [
+            {
+              ...RULE,
+              severity: 'info',
+              detail: {
+                rule: 'Email_Required',
+                bypasses: ['$Permission.Bypass_VR'],
+                heldBypasses: ['Bypass_VR'],
+              },
+            },
+          ]),
+        );
+
+        expect(within(item(RULE)).queryByTestId('bypass-assistant')).toBeNull();
+        expect(
+          within(screen.getByTestId('gaps-severity-info')).getByTestId(`gap-${RULE.id}`),
+        ).toBeTruthy();
+        expect(
+          within(screen.getByTestId('gaps-severity-warning')).queryByTestId(`gap-${RULE.id}`),
+        ).toBeNull();
+      });
+
+      it('offers nothing when nobody can ask for the read', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        render(<ReviewGapsTab target={TARGET} />);
+
+        expect(screen.queryByTestId('bypass-assistant-read-again')).toBeNull();
+      });
+    });
+
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
       render(<ReviewGapsTab />);
       fireEvent.change(within(item(REFUSED)).getByTestId('gap-map-value'), {

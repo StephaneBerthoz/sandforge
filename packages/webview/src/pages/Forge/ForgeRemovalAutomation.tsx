@@ -1,4 +1,4 @@
-import React, { useEffect, useId } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ForgeFiredOnWrite,
@@ -13,7 +13,7 @@ import {
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
-import { BypassAssistant } from './BypassAssistant';
+import { BypassAssistant, ReadAgainButton } from './BypassAssistant';
 
 /** How long the read may take: the read before a run gives up after 60 seconds. */
 const READ_TIMEOUT_MS = 90_000;
@@ -74,6 +74,11 @@ export interface ForgeRemovalAutomationProps {
  * A removal deletes, and the target's automation runs on each delete as it
  * runs on each insert: the removal's confirmation named the records it takes
  * and nothing of what they would set off.
+ *
+ * The target is read again when the user asks, as Review's Automation tab
+ * reads it: the confirmation showed what it read as it opened, and a bypass
+ * assigned with the command it copied showed as not held until it was opened
+ * again. The read shown stays until the answer lands.
  */
 export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   forgeId,
@@ -89,27 +94,47 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
     timeoutMs: READ_TIMEOUT_MS,
   });
   const { mutate, reset } = read;
+  // A new request clears the answer it waits on: the last one is kept, and
+  // shown while the read asked for again is on its way — never once the
+  // confirmation closed or turned to another run.
+  const [lastRead, setLastRead] = useState<RemovalAutomationAnswer | null>(null);
   useEffect(() => {
+    setLastRead(null);
     if (forgeId) mutate({ forgeId });
     else reset();
   }, [forgeId, mutate, reset]);
+  useEffect(() => {
+    if (read.data) setLastRead(read.data);
+  }, [read.data]);
+  const answer = read.data ?? lastRead;
+  const readAgain = useCallback(() => {
+    if (forgeId) mutate({ forgeId });
+  }, [forgeId, mutate]);
 
   if (!forgeId) return null;
   let body: React.ReactNode;
   if (read.error) {
     body = (
-      <p data-testid="forge-removal-automation-error" className="text-status-warning">
-        {t('forge.history.removalAutomation.error', { org, reason: read.error })}
-      </p>
+      <div className="flex flex-col items-start gap-1">
+        <p data-testid="forge-removal-automation-error" className="text-status-warning">
+          {t('forge.history.removalAutomation.error', { org, reason: read.error })}
+        </p>
+        <ReadAgainButton
+          label={t('forge.review.automation.readAgain')}
+          onReadAgain={readAgain}
+          reading={read.loading}
+          testId="forge-removal-automation-read-again"
+        />
+      </div>
     );
-  } else if (!read.data || read.data.forgeId !== forgeId) {
+  } else if (!answer || answer.forgeId !== forgeId) {
     body = (
       <p data-testid="forge-removal-automation-loading" className="text-text-secondary">
         {t('forge.history.removalAutomation.loading', { org })}
       </p>
     );
   } else {
-    const { automation, drafted } = read.data;
+    const { automation, drafted } = answer;
     const fired = firedOnRemovalOf(automation, drafted);
     const unread = automation.unread.filter((u) => UNREAD_KEYS[u.part] !== undefined);
     const held = heldBypassPermissionsOf(automation);
@@ -167,6 +192,8 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
               {...(target?.alias && target.username
                 ? { target: { alias: target.alias, username: target.username } }
                 : {})}
+              onReadAgain={readAgain}
+              readingAgain={read.loading}
             />
           </div>
         )}

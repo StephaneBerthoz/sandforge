@@ -1735,6 +1735,22 @@ export class FrozenDatasetHandler implements DomainHandler {
     return last?.targetOrgId === orgId ? last : undefined;
   }
 
+  /**
+   * The last load into each org, as {@link lastRunOf} finds it: the page
+   * offers to verify only an org one went into, the verification's own
+   * refusal standing behind it.
+   */
+  private lastLoadInfos(): FrozenStatusInfo['lastLoads'] {
+    const byOrg = { ...this.lastRuns() };
+    const last = this.deps.configStore.get<FrozenLastRun>(LAST_RUN_KEY);
+    if (last && byOrg[last.targetOrgId] === undefined) byOrg[last.targetOrgId] = last;
+    return Object.values(byOrg).map((run) => ({
+      status: run.status,
+      orgId: run.targetOrgId,
+      at: run.at,
+    }));
+  }
+
   // ── frozen:load:preview ────────────────────────────────────────────────
 
   /**
@@ -2025,7 +2041,8 @@ export class FrozenDatasetHandler implements DomainHandler {
    * target is asked whether it is still the org the load wrote to, and Forge's
    * removal runs: children before their parents, what records staying in the
    * org depend on kept, what changed since the load kept unless included. It
-   * runs on the registry and in Live Operations, where Cancel stops it before
+   * runs on the registry and in Live Operations, under the id of the request,
+   * where Cancel — Live Operations' or the removal card's — stops it before
    * its next call to the org. The audit trail records it whatever the outcome;
    * the mapping forgets the records that went, keeps what the removal left on
    * the others for the next one, and is marked once records went, so the
@@ -2164,7 +2181,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       module: 'frozen',
     });
     if (decision === 'refused' || decision === 'declined') {
-      // No removal started, so no operation id was minted: the request's stands in.
+      // No removal started: recorded under the id of the request, which a removal runs under.
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'frozen',
@@ -2229,7 +2246,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       return;
     }
 
-    const operationId = `frozen-remove-${this.deps.nextId()}`;
+    // The id of the request that started it, as a load runs under its own:
+    // the removal card knows it, and its Cancel reaches the registry's
+    // controller below as Live Operations' does. Minted here, it was an id
+    // the card never saw, and only Live Operations could stop the removal.
+    const operationId = msg.id;
     const description = `Removing ${total} record(s) a Frozen load created`;
     const abortController = new AbortController();
     let settle: (err?: unknown) => void = () => {};
@@ -2442,6 +2463,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       lastLoad: lastRun
         ? { status: lastRun.status, orgId: lastRun.targetOrgId, at: lastRun.at }
         : null,
+      lastLoads: this.lastLoadInfos(),
       lastVerifies: this.lastVerifyInfos(),
       ...(loadRecords.length > 0 ? { loadRecords } : {}),
     };

@@ -70,22 +70,55 @@ export const BypassAssistant: React.FC<BypassAssistantProps> = ({
           <p className="text-text-secondary">
             {t('forge.review.automation.assistant.readAgainHint')}
           </p>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RefreshCw size={12} aria-hidden="true" />}
-            loading={readingAgain}
-            focusableWhenDisabled
-            onClick={onReadAgain}
-            data-testid="bypass-assistant-read-again"
-          >
-            {readingAgain
-              ? t('forge.review.automation.readingAgain')
-              : t('forge.review.automation.assistant.readAgain')}
-          </Button>
+          <ReadAgainButton
+            label={t('forge.review.automation.assistant.readAgain')}
+            onReadAgain={onReadAgain}
+            reading={readingAgain}
+            testId="bypass-assistant-read-again"
+          />
         </div>
       )}
     </div>
+  );
+};
+
+/** Props for {@link ReadAgainButton}. */
+export interface ReadAgainButtonProps {
+  /** What the button says while no read is on its way. */
+  label: string;
+  onReadAgain: () => void;
+  /** The read asked for is on its way: the button says so, and asks nothing more meanwhile. */
+  reading: boolean;
+  testId: string;
+  className?: string;
+}
+
+/**
+ * The button that reads the target again, wherever what was read of it is
+ * shown — the bypass assistant, Review's Automation tab, the removal's
+ * confirmation — so that each says the same while the read is on its way.
+ */
+export const ReadAgainButton: React.FC<ReadAgainButtonProps> = ({
+  label,
+  onReadAgain,
+  reading,
+  testId,
+  className,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      icon={<RefreshCw size={12} aria-hidden="true" />}
+      loading={reading}
+      focusableWhenDisabled
+      onClick={onReadAgain}
+      data-testid={testId}
+      {...(className ? { className } : {})}
+    >
+      {reading ? t('forge.review.automation.readingAgain') : label}
+    </Button>
   );
 };
 

@@ -192,6 +192,10 @@ interface GapItemProps {
   decide: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
   /** The target org and the user the run writes as, whom a bypass's command names. */
   target?: BypassTarget;
+  /** Read the target's gaps again, once a bypass's command has run. */
+  onReadAgain?: () => void;
+  /** The read asked for with {@link onReadAgain} is on its way. */
+  readingAgain: boolean;
 }
 
 /**
@@ -199,7 +203,14 @@ interface GapItemProps {
  * rule quiet for the user the run writes as, then the decisions it offers,
  * or the one taken and the way to take it back.
  */
-const GapItem: React.FC<GapItemProps> = ({ gap, config, decide, target }) => {
+const GapItem: React.FC<GapItemProps> = ({
+  gap,
+  config,
+  decide,
+  target,
+  onReadAgain,
+  readingAgain,
+}) => {
   const { t } = useTranslation();
   const id = useId();
   const kept = decisionOf(config, gap);
@@ -270,8 +281,14 @@ const GapItem: React.FC<GapItemProps> = ({ gap, config, decide, target }) => {
       {/* A rule a custom permission keeps quiet: the permission set that
           would give it to the user the run writes as, and the command,
           shown and never run. Named without what held it, the bypass was
-          left for the user to look up in Setup. */}
-      <BypassAssistant assignments={assignments} {...(target ? { target } : {})} />
+          left for the user to look up in Setup. Read again once the command
+          has run, the rule shows as kept quiet: the tab showed what Review
+          read as it opened until Review was opened again. */}
+      <BypassAssistant
+        assignments={assignments}
+        {...(target ? { target } : {})}
+        {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
+      />
       <p data-testid="gap-source" className="text-text-secondary">
         {t(`forge.gaps.source.${gap.source}`)}
       </p>
@@ -517,8 +534,15 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
  * @param target - The target org and the user the run writes as, whom the
  *   command that assigns a validation rule's bypass names; without them the
  *   permission set is named and no command is shown.
+ * @param onReadAgain - Read the target's gaps again, as it stands now: the
+ *   gaps read stay shown until the answer lands. Without it, nothing offers to.
+ * @param readingAgain - A read of the gaps is on its way.
  */
-export const ReviewGapsTab: React.FC<{ target?: BypassTarget }> = ({ target }) => {
+export const ReviewGapsTab: React.FC<{
+  target?: BypassTarget;
+  onReadAgain?: () => void;
+  readingAgain?: boolean;
+}> = ({ target, onReadAgain, readingAgain = false }) => {
   const { t, i18n } = useTranslation();
   const gaps = useForgeStore((s) => s.gaps);
   const gapReads = useForgeStore((s) => s.gapReads);
@@ -629,6 +653,8 @@ export const ReviewGapsTab: React.FC<{ target?: BypassTarget }> = ({ target }) =
                         config={config}
                         decide={decide}
                         {...(target ? { target } : {})}
+                        {...(onReadAgain ? { onReadAgain } : {})}
+                        readingAgain={readingAgain}
                       />
                     ))}
                 </ul>

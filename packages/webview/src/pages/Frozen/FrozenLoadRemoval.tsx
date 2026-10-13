@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Trash2 } from 'lucide-react';
+import { Square, Trash2 } from 'lucide-react';
 import type { FrozenLoadRecordsInfo, FrozenRemovalResult } from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -14,6 +14,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
+import { useFrozenCancel } from './useFrozenBridge';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -55,7 +56,9 @@ export interface FrozenLoadRemovalProps {
  * that left some of them in the org — kept, or refused — says so on the card,
  * which then offers to remove what is left. Once the last load's records all
  * went, the card offers the load before it whose records the loads after it
- * left in the org, and says so.
+ * left in the org, and says so. A removal under way can be cancelled from the
+ * card, as from Live Operations: it stops between two calls to the org, and
+ * what it did not reach is offered for the next removal.
  */
 export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
@@ -70,6 +73,14 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     responseType: 'frozen:remove:response',
     errorType: 'frozen:remove:error',
     timeoutMs: REMOVAL_TIMEOUT_MS,
+  });
+  // The removal runs under the id of the request that started it, as a load
+  // does: Cancel stops it between two calls to the org, never in one, and its
+  // answer says what went and what stays, which a removal later takes. Only
+  // Live Operations could stop it, while the card said it was removing.
+  const { requested: cancelRequested, cancel: cancelRemoval } = useFrozenCancel(removal.requestId, {
+    title: t('frozen.removal.cancelRefused'),
+    message: t('frozen.removal.cancelRefusedDetail'),
   });
 
   // Once per answer, whatever the caller hands in: a callback made anew on
@@ -175,9 +186,29 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           )}
           {action}
           {removal.loading && (
-            <p role="status" className="text-[11px] text-text-secondary">
-              {t('frozen.removal.removing')}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p
+                role="status"
+                className="text-[11px] text-text-secondary"
+                data-testid="frozen-removal-removing"
+              >
+                {cancelRequested ? t('frozen.removal.stopping') : t('frozen.removal.removing')}
+              </p>
+              {removal.requestId && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={<Square size={11} />}
+                  disabled={cancelRequested}
+                  focusableWhenDisabled
+                  onClick={cancelRemoval}
+                  data-testid="frozen-removal-cancel"
+                  className="text-[11px]"
+                >
+                  {t('frozen.removal.cancel')}
+                </Button>
+              )}
+            </div>
           )}
           {removal.error && (
             <ErrorBanner message={removal.error} data-testid="frozen-removal-error" />

@@ -3801,6 +3801,7 @@
     },
     "verify": {
       "run": "Verificar novamente",
+      "noLoad": "Nenhuma carga em {{org}} está registrada: carregue nela o dataset antes de verificá-la.",
       "title": "Verificação pós-carga",
       "attempts_one": "{{count}} medição",
       "attempts_other": "{{count}} medições",
@@ -3869,6 +3870,10 @@
       "removeDescription": "Exclui de {{org}} os registros que esta carga criou, os filhos antes dos pais; eles vão para a lixeira dela. Após uma recarga, eles incluem os registros que cargas anteriores criaram e que a recarga reencontrou e manteve como seus. Os registros aos quais a carga se vinculou ou que reutilizou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde a carga, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
       "includeChanged": "Remover também os registros alterados desde a carga, e o que foi adicionado a eles desde então",
       "removing": "Removendo os registros que esta carga criou…",
+      "cancel": "Parar a remoção",
+      "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até lá aparece na lista; o resto fica na org, e uma remoção posterior o retoma.",
+      "cancelRefused": "Não foi possível parar a remoção",
+      "cancelRefusedDetail": "A remoção ainda não estava excluindo, ou já tinha terminado. Enquanto estiver em andamento, ela pode ser parada novamente.",
       "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui. Uma recarga os expurga, exceto os que a carga pode ter vinculado.",
       "orgGone": "A org em que esta carga gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "nothingCreated": "Esta carga não criou nenhum registro: não há nada a remover.",

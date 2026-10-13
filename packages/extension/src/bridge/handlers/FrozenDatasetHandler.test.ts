@@ -909,6 +909,47 @@ describe('FrozenDatasetHandler', () => {
         ]);
       });
 
+      it('tells the page which orgs a load went into, the verification refusing the others', async () => {
+        // Told the last load alone, the page offered Verify for an org no
+        // load went into, and the click ended in NO_LOAD.
+        const { config, sasDir } = writeDataset();
+        const store = wire(config);
+        // The last load into the first org, recorded when the pointers were
+        // kept for the last load alone.
+        store.set(
+          'frozen:lastRun',
+          {
+            contractPath: path.join(sasDir, 'counting-contract.org-a.json'),
+            datasetDir: path.join(sasDir, 'dataset'),
+            manifestPath: path.join(sasDir, 'dataset', 'manifest.json'),
+            targetOrgId: 'org-a',
+            status: 'completed',
+            at: STARTED_A,
+          },
+          'frozen',
+        );
+        loadWritesInto(sasDir, 'org-b', STARTED_B, '001000000000009AAA');
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-b' }));
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(buildMsg('frozen:status'));
+
+        const [response] = posted(deps, 'frozen:status:response');
+        const status = response.payload.status as FrozenStatusInfo;
+        expect(status.lastLoads.map((load) => load.orgId).sort()).toEqual(['org-a', 'org-b']);
+        expect(status.lastLoads.find((load) => load.orgId === 'org-a')).toEqual({
+          status: 'completed',
+          orgId: 'org-a',
+          at: STARTED_A,
+        });
+        expect(status.lastLoad?.orgId).toBe('org-b');
+
+        await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-c' }));
+        expect(posted(deps, 'frozen:verify:error').map((error) => error.payload.code)).toEqual([
+          'NO_LOAD',
+        ]);
+      });
+
       describe('the last verification of each', () => {
         // Kept as one verdict whichever org was verified, the status strip
         // showed the second org's verdict with the first selected as target.
@@ -2092,6 +2133,7 @@ describe('FrozenDatasetHandler', () => {
       expect(status.selection).toBeNull();
       expect(status.manifest).toBeNull();
       expect(status.lastLoad).toBeNull();
+      expect(status.lastLoads).toEqual([]);
       expect(status.lastVerifies).toEqual([]);
     });
 

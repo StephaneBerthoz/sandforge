@@ -25,6 +25,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 
 const DEV = {
   id: 'org-dev',
@@ -91,6 +92,25 @@ function sent(type: string): (BaseMessage & { payload: Record<string, unknown> }
 function answerRemoval(type: string, payload: unknown): void {
   const request = sent('frozen:remove');
   if (!request) throw new Error("no 'frozen:remove' was sent");
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: `resp-${type}`,
+          type,
+          timestamp: Date.now(),
+          correlationId: request.id,
+          payload,
+        },
+      }),
+    );
+  });
+}
+
+/** Answer the last `requestType` the card sent, correlated to it as the extension does. */
+function answer(requestType: string, type: string, payload: unknown): void {
+  const request = sent(requestType);
+  if (!request) throw new Error(`no '${requestType}' was sent`);
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -423,5 +443,129 @@ describe('FrozenLoadRemoval', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} busy />);
 
     expect((screen.getByTestId('frozen-removal-remove') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  describe('cancelling the removal under way', () => {
+    // Only Live Operations could stop a removal: the card said it was
+    // removing, and offered nothing to stop it.
+
+    /** A removal stopped after the contacts went: the account was not reached. */
+    const CANCELLED: FrozenRemovalResult = {
+      status: 'cancelled',
+      includeChanged: false,
+      finishedAt: '2026-09-24T11:00:00.000Z',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          planned: 2,
+          deleted: 2,
+          alreadyGone: 0,
+          keptChanged: 0,
+          keptDependents: 0,
+          refused: 0,
+          heldBy: [],
+          unchecked: [],
+          reasons: [],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      useNotificationStore.setState({ notifications: [] });
+    });
+
+    it('offers no cancel while no removal runs', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+
+      expect(screen.queryByTestId('frozen-removal-cancel')).toBeNull();
+    });
+
+    it('sends execution:abort with the id of the removal, says it is stopping, and is not offered twice', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+      const removalId = sent('frozen:remove')?.id;
+
+      const cancel = screen.getByTestId('frozen-removal-cancel');
+      expect(cancel.textContent).toBe('Stop the removal');
+      fireEvent.click(cancel);
+
+      expect(sent('execution:abort')?.payload).toEqual({ operationId: removalId });
+      expect(screen.getByTestId('frozen-removal-cancel').getAttribute('aria-disabled')).toBe(
+        'true',
+      );
+      expect(screen.getByTestId('frozen-removal-removing').textContent).toBe(
+        'Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.',
+      );
+      fireEvent.click(screen.getByTestId('frozen-removal-cancel'));
+      const aborts = mockPostMessage.mock.calls.filter(
+        (call) => (call[0] as { payload: BaseMessage }).payload.type === 'execution:abort',
+      );
+      expect(aborts).toHaveLength(1);
+    });
+
+    it('says what went and what stays once the removal stopped, and reads the status again', () => {
+      const onAnswered = vi.fn();
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={onAnswered} />);
+      confirmRemoval();
+      fireEvent.click(screen.getByTestId('frozen-removal-cancel'));
+      answer('execution:abort', 'execution:abort:response', { success: true });
+
+      answer('frozen:remove', 'frozen:remove:response', {
+        result: CANCELLED,
+        operationId: sent('frozen:remove')?.id,
+      });
+
+      const result = screen.getByTestId('forge-removal-result');
+      expect(within(result).getByRole('heading').textContent).toBe(
+        'Stopped before the end: what was done by then is listed, and the rest is still in DEV-SANDBOX.',
+      );
+      expect(screen.getByTestId('forge-removal-result-Contact').textContent).toBe(
+        'Contact: 2 deleted',
+      );
+      expect(screen.queryByTestId('frozen-removal-cancel')).toBeNull();
+      expect(onAnswered).toHaveBeenCalledTimes(1);
+    });
+
+    it('says so when the extension refuses the cancel, and offers it again', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+      fireEvent.click(screen.getByTestId('frozen-removal-cancel'));
+
+      answer('execution:abort', 'execution:abort:response', {
+        success: false,
+        error: 'Operation not found',
+      });
+
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({
+          level: 'warning',
+          title: 'Could not stop the removal',
+          message:
+            'The removal was not deleting yet, or it had ended. While it runs, it can be stopped again.',
+        }),
+      ]);
+      expect(screen.getByTestId('frozen-removal-cancel').getAttribute('aria-disabled')).toBeNull();
+      expect(screen.getByTestId('frozen-removal-removing').textContent).toBe(
+        'Removing the records this load created…',
+      );
+    });
+
+    it('says it in the language the panel is set to', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+        confirmRemoval();
+        expect(screen.getByTestId('frozen-removal-cancel').textContent).toBe(
+          fr.frozen.removal.cancel,
+        );
+        fireEvent.click(screen.getByTestId('frozen-removal-cancel'));
+        expect(screen.getByTestId('frozen-removal-removing').textContent).toBe(
+          fr.frozen.removal.stopping,
+        );
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
   });
 });

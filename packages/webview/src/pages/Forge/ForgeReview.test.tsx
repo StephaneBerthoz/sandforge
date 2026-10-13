@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { ForgeReview } from './ForgeReview';
@@ -11,8 +11,10 @@ import type {
   ForgeDefaultValue,
   ForgeGap,
   ForgeGapSource,
+  SalesforceOrg,
 } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
+import { useOrgStore } from '../../stores/useOrgStore';
 
 /* ---- Mocks ---- */
 
@@ -110,6 +112,7 @@ vi.mock('../../stores/useForgeStore', () => {
     get gaps() {
       return mockGaps;
     },
+    gapReads: {},
     get anonymizationRules() {
       return mockAnonymizationRules;
     },
@@ -622,6 +625,131 @@ describe('ForgeReview', () => {
       expect(screen.getByTestId('forge-gaps-read-found').textContent).toBe(
         "0 gaps read from the target org's metadata. Read in 5 requests to the target org.",
       );
+    });
+
+    describe('read again from the Gaps tab', () => {
+      // The tab showed what Review read as it opened: a validation rule's
+      // bypass, assigned with the command the tab copied, showed as not held
+      // until Review was opened again.
+      const RULE: ForgeGap = {
+        id: 'validation_rule|Contact|Email||Email_Required',
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        field: 'Email',
+        value: 'Email_Required',
+        rows: 0,
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Bypass_VR'],
+          assign: ['Bypass_VR=Bypass'],
+        },
+        decisions: ['leave_empty', 'ignore'],
+      };
+      const HELD: ForgeGap = {
+        ...RULE,
+        severity: 'info',
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Bypass_VR'],
+          heldBypasses: ['Bypass_VR'],
+        },
+      };
+
+      /** Answer the gaps request sent under `correlationId`. */
+      function answerGaps(correlationId: string, gaps: ForgeGap[]): void {
+        act(() => {
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              data: {
+                type: 'forge:gaps:response',
+                id: `resp-${correlationId}`,
+                timestamp: Date.now(),
+                correlationId,
+                payload: { gaps: { gaps, unread: [], requests: 3 } },
+              },
+              origin: '',
+            }),
+          );
+        });
+      }
+
+      beforeEach(() => {
+        useOrgStore.setState({
+          orgs: [{ id: 'tgt-org', alias: 'TGT', username: 'loader@example.com' } as SalesforceOrg],
+        });
+        let sentGaps = 0;
+        mockSendBridgeMessage.mockImplementation((type: string) =>
+          type === 'forge:gaps:request' ? `gaps-request-${String(++sentGaps)}` : 'other-request',
+        );
+        // The store keeps what the read answers, as the real one does.
+        mockSetGaps.mockImplementation((source: ForgeGapSource, gaps: ForgeGap[]) => {
+          mockGaps = { ...mockGaps, [source]: gaps };
+        });
+      });
+
+      afterEach(() => {
+        useOrgStore.setState({ orgs: [] });
+        mockSetGaps.mockReset();
+      });
+
+      it('asks for the gaps again, keeps the rule shown meanwhile, and shows it kept quiet once the answer lands', () => {
+        render(<ForgeReview />);
+        answerGaps('gaps-request-1', [RULE]);
+        fireEvent.click(screen.getByTestId('tab-gaps'));
+        const gap = (): HTMLElement => screen.getByTestId(`gap-${RULE.id}`);
+        expect(within(gap()).getByTestId('bypass-assistant-command').textContent).toContain(
+          '--name Bypass --target-org TGT',
+        );
+
+        fireEvent.click(within(gap()).getByTestId('bypass-assistant-read-again'));
+
+        const asked = ['forge:gaps:request', { graph: defaultGraph, config: defaultConfig }];
+        expect(gapsRequests()).toEqual([asked, asked]);
+        expect(within(gap()).getByTestId('bypass-assistant-read-again').textContent).toBe(
+          'Reading again…',
+        );
+        expect(within(gap()).getByTestId('bypass-assistant-command')).toBeDefined();
+
+        answerGaps('gaps-request-2', [HELD]);
+
+        expect(within(gap()).queryByTestId('bypass-assistant')).toBeNull();
+        expect(
+          within(screen.getByTestId('gaps-severity-info')).getByTestId(`gap-${RULE.id}`),
+        ).toBeDefined();
+      });
+
+      it('stops saying it is reading again once that read fails, and offers it again', () => {
+        render(<ForgeReview />);
+        answerGaps('gaps-request-1', [RULE]);
+        fireEvent.click(screen.getByTestId('tab-gaps'));
+        fireEvent.click(screen.getByTestId('bypass-assistant-read-again'));
+
+        act(() => {
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              data: {
+                type: 'forge:gaps:error',
+                id: 'resp-gaps-error',
+                timestamp: Date.now(),
+                correlationId: 'gaps-request-2',
+                payload: { message: 'session expired' },
+              },
+              origin: '',
+            }),
+          );
+        });
+
+        expect(screen.getByTestId('forge-gaps-read-error').textContent).toContain(
+          'session expired',
+        );
+        expect(screen.getByTestId('bypass-assistant-read-again').textContent).toBe(
+          'Read the target org again',
+        );
+        fireEvent.click(screen.getByTestId('bypass-assistant-read-again'));
+        expect(gapsRequests()).toHaveLength(3);
+      });
     });
   });
 

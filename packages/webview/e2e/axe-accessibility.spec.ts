@@ -458,6 +458,7 @@ const FROZEN_STATUS_AFTER_LOAD = {
   selection: null,
   manifest: null,
   lastLoad: { status: 'completed', orgId: QA_SANDBOX.id, at: '2026-09-24T10:05:00.000Z' },
+  lastLoads: [{ status: 'completed', orgId: QA_SANDBOX.id, at: '2026-09-24T10:05:00.000Z' }],
   lastVerifies: [],
   loadRecords: [FROZEN_LAST_LOAD_RECORDS],
 };
@@ -766,6 +767,7 @@ const FROZEN_STATUS_WITH_DATASET = {
     },
   },
   lastLoad: null,
+  lastLoads: [],
   lastVerifies: [],
 };
 
@@ -3158,6 +3160,8 @@ for (const theme of SCANNED_THEMES) {
                 rule: 'Phone_Format',
                 message: 'Use the international format',
                 formula: 'notRead',
+                bypasses: ['$Permission.Phone_Bypass'],
+                assign: ['Phone_Bypass=Data_Load'],
               },
               decisions: ['leave_empty', 'ignore'],
               defaultDecision: 'leave_empty',
@@ -3178,6 +3182,52 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, read, '[data-testid="forge-gaps-read"]'),
       ).toBeGreaterThan(2);
+
+      // The command the Gaps tab copied run, the target is read again from
+      // the rule's bypass assistant, and the rule shows as kept quiet.
+      await page.getByTestId('tab-gaps').click();
+      const rule = page.getByTestId('gap-validation_rule|Contact|Phone||Phone_Format');
+      await expect(rule.getByTestId('bypass-assistant-command')).toHaveText(
+        `sf org assign permset --name Data_Load --target-org ${QA_SANDBOX.alias} --on-behalf-of ${QA_SANDBOX.username}`,
+      );
+      const gapReads = (await bridge.getMessages('forge:gaps:request')).length;
+      await rule.getByTestId('bypass-assistant-read-again').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('forge:gaps:request')).length)
+        .toBeGreaterThan(gapReads);
+      await expect(rule.getByTestId('bypass-assistant-read-again')).toHaveText('Reading again…');
+      const rereading = await checkAccessibility(page);
+      expectNoViolations(rereading);
+      expect(
+        await contrastMeasuredIn(page, rereading, '[data-testid="bypass-assistant"]'),
+      ).toBeGreaterThan(0);
+      await answerAll(page, 'forge:gaps:request', 'forge:gaps:response', {
+        gaps: {
+          gaps: [
+            {
+              id: 'validation_rule|Contact|Phone||Phone_Format',
+              kind: 'validation_rule',
+              severity: 'info',
+              source: 'metadata',
+              objectApiName: 'Contact',
+              field: 'Phone',
+              rows: 0,
+              detail: {
+                rule: 'Phone_Format',
+                message: 'Use the international format',
+                bypasses: ['$Permission.Phone_Bypass'],
+                heldBypasses: ['Phone_Bypass'],
+              },
+              decisions: ['ignore'],
+            },
+          ],
+          unread: [],
+          requests: 4,
+        },
+      });
+      await page.getByTestId('gaps-severity-info').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('bypass-assistant')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge Review compliance while it is analyzed, after a refusal with its retry, then the report', async ({
@@ -4975,6 +5025,53 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+
+      // The command run, the target is read again from the confirmation, and
+      // the delete flow the bypass keeps quiet is no longer listed.
+      const automationReads = (await bridge.getMessages('forge:undo-automation:request')).length;
+      await dialog.getByTestId('bypass-assistant-read-again').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('forge:undo-automation:request')).length)
+        .toBeGreaterThan(automationReads);
+      await expect(dialog.getByTestId('bypass-assistant-read-again')).toHaveText('Reading again…');
+      await expect(dialog.getByTestId('forge-removal-automation-delete-Contact')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await answerAll(page, 'forge:undo-automation:request', 'forge:undo-automation:response', {
+        forgeId: FORGE_REMOVABLE_RUN.forgeId,
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+            },
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: true }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [],
+          requests: 6,
+        },
+        drafted: [],
+      });
+      await expect(dialog.getByTestId('forge-removal-automation-delete-Contact')).toHaveCount(0);
+      await expect(dialog.getByTestId('bypass-assistant')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge run removal result, per object, with what the org refused', async ({ page }) => {
@@ -5028,6 +5125,89 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Frozen load removal under way, stopped from its card, with what it stopped at', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const removal = await bridge.waitForMessage('frozen:remove', { timeout: 10_000 });
+      await expect(page.getByTestId('frozen-removal-cancel')).toHaveText('Stop the removal');
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('frozen-removal-cancel').click();
+      const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+      expect(abort.payload).toEqual({ operationId: removal.id });
+      await answerAll(page, 'execution:abort', 'execution:abort:response', {
+        success: true,
+        operationId: removal.id,
+      });
+      await expect(page.getByTestId('frozen-removal-removing')).toContainText('Stopping:');
+      await expect(page.getByTestId('frozen-removal-cancel')).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      const stopping = await checkAccessibility(page);
+      expectNoViolations(stopping);
+      expect(
+        await contrastMeasuredIn(page, stopping, '[data-testid="frozen-removal"]'),
+      ).toBeGreaterThan(0);
+
+      await answerAll(page, 'frozen:remove', 'frozen:remove:response', {
+        result: {
+          status: 'cancelled',
+          includeChanged: false,
+          finishedAt: '2026-09-24T11:00:00.000Z',
+          objects: [
+            {
+              objectApiName: 'OrderItem',
+              planned: 24,
+              deleted: 24,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+        operationId: removal.id,
+      });
+      await expect(page.getByTestId('forge-removal-result')).toContainText(
+        'Stopped before the end',
+      );
+      await expect(page.getByTestId('frozen-removal-cancel')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen Load tab offering Verify only for a target a load went into', async ({ page }) => {
+      await navigateToModule(bridge, page, 'frozen', 'frozen-page', { theme, orgs: true });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_AFTER_LOAD,
+      });
+      await page.getByTestId('page-tab-load').click();
+      // The panel selected another org than the one the load went into.
+      await expect(page.getByTestId('frozen-verify-no-load')).toContainText(
+        'is recorded: load the dataset into it before verifying it.',
+      );
+      await expect(page.getByTestId('frozen-verify-run')).toHaveAttribute('aria-disabled', 'true');
+      const none = await checkAccessibility(page);
+      expectNoViolations(none);
+      expect(
+        await contrastMeasuredIn(page, none, '[data-testid="frozen-verify-no-load"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('frozen-load-target').click();
+      await page.getByTestId(`frozen-load-target-option-${QA_SANDBOX.id}`).click();
+      await expect(page.getByTestId('frozen-verify-no-load')).toHaveCount(0);
+      await expect(page.getByTestId('frozen-verify-run')).not.toHaveAttribute('aria-disabled');
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Frozen last load whose records were removed', async ({ page }) => {

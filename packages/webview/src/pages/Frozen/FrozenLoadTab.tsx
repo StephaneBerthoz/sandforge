@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, Play, ShieldCheck, Square } from 'lucide-react';
 import type {
-  ExecutionAbortResponse,
   ForgeFieldRefusal,
   FrozenLoadPlanInfo,
   FrozenLoadProgress,
@@ -12,8 +11,6 @@ import type {
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
-import { useNotificationStore } from '../../stores/useNotificationStore';
-import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -23,7 +20,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
-import { useFrozenMutation } from './useFrozenBridge';
+import { useFrozenCancel, useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
@@ -129,40 +126,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // it on `execution:abort`, as Live Operations' Cancel does, and the load
   // stops before its next write. The page had no Cancel, and could not have
   // named the load: its id was minted where the page never saw it.
-  const abortMutation = useBridgeMutation<ExecutionAbortResponse['payload']>('execution:abort', {
-    responseType: 'execution:abort:response',
-  });
-  const addNotification = useNotificationStore((s) => s.addNotification);
-  const [cancelRequested, setCancelRequested] = useState(false);
   const loadRequestId = loadMutation.requestId;
-  // Another load starts as nothing has been asked of it.
-  useEffect(() => {
-    setCancelRequested(false);
-  }, [loadRequestId]);
-  // A cancel the extension refused — the load already over, or not found —
-  // is said, and Cancel is offered again while the load runs. Each answer is
-  // read once.
-  const abortAnswered = useRef<unknown>(null);
-  const abortReply = abortMutation.data;
-  const abortError = abortMutation.error;
-  useEffect(() => {
-    const reply = abortReply ?? abortError;
-    if (!reply || abortAnswered.current === reply) return;
-    abortAnswered.current = reply;
-    if (abortError || !abortReply?.success) {
-      setCancelRequested(false);
-      addNotification({
-        level: 'warning',
-        title: t('frozen.load.cancelRefused'),
-        message: t('frozen.load.cancelRefusedDetail'),
-      });
-    }
-  }, [abortReply, abortError, addNotification, t]);
-  const cancelLoad = (): void => {
-    if (!loadRequestId) return;
-    setCancelRequested(true);
-    abortMutation.mutate({ operationId: loadRequestId });
-  };
+  const { requested: cancelRequested, cancel: cancelLoad } = useFrozenCancel(loadRequestId, {
+    title: t('frozen.load.cancelRefused'),
+    message: t('frozen.load.cancelRefusedDetail'),
+  });
   const verifyMutation = useFrozenMutation<{ verdict: FrozenVerifyVerdict }>('frozen:verify', {
     responseType: 'frozen:verify:result',
     timeoutMs: 300_000,
@@ -188,6 +156,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
 
   const effectiveTarget = targetOrgId || selectedOrgId || '';
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
+  // A verification checks the last load into the org it is asked about.
+  // Offered once any org had a load, Verify on an org no load went into
+  // ended in NO_LOAD; the extension's refusal stays behind this.
+  const loadedIntoTarget =
+    status?.lastLoads.some((load) => load.orgId === effectiveTarget) === true;
+  const noLoadIntoTarget = status !== null && effectiveTarget !== '' && !loadedIntoTarget;
+  const targetName = orgs.find((o) => o.id === effectiveTarget)?.alias ?? effectiveTarget;
 
   const loadOptions = (): Record<string, unknown> => ({
     targetOrgId: effectiveTarget,
@@ -429,7 +404,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               variant="secondary"
               size="sm"
               loading={verifyMutation.loading}
-              disabled={!effectiveTarget || !status?.lastLoad}
+              disabled={!effectiveTarget || !loadedIntoTarget}
+              focusableWhenDisabled
+              aria-describedby={noLoadIntoTarget ? 'frozen-verify-no-load' : undefined}
               onClick={() => verifyMutation.mutate({ targetOrgId: effectiveTarget })}
               data-testid="frozen-verify-run"
             >
@@ -449,6 +426,15 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               </Button>
             )}
           </div>
+          {noLoadIntoTarget && (
+            <p
+              id="frozen-verify-no-load"
+              className="text-[11px] text-text-secondary"
+              data-testid="frozen-verify-no-load"
+            >
+              {t('frozen.verify.noLoad', { org: targetName })}
+            </p>
+          )}
           {loadMutation.loading && cancelRequested && (
             <p
               className="text-[11px] text-text-secondary"

@@ -3801,6 +3801,7 @@
     },
     "verify": {
       "run": "Re-vérifier",
+      "noLoad": "Aucun chargement dans {{org}} n'est enregistré : chargez-y le jeu de données avant de le vérifier.",
       "title": "Vérification post-chargement",
       "attempts_one": "{{count}} relevé",
       "attempts_other": "{{count}} relevés",
@@ -3869,6 +3870,10 @@
       "removeDescription": "Supprime de {{org}} les enregistrements créés par ce chargement, les enfants avant leurs parents ; ils vont dans sa corbeille. Après un rechargement, ils comprennent les enregistrements que des chargements antérieurs ont créés et que le rechargement a retrouvés et gardés comme les siens. Les enregistrements auxquels le chargement s'est lié ou qu'il a réutilisés, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le chargement, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
       "includeChanged": "Supprimer aussi les enregistrements modifiés depuis le chargement, et ce qui leur a été ajouté depuis",
       "removing": "Suppression des enregistrements créés par ce chargement…",
+      "cancel": "Arrêter la suppression",
+      "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'elle a supprimé d'ici là est listé ; le reste demeure dans l'org, et une suppression le reprendra plus tard.",
+      "cancelRefused": "Impossible d'arrêter la suppression",
+      "cancelRefusedDetail": "La suppression ne supprimait pas encore, ou elle était terminée. Tant qu'elle s'exécute, elle peut être arrêtée à nouveau.",
       "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",

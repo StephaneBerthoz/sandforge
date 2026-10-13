@@ -204,6 +204,16 @@ export const ForgeReview: React.FC = () => {
     requestTargetAutomation(config.targetOrgId, graph);
   }, [graph, config]);
 
+  /**
+   * Read the target's gaps again: a validation rule's bypass, assigned with
+   * the command the Gaps tab copied, showed as not held until Review was
+   * opened again. The gaps read stay shown until the answer lands.
+   */
+  const readGapsAgain = useCallback(() => {
+    if (!graph || !config) return;
+    requestGaps(config, graph);
+  }, [graph, config, requestGaps]);
+
   useMessageListener<ForgeAutomationResponse>(
     'forge:automation:response',
     useCallback((msg) => {
@@ -415,6 +425,8 @@ export const ForgeReview: React.FC = () => {
             )}
             {activeTab === 'gaps' && (
               <ReviewGapsTab
+                onReadAgain={readGapsAgain}
+                readingAgain={gapsRead.pending}
                 {...(targetOrg?.alias && targetOrg.username
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}

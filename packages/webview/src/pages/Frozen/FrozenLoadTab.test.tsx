@@ -71,6 +71,7 @@ const STATUS: FrozenStatusInfo = {
     },
   },
   lastLoad: null,
+  lastLoads: [],
   lastVerifies: [],
   loadRecords: [
     loadInto('org-dev', '2026-09-24T10:05:00.000Z', 1),

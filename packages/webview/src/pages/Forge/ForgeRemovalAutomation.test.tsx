@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import type { BaseMessage, ForgeTargetAutomation, SalesforceOrg } from '@sandforge/shared';
 import '../../i18n';
 
@@ -189,5 +189,105 @@ describe('ForgeRemovalAutomation', () => {
 
     expect(sentAll('forge:undo-automation:request')).toEqual([]);
     expect(container.textContent).toBe('');
+  });
+
+  describe('reading the target again', () => {
+    // The confirmation showed what it read as it opened: a bypass assigned
+    // with the command it copied showed as not held until it was opened again.
+
+    /** The delete flow's bypass, held by a permission set the command assigns. */
+    const assignable = (held: boolean): ForgeTargetAutomation => ({
+      ...AUTOMATION,
+      objects: AUTOMATION.objects.map((object) =>
+        object.objectApiName === 'Contact'
+          ? {
+              ...object,
+              flows: object.flows.map((flow) => ({
+                ...flow,
+                permissions: [{ name: 'Skip_Delete', bypass: true, held }],
+              })),
+            }
+          : object,
+      ),
+      bypassGrants: [
+        {
+          permission: 'Skip_Delete',
+          permissionSets: [{ name: 'Bypass_Deletes', label: 'Bypass deletes', grants: 1 }],
+        },
+      ],
+    });
+
+    it('asks for it under the command, keeps the read shown meanwhile, and shows the bypass held once it lands', () => {
+      render(<ForgeRemovalAutomation forgeId="forge-1" org="DEV-SANDBOX" targetOrgId={DEV.id} />);
+      answer('forge:undo-automation:response', {
+        forgeId: 'forge-1',
+        automation: assignable(false),
+        drafted: ['Order'],
+      });
+      const bypass = screen.getByTestId('forge-removal-automation-bypass');
+      expect(within(bypass).getByTestId('bypass-assistant-command').textContent).toContain(
+        '--name Bypass_Deletes --target-org DEV-SANDBOX',
+      );
+
+      fireEvent.click(within(bypass).getByTestId('bypass-assistant-read-again'));
+
+      expect(sentAll('forge:undo-automation:request').map((m) => m.payload)).toEqual([
+        { forgeId: 'forge-1' },
+        { forgeId: 'forge-1' },
+      ]);
+      expect(screen.queryByTestId('forge-removal-automation-loading')).toBeNull();
+      expect(screen.getByTestId('bypass-assistant-read-again').textContent).toBe('Reading again…');
+      expect(screen.getByTestId('forge-removal-automation-delete-Contact')).toBeDefined();
+
+      answer('forge:undo-automation:response', {
+        forgeId: 'forge-1',
+        automation: assignable(true),
+        drafted: ['Order'],
+      });
+
+      // Held, the bypass keeps the delete flow quiet: neither it nor its command is listed.
+      expect(screen.queryByTestId('forge-removal-automation-bypass')).toBeNull();
+      expect(screen.queryByTestId('forge-removal-automation-delete-Contact')).toBeNull();
+      expect(screen.getByTestId('forge-removal-automation-delete-Account')).toBeDefined();
+    });
+
+    it('offers it after a read that could not run', () => {
+      render(<ForgeRemovalAutomation forgeId="forge-1" org="DEV-SANDBOX" targetOrgId={DEV.id} />);
+      answer('forge:undo-automation:error', {
+        message: 'INVALID_SESSION_ID',
+        code: 'AUTOMATION_ERROR',
+        retryable: false,
+      });
+
+      fireEvent.click(screen.getByTestId('forge-removal-automation-read-again'));
+      expect(sentAll('forge:undo-automation:request')).toHaveLength(2);
+      answer('forge:undo-automation:response', {
+        forgeId: 'forge-1',
+        automation: AUTOMATION,
+        drafted: ['Order'],
+      });
+
+      expect(screen.queryByTestId('forge-removal-automation-error')).toBeNull();
+      expect(screen.getByTestId('forge-removal-automation-delete-Account')).toBeDefined();
+    });
+
+    it('shows the read of another run as on its way, never the last run’s', () => {
+      const { rerender } = render(
+        <ForgeRemovalAutomation forgeId="forge-1" org="DEV-SANDBOX" targetOrgId={DEV.id} />,
+      );
+      answer('forge:undo-automation:response', {
+        forgeId: 'forge-1',
+        automation: AUTOMATION,
+        drafted: [],
+      });
+
+      rerender(
+        <ForgeRemovalAutomation forgeId={undefined} org="DEV-SANDBOX" targetOrgId={DEV.id} />,
+      );
+      rerender(<ForgeRemovalAutomation forgeId="forge-1" org="DEV-SANDBOX" targetOrgId={DEV.id} />);
+
+      expect(screen.getByTestId('forge-removal-automation-loading')).toBeDefined();
+      expect(screen.queryByTestId('forge-removal-automation-delete-Account')).toBeNull();
+    });
   });
 });

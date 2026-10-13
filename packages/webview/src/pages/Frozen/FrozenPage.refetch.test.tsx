@@ -60,6 +60,7 @@ const STATUS: FrozenStatusInfo = {
     },
   },
   lastLoad: null,
+  lastLoads: [],
   lastVerifies: [],
   loadRecords: [
     {

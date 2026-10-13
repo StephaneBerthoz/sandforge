@@ -71,6 +71,7 @@ function statusFixture(overrides?: Partial<FrozenStatusInfo>): FrozenStatusInfo 
       },
     },
     lastLoad: null,
+    lastLoads: [],
     lastVerifies: [],
     ...overrides,
   };
@@ -1054,6 +1055,7 @@ describe('FrozenPage', () => {
       useFrozenStore.setState({
         status: statusFixture({
           lastLoad: { status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' },
+          lastLoads: [{ status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' }],
           lastVerifies: [{ orgId: 'org-2', status: 'failed', measuredAt: '2026-08-01T12:05:00Z' }],
         }),
       });
@@ -1068,6 +1070,52 @@ describe('FrozenPage', () => {
 
       fireEvent.click(screen.getByTestId('frozen-verify-run'));
       expect(mockMutate).toHaveBeenCalledWith('frozen:verify', { targetOrgId: 'org-2' });
+    });
+
+    it('offers Verify only for a target a load went into, and says why not for the others', async () => {
+      // Offered once a load went into any org, Verify on the selected org,
+      // which none went into, ended in NO_LOAD.
+      useFrozenStore.setState({
+        status: statusFixture({
+          lastLoad: { status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' },
+          lastLoads: [{ status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' }],
+        }),
+      });
+      const { unmount } = render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('page-tab-load'));
+      const verifyButton = (): HTMLElement => screen.getByTestId('frozen-verify-run');
+
+      expect(verifyButton().getAttribute('aria-disabled')).toBe('true');
+      expect(screen.getByTestId('frozen-verify-no-load').textContent).toBe(
+        'No load into Dev is recorded: load the dataset into it before verifying it.',
+      );
+      expect(verifyButton().getAttribute('aria-describedby')).toBe('frozen-verify-no-load');
+      fireEvent.click(verifyButton());
+      expect(mockMutate).not.toHaveBeenCalledWith('frozen:verify', expect.anything());
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-2'));
+
+      expect(verifyButton().getAttribute('aria-disabled')).toBeNull();
+      expect(screen.queryByTestId('frozen-verify-no-load')).toBeNull();
+      fireEvent.click(verifyButton());
+      expect(mockMutate).toHaveBeenCalledWith('frozen:verify', { targetOrgId: 'org-2' });
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-3'));
+      unmount();
+
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<FrozenPage />);
+        expect(verifyButton().getAttribute('aria-disabled')).toBe('true');
+        expect(screen.getByTestId('frozen-verify-no-load').textContent).toBe(
+          fr.frozen.verify.noLoad.replace('{{org}}', 'UAT'),
+        );
+      } finally {
+        await i18n.changeLanguage('en');
+      }
     });
   });
 

@@ -720,6 +720,13 @@ export interface FrozenStatusInfo {
   /** Last load outcome, when a load ran in this workspace. */
   lastLoad: { status: string; orgId: string; at: string } | null;
   /**
+   * Per target org, by its registered id, the last load recorded into it:
+   * the one a verification of that org checks. An org no load went into is
+   * not listed. Told only the last load, whatever its org, the page offered
+   * to verify an org no load went into, and the click ended in `NO_LOAD`.
+   */
+  lastLoads: Array<{ status: string; orgId: string; at: string }>;
+  /**
    * Per target org, by its registered id, the verdict of the last
    * verification of a load into it; an org never verified is not listed.
    * Kept as one verdict whichever org was verified, the page showed one

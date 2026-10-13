@@ -3801,6 +3801,7 @@
     },
     "verify": {
       "run": "Re-verify",
+      "noLoad": "No load into {{org}} is recorded: load the dataset into it before verifying it.",
       "title": "Post-load verification",
       "attempts_one": "{{count}} measurement",
       "attempts_other": "{{count}} measurements",
@@ -3869,6 +3870,10 @@
       "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. After a reload, these include the records earlier loads created that the reload found again and kept as its own. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
       "includeChanged": "Also remove the records changed since the load, and what was added to them since",
       "removing": "Removing the records this load created…",
+      "cancel": "Stop the removal",
+      "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
+      "cancelRefused": "Could not stop the removal",
+      "cancelRefusedDetail": "The removal was not deleting yet, or it had ended. While it runs, it can be stopped again.",
       "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them, except those the load may have linked to.",
       "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
       "nothingCreated": "This load created no record: there is nothing to remove.",

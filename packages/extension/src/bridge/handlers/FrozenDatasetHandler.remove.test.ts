@@ -11,6 +11,7 @@ import type {
 
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { ExecutionHandler } from './ExecutionHandler.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -719,6 +720,122 @@ describe('frozen:remove', () => {
       alreadyGone: 0,
       kept: 0,
       refused: 0,
+    });
+  });
+
+  describe("the removal card's Cancel", () => {
+    // The removal ran under an id minted in the extension, which the card
+    // never saw: only Live Operations could stop it.
+
+    const status = async (): Promise<FrozenStatusInfo> => {
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('frozen:status'));
+      return posted<BaseMessage & { payload: { status: FrozenStatusInfo } }>(
+        'frozen:status:response',
+      )[0].payload.status;
+    };
+
+    /** What `execution:abort` answers the card, sent with the id it knows the removal by. */
+    async function cancelFromCard(): Promise<Record<string, unknown> | undefined> {
+      await new ExecutionHandler(deps, registry).handle(
+        inboundRequest({
+          id: 'req-abort',
+          type: 'execution:abort',
+          timestamp: Date.now(),
+          payload: { operationId: 'req-frozen:remove' },
+        } as BaseMessage),
+      );
+      return posted<BaseMessage & { payload: Record<string, unknown> }>(
+        'execution:abort:response',
+      ).pop()?.payload;
+    }
+
+    it('stops the removal between two calls to the org, the call under way answered whole', async () => {
+      let cancelled: Record<string, unknown> | undefined;
+      org.onDelete(async () => {
+        org.onDelete(() => {});
+        cancelled = await cancelFromCard();
+      });
+
+      await remove();
+
+      expect(cancelled).toEqual({ success: true, operationId: 'req-frozen:remove' });
+      // The contacts' delete, under way as Cancel came, went through whole;
+      // the account's was never sent.
+      expect(org.deletes).toEqual([{ object: 'Contact', ids: [CONTACTS[1], CONTACTS[0]] }]);
+      expect(org.rows.get('Account')).toHaveLength(1);
+      expect(
+        posted<BaseMessage & { payload: Record<string, unknown> }>('frozen:remove:response')[0]
+          ?.payload.operationId,
+      ).toBe('req-frozen:remove');
+      expect(answer()).toMatchObject({
+        status: 'cancelled',
+        objects: [{ objectApiName: 'Contact', planned: 2, deleted: 2 }],
+      });
+    });
+
+    it('says what went and what stays, object by object, and ends as stopped wherever the removal is listed', async () => {
+      org.onDelete(async () => {
+        org.onDelete(() => {});
+        await cancelFromCard();
+      });
+
+      await remove();
+
+      const cancelled = answer();
+      expect(registry.get('req-frozen:remove')?.status).toBe('aborted');
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({ operationId: 'req-frozen:remove', status: 'cancelled' }),
+      ]);
+      expect(
+        posted<BaseMessage & { payload: Record<string, unknown> }>('operation:completed').map(
+          (m) => m.payload,
+        ),
+      ).toEqual([
+        expect.objectContaining({ operationId: 'req-frozen:remove', result: { aborted: true } }),
+      ]);
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          operationId: 'req-frozen:remove',
+          outcome: 'partial',
+          objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 2 })],
+        }),
+      ]);
+      // The page is told what went and what the cancel kept the removal from.
+      expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toMatchObject(
+        {
+          created: [{ objectApiName: 'Account', count: 1 }],
+          removed: { removedAt: cancelled?.finishedAt, deleted: 2, notReached: 1 },
+        },
+      );
+    });
+
+    it('leaves what it did not reach to a second removal, which takes it alone', async () => {
+      org.onDelete(async () => {
+        org.onDelete(() => {});
+        await cancelFromCard();
+      });
+      await remove();
+      const cancelled = answer();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-frozen:remove-again',
+          type: 'frozen:remove',
+          timestamp: Date.now(),
+          payload: { targetOrgId: TARGET_ORG, loadedAt: LOAD_ENDED },
+        } as BaseMessage),
+      );
+
+      expect(org.deletes).toEqual([{ object: 'Account', ids: [ACCOUNT] }]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        leftBy: cancelled?.finishedAt,
+        objects: [{ objectApiName: 'Account', planned: 1, deleted: 1 }],
+      });
+      expect((await recorded())?.removal).toMatchObject({ deleted: 3, kept: 0, refused: 0 });
     });
   });
 

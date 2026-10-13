@@ -1,6 +1,5 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw } from 'lucide-react';
 import type {
   ForgeAutomationFired,
   ForgeAutomationWrite,
@@ -20,10 +19,9 @@ import {
   removalRisksOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
-import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
-import { BypassAssistant, type BypassTarget } from './BypassAssistant';
+import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
 
 /** The heading of each write, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeAutomationWrite, string>> = {
@@ -139,20 +137,13 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
 }) => {
   const { t } = useTranslation();
   const readAgain = onReadAgain ? (
-    <Button
-      variant="secondary"
-      size="sm"
-      icon={<RefreshCw size={12} aria-hidden="true" />}
-      loading={readingAgain}
-      focusableWhenDisabled
-      onClick={onReadAgain}
-      data-testid="automation-read-again"
+    <ReadAgainButton
+      label={t('forge.review.automation.readAgain')}
+      onReadAgain={onReadAgain}
+      reading={readingAgain}
+      testId="automation-read-again"
       className="shrink-0"
-    >
-      {readingAgain
-        ? t('forge.review.automation.readingAgain')
-        : t('forge.review.automation.readAgain')}
-    </Button>
+    />
   ) : null;
 
   if (error) {
