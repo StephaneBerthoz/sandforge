@@ -4,8 +4,9 @@
   },
   "forge rehearsal": {
     "rows": 39,
-    "judged": 1,
-    "passed": 0
+    "judged": 39,
+    "passed": 8,
+    "linked": 1
   },
   "forge clone": {
     "written": 38,

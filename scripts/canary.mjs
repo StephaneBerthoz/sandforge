@@ -331,10 +331,16 @@ function cloneAndRemove(root) {
       rehearsal !== undefined &&
       rehearsal.judged + rehearsal.notJudged === rehearsal.rows,
     rehearsal
-      ? `${rehearsal.rows} row(s), ${rehearsal.judged} judged, ${rehearsal.passed} passed, nothing kept`
+      ? `${rehearsal.rows} row(s), ${rehearsal.judged} judged, ${rehearsal.passed} passed, ` +
+          `${rehearsal.linked ?? 0} linked to a record the target holds, nothing kept`
       : why(rehearse.stderr),
     rehearsal
-      ? { rows: rehearsal.rows, judged: rehearsal.judged, passed: rehearsal.passed }
+      ? {
+          rows: rehearsal.rows,
+          judged: rehearsal.judged,
+          passed: rehearsal.passed,
+          linked: rehearsal.linked ?? 0,
+        }
       : undefined,
   );
 
