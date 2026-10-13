@@ -303,9 +303,17 @@ export interface GivenAnswer {
  * The answer given for the run under way, by async call chain: the run a
  * pipeline step starts carries it through every await, and a run started
  * elsewhere at the same moment — from the Sync page, by its schedule — does
- * not see it.
+ * not see it. `live` turns false once that run has ended: a timer or a
+ * listener made during it keeps its async context, and a run it starts later,
+ * with nobody watching, was not the one approved.
  */
-const givenAnswers = new AsyncLocalStorage<GivenAnswer>();
+const givenAnswers = new AsyncLocalStorage<GivenAnswer & { live: boolean }>();
+
+/** The answer given for the run under way, while that run lasts. */
+function liveAnswer(): GivenAnswer | undefined {
+  const given = givenAnswers.getStore();
+  return given?.live ? given : undefined;
+}
 
 /**
  * Run `work` with `answer` standing for the confirmation the guard would
@@ -316,8 +324,13 @@ const givenAnswers = new AsyncLocalStorage<GivenAnswer>();
  * @param answer - The answer given before the run
  * @param work - The run
  */
-export function withGivenAnswer<T>(answer: GivenAnswer, work: () => Promise<T>): Promise<T> {
-  return givenAnswers.run(answer, work);
+export async function withGivenAnswer<T>(answer: GivenAnswer, work: () => Promise<T>): Promise<T> {
+  const given = { approved: answer.approved, live: true };
+  try {
+    return await givenAnswers.run(given, work);
+  } finally {
+    given.live = false;
+  }
 }
 
 /**
@@ -366,7 +379,7 @@ export class ProductionGuard {
    * ({@link withGivenAnswer}) was answered by a person, whatever UI there is.
    */
   get canAskForConfirmation(): boolean {
-    return this.options.requestConfirmation !== undefined || givenAnswers.getStore() !== undefined;
+    return this.options.requestConfirmation !== undefined || liveAnswer() !== undefined;
   }
 
   /**
@@ -388,7 +401,7 @@ export class ProductionGuard {
     if (!result.allowed || !result.requiresConfirmation) {
       return result.allowed;
     }
-    const given = givenAnswers.getStore();
+    const given = liveAnswer();
     if (given) {
       return given.approved;
     }

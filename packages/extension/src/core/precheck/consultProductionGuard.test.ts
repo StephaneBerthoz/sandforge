@@ -143,6 +143,36 @@ describe('consultProductionGuard', () => {
     expect(ask).toHaveBeenCalledTimes(1);
   });
 
+  it('lets nothing the approved run left behind answer a question once that run has ended', async () => {
+    // A timer or listener made during the pipeline's Sync step carries its
+    // async context; a run it starts later, unattended, must be asked.
+    const ask = vi.fn().mockResolvedValue(false);
+    const guard = new ProductionGuard({ requestConfirmation: ask });
+    let ended = false;
+    let fired: (decision: string) => void = () => undefined;
+    const later = new Promise<string>((resolve) => {
+      fired = resolve;
+    });
+
+    await withGivenAnswer({ approved: true }, async () => {
+      // Scheduled from inside the approved run, fired once it has ended.
+      const tick = (): void => {
+        if (!ended) {
+          setTimeout(tick, 1);
+          return;
+        }
+        void consultProductionGuard(guard, request({ orgTier: 'production' })).then(
+          ({ decision }) => fired(decision),
+        );
+      };
+      setTimeout(tick, 1);
+    });
+    ended = true;
+
+    expect(await later).toBe('declined');
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
   it('asks the guard to judge the run once, as the run is described', async () => {
     const guard = new ProductionGuard();
     const check = vi.spyOn(guard, 'check');
