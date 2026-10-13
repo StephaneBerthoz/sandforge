@@ -5,10 +5,19 @@ import type { ForgeRemovalPlan } from '@sandforge/shared';
 /**
  * The most the removal plans take on disk, in bytes of JSON: about 200 000
  * record ids, twenty runs at the command line's default `--max-total`, and
- * hundreds of the record-scoped clones people run. Past it the oldest plans
- * go first; the newest is kept whatever its size.
+ * hundreds of the record-scoped clones people run. Past it the plans of runs
+ * already removed go first, oldest first; the newest is kept whatever its size.
  */
 export const REMOVAL_PLANS_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The most the plans take once every run already removed is dropped: a run
+ * not removed yet stays removable up to it. Since 1.50 one run streams whole
+ * tables past the default ceiling, and its plan alone can fill the first
+ * bound; dropping the run before it on the next write left that run with
+ * nothing to remove it by.
+ */
+export const REMOVAL_PLANS_HARD_MAX_BYTES = 64 * 1024 * 1024;
 
 /** The file the plans are kept in, under the extension's own storage. */
 export const REMOVAL_PLANS_FILE = 'forge-removal-plans.json';
@@ -23,6 +32,8 @@ export interface ForgeRemovalPlanStoreDeps {
   mkdir: (dirPath: string) => Promise<void>;
   /** The bound on bytes; {@link REMOVAL_PLANS_MAX_BYTES} unless a test sets another. */
   maxBytes?: number;
+  /** The bound for runs not removed yet; {@link REMOVAL_PLANS_HARD_MAX_BYTES} unless a test sets another. */
+  hardMaxBytes?: number;
 }
 
 /** A Salesforce id, as every id of a plan is: its ids end up in queries and deletes. */
@@ -82,6 +93,7 @@ const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown())
 export class ForgeRemovalPlanStore {
   private readonly file: string;
   private readonly maxBytes: number;
+  private readonly hardMaxBytes: number;
   /** Changes one after the other: two read-modify-writes at once would lose one. */
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -89,6 +101,7 @@ export class ForgeRemovalPlanStore {
   constructor(private readonly deps: ForgeRemovalPlanStoreDeps) {
     this.file = path.join(deps.storagePath, REMOVAL_PLANS_FILE);
     this.maxBytes = deps.maxBytes ?? REMOVAL_PLANS_MAX_BYTES;
+    this.hardMaxBytes = Math.max(this.maxBytes, deps.hardMaxBytes ?? REMOVAL_PLANS_HARD_MAX_BYTES);
   }
 
   /** The plans kept, newest first. */
@@ -165,22 +178,30 @@ export class ForgeRemovalPlanStore {
   }
 
   /**
-   * Write the plans, newest run first, the oldest dropped until they fit the
-   * bound; the newest stays whatever its size, so the run that just ended is
-   * always removable.
+   * Write the plans, newest run first. Past the bound, the runs already removed
+   * with nothing left go first, oldest first: they have nothing more to remove.
+   * A run not removed yet goes only past the hard bound, oldest first. The
+   * newest stays whatever its size, so the run that just ended is always
+   * removable.
    */
   private async write(plans: ForgeRemovalPlan[]): Promise<void> {
     const kept = [...plans].sort((a, b) => dateOf(b) - dateOf(a) || 0);
-    let content = serialize(kept);
-    while (kept.length > 1 && Buffer.byteLength(content, 'utf8') > this.maxBytes) {
-      kept.pop();
-      content = serialize(kept);
+    const bytes = (): number => Buffer.byteLength(serialize(kept), 'utf8');
+    for (let i = kept.length - 1; i > 0 && bytes() > this.maxBytes; i -= 1) {
+      if (settled(kept[i])) kept.splice(i, 1);
     }
+    while (kept.length > 1 && bytes() > this.hardMaxBytes) kept.pop();
+    const content = serialize(kept);
     await this.deps.mkdir(this.deps.storagePath).catch(() => undefined);
     const written = `${this.file}.${process.pid}.tmp`;
     await this.deps.writeFile(written, content);
     await this.deps.rename(written, this.file);
   }
+}
+
+/** A run removed with nothing left behind: its plan has nothing more to remove. */
+function settled(plan: ForgeRemovalPlan): boolean {
+  return plan.undo !== undefined && (plan.removalLeft?.length ?? 0) === 0;
 }
 
 /** When a run was recorded, in epoch milliseconds; a date that cannot be read is the oldest. */

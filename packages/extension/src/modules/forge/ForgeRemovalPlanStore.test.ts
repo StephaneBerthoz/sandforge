@@ -5,6 +5,7 @@ import type { ForgeRemovalPlan } from '@sandforge/shared';
 import {
   ForgeRemovalPlanStore,
   REMOVAL_PLANS_FILE,
+  REMOVAL_PLANS_HARD_MAX_BYTES,
   REMOVAL_PLANS_MAX_BYTES,
 } from './ForgeRemovalPlanStore.js';
 
@@ -85,10 +86,69 @@ describe('ForgeRemovalPlanStore', () => {
     expect([...disk.files.keys()]).toEqual([FILE]);
   });
 
-  it('drops the oldest plans past the bound on bytes, and keeps the newest whatever its size', async () => {
+  it('keeps a run not yet removed past the bound, and drops the runs already removed first', async () => {
+    // A run streamed past the default ceiling writes enough to fill the bound
+    // alone: the run before it must stay removable when it ends.
     const disk = memoryDisk();
     const one = JSON.stringify({ version: 1, plans: [plan('forge-0', 50)] }).length;
     const store = new ForgeRemovalPlanStore({ ...disk.deps, maxBytes: one * 2 + 50 });
+    const removed = {
+      removedAt: '2026-09-21T10:00:00.000Z',
+      deleted: 50,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+    };
+
+    await store.put(plan('forge-1', 50, { timestamp: '2026-09-20T10:00:00.000Z' }));
+    await store.put(plan('forge-2', 50, { timestamp: '2026-09-20T11:00:00.000Z', undo: removed }));
+    await store.put(plan('forge-3', 50, { timestamp: '2026-09-20T12:00:00.000Z' }));
+    await store.put(plan('forge-big', 500, { timestamp: '2026-09-20T13:00:00.000Z' }));
+
+    expect((await store.list()).map((p) => p.forgeId)).toEqual(['forge-big', 'forge-3', 'forge-1']);
+    expect(REMOVAL_PLANS_HARD_MAX_BYTES).toBe(64 * 1024 * 1024);
+  });
+
+  it('drops a run left behind once from the bound on bytes it was kept under', async () => {
+    const disk = memoryDisk();
+    const one = JSON.stringify({ version: 1, plans: [plan('forge-0', 50)] }).length;
+    const store = new ForgeRemovalPlanStore({
+      ...disk.deps,
+      maxBytes: one * 2 + 50,
+      // Three plans and what a removal adds to one, never four plans.
+      hardMaxBytes: one * 3 + 600,
+    });
+    const leftOne = {
+      removedAt: '2026-09-21T10:00:00.000Z',
+      deleted: 49,
+      alreadyGone: 0,
+      kept: 1,
+      refused: 0,
+    };
+
+    await store.put(plan('forge-1', 50, { timestamp: '2026-09-20T10:00:00.000Z' }));
+    await store.put(
+      plan('forge-2', 50, {
+        timestamp: '2026-09-20T11:00:00.000Z',
+        undo: leftOne,
+        removalLeft: [id('001', 7)],
+      }),
+    );
+    await store.put(plan('forge-3', 50, { timestamp: '2026-09-20T12:00:00.000Z' }));
+    await store.put(plan('forge-4', 50, { timestamp: '2026-09-20T13:00:00.000Z' }));
+
+    // A removal that left a record is not settled: it goes only past the hard bound, oldest first.
+    expect((await store.list()).map((p) => p.forgeId)).toEqual(['forge-4', 'forge-3', 'forge-2']);
+  });
+
+  it('drops the oldest plans past the bound on bytes, and keeps the newest whatever its size', async () => {
+    const disk = memoryDisk();
+    const one = JSON.stringify({ version: 1, plans: [plan('forge-0', 50)] }).length;
+    const store = new ForgeRemovalPlanStore({
+      ...disk.deps,
+      maxBytes: one * 2 + 50,
+      hardMaxBytes: one * 2 + 50,
+    });
 
     for (const n of [1, 2, 3]) await store.put(plan(`forge-${n}`, 50));
     expect((await store.list()).map((p) => p.forgeId)).toEqual(['forge-3', 'forge-2']);
