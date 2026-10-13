@@ -506,6 +506,174 @@ describe('SyncPage', () => {
       expect(ran.propagateDeletes).toBeUndefined();
     });
 
+    it('says on the results how many files a run copied, and what the caps skipped', () => {
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      };
+      const files = {
+        copied: 2,
+        versions: 1,
+        bytes: 3 * 1_048_576,
+        links: 1,
+        unchanged: 0,
+        tooLarge: 1,
+        pastRunCap: 0,
+        external: 0,
+        recordNotWritten: 0,
+        failed: 0,
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            files,
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-10-13T10:00:01.000Z',
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-result-files').textContent).toBe(
+        '3 files, 3 MB copied, 1 skipped past the caps',
+      );
+      expect(screen.getByTestId('sync-result-files-Account').textContent).toContain(
+        '1 skipped: larger than the largest file',
+      );
+    });
+
+    it('says how many files and how much a run would copy', () => {
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      const { rerender } = render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-simulate'));
+      mockSimulateMutationState.data = {
+        configId: 'cfg',
+        operationId: 'sim',
+        direction: 'source_to_target',
+        conflictStrategy: 'source_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            read: 3,
+            insert: 3,
+            update: 0,
+            delete: 0,
+            skipped: 0,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+            files: {
+              copied: 3,
+              versions: 0,
+              bytes: 52,
+              links: 0,
+              unchanged: 0,
+              tooLarge: 0,
+              pastRunCap: 0,
+              external: 0,
+              recordNotWritten: 0,
+              failed: 0,
+            },
+          },
+        ],
+        files: { remainingBytes: 20 * 1_048_576, plannedBytes: 52 },
+        duration: 1,
+        timestamp: '2026-10-13T10:00:01.000Z',
+      };
+      rerender(<SyncPage />);
+
+      expect(screen.getByTestId('sync-simulation-files-Account').textContent).toBe(
+        '3 files would be copied · 52 B',
+      );
+      expect(screen.getByTestId('sync-simulation-files-storage').textContent).toBe(
+        'These files take 52 B of the 20 MB of file storage the target has left.',
+      );
+    });
+
+    it('says the configuration must be saved before a run copies its files', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-files-needs-save').textContent).toContain(
+        'save it on the Review step first',
+      );
+    });
+
+    it('offers the files off by default, and their two caps once turned on', () => {
+      draft.value = {
+        currentStep: 0,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+      const toggle = screen.getByTestId('sync-files-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(screen.queryByTestId('sync-files-max-file')).toBeNull();
+
+      fireEvent.click(toggle);
+
+      expect((screen.getByTestId('sync-files-max-file') as HTMLInputElement).value).toBe('10');
+      expect((screen.getByTestId('sync-files-max-run') as HTMLInputElement).value).toBe('100');
+      expect(screen.getByText(/never as a second file/)).toBeDefined();
+    });
+
     it('says on the results how each object was read and what it deleted', () => {
       draft.value = {
         currentStep: 5,

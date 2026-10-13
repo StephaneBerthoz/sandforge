@@ -7,6 +7,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
+import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -130,6 +131,14 @@ export const SyncHistoryDetail: React.FC = () => {
         </Card>
       )}
 
+      {/* The files of the records it wrote, when the configuration copies them. */}
+      {configSnapshot.files && (
+        <SyncFilesSummary
+          outcomes={result.objectResults.flatMap((obj) => (obj.files ? [obj.files] : []))}
+          testId="history-files-summary"
+        />
+      )}
+
       {/* Per-object results */}
       <div className="flex flex-col gap-(--sf-space-2)">
         <h5 className="text-xs font-semibold text-text-primary">
@@ -159,6 +168,11 @@ export const SyncHistoryDetail: React.FC = () => {
               {obj.delta && (
                 <div className="mt-1">
                   <SyncDeltaLine delta={obj.delta} testId={`history-delta-${obj.objectApiName}`} />
+                </div>
+              )}
+              {obj.files && (
+                <div className="mt-1">
+                  <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />
                 </div>
               )}
               {obj.errors.length > 0 && (

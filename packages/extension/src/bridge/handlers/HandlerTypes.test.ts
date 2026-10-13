@@ -232,7 +232,10 @@ describe('correlation origins', () => {
     // and of this pin; widening either one (to `string`, say) fails typecheck.
     type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
     const reasons: Exactly<UncorrelatedReason, never> = true;
-    const kinds: Exactly<SyntheticRequestKind, 'sync:schedule' | 'offline-replay'> = true;
+    const kinds: Exactly<
+      SyntheticRequestKind,
+      'sync:schedule' | 'sync:pipeline' | 'offline-replay'
+    > = true;
 
     expect([reasons, kinds]).toEqual([true, true]);
   });

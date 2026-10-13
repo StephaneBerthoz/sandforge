@@ -4,7 +4,8 @@ import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
-import { runPipelineSync, syncGuardRequest, syncGuardVerdict } from './pipelineSync.js';
+import { runPipelineSync, syncGuardVerdict } from './pipelineSync.js';
+import { syncGuardRequest } from './SyncOpsHandler.js';
 
 /** A saved configuration, as far as the guard reads one. */
 function config(operations: Array<'insert' | 'update' | 'upsert' | 'delete'>): SyncConfig {
@@ -60,6 +61,20 @@ describe('syncGuardRequest', () => {
       recordCount: 'unknown',
       module: 'sync',
     });
+  });
+
+  it('judges a delta run that carries the source deletions as the delete it is', () => {
+    // The step's own copy of the request judged it by its upsert, let it
+    // through beforehand, and the run then refused it as a delete.
+    const deleting: SyncConfig = { ...config(['upsert']), mode: 'delta', propagateDeletes: true };
+
+    expect(syncGuardRequest(deleting, 'Sandbox').operation).toBe('delete');
+    expect(
+      syncGuardVerdict(
+        new ProductionGuard({ requestConfirmation: vi.fn() }),
+        syncGuardRequest(deleting, 'Production'),
+      ),
+    ).toEqual(expect.objectContaining({ decision: 'refused' }));
   });
 
   it('reads a target registered as production, and one the registry does not know, as production', () => {

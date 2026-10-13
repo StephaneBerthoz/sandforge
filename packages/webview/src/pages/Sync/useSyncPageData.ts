@@ -18,9 +18,16 @@ import type {
   SyncConfigSaveResponse,
   SyncConfigLoadResponse,
   SyncSimulationResult,
+  SyncFileCopyOption,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
-import { SYNC_CONFLICT_STRATEGIES } from '@sandforge/shared';
+import {
+  FILE_COPY_CEILING_MB,
+  SYNC_CONFLICT_STRATEGIES,
+  SYNC_FILES_DEFAULT_MAX_FILE_MB,
+  SYNC_FILES_DEFAULT_RUN_MB,
+  SYNC_FILES_MAX_RUN_MB,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
@@ -47,6 +54,8 @@ interface SyncDraftState {
   targetOrgId: string;
   /** With mode `delta`: carry the source's deletions. Absent from a draft saved before it existed. */
   propagateDeletes?: boolean;
+  /** Copy the files of the records, with the two caps. Absent when off, and from older drafts. */
+  files?: SyncFileCopyOption;
   objectEntries: ObjectSetEntry[];
   /**
    * Field mappings, per object.
@@ -117,6 +126,14 @@ export interface SyncPageData {
   propagateDeletes: boolean;
   /** Turn deletions on or off; only a delta configuration keeps them on. */
   setPropagateDeletes: (on: boolean) => void;
+  /** Whether a run copies the files of the records it writes. */
+  copyFiles: boolean;
+  /** Turn the files on or off. */
+  setCopyFiles: (on: boolean) => void;
+  /** The largest file copied, and the most a run copies, in MB, as typed. */
+  fileCaps: SyncFileCopyOption;
+  /** Set one of the two caps, kept within its bounds. */
+  setFileCap: (cap: keyof SyncFileCopyOption, megabytes: number) => void;
   /**
    * The objects a delta run cannot write, by API name: those written by
    * insert or delete. The run is refused for them, so the wizard does not go
@@ -256,6 +273,33 @@ const DELTA_OPERATIONS: ReadonlySet<SyncOperation> = new Set<SyncOperation>(['up
 /** One shared empty list: a fresh `[]` per render would retrigger every memo. */
 const EMPTY_MAPPINGS: FieldMapping[] = [];
 
+/** The bounds of each file cap, in MB, as the extension checks them. */
+const FILE_CAP_BOUNDS: Readonly<Record<keyof SyncFileCopyOption, number>> = {
+  maxFileSizeMB: FILE_COPY_CEILING_MB,
+  maxRunMB: SYNC_FILES_MAX_RUN_MB,
+};
+
+/**
+ * `megabytes` as a cap the extension takes: a whole number from one to the
+ * cap's ceiling. A box emptied while typing, or a number past the ceiling,
+ * comes back within them rather than refusing the run.
+ */
+export function boundedCap(cap: keyof SyncFileCopyOption, megabytes: number): number {
+  if (!Number.isFinite(megabytes)) return 1;
+  return Math.min(FILE_CAP_BOUNDS[cap], Math.max(1, Math.round(megabytes)));
+}
+
+/** The caps a draft reopens on: its own, kept within bounds, or the defaults. */
+export function fileCapsOf(saved: Partial<SyncFileCopyOption> | undefined): SyncFileCopyOption {
+  return {
+    maxFileSizeMB: boundedCap(
+      'maxFileSizeMB',
+      saved?.maxFileSizeMB ?? SYNC_FILES_DEFAULT_MAX_FILE_MB,
+    ),
+    maxRunMB: boundedCap('maxRunMB', saved?.maxRunMB ?? SYNC_FILES_DEFAULT_RUN_MB),
+  };
+}
+
 /** A draft value the page can still offer, or the default it falls back to. */
 export function offeredOr<T>(offered: readonly T[], value: T, fallback: T): T {
   return offered.includes(value) ? value : fallback;
@@ -346,6 +390,15 @@ export function useSyncPageData(): SyncPageData {
   const [propagateDeletes, setPropagateDeletesValue] = useState<boolean>(
     initialDraft.current.propagateDeletes === true && initialDraft.current.mode === 'delta',
   );
+  const [copyFiles, setCopyFiles] = useState<boolean>(initialDraft.current.files !== undefined);
+  const [fileCaps, setFileCaps] = useState<SyncFileCopyOption>(() =>
+    fileCapsOf(initialDraft.current.files),
+  );
+  const setFileCap = useCallback((cap: keyof SyncFileCopyOption, megabytes: number) => {
+    setFileCaps((prev) => ({ ...prev, [cap]: boundedCap(cap, megabytes) }));
+  }, []);
+  /** What the configuration carries of the files: the caps while on, nothing while off. */
+  const files = copyFiles ? fileCaps : undefined;
   // Deletions are carried by a delta run only: the bridge refuses them on a
   // full one, so leaving delta turns them off rather than leaving a switch on
   // that no run would honour.
@@ -408,6 +461,7 @@ export function useSyncPageData(): SyncPageData {
       direction,
       mode,
       propagateDeletes,
+      files,
       conflictStrategy,
       sourceOrgId,
       targetOrgId,
@@ -420,6 +474,7 @@ export function useSyncPageData(): SyncPageData {
     direction,
     mode,
     propagateDeletes,
+    files,
     conflictStrategy,
     sourceOrgId,
     targetOrgId,
@@ -490,6 +545,7 @@ export function useSyncPageData(): SyncPageData {
     direction,
     mode,
     propagateDeletes,
+    files,
     conflictStrategy,
     objectEntries,
     mappings,
@@ -529,6 +585,7 @@ export function useSyncPageData(): SyncPageData {
     direction,
     mode,
     propagateDeletes,
+    files,
     conflictStrategy,
     objectEntries,
     mappingsByObject,
@@ -739,6 +796,8 @@ export function useSyncPageData(): SyncPageData {
     mode,
     // Sent only when on: a full configuration never carries it.
     ...(mode === 'delta' && propagateDeletes ? { propagateDeletes: true } : {}),
+    // Sent only when on, as the extension reads its absence as off.
+    ...(files ? { files } : {}),
     objects: objectEntries.map((entry, index): SyncObjectConfig => ({
       objectApiName: entry.objectApiName,
       operation: entry.operation,
@@ -922,6 +981,10 @@ export function useSyncPageData(): SyncPageData {
     setMode,
     propagateDeletes,
     setPropagateDeletes,
+    copyFiles,
+    setCopyFiles,
+    fileCaps,
+    setFileCap,
     deltaBlockers,
     conflictStrategy,
     setConflictStrategy,

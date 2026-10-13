@@ -19,9 +19,11 @@
  *
  * A watermark belongs to one scope. Recorded beside it is a fingerprint of
  * what decides which records the object reads and what it writes of them —
- * its filter, operation, key, mappings, transforms and add-ons, and the run's
- * direction and conflict strategy. A change to any of them reads the object
- * whole once: the records the target holds were written under another scope.
+ * its filter, operation, key, mappings, transforms and add-ons, the run's
+ * direction and conflict strategy, and whether it copies the files of its
+ * records. A change to any of them reads the object whole once: the records
+ * the target holds were written under another scope — with files turned on,
+ * the records a delta read would pass over have files that were never copied.
  */
 
 import { createHash } from 'node:crypto';
@@ -124,12 +126,16 @@ function blankToNull(value: string | undefined): string | null {
  * them, as one hash. Its read order is left out: it changes neither.
  */
 export function scopeFingerprint(
-  config: Pick<SyncConfig, 'direction' | 'conflictStrategy'>,
+  config: Pick<SyncConfig, 'direction' | 'conflictStrategy' | 'files'>,
   objectConfig: SyncObjectConfig,
 ): string {
   const scope = {
     direction: config.direction,
     conflictStrategy: config.conflictStrategy,
+    // Left out when off, so a watermark recorded before files could be copied
+    // still reads as the scope it was recorded under. The caps are not in it:
+    // a file past them is read again, and copied, by a later run.
+    copiesFiles: config.files ? true : undefined,
     objectApiName: objectConfig.objectApiName,
     operation: objectConfig.operation,
     externalIdField: blankToNull(objectConfig.externalIdField),
@@ -155,7 +161,10 @@ export type ObjectReadPlan =
  * @param load - What the store holds, or `null` when the configuration is not saved.
  */
 export function planObjectRead(
-  config: Pick<SyncConfig, 'sourceOrgId' | 'targetOrgId' | 'direction' | 'conflictStrategy'>,
+  config: Pick<
+    SyncConfig,
+    'sourceOrgId' | 'targetOrgId' | 'direction' | 'conflictStrategy' | 'files'
+  >,
   objectConfig: SyncObjectConfig,
   load: SyncDeltaLoad | null,
 ): ObjectReadPlan {

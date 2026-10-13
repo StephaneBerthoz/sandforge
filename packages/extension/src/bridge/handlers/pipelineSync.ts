@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { SyncConfig, SyncExecutionResult, SyncOperation } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type {
@@ -16,52 +15,11 @@ import type { SyncGuardVerdict } from './pipelineSteps.js';
  * How a pipeline's Sync step runs a saved configuration: through Sync's own
  * scheduled run, which validates the configuration, consults Production
  * Guard, registers in Live Operations and records the run in Sync's history
- * and the audit trail. Nothing here writes; it says beforehand what the guard
- * will do, and carries the step's answer and its cancel to that run.
+ * and the audit trail, as a pipeline's. Nothing here writes; it says
+ * beforehand what the guard will do, from the request Sync's run judges
+ * itself by (`syncGuardRequest`), and carries the step's answer and its
+ * cancel to that run.
  */
-
-/** The order Sync ranks its operations in: a run is judged by its most severe object. */
-const SYNC_OPERATION_SEVERITY: Readonly<Record<SyncOperation, number>> = {
-  insert: 0,
-  update: 1,
-  upsert: 2,
-  delete: 3,
-};
-
-/**
- * The request Production Guard judges a Sync run of `config` by, built as
- * Sync's own run builds it (`SyncOpsHandler.buildGuardRequest`): the target
- * org's tier, the most severe operation among its objects, and a record count
- * nobody knows before the run reads the source. The run consults the guard
- * again with its own request; this one only says beforehand what it will
- * decide, so that a step it would ask about is refused before the pipeline
- * starts rather than declined once it is under way.
- * @param config - The saved configuration
- * @param targetOrgType - The type the target org is registered with; empty
- *   or absent for one the registry does not know, which the guard reads as
- *   production
- */
-export function syncGuardRequest(
-  config: SyncConfig,
-  targetOrgType: string | undefined,
-): OperationRequest {
-  const objects = config.objects ?? [];
-  let operation: SyncOperation = 'insert';
-  for (const object of objects) {
-    if (SYNC_OPERATION_SEVERITY[object.operation] > SYNC_OPERATION_SEVERITY[operation]) {
-      operation = object.operation;
-    }
-  }
-  const names = objects.map((object) => object.objectApiName);
-  return {
-    orgId: config.targetOrgId,
-    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
-    operation,
-    objectName: names.length > 0 ? names.join(', ') : 'SyncData',
-    recordCount: 'unknown',
-    module: 'sync',
-  };
-}
 
 /**
  * What the guard does with `request`, read from its check alone: nothing is
@@ -85,7 +43,7 @@ export function syncGuardVerdict(
 
 /** What a pipeline's Sync step runs on. */
 export interface PipelineSyncDeps {
-  /** Sync's scheduled run of a configuration (`SyncOpsHandler.executeScheduled`). */
+  /** Sync's unattended run of a configuration (`SyncOpsHandler.executeScheduled`), as a pipeline's. */
   execute: (config: SyncConfig) => Promise<SyncExecutionResult>;
   /**
    * Where that run registers. A cancel of the pipeline reaches the run

@@ -1803,6 +1803,32 @@ describe('SyncOpsHandler', () => {
       expect(entries[0].result.status).toBe('failure');
     });
 
+    it("records a pipeline step's run as a pipeline's: in the history, Live Operations and the audit trail", async () => {
+      const store = wireRealHistory();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+        'pipeline',
+      );
+
+      // It was a schedule's, and "Scheduled sync", whoever started the pipeline.
+      expect(store.list().map((entry) => entry.triggeredBy)).toEqual(['pipeline']);
+      const [op] = tracker.getAll();
+      expect(op.description).toBe('Pipeline sync of 1 object(s)');
+      expect(op.operationId.startsWith('sync:pipeline:')).toBe(true);
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'sync_execute',
+          outcome: 'failure',
+          details: { triggeredBy: 'pipeline' },
+        }),
+      ]);
+      tracker.dispose();
+    });
+
     it('never lets a history-logging failure mask the sync error', async () => {
       handler.setHistoryLogger({
         logExecution: vi.fn(function () {

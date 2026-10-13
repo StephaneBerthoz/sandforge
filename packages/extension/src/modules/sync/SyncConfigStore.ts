@@ -6,6 +6,13 @@ import {
   type SyncDeltaState,
   type SyncWatermark,
 } from './SyncDelta.js';
+import {
+  readFileMap,
+  SYNC_FILE_MAP_MAX,
+  type SyncCopiedFile,
+  type SyncFileMap,
+  type SyncFileMapLoad,
+} from './SyncFiles.js';
 
 /** Key prefix for sync config entries in the config store. */
 const SYNC_CONFIG_PREFIX = 'sync:config:';
@@ -22,6 +29,12 @@ const SYNC_DELTA_PREFIX = 'sync:delta:';
  */
 const SYNC_DELTA_CATEGORY = 'syncDelta';
 
+/** Key prefix of the files a configuration copied, beside its watermarks. */
+const SYNC_FILES_PREFIX = 'sync:files:';
+
+/** Category of the files a configuration copied. */
+const SYNC_FILES_CATEGORY = 'syncFiles';
+
 /**
  * Persists sync configurations to ConfigStore.
  *
@@ -29,7 +42,8 @@ const SYNC_DELTA_CATEGORY = 'syncDelta';
  * and category (`syncConfigs`). Follows the same pattern as AlertStateStore.
  *
  * A delta configuration's watermarks are kept beside it, under its id: see
- * `SyncDelta`. Deleting the configuration deletes them.
+ * `SyncDelta`. So is the record of the files a configuration copied: see
+ * `SyncFiles`. Deleting the configuration deletes both.
  */
 export class SyncConfigStore {
   /** @param configStore - The configuration store backend. */
@@ -73,6 +87,7 @@ export class SyncConfigStore {
    */
   delete(id: string): boolean {
     this.configStore.delete(`${SYNC_DELTA_PREFIX}${id}`);
+    this.configStore.delete(`${SYNC_FILES_PREFIX}${id}`);
     return this.configStore.delete(`${SYNC_CONFIG_PREFIX}${id}`);
   }
 
@@ -114,8 +129,47 @@ export class SyncConfigStore {
   }
 
   /**
+   * The files a configuration copied, read as such or not at all: see
+   * `readFileMap`. A record read wrong would copy files a second time.
+   *
+   * @param id - The configuration ID.
+   */
+  loadFiles(id: string): SyncFileMapLoad {
+    return readFileMap(this.configStore.get<unknown>(`${SYNC_FILES_PREFIX}${id}`));
+  }
+
+  /**
+   * Record one copied file, replacing what was kept of the same source file
+   * between the same orgs. Kept as soon as the file exists in the target, so a
+   * run stopped right after never copies it again.
+   *
+   * @param id - The configuration ID.
+   * @param entry - The file as copied.
+   * @throws {Error} When the record holds as many files as it may, or does not read.
+   */
+  recordFile(id: string, entry: SyncCopiedFile): void {
+    const current = this.loadFiles(id);
+    if (current.kind === 'unreadable') {
+      throw new Error(`the record of copied files does not read: ${current.issue}`);
+    }
+    const entries = current.kind === 'stored' ? current.map.entries : [];
+    const kept = entries.filter(
+      (e) =>
+        e.sourceOrgId !== entry.sourceOrgId ||
+        e.targetOrgId !== entry.targetOrgId ||
+        e.sourceId !== entry.sourceId,
+    );
+    if (kept.length >= SYNC_FILE_MAP_MAX) {
+      throw new Error(`the record of copied files holds ${SYNC_FILE_MAP_MAX} files already`);
+    }
+    const map: SyncFileMap = { version: 1, entries: [...kept, entry] };
+    this.configStore.set(`${SYNC_FILES_PREFIX}${id}`, map, SYNC_FILES_CATEGORY);
+  }
+
+  /**
    * "Run full next time": clear every watermark of a configuration, so its
-   * next run reads each object whole and says it was asked to.
+   * next run reads each object whole and says it was asked to. The record of
+   * the files it copied stays: a full read copies none of them twice.
    *
    * @param id - The configuration ID.
    * @returns How many watermarks were cleared.

@@ -29,6 +29,7 @@ const triggeredByKeyMap: Record<string, string> = {
   manual: 'sync.history.triggeredManual',
   schedule: 'sync.history.triggeredSchedule',
   rerun: 'sync.history.triggeredRerun',
+  pipeline: 'sync.history.triggeredPipeline',
 };
 
 /**

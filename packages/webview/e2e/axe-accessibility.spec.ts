@@ -6663,6 +6663,114 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync first step copying files, with its two caps', async ({ page }) => {
+      await openSyncExecuteStep(
+        bridge,
+        page,
+        theme,
+        { currentStep: 0, files: { maxFileSizeMB: 10, maxRunMB: 100 } },
+        'sync-files-settings',
+      );
+      await page.getByTestId('sync-files-max-run').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results of a run that copied files, some skipped past the caps and one failed', async ({
+      page,
+    }) => {
+      // Not saved: the step says so before the run is asked.
+      await openSyncExecuteStep(bridge, page, theme, {
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      });
+      await page.getByTestId('sync-files-needs-save').waitFor({ timeout: 10_000 });
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'partial',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: ['ContentDocument: Report (4 B): STORAGE_LIMIT_EXCEEDED'],
+            files: {
+              copied: 2,
+              versions: 1,
+              bytes: 1_258_291,
+              links: 1,
+              unchanged: 1,
+              tooLarge: 1,
+              pastRunCap: 2,
+              external: 0,
+              recordNotWritten: 1,
+              failed: 1,
+            },
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-result-files-Account').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync simulation whose files would not fit in the target', async ({ page }) => {
+      await openSyncExecuteStep(bridge, page, theme, {
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      });
+      await page.getByTestId('sync-simulate').click();
+      await bridge.respondToNext('sync:simulate', 'sync:simulate:response', {
+        configId: 'cfg-axe',
+        operationId: 'sim-axe',
+        direction: 'bidirectional',
+        conflictStrategy: 'target_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            read: 3,
+            insert: 3,
+            update: 0,
+            delete: 0,
+            skipped: 0,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+            files: {
+              copied: 3,
+              versions: 0,
+              bytes: 3 * 1_048_576,
+              links: 0,
+              unchanged: 0,
+              tooLarge: 0,
+              pastRunCap: 0,
+              external: 0,
+              recordNotWritten: 0,
+              failed: 0,
+            },
+          },
+        ],
+        files: { remainingBytes: 1_048_576, plannedBytes: 3 * 1_048_576, shortfall: 'no room' },
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-simulation-files-storage').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync run paused from its page, with Resume and Cancel', async ({ page }) => {
       await openSyncExecuteStep(bridge, page, theme);
       await page.getByTestId('sync-run').click();

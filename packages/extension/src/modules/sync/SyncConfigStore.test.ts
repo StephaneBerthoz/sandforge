@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SyncConfigStore } from './SyncConfigStore';
 import type { SyncConfig } from '@sandforge/shared';
 import type { SyncWatermark } from './SyncDelta';
+import type { SyncCopiedFile } from './SyncFiles';
 
 /** Minimal in-memory ConfigStore mock. */
 function createMockConfigStore() {
@@ -188,7 +189,72 @@ describe('SyncConfigStore', () => {
       expect(store.clearDelta('cfg-1')).toBe(0);
     });
   });
+
+  describe('the files a configuration copied', () => {
+    it('keeps each file once per source file and pair of orgs, the last copy winning', () => {
+      store.recordFile('cfg-1', copiedFile());
+      store.recordFile('cfg-1', copiedFile({ sourceVersionId: fakeId('068', 2) }));
+      store.recordFile('cfg-1', copiedFile({ targetOrgId: 'other-org' }));
+
+      const kept = store.loadFiles('cfg-1');
+      expect(kept.kind === 'stored' ? kept.map.entries : []).toEqual([
+        copiedFile({ sourceVersionId: fakeId('068', 2) }),
+        copiedFile({ targetOrgId: 'other-org' }),
+      ]);
+    });
+
+    it('keeps them through "Run full next time": a full read copies none of them twice', () => {
+      store.recordFile('cfg-1', copiedFile());
+
+      store.clearDelta('cfg-1');
+
+      expect(store.loadFiles('cfg-1').kind).toBe('stored');
+    });
+
+    it('deletes them with the configuration', () => {
+      store.save(createSyncConfig());
+      store.recordFile('cfg-1', copiedFile());
+
+      store.delete('cfg-1');
+
+      expect(store.loadFiles('cfg-1')).toEqual({ kind: 'none' });
+    });
+
+    it('reads a record that is not one as unreadable, and refuses to write over it', () => {
+      configStore.set(
+        'sync:files:cfg-1',
+        { version: 1, entries: [{ sourceId: 'x' }] },
+        'syncFiles',
+      );
+
+      expect(store.loadFiles('cfg-1')).toMatchObject({ kind: 'unreadable' });
+      expect(() => store.recordFile('cfg-1', copiedFile())).toThrow(
+        'the record of copied files does not read',
+      );
+    });
+  });
 });
+
+/** A fake id: the object's prefix and a counter, the length of a real one. */
+function fakeId(prefix: string, n: number): string {
+  return `${prefix}${String(n).padStart(12, '0')}AAA`;
+}
+
+/** One file a run copied, as it is recorded. */
+function copiedFile(overrides: Partial<SyncCopiedFile> = {}): SyncCopiedFile {
+  return {
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    objectApiName: 'Account',
+    kind: 'document',
+    sourceId: fakeId('069', 1),
+    targetId: fakeId('069', 9),
+    sourceVersionId: fakeId('068', 1),
+    linked: [fakeId('001', 9)],
+    copiedAt: '2026-10-13T09:01:00.000Z',
+    ...overrides,
+  };
+}
 
 /** One object's watermark as a run records it. */
 function watermark(overrides: Partial<SyncWatermark> = {}): SyncWatermark {

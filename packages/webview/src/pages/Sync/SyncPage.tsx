@@ -6,6 +6,7 @@ import type {
   MappingType,
   FieldMapping,
 } from '@sandforge/shared';
+import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -48,6 +49,7 @@ import { Button } from '../../components/ui/Button';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
 import { SyncDeltaLine } from './SyncDeltaLine';
+import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -192,6 +194,7 @@ export const SyncPage: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
   const deltaHintId = React.useId();
   const deletesHintId = React.useId();
+  const filesHintId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -222,6 +225,10 @@ export const SyncPage: React.FC = () => {
     setMode,
     propagateDeletes,
     setPropagateDeletes,
+    copyFiles,
+    setCopyFiles,
+    fileCaps,
+    setFileCap,
     deltaBlockers,
     conflictStrategy,
     setConflictStrategy,
@@ -509,6 +516,57 @@ export const SyncPage: React.FC = () => {
                 )}
               </div>
 
+              {/* The files of the records it writes: off unless ticked, with the
+                  two caps a run keeps to. */}
+              <div
+                className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                data-testid="sync-files-settings"
+              >
+                <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={copyFiles}
+                    onChange={(e) => setCopyFiles(e.target.checked)}
+                    aria-describedby={filesHintId}
+                    data-testid="sync-files-toggle"
+                  />
+                  {t('sync.files.toggle')}
+                </label>
+                <p id={filesHintId} className="text-[10px] text-text-secondary">
+                  {t('sync.files.toggleHint')}
+                </p>
+                {copyFiles && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
+                    <label className="flex flex-col gap-1 text-xs text-text-primary">
+                      {t('sync.files.maxFileSize')}
+                      <input
+                        type="number"
+                        min={1}
+                        max={FILE_COPY_CEILING_MB}
+                        step={1}
+                        value={fileCaps.maxFileSizeMB}
+                        onChange={(e) => setFileCap('maxFileSizeMB', Number(e.target.value))}
+                        className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
+                        data-testid="sync-files-max-file"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-text-primary">
+                      {t('sync.files.maxRun')}
+                      <input
+                        type="number"
+                        min={1}
+                        max={SYNC_FILES_MAX_RUN_MB}
+                        step={1}
+                        value={fileCaps.maxRunMB}
+                        onChange={(e) => setFileCap('maxRunMB', Number(e.target.value))}
+                        className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
+                        data-testid="sync-files-max-run"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
               {/* A draft saved when manual review was offered: it reopens on
                   target wins, and says so, rather than going on writing the
                   source values under a name that promised a decision. */}
@@ -686,6 +744,11 @@ export const SyncPage: React.FC = () => {
                     {propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
                   </Badge>
                 )}
+                {copyFiles && (
+                  <Badge variant="info" data-testid="sync-review-files">
+                    {t('sync.files.badge')}
+                  </Badge>
+                )}
                 <span className="text-text-primary">
                   {t('common.objectCount', { count: objectEntries.length })}
                 </span>
@@ -731,6 +794,17 @@ export const SyncPage: React.FC = () => {
               {busy && savedRunLabel !== null && (
                 <p className="text-xs text-text-primary" data-testid="sync-saved-run">
                   {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
+                </p>
+              )}
+              {/* Files are copied by a saved configuration only: the run says
+                  so, and so does the page before it is asked. */}
+              {!busy && copyFiles && !configSaved && (
+                <p
+                  className="text-xs text-status-warning"
+                  role="status"
+                  data-testid="sync-files-needs-save"
+                >
+                  {t('sync.files.needsSave')}
                 </p>
               )}
               {!busy && (
@@ -833,18 +907,32 @@ export const SyncPage: React.FC = () => {
                       </span>
                     )}
                   </div>
+                  {result.objectResults.some((obj) => obj.files) && (
+                    <SyncFilesSummary
+                      outcomes={result.objectResults.flatMap((obj) =>
+                        obj.files ? [obj.files] : [],
+                      )}
+                      testId="sync-result-files"
+                    />
+                  )}
                   {result.objectResults.map((obj) => (
                     <Card key={obj.objectApiName}>
                       <CardHeader
                         title={obj.objectApiName}
                         subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
                       />
-                      {(obj.errors.length > 0 || obj.delta) && (
+                      {(obj.errors.length > 0 || obj.delta || obj.files) && (
                         <CardBody>
                           {obj.delta && (
                             <SyncDeltaLine
                               delta={obj.delta}
                               testId={`sync-result-delta-${obj.objectApiName}`}
+                            />
+                          )}
+                          {obj.files && (
+                            <SyncFilesLine
+                              files={obj.files}
+                              testId={`sync-result-files-${obj.objectApiName}`}
                             />
                           )}
                           {obj.errors.map((err, i) => (

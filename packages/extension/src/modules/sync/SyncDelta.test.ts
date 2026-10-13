@@ -109,6 +109,17 @@ describe('scopeFingerprint', () => {
     );
   });
 
+  it('changes when the files are turned on, so the records a delta read would pass over have theirs copied', () => {
+    const files = { maxFileSizeMB: 10, maxRunMB: 100 };
+    expect(scopeFingerprint({ ...CONFIG, files }, account())).not.toBe(
+      scopeFingerprint(CONFIG, account()),
+    );
+    // A cap is no change of scope: a file past it is read again by a later run.
+    expect(scopeFingerprint({ ...CONFIG, files: { ...files, maxRunMB: 5 } }, account())).toBe(
+      scopeFingerprint({ ...CONFIG, files }, account()),
+    );
+  });
+
   it('reads an empty filter or key box as none, and ignores the read order', () => {
     const base = scopeFingerprint(CONFIG, account({ externalIdField: 'Ext_Id__c' }));
     expect(scopeFingerprint(CONFIG, account({ where: '  ' }))).toBe(base);

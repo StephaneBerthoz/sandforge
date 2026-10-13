@@ -43,7 +43,7 @@ describe('SyncDeltaLine', () => {
 
   it('says a full read with its reason', () => {
     expect(lineText(outcome({ read: 'full', since: undefined, reason: 'scope_changed' }))).toMatch(
-      /^Full read \(filter, fields, key or mapping changed\) · 3 changed/,
+      /^Full read \(filter, fields, key, mapping or files changed\) · 3 changed/,
     );
   });
 

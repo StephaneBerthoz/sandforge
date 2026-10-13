@@ -3,11 +3,11 @@ import type { SyncObjectConfig } from '@sandforge/shared';
 import { syncCannotCopy, syncObjectPayloadSchema } from './validatePayload.js';
 
 /**
- * Sync has no file-transfer stage. `Attachment`, `ContentVersion` and
- * `Document` keep their content in a base64 field, which Bulk API 2.0 rejects,
- * so a run with one of them failed past the bulk threshold after writing
- * whatever the REST path had already sent. They are refused by name, with the
- * reason, before a run starts.
+ * `Attachment`, `ContentVersion` and `Document` keep their content in a base64
+ * field, which Bulk API 2.0 rejects, so a run with one of them failed past the
+ * bulk threshold after writing whatever the REST path had already sent. They
+ * are refused by name, with the reason, before a run starts: files travel with
+ * the records they hang on, when a configuration copies them.
  */
 
 function createConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
@@ -35,13 +35,13 @@ function objectIssues(objectApiName: string): string[] {
 
 describe('a sync may not carry an object whose content is a file', () => {
   it.each(['Attachment', 'ContentVersion', 'Document', 'contentversion', 'ATTACHMENT'])(
-    'the bridge refuses %j and says files do not travel',
+    'the bridge refuses %j and says files travel with their records',
     (objectApiName) => {
       const issues = objectIssues(objectApiName);
 
       expect(issues).toHaveLength(1);
       expect(issues[0]).toContain(objectApiName);
-      expect(issues[0]).toMatch(/file/i);
+      expect(issues[0]).toContain('Sync copies files with the records they hang on');
     },
   );
 

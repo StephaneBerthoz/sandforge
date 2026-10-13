@@ -66,6 +66,7 @@ const PINNED_FUNCTIONS = ['syntheticRequest', 'uncorrelated'];
 const SYNTHETIC_CALL_SITES = [
   'bridge/ExtensionHandlers.ts#ExtensionHandlers.replayQueuedOperation:offline-replay',
   'bridge/handlers/SyncOpsHandler.ts#SyncOpsHandler.executeScheduled:sync:schedule',
+  'bridge/handlers/SyncOpsHandler.ts#SyncOpsHandler.executeScheduled:sync:pipeline',
 ];
 
 /** Every call to `uncorrelated` — none: `UncorrelatedReason` is `never`. */

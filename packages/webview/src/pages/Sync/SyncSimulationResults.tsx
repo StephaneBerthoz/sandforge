@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SyncDeltaLine } from './SyncDeltaLine';
+import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
@@ -81,6 +82,9 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         )}
       </div>
       <p className="text-xs text-text-secondary">{t('sync.simulation.nothingWritten')}</p>
+      {simulation.files && (
+        <SyncFilesStorageLine storage={simulation.files} testId="sync-simulation-files-storage" />
+      )}
 
       {simulation.error && (
         <p className="text-xs text-status-error" role="alert" data-testid="sync-simulation-error">
@@ -139,6 +143,15 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 </li>
               )}
             </ul>
+            {o.files && (
+              <div className="mt-2">
+                <SyncFilesLine
+                  files={o.files}
+                  simulated
+                  testId={`sync-simulation-files-${o.objectApiName}`}
+                />
+              </div>
+            )}
             {bidirectional && o.conflicts > 0 && (
               <p className="text-xs text-text-secondary mt-2">
                 {t('sync.simulation.settledBy', { count: o.conflicts, strategy })}

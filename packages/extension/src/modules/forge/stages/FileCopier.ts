@@ -14,6 +14,11 @@
  * larger than the run's cap is left out and listed, never cut short, and the
  * whole set is checked against the file storage the target has left before
  * the run writes anything at all.
+ *
+ * Sync copies the files of the records it writes with this same stage. A run
+ * of a saved Sync configuration may find a file an earlier run copied: it is
+ * then written as a new version of that copy, or only linked to the records
+ * it lacks, never copied as a second document (see {@link FileCopyTarget}).
  */
 
 import type {
@@ -86,6 +91,22 @@ export interface FileHost {
   visibility?: string;
 }
 
+/**
+ * A Salesforce File an earlier run copied into the target. Its content goes
+ * in as a new version of that copy, rather than as a second document.
+ */
+export interface FileCopyTarget {
+  /** The copy's document in the target. */
+  documentId: string;
+  /** The target records the copy is linked to already: none of them is linked again. */
+  linked: readonly string[];
+  /**
+   * The source holds the version copied before: nothing is read or written,
+   * and the copy is only linked to the records it lacks.
+   */
+  unchanged?: boolean;
+}
+
 /** A file the run is to copy. */
 export interface FileToCopy {
   /** The object it is counted under. */
@@ -102,6 +123,8 @@ export interface FileToCopy {
   hosts: FileHost[];
   /** The fields written beside the content, as the source holds them. */
   fields: Record<string, unknown>;
+  /** For a Salesforce File an earlier run copied: the copy its content goes into. */
+  into?: FileCopyTarget;
 }
 
 /** The files of a run's records, before anything is written. */
@@ -404,13 +427,23 @@ export function dryRunLine(entry: ForgeFileObjectReport): string {
   );
 }
 
+/** What a file the stage wrote became in the target. */
+export interface CopiedFile {
+  /** The copy: the document, or the attachment. */
+  targetId: string;
+  /** The target records this call linked it to, the one it was published on first. */
+  linked: string[];
+  /** Whether its content was written as a new version of an earlier copy. */
+  asVersion: boolean;
+}
+
 /** Inputs for {@link copyFiles}. */
 export interface FileCopyInput {
   files: readonly FileToCopy[];
   sourceOrgId: string;
   targetOrgId: string;
   /** Which records the run created, and their ids in the target; files are added to it. */
-  remapper: IdRemapper;
+  remapper: Pick<IdRemapper, 'isCreated' | 'get' | 'add'>;
   deps: FileCopyDeps;
   /**
    * The report the run returns, kept up to date file by file: a run stopped
@@ -422,6 +455,17 @@ export interface FileCopyInput {
   /** Pause/abort checkpoint, called before each file. */
   waitIfPaused: () => Promise<void>;
   onProgress: (event: ForgeProgressEvent) => void;
+  /** Told of each file once it and its links are written: what Sync keeps to not copy it twice. */
+  onCopied?: (file: FileToCopy, copy: CopiedFile) => void;
+}
+
+/** A version's fields: its title and file name. Who sees the document stays as the copy has it. */
+function versionFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const kept: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (field !== 'SharingPrivacy') kept[field] = value;
+  }
+  return kept;
 }
 
 /**
@@ -435,11 +479,17 @@ export interface FileCopyInput {
  * under the object whose removal takes it away whole — a Salesforce File by
  * its document — so a run stopped part way can still have its files removed.
  *
+ * A Salesforce File with a {@link FileCopyTarget} goes into that copy as a new
+ * version, whether or not the run created a record it hangs on, and is linked
+ * to the records the run created that the copy is not linked to yet; one whose
+ * source has not changed is only linked.
+ *
  * @returns The records that were not written — files, and links to them —
  *   for the run's failed count.
  */
 export async function copyFiles(input: FileCopyInput): Promise<number> {
-  const { files, sourceOrgId, targetOrgId, remapper, deps, report, errors, onProgress } = input;
+  const { files, sourceOrgId, targetOrgId, remapper, deps, report, errors, onProgress, onCopied } =
+    input;
   let failures = 0;
 
   const entryOf = (objectApiName: ForgeFileObject): ForgeFileObjectReport => {
@@ -504,11 +554,84 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     entryOf(file.objectApiName).failed++;
   };
 
-  for (const [index, file] of files.entries()) {
+  /**
+   * Link `documentId` to the records of `hosts` the run created, and say which
+   * links the target took: a link it refused is counted as a record not
+   * written.
+   */
+  const link = async (
+    file: FileToCopy,
+    documentId: string,
+    linkHosts: readonly FileHost[],
+  ): Promise<string[]> => {
+    const links = linkHosts.flatMap((host) => {
+      const linkedTo = remapper.get(host.id);
+      return linkedTo
+        ? [
+            {
+              ContentDocumentId: documentId,
+              LinkedEntityId: linkedTo,
+              ShareType: host.shareType ?? 'V',
+              Visibility: host.visibility ?? 'AllUsers',
+            },
+          ]
+        : [];
+    });
+    if (links.length === 0) return [];
+    const linked: string[] = [];
+    attempt('ContentDocumentLink', 'insert', links.length);
+    try {
+      const results = await deps.insertRecords(targetOrgId, 'ContentDocumentLink', links);
+      links.forEach((written, at) => {
+        const result = results[at];
+        if (result?.success) {
+          report.links++;
+          linked.push(written.LinkedEntityId);
+          return;
+        }
+        noteError(
+          'ContentDocumentLink',
+          'insert',
+          file.name,
+          result?.errors.join('; ') || 'The target gave no reason.',
+        );
+      });
+    } catch (err) {
+      for (let at = 0; at < links.length; at++) {
+        noteError('ContentDocumentLink', 'insert', file.name, extractErrorMessage(err));
+      }
+    }
+    return linked;
+  };
+
+  // What the progress counts: the files whose content is read and written. A
+  // copy only linked to the records it lacks is not one of them.
+  const total = files.filter(
+    (f) => !(f.body.objectApiName === 'ContentVersion' && f.into?.unchanged),
+  ).length;
+  let reached = 0;
+
+  for (const file of files) {
     await input.waitIfPaused();
     const hosts = file.hosts.filter((host) => remapper.isCreated(host.id));
+    // A version of an earlier copy goes into that copy, linked to the records
+    // it lacks: its document is not published again on one of them.
+    const into = file.body.objectApiName === 'ContentVersion' ? file.into : undefined;
+    const unlinked = into
+      ? hosts.filter((host) => {
+          const target = remapper.get(host.id);
+          return target !== undefined && !into.linked.includes(target);
+        })
+      : [];
+    if (into?.unchanged) {
+      const linked = await link(file, into.documentId, unlinked);
+      if (linked.length > 0)
+        onCopied?.(file, { targetId: into.documentId, linked, asVersion: false });
+      continue;
+    }
+    const index = reached++;
     const publishedOn = hosts.length > 0 ? remapper.get(hosts[0].id) : undefined;
-    if (!publishedOn) {
+    if (!publishedOn && !into) {
       report.leftOut.push({
         objectApiName: file.objectApiName,
         sourceId: file.sourceId,
@@ -521,8 +644,8 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     onProgress({
       objectName: file.objectApiName,
       status: 'running',
-      progress: Math.round((index / files.length) * 100),
-      message: `Copying ${noun(file.objectApiName, 1)} ${index + 1} of ${files.length} (${formatFileSize(file.bytes)})`,
+      progress: Math.round((index / total) * 100),
+      message: `Copying ${noun(file.objectApiName, 1)} ${index + 1} of ${total} (${formatFileSize(file.bytes)})`,
     });
 
     let content: string;
@@ -545,8 +668,9 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
       continue;
     }
 
-    const record =
-      file.body.objectApiName === 'ContentVersion'
+    const record = into
+      ? { ...versionFields(file.fields), VersionData: content, ContentDocumentId: into.documentId }
+      : file.body.objectApiName === 'ContentVersion'
         ? { ...file.fields, VersionData: content, FirstPublishLocationId: publishedOn }
         : { ...file.fields, Body: content, ParentId: publishedOn };
     let written: InsertResult;
@@ -565,6 +689,18 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
 
     if (file.body.objectApiName === 'Attachment') {
       remapper.add(file.sourceId, written.id, 'Attachment');
+      onCopied?.(file, {
+        targetId: written.id,
+        linked: publishedOn ? [publishedOn] : [],
+        asVersion: false,
+      });
+      continue;
+    }
+
+    if (into) {
+      remapper.add(file.sourceId, into.documentId, 'ContentDocument');
+      const linked = await link(file, into.documentId, unlinked);
+      onCopied?.(file, { targetId: into.documentId, linked, asVersion: true });
       continue;
     }
 
@@ -593,41 +729,12 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     }
     remapper.add(file.sourceId, documentId, 'ContentDocument');
 
-    const links = hosts.slice(1).flatMap((host) => {
-      const linkedTo = remapper.get(host.id);
-      return linkedTo
-        ? [
-            {
-              ContentDocumentId: documentId,
-              LinkedEntityId: linkedTo,
-              ShareType: host.shareType ?? 'V',
-              Visibility: host.visibility ?? 'AllUsers',
-            },
-          ]
-        : [];
+    const linked = await link(file, documentId, hosts.slice(1));
+    onCopied?.(file, {
+      targetId: documentId,
+      linked: publishedOn ? [publishedOn, ...linked] : linked,
+      asVersion: false,
     });
-    if (links.length === 0) continue;
-    attempt('ContentDocumentLink', 'insert', links.length);
-    try {
-      const results = await deps.insertRecords(targetOrgId, 'ContentDocumentLink', links);
-      links.forEach((_, at) => {
-        const result = results[at];
-        if (result?.success) {
-          report.links++;
-          return;
-        }
-        noteError(
-          'ContentDocumentLink',
-          'insert',
-          file.name,
-          result?.errors.join('; ') || 'The target gave no reason.',
-        );
-      });
-    } catch (err) {
-      for (let at = 0; at < links.length; at++) {
-        noteError('ContentDocumentLink', 'insert', file.name, extractErrorMessage(err));
-      }
-    }
   }
 
   for (const entry of report.objects) {

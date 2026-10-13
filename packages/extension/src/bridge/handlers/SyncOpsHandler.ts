@@ -7,12 +7,13 @@ import type {
   SyncConfig,
   SyncConfigSummary,
   SyncExecutionResult,
+  SyncHistoryEntry,
   SyncObjectResult,
   SyncOperation,
   SyncRunControlAnswer,
   SyncSimulationResult,
 } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier, recordWriteHeaders } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -97,6 +98,19 @@ import type {
   OrchestratorQueryFn,
   SourceRead,
 } from '../../modules/sync/SyncOrchestrator.js';
+import {
+  filesSummaryLine,
+  orgFileCopyDeps,
+  type FileCopyOrg,
+  type SyncFileDeps,
+  type SyncFileStore,
+} from '../../modules/sync/SyncFiles.js';
+
+/** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
+export type UnattendedSyncOrigin = Extract<
+  SyncHistoryEntry['triggeredBy'],
+  'schedule' | 'pipeline'
+>;
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -124,6 +138,57 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
   upsert: 2,
   delete: 3,
 };
+
+/**
+ * Build the Production Guard request describing a sync run on its target org.
+ *
+ * The guard judges one operation on one object, while a sync config carries
+ * one operation per object — both are collapsed conservatively:
+ * - `operation`: the most destructive operation configured (see
+ *   {@link SYNC_OPERATION_SEVERITY}). This used to be hard-coded to
+ *   `'upsert'`, which presented a delete-mode sync as a write and let it
+ *   straight past the rule that blocks destructive operations on production.
+ *   A delta run that carries the source's deletions is judged as the delete
+ *   it is.
+ * - `objectName`: every object in the config, not just the first — the audit
+ *   entry and the confirmation prompt must name what is actually touched.
+ * - `recordCount`: `'unknown'`. The source rows are only queried later,
+ *   inside the orchestrator, so no count is known at gate time — the
+ *   previous hard-coded 1 claimed a volume nobody had measured.
+ *
+ * A pipeline's Sync step asks the guard with this same request before its
+ * pipeline starts. It kept a copy of its own, which judged a delta run that
+ * deletes as the upsert it also is: the step was let through beforehand, then
+ * refused by the run as a delete once the steps before it had run.
+ *
+ * @param config - The sync config about to be executed.
+ * @param targetOrgType - The type the target org is registered with; empty or
+ *   absent for one the registry does not know, which the guard reads as
+ *   production.
+ * @returns The guard request for its target org.
+ */
+export function syncGuardRequest(
+  config: SyncConfig,
+  targetOrgType: string | undefined,
+): OperationRequest {
+  const objects = config.objects ?? [];
+  let operation: SyncOperation = 'insert';
+  for (const object of objects) {
+    if (SYNC_OPERATION_SEVERITY[object.operation] > SYNC_OPERATION_SEVERITY[operation]) {
+      operation = object.operation;
+    }
+  }
+  if (config.mode === 'delta' && config.propagateDeletes === true) operation = 'delete';
+  const objectNames = objects.map((o) => o.objectApiName);
+  return {
+    orgId: config.targetOrgId,
+    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
+    operation,
+    objectName: objectNames.length > 0 ? objectNames.join(', ') : 'SyncData',
+    recordCount: 'unknown',
+    module: 'sync',
+  };
+}
 
 /**
  * What a sync did per object, for the audit trail. Each object runs one
@@ -219,6 +284,8 @@ interface SyncReaders {
   findInTarget: OrchestratorFindFn;
   /** What a delta configuration asks both orgs: see `SyncDelta`. */
   deltaReads: SyncDeltaReads;
+  /** What a configuration that copies files reads and writes: see `SyncFiles`. */
+  files: SyncFileDeps;
 }
 
 /**
@@ -457,6 +524,18 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /**
+   * Where a run keeps the files it copied: beside the saved configuration of
+   * the same id, and nowhere for one that is not saved, which copies none.
+   */
+  private fileStoreFor(): SyncFileStore {
+    return {
+      load: (configId) =>
+        this.syncConfigStore.load(configId) ? this.syncConfigStore.loadFiles(configId) : null,
+      record: (configId, entry) => this.syncConfigStore.recordFile(configId, entry),
+    };
+  }
+
+  /**
    * Record a finished run — succeeded, partial, or failed with whatever it
    * wrote before it failed — in the audit trail and the lineage.
    */
@@ -465,6 +544,7 @@ export class SyncOpsHandler implements DomainHandler {
     operationId: string,
     result: SyncExecutionResult,
     guardDecision: GuardDecision | undefined,
+    triggeredBy: SyncHistoryEntry['triggeredBy'],
   ): void {
     recordWriteRun(this.deps, {
       action: 'sync_execute',
@@ -475,6 +555,8 @@ export class SyncOpsHandler implements DomainHandler {
       guard: guardDecision,
       objects: syncAuditObjects(result.objectResults ?? []),
       source: { origin: 'org', orgId: config.sourceOrgId },
+      // What started it: the page, a re-run, a schedule or a pipeline.
+      details: { triggeredBy },
     });
   }
 
@@ -502,45 +584,9 @@ export class SyncOpsHandler implements DomainHandler {
     });
   }
 
-  /**
-   * Build the Production Guard request describing a sync run on its target org.
-   *
-   * The guard judges one operation on one object, while a sync config carries
-   * one operation per object — both are collapsed conservatively:
-   * - `operation`: the most destructive operation configured (see
-   *   {@link SYNC_OPERATION_SEVERITY}). This used to be hard-coded to
-   *   `'upsert'`, which presented a delete-mode sync as a write and let it
-   *   straight past the rule that blocks destructive operations on production.
-   * - `objectName`: every object in the config, not just the first — the audit
-   *   entry and the confirmation prompt must name what is actually touched.
-   * - `recordCount`: `'unknown'`. The source rows are only queried later,
-   *   inside the orchestrator, so no count is known at gate time — the
-   *   previous hard-coded 1 claimed a volume nobody had measured.
-   *
-   * @param config - The sync config about to be executed.
-   * @returns The guard request for its target org.
-   */
+  /** The Production Guard request a run of `config` is judged by: see {@link syncGuardRequest}. */
   private buildGuardRequest(config: SyncConfig): OperationRequest {
-    const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-    const objects = config.objects ?? [];
-    let operation: SyncOperation = 'insert';
-    for (const object of objects) {
-      if (SYNC_OPERATION_SEVERITY[object.operation] > SYNC_OPERATION_SEVERITY[operation]) {
-        operation = object.operation;
-      }
-    }
-    // A delta run that carries the source's deletions deletes target records:
-    // the guard judges it as the delete it is.
-    if (config.mode === 'delta' && config.propagateDeletes === true) operation = 'delete';
-    const objectNames = objects.map((o) => o.objectApiName);
-    return {
-      orgId: config.targetOrgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-      operation,
-      objectName: objectNames.length > 0 ? objectNames.join(', ') : 'SyncData',
-      recordCount: 'unknown',
-      module: 'sync',
-    };
+    return syncGuardRequest(config, this.deps.orgManager.getOrg(config.targetOrgId)?.orgType);
   }
 
   /**
@@ -813,6 +859,9 @@ export class SyncOpsHandler implements DomainHandler {
         // Read as the run reads them; a simulation records no watermark.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
+        // The files a run would copy, found and measured as the run finds
+        // them; none is read or written, and nothing is recorded.
+        files: readers.files,
         onSimulationProgress: (done, total, objectApiName) => {
           const pct = Math.round((done / total) * 100);
           const label = `Simulating ${objectApiName}`;
@@ -1137,6 +1186,44 @@ export class SyncOpsHandler implements DomainHandler {
       signal,
     );
 
+    // What a configuration that copies files reads and writes beside its
+    // records: the requests Forge's file copy sends, over both connections.
+    const fileOrg = (conn: typeof sourceConn): FileCopyOrg => ({
+      pages: {
+        query: async (q) => conn.query<Record<string, unknown>>(q),
+        queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+      },
+      transport: conn,
+      // The links of a copied file, written as every record write is: no
+      // duplicate rule or assignment rule decides them.
+      create: async (objectApiName, records) =>
+        conn.sobject(objectApiName).create(records, { headers: recordWriteHeaders() }),
+    });
+    // The ids the object's read returns, asked for alone: the same filter,
+    // order and bounds as `buildQueryFn`, and on a delta read the same bound.
+    const sourceIds = async (
+      objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      changedSince?: string,
+    ): Promise<string[]> => {
+      const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
+      let soql = `SELECT Id FROM ${safeObj}`;
+      const where = sourceReadWhere(objectConfig.where, changedSince);
+      if (where) soql += ` WHERE ${where}`;
+      if (objectConfig.orderBy) soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
+      const { tier, limits } = limitsFor(config.sourceOrgId);
+      if (tier === 'production') soql += ` LIMIT ${limits.defaultQueryLimit}`;
+      const { records } = await queryAllPages(fileOrg(sourceConn).pages, soql);
+      return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
+    };
+    const files: SyncFileDeps = {
+      copy: orgFileCopyDeps({
+        [config.sourceOrgId]: fileOrg(sourceConn),
+        [config.targetOrgId]: fileOrg(targetConn),
+      }),
+      sourceIds,
+      store: this.fileStoreFor(),
+    };
+
     return {
       sourceConn,
       targetConn,
@@ -1146,6 +1233,7 @@ export class SyncOpsHandler implements DomainHandler {
       describeTargetFields,
       findInTarget,
       deltaReads,
+      files,
     };
   }
 
@@ -1180,7 +1268,12 @@ export class SyncOpsHandler implements DomainHandler {
    * full execution and resolves with the orchestrator result so
    * SyncScheduleExecutor can persist `lastRunAt`/`lastResult`. Lifecycle
    * events still flow on the usual `operation:*` channels and the run lands
-   * in sync history with `triggeredBy: 'schedule'`.
+   * in sync history with its origin as `triggeredBy`.
+   *
+   * A pipeline's Sync step runs its configuration through here too. Its run
+   * was recorded as a schedule's and listed in Live Operations as "Scheduled
+   * sync", whoever had started the pipeline: `origin` says which it is, in the
+   * history, in Live Operations and in the audit trail.
    *
    * The config round-trips through ConfigStore, so it is re-validated here
    * before execution (same defense-in-depth rule as rerunFromSnapshot) — an
@@ -1188,9 +1281,13 @@ export class SyncOpsHandler implements DomainHandler {
    * error channel nobody is listening on at tick time.
    *
    * @param config - The schedule's persisted sync config.
+   * @param origin - What started the run: a schedule, or a pipeline's Sync step.
    * @returns The orchestrator result (status 'failure' on execution error).
    */
-  async executeScheduled(config: SyncConfig): Promise<SyncExecutionResult> {
+  async executeScheduled(
+    config: SyncConfig,
+    origin: UnattendedSyncOrigin = 'schedule',
+  ): Promise<SyncExecutionResult> {
     const parsed = syncExecutePayloadSchema.safeParse({ config });
     if (!parsed.success) {
       throw new Error(
@@ -1201,7 +1298,10 @@ export class SyncOpsHandler implements DomainHandler {
     }
     // No webview request waits on a scheduled run: its origin is a listed
     // synthetic request, whose id doubles as the operationId on operation:*.
-    const msg = syntheticRequest('sync:schedule', crypto.randomUUID(), 'sync:execute');
+    const msg =
+      origin === 'pipeline'
+        ? syntheticRequest('sync:pipeline', crypto.randomUUID(), 'sync:execute')
+        : syntheticRequest('sync:schedule', crypto.randomUUID(), 'sync:execute');
     const operationId = msg.id;
 
     // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
@@ -1240,13 +1340,17 @@ export class SyncOpsHandler implements DomainHandler {
       );
     }
     if (decision === 'declined') {
-      throw new Error('Scheduled sync cancelled (production confirmation declined).');
+      throw new Error(
+        `${origin === 'pipeline' ? 'Pipeline' : 'Scheduled'} sync cancelled (production confirmation declined).`,
+      );
     }
 
     this.dmlTracker.register(operationId, 'sync', 'upsert', filledConfig.objects?.length ?? 0);
     this.activeOperationIds.add(operationId);
     this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
-    const scheduledDescription = `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`;
+    const scheduledDescription = `${origin === 'pipeline' ? 'Pipeline' : 'Scheduled'} sync of ${
+      filledConfig.objects?.length ?? 0
+    } object(s)`;
     sendOperationStarted(this.deps, operationId, 'sync', scheduledDescription);
     // Feed the Monitor "live operations" panel (total unknown until queries
     // run), where its Pause reaches the run's gate as the Sync page's does.
@@ -1260,7 +1364,7 @@ export class SyncOpsHandler implements DomainHandler {
       filledConfig,
       operationId,
       abortController,
-      'schedule',
+      origin,
       guardDecision,
     );
     // Registered like a manual run: Live Operations lists this run, and its
@@ -1507,7 +1611,7 @@ export class SyncOpsHandler implements DomainHandler {
     config: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
-    triggeredBy: 'manual' | 'rerun' | 'schedule',
+    triggeredBy: SyncHistoryEntry['triggeredBy'],
     guardDecision?: GuardDecision,
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = robustnessConfigOf(this.deps);
@@ -1583,6 +1687,15 @@ export class SyncOpsHandler implements DomainHandler {
         // A delta configuration's watermarks, kept beside it.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
+        // The files of the records it writes, when the configuration copies
+        // them, with their progress on the run's.
+        files: {
+          ...readers.files,
+          onProgress: (percent: number, label: string) => {
+            sendOperationProgress(this.deps, operationId, percent, 0, 0, label);
+            this.liveTracker?.updateProgress(operationId, percent, 0, 0, label);
+          },
+        },
       };
       if (!this.deps.services) {
         throw new Error(
@@ -1610,6 +1723,10 @@ export class SyncOpsHandler implements DomainHandler {
         this.liveTracker?.complete(operationId);
       }
       this.dmlTracker.markCompleted(operationId);
+      if (config.files) {
+        const outcomes = result.objectResults.flatMap((r) => (r.files ? [r.files] : []));
+        this.deps.log(`[sync] ${operationId} files: ${filesSummaryLine(outcomes)}`);
+      }
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');
 
@@ -1620,7 +1737,7 @@ export class SyncOpsHandler implements DomainHandler {
       } catch (historyErr: unknown) {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
-      this.recordRun(config, operationId, result, guardDecision);
+      this.recordRun(config, operationId, result, guardDecision, triggeredBy);
 
       const response = buildResponse(
         this.deps,
@@ -1702,7 +1819,7 @@ export class SyncOpsHandler implements DomainHandler {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
       // What it wrote before it failed is in the partial result, when there is one.
-      this.recordRun(config, operationId, failureResult, guardDecision);
+      this.recordRun(config, operationId, failureResult, guardDecision, triggeredBy);
 
       return failureResult;
     } finally {

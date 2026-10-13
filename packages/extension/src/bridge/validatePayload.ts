@@ -127,11 +127,15 @@ export function syncCannotCopy(objectApiName: string): boolean {
 
 /** Why the sync boundary refuses `objectApiName`, in the words a person reads. */
 export function cannotCopyMessage(objectApiName: string): string {
+  // Files travel with the records they hang on, never as an object of their
+  // own: copied as rows, their content is the address the API reads it from,
+  // and Bulk API 2.0 refuses base64 past 200 rows.
   if (isFileBodiedObject(objectApiName)) {
     return (
-      `Sync does not transfer files: "${objectApiName}" keeps its content in a file ` +
-      `body that no sync stage moves. Remove it from this configuration; the sync was not ` +
-      `started.`
+      `Sync copies files with the records they hang on, not as an object of their own: ` +
+      `"${objectApiName}" keeps its content in a file body. Remove it from this ` +
+      `configuration and turn on "Copy the files of these records" instead; the sync was ` +
+      `not started.`
     );
   }
   return (

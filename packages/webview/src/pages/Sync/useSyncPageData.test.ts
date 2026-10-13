@@ -329,6 +329,83 @@ describe('useSyncPageData', () => {
     });
   });
 
+  describe('the files of the records', () => {
+    const base = {
+      currentStep: 4,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+
+    /** The configuration the run was sent. */
+    function sentConfig(): Record<string, unknown> {
+      return (execution.mutate.mock.calls.at(-1)?.[0] as { config: Record<string, unknown> })
+        .config;
+    }
+
+    it('sends no files with a configuration that does not copy them', () => {
+      draft.value = base;
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleExecute());
+
+      expect(result.current.copyFiles).toBe(false);
+      expect(sentConfig()).not.toHaveProperty('files');
+    });
+
+    it('sends the files with their caps once turned on, the defaults sensible for a sandbox', () => {
+      draft.value = base;
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.setCopyFiles(true));
+      act(() => result.current.handleExecute());
+
+      expect(sentConfig().files).toEqual({ maxFileSizeMB: 10, maxRunMB: 100 });
+    });
+
+    it('keeps each cap within what the extension takes', () => {
+      draft.value = base;
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.setCopyFiles(true));
+      act(() => result.current.setFileCap('maxFileSizeMB', 80));
+      act(() => result.current.setFileCap('maxRunMB', 0));
+      expect(result.current.fileCaps).toEqual({ maxFileSizeMB: 35, maxRunMB: 1 });
+
+      act(() => result.current.setFileCap('maxRunMB', Number.NaN));
+      act(() => result.current.setFileCap('maxFileSizeMB', 2.6));
+      expect(result.current.fileCaps).toEqual({ maxFileSizeMB: 3, maxRunMB: 1 });
+    });
+
+    it('reopens a draft that copies files with its caps', () => {
+      draft.value = { ...base, files: { maxFileSizeMB: 5, maxRunMB: 40 } };
+
+      const { result } = renderHook(() => useSyncPageData());
+
+      expect(result.current.copyFiles).toBe(true);
+      expect(result.current.fileCaps).toEqual({ maxFileSizeMB: 5, maxRunMB: 40 });
+    });
+
+    it('drops a simulation once the files are turned on: it no longer says what a run would do', () => {
+      draft.value = base;
+      simulation.data = { objects: [] };
+      const { result } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleSimulate());
+      expect(result.current.simulation).toBeDefined();
+
+      act(() => result.current.setCopyFiles(true));
+      expect(result.current.simulation).toBeUndefined();
+    });
+  });
+
   it('reopens a draft on a strategy no run knows on the default, with nothing to say', () => {
     draft.value = {
       currentStep: 0,

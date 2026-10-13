@@ -416,14 +416,33 @@ export class DataSync {
 }
 
 /**
+ * The two codes Salesforce refuses a lookup with when it points at something
+ * the target org does not have: a record it cannot see, or an id it does not
+ * hold at all.
+ */
+const CROSS_REFERENCE_CODES = [
+  'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+  'INVALID_CROSS_REFERENCE_KEY',
+];
+
+/**
+ * The words of those refusals when a shape carries no code: "insufficient
+ * access rights on cross-reference id", "invalid cross reference id" — a
+ * Developer Edition writes it without the hyphen, and an unmapped Account
+ * copied between two of them lost every row over its OwnerId — and the French
+ * "ID de référence croisée".
+ */
+const CROSS_REFERENCE_WORDS = /cross[- ]reference id|r[ée]f[ée]rence crois[ée]e/i;
+
+/**
  * Salesforce refusing a row because a lookup points at something the target
- * org does not have. The wording is the API's own and stays English even on a
- * localised org; the code is matched too, for the shapes that carry it.
+ * org does not have, by its code or, where the shape carries none, by its
+ * words in English or French.
  */
 function isCrossReferenceFailure(message: string): boolean {
   return (
-    message.includes('INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY') ||
-    message.toLowerCase().includes('cross-reference id')
+    CROSS_REFERENCE_CODES.some((code) => message.includes(code)) ||
+    CROSS_REFERENCE_WORDS.test(message)
   );
 }
 

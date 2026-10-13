@@ -1,4 +1,26 @@
 import { z } from 'zod';
+import { FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '../constants/file-copy.js';
+
+/** The largest file a Sync configuration copies unless it sets another size, in MB. */
+export const SYNC_FILES_DEFAULT_MAX_FILE_MB = FILE_COPY_DEFAULT_MAX_MB;
+
+/**
+ * The most a Sync run copies unless the configuration sets another amount, in
+ * MB: half the file storage of a Developer sandbox, so one run cannot fill it.
+ */
+export const SYNC_FILES_DEFAULT_RUN_MB = 100;
+
+/** The most a Sync run can be set to copy, in MB. */
+export const SYNC_FILES_MAX_RUN_MB = 2_000;
+
+/**
+ * A configuration's choice to copy the files of the records it writes: two
+ * whole numbers of megabytes, the largest file no more than one call carries.
+ */
+export const syncFileCopyOptionSchema = z.object({
+  maxFileSizeMB: z.number().int().min(1).max(FILE_COPY_CEILING_MB),
+  maxRunMB: z.number().int().min(1).max(SYNC_FILES_MAX_RUN_MB),
+});
 
 /** Transform rule configuration */
 export const transformRuleConfigSchema = z.object({
@@ -95,6 +117,8 @@ export const syncConfigSchema = z.object({
   enableRollback: z.boolean().default(false),
   /** With `mode: 'delta'`: carry the source's deletions to the target. Off unless set. */
   propagateDeletes: z.boolean().optional(),
+  /** Copy the files of the records each object writes. Off unless set. */
+  files: syncFileCopyOptionSchema.optional(),
 });
 
 /** Inferred type for transform rule configuration input */

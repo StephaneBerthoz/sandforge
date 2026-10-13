@@ -35,7 +35,7 @@ export class SyncExecutionLogger {
   logExecution(
     config: SyncConfig,
     result: SyncExecutionResult,
-    triggeredBy: 'manual' | 'schedule' | 'rerun',
+    triggeredBy: SyncHistoryEntry['triggeredBy'],
     scheduleId?: string,
   ): SyncHistoryEntry {
     const endTimeMs = new Date(result.timestamp).getTime();

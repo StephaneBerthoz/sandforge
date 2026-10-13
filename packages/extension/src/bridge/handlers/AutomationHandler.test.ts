@@ -1387,6 +1387,79 @@ describe('AutomationHandler', () => {
         ]);
       });
 
+      /** What Sync's run answers once it has written its five records. */
+      const synced = {
+        configId: 'cfg-1',
+        operationId: 'sync-op',
+        status: 'success' as const,
+        objectResults: [],
+        totalProcessed: 5,
+        totalSuccess: 5,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 80,
+        timestamp: '2026-10-13T08:00:00.000Z',
+      };
+
+      it("does not count a Sync step's run against the pipeline timeout", async () => {
+        // A budget of 30 ms and a Sync run of 80: the run has its own Pause,
+        // Cancel and progress, and the pipeline used to cancel it part way.
+        deps.services = realServices(30).services;
+        const runSync = vi.fn(async (_config: unknown, _answer: unknown, signal?: AbortSignal) => {
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          return { ...synced, ...(signal?.aborted ? { cancelled: true, status: 'partial' } : {}) };
+        });
+        handler.setStepRunners({ ...syncRunners('allowed'), runSync } as PipelineStepRunners);
+
+        await run([{ type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } }]);
+
+        expect(runSync.mock.calls[0][2]?.aborted).toBe(false);
+        expect(runResponse(deps).status).toBe('completed');
+      });
+
+      it('still counts the steps after the Sync step against the pipeline timeout', async () => {
+        deps.services = realServices(30).services;
+        handler.setStepRunners(syncRunners('allowed'));
+
+        await run([
+          { type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } },
+          { type: 'delay', config: { seconds: 60 } },
+        ]);
+
+        expect(runResponse(deps).error).toBe(
+          'Pipeline ran out of time: sandforge.pipeline.timeout stopped it after 30 ms.',
+        );
+      });
+
+      it("cancels a Sync step's run when the pipeline is cancelled", async () => {
+        deps.services = realServices().services;
+        const registry = new BackgroundOperationRegistry();
+        deps.infraServices = {
+          backgroundRegistry: registry,
+        } as unknown as HandlerDeps['infraServices'];
+        // Sync's run ends as a cancelled run once its signal aborts.
+        const runSync = vi.fn(
+          (_config: unknown, _answer: unknown, signal?: AbortSignal) =>
+            new Promise<typeof synced & { cancelled?: boolean }>((resolve) => {
+              signal?.addEventListener('abort', () =>
+                resolve({ ...synced, status: 'success', cancelled: true }),
+              );
+            }),
+        );
+        handler.setStepRunners({ ...syncRunners('allowed'), runSync } as PipelineStepRunners);
+
+        const started = run(
+          [{ type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } }],
+          'run-sync-cancel',
+        );
+        await vi.waitFor(() => expect(runSync).toHaveBeenCalled());
+        registry.abort('run-sync-cancel');
+        await started;
+
+        expect(runSync.mock.calls[0][2]?.aborted).toBe(true);
+        expect(runResponse(deps).status).toBe('cancelled');
+      });
+
       it('lists the saved configurations with what the guard does with each', async () => {
         handler.setStepRunners(syncRunners('asks'));
 

@@ -38,7 +38,7 @@ import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
 import { SeedOpsHandler } from './handlers/SeedOpsHandler.js';
 import { SeedCloneHandler } from './handlers/SeedCloneHandler.js';
 import { SeedCsvHandler } from './handlers/SeedCsvHandler.js';
-import { SyncOpsHandler } from './handlers/SyncOpsHandler.js';
+import { SyncOpsHandler, syncGuardRequest } from './handlers/SyncOpsHandler.js';
 import { SyncHistoryHandler } from './handlers/SyncHistoryHandler.js';
 import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
@@ -69,7 +69,7 @@ import { ExecutionHandler } from './handlers/ExecutionHandler.js';
 import { I18nHandler } from './handlers/I18nHandler.js';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
 import { SyncConfigStore } from '../modules/sync/SyncConfigStore.js';
-import { runPipelineSync, syncGuardRequest, syncGuardVerdict } from './handlers/pipelineSync.js';
+import { runPipelineSync, syncGuardVerdict } from './handlers/pipelineSync.js';
 
 /**
  * Thenable-returning command executor — mirrors `vscode.commands.executeCommand`
@@ -263,7 +263,7 @@ export class ExtensionHandlers {
       runSync: (config, answer, signal) =>
         runPipelineSync(
           {
-            execute: (run) => this.syncHandler.executeScheduled(run),
+            execute: (run) => this.syncHandler.executeScheduled(run, 'pipeline'),
             registry: this.backgroundRegistry,
           },
           config,

@@ -9,7 +9,7 @@ import type {
   SyncSimulationResult,
   GrappeConfig,
 } from '@sandforge/shared';
-import { buildObjectResult, type DataSync } from './DataSync.js';
+import { buildObjectResult, type DataSync, type OperationOutcome } from './DataSync.js';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
@@ -38,6 +38,13 @@ import {
   leftToThePlatformNote,
   lookupsThePlatformFills,
 } from '../../core/common/platformRecords.js';
+import {
+  copyPlannedFiles,
+  planRunFiles,
+  SyncFilesRefusedError,
+  type SyncFileDeps,
+  type SyncFilePlan,
+} from './SyncFiles.js';
 
 /** How a source read of one object is asked, beyond the object's own filter. */
 export interface SourceRead {
@@ -137,6 +144,12 @@ export interface SyncOrchestratorDeps {
   deltaStore?: SyncDeltaStore;
   deltaReads?: SyncDeltaReads;
   /**
+   * What a configuration that copies files reads and writes beside its
+   * records, and where it keeps which file it copied where: see `SyncFiles`.
+   * Without it, such a configuration is refused before anything is read.
+   */
+  files?: SyncFileDeps;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -174,6 +187,8 @@ interface PreparedObject {
   read: number;
   /** The records for the write, conflicts settled, in the order read. */
   records: Record<string, unknown>[];
+  /** The source id of each of `records`, in the same order: what a record's files are found by. */
+  sourceIds: Array<string | undefined>;
   /** On a bidirectional run: the records both orgs hold with different values. */
   conflicts: ConflictRecord[];
   /** The records before the strategy settled those conflicts. */
@@ -222,6 +237,30 @@ export class SyncOrchestrator {
     const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
     const deltaLoad = this.deltaLoadOf(config);
 
+    // The files of every object, found and measured before the first write: a
+    // run whose files would not fit in the target is refused with nothing
+    // written, rather than stopped once its records are there without them.
+    let filePlan: SyncFilePlan | undefined;
+    try {
+      filePlan = await this.planFiles(config, sortedObjects, deltaLoad);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new SyncRunFailure(
+        message,
+        buildResult(config.id, operationId, [], startTime, 'failure'),
+        err,
+      );
+    }
+    if (filePlan?.storage.shortfall) {
+      throw new SyncRunFailure(`${filePlan.storage.shortfall} Nothing was written.`, {
+        ...buildResult(config.id, operationId, [], startTime, 'failure'),
+        files: filePlan.storage,
+      });
+    }
+    /** A result of this run, with what its files took of the target's storage. */
+    const withFiles = (result: SyncExecutionResult): SyncExecutionResult =>
+      filePlan ? { ...result, files: filePlan.storage } : result;
+
     const totalRecords = await this.countForGrappe(config, sortedObjects, deltaLoad);
     const grappeActive = this.isGrappeActive(totalRecords);
     if (grappeActive) {
@@ -253,9 +292,14 @@ export class SyncOrchestrator {
      * read and written, and the run was reported by its objects' counts as if
      * nobody had stopped it.
      */
-    const stopHere = (notReached: readonly SyncObjectConfig[]): SyncExecutionResult => {
+    const stopHere = (
+      notReached: readonly SyncObjectConfig[],
+      reason?: string,
+    ): SyncExecutionResult => {
       endGrappe();
-      return stoppedResult(config.id, operationId, objectResults, startTime, notReached);
+      return withFiles(
+        stoppedResult(config.id, operationId, objectResults, startTime, notReached, reason),
+      );
     };
 
     let partitionIndex = 0;
@@ -279,9 +323,18 @@ export class SyncOrchestrator {
       };
       const withPlan = (r: SyncObjectResult, deletions?: CarriedDeletions): SyncObjectResult =>
         plan ? { ...r, delta: deltaOutcomeOf(plan, read.rows, deletions) } : r;
+      // On a configuration that copies files: the records the write took, by source id.
+      const plannedFiles = filePlan?.objects.get(objectConfig.objectApiName);
+      const written = plannedFiles ? new Map<string, string>() : undefined;
       let synced: SyncObjectResult | typeof NOT_WRITTEN;
       try {
-        synced = await this.syncObject(config, objectConfig, leftOut, plan ? read : undefined);
+        synced = await this.syncObject(
+          config,
+          objectConfig,
+          leftOut,
+          plan ? read : undefined,
+          written,
+        );
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
         // of it, and a REST write stopped before one of its batches wrote the
@@ -324,7 +377,7 @@ export class SyncOrchestrator {
         );
         throw new SyncRunFailure(
           err instanceof Error ? err.message : String(err),
-          buildResult(config.id, operationId, objectResults, startTime, 'failure'),
+          withFiles(buildResult(config.id, operationId, objectResults, startTime, 'failure')),
           err,
         );
       }
@@ -335,6 +388,37 @@ export class SyncOrchestrator {
         return stopHere(sortedObjects.slice(index));
       }
       let result: SyncObjectResult = synced;
+
+      // The files of the records it wrote, once they are in the target: each
+      // goes to the copy of its record there.
+      let filesComplete = true;
+      if (plannedFiles && written && config.files) {
+        await this.deps.pauseGate?.whilePaused(this.deps.signal);
+        if (this.deps.signal?.aborted) {
+          objectResults.push(withPlan(result));
+          return stopHere(sortedObjects.slice(index + 1), filesNotCopied(objectConfig));
+        }
+        const files = await copyPlannedFiles({
+          config,
+          option: config.files,
+          objectApiName: objectConfig.objectApiName,
+          planned: plannedFiles,
+          written,
+          deps: this.deps.files as SyncFileDeps,
+          signal: this.deps.signal,
+          waitIfPaused: () =>
+            this.deps.pauseGate?.whilePaused(this.deps.signal) ?? Promise.resolve(),
+        });
+        result = { ...result, files: files.outcome, errors: [...result.errors, ...files.notes] };
+        // A file not copied this time is copied by the next run only if that
+        // run reads its record again: the watermark stays where it was.
+        filesComplete =
+          files.outcome.failed === 0 && files.outcome.pastRunCap === 0 && files.unplanned === 0;
+        if (files.cancelled) {
+          objectResults.push(withPlan(result));
+          return stopHere(sortedObjects.slice(index + 1), filesNotCopied(objectConfig));
+        }
+      }
 
       // The source's deletions, after its changes: only on a delta read, which
       // knows since when to look. A full read has no point to start from, and
@@ -370,6 +454,7 @@ export class SyncOrchestrator {
       // read bound. Anything else reads again from the same point next time.
       const clean =
         result.failed === 0 &&
+        filesComplete &&
         !read.cut &&
         (deletions === undefined ||
           (deletions.deleteFailed === 0 && deletions.error === undefined && deletions.complete));
@@ -418,7 +503,7 @@ export class SyncOrchestrator {
 
     endGrappe();
 
-    return buildResult(config.id, operationId, objectResults, startTime, status);
+    return withFiles(buildResult(config.id, operationId, objectResults, startTime, status));
   }
 
   /**
@@ -592,6 +677,7 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     const ordered = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
+    let filePlan: SyncFilePlan | undefined;
     const answer = (ending: Partial<SyncSimulationResult> = {}): SyncSimulationResult => ({
       configId: config.id,
       operationId: `sync-simulation-${startTime}`,
@@ -600,16 +686,35 @@ export class SyncOrchestrator {
       objects,
       duration: Date.now() - startTime,
       timestamp: new Date().toISOString(),
+      ...(filePlan ? { files: filePlan.storage } : {}),
       ...ending,
     });
 
     // A simulation reads the watermarks a run would read, and records none.
     const deltaLoad = this.deltaLoadOf(config);
+    // And finds the files a run would copy, as the run finds them before its
+    // first write; what refuses the run stops the simulation there.
+    try {
+      filePlan = await this.planFiles(config, ordered, deltaLoad);
+    } catch (err: unknown) {
+      if (this.deps.signal?.aborted) return answer({ cancelled: true });
+      return answer({ error: err instanceof Error ? err.message : String(err) });
+    }
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
       try {
-        objects.push(await this.simulateObject(config, objectConfig, deltaLoad));
+        const simulated = await this.simulateObject(config, objectConfig, deltaLoad);
+        const files = filePlan?.objects.get(objectConfig.objectApiName);
+        objects.push(
+          files
+            ? {
+                ...simulated,
+                files: files.outcome,
+                notes: [...simulated.notes, ...files.notes],
+              }
+            : simulated,
+        );
       } catch (err: unknown) {
         // A lookup the cancel cut short is the cancel, not an error of the read.
         if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -721,8 +826,9 @@ export class SyncOrchestrator {
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
     read?: ObjectRead,
+    written?: Map<string, string>,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const { records } = await this.prepare(config, objectConfig, leftOut, read);
+    const { records, sourceIds } = await this.prepare(config, objectConfig, leftOut, read);
 
     if (records.length === 0) {
       return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
@@ -738,6 +844,30 @@ export class SyncOrchestrator {
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
     // formula found nothing there and wrote its field empty.
+    if (written) {
+      // A run that copies files needs each record the write took, and its id
+      // in the target: the files of a record go to its copy there.
+      const note = (outcomes: readonly OperationOutcome[]): void => {
+        outcomes.forEach((outcome, at) => {
+          const sourceId = sourceIds[at];
+          if (outcome.success && outcome.id && sourceId) written.set(sourceId, outcome.id);
+        });
+      };
+      try {
+        const { outcomes, notes } = await this.deps.dataSync.write(
+          { ...objectConfig, fieldMappings: [], addOnFields: [] },
+          records,
+        );
+        note(outcomes);
+        return withRowsLeftOut(
+          buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, notes),
+          leftOut,
+        );
+      } catch (err: unknown) {
+        if (err instanceof WriteCancelledError) note(err.written);
+        throw err;
+      }
+    }
     return withRowsLeftOut(
       await this.deps.dataSync.sync(
         { ...objectConfig, fieldMappings: [], addOnFields: [] },
@@ -786,7 +916,14 @@ export class SyncOrchestrator {
     const sourceRecords = creates ? leftOut.keep(objectConfig.objectApiName, read) : read;
 
     if (sourceRecords.length === 0) {
-      return { read: read.length, records: [], conflicts: [], unsettled: [], matchField };
+      return {
+        read: read.length,
+        records: [],
+        sourceIds: [],
+        conflicts: [],
+        unsettled: [],
+        matchField,
+      };
     }
 
     const mappedRecords = sourceRecords.map((record) => {
@@ -836,10 +973,49 @@ export class SyncOrchestrator {
     return {
       read: read.length,
       records: finalRecords,
+      sourceIds: sourceRecords.map((record) =>
+        typeof record.Id === 'string' ? record.Id : undefined,
+      ),
       conflicts,
       unsettled: recordsWithAddOns,
       matchField,
     };
+  }
+
+  /**
+   * The files of every object of a configuration that copies them, found and
+   * measured before anything is written: each object from the read the run
+   * will make of it — on a delta read, from its watermark. `undefined` for a
+   * configuration that copies none, which reads no file at all.
+   *
+   * @throws {SyncFilesRefusedError} When the run may not copy files: see `planRunFiles`.
+   */
+  private async planFiles(
+    config: SyncConfig,
+    objects: readonly SyncObjectConfig[],
+    load: SyncDeltaLoad | null | undefined,
+  ): Promise<SyncFilePlan | undefined> {
+    const option = config.files;
+    if (!option) return undefined;
+    const deps = this.deps.files;
+    if (!deps) {
+      throw new SyncFilesRefusedError(
+        'This session cannot copy files: it reads no file content or file storage. ' +
+          'Nothing was read or written.',
+      );
+    }
+    return planRunFiles({
+      config,
+      option,
+      deps,
+      objects: objects.map((objectConfig) => {
+        const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
+        return {
+          objectConfig,
+          ...(plan?.read === 'delta' ? { changedSince: changedSinceLiteral(plan.since) } : {}),
+        };
+      }),
+    });
   }
 }
 
@@ -902,14 +1078,27 @@ function stoppedResult(
   objectResults: SyncObjectResult[],
   startTime: number,
   notReached: readonly SyncObjectConfig[],
+  reason?: string,
 ): SyncExecutionResult {
   const reached = determineStatus(objectResults) === 'failure' ? 'failure' : 'partial';
   const names = notReached.map((o) => o.objectApiName);
+  const before =
+    names.length > 0
+      ? `Cancelled before ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} synced.`
+      : 'Cancelled.';
   return {
     ...buildResult(configId, operationId, objectResults, startTime, reached),
     cancelled: true,
-    error: `Cancelled before ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} synced.`,
+    error: reason ? `${reason} ${names.length > 0 ? before : ''}`.trim() : before,
   };
+}
+
+/** Why a run stopped while the files of an object's records were copied. */
+function filesNotCopied(objectConfig: SyncObjectConfig): string {
+  return (
+    `Cancelled while the files of ${objectConfig.objectApiName} were copied: those copied stay ` +
+    'in the target, the others are copied by the next run.'
+  );
 }
 
 /**
@@ -927,7 +1116,10 @@ function determineStatus(results: SyncObjectResult[]): 'success' | 'partial' | '
 
   // A deletion the target refused, or a deletion pass that could not run, is
   // an object the run did not finish, however its records were written.
-  const hasFailed = results.some((r) => r.failed > 0 || deletionsFell(r.delta));
+  // So is one whose files were not all copied: the target lacks them.
+  const hasFailed = results.some(
+    (r) => r.failed > 0 || deletionsFell(r.delta) || (r.files?.failed ?? 0) > 0,
+  );
   if (hasFailed) {
     return 'partial';
   }

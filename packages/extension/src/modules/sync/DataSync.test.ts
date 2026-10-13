@@ -374,6 +374,39 @@ describe('DataSync — a lookup the target does not have', () => {
     expect(result.errors.join(' ')).toContain('Key_Contact__c');
   });
 
+  it.each([
+    [
+      'as a Developer Edition words it, without the hyphen',
+      'INVALID_CROSS_REFERENCE_KEY: invalid cross reference id',
+    ],
+    [
+      'by its code alone, in a French org',
+      'INVALID_CROSS_REFERENCE_KEY: ID de référence croisée non valide',
+    ],
+    [
+      'in French words, without a code',
+      "droits d'accès insuffisants sur l'ID de référence croisée",
+    ],
+  ])(
+    'writes the record again without the lookup when the refusal comes %s',
+    async (_how, message) => {
+      const insert = vi
+        .fn()
+        .mockResolvedValueOnce([{ id: '', success: false, errors: [message] }])
+        .mockResolvedValueOnce([{ id: '001NEW', success: true, errors: [] }]);
+      const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+      const result = await sync.sync(
+        createConfig({ operation: 'insert', externalIdField: undefined }),
+        [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
+      );
+
+      expect(insert).toHaveBeenCalledTimes(2);
+      expect(Object.keys(insert.mock.calls[1][1][0])).toEqual(['Name']);
+      expect(result.success).toBe(1);
+    },
+  );
+
   it('does not try again for a failure that is not a cross-reference', async () => {
     const insert = vi
       .fn()

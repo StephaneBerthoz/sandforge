@@ -464,15 +464,23 @@ test('no step that writes to an org runs in a pipeline but Sync, and Sync only a
   const run = pipelineSteps.match(/function syncHandler\([\s\S]*?\n\}/);
   assert.ok(run, 'no syncHandler found in pipelineSteps.ts');
   assert.match(run[0], /runners\.runSync\(config, givenAnswer\(context\)/);
+  // As a pipeline's run, which the history, Live Operations and the audit
+  // trail name as one.
   assert.match(
     extensionHandlers,
-    /this\.syncHandler\.executeScheduled\(run\)/,
+    /this\.syncHandler\.executeScheduled\(run, 'pipeline'\)/,
     "a Sync step no longer runs through Sync's own run, which consults the guard",
   );
   const guard = read(extensionSrc, 'core', 'precheck', 'ProductionGuard.ts');
+  // The answer of the run under way, and only while that run lasts.
   assert.match(
     guard,
-    /const given = givenAnswers\.getStore\(\);\s*if \(given\) \{\s*return given\.approved;/,
+    /function liveAnswer\(\)[^{]*\{\s*const given = givenAnswers\.getStore\(\);\s*return given\?\.live \? given : undefined;/,
+    'the guard no longer reads the answer of the run under way alone',
+  );
+  assert.match(
+    guard,
+    /const given = liveAnswer\(\);\s*if \(given\) \{\s*return given\.approved;/,
     "the guard no longer takes the Approval step's answer for its question",
   );
   // And the palette says where the others run instead, and what Sync needs.

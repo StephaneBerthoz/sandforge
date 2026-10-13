@@ -161,6 +161,45 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('history-delta-Account')).toBeNull();
   });
 
+  it("says a pipeline's run was started by a pipeline, not by a schedule", () => {
+    useSyncHistoryStore.setState({
+      selectedEntry: { ...makeMockEntry(), triggeredBy: 'pipeline' },
+    });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByText(/Triggered by: Pipeline/)).toBeDefined();
+  });
+
+  it('says how many files the run copied, and what became of each object’s', () => {
+    const entry = makeMockEntry();
+    entry.configSnapshot.files = { maxFileSizeMB: 10, maxRunMB: 100 };
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      files: {
+        copied: 2,
+        versions: 0,
+        bytes: 1_048_576,
+        links: 0,
+        unchanged: 1,
+        tooLarge: 0,
+        pastRunCap: 1,
+        external: 0,
+        recordNotWritten: 0,
+        failed: 0,
+      },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-files-summary').textContent).toBe(
+      '2 files, 1 MB copied, 1 skipped past the caps',
+    );
+    expect(screen.getByTestId('history-files-Contact').textContent).toContain(
+      '1 skipped: past the most a run copies',
+    );
+    expect(screen.queryByTestId('history-files-Account')).toBeNull();
+  });
+
   it('should call rerun with correct entryId when Run Again is clicked', () => {
     const rerunSpy = vi.fn();
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry(), rerun: rerunSpy });

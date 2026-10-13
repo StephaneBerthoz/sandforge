@@ -10,6 +10,8 @@ import type {
   PipelineRun,
   PipelineStepResult,
   PipelineStepUpdate,
+  SyncConfig,
+  SyncExecutionResult,
   TriggerType,
 } from '@sandforge/shared';
 import { TRIGGERED_RUN_PREFIX } from '@sandforge/shared';
@@ -47,6 +49,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
 import { describeSyncConfigs, registerPipelineSteps } from './pipelineSteps.js';
 import type { ApprovalAsk, PipelineStepRunners } from './pipelineSteps.js';
+import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { ApprovalGate } from '../../modules/automation/ApprovalGate.js';
 import { AuditTrailStore, auditUserKey } from '../../modules/audit/auditTrail.js';
 
@@ -123,7 +126,10 @@ function localUserKey(): string | undefined {
   }
 }
 
-/** A run's time budget, held while an Approval step waits for a person. */
+/**
+ * A run's time budget, held while an Approval step waits for a person and
+ * while a Sync step's run goes on.
+ */
 interface RunBudget {
   /** Start counting: the run starts. */
   start(): void;
@@ -184,8 +190,12 @@ function runBudget(ms: number, expire: () => void): RunBudget {
 interface RunWiring {
   /** The run's operation id: an Approval step's question is matched to the run by it. */
   operationId: string;
-  /** Called with true while an Approval step waits for its answer, and false once it has it. */
-  onApprovalWait: (waiting: boolean) => void;
+  /**
+   * Called with true while a step whose time is bounded elsewhere runs — an
+   * Approval step waiting for its answer, a Sync step's run — and with false
+   * once it ends.
+   */
+  holdBudget: (held: boolean) => void;
 }
 
 /** Message types handled by AutomationHandler. */
@@ -260,13 +270,37 @@ export class AutomationHandler implements DomainHandler {
     signal: AbortSignal | undefined,
     run: RunWiring,
   ): Promise<PipelineApprovalRecord> {
-    run.onApprovalWait(true);
+    run.holdBudget(true);
     try {
       const record = await this.approvals().ask({ ...ask, operationId: run.operationId }, signal);
       this.recordApproval(ask, record, run.operationId);
       return record;
     } finally {
-      run.onApprovalWait(false);
+      run.holdBudget(false);
+    }
+  }
+
+  /**
+   * Run a Sync step's configuration with the run's time budget held.
+   *
+   * Sync's run has its own Pause and Cancel, in Live Operations and on the
+   * Sync page, and its progress. Counted against `sandforge.pipeline.timeout`
+   * — five minutes unless set — a Sync step longer than that was cancelled by
+   * the pipeline part way, its records half written. The pipeline's own cancel
+   * still reaches it: `signal` is the step's, which the run's cancel aborts.
+   */
+  private async runSyncUntimed(
+    runSync: NonNullable<PipelineStepRunners['runSync']>,
+    config: SyncConfig,
+    answer: GivenAnswer,
+    signal: AbortSignal | undefined,
+    run: RunWiring,
+  ): Promise<SyncExecutionResult> {
+    run.holdBudget(true);
+    try {
+      return await runSync(config, answer, signal);
+    } finally {
+      run.holdBudget(false);
     }
   }
 
@@ -582,9 +616,16 @@ export class AutomationHandler implements DomainHandler {
 
     const stepExecutor = new StepExecutor();
     if (this.stepRunners) {
-      const wiring: RunWiring = run ?? { operationId: '', onApprovalWait: () => undefined };
+      const wiring: RunWiring = run ?? { operationId: '', holdBudget: () => undefined };
+      const { runSync } = this.stepRunners;
       registerPipelineSteps(stepExecutor, {
         ...this.stepRunners,
+        ...(runSync
+          ? {
+              runSync: (config: SyncConfig, answer: GivenAnswer, signal?: AbortSignal) =>
+                this.runSyncUntimed(runSync, config, answer, signal, wiring),
+            }
+          : {}),
         ...(this.approvals().canAsk
           ? {
               askApproval: (ask: ApprovalAsk, signal?: AbortSignal) =>
@@ -644,7 +685,7 @@ export class AutomationHandler implements DomainHandler {
     });
     const orchestrator = await this.buildOrchestrator({
       operationId,
-      onApprovalWait: (waiting) => (waiting ? budget.hold() : budget.resume()),
+      holdBudget: (held) => (held ? budget.hold() : budget.resume()),
     });
 
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
@@ -706,7 +747,8 @@ export class AutomationHandler implements DomainHandler {
     // The time an Approval step waits for a person is not counted: that wait
     // has its own bound, the step's, of up to a day. Counted against the
     // budget, an Approval left an hour to be answered was stopped at five
-    // minutes, as a run out of time.
+    // minutes, as a run out of time. Nor is a Sync step's run, which has its
+    // own Pause, Cancel and progress: see `runSyncUntimed`.
     //
     // The same signal is the one a cancel aborts: the run is registered with
     // it, so `execution:abort` from the page, or Cancel in Live Operations,

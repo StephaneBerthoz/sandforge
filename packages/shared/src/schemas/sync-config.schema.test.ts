@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 
 import {
   SYNC_CONFLICT_STRATEGIES,
+  SYNC_FILES_DEFAULT_MAX_FILE_MB,
+  SYNC_FILES_DEFAULT_RUN_MB,
   syncConfigSchema,
+  syncFileCopyOptionSchema,
   syncObjectConfigSchema,
   fieldMappingSchema,
   transformRuleSchema,
@@ -308,5 +311,27 @@ describe('transformRuleSchema', () => {
         config: {},
       }),
     ).toThrow();
+  });
+});
+
+describe('syncFileCopyOptionSchema', () => {
+  it('takes the defaults, sensible for a sandbox', () => {
+    expect(
+      syncFileCopyOptionSchema.safeParse({
+        maxFileSizeMB: SYNC_FILES_DEFAULT_MAX_FILE_MB,
+        maxRunMB: SYNC_FILES_DEFAULT_RUN_MB,
+      }).success,
+    ).toBe(true);
+    expect([SYNC_FILES_DEFAULT_MAX_FILE_MB, SYNC_FILES_DEFAULT_RUN_MB]).toEqual([10, 100]);
+  });
+
+  it.each([
+    { maxFileSizeMB: 0, maxRunMB: 100 },
+    { maxFileSizeMB: 36, maxRunMB: 100 },
+    { maxFileSizeMB: 10, maxRunMB: 0 },
+    { maxFileSizeMB: 10, maxRunMB: 2_001 },
+    { maxFileSizeMB: 10.5, maxRunMB: 100 },
+  ])('refuses caps out of bounds: %j', (option) => {
+    expect(syncFileCopyOptionSchema.safeParse(option).success).toBe(false);
   });
 });

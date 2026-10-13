@@ -109,3 +109,30 @@ describe('unknown keys do not cross the sync boundary', () => {
     });
   });
 });
+
+/**
+ * The files option is stored with the configuration a schedule and a pipeline
+ * run: dropped at the boundary, a saved configuration would run without the
+ * files it was saved to copy.
+ */
+describe('the files a configuration copies', () => {
+  it('keeps the choice and its two caps', () => {
+    const files = { maxFileSizeMB: 10, maxRunMB: 100 };
+
+    const parsed = syncConfigSavePayloadSchema.parse({ config: { ...validSyncConfig(), files } });
+
+    expect(parsed.config.files).toEqual(files);
+  });
+
+  it.each([
+    [{ maxFileSizeMB: 36, maxRunMB: 100 }, 'files.maxFileSizeMB'],
+    [{ maxFileSizeMB: 0, maxRunMB: 100 }, 'files.maxFileSizeMB'],
+    [{ maxFileSizeMB: 10, maxRunMB: 2001 }, 'files.maxRunMB'],
+    [{ maxFileSizeMB: 10, maxRunMB: 1.5 }, 'files.maxRunMB'],
+  ])('refuses caps out of bounds: %j', (files, path) => {
+    const parsed = syncExecutePayloadSchema.safeParse({ config: { ...validSyncConfig(), files } });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues.map((issue) => issue.path.slice(1).join('.'))).toContain(path);
+  });
+});

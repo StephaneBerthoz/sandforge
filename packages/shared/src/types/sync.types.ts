@@ -60,6 +60,69 @@ export interface SyncConfig {
    * matches on. Off unless set.
    */
   propagateDeletes?: boolean;
+  /**
+   * Copy the files of the records each object writes: the latest version of
+   * every Salesforce File linked to one of them, and their legacy
+   * attachments. Off unless set; absent, no file is read.
+   */
+  files?: SyncFileCopyOption;
+}
+
+/**
+ * A configuration's choice to copy the files of the records it writes, with
+ * the two caps a run keeps to.
+ */
+export interface SyncFileCopyOption {
+  /** Largest file copied, in MB: a larger one is skipped and counted, never cut short. */
+  maxFileSizeMB: number;
+  /**
+   * Most a run copies, in MB: the files past it are skipped and counted, and
+   * the next run copies them.
+   */
+  maxRunMB: number;
+}
+
+/**
+ * What a run did with the files of one object's records, or what a
+ * simulation found it would do.
+ */
+export interface SyncFilesOutcome {
+  /** Files created in the target: a Salesforce File's first copy, or an attachment. */
+  copied: number;
+  /**
+   * New versions added to a Salesforce File an earlier run copied, because the
+   * source holds a newer version of it: never a second document.
+   */
+  versions: number;
+  /** The bytes those files and versions took. */
+  bytes: number;
+  /** Links written from a copied file to the other target records it hangs on. */
+  links: number;
+  /** Files an earlier run copied whose source has not changed since: not copied again. */
+  unchanged: number;
+  /** Skipped: larger than the configuration's largest file. */
+  tooLarge: number;
+  /** Skipped: past the most a run copies. The next run copies them. */
+  pastRunCap: number;
+  /** Skipped: kept outside Salesforce, so there is no content to copy. */
+  external: number;
+  /** Not copied: no record they hang on was written. */
+  recordNotWritten: number;
+  /** Not copied: their content could not be read, or the target refused it. */
+  failed: number;
+}
+
+/**
+ * What a run's files came to against the target's file storage, read before
+ * anything was written.
+ */
+export interface SyncFilesStorage {
+  /** The target's file storage left, in bytes, as its `/limits` said. */
+  remainingBytes: number;
+  /** What the files the run set out to copy take, in bytes, within its caps. */
+  plannedBytes: number;
+  /** Why the files do not fit, with the numbers: a run is refused on it. Absent when they fit. */
+  shortfall?: string;
 }
 
 /**
@@ -196,6 +259,11 @@ export interface SyncExecutionResult {
    * since the objects after the cancel were not synced.
    */
   cancelled?: boolean;
+  /**
+   * On a configuration that copies files: the target's file storage as read
+   * before the run wrote anything, and what its files were to take of it.
+   */
+  files?: SyncFilesStorage;
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */
@@ -210,8 +278,11 @@ export interface SyncHistoryEntry {
   startTime: ISODateString;
   /** When the sync execution ended. */
   endTime: ISODateString;
-  /** How this execution was triggered. */
-  triggeredBy: 'manual' | 'schedule' | 'rerun';
+  /**
+   * How this execution was triggered: from the Sync page, by a re-run from
+   * the history, by a schedule, or by a pipeline's Sync step.
+   */
+  triggeredBy: 'manual' | 'schedule' | 'rerun' | 'pipeline';
   /** If triggered by a schedule, the schedule entry ID. */
   scheduleId?: UUID;
 }
@@ -269,6 +340,8 @@ export interface SyncObjectResult {
   upsertSplit?: { created: number; updated: number };
   /** On a delta configuration: how the object was read, and the deletions it carried. */
   delta?: SyncDeltaOutcome;
+  /** On a configuration that copies files: what became of the files of the records it wrote. */
+  files?: SyncFilesOutcome;
 }
 
 /**
@@ -308,6 +381,8 @@ export interface SyncObjectSimulation {
    * as well.
    */
   delta?: SyncDeltaOutcome;
+  /** On a configuration that copies files: the files a run would copy, and those it would skip. */
+  files?: SyncFilesOutcome;
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */
@@ -326,6 +401,8 @@ export interface SyncSimulationResult {
   error?: string;
   /** The object whose read failed, when one did. */
   failedObject?: ApiName;
+  /** On a configuration that copies files: what they would take of the target's file storage. */
+  files?: SyncFilesStorage;
 }
 
 /** Conflict record needing resolution */

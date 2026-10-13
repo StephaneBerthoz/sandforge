@@ -246,6 +246,8 @@ export type InboundRequest = BaseMessage & { readonly id: RequestId };
 const SYNTHETIC_ID_PREFIX = {
   /** A due sync schedule (`SyncOpsHandler.executeScheduled`); the id is also its operationId. */
   'sync:schedule': 'sync:schedule:',
+  /** A pipeline's Sync step (`SyncOpsHandler.executeScheduled`); the id is also its operationId. */
+  'sync:pipeline': 'sync:pipeline:',
   /** An operation queued while offline (`ExtensionHandlers.replayQueuedOperation`). */
   'offline-replay': 'offline-replay-',
 } as const;

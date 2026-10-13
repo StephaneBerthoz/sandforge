@@ -46,6 +46,8 @@ const BULK_WRITER = source('packages/extension/src/modules/sync/BulkDataWriter.t
 const VALIDATE_PAYLOAD = source('packages/extension/src/bridge/validatePayload.ts');
 const SYNC_PAGE_DATA = source('packages/webview/src/pages/Sync/useSyncPageData.ts');
 const SYNC_DELTA = source('packages/extension/src/modules/sync/SyncDelta.ts');
+const SYNC_FILES = source('packages/extension/src/modules/sync/SyncFiles.ts');
+const SYNC_CONFIG_STORE = source('packages/extension/src/modules/sync/SyncConfigStore.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -243,6 +245,27 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain(
       'Each row gets its own result\n  back, with its record id, whatever fields it carries',
     );
+  });
+
+  it('says files travel with their records, are never copied twice, and stay when nothing removes them', () => {
+    // Positive control: the run copies them with Forge's stage, keeps where
+    // each went beside the watermarks, measures them against the target's
+    // storage first, and a reset of the watermarks leaves that record alone.
+    expect(SYNC_FILES).toContain("from '../forge/stages/FileCopier.js'");
+    expect(SYNC_FILES).toContain('export const SYNC_FILE_MAP_MAX = 5_000;');
+    expect(SYNC_FILES).toContain('remainingStorageBytes(deps.copy, config.targetOrgId)');
+    expect(SYNC_ORCHESTRATOR).toContain('await copyPlannedFiles({');
+    expect(SYNC_CONFIG_STORE).toContain('The record of\n   * the files it copied stays');
+    expect(VALIDATE_PAYLOAD).toContain('Sync copies files with the records they hang on');
+
+    expect(DOC).toContain('### Files');
+    expect(DOC).toContain('which keeps which file it copied where (5 000 at most)');
+    expect(DOC).toContain('added as a version of the copy in the target, never as a second file');
+    expect(DOC).toContain("the target's file storage is read (`/limits`)");
+    expect(DOC).toContain(
+      'Sync has no undo: what a run writes, records and files alike, stays in the target',
+    );
+    expect(DOC).not.toContain('Files do not travel');
   });
 
   it('says the Grappe count costs one API request per object', () => {
