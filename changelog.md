@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.50.0] - 2026-10-13
+
+Sync runs on its own, pipelines can write after an approval, and a canary watches.
+
+### Added
+
+- Sync delta: a saved config reads only what changed since its last clean run,
+  can carry deletions over, and runs full after a scope change or a reset.
+- Sync copies the files of the records it copies, within the target's storage
+  and two caps (off by default).
+- The Sync page runs a saved config now.
+- Automation: an Approval step, a Condition editor, and a Sync step that runs a
+  saved config, after an Approval where Production Guard would ask.
+- DataOps exports a backup from the host, page by page, to the file you pick.
+- The Restore tab offers a backup that failed part-way, marked partial.
+- A weekly canary runs SandForge's own commands against two Developer Editions.
+- Forge reads and writes a run of whole tables page by page, counts before it
+  reads, and takes its ceiling from `sandforge.forge.maxRecordsPerObject`.
+
+### Changed
+
+- Automation no longer has Script, Loop and Parallel steps; a pipeline that
+  holds one is refused by name.
+
+### Fixed
+
+- A Cancel sent while Production Guard is asking stops a Frozen removal or a
+  Sync run before it writes.
+- A removal the user stops is audited as cancelled.
+- A pipeline's Sync run is recorded as such and is not cut by the pipeline's
+  time budget.
+- Sync writes a record again without the lookup on either form of the
+  cross-reference refusal.
+- Files left by a backup that never saved its metadata are removed after a day.
+- A Forge rehearsal links a row the target already holds, as the run does,
+  instead of refusing it and every row under it.
+- A run not yet removed keeps its removal plan when later runs fill the store.
+- An approval given to a pipeline's Sync step answers Production Guard only
+  while that run lasts.
+
 ## [1.48.0] - 2026-10-13
 
 Backups hold whole objects, and every long wait can be stopped.
