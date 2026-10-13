@@ -5,6 +5,7 @@ import {
   aiNl2SoqlPayloadSchema,
   aiForgePlanPayloadSchema,
   aiGeneratePipelinePayloadSchema,
+  aiToolCancelPayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
@@ -17,9 +18,21 @@ import {
 import type { NL2SOQL, NL2SOQLResult, SchemaContext } from '../../../modules/ai/NL2SOQL.js';
 import { suggestionText, type OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
 import { checkForgeRootQuery } from '../../../modules/ai/forgeRootQuery.js';
+import { InFlightCalls, untilAborted } from './inFlightCalls.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:forge-plan', 'ai:generate-pipeline']);
+const AI_TOOLS_TYPES = new Set([
+  'ai:nl2soql',
+  'ai:forge-plan',
+  'ai:generate-pipeline',
+  'ai:tool:cancel',
+]);
+
+/**
+ * What a draft the user stopped is answered with, on its own channel: no
+ * draft, and the code the page reads as "back to idle", not as a failure.
+ */
+const STOPPED = { success: false, code: 'CANCELLED' } as const;
 
 /** What an AI feature answers when a prompt comes in and no provider is set up. */
 const AI_NOT_CONFIGURED = 'AI not configured. Set your API key in Settings > AI.';
@@ -71,9 +84,16 @@ interface SchemaConnection {
  * either direction: a failure is resolved once by `sendOperationFailed`, on
  * the side that raises it, and the suggestion is shown there as a VS Code
  * notification.
+ *
+ * Each draft can be stopped, as a chat question can: `ai:tool:cancel` names
+ * the request, its call to the model is aborted, and the request is answered
+ * on its own channel with code `CANCELLED`.
  */
 export class AIToolsHandler implements DomainHandler {
   private aiModules?: AIModules;
+
+  /** The drafts waiting on the org or the model, by the id of their request. */
+  private readonly drafting = new InFlightCalls();
 
   /**
    * Per-org describeGlobal catalog. Same keys, TTL and shape as the caches in
@@ -146,9 +166,23 @@ export class AIToolsHandler implements DomainHandler {
       case 'ai:generate-pipeline':
         await this.handleGeneratePipeline(msg);
         return true;
+      case 'ai:tool:cancel':
+        this.handleCancel(msg);
+        return true;
       default:
         return false;
     }
+  }
+
+  /**
+   * Stop the draft a request waits on. The request answers for itself, with
+   * code `CANCELLED`; one that waits on nothing any more is left as it is.
+   */
+  private handleCancel(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(aiToolCancelPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    this.drafting.abort(parsed.requestId);
   }
 
   private async handleNL2SOQL(msg: InboundRequest): Promise<void> {
@@ -156,14 +190,22 @@ export class AIToolsHandler implements DomainHandler {
     const parsed = validatePayload(aiNl2SoqlPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
     const { query, orgId } = parsed;
+    const call = this.drafting.begin(msg.id);
     try {
       const nl2soql = this.aiModules?.nl2soql;
       if (!nl2soql) {
         throw new Error(AI_NOT_CONFIGURED);
       }
-      const conn = await this.connect(orgId);
-      const catalog = await this.loadCatalog(orgId, conn);
-      const { result, described } = await this.draft(nl2soql, query, orgId, conn, catalog);
+      const conn = await untilAborted(this.connect(orgId), call.signal);
+      const catalog = await untilAborted(this.loadCatalog(orgId, conn), call.signal);
+      const { result, described } = await this.draft(
+        nl2soql,
+        query,
+        orgId,
+        conn,
+        catalog,
+        call.signal,
+      );
 
       // The validator holds every catalog entry the prompt did not describe as
       // a bare name, so a FROM on an object nobody described is reported as
@@ -200,12 +242,21 @@ export class AIToolsHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
+      if (call.signal.aborted) {
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'ai:nl2soql:response', { ...STOPPED }),
+        );
+        this.deps.log(`[TX] ai:nl2soql:response cancelled`);
+        return;
+      }
       this.deps.log(`[ERR] ai:nl2soql: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
         success: false,
         error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
+    } finally {
+      call.end();
     }
   }
 
@@ -228,6 +279,7 @@ export class AIToolsHandler implements DomainHandler {
     const parsed = validatePayload(aiForgePlanPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
     const { orgId, prompt } = parsed;
+    const call = this.drafting.begin(msg.id);
     try {
       const nl2soql = this.aiModules?.nl2soql;
       if (prompt !== undefined && !nl2soql) {
@@ -240,31 +292,34 @@ export class AIToolsHandler implements DomainHandler {
         );
         return;
       }
-      const conn = await this.connect(orgId);
-      const catalog = await this.loadCatalog(orgId, conn);
+      const conn = await untilAborted(this.connect(orgId), call.signal);
+      const catalog = await untilAborted(this.loadCatalog(orgId, conn), call.signal);
       let soql = parsed.soql ?? '';
       let explanation: string | undefined;
       if (prompt !== undefined && nl2soql) {
-        const { result } = await this.draft(nl2soql, prompt, orgId, conn, catalog);
+        const { result } = await this.draft(nl2soql, prompt, orgId, conn, catalog, call.signal);
         soql = result.soql;
         explanation = result.explanation;
       }
 
-      const check = await checkForgeRootQuery(soql, {
-        catalog,
-        describe: async (name) => {
-          const object = await this.describeObject(orgId, conn, name);
-          return {
-            name: object.apiName,
-            label: object.label,
-            fields: object.fields.map((f) => ({
-              name: f.apiName,
-              relationshipName: f.relationshipName,
-            })),
-          };
-        },
-        explain: (query) => conn.request(`/query/?explain=${encodeURIComponent(query)}`),
-      });
+      const check = await untilAborted(
+        checkForgeRootQuery(soql, {
+          catalog,
+          describe: async (name) => {
+            const object = await this.describeObject(orgId, conn, name);
+            return {
+              name: object.apiName,
+              label: object.label,
+              fields: object.fields.map((f) => ({
+                name: f.apiName,
+                relationshipName: f.relationshipName,
+              })),
+            };
+          },
+          explain: (query) => conn.request(`/query/?explain=${encodeURIComponent(query)}`),
+        }),
+        call.signal,
+      );
 
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'ai:forge-plan:response', {
@@ -278,6 +333,13 @@ export class AIToolsHandler implements DomainHandler {
         }),
       );
     } catch (err: unknown) {
+      if (call.signal.aborted) {
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'ai:forge-plan:response', { ...STOPPED }),
+        );
+        this.deps.log(`[TX] ai:forge-plan:response cancelled`);
+        return;
+      }
       this.deps.log(`[ERR] ai:forge-plan: ${extractErrorMessage(err)}`);
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'ai:forge-plan:response', {
@@ -285,6 +347,8 @@ export class AIToolsHandler implements DomainHandler {
           error: extractErrorMessage(err),
         }),
       );
+    } finally {
+      call.end();
     }
   }
 
@@ -305,6 +369,9 @@ export class AIToolsHandler implements DomainHandler {
    * full catalog is ~21 500 tokens of names the model cannot build a SELECT
    * from, so it is a last resort, sent only when nothing was recognised and
    * the alternative is a prompt with no schema at all.
+   *
+   * `signal` is the page's Stop: the describes stop being waited on, and the
+   * request to the model is aborted.
    */
   private async draft(
     nl2soql: NL2SOQL,
@@ -312,16 +379,20 @@ export class AIToolsHandler implements DomainHandler {
     orgId: string,
     conn: SchemaConnection,
     catalog: SObjectCatalogEntry[],
+    signal: AbortSignal,
   ): Promise<{ result: NL2SOQLResult; described: DescribedObject[] }> {
     const mentioned = resolveMentionedObjects(request, catalog);
-    const described = await this.describeObjects(orgId, conn, mentioned);
+    const described = await untilAborted(this.describeObjects(orgId, conn, mentioned), signal);
     const promptContext: SchemaContext = {
       objects:
         described.length > 0
           ? described
           : catalog.map((s) => ({ apiName: s.name, label: s.label, fields: [] })),
     };
-    const result = await nl2soql.generateSOQL(request, promptContext);
+    const result = await untilAborted(
+      nl2soql.generateSOQL(request, promptContext, { signal }),
+      signal,
+    );
     return { result, described };
   }
 
@@ -402,6 +473,7 @@ export class AIToolsHandler implements DomainHandler {
     const parsed = validatePayload(aiGeneratePipelinePayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
     const { description, orgIds } = parsed;
+    const call = this.drafting.begin(msg.id);
     try {
       if (!this.aiModules?.pipelineGenerator) {
         throw new Error(
@@ -416,8 +488,12 @@ export class AIToolsHandler implements DomainHandler {
           type: pipelineOrgType(org?.orgType),
         };
       });
-      const { suggestions = [], ...pipeline } =
-        await this.aiModules.pipelineGenerator.generatePipeline(description, availableOrgs);
+      const { suggestions = [], ...pipeline } = await untilAborted(
+        this.aiModules.pipelineGenerator.generatePipeline(description, availableOrgs, {
+          signal: call.signal,
+        }),
+        call.signal,
+      );
       // A wish for work that writes to an org draws no step but says where
       // that work runs, which is the answer to give: as codes the page words
       // in the reader's language, and in English for the log.
@@ -450,12 +526,21 @@ export class AIToolsHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
+      if (call.signal.aborted) {
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'ai:generate-pipeline:response', { ...STOPPED }),
+        );
+        this.deps.log(`[TX] ai:generate-pipeline:response cancelled`);
+        return;
+      }
       this.deps.log(`[ERR] ai:generate-pipeline: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
         success: false,
         error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
+    } finally {
+      call.end();
     }
   }
 }

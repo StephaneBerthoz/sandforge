@@ -26,6 +26,11 @@ export interface ControlPanelProps {
    * keep a lookup empty, records left a draft.
    */
   leftByStop?: readonly AutopilotStopLeftover[];
+  /**
+   * The emails a stopped run read and held back until their task was in,
+   * and never sent: the stop came first.
+   */
+  emailsHeldForTheirTask?: number;
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
@@ -33,6 +38,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   runOperationId,
   notWritten,
   leftByStop = [],
+  emailsHeldForTheirTask = 0,
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<ControlTab>('stats');
@@ -119,6 +125,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               ? t('autopilot.control.stoppedNotWritten', { list: notWritten.join(', ') })
               : t('autopilot.control.stoppedAllWritten')}
           </p>
+          {/* Read and waiting for the task each names, they were never
+              sent and counted nowhere: the email node read as written. */}
+          {emailsHeldForTheirTask > 0 && (
+            <p className="mt-1" data-testid="control-stopped-emails-held">
+              {t('autopilot.control.stoppedEmailsHeld', { count: emailsHeldForTheirTask })}
+            </p>
+          )}
           {/* The stop sends neither the second pass nor the statuses set
               aside at insert: records it wrote keep a lookup empty, or stay
               drafts. Said here, with what was not written, so the user

@@ -437,12 +437,16 @@ describe('Autopilot bridge flow', () => {
         stopped: true,
         notWritten: ['Contact'],
         leftByStop: [{ objectApiName: 'Account', lookupsLeftEmpty: 4 }],
+        emailsHeldForTheirTask: 2,
       },
       executeRequest.id,
     );
 
     expect(screen.getByTestId('control-stopped-left').textContent).toBe(
       'Account: 4 records keep a lookup empty that the second pass would have filled.',
+    );
+    expect(screen.getByTestId('control-stopped-emails-held').textContent).toContain(
+      '2 emails on a case were never sent',
     );
     const contact = useAutopilotStore
       .getState()
@@ -464,6 +468,25 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByTestId('autopilot-scan-error')).toBeDefined();
     expect(screen.getByTestId('autopilot-scan-error').textContent).toContain('describe failed');
     expect(useAutopilotStore.getState().step).toBe('connect');
+  });
+
+  it('says a scan asked before the module loaded in the page’s words, and stops waiting', () => {
+    render(<AutopilotPage />);
+    fireEvent.click(screen.getByTestId('source-org-org-1'));
+    fireEvent.click(screen.getByTestId('target-org-org-2'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+
+    const scanRequest = lastRequestOfType('autopilot:scan-schema');
+    dispatchBridgeMessage(
+      'autopilot:error',
+      { message: 'Autopilot module is not initialized.', code: 'AUTOPILOT_NOT_READY' },
+      scanRequest.id,
+    );
+
+    expect(screen.getByTestId('autopilot-scan-error').textContent).toContain(
+      'Autopilot is not loaded in this window yet',
+    );
+    expect(screen.getByTestId('autopilot-scan-error').textContent).not.toContain('not initialized');
   });
 
   it('should return to review when execution is declined by the production guard', () => {

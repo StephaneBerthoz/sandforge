@@ -20,6 +20,7 @@ function aiState(overrides: Partial<ForgeAIPlanState> = {}): ForgeAIPlanState {
     notConfigured: false,
     requestDraft: vi.fn(),
     recheck: vi.fn(),
+    stop: vi.fn(),
     ...overrides,
   };
 }
@@ -52,6 +53,22 @@ function renderPanel(
 }
 
 describe('ForgeAIPanel', () => {
+  it('offers Stop while a draft waits on the model, and stops it', () => {
+    const ai = aiState({ prompt: 'energy accounts', busy: true });
+    renderPanel(ai);
+
+    fireEvent.click(screen.getByTestId('forge-ai-stop'));
+
+    expect(screen.getByTestId('forge-ai-stop').textContent).toBe(i18n.t('ai.stop'));
+    expect(ai.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Stop while nothing waits', () => {
+    renderPanel(aiState({ prompt: 'energy accounts' }));
+
+    expect(screen.queryByTestId('forge-ai-stop')).toBeNull();
+  });
+
   it('says how to set up a provider, and collects no prompt, when none is', () => {
     const { onOpenSettings } = renderPanel(aiState(), { aiAvailable: false });
 

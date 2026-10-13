@@ -57,7 +57,22 @@ let mockGenerateMutationState = {
   loading: false,
   error: null as string | null,
   reset: vi.fn(),
+  requestId: null as string | null,
 };
+
+const mockPostMessage = vi.fn();
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
 
 /** What each query answers, by request type; a type left out answers nothing yet. */
 let mockQueryData: Record<string, unknown> = {};
@@ -122,7 +137,33 @@ describe('AutomationPage', () => {
       loading: false,
       error: null,
       reset: vi.fn(),
+      requestId: null,
     };
+    mockPostMessage.mockClear();
+  });
+
+  it('offers Stop while the model writes a draft, and stops it by its request', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    mockGenerateMutationState.loading = true;
+    mockGenerateMutationState.requestId = 'gen-7';
+    render(<AutomationPage />);
+
+    fireEvent.click(screen.getByTestId('generate-pipeline-stop'));
+
+    const sent = mockPostMessage.mock.calls.map(
+      ([envelope]) => (envelope as { payload: { type: string; payload?: unknown } }).payload,
+    );
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: 'ai:tool:cancel', payload: { requestId: 'gen-7' } }),
+    );
+    expect(mockGenerateMutationState.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Stop while no draft is being written', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+
+    expect(screen.queryByTestId('generate-pipeline-stop')).toBeNull();
   });
 
   it('says next to a draft what it leaves out and where that work runs', () => {

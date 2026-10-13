@@ -68,6 +68,16 @@ describe('NL2SOQL', () => {
       expect(prompt).toContain('Name');
     });
 
+    it('hands the provider the signal that stops the call, so a Stop aborts the request', async () => {
+      const controller = new AbortController();
+
+      await converter.generateSOQL('Show me all accounts', MOCK_SCHEMA, {
+        signal: controller.signal,
+      });
+
+      expect(mockProvider.mock.calls[0][2]).toEqual({ signal: controller.signal });
+    });
+
     it('should parse the AI response into a structured result', async () => {
       const result = await converter.generateSOQL('Get all accounts', MOCK_SCHEMA);
 

@@ -1,12 +1,29 @@
+import React, { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
+import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedSelectStep } from './SeedSelectStep';
 import type { SeedSelectStepProps } from './SeedSelectStep';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
+
+const mockPostMessage = vi.fn();
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
 
 /** The NL2SOQL answer under test, wrapped in the mutation shape the step reads. */
 function nl2soqlStub(
@@ -186,5 +203,86 @@ describe('SeedSelectStep NL2SOQL draft', () => {
 
     expect(screen.queryByTestId('nl2soql-unverified')).toBeNull();
     expect(screen.getByTestId('nl2soql-error').textContent).toContain('Bogus__c');
+  });
+});
+
+describe('SeedSelectStep NL2SOQL Stop', () => {
+  /** The step over the real NL2SOQL request, as the wizard drives it. */
+  const Harness: React.FC = () => {
+    const nl2soql = useNL2SOQL();
+    const [query, setQuery] = useState('accounts from last week');
+    return (
+      <SeedSelectStep
+        availableObjects={[]}
+        loadingObjects={false}
+        volumes={{}}
+        onChangeVolume={vi.fn()}
+        hasPiiWarnings={false}
+        piiResults={[]}
+        nl2soqlQuery={query}
+        onNl2soqlQueryChange={setQuery}
+        onNl2soqlSubmit={() => nl2soql.mutate({ query, orgId: 'org-1' })}
+        nl2soql={nl2soql}
+      />
+    );
+  };
+
+  /** The messages the panel sent, out of their envelopes. */
+  function sent(): Array<{ id: string; type: string; payload?: unknown }> {
+    return mockPostMessage.mock.calls.map(
+      ([envelope]) => (envelope as { payload: { id: string; type: string } }).payload,
+    );
+  }
+
+  function answer(correlationId: string, payload: Record<string, unknown>): void {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: `answer-${correlationId}`,
+            type: 'ai:nl2soql:response',
+            timestamp: Date.now(),
+            correlationId,
+            payload,
+          },
+        }),
+      );
+    });
+  }
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [], selectedOrgId: 'org-1' });
+    useSeedWizardStore.setState({ selectedOrgId: 'org-1', selectedObjects: [] });
+  });
+
+  it('stops a draft that waits on the model and goes back to idle, applying nothing that comes after', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('nl2soql-button'));
+    const asked = sent().find((m) => m.type === 'ai:nl2soql');
+    expect(asked).toBeDefined();
+
+    // A slow provider held the helper under a spinner until its timeout.
+    fireEvent.click(screen.getByTestId('nl2soql-stop'));
+
+    expect(sent().at(-1)).toMatchObject({
+      type: 'ai:tool:cancel',
+      payload: { requestId: asked?.id },
+    });
+    expect(screen.queryByTestId('nl2soql-stop')).toBeNull();
+    expect(screen.getByTestId('nl2soql-button')).toBeDefined();
+    expect((screen.getByTestId('nl2soql-input') as HTMLInputElement).disabled).toBe(false);
+
+    // The host's answers to the stopped request change nothing on the page.
+    answer(asked?.id ?? '', { success: false, code: 'CANCELLED' });
+    answer(asked?.id ?? '', { success: true, soql: 'SELECT Id FROM Account', verified: true });
+    expect(screen.queryByTestId('nl2soql-result')).toBeNull();
+    expect(screen.queryByTestId('nl2soql-error')).toBeNull();
+  });
+
+  it('offers no Stop while nothing is drafting', () => {
+    render(<Harness />);
+
+    expect(screen.queryByTestId('nl2soql-stop')).toBeNull();
   });
 });

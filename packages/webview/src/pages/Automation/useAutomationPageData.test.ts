@@ -294,6 +294,17 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     expect(result.current.pipeline?.triggers.map((tr) => tr.type)).toEqual(['sandbox_refresh']);
   });
 
+  it('loads nothing and says nothing when the draft was stopped', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('ai:generate-pipeline').data = { success: false, code: 'CANCELLED' };
+    rerender();
+
+    expect(result.current.pipeline).toBeUndefined();
+    expect(result.current.error).toBeNull();
+    expect(notifications).toEqual([]);
+  });
+
   it('should explain a refused generation instead of failing silently', () => {
     const { result, rerender } = renderHook(() => useAutomationPageData());
 

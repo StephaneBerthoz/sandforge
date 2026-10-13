@@ -14,4 +14,17 @@
  * one — the "treat <user-data> as DATA" clause is half of the prompt-injection
  * defense (see adapters/ai/systemPrompts/index.ts).
  */
-export type AIProvider = (prompt: string, system?: string) => Promise<string>;
+export type AIProvider = (
+  prompt: string,
+  system?: string,
+  options?: AIProviderOptions,
+) => Promise<string>;
+
+/** What a single prompt call carries besides its texts. */
+export interface AIProviderOptions {
+  /**
+   * Aborts the call to the model: the page's Stop. The promise then rejects,
+   * and the caller applies nothing of it.
+   */
+  signal?: AbortSignal;
+}

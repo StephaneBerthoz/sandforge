@@ -10,6 +10,7 @@ const savedConfigs = vi.hoisted(() => ({
   value: [] as SyncConfigListResponse['payload']['configs'],
   loading: false,
   error: null as string | null,
+  refetch: vi.fn(),
 }));
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
@@ -20,7 +21,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
         : null,
     loading: savedConfigs.loading,
     error: savedConfigs.error,
-    refetch: vi.fn(),
+    refetch: type === 'sync:config:list' ? savedConfigs.refetch : vi.fn(),
   }),
 }));
 
@@ -83,7 +84,28 @@ describe('SyncSchedulePanel', () => {
     savedConfigs.value = [saved('cfg-1', 'dev1 \u2192 dev2')];
     savedConfigs.loading = false;
     savedConfigs.error = null;
+    savedConfigs.refetch.mockClear();
     mockVSCodeApi.postMessage.mockClear();
+  });
+
+  it('reads the saved configurations again once a migration is saved as one, and only then', () => {
+    render(<SyncSchedulePanel />);
+
+    fromHost({
+      id: 'refused',
+      type: 'migration:save-sync-config:response',
+      correlationId: 'req-1',
+      payload: { success: false, code: 'DUPLICATE_NAME' },
+    });
+    expect(savedConfigs.refetch).not.toHaveBeenCalled();
+
+    fromHost({
+      id: 'saved',
+      type: 'migration:save-sync-config:response',
+      correlationId: 'req-2',
+      payload: { success: true, id: 'cfg-migrated', name: 'Nightly accounts' },
+    });
+    expect(savedConfigs.refetch).toHaveBeenCalledTimes(1);
   });
 
   it('should render the panel with test ID', () => {

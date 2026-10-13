@@ -5,7 +5,7 @@ import {
   type PipelineStepType,
   type PipelineWritePage,
 } from '@sandforge/shared';
-import type { AIProvider } from './types.js';
+import type { AIProvider, AIProviderOptions } from './types.js';
 
 /** Salesforce org metadata. */
 export interface OrgInfo {
@@ -169,11 +169,13 @@ export class PipelineGenerator {
    * then enriches with AI if the description is complex.
    * @param description - Natural language pipeline description
    * @param availableOrgs - List of available Salesforce orgs
+   * @param options - The signal that stops the call to the model, when one is made
    * @returns A generated pipeline with resolved steps
    */
   async generatePipeline(
     description: string,
     availableOrgs: OrgInfo[],
+    options: AIProviderOptions = {},
   ): Promise<GeneratedPipeline> {
     // "back up" is read as the one word the keyword map knows.
     const normalizedDesc = description.toLowerCase().replace(/\bback\s+up\b/g, 'backup');
@@ -195,7 +197,7 @@ export class PipelineGenerator {
       };
     }
 
-    return this.generateWithAI(description, availableOrgs);
+    return this.generateWithAI(description, availableOrgs, options);
   }
 
   private extractSteps(normalizedDesc: string, availableOrgs: OrgInfo[]): GeneratedPipelineStep[] {
@@ -344,12 +346,13 @@ export class PipelineGenerator {
   private async generateWithAI(
     description: string,
     availableOrgs: OrgInfo[],
+    options: AIProviderOptions,
   ): Promise<GeneratedPipeline> {
     const orgList = availableOrgs.map((o) => `${o.alias} (${o.type}, ID: ${o.orgId})`).join('\n');
 
     const prompt = `Generate a SandForge pipeline from this description:\n"${description}"\n\nAvailable orgs:\n${orgList}\n\nReturn JSON with: name, description, steps (array of {name, type, config, description}), schedule (optional cron), triggers (optional array).`;
 
-    const response = await this.provider(prompt);
+    const response = await this.provider(prompt, undefined, options);
 
     try {
       const draft = parseModelJson(PipelineDraftReplySchema, response);

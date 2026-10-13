@@ -729,6 +729,7 @@ export class ExtensionHandlers {
         'ai:status',
         'ai:save-key',
         'ai:nl2soql',
+        'ai:tool:cancel',
         'ai:forge-plan',
         'ai:anomaly-scan',
         'ai:generate-pipeline',
@@ -797,7 +798,10 @@ export class ExtensionHandlers {
     );
 
     // Migration
-    route(['migration:import', 'migration:import-sfdmu'], this.migrationHandler);
+    route(
+      ['migration:import', 'migration:import-sfdmu', 'migration:save-sync-config'],
+      this.migrationHandler,
+    );
 
     // Config profiles
     route(

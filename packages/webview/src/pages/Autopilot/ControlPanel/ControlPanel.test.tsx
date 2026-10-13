@@ -159,6 +159,35 @@ describe('ControlPanel', () => {
       render(<ControlPanel runOperationId="exec-1" notWritten={['Contact']} leftByStop={[]} />);
 
       expect(screen.queryByTestId('control-stopped-left')).toBeNull();
+      expect(screen.queryByTestId('control-stopped-emails-held')).toBeNull();
+    });
+
+    it('says how many emails waiting for their task the stop kept from going', () => {
+      // Read, held back until the task each names was in, and never sent:
+      // nothing said so, and the email node read as written.
+      mockStoreState.executionStatus = 'completed';
+      const { rerender } = render(
+        <ControlPanel
+          runOperationId="exec-1"
+          notWritten={['EmailMessage']}
+          emailsHeldForTheirTask={3}
+        />,
+      );
+
+      expect(screen.getByTestId('control-stopped-emails-held').textContent).toBe(
+        '3 emails on a case were never sent: they waited for their task to be written, and the run stopped first.',
+      );
+
+      rerender(
+        <ControlPanel
+          runOperationId="exec-1"
+          notWritten={['EmailMessage']}
+          emailsHeldForTheirTask={1}
+        />,
+      );
+      expect(screen.getByTestId('control-stopped-emails-held').textContent).toBe(
+        '1 email on a case was never sent: it waited for its task to be written, and the run stopped first.',
+      );
     });
   });
 

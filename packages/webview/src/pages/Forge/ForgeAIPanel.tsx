@@ -114,6 +114,22 @@ export const ForgeAIPanel: React.FC<ForgeAIPanelProps> = ({
           {ai.busy ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
           {t('forge.ai.draft')}
         </button>
+        {/* A draft waits on the model, and a slow provider held the tab
+            under a spinner until its answer or its timeout: it can be
+            stopped, as a chat question can. */}
+        {ai.busy && (
+          <button
+            type="button"
+            data-testid="forge-ai-stop"
+            onClick={ai.stop}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium',
+              'border border-subtle bg-surface-2 text-text-primary hover:bg-surface-3',
+            )}
+          >
+            {t('ai.stop')}
+          </button>
+        )}
         {!sourceOrgId && (
           <span id="forge-ai-need-source" className="text-[10px] text-text-secondary">
             {t('forge.ai.needSource')}

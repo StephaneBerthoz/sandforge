@@ -45,6 +45,8 @@ export const AutopilotPage: React.FC = () => {
   const [notWritten, setNotWritten] = useState<string[] | undefined>();
   /** What a stopped run wrote and left unfinished, per object. */
   const [leftByStop, setLeftByStop] = useState<AutopilotStopLeftover[]>([]);
+  /** The emails a stopped run held back for their task and never sent. */
+  const [emailsHeldForTheirTask, setEmailsHeldForTheirTask] = useState(0);
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -145,11 +147,13 @@ export const AutopilotPage: React.FC = () => {
         stopped?: boolean;
         notWritten?: string[];
         leftByStop?: AutopilotStopLeftover[];
+        emailsHeldForTheirTask?: number;
       };
     }
   >('autopilot:completed', (msg) => {
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
+    setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
     useAutopilotStore.getState().setExecutionStatus('completed');
     useAutopilotStore.getState().setStep('completed');
     useAutopilotStore.getState().updateLiveStats({
@@ -183,6 +187,7 @@ export const AutopilotPage: React.FC = () => {
   const handleExecute = useCallback((): void => {
     setNotWritten(undefined);
     setLeftByStop([]);
+    setEmailsHeldForTheirTask(0);
     const store = useAutopilotStore.getState();
     const plan = store.plan;
     store.setExecutionStatus('executing');
@@ -318,6 +323,7 @@ export const AutopilotPage: React.FC = () => {
               runOperationId={executeMutation.requestId}
               notWritten={notWritten}
               leftByStop={leftByStop}
+              emailsHeldForTheirTask={emailsHeldForTheirTask}
             />
           </div>
         </div>

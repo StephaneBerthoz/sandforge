@@ -55,7 +55,8 @@
       "guardBlocked": "Production Guard rechazó esta operación y no se cambió nada en la org. Su motivo: {{reason}}",
       "guardDeclined": "Cancelado en la confirmación de Production Guard: no se cambió nada en la org.",
       "templateNotFound": "No se encontró la plantilla de enmascaramiento: puede que se haya eliminado. Elija otra plantilla.",
-      "guardMissing": "Production Guard no estaba listo en esta ventana, y sin él no se escribe nada: no se cambió nada en la org. Recargue la ventana (Developer: Reload Window) y vuelva a intentarlo."
+      "guardMissing": "Production Guard no estaba listo en esta ventana, y sin él no se escribe nada: no se cambió nada en la org. Recargue la ventana (Developer: Reload Window) y vuelva a intentarlo.",
+      "autopilotNotReady": "Autopilot aún no está cargado en esta ventana, y no se cambió nada en la org. Espere unos segundos y vuelva a intentarlo; si sigue así, recargue la ventana (Developer: Reload Window)."
     }
   },
   "status": {
@@ -1277,6 +1278,19 @@
       "noObjects": "Conserve al menos un objeto: una ejecución sin objetos no movería nada.",
       "upsertNeedsKey": "Un upsert de {{object}} necesita un campo External ID que compartan ambas orgs: emparejar por Id no puede funcionar. Indique uno, o cambie la operación a insert.",
       "invalid": "Esta configuración no puede ejecutarse tal como está editada — {{reason}}"
+    },
+    "saveSync": {
+      "title": "Guardar como configuración de Sync",
+      "subtitle": "Guarda esta importación, tal como se editó aquí y entre las dos orgs elegidas arriba, entre las configuraciones guardadas de Sync: la página Sync la muestra y una programación puede ejecutarla.",
+      "nameLabel": "Nombre de la configuración de Sync",
+      "action": "Guardar como configuración de Sync",
+      "saving": "Guardando…",
+      "nameHint": "Póngale un nombre para guardarla: dos configuraciones de Sync guardadas nunca comparten nombre.",
+      "saved": "Guardada como la configuración de Sync «{{name}}»: la página Sync la muestra con sus configuraciones guardadas y una programación puede ejecutarla.",
+      "nameRequired": "Dé un nombre a la configuración y luego guárdela.",
+      "duplicateName": "Ya hay una configuración de Sync guardada con el nombre «{{name}}». Elija otro nombre: no se guardó nada.",
+      "cannotCopy": "Sync no copia {{objects}}: ninguna copia escribe usuarios y sus accesos, metadatos, el historial de un registro, filas de feed o de uso compartido, archivos ni los registros que la plataforma guarda para sí. Quítelos y vuelva a guardar: no se guardó nada.",
+      "invalid": "Sync no puede ejecutar esta configuración, así que no se guardó — {{reason}}"
     }
   },
   "dataops": {
@@ -3621,7 +3635,9 @@
       "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} registro mantiene vacío un vínculo que la segunda pasada habría rellenado.",
       "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} registros mantienen vacío un vínculo que la segunda pasada habría rellenado.",
       "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} registro sigue como borrador, sin el estado que tenía en el origen.",
-      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros siguen como borradores, sin el estado que tenían en el origen."
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros siguen como borradores, sin el estado que tenían en el origen.",
+      "stoppedEmailsHeld_one": "{{count}} correo electrónico de un caso nunca se envió: esperaba a que se escribiera su tarea, y la ejecución se detuvo antes.",
+      "stoppedEmailsHeld_other": "{{count}} correos electrónicos de casos nunca se enviaron: esperaban a que se escribiera su tarea, y la ejecución se detuvo antes."
     },
     "report": {
       "title": "Reporte de cumplimiento",

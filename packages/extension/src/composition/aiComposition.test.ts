@@ -174,6 +174,26 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     );
   });
 
+  // A NL2SOQL, Forge plan or pipeline draft stopped from its page aborts its
+  // request the same way: the tools' prompt function hands the signal on.
+  it('hands the client the signal a NL2SOQL or pipeline draft is given', async () => {
+    fakeClient.chat.mockResolvedValue({ text: 'ok', usage: { output: 1 }, model: 'm' });
+    const { NL2SOQL } = await import('../modules/ai/NL2SOQL.js');
+    const { PipelineGenerator } = await import('../modules/ai/PipelineGenerator.js');
+    await initAIComposition(makeDeps());
+    const [nl2soqlProvider] = vi.mocked(NL2SOQL).mock.calls[0];
+    const [pipelineProvider] = vi.mocked(PipelineGenerator).mock.calls[0];
+    const controller = new AbortController();
+
+    await nl2soqlProvider('accounts', 'system', { signal: controller.signal });
+    await pipelineProvider('a pipeline', undefined, { signal: controller.signal });
+
+    expect(fakeClient.chat).toHaveBeenCalledTimes(2);
+    for (const [request] of fakeClient.chat.mock.calls) {
+      expect(request).toMatchObject({ signal: controller.signal });
+    }
+  });
+
   it('subscribes nothing when AI is disabled', async () => {
     await initAIComposition(makeDeps({ aiEnabled: false }));
     expect(stateChangeListener).toBeUndefined();

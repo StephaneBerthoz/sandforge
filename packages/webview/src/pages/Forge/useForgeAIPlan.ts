@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AIForgePlanResponse, ForgePlanProblem } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useStoppableAITool } from '../../hooks/useAIFeatures';
 
 /** How long a draft or a check may take before the tab gives up on its answer. */
 const DRAFT_TIMEOUT_MS = 120_000;
@@ -49,6 +50,11 @@ export interface ForgeAIPlanState {
   requestDraft: () => void;
   /** Check the query as it now reads, without asking the model. */
   recheck: () => void;
+  /**
+   * Stop the draft or the check in flight: its call to the model is aborted,
+   * the field keeps what it held and the verdict before the request is back.
+   */
+  stop: () => void;
 }
 
 /**
@@ -67,12 +73,16 @@ export function useForgeAIPlan(sourceOrgId: string): ForgeAIPlanState {
   // describe and the org's query plan, one after the other: on a cold cache
   // that outlasts the default 30 s, and the tab would call a draft still on
   // its way a failure.
-  const mutation = useBridgeMutation<AIForgePlanResponse['payload']>('ai:forge-plan', {
-    timeoutMs: DRAFT_TIMEOUT_MS,
-  });
+  const mutation = useStoppableAITool(
+    useBridgeMutation<AIForgePlanResponse['payload']>('ai:forge-plan', {
+      timeoutMs: DRAFT_TIMEOUT_MS,
+    }),
+  );
   const { mutate } = mutation;
   /** What the request in flight asked for, and of which org. */
   const sent = useRef<{ kind: 'draft' | 'check'; orgId: string } | null>(null);
+  /** The verdict a draft cleared when it was asked for, given back if it is stopped. */
+  const verdictBefore = useRef<ForgeAIVerdict | null>(null);
 
   useEffect(() => {
     const data = mutation.data;
@@ -96,16 +106,28 @@ export function useForgeAIPlan(sourceOrgId: string): ForgeAIPlanState {
     const description = prompt.trim();
     if (!description || !sourceOrgId) return;
     sent.current = { kind: 'draft', orgId: sourceOrgId };
+    verdictBefore.current = verdict;
     setVerdict(null);
     mutate({ orgId: sourceOrgId, prompt: description });
-  }, [prompt, sourceOrgId, mutate]);
+  }, [prompt, sourceOrgId, mutate, verdict]);
 
   const recheck = useCallback(() => {
     const query = draft.trim();
     if (!query || !sourceOrgId) return;
     sent.current = { kind: 'check', orgId: sourceOrgId };
+    verdictBefore.current = verdict;
     mutate({ orgId: sourceOrgId, soql: query });
-  }, [draft, sourceOrgId, mutate]);
+  }, [draft, sourceOrgId, mutate, verdict]);
+
+  // Nothing of the stopped request is applied: the field keeps what it held,
+  // and the verdict it had before is back, still about that query.
+  const { stop: stopRequest, loading } = mutation;
+  const stop = useCallback(() => {
+    if (!loading) return;
+    sent.current = null;
+    setVerdict(verdictBefore.current);
+    stopRequest();
+  }, [loading, stopRequest]);
 
   const current = draft.trim();
   const about = verdict !== null && verdict.soql === current && verdict.orgId === sourceOrgId;
@@ -127,7 +149,8 @@ export function useForgeAIPlan(sourceOrgId: string): ForgeAIPlanState {
       notConfigured: answer?.code === 'AI_NOT_CONFIGURED',
       requestDraft,
       recheck,
+      stop,
     }),
-    [prompt, draft, verdict, about, mutation.loading, failure, answer, requestDraft, recheck],
+    [prompt, draft, verdict, about, mutation.loading, failure, answer, requestDraft, recheck, stop],
   );
 }

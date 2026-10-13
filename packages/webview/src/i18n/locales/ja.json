@@ -48,7 +48,8 @@
       "guardBlocked": "Production Guard がこの操作を拒否したため、組織では何も変更されていません。理由: {{reason}}",
       "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。",
       "templateNotFound": "マスキングテンプレートが見つかりません。削除された可能性があります。別のテンプレートを選択してください。",
-      "guardMissing": "このウィンドウでは Production Guard の準備ができておらず、Production Guard なしでは何も書き込まれません。組織では何も変更されていません。ウィンドウを再読み込み（Developer: Reload Window）してから、もう一度お試しください。"
+      "guardMissing": "このウィンドウでは Production Guard の準備ができておらず、Production Guard なしでは何も書き込まれません。組織では何も変更されていません。ウィンドウを再読み込み（Developer: Reload Window）してから、もう一度お試しください。",
+      "autopilotNotReady": "このウィンドウではまだ Autopilot が読み込まれていないため、組織では何も変更されていません。数秒待ってから、もう一度お試しください。この状態が続く場合は、ウィンドウを再読み込み（Developer: Reload Window）してください。"
     }
   },
   "status": {
@@ -1207,6 +1208,19 @@
       "noObjects": "オブジェクトを少なくとも 1 つ残してください。オブジェクトのない実行では何も移動しません。",
       "upsertNeedsKey": "{{object}} の upsert には、両方の組織で共有される External ID 項目が必要です。Id での照合は機能しません。項目を指定するか、操作を insert に変更してください。",
       "invalid": "この設定は編集されたままでは実行できません — {{reason}}"
+    },
+    "saveSync": {
+      "title": "Sync 設定として保存",
+      "subtitle": "ここで編集した内容と上で選択した 2 つの組織のまま、このインポートを Sync の保存済み設定に加えます。Sync ページに一覧表示され、スケジュールから実行できます。",
+      "nameLabel": "Sync 設定の名前",
+      "action": "Sync 設定として保存",
+      "saving": "保存中…",
+      "nameHint": "保存するには名前を付けてください。保存済みの Sync 設定どうしで同じ名前は使えません。",
+      "saved": "Sync 設定「{{name}}」として保存しました。Sync ページの保存済み設定に表示され、スケジュールから実行できます。",
+      "nameRequired": "設定に名前を付けてから保存してください。",
+      "duplicateName": "「{{name}}」という名前の Sync 設定がすでに保存されています。別の名前を選んでください。何も保存されていません。",
+      "cannotCopy": "Sync は {{objects}} をコピーしません。ユーザーとそのアクセス権、メタデータ、レコードの履歴、フィードや共有の行、ファイル、プラットフォームが自ら管理するレコードは、どのコピーでも書き込まれません。これらを除いてから、もう一度保存してください。何も保存されていません。",
+      "invalid": "Sync はこの設定を実行できないため、保存されていません — {{reason}}"
     }
   },
   "dataops": {
@@ -3433,7 +3447,8 @@
       "piiFieldCount_other": "{{count}}個の PII 項目",
       "stoppedLeftTitle": "書き込まれたものの、停止により未完了のまま:",
       "stoppedLookupsLeftEmpty_other": "{{object}}：{{count}}件のレコードで、2回目の処理で設定されるはずだった参照項目が空のままです。",
-      "stoppedStatusesNotGivenBack_other": "{{object}}：{{count}}件のレコードがドラフトのままで、ソースでの状態に戻っていません。"
+      "stoppedStatusesNotGivenBack_other": "{{object}}：{{count}}件のレコードがドラフトのままで、ソースでの状態に戻っていません。",
+      "stoppedEmailsHeld_other": "ケースのメール {{count}} 件は送信されていません。ToDo の書き込みを待っている間に、実行が停止しました。"
     },
     "report": {
       "title": "コンプライアンスレポート",

@@ -6,6 +6,11 @@ import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage } from '@sandforge/shared';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import { syncConfigPayloadSchema } from '../validatePayload.js';
+import { SyncOpsHandler } from './SyncOpsHandler.js';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -304,6 +309,133 @@ describe('MigrationHandler', () => {
       };
       expect(response.payload.success).toBe(true);
       expect(response.payload.detectedFormat).toBe('json');
+    });
+  });
+
+  describe('migration:save-sync-config', () => {
+    /** A migration as the page sends it: the import as edited, with the orgs picked. */
+    function migration(objects: Array<Record<string, unknown>> = []): Record<string, unknown> {
+      return {
+        id: 'import-placeholder',
+        name: 'export.json',
+        description: '',
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+        direction: 'source_to_target',
+        mode: 'full',
+        objects:
+          objects.length > 0
+            ? objects
+            : [
+                {
+                  objectApiName: 'Account',
+                  operation: 'upsert',
+                  externalIdField: 'External_Id__c',
+                  fieldMappings: [],
+                  transformRules: [],
+                  excludedFields: ['CreatedDate'],
+                  addOnFields: [],
+                  batchSize: 200,
+                  insertOrder: 1,
+                },
+              ],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+      };
+    }
+
+    let store: ConfigStore;
+
+    beforeEach(() => {
+      store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+    });
+
+    async function save(name: string, config: Record<string, unknown>) {
+      await handler.handle(createMsg('migration:save-sync-config', { name, config }));
+      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+      return calls[calls.length - 1][0];
+    }
+
+    it('saves the migration where Sync keeps its configurations, under its name, as one Sync accepts', async () => {
+      const response = await save('  Nightly accounts  ', migration());
+
+      expect(response).toMatchObject({
+        type: 'migration:save-sync-config:response',
+        correlationId: 'req-77',
+        payload: { success: true, name: 'Nightly accounts' },
+      });
+      const saved = new SyncConfigStore(store).list();
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toMatchObject({
+        id: response.payload.id,
+        name: 'Nightly accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: 'org-target',
+        objects: [expect.objectContaining({ objectApiName: 'Account', operation: 'upsert' })],
+      });
+      // Not the importer's placeholder id: a new configuration of its own.
+      expect(saved[0].id).not.toBe('import-placeholder');
+      // What a run of it, or a schedule, is checked with.
+      expect(syncConfigPayloadSchema.safeParse(saved[0]).success).toBe(true);
+
+      // Listed where the Sync page offers saved configurations to a schedule.
+      await new SyncOpsHandler(deps).handle(
+        inboundRequest({ id: 'req-list', type: 'sync:config:list', timestamp: Date.now() }),
+      );
+      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[calls.length - 1][0]).toMatchObject({
+        type: 'sync:config:list:response',
+        payload: { configs: [expect.objectContaining({ name: 'Nightly accounts' })] },
+      });
+    });
+
+    it('refuses a configuration with no name, and saves nothing', async () => {
+      const response = await save('   ', migration());
+
+      expect(response.payload).toEqual({ success: false, code: 'NAME_REQUIRED' });
+      expect(new SyncConfigStore(store).list()).toEqual([]);
+    });
+
+    it('refuses a name another saved Sync configuration has, whatever its case', async () => {
+      await save('Nightly accounts', migration());
+
+      const response = await save('nightly ACCOUNTS', migration());
+
+      expect(response.payload).toEqual({ success: false, code: 'DUPLICATE_NAME' });
+      expect(new SyncConfigStore(store).list()).toHaveLength(1);
+    });
+
+    it('names every object Sync does not copy, and saves nothing', async () => {
+      const object = (objectApiName: string) => ({
+        objectApiName,
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+      });
+
+      const response = await save(
+        'With users',
+        migration([object('Account'), object('User'), object('ContentVersion')]),
+      );
+
+      expect(response.payload).toEqual({
+        success: false,
+        code: 'SYNC_CANNOT_COPY',
+        objects: ['User', 'ContentVersion'],
+      });
+      expect(new SyncConfigStore(store).list()).toEqual([]);
+    });
+
+    it('refuses what Sync’s schema refuses, with its first issue, and saves nothing', async () => {
+      const response = await save('Changes only', { ...migration(), mode: 'incremental' });
+
+      expect(response.payload).toMatchObject({ success: false, code: 'INVALID_CONFIG' });
+      expect(response.payload.reason).toMatch(/^mode: Sync runs a full sync only/);
+      expect(new SyncConfigStore(store).list()).toEqual([]);
     });
   });
 });

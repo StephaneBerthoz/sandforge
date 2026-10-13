@@ -2148,6 +2148,101 @@ describe("AutopilotExecutor — an email's task, which the platform fills in its
       ['EmailMessage', 1],
     ]);
   });
+
+  describe('a run stopped while emails wait for their task', () => {
+    it('sends none of them after a stop that came as the tasks went in, and counts them as not sent', async () => {
+      const { insert, queryTarget } = platform();
+      const controller = new AbortController();
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        queryTarget,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+        insert: vi.fn<InsertFn>(async (objectApiName, records) => {
+          if (objectApiName === 'Task') controller.abort();
+          return insert(objectApiName, records);
+        }),
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+        edges,
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      // The offer went with the email node; the two on the case waited, and
+      // the stop came before them.
+      expect(vi.mocked(deps.insert).mock.calls.map(([name]) => name)).toEqual([
+        'Account',
+        'Case',
+        'EmailMessage',
+        'Task',
+      ]);
+      expect(result.stopped).toBe(true);
+      expect(result.objectOutcomes?.['EmailMessage']).toMatchObject({
+        written: 1,
+        notSent: 2,
+        heldForTheirTask: 2,
+      });
+      expect(result.completedObjects).not.toContain('EmailMessage');
+      expect(result.stoppedObjects).toEqual(['EmailMessage']);
+    });
+
+    it('counts those still waiting when the stop came before the task node, in plan order with what it kept', async () => {
+      const controller = new AbortController();
+      const { insert, queryTarget } = platform();
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        queryTarget,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+        insert: vi.fn<InsertFn>(async (objectApiName, records) => {
+          if (objectApiName === 'EmailMessage') controller.abort();
+          return insert(objectApiName, records);
+        }),
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+        edges,
+        [],
+        countsOf(rows),
+        controller.signal,
+      );
+
+      expect(sentOf(deps, 'EmailMessage')).toEqual([{ Subject: 'Offer', RelatedToId: '001TGT1' }]);
+      expect(result.objectOutcomes?.['EmailMessage']).toMatchObject({
+        written: 1,
+        notSent: 2,
+        heldForTheirTask: 2,
+      });
+      expect(result.objectOutcomes?.['Task']).toMatchObject({ written: 0, notSent: 3 });
+      expect(result.stoppedObjects).toEqual(['EmailMessage', 'Task']);
+      expect(result.completedObjects).toEqual(['Account', 'Case']);
+    });
+
+    it('counts nothing apart for a run that sent every email that waited', async () => {
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        ...platform(),
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Account', 'Case', 'EmailMessage', 'Task'),
+        edges,
+        [],
+        countsOf(rows),
+        new AbortController().signal,
+      );
+
+      expect(result.objectOutcomes?.['EmailMessage']).not.toHaveProperty('heldForTheirTask');
+      expect(result.objectOutcomes?.['EmailMessage']).not.toHaveProperty('notSent');
+    });
+  });
 });
 
 describe('AutopilotExecutor — a run stopped part way', () => {

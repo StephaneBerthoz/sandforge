@@ -317,6 +317,19 @@ export const AutomationPage: React.FC = () => {
                 >
                   {t('automation.generatePipeline')}
                 </Button>
+                {/* A draft the model is slow to write can be stopped, as a
+                    chat question can: the button span until its answer or
+                    its timeout, and nothing else could end the wait. */}
+                {pipelineGen.loading && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={pipelineGen.stop}
+                    data-testid="generate-pipeline-stop"
+                  >
+                    {t('ai.stop')}
+                  </Button>
+                )}
               </div>
               <div className="flex gap-(--sf-space-4)">
                 <div className="flex-1">

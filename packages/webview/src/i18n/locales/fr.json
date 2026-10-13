@@ -55,7 +55,8 @@
       "guardBlocked": "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. Sa raison : {{reason}}",
       "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
       "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle.",
-      "guardMissing": "Production Guard n'était pas prêt dans cette fenêtre, et rien ne s'écrit sans lui : rien n'a été modifié dans l'org. Rechargez la fenêtre (Developer: Reload Window), puis réessayez."
+      "guardMissing": "Production Guard n'était pas prêt dans cette fenêtre, et rien ne s'écrit sans lui : rien n'a été modifié dans l'org. Rechargez la fenêtre (Developer: Reload Window), puis réessayez.",
+      "autopilotNotReady": "Autopilot n'est pas encore chargé dans cette fenêtre, et rien n'a été modifié dans l'org. Attendez quelques secondes, puis réessayez ; si cela persiste, rechargez la fenêtre (Developer: Reload Window)."
     }
   },
   "status": {
@@ -1277,6 +1278,19 @@
       "noObjects": "Gardez au moins un objet : une exécution sans objet ne déplacerait rien.",
       "upsertNeedsKey": "Un upsert de {{object}} a besoin d'un champ External ID que les deux orgs partagent : faire correspondre sur Id ne peut pas marcher. Nommez-en un, ou passez l'opération en insert.",
       "invalid": "Cette configuration ne peut pas s'exécuter telle que modifiée — {{reason}}"
+    },
+    "saveSync": {
+      "title": "Enregistrer comme configuration Sync",
+      "subtitle": "Garde cet import, tel que modifié ici et entre les deux orgs choisies ci-dessus, parmi les configurations enregistrées de Sync : la page Sync la liste, et une planification peut l'exécuter.",
+      "nameLabel": "Nom de la configuration Sync",
+      "action": "Enregistrer comme configuration Sync",
+      "saving": "Enregistrement…",
+      "nameHint": "Nommez-la pour l'enregistrer : deux configurations Sync enregistrées ne partagent jamais un nom.",
+      "saved": "Enregistrée comme configuration Sync « {{name}} » : la page Sync la liste avec ses configurations enregistrées, et une planification peut l'exécuter.",
+      "nameRequired": "Donnez un nom à la configuration, puis enregistrez-la.",
+      "duplicateName": "Une configuration Sync enregistrée s'appelle déjà « {{name}} ». Choisissez un autre nom : rien n'a été enregistré.",
+      "cannotCopy": "Sync ne copie pas {{objects}} : aucune copie n'écrit les utilisateurs et leurs accès, les métadonnées, l'historique d'un enregistrement, les lignes de fil ou de partage, les fichiers, ni les enregistrements que la plateforme garde pour elle. Retirez-les, puis enregistrez de nouveau : rien n'a été enregistré.",
+      "invalid": "Sync ne peut pas exécuter cette configuration, elle n'a donc pas été enregistrée — {{reason}}"
     }
   },
   "dataops": {
@@ -3621,7 +3635,9 @@
       "stoppedLookupsLeftEmpty_one": "{{object}} : {{count}} enregistrement garde vide un lien que la seconde passe aurait rempli.",
       "stoppedLookupsLeftEmpty_other": "{{object}} : {{count}} enregistrements gardent vide un lien que la seconde passe aurait rempli.",
       "stoppedStatusesNotGivenBack_one": "{{object}} : {{count}} enregistrement reste en brouillon, sans le statut qu'il avait dans la source.",
-      "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source."
+      "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source.",
+      "stoppedEmailsHeld_one": "{{count}} e-mail d'une requête n'a jamais été envoyé : il attendait que sa tâche soit écrite, et l'exécution s'est arrêtée avant.",
+      "stoppedEmailsHeld_other": "{{count}} e-mails de requêtes n'ont jamais été envoyés : ils attendaient que leur tâche soit écrite, et l'exécution s'est arrêtée avant."
     },
     "report": {
       "title": "Rapport de Conformité",

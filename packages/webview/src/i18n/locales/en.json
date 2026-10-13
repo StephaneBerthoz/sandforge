@@ -55,7 +55,8 @@
       "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
       "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
       "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template.",
-      "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again."
+      "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again.",
+      "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window)."
     }
   },
   "status": {
@@ -1277,6 +1278,19 @@
       "noObjects": "Keep at least one object: a run with none would move nothing.",
       "upsertNeedsKey": "An upsert of {{object}} needs an External ID field both orgs share: matching on Id cannot work. Name one, or set the operation to insert.",
       "invalid": "This configuration cannot run as edited — {{reason}}"
+    },
+    "saveSync": {
+      "title": "Save as a Sync configuration",
+      "subtitle": "Keeps this import, as edited here and between the two orgs picked above, among Sync's saved configurations: the Sync page lists it, and a schedule can run it.",
+      "nameLabel": "Name of the Sync configuration",
+      "action": "Save as a Sync configuration",
+      "saving": "Saving…",
+      "nameHint": "Name it to save it: no two saved Sync configurations share a name.",
+      "saved": "Saved as the Sync configuration “{{name}}”: the Sync page lists it with its saved configurations, and a schedule can run it.",
+      "nameRequired": "Give the configuration a name, then save it.",
+      "duplicateName": "A saved Sync configuration is already named “{{name}}”. Pick another name: nothing was saved.",
+      "cannotCopy": "Sync does not copy {{objects}}: no copy writes users and their access, metadata, a record's history, feed or sharing rows, files, or the records the platform keeps for itself. Leave them out, then save again: nothing was saved.",
+      "invalid": "Sync cannot run this configuration, so it was not saved — {{reason}}"
     }
   },
   "dataops": {
@@ -3621,7 +3635,9 @@
       "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} record keeps a lookup empty that the second pass would have filled.",
       "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} records keep a lookup empty that the second pass would have filled.",
       "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} record stays a draft, without the status it had in the source.",
-      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source."
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source.",
+      "stoppedEmailsHeld_one": "{{count}} email on a case was never sent: it waited for its task to be written, and the run stopped first.",
+      "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first."
     },
     "report": {
       "title": "Compliance Report",

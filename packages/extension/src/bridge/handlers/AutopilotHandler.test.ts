@@ -239,36 +239,57 @@ describe('AutopilotHandler', () => {
     expect(notification.type).toBe('notification');
   });
 
-  it('not-initialized error sends notification for scan-schema', async () => {
-    // No orchestrator injected
-    const msg: InboundRequest & {
-      payload: {
-        sourceOrgId: string;
-        targetOrgId: string;
-        selectedObjects: string[];
-        includeStandardObjects: boolean;
-      };
-    } = inboundRequest({
-      id: 'req-ap-noinit',
-      type: 'autopilot:scan-schema',
-      timestamp: Date.now(),
-      payload: {
-        sourceOrgId: 'src',
-        targetOrgId: 'tgt',
-        selectedObjects: [],
-        includeStandardObjects: false,
+  describe('before the module has reached the handler', () => {
+    /** The seven requests, each with a payload that would pass its schema. */
+    const requests: Array<{ type: string; payload?: Record<string, unknown> }> = [
+      {
+        type: 'autopilot:scan-schema',
+        payload: {
+          sourceOrgId: 'src',
+          targetOrgId: 'tgt',
+          selectedObjects: [],
+          includeStandardObjects: false,
+        },
       },
-    });
+      { type: 'autopilot:generate-plan', payload: { complianceFramework: 'gdpr' } },
+      { type: 'autopilot:execute', payload: { grappeThreshold: 0 } },
+      { type: 'autopilot:pause' },
+      { type: 'autopilot:resume' },
+      { type: 'autopilot:skip-node', payload: { objectApiName: 'Account' } },
+      { type: 'autopilot:compliance-report' },
+    ];
 
-    await handler.handle(msg);
+    it.each(requests)(
+      'answers $type with one code the page words in its language, and no English notification beside it',
+      async ({ type, payload }) => {
+        await handler.handle(
+          inboundRequest({
+            id: `req-${type}`,
+            type,
+            timestamp: Date.now(),
+            payload,
+          } as BaseMessage),
+        );
 
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    expect(postToWebview).toHaveBeenCalledTimes(1);
-
-    const notification = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { message: string };
-    };
-    expect(notification.type).toBe('notification');
+        const posted = postedMessages(deps) as Array<
+          BaseMessage & { payload: { code?: string; message: string } }
+        >;
+        const answer = posted.find((m) => m.type === 'autopilot:error');
+        expect(answer).toMatchObject({
+          correlationId: `req-${type}`,
+          payload: { code: 'AUTOPILOT_NOT_READY' },
+        });
+        // The page waiting on the answer shows it; one sent without waiting
+        // for an answer has only the notification, which carries the code.
+        const notifications = posted.filter((m) => m.type === 'notification');
+        if (['autopilot:pause', 'autopilot:resume', 'autopilot:skip-node'].includes(type)) {
+          expect(notifications).toHaveLength(1);
+          expect(notifications[0].payload.code).toBe('AUTOPILOT_NOT_READY');
+        } else {
+          expect(notifications).toEqual([]);
+        }
+      },
+    );
   });
 
   it('sends node-progress messages during execution', async () => {
@@ -930,7 +951,10 @@ describe('AutopilotHandler', () => {
      * `executePlan` waits for the signal it is handed, and returns `stopped`
      * once it aborts.
      */
-    async function startStoppableRun(stopped: Record<string, unknown>): Promise<{
+    async function startStoppableRun(
+      stopped: Record<string, unknown>,
+      plan: typeof PLAN = PLAN,
+    ): Promise<{
       registry: BackgroundOperationRegistry;
       executePlan: Mock;
       running: Promise<boolean>;
@@ -944,7 +968,7 @@ describe('AutopilotHandler', () => {
           }),
       );
       handler.setOrchestrator(
-        createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(PLAN), executePlan }),
+        createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(plan), executePlan }),
       );
       mockGetConn.mockResolvedValue({} as never);
       await handler.handle(scanMsg('scan-stop'));
@@ -1105,6 +1129,58 @@ describe('AutopilotHandler', () => {
           ]),
         }),
       ]);
+    });
+
+    it('records and says the emails a stop kept from going while they waited for their task', async () => {
+      // The emails on a case wait for the task each names; the stop came as
+      // the tasks went in, and none of the three waiting was sent.
+      const store = recordingStore();
+      const { registry, running } = await startStoppableRun(
+        {
+          ...PART_WRITTEN,
+          completedObjects: ['Task'],
+          stoppedObjects: ['EmailMessage'],
+          objectOutcomes: {
+            EmailMessage: {
+              written: 1,
+              linked: 0,
+              failed: 0,
+              refusals: [],
+              notSent: 3,
+              heldForTheirTask: 3,
+            },
+            Task: { written: 1, linked: 0, failed: 0, refusals: [] },
+          },
+        },
+        { ...PLAN, waves: [{ order: 0, objects: ['EmailMessage', 'Task'], dependsOn: [] }] },
+      );
+
+      await abort(registry);
+      await running;
+
+      expect(postedMessages(deps).find((m) => m.type === 'autopilot:completed')).toMatchObject({
+        payload: { stopped: true, notWritten: ['EmailMessage'], emailsHeldForTheirTask: 3 },
+      });
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'partial',
+          objects: expect.arrayContaining([
+            expect.objectContaining({ objectApiName: 'EmailMessage', created: 1, notSent: 3 }),
+          ]),
+        }),
+      ]);
+    });
+
+    it('says no held email for a stopped run that held none back', async () => {
+      recordingStore();
+      const { registry, running } = await startStoppableRun(PART_WRITTEN);
+
+      await abort(registry);
+      await running;
+
+      const completed = postedMessages(deps).find((m) => m.type === 'autopilot:completed') as
+        (BaseMessage & { payload: Record<string, unknown> }) | undefined;
+      expect(completed?.payload).not.toHaveProperty('emailsHeldForTheirTask');
     });
 
     it('records a run stopped before it wrote as stopped, under the code of a cancel', async () => {

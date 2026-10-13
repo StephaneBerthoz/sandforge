@@ -58,6 +58,12 @@ export interface NotificationMessage extends BaseMessage {
     message: string;
     actions?: NotificationAction[];
     autoDismissMs?: number;
+    /**
+     * What the notification says, as a code the panel words in the
+     * interface language; `message` is the host's English, shown when the
+     * panel knows no wording for the code.
+     */
+    code?: string;
   };
 }
 

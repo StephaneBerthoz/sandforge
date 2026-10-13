@@ -4034,6 +4034,83 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Migration page saving an import as a Sync configuration: refused, then saved', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'migration', 'migration-page', { theme, orgs: true });
+      await page.getByTestId('migration-path-input').fill('/home/qa/sfdmu/export.json');
+      await page.getByTestId('migration-import-btn').click();
+      await bridge.waitForMessage('migration:import-sfdmu', { timeout: 10_000 });
+      await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
+        success: true,
+        detectedFormat: 'sfdmu',
+        config: {
+          id: 'cfg-sfdmu',
+          name: 'SFDMU Import',
+          sourceOrgId: 'imported-source',
+          targetOrgId: 'imported-target',
+          direction: 'source_to_target',
+          mode: 'full',
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'insert',
+              fieldMappings: [],
+              transformRules: [],
+              excludedFields: [],
+              addOnFields: [],
+              batchSize: 200,
+              insertOrder: 1,
+            },
+          ],
+          conflictStrategy: 'source_wins',
+          enableRollback: false,
+        },
+      });
+      await page.getByTestId('migration-save-sync').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('migration-save-sync-btn')).toBeDisabled();
+
+      await page.getByTestId('migration-run-source').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('migration-run-target').selectOption(QA_SANDBOX.id);
+      await page.getByTestId('migration-save-sync-name').fill('Nightly accounts');
+      await page.getByTestId('migration-save-sync-btn').click();
+      const asked = await bridge.waitForMessage('migration:save-sync-config', { timeout: 10_000 });
+      expect(asked.payload).toMatchObject({
+        name: 'Nightly accounts',
+        config: { sourceOrgId: DEV_SANDBOX.id, targetOrgId: QA_SANDBOX.id },
+      });
+
+      // The host refuses a name another saved configuration has.
+      await answerAll(page, 'migration:save-sync-config', 'migration:save-sync-config:response', {
+        success: false,
+        code: 'DUPLICATE_NAME',
+      });
+      await expect(page.getByTestId('migration-save-sync-error')).toContainText(
+        'already named “Nightly accounts”',
+      );
+      const refused = await checkAccessibility(page);
+      expectNoViolations(refused);
+      expect(
+        await contrastMeasuredIn(page, refused, '[data-testid="migration-save-sync-error"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('migration-save-sync-name').fill('Nightly accounts 2');
+      await page.getByTestId('migration-save-sync-btn').click();
+      await answerAll(page, 'migration:save-sync-config', 'migration:save-sync-config:response', {
+        success: true,
+        id: 'cfg-saved',
+        name: 'Nightly accounts 2',
+      });
+      await expect(page.getByTestId('migration-save-sync-saved')).toContainText(
+        '“Nightly accounts 2”',
+      );
+      const saved = await checkAccessibility(page);
+      expectNoViolations(saved);
+      expect(
+        await contrastMeasuredIn(page, saved, '[data-testid="migration-save-sync-saved"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Reports page', async ({ page }) => {
       await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
       // Nothing has answered yet: each tab says it is loading. All four said

@@ -39,6 +39,20 @@ export interface AIChatCancelRequest extends BaseMessage {
   payload: { conversationId: string };
 }
 
+/**
+ * Stop waiting for a model-backed tool's answer: a NL2SOQL draft, a Forge
+ * root query drafted from a description, or an Automation pipeline draft.
+ * `requestId` is the id of the request that asked. The call to the model is
+ * aborted, nothing of it is applied, and that request is answered on its own
+ * response channel with `success: false` and code `CANCELLED` — a draft the
+ * user stopped is not an error. A request that is no longer waiting is left
+ * as it is.
+ */
+export interface AIToolCancelRequest extends BaseMessage {
+  type: 'ai:tool:cancel';
+  payload: { requestId: string };
+}
+
 /** Request to create a new AI conversation */
 export interface AIConversationCreateRequest extends BaseMessage {
   type: 'ai:conversation:create';
@@ -185,6 +199,8 @@ export interface AINL2SOQLResponse extends BaseMessage {
     error?: string;
     verified?: boolean;
     unverifiedReason?: NL2SOQLUnverifiedReason;
+    /** `CANCELLED`: stopped by the user (`ai:tool:cancel`) before an answer came. */
+    code?: 'CANCELLED';
   };
 }
 
@@ -228,14 +244,15 @@ export type ForgePlanProblem =
  * wrong: the object exists and can be queried, every field and relationship
  * the query names at its top level exists on it, and the org's parser accepts
  * it. `code` is `AI_NOT_CONFIGURED` when a prompt came in and no provider is
- * set up; `error` carries any failure that stopped the check before it could
- * say anything about the query.
+ * set up, and `CANCELLED` when the user stopped the draft (`ai:tool:cancel`)
+ * before it came; `error` carries any failure that stopped the check before
+ * it could say anything about the query.
  */
 export interface AIForgePlanResponse extends BaseMessage {
   type: 'ai:forge-plan:response';
   payload: {
     success: boolean;
-    code?: 'AI_NOT_CONFIGURED';
+    code?: 'AI_NOT_CONFIGURED' | 'CANCELLED';
     soql?: string;
     explanation?: string;
     rootObject?: string;
@@ -302,6 +319,8 @@ export interface AIGeneratePipelineResponse extends BaseMessage {
      */
     suggestions?: PipelineDraftSuggestion[];
     error?: string;
+    /** `CANCELLED`: stopped by the user (`ai:tool:cancel`) before a draft came. */
+    code?: 'CANCELLED';
   };
 }
 

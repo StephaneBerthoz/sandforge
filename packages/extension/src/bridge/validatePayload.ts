@@ -1051,6 +1051,8 @@ export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,
   orgIds: z.array(orgIdSchema).max(50).optional(),
 });
+/** `ai:tool:cancel` — the NL2SOQL, Forge plan or pipeline request to stop, by its id. */
+export const aiToolCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
 
 // ── migration:* payload schemas ───────────────────────────────────────────
 // Mirror the shared request contracts (no current webview emitter). The
@@ -1062,6 +1064,16 @@ export const migrationImportPayloadSchema = z.object({
 });
 export const migrationImportSfdmuPayloadSchema = z.object({
   filePath: z.string().min(1).max(2_000),
+});
+/**
+ * `migration:save-sync-config` — the migration on screen and the name to save
+ * it under. The configuration is only bounded here: the handler checks it
+ * with `syncConfigPayloadSchema` and answers what it refuses by a code the
+ * page words, where a refusal here would reach the page as a dropped request.
+ */
+export const migrationSaveSyncConfigPayloadSchema = z.object({
+  name: z.string().max(200),
+  config: z.record(z.string(), z.unknown()),
 });
 
 // ── execution:* payload schemas ───────────────────────────────────────────

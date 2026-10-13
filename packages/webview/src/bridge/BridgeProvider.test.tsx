@@ -186,6 +186,48 @@ describe('BridgeProvider', () => {
     expect(useNotificationStore.getState().notifications[0].actions).toEqual(actions);
   });
 
+  it('words a host notification by its code in the language of the page, and keeps the host’s words for a code it does not know', async () => {
+    // Autopilot asked before its module loaded said so in English, in every
+    // language, with no code a page could translate it by.
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    const notify = (id: string, code: string): void =>
+      fireMessage({
+        id,
+        type: 'notification',
+        timestamp: Date.now(),
+        payload: {
+          level: 'error',
+          title: 'Autopilot',
+          message: 'Autopilot module is not initialized.',
+          code,
+        },
+      });
+
+    notify('n-later', 'A_CODE_FROM_A_LATER_HOST');
+    expect(useNotificationStore.getState().notifications[0].message).toBe(
+      'Autopilot module is not initialized.',
+    );
+
+    const switched = changeLanguageLazy('fr');
+    await act(async () => {
+      await answerCapturedLocaleRequests(mockPostMessage);
+      expect(await switched).toBe(true);
+    });
+    notify('n-fr', 'AUTOPILOT_NOT_READY');
+    expect(useNotificationStore.getState().notifications[0]).toMatchObject({
+      title: 'Autopilot',
+      message: expect.stringContaining("Autopilot n'est pas encore chargé"),
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
+  });
+
   it('should surface a bridge:error as an error notification', () => {
     // The broker drops the offending message, so nothing else will ever
     // report it — without this listener the sender just waits out a timeout.

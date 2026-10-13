@@ -10,6 +10,7 @@ import {
 } from '../../validatePayload.js';
 import type { AIAssistant, ChatRole, Conversation } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import { InFlightCalls } from './inFlightCalls.js';
 
 /** Maximum number of messages per conversation before pruning. */
 const MAX_MESSAGES_PER_CONVERSATION = 200;
@@ -78,7 +79,7 @@ export class AIChatHandler implements DomainHandler {
    * answered or the request timed out: there was no way to give up on a
    * question asked by mistake, or one the model was slow to answer.
    */
-  private readonly asking = new Map<string, AbortController>();
+  private readonly asking = new InFlightCalls();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -300,13 +301,11 @@ export class AIChatHandler implements DomainHandler {
     // One per conversation, as the assistant asks one question at a time in
     // each: a second question there is refused before it is sent, and must
     // not take the place of the first's.
-    const controller = new AbortController();
-    const asked = !this.asking.has(payload.conversationId);
-    if (asked) this.asking.set(payload.conversationId, controller);
+    const call = this.asking.begin(payload.conversationId);
 
     try {
       const aiResponse = await assistant.chat(payload.conversationId, payload.message, {
-        signal: controller.signal,
+        signal: call.signal,
       });
 
       // Persist conversation to ConfigStore after chat
@@ -329,7 +328,7 @@ export class AIChatHandler implements DomainHandler {
       this.deps.log(`[TX] ai:chat:response`);
     } catch (err: unknown) {
       // Stopped by the user: answered as such, not as a failure to show.
-      if (controller.signal.aborted) {
+      if (call.signal.aborted) {
         const cancelled = buildResponse(this.deps, msg, 'ai:chat:response', {
           conversationId: payload.conversationId,
           code: 'CANCELLED',
@@ -343,9 +342,7 @@ export class AIChatHandler implements DomainHandler {
       this.deps.broker.postToWebview(errResponse);
       this.deps.log(`[TX] ai:error: ${message}`);
     } finally {
-      if (asked && this.asking.get(payload.conversationId) === controller) {
-        this.asking.delete(payload.conversationId);
-      }
+      call.end();
     }
   }
 
@@ -358,7 +355,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
-    this.asking.get(parsed.conversationId)?.abort();
+    this.asking.abort(parsed.conversationId);
   }
 
   private handleConversationCreate(msg: InboundRequest): void {

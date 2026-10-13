@@ -695,6 +695,8 @@ export function useAutomationPageData(): AutomationPageData {
   // said next to the draft in the reader's language. A request that drew no
   // step at all is answered by them alone, in place of the host's English.
   const adoptGenerated = useLatestRef((generated: NonNullable<typeof pipelineGen.data>) => {
+    // A draft the user stopped is no failure to tell, and there is no draft.
+    if (generated.code === 'CANCELLED') return;
     const suggestions = toDraftSuggestions(generated.suggestions);
     if (!generated.success || !generated.pipeline) {
       const message =

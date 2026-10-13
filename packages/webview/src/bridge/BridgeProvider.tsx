@@ -30,6 +30,15 @@ const DROP_REASON_KEYS: Readonly<Record<string, string>> = {
   'unhandled-type': 'bridge.dropped.unhandled',
 };
 
+/**
+ * The host notifications said in the interface language, by the code they
+ * carry. A notification with a code not listed here shows the host's
+ * message, which is English.
+ */
+const NOTIFICATION_CODE_KEYS: Readonly<Record<string, string>> = {
+  AUTOPILOT_NOT_READY: 'common.refusal.autopilotNotReady',
+};
+
 /** Props for BridgeProvider. */
 export interface BridgeProviderProps {
   children: React.ReactNode;
@@ -146,13 +155,16 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
         message: string;
         autoDismissMs?: number;
         actions?: NotificationAction[];
+        code?: string;
       };
     }
   >('notification', (msg) => {
+    const key =
+      msg.payload.code !== undefined ? NOTIFICATION_CODE_KEYS[msg.payload.code] : undefined;
     useNotificationStore.getState().addNotification({
       level: msg.payload.level,
       title: msg.payload.title,
-      message: msg.payload.message,
+      message: key ? t(key) : msg.payload.message,
       autoDismissMs: msg.payload.autoDismissMs,
       // Dropped until now: a host notification could carry buttons and the
       // toast rendered none of them.

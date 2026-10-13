@@ -157,11 +157,14 @@ describe('autopilotComposition', () => {
     await handler.handle(pauseMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const messages = postToWebview.mock.calls.map(
-      (c) => (c[0] as BaseMessage & { payload: { message: string } }).payload.message,
-    );
-    expect(messages[0]).toBe('Autopilot module is not initialized.');
-    expect(messages[1]).toBe('No autopilot execution in progress.');
+    const notifications = postToWebview.mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: { message: string; code?: string } })
+      .filter((m) => m.type === 'notification');
+    expect(notifications[0].payload).toMatchObject({
+      message: 'Autopilot module is not initialized.',
+      code: 'AUTOPILOT_NOT_READY',
+    });
+    expect(notifications[1].payload.message).toBe('No autopilot execution in progress.');
   });
 
   it('createExecutor rejects before any scan captured connections', async () => {

@@ -200,11 +200,13 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   );
 
   // Wire up the AI modules using the same unified client
-  const aiProvider = async (prompt: string, system?: string): Promise<string> => {
+  const aiProvider: import('../modules/ai/types').AIProvider = async (prompt, system, options) => {
     const result = await services.aiClient().chat({
       messages: [{ role: 'user', content: prompt }],
       maxTokens: AI_CONFIG.MAX_TOKENS,
       system,
+      // A draft stopped from its page aborts its request, and that one only.
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
     return result.text;
   };

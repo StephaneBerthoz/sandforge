@@ -187,6 +187,12 @@ export interface ObjectOutcome {
    * Absent when there are none.
    */
   statusesNotGivenBack?: number;
+  /**
+   * Set when the run was stopped, on the email node: emails on a case read
+   * and held back until the task each names was in, and never sent — the
+   * stop came first. Counted in `notSent` too. Absent when there are none.
+   */
+  heldForTheirTask?: number;
 }
 
 /**
@@ -512,6 +518,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly emailsAfterTheirTask: Record<string, unknown>[] = [];
   /** Whether the task node has had its turn, whatever it wrote. */
   private taskTurnOver = false;
+  /**
+   * The emails that waited for their task and that a stop kept from going
+   * once the task node had had its turn: taken from the queue, never sent.
+   */
+  private emailsHeldAndNotSent = 0;
   /**
    * Per object, the records a stop kept the passes after the waves from
    * reaching, by target id: those that keep a lookup empty, those left a draft.
@@ -890,6 +901,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
         result.stopped = true;
         result.stoppedObjects = stoppedObjects;
+        this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
         result.elapsedMs = Date.now() - startTime;
         return result;
@@ -914,6 +926,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       if (this.stopped()) {
         result.stopped = true;
         result.stoppedObjects = stoppedObjects;
+        this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
       }
 
@@ -1554,7 +1567,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     if (emails.length === 0) return;
     const state = emptyObjectState();
     for (let i = 0; i < emails.length; i += this.batchSize) {
-      if (await this.checkPause()) break;
+      if (await this.checkPause()) {
+        // Stopped before these went: out of the queue and never sent, they
+        // are counted as the stop's once the run ends.
+        this.emailsHeldAndNotSent += emails.length - i;
+        break;
+      }
       await this.writeBatch(
         EMAIL_MESSAGE as ApiName,
         emails.slice(i, i + this.batchSize),
@@ -1791,6 +1809,44 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       this.leftByStop.set(objectApiName, left);
     }
     for (const id of recordIds) left[kind].add(id);
+  }
+
+  /**
+   * The emails held back for their task that a stop kept from the target,
+   * counted into the email node: those still waiting for the task node's
+   * turn, and those the stop came before once it had had it.
+   *
+   * Read and never sent, they were neither written nor failed and counted
+   * nowhere: a stop that came before the tasks left an email node whose own
+   * emails had all gone reading as written whole, with no word of the ones
+   * that waited. They count among its records not sent, and apart, and the
+   * node is listed with the objects the stop did not write whole, in plan
+   * order. None is sent after the stop.
+   */
+  private countEmailsTheStopHeld(
+    result: ExecutionResult,
+    stoppedObjects: string[],
+    outcomes: Record<string, ObjectOutcome>,
+  ): void {
+    const waiting = this.emailsAfterTheirTask.splice(0, this.emailsAfterTheirTask.length);
+    const held = this.emailsHeldAndNotSent + waiting.length;
+    this.emailsHeldAndNotSent = 0;
+    if (held === 0) return;
+    const known = outcomes[EMAIL_MESSAGE] ?? { written: 0, linked: 0, failed: 0, refusals: [] };
+    outcomes[EMAIL_MESSAGE] = {
+      ...known,
+      notSent: (known.notSent ?? 0) + held,
+      heldForTheirTask: held,
+    };
+    for (const settled of [result.completedObjects, result.failedObjects]) {
+      const at = settled.indexOf(EMAIL_MESSAGE);
+      if (at >= 0) settled.splice(at, 1);
+    }
+    if (stoppedObjects.includes(EMAIL_MESSAGE)) return;
+    const order = [...this.planned];
+    const place = order.indexOf(EMAIL_MESSAGE);
+    const after = stoppedObjects.findIndex((name) => order.indexOf(name) > place);
+    stoppedObjects.splice(after < 0 ? stoppedObjects.length : after, 0, EMAIL_MESSAGE);
   }
 
   /**

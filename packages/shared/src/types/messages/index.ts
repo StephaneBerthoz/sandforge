@@ -256,6 +256,8 @@ import type {
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
   MigrationImportSfdmuResponse,
+  MigrationSaveSyncConfigRequest,
+  MigrationSaveSyncConfigResponse,
   MigrationErrorResponse,
   MarketplaceListRequest,
   MarketplaceListResponse,
@@ -346,6 +348,7 @@ import type {
   AISaveKeyRequest,
   AIChatResponse,
   AIChatCancelRequest,
+  AIToolCancelRequest,
   AIConversationCreatedResponse,
   AIConversationLoadedResponse,
   AIConversationDeletedResponse,
@@ -575,6 +578,7 @@ export type WebViewToExtensionMessage =
   | PipelineTemplatesRequest
   | MigrationImportRequest
   | MigrationImportSfdmuRequest
+  | MigrationSaveSyncConfigRequest
   | MarketplaceListRequest
   | MarketplaceInstallRequest
   // Autopilot
@@ -616,6 +620,7 @@ export type WebViewToExtensionMessage =
   | AIStatusRequest
   | AISaveKeyRequest
   | AINL2SOQLRequest
+  | AIToolCancelRequest
   | AIForgePlanRequest
   | AIAnomalyScanRequest
   | AIGeneratePipelineRequest
@@ -786,6 +791,7 @@ export type ExtensionToWebViewMessage =
   | PipelineErrorResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse
+  | MigrationSaveSyncConfigResponse
   | MigrationErrorResponse
   | MarketplaceListResponse
   | MarketplaceInstallResponse

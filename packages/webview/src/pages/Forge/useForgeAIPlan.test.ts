@@ -171,4 +171,53 @@ describe('useForgeAIPlan', () => {
     expect(result.current.error).toContain('Settings');
     expect(result.current.verdict).toBeNull();
   });
+
+  describe('Stop', () => {
+    /** Every message the hook posted, out of its envelope. */
+    function sent(): Array<BaseMessage & { payload?: Record<string, unknown> }> {
+      return mockPostMessage.mock.calls.map(
+        (call) =>
+          (call[0] as { payload: BaseMessage & { payload?: Record<string, unknown> } }).payload,
+      );
+    }
+
+    it('stops a draft that waits on the model and gives back what the tab held, applying nothing', () => {
+      const { result } = renderHook(() => useForgeAIPlan('org-src'));
+      act(() => result.current.setPrompt('energy accounts'));
+      act(() => result.current.requestDraft());
+      answer(CHECKED);
+      act(() => result.current.setPrompt('energy accounts in France'));
+      act(() => result.current.requestDraft());
+      const asked = sent()
+        .filter((m) => m.type === 'ai:forge-plan')
+        .pop();
+      expect(result.current.verdict).toBeNull();
+
+      act(() => result.current.stop());
+
+      expect(sent().at(-1)).toMatchObject({
+        type: 'ai:tool:cancel',
+        payload: { requestId: asked?.id },
+      });
+      expect(result.current.busy).toBe(false);
+      expect(result.current.error).toBeNull();
+      // The checked query is the one the field holds, and still checked.
+      expect(result.current.draft).toBe(DRAFT);
+      expect(result.current.checked).toBe(true);
+
+      // Whatever the host answers the stopped request is not applied.
+      answer({ success: false, code: 'CANCELLED' });
+      answer({ ...CHECKED, soql: 'SELECT Id FROM Account LIMIT 1' });
+      expect(result.current.draft).toBe(DRAFT);
+      expect(result.current.error).toBeNull();
+    });
+
+    it('sends nothing while no draft or check is waiting', () => {
+      const { result } = renderHook(() => useForgeAIPlan('org-src'));
+
+      act(() => result.current.stop());
+
+      expect(sent()).toEqual([]);
+    });
+  });
 });

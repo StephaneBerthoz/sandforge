@@ -55,7 +55,8 @@
       "guardBlocked": "O Production Guard recusou esta operação, e nada foi alterado na org. O motivo: {{reason}}",
       "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org.",
       "templateNotFound": "O modelo de mascaramento não foi encontrado: talvez tenha sido excluído. Escolha outro modelo.",
-      "guardMissing": "O Production Guard não estava pronto nesta janela, e nada é gravado sem ele: nada foi alterado na org. Recarregue a janela (Developer: Reload Window) e tente novamente."
+      "guardMissing": "O Production Guard não estava pronto nesta janela, e nada é gravado sem ele: nada foi alterado na org. Recarregue a janela (Developer: Reload Window) e tente novamente.",
+      "autopilotNotReady": "O Autopilot ainda não foi carregado nesta janela, e nada foi alterado na org. Aguarde alguns segundos e tente novamente; se continuar assim, recarregue a janela (Developer: Reload Window)."
     }
   },
   "status": {
@@ -1277,6 +1278,19 @@
       "noObjects": "Mantenha pelo menos um objeto: uma execução sem objetos não moveria nada.",
       "upsertNeedsKey": "Um upsert de {{object}} precisa de um campo External ID que as duas orgs compartilhem: corresponder por Id não funciona. Informe um, ou mude a operação para insert.",
       "invalid": "Esta configuração não pode ser executada como foi editada — {{reason}}"
+    },
+    "saveSync": {
+      "title": "Salvar como configuração do Sync",
+      "subtitle": "Guarda esta importação, como editada aqui e entre as duas orgs escolhidas acima, entre as configurações salvas do Sync: a página Sync a lista, e um agendamento pode executá-la.",
+      "nameLabel": "Nome da configuração do Sync",
+      "action": "Salvar como configuração do Sync",
+      "saving": "Salvando…",
+      "nameHint": "Dê um nome para salvá-la: duas configurações do Sync salvas nunca compartilham um nome.",
+      "saved": "Salva como a configuração do Sync “{{name}}”: a página Sync a lista com suas configurações salvas, e um agendamento pode executá-la.",
+      "nameRequired": "Dê um nome à configuração e depois salve-a.",
+      "duplicateName": "Já existe uma configuração do Sync salva com o nome “{{name}}”. Escolha outro nome: nada foi salvo.",
+      "cannotCopy": "O Sync não copia {{objects}}: nenhuma cópia grava usuários e seus acessos, metadados, o histórico de um registro, linhas de feed ou de compartilhamento, arquivos, nem os registros que a plataforma guarda para si. Remova-os e salve novamente: nada foi salvo.",
+      "invalid": "O Sync não pode executar esta configuração, por isso ela não foi salva — {{reason}}"
     }
   },
   "dataops": {
@@ -3621,7 +3635,9 @@
       "stoppedLookupsLeftEmpty_one": "{{object}}: {{count}} registro mantém vazio um vínculo que a segunda passagem teria preenchido.",
       "stoppedLookupsLeftEmpty_other": "{{object}}: {{count}} registros mantêm vazio um vínculo que a segunda passagem teria preenchido.",
       "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} registro continua como rascunho, sem o status que tinha na origem.",
-      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros continuam como rascunhos, sem o status que tinham na origem."
+      "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros continuam como rascunhos, sem o status que tinham na origem.",
+      "stoppedEmailsHeld_one": "{{count}} e-mail de um caso nunca foi enviado: aguardava a gravação da sua tarefa, e a execução parou antes.",
+      "stoppedEmailsHeld_other": "{{count}} e-mails de casos nunca foram enviados: aguardavam a gravação da sua tarefa, e a execução parou antes."
     },
     "report": {
       "title": "Relatório de conformidade",

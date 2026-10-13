@@ -168,16 +168,29 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                     data-testid="nl2soql-input"
                   />
                 </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={nl2soql.loading}
-                  disabled={!nl2soqlQuery.trim() || !selectedOrgId}
-                  onClick={onNl2soqlSubmit}
-                  data-testid="nl2soql-button"
-                >
-                  {t('seed.nl2soqlGenerate')}
-                </Button>
+                {/* While the draft waits on the model it can be stopped, as a
+                    chat question can: a slow provider held the helper under
+                    a spinner until its answer or its timeout. */}
+                {nl2soql.loading ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={nl2soql.stop}
+                    data-testid="nl2soql-stop"
+                  >
+                    {t('ai.stop')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!nl2soqlQuery.trim() || !selectedOrgId}
+                    onClick={onNl2soqlSubmit}
+                    data-testid="nl2soql-button"
+                  >
+                    {t('seed.nl2soqlGenerate')}
+                  </Button>
+                )}
               </div>
               {nl2soql.data?.soql && (
                 <div className="relative group" data-testid="nl2soql-result">

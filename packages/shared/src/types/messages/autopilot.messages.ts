@@ -121,6 +121,12 @@ export interface AutopilotCompleted extends BaseMessage {
      * left unfinished: what the user has to fix. Absent when there are none.
      */
     leftByStop?: AutopilotStopLeftover[];
+    /**
+     * Of a stopped run, the emails on a case it read and held back until
+     * the task each names was in, and never sent: the stop came first.
+     * Counted among the email node's records not sent. Absent when none.
+     */
+    emailsHeldForTheirTask?: number;
   };
 }
 

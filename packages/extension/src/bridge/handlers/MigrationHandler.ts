@@ -1,13 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { MigrationSaveSyncConfigResponse, SyncConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
-import { buildResponse } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
   migrationImportPayloadSchema,
   migrationImportSfdmuPayloadSchema,
+  migrationSaveSyncConfigPayloadSchema,
+  syncCannotCopy,
+  syncConfigPayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 
 /** File reader interface for migration services. */
 export interface MigrationFileReader {
@@ -23,7 +29,14 @@ export interface MigrationFileReader {
 export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 /** Message types handled by MigrationHandler. */
-const MIGRATION_TYPES = new Set(['migration:import', 'migration:import-sfdmu']);
+const MIGRATION_TYPES = new Set([
+  'migration:import',
+  'migration:import-sfdmu',
+  'migration:save-sync-config',
+]);
+
+/** How a configuration saved from the Migration page is described among Sync's. */
+const SAVED_FROM_MIGRATION = 'Saved from the SandForge Migration page';
 
 /**
  * Allowed file extensions per importer. UniversalImporter sniffs JSON and CSV
@@ -150,8 +163,93 @@ export class MigrationHandler implements DomainHandler {
       case 'migration:import-sfdmu':
         await this.handleImportSfdmu(msg);
         return true;
+      case 'migration:save-sync-config':
+        this.handleSaveSyncConfig(msg);
+        return true;
       default:
         return false;
+    }
+  }
+
+  /**
+   * Save the migration on screen as a Sync configuration.
+   *
+   * The page could run an imported migration once and keep nothing: a
+   * schedule runs a saved Sync configuration by id, and none came out of an
+   * import. Saved here into the store Sync keeps its own in, it is listed on
+   * the Sync page and a schedule can run it. It is refused, by a code the
+   * page words, when it has no name, a name another saved configuration has,
+   * or an object Sync does not copy, and it is checked with the schema
+   * `sync:config:save` checks with: a configuration Sync could not run is not
+   * saved.
+   */
+  private handleSaveSyncConfig(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      migrationSaveSyncConfigPayloadSchema,
+      msg,
+      'migration:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const answer = (payload: MigrationSaveSyncConfigResponse['payload']): void => {
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'migration:save-sync-config:response', payload),
+      );
+    };
+    try {
+      const name = parsed.name.trim();
+      if (name === '') {
+        answer({ success: false, code: 'NAME_REQUIRED' });
+        return;
+      }
+      const store = new SyncConfigStore(this.deps.configStore);
+      const taken = store
+        .list()
+        .some((saved) => saved.name.trim().toLowerCase() === name.toLowerCase());
+      if (taken) {
+        answer({ success: false, code: 'DUPLICATE_NAME' });
+        return;
+      }
+      // Named apart, all of them, rather than by the schema's first issue:
+      // the page says which objects to leave out.
+      const objects = Array.isArray(parsed.config.objects) ? parsed.config.objects : [];
+      const uncopied = objects
+        .map((object: unknown) =>
+          typeof object === 'object' && object !== null
+            ? (object as { objectApiName?: unknown }).objectApiName
+            : undefined,
+        )
+        .filter((objectApiName): objectApiName is string => typeof objectApiName === 'string')
+        .filter((objectApiName) => syncCannotCopy(objectApiName));
+      if (uncopied.length > 0) {
+        answer({ success: false, code: 'SYNC_CANNOT_COPY', objects: uncopied });
+        return;
+      }
+      const now = new Date().toISOString();
+      const checked = syncConfigPayloadSchema.safeParse({
+        ...parsed.config,
+        id: randomUUID(),
+        name,
+        description: SAVED_FROM_MIGRATION,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (!checked.success) {
+        const [issue] = checked.error.issues;
+        answer({
+          success: false,
+          code: 'INVALID_CONFIG',
+          reason: issue ? `${issue.path.join('.')}: ${issue.message}` : checked.error.message,
+        });
+        return;
+      }
+      const config = checked.data as unknown as SyncConfig;
+      store.save(config);
+      this.deps.log(`[TX] migration:save-sync-config:response saved ${config.id}`);
+      answer({ success: true, id: config.id, name: config.name });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'migration:save-sync-config', 'migration:error', msg, err);
     }
   }
 

@@ -150,6 +150,17 @@ describe('PipelineGenerator', () => {
     },
   );
 
+  it('hands the provider the signal that stops the call, so a Stop aborts the request', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({ name: 'x', steps: [{ name: 's', type: 'backup' }] }),
+    );
+    const controller = new AbortController();
+
+    await generator.generatePipeline('prepare the box', testOrgs, { signal: controller.signal });
+
+    expect(mockProvider.mock.calls[0][2]).toEqual({ signal: controller.signal });
+  });
+
   it('leaves out of a model draft every trigger that starts nothing', async () => {
     mockProvider.mockResolvedValue(
       JSON.stringify({

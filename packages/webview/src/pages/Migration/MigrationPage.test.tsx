@@ -62,8 +62,29 @@ let mockRunState: {
   reset: mockRunReset,
 };
 
+const mockSaveSyncMutate = vi.fn();
+const mockSaveSyncReset = vi.fn();
+
+/** Mutable mutation state for migration:save-sync-config. */
+let mockSaveSyncState: {
+  mutate: ReturnType<typeof vi.fn>;
+  data: Record<string, unknown> | null;
+  loading: boolean;
+  error: string | null;
+  reset: ReturnType<typeof vi.fn>;
+} = {
+  mutate: mockSaveSyncMutate,
+  data: null,
+  loading: false,
+  error: null,
+  reset: mockSaveSyncReset,
+};
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
+    if (type === 'migration:save-sync-config') {
+      return mockSaveSyncState;
+    }
     if (type === 'migration:import-sfdmu') {
       return mockSfdmuState;
     }
@@ -555,5 +576,137 @@ describe('MigrationPage — editing the imported config before a run', () => {
     expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
       'Keep at least one object: a run with none would move nothing.',
     );
+  });
+});
+
+describe('MigrationPage — saving the import as a Sync configuration', () => {
+  beforeEach(() => {
+    mockSaveSyncMutate.mockClear();
+    mockSaveSyncReset.mockClear();
+    mockSaveSyncState = {
+      mutate: mockSaveSyncMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockSaveSyncReset,
+    };
+    mockRunState = {
+      mutate: mockRunMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockRunReset,
+    };
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+      ] as never,
+    });
+    mockSfdmuState = {
+      mutate: mockSfdmuMutate,
+      data: { success: true, config: sfdmuConfig },
+      loading: false,
+      error: null,
+      reset: mockSfdmuReset,
+    };
+  });
+
+  function pickOrgs(): void {
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+  }
+
+  it('saves the config as edited here, between the orgs picked here, under the name given', () => {
+    // A converted config could be run once from here, and kept nowhere a
+    // schedule could run it from.
+    render(<MigrationPage />);
+    pickOrgs();
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: '  Nightly accounts  ' },
+    });
+    fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+
+    expect(mockSaveSyncMutate).toHaveBeenCalledTimes(1);
+    const sent = mockSaveSyncMutate.mock.calls[0][0] as {
+      name: string;
+      config: Record<string, unknown>;
+    };
+    expect(sent.name).toBe('Nightly accounts');
+    expect(sent.config).toMatchObject({ sourceOrgId: 'org-a', targetOrgId: 'org-b' });
+    expect(
+      (sent.config.objects as Array<{ objectApiName: string }>).map((o) => o.objectApiName),
+    ).toEqual(['Account']);
+  });
+
+  it('asks for a name, the orgs and a config Sync accepts before it offers to save', () => {
+    render(<MigrationPage />);
+    const save = (): HTMLButtonElement =>
+      screen.getByTestId('migration-save-sync-btn') as HTMLButtonElement;
+
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: 'Nightly accounts' },
+    });
+    expect(save().disabled).toBe(true);
+    pickOrgs();
+    expect(save().disabled).toBe(false);
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), { target: { value: '   ' } });
+    expect(save().disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: 'Nightly accounts' },
+    });
+    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
+    expect(save().disabled).toBe(true);
+    fireEvent.click(save());
+    expect(mockSaveSyncMutate).not.toHaveBeenCalled();
+  });
+
+  it('says the configuration was saved, under the name it was saved with', () => {
+    mockSaveSyncState.data = { success: true, id: 'cfg-9', name: 'Nightly accounts' };
+    render(<MigrationPage />);
+
+    expect(screen.getByTestId('migration-save-sync-saved').textContent).toBe(
+      'Saved as the Sync configuration “Nightly accounts”: the Sync page lists it with its saved configurations, and a schedule can run it.',
+    );
+  });
+
+  it('says why nothing was saved, in the page’s words, for each refusal of the host', () => {
+    const refusal = (payload: Record<string, unknown>): string => {
+      mockSaveSyncState.data = { success: false, ...payload };
+      const { unmount } = render(<MigrationPage />);
+      pickOrgs();
+      fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+        target: { value: 'Nightly accounts' },
+      });
+      fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+      const text = screen.getByTestId('migration-save-sync-error').textContent ?? '';
+      unmount();
+      return text;
+    };
+
+    expect(refusal({ code: 'DUPLICATE_NAME' })).toContain(
+      'A saved Sync configuration is already named “Nightly accounts”.',
+    );
+    expect(refusal({ code: 'SYNC_CANNOT_COPY', objects: ['User', 'ContentVersion'] })).toContain(
+      'Sync does not copy User, ContentVersion:',
+    );
+    expect(
+      refusal({ code: 'INVALID_CONFIG', reason: 'mode: Sync runs a full sync only' }),
+    ).toContain(
+      'Sync cannot run this configuration, so it was not saved — mode: Sync runs a full sync only',
+    );
+    expect(refusal({ code: 'NAME_REQUIRED' })).toContain(
+      'Give the configuration a name, then save it.',
+    );
+  });
+
+  it('forgets the save with the import when a new import starts', () => {
+    mockSaveSyncState.data = { success: true, id: 'cfg-9', name: 'Nightly accounts' };
+    render(<MigrationPage />);
+
+    fireEvent.click(screen.getByTestId('migration-reset-btn'));
+
+    expect(mockSaveSyncReset).toHaveBeenCalled();
   });
 });

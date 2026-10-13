@@ -596,7 +596,136 @@ describe('AIToolsHandler', () => {
     });
   });
 
+  describe('a draft the user stops', () => {
+    /**
+     * A model that answers only once its signal aborts, by rejecting, as the
+     * SDK does: the page's Stop is the only way out of the wait.
+     */
+    function untilStopped(): ReturnType<typeof vi.fn> {
+      return vi.fn(
+        (...args: unknown[]) =>
+          new Promise((_resolve, reject) => {
+            const options = args.at(-1) as { signal?: AbortSignal } | undefined;
+            options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')));
+          }),
+      );
+    }
+
+    function posted(): Array<{ type: string; correlationId?: string; payload: unknown }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => call[0],
+      );
+    }
+
+    async function stop(requestId: string): Promise<void> {
+      await handler.handle(
+        inboundRequest({
+          id: `cancel-${requestId}`,
+          type: 'ai:tool:cancel',
+          timestamp: Date.now(),
+          payload: { requestId },
+        }),
+      );
+    }
+
+    it.each([
+      ['ai:nl2soql', { query: 'all accounts', orgId: 'org1' }],
+      ['ai:forge-plan', { prompt: 'accounts in energy', orgId: 'org1' }],
+      ['ai:generate-pipeline', { description: 'tidy the data the way we like it' }],
+    ] as const)(
+      'aborts the call to the model for %s and answers it CANCELLED, with no draft and no error',
+      async (type, payload) => {
+        const generateSOQL = untilStopped();
+        const generatePipeline = untilStopped();
+        handler.setAIModules({
+          nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+          pipelineGenerator: { generatePipeline },
+        } as unknown as AIModules);
+
+        const asked = handler.handle(createMsg(type, payload));
+        const model = type === 'ai:generate-pipeline' ? generatePipeline : generateSOQL;
+        await vi.waitFor(() => expect(model).toHaveBeenCalled());
+        await stop('msg-1');
+        await asked;
+
+        const signal = (model.mock.calls[0].at(-1) as { signal: AbortSignal }).signal;
+        expect(signal.aborted).toBe(true);
+        expect(posted()).toEqual([
+          expect.objectContaining({
+            type: `${type}:response`,
+            correlationId: 'msg-1',
+            payload: { success: false, code: 'CANCELLED' },
+          }),
+        ]);
+      },
+    );
+
+    it('stops waiting on the org before the model is asked anything', async () => {
+      const generateSOQL = vi.fn();
+      handler.setAIModules({
+        nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+      } as unknown as AIModules);
+      const conn = mockConnection();
+      // The catalogue never comes back.
+      conn.describeGlobal = vi.fn(() => new Promise(() => {}));
+      vi.mocked(getJsforceConnection).mockResolvedValue(
+        conn as unknown as Awaited<ReturnType<typeof getJsforceConnection>>,
+      );
+
+      const asked = handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+      await vi.waitFor(() => expect(conn.describeGlobal).toHaveBeenCalled());
+      await stop('msg-1');
+      await asked;
+
+      expect(generateSOQL).not.toHaveBeenCalled();
+      expect(posted()).toEqual([
+        expect.objectContaining({ payload: { success: false, code: 'CANCELLED' } }),
+      ]);
+    });
+
+    it('stops only the request it names, and leaves alone one that waits on nothing', async () => {
+      const generateSOQL = untilStopped();
+      handler.setAIModules({
+        nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+      } as unknown as AIModules);
+
+      const asked = handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+      await vi.waitFor(() => expect(generateSOQL).toHaveBeenCalled());
+      await stop('another-request');
+      await stop('msg-0');
+
+      const signal = (generateSOQL.mock.calls[0].at(-1) as { signal: AbortSignal }).signal;
+      expect(signal.aborted).toBe(false);
+      expect(posted()).toEqual([]);
+
+      await stop('msg-1');
+      await asked;
+      expect(posted()).toHaveLength(1);
+    });
+
+    it('answers a provider failure as the failure it is, not as a stop', async () => {
+      handler.setAIModules({
+        nl2soql: {
+          generateSOQL: vi.fn().mockRejectedValue(new Error('overloaded')),
+          validateSOQL: vi.fn(),
+        },
+      } as unknown as AIModules);
+
+      await handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+
+      expect(posted()[0].payload).toEqual({ success: false, error: 'overloaded' });
+    });
+  });
+
   describe('payload validation', () => {
+    it('rejects ai:tool:cancel without the request it stops (INVALID_PAYLOAD)', async () => {
+      await handler.handle(createMsg('ai:tool:cancel', {}));
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
     it('rejects ai:nl2soql without orgId (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts' }));
       expect(result).toBe(true);

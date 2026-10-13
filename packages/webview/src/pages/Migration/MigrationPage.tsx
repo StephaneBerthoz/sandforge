@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileJson, FileUp } from 'lucide-react';
-import type { SyncExecutionResult, SyncOperation } from '@sandforge/shared';
+import type {
+  MigrationSaveSyncConfigResponse,
+  SyncExecutionResult,
+  SyncOperation,
+} from '@sandforge/shared';
 import { syncConfigSchema } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -155,6 +159,24 @@ function toEntry(obj: Record<string, unknown>): ObjectSetEntry {
  */
 const editedConfigSchema = syncConfigSchema.omit({ sourceOrgId: true, targetOrgId: true });
 
+/** Why the host saved no Sync configuration, in the page's language. */
+function saveRefusalMessage(
+  answer: Extract<MigrationSaveSyncConfigResponse['payload'], { success: false }>,
+  name: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  switch (answer.code) {
+    case 'NAME_REQUIRED':
+      return t('migration.saveSync.nameRequired');
+    case 'DUPLICATE_NAME':
+      return t('migration.saveSync.duplicateName', { name });
+    case 'SYNC_CANNOT_COPY':
+      return t('migration.saveSync.cannotCopy', { objects: (answer.objects ?? []).join(', ') });
+    case 'INVALID_CONFIG':
+      return t('migration.saveSync.invalid', { reason: answer.reason ?? '' });
+  }
+}
+
 /** Why a config edited here cannot run, or null when it can. */
 type EditProblem =
   | { kind: 'noObjects' }
@@ -218,6 +240,16 @@ export const MigrationPage: React.FC = () => {
     // A real sync moves records in bulk; the 30 s default is far too short.
     timeoutMs: 120_000,
   });
+
+  // Saves the migration on screen among Sync's configurations, which the Sync
+  // page lists and a schedule runs by id. A converted config could be run
+  // once from here and kept nowhere.
+  const saveSyncMutation = useBridgeMutation<MigrationSaveSyncConfigResponse['payload']>(
+    'migration:save-sync-config',
+  );
+  const [syncConfigName, setSyncConfigName] = useState('');
+  /** The name the last save was asked under: what its answer is about. */
+  const [savedUnder, setSavedUnder] = useState('');
 
   const sfdmuMutation = useBridgeMutation<MigrationImportResult>('migration:import-sfdmu');
   const universalMutation = useBridgeMutation<MigrationImportResult>('migration:import');
@@ -324,6 +356,8 @@ export const MigrationPage: React.FC = () => {
     sfdmuMutation.reset();
     universalMutation.reset();
     runMutation.reset();
+    saveSyncMutation.reset();
+    setSyncConfigName('');
     setRunSourceOrgId('');
     setRunTargetOrgId('');
   };
@@ -343,6 +377,30 @@ export const MigrationPage: React.FC = () => {
         : problem.kind === 'upsertNeedsKey'
           ? t('migration.edit.upsertNeedsKey', { object: problem.objectApiName })
           : t('migration.edit.invalid', { reason: problem.reason });
+
+  /** A name, the orgs picked, and a config Sync accepts as edited. */
+  const canSaveAsSync =
+    canRunImported && syncConfigName.trim().length > 0 && !saveSyncMutation.loading;
+
+  /**
+   * Save the config as edited here, between the orgs picked here, as a Sync
+   * configuration. The host checks it with Sync's own schema and refuses,
+   * by a code said below, a name already taken or an object Sync does not
+   * copy.
+   */
+  const handleSaveAsSync = (): void => {
+    if (!workingConfig || !canSaveAsSync) return;
+    const name = syncConfigName.trim();
+    setSavedUnder(name);
+    saveSyncMutation.mutate({
+      name,
+      config: { ...workingConfig, sourceOrgId: runSourceOrgId, targetOrgId: runTargetOrgId },
+    });
+  };
+  const saveAnswer = saveSyncMutation.loading ? null : saveSyncMutation.data;
+  const saveError =
+    saveSyncMutation.error ??
+    (saveAnswer && !saveAnswer.success ? saveRefusalMessage(saveAnswer, savedUnder, t) : null);
 
   /**
    * Run the imported config through the existing sync pipeline.
@@ -644,6 +702,53 @@ export const MigrationPage: React.FC = () => {
                       )}
                     </div>
                   )}
+                  <div
+                    className="flex flex-col gap-(--sf-space-2) border-t border-subtle pt-(--sf-space-2)"
+                    data-testid="migration-save-sync"
+                  >
+                    <div className="text-sm font-semibold text-text-primary">
+                      {t('migration.saveSync.title')}
+                    </div>
+                    <div className="text-xs text-text-secondary">
+                      {t('migration.saveSync.subtitle')}
+                    </div>
+                    <Input
+                      label={t('migration.saveSync.nameLabel')}
+                      value={syncConfigName}
+                      onChange={(e) => setSyncConfigName(e.target.value)}
+                      hint={t('migration.saveSync.nameHint')}
+                      maxLength={200}
+                      disabled={saveSyncMutation.loading}
+                      data-testid="migration-save-sync-name"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      data-testid="migration-save-sync-btn"
+                      disabled={!canSaveAsSync}
+                      onClick={handleSaveAsSync}
+                    >
+                      {saveSyncMutation.loading
+                        ? t('migration.saveSync.saving')
+                        : t('migration.saveSync.action')}
+                    </Button>
+                    {saveAnswer?.success && (
+                      <div
+                        className="text-xs text-status-success"
+                        role="status"
+                        data-testid="migration-save-sync-saved"
+                      >
+                        {t('migration.saveSync.saved', { name: saveAnswer.name })}
+                      </div>
+                    )}
+                    {saveError && (
+                      <ErrorBanner
+                        message={saveError}
+                        onDismiss={() => saveSyncMutation.reset()}
+                        data-testid="migration-save-sync-error"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 

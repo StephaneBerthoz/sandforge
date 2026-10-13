@@ -304,6 +304,12 @@ export interface NotificationOptions {
   autoDismissMs?: number | null;
   /** Buttons rendered under the message. */
   actions?: NotificationAction[];
+  /**
+   * The code the panel words the message by, in the interface language: the
+   * message itself is English, and is what a panel with no wording for the
+   * code shows.
+   */
+  code?: string;
 }
 
 /**
@@ -337,6 +343,7 @@ export function sendNotification(
       message,
       ...(autoDismissMs === null ? {} : { autoDismissMs }),
       ...(options.actions ? { actions: options.actions } : {}),
+      ...(options.code ? { code: options.code } : {}),
     },
   };
   deps.broker.postToWebview(notification);

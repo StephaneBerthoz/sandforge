@@ -45,6 +45,7 @@ const AI_TYPES = new Set([
   'ai:status',
   'ai:save-key',
   'ai:nl2soql',
+  'ai:tool:cancel',
   'ai:forge-plan',
   'ai:anomaly-scan',
   'ai:generate-pipeline',

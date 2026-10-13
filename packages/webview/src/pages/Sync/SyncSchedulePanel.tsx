@@ -14,7 +14,11 @@ import { Icon } from '../../components/ui/Icon';
 import { Card, CardBody } from '../../components/ui/Card';
 import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleFormData } from './CronScheduleBuilder';
-import type { SyncConfigListResponse, SyncScheduleEntry } from '@sandforge/shared';
+import type {
+  MigrationSaveSyncConfigResponse,
+  SyncConfigListResponse,
+  SyncScheduleEntry,
+} from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
 
 /**
@@ -184,6 +188,16 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     'sync:config:list',
     undefined,
     { responseType: 'sync:config:list:response' },
+  );
+  // A migration saved as a Sync configuration, from the Migration page in
+  // this panel or another, is one more a schedule can run: the list is read
+  // again rather than left as it was when this panel opened.
+  const { refetch: refetchConfigs } = configsQuery;
+  useMessageListener<MigrationSaveSyncConfigResponse>(
+    'migration:save-sync-config:response',
+    (msg) => {
+      if (msg.payload.success) refetchConfigs();
+    },
   );
   const availableConfigs = useMemo(
     () => (configsQuery.data?.configs ?? []).map((c) => ({ id: c.id, name: configLabel(c) })),

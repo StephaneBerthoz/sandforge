@@ -140,6 +140,45 @@ export interface MigrationImportSfdmuResponse extends BaseMessage {
   };
 }
 
+/**
+ * Save the configuration the Migration page holds — as edited there, with
+ * the two orgs picked there — as a Sync configuration under `name`: one the
+ * Sync page lists among its saved configurations and a schedule can run.
+ * Checked with the schema Sync checks its saved configurations with.
+ */
+export interface MigrationSaveSyncConfigRequest extends BaseMessage {
+  type: 'migration:save-sync-config';
+  payload: { name: string; config: Record<string, unknown> };
+}
+
+/**
+ * Why a migration was not saved as a Sync configuration, as a code the page
+ * words in the reader's language.
+ *
+ * - `NAME_REQUIRED`: no name was given.
+ * - `DUPLICATE_NAME`: a saved Sync configuration already has that name.
+ * - `SYNC_CANNOT_COPY`: Sync does not copy the objects in `objects`.
+ * - `INVALID_CONFIG`: Sync's schema refuses the configuration; `reason` is
+ *   its first issue, as the schema words it.
+ */
+export type MigrationSaveSyncConfigRefusal =
+  'NAME_REQUIRED' | 'DUPLICATE_NAME' | 'SYNC_CANNOT_COPY' | 'INVALID_CONFIG';
+
+/** The Sync configuration saved, or why none was. */
+export interface MigrationSaveSyncConfigResponse extends BaseMessage {
+  type: 'migration:save-sync-config:response';
+  payload:
+    | { success: true; id: string; name: string }
+    | {
+        success: false;
+        code: MigrationSaveSyncConfigRefusal;
+        /** With `SYNC_CANNOT_COPY`: the objects Sync does not copy. */
+        objects?: string[];
+        /** With `INVALID_CONFIG`: the schema's first issue. */
+        reason?: string;
+      };
+}
+
 /** Error response for migration import failures (emitted via sendHandlerError). */
 export interface MigrationErrorResponse extends BaseMessage {
   type: 'migration:error';

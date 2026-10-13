@@ -1,6 +1,6 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
-import type { AIProvider } from './types.js';
+import type { AIProvider, AIProviderOptions } from './types.js';
 import type { z } from 'zod';
 import {
   NL2SOQLReplySchema,
@@ -85,11 +85,16 @@ export class NL2SOQL {
    * then parses the AI response. Returns alternatives when confidence is below 0.8.
    * @param naturalLanguage - The user's query in plain language
    * @param schema - The Salesforce schema context
+   * @param options - The signal that stops the call to the model
    * @returns The generated SOQL result
    */
-  async generateSOQL(naturalLanguage: string, schema: SchemaContext): Promise<NL2SOQLResult> {
+  async generateSOQL(
+    naturalLanguage: string,
+    schema: SchemaContext,
+    options: AIProviderOptions = {},
+  ): Promise<NL2SOQLResult> {
     const prompt = buildPrompt(naturalLanguage, schema);
-    const raw = await this.provider(prompt, NL2SOQL_SYSTEM_PROMPT);
+    const raw = await this.provider(prompt, NL2SOQL_SYSTEM_PROMPT, options);
     const result = parseAIResponse(raw);
 
     this.history.push(result);

@@ -385,5 +385,32 @@ describe('useBridgeMutation', () => {
       );
       expect(result.current.errorCode).toBe('TEMPLATE_NOT_FOUND');
     });
+
+    it('says an Autopilot request its module was not loaded for in the panel’s language', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      const { result } = renderHook(() =>
+        useBridgeMutation('autopilot:scan-schema', {
+          responseType: 'autopilot:schema-result',
+          errorType: 'autopilot:error',
+        }),
+      );
+
+      act(() => {
+        result.current.mutate({ sourceOrgId: 'org-1', targetOrgId: 'org-2' });
+      });
+      act(() => {
+        replyToLastRequest('autopilot:error', {
+          message: 'Autopilot module is not initialized.',
+          code: 'AUTOPILOT_NOT_READY',
+          retryable: false,
+        });
+      });
+
+      expect(result.current.loading).toBe(false);
+      expect(result.current.errorCode).toBe('AUTOPILOT_NOT_READY');
+      expect(result.current.error).toContain("Autopilot n'est pas encore chargé");
+      expect(result.current.error).not.toContain('not initialized');
+    });
   });
 });

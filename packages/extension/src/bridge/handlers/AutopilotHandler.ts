@@ -52,6 +52,28 @@ const AUTOPILOT_TYPES = new Set([
 const MAX_TRACKED_OPERATIONS = 10;
 
 /**
+ * How a request is refused while the Autopilot module has not reached the
+ * handler: its nine modules load after activation (see
+ * `composition/autopilotComposition.ts`), and a host whose load failed never
+ * gets one. Not `NOT_INITIALIZED`: under that code the page says Production
+ * Guard is missing.
+ */
+export const AUTOPILOT_NOT_READY = {
+  code: 'AUTOPILOT_NOT_READY',
+  message: 'Autopilot module is not initialized.',
+} as const;
+
+/**
+ * The requests the page sends without waiting for an answer — Pause, Resume
+ * and Skip — for which a notification is the only word that reaches the user.
+ */
+const SENT_WITHOUT_WAITING = new Set([
+  'autopilot:pause',
+  'autopilot:resume',
+  'autopilot:skip-node',
+]);
+
+/**
  * Per-operation autopilot flow state (scan → plan → execute → report).
  *
  * One entry is created per `autopilot:scan-schema` request. The fixed message
@@ -160,6 +182,34 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Refuse a request the module is not there to serve, under one code the
+   * page words in the interface language.
+   *
+   * The seven paths each sent "Autopilot module is not initialized." as an
+   * English notification and nothing else, so a page waiting on the answer
+   * — the scan, the plan, the run, the report — kept its spinner until its
+   * own timeout: thirty seconds, ten minutes for a run. The request is now
+   * answered, and the page shows the refusal where it shows its other
+   * errors; a notification beside it would say it twice. Pause, Resume and
+   * Skip wait for no answer, and keep the notification, with the code.
+   */
+  private refuseNotReady(msg: InboundRequest): void {
+    sendHandlerError(
+      this.deps,
+      msg.type,
+      'autopilot:error',
+      msg,
+      new Error(AUTOPILOT_NOT_READY.message),
+      { code: AUTOPILOT_NOT_READY.code },
+    );
+    if (SENT_WITHOUT_WAITING.has(msg.type)) {
+      sendNotification(this.deps, 'error', 'Autopilot', AUTOPILOT_NOT_READY.message, {
+        code: AUTOPILOT_NOT_READY.code,
+      });
+    }
+  }
+
   /** Resolve the operation follow-up requests attach to (most recently opened). */
   private resolveCurrentOperation(): AutopilotOperation | undefined {
     return this.currentOperationId !== undefined
@@ -182,7 +232,7 @@ export class AutopilotHandler implements DomainHandler {
   private async handleScanSchema(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     const parsed = validatePayload(
@@ -243,7 +293,7 @@ export class AutopilotHandler implements DomainHandler {
   private async handleGeneratePlan(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     const operation = this.resolveCurrentOperation();
@@ -294,7 +344,7 @@ export class AutopilotHandler implements DomainHandler {
   private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     const operation = this.resolveCurrentOperation();
@@ -523,6 +573,8 @@ export class AutopilotHandler implements DomainHandler {
        * object: records that keep a lookup empty, records left a draft.
        */
       const leftByStop: AutopilotStopLeftover[] = [];
+      /** The emails a stop kept from the target while they waited for their task. */
+      let emailsHeldForTheirTask = 0;
 
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
@@ -574,8 +626,10 @@ export class AutopilotHandler implements DomainHandler {
             });
           } else if (stoppedSet.has(name)) {
             // Cut short or never reached by the stop: what it wrote, and what
-            // it never sent, which the audit counts apart.
+            // it never sent, which the audit counts apart — the emails that
+            // waited for their task among them.
             const notSent = outcome?.notSent ?? 0;
+            emailsHeldForTheirTask += outcome?.heldForTheirTask ?? 0;
             written.set(name, {
               ...emptyCounts(name),
               created: outcome?.written ?? 0,
@@ -635,6 +689,7 @@ export class AutopilotHandler implements DomainHandler {
               stopped: true,
               notWritten: result.stoppedObjects ?? [],
               ...(leftByStop.length > 0 ? { leftByStop } : {}),
+              ...(emailsHeldForTheirTask > 0 ? { emailsHeldForTheirTask } : {}),
             }
           : {}),
       });
@@ -711,7 +766,7 @@ export class AutopilotHandler implements DomainHandler {
   private handlePause(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     if (!this.hasExecutingOperation()) {
@@ -735,7 +790,7 @@ export class AutopilotHandler implements DomainHandler {
   private handleResume(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     if (!this.hasExecutingOperation()) {
@@ -759,7 +814,7 @@ export class AutopilotHandler implements DomainHandler {
   private handleSkipNode(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     const parsed = validatePayload(
@@ -786,7 +841,7 @@ export class AutopilotHandler implements DomainHandler {
   private handleComplianceReport(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      this.refuseNotReady(msg);
       return;
     }
     const operation = this.resolveCurrentOperation();
