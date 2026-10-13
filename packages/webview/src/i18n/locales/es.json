@@ -1283,6 +1283,11 @@
     "title": "DataOps",
     "backup": "Respaldo",
     "backupPartial": "Parcial: {{objects}} contienen más filas de las que leyó esta copia de seguridad. Una restauración solo recupera esas filas.",
+    "backupPartialLead": "Parcial: una restauración solo recupera las filas que leyó esta copia de seguridad y deja el resto de cada objeto como está.",
+    "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
+    "backupStoppedAtCapUncounted": "{{object}}: {{read}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
+    "backupReadFailed": "{{object}}: {{read}} de {{held}} filas leídas — la lectura falló ahí.",
+    "backupReadFailedUncounted": "{{object}}: {{read}} filas leídas — la lectura falló ahí.",
     "backupDesc": "Crear y administrar respaldos de datos",
     "restore": "Restaurar",
     "restoreDesc": "Restaurar datos desde un respaldo",
@@ -1320,7 +1325,10 @@
       "inBackup": "Filas en el respaldo",
       "notCounted": "Sin contar",
       "shortfall": "Enmascarado para siempre más allá de lo que contiene el respaldo: {{objects}}.",
-      "confirmShortfall": "Una vez enmascarados, una restauración nunca podrá devolver estos registros:"
+      "confirmShortfall": "Una vez enmascarados, una restauración nunca podrá devolver estos registros:",
+      "stoppedAtCap": "{{rows}} (se detuvo en el límite)",
+      "readFailed": "{{rows}} (la lectura falló)",
+      "capHint": "La copia de seguridad se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer la copia para conservar todas las filas."
     },
     "compliance": "Cumplimiento",
     "frameworks": {

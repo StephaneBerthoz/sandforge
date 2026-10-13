@@ -290,6 +290,27 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('dataops-page')).toBeDefined();
   });
 
+  it('waits as long as a backup takes to read every page of each object, and a restore to write them back', () => {
+    render(<DataOpsPage />);
+
+    expect(mutationOptions['backup:execute']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(mutationOptions['dataops:rollback']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+  });
+
+  it('asks for the backup list again once a backup ends, so one stopped at the cap is listed as such', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: mockOrgs[0].id });
+    const { rerender } = render(<DataOpsPage />);
+    expect(mockBackupsQueryState.refetch).not.toHaveBeenCalled();
+
+    mockBackupMutationState = {
+      ...mockBackupMutationState,
+      data: { operationId: 'bk-1', partial: true },
+    };
+    rerender(<DataOpsPage />);
+
+    expect(mockBackupsQueryState.refetch).toHaveBeenCalledTimes(1);
+  });
+
   describe('org targeting', () => {
     /** A second org, so "first in the list" and "selected" are different. */
     const secondOrg: SalesforceOrg = { ...mockOrgs[0], id: 'org-2', alias: 'prod-copy' };

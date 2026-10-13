@@ -361,6 +361,13 @@
           "maximum": 100,
           "description": "%config.backup.maxCount.description%"
         },
+        "sandforge.backup.maxRecordsPerObject": {
+          "type": "integer",
+          "default": 50000,
+          "minimum": 100,
+          "maximum": 1000000,
+          "description": "%config.backup.maxRecordsPerObject.description%"
+        },
         "sandforge.pipeline.timeout": {
           "type": "number",
           "default": 300000,

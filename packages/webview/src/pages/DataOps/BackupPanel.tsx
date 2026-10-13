@@ -1,11 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BackupSummary, BackupStatus } from '@sandforge/shared';
+import type { TFunction } from 'i18next';
+import type { BackupObjectHeld, BackupSummary, BackupStatus } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { formatStoredDate, uiLocale } from '../../utils/formatters';
+import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** BackupPanel component props. */
 export interface BackupPanelProps {
@@ -27,6 +28,66 @@ const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | '
   completed: 'success',
   failed: 'error',
   expired: 'warning',
+};
+
+/** One object a backup holds only part of: the rows read, the rows the org held, and why it stopped. */
+function shortObjectLine(o: BackupObjectHeld, t: TFunction): string {
+  const values = {
+    object: o.objectApiName,
+    read: formatNumber(o.recordCount),
+    held: o.orgCount === undefined ? '' : formatNumber(o.orgCount),
+  };
+  if (o.stoppedAt === 'cap') {
+    return o.orgCount === undefined
+      ? t('dataops.backupStoppedAtCapUncounted', values)
+      : t('dataops.backupStoppedAtCap', values);
+  }
+  return o.orgCount === undefined
+    ? t('dataops.backupReadFailedUncounted', values)
+    : t('dataops.backupReadFailed', values);
+}
+
+/**
+ * What a partial backup holds of each object it holds only part of. A restore
+ * brings back those rows only, and the rest of each object stays as it is —
+ * masked, after a masking run. A backup taken since the cap says, per object,
+ * the rows read against the rows the org held and whether the cap stopped it
+ * or the read failed; an older one, which stopped at the tier's bound, says
+ * what it recorded.
+ */
+export const BackupPartialNote: React.FC<{ backup: BackupSummary; 'data-testid': string }> = ({
+  backup,
+  'data-testid': testId,
+}) => {
+  const { t } = useTranslation();
+  const short = backup.objectResults.filter((o) => o.truncated);
+  const explained = short.filter((o) => o.stoppedAt !== undefined);
+  const older = short.filter((o) => o.stoppedAt === undefined);
+  return (
+    <div
+      className="mt-2 flex flex-col gap-1 text-xs text-status-warning"
+      role="note"
+      data-testid={testId}
+    >
+      {older.length > 0 && (
+        <p>
+          {t('dataops.backupPartial', {
+            objects: older.map((o) => `${o.objectApiName} (${o.recordCount})`).join(', '),
+          })}
+        </p>
+      )}
+      {explained.length > 0 && (
+        <>
+          <p>{t('dataops.backupPartialLead')}</p>
+          <ul className="list-disc pl-4">
+            {explained.map((o) => (
+              <li key={o.objectApiName}>{shortObjectLine(o, t)}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
 };
 
 /** Panel for managing data backups. */
@@ -117,20 +178,10 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
                 <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
               </div>
               {backup.partial && (
-                // The tier's bound stopped the read: a restore brings back
-                // these rows only, and the rest of each object stays as it is.
-                <p
-                  className="mt-2 text-xs text-status-warning"
-                  role="note"
+                <BackupPartialNote
+                  backup={backup}
                   data-testid={`backup-partial-${backup.operationId}`}
-                >
-                  {t('dataops.backupPartial', {
-                    objects: backup.objectResults
-                      .filter((o) => o.truncated)
-                      .map((o) => `${o.objectApiName} (${o.recordCount})`)
-                      .join(', '),
-                  })}
-                </p>
+                />
               )}
             </CardBody>
           </Card>

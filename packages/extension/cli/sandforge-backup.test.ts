@@ -64,6 +64,19 @@ describe('parseArgs', () => {
     expect(refuse('--object', 'Account').code).toBe(2);
   });
 
+  it('reads the cap of records per object a snapshot reads, and leaves it to the default otherwise', () => {
+    expect(
+      parseArgs(argv('--org', 'T', '--object', 'Contact', '--max-records', '700')).maxRecords,
+    ).toBe(700);
+    expect(parseArgs(argv('--org', 'T', '--object', 'Contact')).maxRecords).toBeUndefined();
+  });
+
+  it('refuses a cap that is not a number of records', () => {
+    const { code, message } = refuse('--org', 'T', '--object', 'Contact', '--max-records', 'all');
+    expect(code).toBe(2);
+    expect(message).toContain('Not a number of records');
+  });
+
   it('does not write without being told to, unless --yes says so', () => {
     expect(parseArgs(argv('--org', 'T', '--restore', 'op-1')).yes).toBe(false);
     expect(parseArgs(argv('--org', 'T', '--restore', 'op-1', '--yes')).yes).toBe(true);

@@ -6547,6 +6547,96 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps backups a cap stopped short, on Backup, Restore and in the restore check', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'bk-cap',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-01T10:00:00.000Z',
+            totalRecords: 1_000,
+            totalSize: 0,
+            status: 'completed',
+            partial: true,
+            objectResults: [
+              {
+                objectApiName: 'Contact',
+                recordCount: 700,
+                orgCount: 1_234,
+                truncated: true,
+                stoppedAt: 'cap',
+              },
+              {
+                objectApiName: 'Lead',
+                recordCount: 300,
+                orgCount: 900,
+                truncated: true,
+                stoppedAt: 'failure',
+              },
+            ],
+          },
+        ],
+      });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-gdpr',
+              name: 'GDPR Standard',
+              description: 'Mask the people.',
+              complianceFramework: 'gdpr',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+              ],
+            },
+          ],
+        },
+      );
+      await expect(page.getByTestId('backup-partial-bk-cap')).toContainText('stopped at the cap');
+      await expectReadable(page, theme);
+
+      await page.getByTestId('page-tab-restore').click();
+      await expect(page.getByTestId('restore-partial-bk-cap')).toContainText('the read failed');
+      await expectReadable(page, theme);
+
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-gdpr');
+      await bridge.waitForMessage('dataops:anonymize:coverage', { timeout: 10_000 });
+      await answerAll(page, 'dataops:anonymize:coverage', 'dataops:anonymize:coverage:response', {
+        templateId: 'tpl-gdpr',
+        backup: { operationId: 'bk-cap', timestamp: '2026-10-01T10:00:00.000Z' },
+        objects: [
+          {
+            objectApiName: 'Contact',
+            count: 1_234,
+            backedUp: 700,
+            truncated: true,
+            stoppedAt: 'cap',
+          },
+          {
+            objectApiName: 'Lead',
+            count: 900,
+            backedUp: 300,
+            truncated: true,
+            stoppedAt: 'failure',
+          },
+        ],
+      });
+      await expect(page.getByTestId('restore-coverage-cap')).toBeVisible();
+      await expectReadable(page, theme);
+    });
+
     test('DataOps Anonymize preview, each original beside its masked value', async ({ page }) => {
       await openPanel(bridge, page, 'dataops', theme);
       await bridge.seedOrgs(MOCK_ORGS);

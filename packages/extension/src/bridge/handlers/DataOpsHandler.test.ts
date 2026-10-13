@@ -1683,17 +1683,17 @@ describe('DataOpsHandler', () => {
       // One describe + one query per object: no rejected first attempt. The
       // one other query asks which org the records came from.
       expect(conn.query.mock.calls.map(([soql]) => soql)).toEqual([
-        'SELECT Id, Name, Custom__c FROM Account LIMIT 2000',
+        'SELECT Id, Name, Custom__c FROM Account',
         'SELECT Id FROM Organization',
       ]);
       expect(conn.describe).toHaveBeenCalledTimes(1);
-      // The LIMIT and the columns are unchanged, so the snapshot is the same.
+      // The columns are unchanged; no LIMIT, as the snapshot reads every page.
       expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
       const response = posted().find((m) => m.type === 'dataops:backup:response');
       expect(response?.payload.totalRecords).toBe(1);
     });
 
-    it('says a backup the bound cut short is partial, in its answer and in the list', async () => {
+    it('says a backup the cap cut short is partial, in its answer and in the list', async () => {
       // Live: 1 220 contacts on a Developer Edition, 500 read, said complete.
       const full = Array.from({ length: 2_000 }, (_, i) => ({ Id: `001${i}`, Name: `A${i}` }));
       const conn = mockOrg(full, ['Id', 'Name']);
@@ -1702,6 +1702,10 @@ describe('DataOpsHandler', () => {
           ? { records: [], done: true, totalSize: 5_321 }
           : answer(soql === 'SELECT Id FROM Organization' ? [] : full),
       );
+      deps.services = {
+        getSandforgeSetting: (key: string, fallback: unknown) =>
+          key === 'backup.maxRecordsPerObject' ? 1_500 : fallback,
+      } as unknown as HandlerDeps['services'];
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
       const stored = new Map<string, unknown>();
@@ -1733,19 +1737,18 @@ describe('DataOpsHandler', () => {
         } as BaseMessage),
       );
 
+      const held = {
+        objectApiName: 'Account',
+        recordCount: 1_500,
+        orgCount: 2_000,
+        truncated: true,
+        stoppedAt: 'cap',
+      };
       const response = posted().find((m) => m.type === 'dataops:backup:response');
-      expect(response?.payload).toMatchObject({
-        partial: true,
-        objects: [{ objectApiName: 'Account', recordCount: 2_000, truncated: true }],
-      });
+      expect(response?.payload).toMatchObject({ partial: true, objects: [held] });
       const list = posted().find((m) => m.type === 'backup:list:result');
       expect(list?.payload).toMatchObject({
-        backups: [
-          {
-            partial: true,
-            objectResults: [{ objectApiName: 'Account', recordCount: 2_000, truncated: true }],
-          },
-        ],
+        backups: [{ partial: true, objectResults: [held] }],
       });
     });
 
@@ -3122,6 +3125,127 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
       expect(update.mock.calls.length).toBe(callsBefore);
       expect(last('dataops:error')?.payload).toMatchObject({ code: 'NOTHING_TO_RESUME' });
       expect(checkpointOf()?.objects[0]?.refused).toEqual([String(rows[0].Id)]);
+    });
+
+    describe('the names it makes up', () => {
+      /** A Contact whose names and address the GDPR template makes up, all writable. */
+      const personDescribe = {
+        ...contactDescribe,
+        fields: [
+          ...contactDescribe.fields,
+          ...['LastName', 'Email'].map((name) => ({
+            name,
+            label: name,
+            type: name === 'Email' ? 'email' : 'string',
+            createable: true,
+            updateable: true,
+          })),
+        ],
+      };
+
+      /** `count` contacts holding a name and an address each, in Id order. */
+      function peopleOf(count: number): Array<Record<string, unknown>> {
+        return contactsOf(count).map((row, i) => ({
+          ...row,
+          LastName: `Surname ${i + 1}`,
+          Email: `person.${i + 1}@mail.test`,
+        }));
+      }
+
+      /** An org of `rows` whose run a cancel stops once the first page is written. */
+      function orgStoppedAfterFirstPage(rows: Array<Record<string, unknown>>) {
+        let cancelOnce = true;
+        const org = orgOf(rows, {
+          afterBatch: (written) => {
+            if (written === 10 && cancelOnce) {
+              cancelOnce = false;
+              cancelTheRun();
+            }
+          },
+        });
+        Object.assign(org.conn, { describe: vi.fn().mockResolvedValue(personDescribe) });
+        return org;
+      }
+
+      /** What every update sent, the names and the address of each row. */
+      function written(update: ReturnType<typeof vi.fn>) {
+        const sent = update.mock.calls.flatMap(
+          ([batch]) => batch as Array<Record<string, unknown>>,
+        );
+        return {
+          ids: sent.map((r) => String(r.Id)),
+          names: sent.map((r) => `${String(r.FirstName)} ${String(r.LastName)}`),
+          emails: sent.map((r) => String(r.Email)),
+        };
+      }
+
+      it('gives no name and no address twice across a run and its resume', async () => {
+        const rows = peopleOf(2500);
+        const { conn, update } = orgStoppedAfterFirstPage(rows);
+        await maskContacts(conn);
+        const checkpoint = checkpointOf();
+        expect(written(update).ids).toHaveLength(2000);
+
+        await maskContacts(conn, 'Sandbox', checkpoint?.id);
+
+        const { ids, names, emails } = written(update);
+        // Each row written once, the 2,000 of the run and the 500 of the resume.
+        expect(new Set(ids).size).toBe(2500);
+        expect(ids).toHaveLength(2500);
+        // Started with none given, the resume handed out again about a fifth
+        // of the names the run had written on its first 2,000 rows.
+        expect(new Set(names).size).toBe(2500);
+        expect(new Set(emails).size).toBe(2500);
+        expect(last('dataops:anonymize:response')?.payload).toMatchObject({ status: 'success' });
+      });
+
+      it('keeps the names counted, not the rows’ values, in the checkpoint', async () => {
+        const rows = peopleOf(2500);
+        const { conn } = orgStoppedAfterFirstPage(rows);
+        await maskContacts(conn);
+
+        const kept = store.get<Record<string, unknown>>(
+          'anonymization:checkpoint:org-1:tpl-gdpr-standard',
+        );
+        const namesGiven = String(kept?.namesGiven);
+        expect(namesGiven).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
+        // Counts by name, compressed: a few kilobytes whatever the rows hold.
+        expect(namesGiven.length).toBeLessThan(10_000);
+        const everything = JSON.stringify(kept);
+        for (const row of rows.slice(0, 2000)) {
+          expect(everything).not.toContain(String(row.Email));
+        }
+      });
+
+      it('resumes a run kept before the names were, as resumes did, and says it cannot promise new names', async () => {
+        const rows = peopleOf(2500);
+        const { conn, update } = orgStoppedAfterFirstPage(rows);
+        await maskContacts(conn);
+        const key = 'anonymization:checkpoint:org-1:tpl-gdpr-standard';
+        const kept = { ...store.get<Record<string, unknown>>(key) };
+        delete kept.namesGiven;
+        store.set(key, kept, 'anonymizationCheckpoints');
+
+        await maskContacts(conn, 'Sandbox', String(kept.id));
+
+        expect(written(update).ids.slice(2000)).toEqual(rows.slice(2000).map((r) => String(r.Id)));
+        expect(unmaskedNames(rows)).toBe(0);
+        expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+          status: 'success',
+          recordsProcessed: 500,
+        });
+        expect(deps.log).toHaveBeenCalledWith(
+          expect.stringContaining(
+            'the run it resumes kept no record of the names it made up, so this one may give ' +
+              'again a name or an address that run gave.',
+          ),
+        );
+      });
+
+      /** How many rows still hold the first name they had. */
+      function unmaskedNames(rows: Array<Record<string, unknown>>): number {
+        return rows.filter((r, i) => r.FirstName === `Person ${i + 1}`).length;
+      }
     });
   });
 });

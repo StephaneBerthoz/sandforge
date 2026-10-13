@@ -47,6 +47,7 @@
   "config.ai.errorResolution.description": "Send the error message of a failed Seed, Sync, DataOps or Automation run to the model for a fix suggestion, shown as a notification. Salesforce Ids are removed from the message first, and the messages SandForge writes itself are never sent. Off, the built-in table of common Salesforce error codes still answers on your machine while a SandForge view is open, and sends nothing.",
   "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget for one window session, shared by every SandForge AI feature. SandForge warns at 80% and refuses further requests at 100%. The count runs until the window reloads or you run SandForge: Reset AI Token Budget. Changing this or any other sandforge.ai.* setting keeps it, and a new value applies to it at once.",
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
+  "config.backup.maxRecordsPerObject.description": "Most records of each object a DataOps backup reads, page after page. An object holding more is backed up only in part, and the backup says so: a restore then brings back those records only.",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
   "config.safety.auditLogging.description": "Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.",

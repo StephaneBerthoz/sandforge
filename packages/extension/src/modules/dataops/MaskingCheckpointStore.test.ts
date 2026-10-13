@@ -9,6 +9,7 @@ import {
   sentValuesDigest,
 } from './MaskingCheckpointStore.js';
 import type { MaskingCheckpoint } from './MaskingCheckpointStore.js';
+import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 
 const RULES: AnonymizationTemplateRule[] = [
   { fieldPattern: 'Contact.Email', ruleType: 'hash', description: 'Hash the email' },
@@ -160,6 +161,32 @@ describe('MaskingCheckpointStore', () => {
           unconfirmed: [{ id: recordId(1), fields: ['Email'], digest: 'masked@example.invalid' }],
         },
       ],
+    });
+    expect(checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint)).toBeUndefined();
+  });
+
+  it('keeps the names a run made up, counted, for a resume to carry on from', () => {
+    const registry = new PersonaRegistry('key-a');
+    for (let n = 0; n < 300; n++) registry.getPersona(recordId(n));
+    const kept = checkpoint({ namesGiven: registry.namesGiven() });
+
+    checkpoints.save(kept);
+
+    expect(checkpoints.load('org-1', 'tpl-1', kept.fingerprint)?.namesGiven).toBe(kept.namesGiven);
+  });
+
+  it('still reads a checkpoint kept before the names were', () => {
+    // Saved by the version before: no `namesGiven`, and still resumable.
+    configStore.set('anonymization:checkpoint:org-1:tpl-1', checkpoint());
+    const loaded = checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint);
+    expect(loaded?.id).toBe('run-1');
+    expect(loaded?.namesGiven).toBeUndefined();
+  });
+
+  it('reads an entry whose names are not what a run writes as none', () => {
+    configStore.set('anonymization:checkpoint:org-1:tpl-1', {
+      ...checkpoint(),
+      namesGiven: 'Ada Lovelace, Grace Hopper',
     });
     expect(checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint)).toBeUndefined();
   });

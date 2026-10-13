@@ -91,18 +91,20 @@ export const DataOpsPage: React.FC = () => {
   const backupMutation = useBridgeMutation<Record<string, unknown>>('backup:execute', {
     responseType: 'dataops:backup:response',
     errorType: 'dataops:error',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // A backup reads every page of each object, up to the cap of rows per
+    // object (fifty thousand unless the setting says otherwise), so a large
+    // org takes many minutes; operation:progress events keep flowing while
+    // the response is pending. Two minutes showed a timeout while it went on.
+    timeoutMs: 60 * 60_000,
   });
 
   /** Bridge mutation: restore a backup (dataops:rollback). */
   const rollbackMutation = useBridgeMutation<Record<string, unknown>>('dataops:rollback', {
     responseType: 'dataops:rollback:response',
     errorType: 'dataops:error',
-    // Upserts every backed-up record in 200-row batches; the 30 s default is
-    // far too short for a real restore.
-    timeoutMs: 120_000,
+    // Upserts every backed-up record in 200-row batches, as many as the
+    // backup's cap of rows per object; the 30 s default is far too short.
+    timeoutMs: 60 * 60_000,
   });
 
   /** Bridge mutation: export one backup as a downloadable document. */
@@ -201,6 +203,15 @@ export const DataOpsPage: React.FC = () => {
   useEffect(() => {
     if (anonymizeEnded) refetchCoverage.current();
   }, [anonymizeEnded, refetchCoverage]);
+
+  // A backup that ends, however it ends, is listed: one that stopped at the
+  // cap, or whose read failed part-way, says so in the list, and the list was
+  // only asked for when the page opened.
+  const refetchBackups = useLatestRef(() => backupsQuery.refetch());
+  const backupEnded = backupMutation.data ?? backupMutation.error;
+  useEffect(() => {
+    if (backupEnded) refetchBackups.current();
+  }, [backupEnded, refetchBackups]);
 
   // A preview shows an org's own records: it does not stay on screen under
   // the name of the next org picked.

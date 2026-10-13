@@ -13,7 +13,7 @@ import { readConfiguredLanguage } from './providers/webviewHtml';
 import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerTypes';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
-import { BackupRecordStore } from './modules/dataops/BackupRecordStore';
+import { BackupRecordStore, nodeBackupFiles } from './modules/dataops/BackupRecordStore';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
 import { logger } from './logger.js';
@@ -221,13 +221,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // directory instead of globalState, which VSCode re-serializes in full on
   // every write — a single backup could put megabytes behind every unrelated
   // settings save and behind activation itself.
-  const backupRecordStore = new BackupRecordStore({
-    storagePath: context.globalStorageUri.fsPath,
-    readFile: (p) => fs.readFile(p, 'utf-8'),
-    writeFile: (p, content) => fs.writeFile(p, content, 'utf-8'),
-    mkdir: (p) => fs.mkdir(p, { recursive: true }).then(() => undefined),
-    rm: (p) => fs.rm(p, { force: true }),
-  });
+  const backupRecordStore = new BackupRecordStore(nodeBackupFiles(context.globalStorageUri.fsPath));
 
   applyLateServices(handlers, {
     onboardingService,

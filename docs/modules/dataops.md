@@ -23,16 +23,28 @@ Take a snapshot of the objects an Anonymize writes over:
   picked on the Anonymize tab masks or, with none picked, every object a
   listed template masks -- Contact, Lead, Account and Opportunity for the
   templates that ship. The Backup tab names them before the click. Each is
-  read whole, every field, up to the org's query limit (2,000 rows on a
-  sandbox). There is no object picker and no incremental mode -- each backup
-  is a new snapshot
-- Every backup is written to extension storage with per-object record counts
-  and the org id the org answered with, and listed newest-first in the Backup
-  tab
+  read whole, every field, page after page -- 2,000 records a page on a
+  sandbox, 500 on production or a Developer Edition -- up to a cap of
+  records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless
+  you set it, from 100 to 1,000,000). There is no object picker and no
+  incremental mode -- each backup is a new snapshot
+- Each page is written to disk before the next is read, one record to a
+  line, so a backup holds one page in memory whatever the object's size
+- Every backup is written to extension storage with per-object record counts,
+  the records each object held when it was read, and the org id the org
+  answered with, and listed newest-first in the Backup tab
+- A backup that reached the cap on an object says so in the Backup and
+  Restore tabs and in Apply's restore check, per object: the records it read,
+  the records the object held, and that it stopped at the cap. A restore of
+  it brings back those records only
 - One-click backup creation from the Backup Panel
-- A backup stops between two objects when the window closes or the extension
-  deactivates. Nothing is written until every object has been read, so a
-  stopped run leaves no half-saved snapshot -- run it again for a complete one
+- A backup stops between two pages when the window closes, the extension
+  deactivates or Live Operations cancels it, and what it wrote is removed, so
+  a stopped run leaves no half-saved snapshot -- run it again for a complete
+  one
+- A backup whose read the org fails part-way keeps the records it read,
+  listed as failed and partial with the object it stopped on, and says so;
+  one the disk could not take a page of keeps nothing
 
 ### Restore
 
@@ -61,7 +73,13 @@ What a restore does, in order:
 - Brings back from the recycle bin the records of the backup deleted since it
   was taken, so they return with their `Id` and what pointed at them; a record
   no longer in the recycle bin cannot, and is reported as refused
-- Upserts on `Id` in batches of 200, per object, reporting progress per object
+- Upserts on `Id` in batches of 200, per object, reporting progress per object,
+  reading the backup 200 records at a time: backups taken before records went
+  one to a line, and those kept in extension state before files, are read as
+  they were written
+- Says, with its result, when the backup held only part of an object -- the
+  cap, a read that failed, a file no longer all there -- and that the rest of
+  the object was left as it is
 - Drops the fields _nobody_ may write — a backup is a verbatim
   `SELECT FIELDS(ALL)` snapshot, so it always carries `CreatedDate`,
   `SystemModstamp` and friends — and logs which ones it dropped
@@ -87,10 +105,12 @@ your own:
   whole, and the progress counts records against what the counts said. The
   counts come before Production Guard is asked, so its confirmation says how
   many records the run writes over, and a sandbox run past 50,000 records is
-  logged with the guard's volume warning. A backup holds at most the org's
-  query limit of each object (see Backup), so on a larger object it cannot
-  bring back every record a run masks: Apply's confirmation names, per object,
-  the records a restore of the latest backup can never bring back
+  logged with the guard's volume warning. A backup holds at most its cap of
+  records per object (see Backup), so on a larger object it cannot bring back
+  every record a run masks: the restore check marks, per object, a backup
+  that stopped at the cap or on a failed read and names the setting that
+  raises the cap, and Apply's confirmation names, per object, the records a
+  restore of the latest backup can never bring back
 - **What a run reads and writes.** It reads the `Id` and the fields the
   template names. It writes those fields where they hold a value, and nothing
   else of the record: an empty field stays empty rather than being given a
@@ -125,8 +145,13 @@ your own:
   email at `example.invalid` too, as the Fake method does for every address
   it writes. A made-up person is drawn from ten thousand names: no two
   records of one run get the same name while names last, nor the same
-  address, which carries a short token, `first.last.ab12`. A resume is a run
-  of its own, and can give a record a name the run it resumes gave
+  address, which carries a short token, `first.last.ab12`; a name given again
+  once names run out says in its address how many times, `first.last2.cd34`.
+  A resume carries on from the names the run it resumes made up -- the
+  checkpoint keeps how many times each was given, and no value of any record
+  -- so it gives none of them again, nor any of their addresses, until names
+  run out. A run stopped before checkpoints kept them is resumed as before,
+  and may give again a name that run gave; the output log says so
 - **Preview before Apply.** **Preview** reads the first five records of each
   object the template masks, in `Id` order -- the ones a run masks first --
   and shows each masked field as the org holds it beside the value Apply
@@ -156,7 +181,7 @@ your own:
   window generates when it starts and never writes down, so two runs in one
   window mask a record identically and the next window masks it differently.
   A resume in another window masks what the first run left with that window's
-  key.
+  key, and still gives none of the names the first run made up.
 
 ### Compliance (GDPR/CCPA)
 

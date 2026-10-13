@@ -88,6 +88,41 @@ describe('BackupPanel', () => {
     expect(screen.queryByTestId('backup-partial-op-2')).toBeNull();
   });
 
+  it('says, per object, the rows read against the rows the org held, and whether the cap stopped it or the read failed', () => {
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            status: 'failed',
+            partial: true,
+            objectResults: [
+              {
+                objectApiName: 'Contact',
+                recordCount: 700,
+                orgCount: 1234,
+                truncated: true,
+                stoppedAt: 'cap',
+              },
+              { objectApiName: 'Lead', recordCount: 300, truncated: true, stoppedAt: 'failure' },
+              { objectApiName: 'Account', recordCount: 40, orgCount: 40, truncated: false },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const note = screen.getByTestId('backup-partial-op-1');
+    expect(note.querySelector('p')?.textContent).toBe(
+      'Partial: a restore brings back only the rows this backup read, and leaves the rest of each object as it is.',
+    );
+    expect([...note.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Contact: 700 of 1,234 rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).',
+      'Lead: 300 rows read — the read failed there.',
+    ]);
+    expect(screen.getByText('failed')).toBeDefined();
+  });
+
   it('should show backup status badges', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByText('completed')).toBeDefined();

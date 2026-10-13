@@ -105,6 +105,71 @@ describe('PersonaRegistry', () => {
     expect(second).toStrictEqual(first);
   });
 
+  describe('carrying on from another registry', () => {
+    /** `count` record ids, from `from` on. */
+    const idsOf = (count: number, from = 0): string[] =>
+      Array.from({ length: count }, (_, i) => `003xx${String(from + i).padStart(7, '0')}`);
+
+    it('gives none of the names and none of the addresses the registry it carries on from gave', () => {
+      // A resume of a masking run: the run gave 2 000 names, and a registry
+      // starting with none given handed out again about a fifth of them.
+      for (const resumeKey of ['key-a', 'key-b']) {
+        const run = new PersonaRegistry('key-a');
+        const first = idsOf(2000).map((id) => run.getPersona(id));
+        const resume = new PersonaRegistry(resumeKey);
+        expect(resume.continueFrom(run.namesGiven())).toBe(true);
+        const second = idsOf(500, 2000).map((id) => resume.getPersona(id));
+
+        const all = [...first, ...second];
+        expect(new Set(all.map((p) => `${p.firstName} ${p.lastName}`)).size).toBe(2500);
+        expect(new Set(all.map((p) => p.email)).size).toBe(2500);
+      }
+    });
+
+    it('says in the address of a name given again how many times it was given, past the ten thousand names', () => {
+      const run = new PersonaRegistry('key-a');
+      const first = idsOf(12_000).map((id) => run.getPersona(id));
+      expect(new Set(first.map((p) => p.email)).size).toBe(12_000);
+
+      // Nearly every name is taken: the resume gives most of its rows one again.
+      const full = new PersonaRegistry('key-a');
+      full.continueFrom(run.namesGiven());
+      const again = idsOf(300, 12_000).map((id) => full.getPersona(id));
+      const taken = new Set(first.map((p) => `${p.firstName} ${p.lastName}`));
+      const givenAgain = again.filter((p) => taken.has(`${p.firstName} ${p.lastName}`));
+      expect(givenAgain.length).toBeGreaterThan(250);
+      for (const persona of givenAgain) {
+        expect(persona.email).toMatch(
+          new RegExp(
+            `^${persona.firstName.toLowerCase()}\\.${persona.lastName.toLowerCase()}\\d+\\.[0-9a-f]{4}@example\\.com$`,
+          ),
+        );
+      }
+      const emails = new Set([...first, ...again].map((p) => p.email));
+      expect(emails.size).toBe(12_300);
+    });
+
+    it('keeps the first address of a name as it was: its name and its token', () => {
+      const persona = new PersonaRegistry('key-a').getPersona('003xx000001');
+      expect(persona.email).toMatch(/^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.com$/);
+    });
+
+    it('refuses what no registry wrote, and changes nothing', () => {
+      const registry = new PersonaRegistry('key-a');
+      const alone = new PersonaRegistry('key-a').getPersona('003xx000001');
+
+      expect(registry.continueFrom('not what a registry writes')).toBe(false);
+      expect(registry.continueFrom(Buffer.from('short').toString('base64'))).toBe(false);
+      expect(registry.getPersona('003xx000001')).toStrictEqual(alone);
+    });
+
+    it('keeps the counts small: a few kilobytes for thousands of names', () => {
+      const run = new PersonaRegistry('key-a');
+      idsOf(5000).forEach((id) => run.getPersona(id));
+      expect(run.namesGiven().length).toBeLessThan(20_000);
+    });
+  });
+
   it('draws personas from the key, not from the id alone', () => {
     // A persona picked from the bare id is the same in every installation, so
     // anyone holding a list of candidate ids can tell which one a fake stands for.

@@ -197,6 +197,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                   | `true`            |
 | `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `200000`          |
 | `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`              |
+| `sandforge.backup.maxRecordsPerObject`     | Most records of each object a DataOps backup reads; an object holding more is backed up in part, and the backup says so              | `50000`           |
 | `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`          |
 | `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`            |
 | `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`            |

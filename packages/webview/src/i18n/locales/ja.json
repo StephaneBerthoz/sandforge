@@ -1213,6 +1213,11 @@
     "title": "DataOps",
     "backup": "バックアップ",
     "backupPartial": "一部のみ: {{objects}} には、このバックアップが読み取った以上の行があります。復元で戻るのはこれらの行だけです。",
+    "backupPartialLead": "一部のみ: 復元で戻るのはこのバックアップが読み取った行だけで、各オブジェクトの残りはそのままです。",
+    "backupStoppedAtCap": "{{object}}: {{held}} 行のうち {{read}} 行を読み取り — 上限で停止しました (sandforge.backup.maxRecordsPerObject)。",
+    "backupStoppedAtCapUncounted": "{{object}}: {{read}} 行を読み取り — 上限で停止しました (sandforge.backup.maxRecordsPerObject)。",
+    "backupReadFailed": "{{object}}: {{held}} 行のうち {{read}} 行を読み取り — そこで読み取りに失敗しました。",
+    "backupReadFailedUncounted": "{{object}}: {{read}} 行を読み取り — そこで読み取りに失敗しました。",
     "backupDesc": "データバックアップの作成と管理",
     "restore": "リストア",
     "restoreDesc": "バックアップからデータをリストア",
@@ -1249,7 +1254,10 @@
       "inBackup": "バックアップ内の行数",
       "notCounted": "未集計",
       "shortfall": "バックアップに含まれる分を超える行は元に戻せません: {{objects}}。",
-      "confirmShortfall": "一度マスクすると、次のレコードはリストアでも元に戻せません:"
+      "confirmShortfall": "一度マスクすると、次のレコードはリストアでも元に戻せません:",
+      "stoppedAtCap": "{{rows}} (上限で停止)",
+      "readFailed": "{{rows}} (読み取り失敗)",
+      "capHint": "{{objects}} のバックアップは、オブジェクトごとの行数の上限で停止しました。すべての行を含めるには、設定で sandforge.backup.maxRecordsPerObject を引き上げてから、もう一度バックアップしてください。"
     },
     "compliance": "コンプライアンス",
     "frameworks": {

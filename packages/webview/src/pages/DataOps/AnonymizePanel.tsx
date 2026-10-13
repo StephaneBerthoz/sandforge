@@ -194,6 +194,9 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
   const short = coverage.objects
     .filter((o) => o.truncated || (o.count !== null && o.count > o.backedUp))
     .map((o) => o.objectApiName);
+  // The backup reached the cap the user sets: raising it is what brings the
+  // rest into the next backup.
+  const capped = coverage.objects.filter((o) => o.stoppedAt === 'cap').map((o) => o.objectApiName);
   const date = coverage.backup
     ? (formatStoredDate(coverage.backup.timestamp, (d) => d.toLocaleString(uiLocale())) ??
       t('common.dateUnknown'))
@@ -231,7 +234,13 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
                 <td className="text-right tabular-nums">
                   {o.count === null ? t('dataops.coverage.notCounted') : formatNumber(o.count)}
                 </td>
-                <td className="text-right tabular-nums">{formatNumber(o.backedUp)}</td>
+                <td className="text-right tabular-nums">
+                  {o.stoppedAt === 'cap'
+                    ? t('dataops.coverage.stoppedAtCap', { rows: formatNumber(o.backedUp) })
+                    : o.stoppedAt === 'failure'
+                      ? t('dataops.coverage.readFailed', { rows: formatNumber(o.backedUp) })
+                      : formatNumber(o.backedUp)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -240,6 +249,11 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
       {short.length > 0 && (
         <span className="text-xs text-text-primary" data-testid="restore-coverage-shortfall">
           {t('dataops.coverage.shortfall', { objects: short.join(', ') })}
+        </span>
+      )}
+      {capped.length > 0 && (
+        <span className="text-xs text-text-secondary" data-testid="restore-coverage-cap">
+          {t('dataops.coverage.capHint', { objects: capped.join(', ') })}
         </span>
       )}
     </div>

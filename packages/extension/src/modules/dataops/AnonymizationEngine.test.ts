@@ -210,6 +210,38 @@ describe('AnonymizationEngine', () => {
       expect(new Set(masked.map((r) => r.Email)).size).toBe(1220);
     });
 
+    it('makes up no name or address twice across a run and an engine that carries on from it', () => {
+      // A masking run stopped after 2 000 contacts, then resumed in a new
+      // engine — of the same window, or of the next, with another key.
+      const people = (from: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          Id: `003xx${String(from + i).padStart(10, '0')}`,
+          FirstName: 'Ada',
+          LastName: 'Lovelace',
+          Email: 'ada@mail.test',
+        }));
+      const rules: DataOpsAnonymizationRule[] = ['FirstName', 'LastName', 'Email'].map(
+        (fieldApiName) => ({ objectApiName: 'Contact', fieldApiName, method: 'fake', config: {} }),
+      );
+      for (const resumeKey of ['window-key', 'next-window-key']) {
+        const run = new AnonymizationEngine(undefined, 'window-key');
+        const first = run.anonymize(people(0, 2000), rules);
+        const resume = new AnonymizationEngine(undefined, resumeKey);
+        expect(resume.continueFrom(run.namesGiven())).toBe(true);
+        const second = resume.anonymize(people(2000, 500), rules);
+
+        const all = [...first, ...second];
+        expect(new Set(all.map((r) => `${String(r.FirstName)} ${String(r.LastName)}`)).size).toBe(
+          2500,
+        );
+        expect(new Set(all.map((r) => r.Email)).size).toBe(2500);
+      }
+    });
+
+    it('refuses to carry on from anything an engine did not write', () => {
+      expect(engine.continueFrom('{"names":[]}')).toBe(false);
+    });
+
     it('makes up an address for an address in a field the persona does not name', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',

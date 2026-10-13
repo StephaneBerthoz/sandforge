@@ -118,6 +118,27 @@ export class AnonymizationEngine {
   }
 
   /**
+   * What the run drew so far that a run carrying on from it must not draw
+   * again: how many times each made-up name was given
+   * ({@link PersonaRegistry.namesGiven}). It covers the registry every rule
+   * without a salt draws from: every Fake rule of a masking run, which gives a
+   * salt to hash rules alone.
+   */
+  namesGiven(): string {
+    return this.personaRegistry.namesGiven();
+  }
+
+  /**
+   * Carry on from what a run drew, as {@link namesGiven} wrote it: a resume
+   * gives no name and no address the run it resumes gave.
+   *
+   * @returns Whether it could: false, changing nothing, for anything else.
+   */
+  continueFrom(namesGiven: string): boolean {
+    return this.personaRegistry.continueFrom(namesGiven);
+  }
+
+  /**
    * Anonymize all records according to the provided rules.
    * Each rule targets a specific object/field combination.
    * @param records - The records to anonymize

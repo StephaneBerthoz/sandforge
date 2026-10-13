@@ -1283,6 +1283,11 @@
     "title": "DataOps",
     "backup": "Sauvegarde",
     "backupPartial": "Partielle : {{objects}} contiennent plus de lignes que cette sauvegarde n'en a lu. Une restauration ne rétablit que ces lignes.",
+    "backupPartialLead": "Partielle : une restauration ne rétablit que les lignes lues par cette sauvegarde, et laisse le reste de chaque objet tel quel.",
+    "backupStoppedAtCap": "{{object}} : {{read}} lignes lues sur {{held}} — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
+    "backupStoppedAtCapUncounted": "{{object}} : {{read}} lignes lues — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
+    "backupReadFailed": "{{object}} : {{read}} lignes lues sur {{held}} — la lecture a échoué à cet endroit.",
+    "backupReadFailedUncounted": "{{object}} : {{read}} lignes lues — la lecture a échoué à cet endroit.",
     "backupDesc": "Créer et gérer les sauvegardes de données",
     "restore": "Restaurer",
     "restoreDesc": "Restaurer les données depuis une sauvegarde",
@@ -1320,7 +1325,10 @@
       "inBackup": "Lignes dans la sauvegarde",
       "notCounted": "Non compté",
       "shortfall": "Masqué pour de bon au-delà de ce que la sauvegarde contient : {{objects}}.",
-      "confirmShortfall": "Une fois masqués, ces enregistrements ne pourront jamais être rendus par une restauration :"
+      "confirmShortfall": "Une fois masqués, ces enregistrements ne pourront jamais être rendus par une restauration :",
+      "stoppedAtCap": "{{rows}} (arrêtée au plafond)",
+      "readFailed": "{{rows}} (lecture échouée)",
+      "capHint": "La sauvegarde s'est arrêtée à son plafond de lignes par objet pour {{objects}} : relevez sandforge.backup.maxRecordsPerObject dans les Paramètres et sauvegardez de nouveau pour garder chaque ligne."
     },
     "compliance": "Conformité",
     "frameworks": {

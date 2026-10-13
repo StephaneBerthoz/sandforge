@@ -1283,6 +1283,11 @@
     "title": "DataOps",
     "backup": "Sicherung",
     "backupPartial": "Unvollständig: {{objects}} enthalten mehr Zeilen, als diese Sicherung gelesen hat. Eine Wiederherstellung bringt nur diese Zeilen zurück.",
+    "backupPartialLead": "Unvollständig: Eine Wiederherstellung bringt nur die Zeilen zurück, die diese Sicherung gelesen hat, und lässt den Rest jedes Objekts, wie er ist.",
+    "backupStoppedAtCap": "{{object}}: {{read}} von {{held}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
+    "backupStoppedAtCapUncounted": "{{object}}: {{read}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
+    "backupReadFailed": "{{object}}: {{read}} von {{held}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
+    "backupReadFailedUncounted": "{{object}}: {{read}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupDesc": "Datensicherungen erstellen und verwalten",
     "restore": "Wiederherstellen",
     "restoreDesc": "Daten aus einer Sicherung wiederherstellen",
@@ -1320,7 +1325,10 @@
       "inBackup": "Zeilen in der Sicherung",
       "notCounted": "Nicht gezählt",
       "shortfall": "Endgültig maskiert über das hinaus, was die Sicherung enthält: {{objects}}.",
-      "confirmShortfall": "Einmal maskiert, kann eine Wiederherstellung diese Datensätze nie zurückbringen:"
+      "confirmShortfall": "Einmal maskiert, kann eine Wiederherstellung diese Datensätze nie zurückbringen:",
+      "stoppedAtCap": "{{rows}} (an der Obergrenze angehalten)",
+      "readFailed": "{{rows}} (Lesen fehlgeschlagen)",
+      "capHint": "Die Sicherung hat bei {{objects}} an ihrer Obergrenze von Zeilen pro Objekt angehalten: Erhöhen Sie sandforge.backup.maxRecordsPerObject in den Einstellungen und sichern Sie erneut, damit jede Zeile enthalten ist."
     },
     "compliance": "Compliance",
     "frameworks": {

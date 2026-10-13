@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { formatStoredDate, uiLocale } from '../../utils/formatters';
+import { BackupPartialNote } from './BackupPanel';
 
 /** RestorePanel component props. */
 export interface RestorePanelProps {
@@ -89,6 +90,14 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 <div className="flex gap-4 text-xs text-text-secondary">
                   <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
                 </div>
+                {/* Said before the click: a restore of it leaves the rest of
+                    each object as it is now. */}
+                {backup.partial && (
+                  <BackupPartialNote
+                    backup={backup}
+                    data-testid={`restore-partial-${backup.operationId}`}
+                  />
+                )}
               </CardBody>
             </Card>
           </div>

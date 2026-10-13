@@ -4,6 +4,7 @@
  */
 
 import { createHmac, randomBytes } from 'node:crypto';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 import type {
   AnonymizationMethod,
@@ -126,12 +127,15 @@ const LAST_NAMES = [
 );
 
 /**
- * How many times a persona draws again when its name, or its address, is one
- * the registry already gave. Past ten thousand records the names run out, and
- * a name is given twice rather than drawn for ever; the address still differs
- * by its token.
+ * How many times a persona draws again when its name is one the registry
+ * already gave. Past ten thousand records the names run out, and a name is
+ * given twice rather than drawn for ever; its address then says how many
+ * times it was given, and stays unlike every other.
  */
 const MAX_REDRAWS = 32;
+
+/** How many names there are: every given name with every surname. */
+const NAME_COUNT = FIRST_NAMES.length * LAST_NAMES.length;
 
 /** The name a pick gives. */
 function nameOf(hash: number): { firstName: string; lastName: string } {
@@ -141,20 +145,22 @@ function nameOf(hash: number): { firstName: string; lastName: string } {
   };
 }
 
-/** A persona's name as one string, `First Last`, as the registry tells two apart by it. */
-function fullName(name: { firstName: string; lastName: string }): string {
-  return `${name.firstName} ${name.lastName}`;
+/** Where the name a pick gives sits among the {@link NAME_COUNT}, as the registry counts it. */
+function nameIndexOf(hash: number): number {
+  return (hash % FIRST_NAMES.length) * LAST_NAMES.length + ((hash >> 8) % LAST_NAMES.length);
 }
 
 /** Registry of deterministic fake personas for cross-object coherence. */
 export class PersonaRegistry {
   private readonly personas = new Map<string, AnonymizedPersona>();
 
-  /** Full names already given: two records of a run are not one person while names last. */
-  private readonly namesGiven = new Set<string>();
-
-  /** Addresses already given: two records of a run never share one. */
-  private readonly emailsGiven = new Set<string>();
+  /**
+   * How many records each name was given to, by {@link nameIndexOf}: two
+   * records of a run are not one person while names last, and two never share
+   * an address. Counts rather than the names, so that they fit a checkpoint a
+   * resume carries on from ({@link namesGiven}).
+   */
+  private readonly timesGiven = new Uint32Array(NAME_COUNT);
 
   /** HMAC key the persona picks are drawn with. See the constructor. */
   private readonly key: string;
@@ -218,8 +224,10 @@ export class PersonaRegistry {
    * ten thousand names there are. The registry lives for one run: which record
    * draws again follows the order the run reads them in, and the same ordered
    * run gives the same people. The address carries a short token keyed on the
-   * id, `first.last.ab12`, so it is unlike every other one the registry gave,
-   * and very likely unlike those of another run.
+   * id, `first.last.ab12`, so it is very likely unlike those of another run; a
+   * name given again once names run out says in its address how many times it
+   * was given, `first.last2.cd34`, so the address is unlike every other one
+   * the registry gave.
    * @param sourceRecordId - The Salesforce record ID
    * @returns A coherent fake persona
    */
@@ -230,18 +238,20 @@ export class PersonaRegistry {
     }
 
     let hash = keyedSeed(this.key, `persona:${sourceRecordId}`);
-    for (let n = 1; n <= MAX_REDRAWS && this.namesGiven.has(fullName(nameOf(hash))); n++) {
+    for (let n = 1; n <= MAX_REDRAWS && this.timesGiven[nameIndexOf(hash)] > 0; n++) {
       hash = keyedSeed(this.key, `persona:${sourceRecordId}:${n}`);
     }
     const { firstName, lastName } = nameOf(hash);
-    this.namesGiven.add(fullName({ firstName, lastName }));
+    const name = nameIndexOf(hash);
+    const before = this.timesGiven[name];
+    this.timesGiven[name] = before + 1;
     const city = this.cities[(hash >> 16) % this.cities.length];
 
     const persona: AnonymizedPersona = {
       sourceRecordId,
       firstName,
       lastName,
-      email: this.emailFor(firstName, lastName, sourceRecordId),
+      email: this.emailFor(firstName, lastName, before, sourceRecordId),
       phone: `+1-555-${String((hash % 900) + 100).padStart(3, '0')}-${String(((hash >> 4) % 9000) + 1000).padStart(4, '0')}`,
       address: `${(hash % 999) + 1} ${this.streets[(hash >> 12) % this.streets.length]}`,
       city,
@@ -254,20 +264,63 @@ export class PersonaRegistry {
   }
 
   /**
-   * A persona's address: its name and four hex digits keyed on the record id,
-   * drawn again while the registry already gave the address.
+   * A persona's address: its name and four hex digits keyed on the record id.
+   * A name the registry gave before carries, after its surname, how many
+   * records had it once this one has: no surname ends in a digit, so the
+   * address is unlike every other one given, in this run and in a run that
+   * carries on from it. It used to draw its token again while the address had
+   * been given, which a resume, starting with none given, could not know.
+   *
+   * @param before - How many records had the name before this one.
    */
-  private emailFor(firstName: string, lastName: string, sourceRecordId: string): string {
-    const local = `${firstName.toLowerCase()}.${lastName.toLowerCase()}`;
-    let email = '';
-    for (let n = 0; n <= MAX_REDRAWS; n++) {
-      const seed = n === 0 ? `email:${sourceRecordId}` : `email:${sourceRecordId}:${n}`;
-      const token = (keyedSeed(this.key, seed) & 0xffff).toString(16).padStart(4, '0');
-      email = `${local}.${token}@example.com`;
-      if (!this.emailsGiven.has(email)) break;
+  private emailFor(
+    firstName: string,
+    lastName: string,
+    before: number,
+    sourceRecordId: string,
+  ): string {
+    const again = before > 0 ? String(before + 1) : '';
+    const local = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${again}`;
+    const token = (keyedSeed(this.key, `email:${sourceRecordId}`) & 0xffff)
+      .toString(16)
+      .padStart(4, '0');
+    return `${local}.${token}@example.com`;
+  }
+
+  /**
+   * How many records each name was given to, compressed: all a registry that
+   * carries on from this one needs to give no name, and no address, this one
+   * gave ({@link continueFrom}). Only counts, by name: no record id, no key,
+   * no value of any record.
+   */
+  namesGiven(): string {
+    const counts = Buffer.alloc(NAME_COUNT * 4);
+    this.timesGiven.forEach((times, name) => counts.writeUInt32LE(times, name * 4));
+    return deflateRawSync(counts).toString('base64');
+  }
+
+  /**
+   * Carry on from what another registry gave, as {@link namesGiven} wrote it:
+   * a resume carries on from the run it resumes. A name given there is given
+   * here only once names run out, with an address of its own.
+   *
+   * @returns Whether it could: false, changing nothing, when `given` is not
+   *   what {@link namesGiven} writes.
+   */
+  continueFrom(given: string): boolean {
+    let counts: Buffer;
+    try {
+      counts = inflateRawSync(Buffer.from(given, 'base64'), {
+        maxOutputLength: NAME_COUNT * 4,
+      });
+    } catch {
+      return false;
     }
-    this.emailsGiven.add(email);
-    return email;
+    if (counts.length !== NAME_COUNT * 4) return false;
+    for (let name = 0; name < NAME_COUNT; name++) {
+      this.timesGiven[name] += counts.readUInt32LE(name * 4);
+    }
+    return true;
   }
 
   /** Get count of registered personas. */
@@ -278,8 +331,7 @@ export class PersonaRegistry {
   /** Clear all personas. */
   clear(): void {
     this.personas.clear();
-    this.namesGiven.clear();
-    this.emailsGiven.clear();
+    this.timesGiven.fill(0);
   }
 }
 

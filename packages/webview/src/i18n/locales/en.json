@@ -1283,6 +1283,11 @@
     "title": "DataOps",
     "backup": "Backup",
     "backupPartial": "Partial: {{objects}} hold more rows than this backup read. A restore brings back these rows only.",
+    "backupPartialLead": "Partial: a restore brings back only the rows this backup read, and leaves the rest of each object as it is.",
+    "backupStoppedAtCap": "{{object}}: {{read}} of {{held}} rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).",
+    "backupStoppedAtCapUncounted": "{{object}}: {{read}} rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).",
+    "backupReadFailed": "{{object}}: {{read}} of {{held}} rows read — the read failed there.",
+    "backupReadFailedUncounted": "{{object}}: {{read}} rows read — the read failed there.",
     "backupDesc": "Create and manage data backups",
     "restore": "Restore",
     "restoreDesc": "Restore data from a backup",
@@ -1320,7 +1325,10 @@
       "inBackup": "Rows in the backup",
       "notCounted": "Not counted",
       "shortfall": "Masked for good past what the backup holds: {{objects}}.",
-      "confirmShortfall": "Once masked, these records can never be brought back by a restore:"
+      "confirmShortfall": "Once masked, these records can never be brought back by a restore:",
+      "stoppedAtCap": "{{rows}} (stopped at the cap)",
+      "readFailed": "{{rows}} (read failed)",
+      "capHint": "The backup stopped at its cap of rows per object for {{objects}}: raise sandforge.backup.maxRecordsPerObject in Settings and back up again to hold every row."
     },
     "compliance": "Compliance",
     "frameworks": {

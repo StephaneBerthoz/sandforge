@@ -7,6 +7,7 @@ import type {
   AnonymizePreviewObject,
   AnonymizePreviewValue,
   AuditObjectCounts,
+  BackupObjectHeld,
   BackupSummary,
   DataOpsAnonymizationRule,
   ListedAnonymizationTemplate,
@@ -31,7 +32,7 @@ import {
   guardBlockedError,
   guardRefusalCode,
 } from './HandlerTypes.js';
-import type { Connection } from 'jsforce';
+import type { Connection, QueryOptions, QueryResult } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
@@ -58,7 +59,8 @@ import {
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import type { SforceLimitInfo } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
-import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
+import type { BackupRecord, BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
+import type { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
@@ -188,6 +190,48 @@ class BackupCancelledError extends Error {
 }
 
 /**
+ * What a snapshot throws where it could not write a page to disk. The file
+ * may hold part of that page, so nothing of the snapshot is kept: a restore
+ * must not read it as what the org held.
+ */
+class BackupWriteError extends Error {
+  constructor(cause: unknown) {
+    super(`The backup could not be written to disk: ${extractErrorMessage(cause)}`);
+    this.name = 'BackupWriteError';
+  }
+}
+
+/** Rows of each object a backup reads when `sandforge.backup.maxRecordsPerObject` says nothing. */
+const BACKUP_CAP_DEFAULT = 50_000;
+
+/** The fewest rows of an object the setting may set a backup to read: what its manifest allows. */
+const BACKUP_CAP_MIN = 100;
+
+/** The most rows of an object the setting may set a backup to read: what its manifest allows. */
+const BACKUP_CAP_MAX = 1_000_000;
+
+/** Rows a restore reads of a backup, and upserts, at a time: the most one REST collection takes. */
+const RESTORE_BATCH_SIZE = 200;
+
+/** One object of a snapshot as it is read: the rows written so far, and why it stopped short. */
+type BackupObjectRead = BackupObjectHeld & { truncated: boolean };
+
+/**
+ * Where a snapshot's records go, a page at a time, as the org answers them:
+ * the backup files, or, in a host that gave the handler none, the config store.
+ */
+interface BackupWriter {
+  /** Start an object: its file is there, empty, from now on. */
+  begin(objectApiName: string): Promise<void>;
+  /** Add a page of an object's records. */
+  append(objectApiName: string, records: readonly BackupRecord[]): Promise<void>;
+  /** Once the snapshot's metadata is written: keep what is still held only in memory. */
+  keep(): void;
+  /** Remove every object begun: the snapshot is not kept. */
+  discard(): Promise<void>;
+}
+
+/**
  * The three words Seed, Sync and Clone already use for a write that did not
  * fully land. Reused here rather than invented: a restore or a masking run
  * that only partly succeeded is the same event those modules name `partial`.
@@ -238,8 +282,57 @@ function rulesOfObject(
 interface KeptBackup {
   operationId: string;
   timestamp: string;
-  /** Per object, the rows it holds, and whether it stopped at the cap with the object holding more. */
-  objects: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
+  /** Per object, the rows it holds, and whether, and why, it stopped with the object holding more. */
+  objects: BackupObjectHeld[];
+}
+
+/** A backup's metadata, as `takeBackup` writes it into the config store, older ones included. */
+interface BackupMeta {
+  operationId?: string;
+  orgId?: string;
+  /** Absent from backups taken before it was recorded. */
+  organizationId?: string;
+  objects?: BackupObjectHeld[];
+  /** True when any object stopped with the object holding more. */
+  partial?: boolean;
+  /** `failed` when the read failed part-way and the backup keeps the rows read before; absent otherwise. */
+  status?: 'failed';
+  /** The cap of rows per object the backup read with; absent from backups taken before it. */
+  cap?: number;
+  timestamp?: string;
+  totalRecords?: number;
+}
+
+/**
+ * Per object, what a backup holds short of what the org held, as a restore's
+ * result says it: `Contact 5000 of 12345 (stopped at the cap)`. Empty for a
+ * backup that holds every row of every object.
+ *
+ * @param objects - The backup's objects, as its metadata records them.
+ * @param read - Per object, the rows a restore read of it; fewer than the
+ *   metadata records is said too, whatever the reason.
+ */
+function backupShortfall(
+  objects: readonly BackupObjectHeld[],
+  read?: ReadonlyMap<string, number>,
+): string {
+  return objects
+    .flatMap((o) => {
+      const rows = read?.get(o.objectApiName);
+      if (rows !== undefined && rows < o.recordCount) {
+        return [`${o.objectApiName} ${rows} of the ${o.recordCount} it listed (not found on disk)`];
+      }
+      if (!o.truncated) return [];
+      const held = o.orgCount !== undefined ? ` of ${o.orgCount}` : '';
+      const why =
+        o.stoppedAt === 'cap'
+          ? ' (stopped at the cap)'
+          : o.stoppedAt === 'failure'
+            ? ' (the read failed)'
+            : '';
+      return [`${o.objectApiName} ${o.recordCount}${held}${why}`];
+    })
+    .join(', ');
 }
 
 /** Rows a masking run writes back per update call: the most one REST collection takes. */
@@ -503,10 +596,13 @@ function pageEnd(
 /** A snapshot taken, as its metadata records it. */
 export interface BackupTaken {
   operationId: string;
-  /** Each object read, with the rows taken and whether a bound cut the read short. */
-  objects: Array<{ objectApiName: string; recordCount: number; truncated: boolean }>;
+  /**
+   * Each object read, with the rows taken, the rows the org held, and
+   * whether, and why, the read stopped short.
+   */
+  objects: BackupObjectRead[];
   totalRecords: number;
-  /** Whether any object stopped at a bound: the snapshot is only part of the org's data. */
+  /** Whether any object stopped at the cap: the snapshot is only part of the org's data. */
   partial: boolean;
   timestamp: string;
 }
@@ -703,13 +799,14 @@ export class DataOpsHandler implements DomainHandler {
    * SELECT clause.
    *
    * Salesforce caps `SELECT FIELDS(ALL)` at `LIMIT 200`, and these snapshots
-   * ask for the org-tier limit (2000 on a sandbox): the org rejected the query
-   * every single time, and the records only arrived because
+   * asked for the org-tier limit (2000 on a sandbox): the org rejected the
+   * query every single time, and the records only arrived because
    * `queryWithFieldsFallback` caught the rejection, described the object and
    * re-queried — three round trips per object to do the work of two. Resolving
-   * the field list up front makes the query valid on the first attempt. It is
-   * the same list that fallback built, and the same `LIMIT`, so the rows and
-   * columns collected do not change.
+   * the field list up front makes the query valid on the first attempt, with
+   * no `LIMIT` at all: a snapshot now reads every page of the object, up to
+   * its cap. It is the same list that fallback built, so the columns
+   * collected do not change.
    *
    * @param conn - Connection used for the describe call.
    * @param objectApiName - Already-sanitized SObject API name.
@@ -836,7 +933,9 @@ export class DataOpsHandler implements DomainHandler {
       objects: outcome.objects.map((r) => ({
         objectApiName: r.objectApiName,
         recordCount: r.recordCount,
+        ...(r.orgCount !== undefined ? { orgCount: r.orgCount } : {}),
         ...(r.truncated ? { truncated: true } : {}),
+        ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
       })),
       totalRecords: outcome.totalRecords,
       ...(outcome.partial ? { partial: true } : {}),
@@ -848,13 +947,13 @@ export class DataOpsHandler implements DomainHandler {
 
   /**
    * Take a snapshot for a pipeline's Backup step: the flow the Backup button
-   * runs — the org's lock, the duplicate guard, the tier's row bound, the
-   * registry entry Live Operations can cancel, the retention — answered to the
-   * step rather than to a page. Nothing is written to the org; the records go
-   * to local storage, where the DataOps page lists them.
+   * runs — the org's lock, the duplicate guard, the cap of rows per object,
+   * the registry entry Live Operations can cancel, the retention — answered to
+   * the step rather than to a page. Nothing is written to the org; the records
+   * go to local storage, where the DataOps page lists them.
    *
    * @param request - The snapshot's id, the org, and the objects to read.
-   * @param signal - Stops the snapshot between two objects or before it is
+   * @param signal - Stops the snapshot between two pages or before it is
    *   saved, with nothing saved.
    * @returns What the snapshot holds.
    * @throws {StepCancelledError} When a cancel stopped the snapshot — Live
@@ -915,7 +1014,7 @@ export class DataOpsHandler implements DomainHandler {
    * @param operationId - The snapshot's id: its storage key and its registry entry.
    * @param payload - The org and the objects to read.
    * @param origin - The request that asked for it, for the fix suggestion.
-   * @param signal - Stops the snapshot between two objects or before it is
+   * @param signal - Stops the snapshot between two pages or before it is
    *   saved, as a cancel from Live Operations does.
    */
   private async takeBackup(
@@ -955,6 +1054,17 @@ export class DataOpsHandler implements DomainHandler {
     if (signal?.aborted) stop.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
 
+    /** The most rows of each object the snapshot reads. */
+    const cap = this.backupCap();
+    /** Where the pages go as the org answers them. */
+    const writer = this.backupWriter(operationId);
+    /** The objects read to their end, or to the cap. */
+    const taken: BackupObjectRead[] = [];
+    /** The object under way, until it is read: a failure part-way says how far it got. */
+    let reading: BackupObjectRead | undefined;
+    /** The org's connection, once opened: a snapshot kept after a failure asks which org it is. */
+    let connection: Connection | undefined;
+
     try {
       if (this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
@@ -971,24 +1081,24 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+      connection = conn;
 
-      // Resolve dynamic query limits based on org tier
+      // A page is as many rows as the org's tier reads at a time: 2,000 on a
+      // sandbox, 500 on production. It used to be how many rows of each
+      // object a backup read at all: one taken before an Anonymize of a larger
+      // object brought that many back, and the rest stayed masked for good.
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const orgTier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
-      const queryLimits = getQueryLimits(orgTier);
-
-      const results: Array<
-        BackupTaken['objects'][number] & { records: Record<string, unknown>[] }
-      > = [];
+      const pageSize = getQueryLimits(orgTier).defaultQueryLimit;
 
       const description = `Backup ${payload.objects.length} object(s)`;
       sendOperationStarted(this.deps, operationId, 'dataops', description);
 
-      // A snapshot reads one object after another, so the registry's abort —
+      // A snapshot reads one page after another, so the registry's abort —
       // the extension deactivating, the window closing, a cancel from Live
-      // Operations, a pipeline run stopped — is honoured between two objects.
-      // Nothing is written to storage until the whole loop is through, so
-      // stopping there leaves no half-saved backup behind.
+      // Operations, a pipeline run stopped — is honoured between two pages.
+      // What the pages before wrote is then removed, so stopping leaves no
+      // half-saved backup behind.
       this.deps.infraServices?.backgroundRegistry?.register(
         operationId,
         'dataops',
@@ -1002,47 +1112,58 @@ export class DataOpsHandler implements DomainHandler {
         stop,
       );
 
-      let processedObjects = 0;
       for (const objectApiName of payload.objects) {
         if (stop.signal.aborted) {
           throw new BackupCancelledError();
         }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
-        const read = await queryAllBounded<Record<string, unknown>>(
+        const read: BackupObjectRead = { objectApiName, recordCount: 0, truncated: false };
+        reading = read;
+        await this.readIntoBackup(
           conn,
-          `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
-            `LIMIT ${queryLimits.defaultQueryLimit}`,
-          queryLimits.defaultQueryLimit,
+          safeObj,
+          read,
+          writer,
+          { pageSize, cap },
+          stop.signal,
+          () => {
+            // Between two pages of a large object: how far into it the read is.
+            const target = Math.max(1, Math.min(read.orgCount ?? cap, cap));
+            sendOperationProgress(
+              this.deps,
+              operationId,
+              Math.round(
+                ((taken.length + read.recordCount / target) / payload.objects.length) * 100,
+              ),
+              taken.length,
+              payload.objects.length,
+              `Reading ${objectApiName} (${read.recordCount} of ${target} records)`,
+            );
+          },
         );
-        const records = read.records;
-        checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
+        reading = undefined;
+        taken.push(read);
 
-        // A snapshot that stopped at a bound is still a snapshot, and taking
+        // A snapshot that stopped at the cap is still a snapshot, and taking
         // it is still better than taking none — but it is not the thing the
         // user thinks they have. Said here, carried in the metadata below, and
-        // read back by the listing, so it is still true tomorrow.
-        if (read.truncated) {
+        // read back by the listing and the coverage check, so it is still true
+        // tomorrow.
+        if (read.stoppedAt === 'cap') {
           this.deps.log(
-            `[WARN] backup of ${safeObj} stopped at ${records.length} record(s): the object holds more.`,
+            `[WARN] backup of ${safeObj} stopped at the cap of ${cap} record(s): the object holds ` +
+              `${read.orgCount ?? 'more'}.`,
           );
         }
-
-        results.push({
-          objectApiName,
-          recordCount: records.length,
-          records,
-          truncated: read.truncated,
-        });
-        processedObjects++;
 
         sendOperationProgress(
           this.deps,
           operationId,
-          Math.round((processedObjects / payload.objects.length) * 100),
-          processedObjects,
+          Math.round((taken.length / payload.objects.length) * 100),
+          taken.length,
           payload.objects.length,
-          `Exported ${objectApiName} (${records.length} records)`,
+          `Exported ${objectApiName} (${read.recordCount} records)`,
         );
       }
 
@@ -1059,34 +1180,12 @@ export class DataOpsHandler implements DomainHandler {
         throw new BackupCancelledError();
       }
 
-      const backupKey = `backup:${operationId}`;
-      const backupMeta = {
-        operationId,
-        orgId: payload.orgId,
-        ...(organizationId !== undefined ? { organizationId } : {}),
-        objects: results.map((r) => ({
-          objectApiName: r.objectApiName,
-          recordCount: r.recordCount,
-          truncated: r.truncated,
-        })),
-        // True when any object stopped at a bound, so the listing can say so
-        // without reading every object of every snapshot.
-        partial: results.some((r) => r.truncated),
-        timestamp: new Date().toISOString(),
-        totalRecords: results.reduce((sum, r) => sum + r.recordCount, 0),
-      };
-      this.deps.configStore.set(backupKey, backupMeta, 'backups');
-
-      for (const r of results) {
-        // Record payloads go to a file, not globalState: VSCode re-serializes
-        // that memento in full on every write, so megabytes of backup made
-        // every unrelated setting save pay for them.
-        if (this.backupRecords) {
-          await this.backupRecords.save(operationId, r.objectApiName, r.records);
-        } else {
-          this.deps.configStore.set(`${backupKey}:${r.objectApiName}`, r.records, 'backups');
-        }
-      }
+      const backupMeta = this.saveBackupMeta(
+        { operationId, orgId: payload.orgId, organizationId, cap },
+        taken,
+        writer,
+        false,
+      );
 
       // `sandforge.backup.maxCount` retention: prune oldest backups for this
       // org. Housekeeping, and it runs after the snapshot is written — so a
@@ -1095,16 +1194,10 @@ export class DataOpsHandler implements DomainHandler {
       // the one they already have; the records are on disk either way and the
       // listing finds them. Only the pruning is lost, and it retries on the
       // next backup of this org.
-      try {
-        this.pruneBackups(payload.orgId);
-      } catch (pruneErr: unknown) {
-        this.deps.log(
-          `[WARN] backup retention failed after the snapshot was written: ${extractErrorMessage(pruneErr)}`,
-        );
-      }
+      this.pruneAfterBackup(payload.orgId);
 
       sendOperationCompleted(this.deps, operationId, {
-        objects: results.map((r) => ({
+        objects: taken.map((r) => ({
           objectApiName: r.objectApiName,
           recordCount: r.recordCount,
         })),
@@ -1114,28 +1207,272 @@ export class DataOpsHandler implements DomainHandler {
 
       return {
         operationId,
-        objects: backupMeta.objects,
+        objects: taken,
         totalRecords: backupMeta.totalRecords,
         partial: backupMeta.partial,
         timestamp: backupMeta.timestamp,
       };
     } catch (err: unknown) {
-      backupError = err;
       this.dmlTracker.markFailed(operationId);
       // Only a stop at the cancel is one. Read off the signal, a query the org
       // refused while a cancel was pending made a cancelled snapshot: the
       // activity feed listed it cancelled, and a pipeline's Backup step ended
       // cancelled rather than failed, and was not tried again.
       const cancelled = err instanceof BackupCancelledError;
+      // A read the org failed part-way keeps what it read, said to be partial;
+      // a cancel, or a page the disk did not take whole, keeps nothing.
+      const kept =
+        cancelled || err instanceof BackupWriteError
+          ? undefined
+          : await this.keepFailedBackup(
+              { operationId, orgId: payload.orgId, cap },
+              connection,
+              taken,
+              reading,
+              writer,
+            );
+      if (kept === undefined) {
+        await writer.discard().catch((discardErr: unknown) => {
+          this.deps.log(
+            `[WARN] backup ${operationId}: what it wrote before it stopped was not removed: ` +
+              extractErrorMessage(discardErr),
+          );
+        });
+      }
+      const reported =
+        kept === undefined
+          ? err
+          : new Error(
+              `${extractErrorMessage(err)} — the backup keeps the ${kept.totalRecords} record(s) ` +
+                `read before it stopped, listed as partial: ${backupShortfall(kept.objects)}.`,
+            );
+      backupError = reported;
       // Stopped through the run's signal rather than from Live Operations, the
       // snapshot is still listed as running there, and the error it settles
       // with below would list it as failed.
       if (cancelled) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
-      return { error: err, retryable: true, context: failure, cancelled };
+      return { error: reported, retryable: true, context: failure, cancelled };
     } finally {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
       this.activeOrgOperations.delete(lockKey);
+    }
+  }
+
+  /**
+   * The most rows of one object a backup reads: `sandforge.backup.maxRecordsPerObject`,
+   * held within the bounds its manifest gives it, which the Settings editor
+   * enforces and a hand-edited settings file does not.
+   */
+  private backupCap(): number {
+    const asked: unknown = this.deps.services?.getSandforgeSetting?.(
+      'backup.maxRecordsPerObject',
+      BACKUP_CAP_DEFAULT,
+    );
+    if (typeof asked !== 'number' || !Number.isFinite(asked)) return BACKUP_CAP_DEFAULT;
+    return Math.min(BACKUP_CAP_MAX, Math.max(BACKUP_CAP_MIN, Math.floor(asked)));
+  }
+
+  /**
+   * Where a snapshot's records go as pages arrive: the backup files once
+   * composition gave the handler their store; otherwise the config store, in
+   * one entry per object written with the metadata, as before the files.
+   *
+   * @param operationId - The snapshot's id, its files' and entries' key.
+   */
+  private backupWriter(operationId: string): BackupWriter {
+    const store = this.backupRecords;
+    if (store) {
+      const begun = new Set<string>();
+      return {
+        begin: async (objectApiName) => {
+          begun.add(objectApiName);
+          await store.begin(operationId, objectApiName).catch((err: unknown) => {
+            throw new BackupWriteError(err);
+          });
+        },
+        append: async (objectApiName, records) => {
+          await store.append(operationId, objectApiName, records).catch((err: unknown) => {
+            throw new BackupWriteError(err);
+          });
+        },
+        keep: () => undefined,
+        discard: async () => {
+          for (const objectApiName of begun) await store.delete(operationId, objectApiName);
+        },
+      };
+    }
+    const held = new Map<string, BackupRecord[]>();
+    return {
+      begin: async (objectApiName) => {
+        held.set(objectApiName, []);
+      },
+      append: async (objectApiName, records) => {
+        held.get(objectApiName)?.push(...records);
+      },
+      keep: () => {
+        for (const [objectApiName, records] of held) {
+          this.deps.configStore.set(`backup:${operationId}:${objectApiName}`, records, 'backups');
+        }
+      },
+      discard: async () => {
+        held.clear();
+      },
+    };
+  }
+
+  /**
+   * Read one object into a snapshot, page after page to its last row or to
+   * the cap, each page written before the next is asked for: the snapshot
+   * holds one page in memory, whatever the object's size.
+   *
+   * One statement, its pages followed by `nextRecordsUrl`, each as large as
+   * the org's tier reads (`Sforce-Query-Options: batchSize`). Its first answer
+   * says how many rows the object holds, which the snapshot records beside
+   * the rows it read. Reaching the cap, it stops with the rows past it unread
+   * and records why.
+   *
+   * @param read - The object as read so far, updated page by page, so that a
+   *   read that fails part-way still says how many rows it wrote.
+   * @param onPage - Called between two pages, once more are to come.
+   * @throws {BackupCancelledError} At a cancel, between two pages.
+   */
+  private async readIntoBackup(
+    conn: Connection,
+    safeObj: string,
+    read: BackupObjectRead,
+    writer: BackupWriter,
+    limits: { pageSize: number; cap: number },
+    stop: AbortSignal,
+    onPage: () => void,
+  ): Promise<void> {
+    const options: QueryOptions = {
+      headers: { 'Sforce-Query-Options': `batchSize=${limits.pageSize}` },
+      maxFetch: 10_000,
+      autoFetch: false,
+      scanAll: false,
+      responseTarget: 'QueryResult',
+    };
+    let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(
+      `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj}`,
+      options,
+    );
+    checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
+    if (typeof page.totalSize === 'number' && Number.isInteger(page.totalSize)) {
+      read.orgCount = page.totalSize;
+    }
+    await writer.begin(read.objectApiName);
+    for (;;) {
+      const room = limits.cap - read.recordCount;
+      const rows = page.records.length > room ? page.records.slice(0, room) : page.records;
+      await writer.append(read.objectApiName, rows);
+      read.recordCount += rows.length;
+      const next = !page.done ? page.nextRecordsUrl : undefined;
+      if (
+        rows.length < page.records.length ||
+        (next !== undefined && read.recordCount >= limits.cap)
+      ) {
+        read.truncated = true;
+        read.stoppedAt = 'cap';
+        return;
+      }
+      if (next === undefined) return;
+      onPage();
+      if (stop.aborted) throw new BackupCancelledError();
+      page = await conn.queryMore<BackupRecord>(next, options);
+      checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
+    }
+  }
+
+  /**
+   * Write a snapshot's metadata, the one entry the listing, the coverage
+   * check and a restore read, then keep its records.
+   *
+   * @param failed - Whether the read failed part-way: the backup keeps the
+   *   rows read before, and says so.
+   * @returns The metadata written.
+   */
+  private saveBackupMeta(
+    backup: { operationId: string; orgId: string; organizationId?: string; cap: number },
+    objects: readonly BackupObjectRead[],
+    writer: BackupWriter,
+    failed: boolean,
+  ): BackupMeta & { partial: boolean; timestamp: string; totalRecords: number } {
+    const backupMeta = {
+      operationId: backup.operationId,
+      orgId: backup.orgId,
+      ...(backup.organizationId !== undefined ? { organizationId: backup.organizationId } : {}),
+      objects: objects.map((r) => ({
+        objectApiName: r.objectApiName,
+        recordCount: r.recordCount,
+        truncated: r.truncated,
+        ...(r.orgCount !== undefined ? { orgCount: r.orgCount } : {}),
+        ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
+      })),
+      // True when any object stopped short, so the listing can say so
+      // without reading every object of every snapshot.
+      partial: objects.some((r) => r.truncated),
+      ...(failed ? { status: 'failed' as const } : {}),
+      cap: backup.cap,
+      timestamp: new Date().toISOString(),
+      totalRecords: objects.reduce((sum, r) => sum + r.recordCount, 0),
+    };
+    this.deps.configStore.set(`backup:${backup.operationId}`, backupMeta, 'backups');
+    // Record payloads go to a file, not globalState: VSCode re-serializes
+    // that memento in full on every write, so megabytes of backup made every
+    // unrelated setting save pay for them.
+    writer.keep();
+    return backupMeta;
+  }
+
+  /**
+   * Keep a snapshot whose read the org failed part-way, as far as it got:
+   * the objects read whole, and the one it failed on with the rows it wrote,
+   * listed as partial and failed, so that neither the listing nor a restore
+   * takes it for the org's data. Nothing is kept when no row was written.
+   *
+   * @returns The metadata written, or undefined when nothing was kept.
+   */
+  private async keepFailedBackup(
+    backup: { operationId: string; orgId: string; cap: number },
+    conn: Connection | undefined,
+    taken: readonly BackupObjectRead[],
+    reading: BackupObjectRead | undefined,
+    writer: BackupWriter,
+  ): Promise<(BackupMeta & { objects: BackupObjectRead[]; totalRecords: number }) | undefined> {
+    const objects = reading
+      ? [...taken, { ...reading, truncated: true, stoppedAt: 'failure' as const }]
+      : [...taken];
+    if (objects.every((o) => o.recordCount === 0)) return undefined;
+    try {
+      const organizationId = conn ? await this.organizationIdOf(conn) : undefined;
+      const meta = this.saveBackupMeta({ ...backup, organizationId }, objects, writer, true);
+      this.pruneAfterBackup(backup.orgId);
+      return { ...meta, objects };
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] backup ${backup.operationId}: the rows read before it failed were not kept: ` +
+          extractErrorMessage(err),
+      );
+      // Its metadata may be written already: without its records, a listed
+      // backup would restore nothing and say it had.
+      try {
+        this.deps.configStore.delete(`backup:${backup.operationId}`);
+      } catch {
+        // Not written, or the store refuses: either way nothing is listed.
+      }
+      return undefined;
+    }
+  }
+
+  /** Prune the org's backups past the retention, logging rather than failing a backup kept. */
+  private pruneAfterBackup(orgId: string): void {
+    try {
+      this.pruneBackups(orgId);
+    } catch (pruneErr: unknown) {
+      this.deps.log(
+        `[WARN] backup retention failed after the snapshot was written: ${extractErrorMessage(pruneErr)}`,
+      );
     }
   }
 
@@ -1164,14 +1501,7 @@ export class DataOpsHandler implements DomainHandler {
     const backups: BackupSummary[] = [];
     for (const key of this.deps.configStore.getKeysByPrefix('backup:')) {
       if (key.slice('backup:'.length).includes(':')) continue;
-      const meta = this.deps.configStore.get<{
-        operationId?: string;
-        orgId?: string;
-        timestamp?: string;
-        totalRecords?: number;
-        objects?: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
-        partial?: boolean;
-      }>(key);
+      const meta = this.deps.configStore.get<BackupMeta>(key);
       if (!meta || meta.orgId !== parsed.orgId) continue;
       backups.push({
         operationId: meta.operationId ?? key.slice('backup:'.length),
@@ -1182,8 +1512,9 @@ export class DataOpsHandler implements DomainHandler {
         // where a computed guess would not be.
         totalSize: 0,
         // A meta record only exists once the backup has been written, so a
-        // listed backup is by construction a completed one.
-        status: 'completed',
+        // listed backup is a completed one — or one whose read failed
+        // part-way, which keeps the rows read before and says it failed.
+        status: meta.status === 'failed' ? 'failed' : 'completed',
         // Run for real, a backup of 1 220 contacts on a Developer Edition
         // read 500 and was listed as complete: the snapshot knew, the list
         // did not say.
@@ -1239,11 +1570,19 @@ export class DataOpsHandler implements DomainHandler {
     }
 
     const objects: Record<string, unknown[]> = {};
-    for (const obj of meta.objects ?? []) {
-      const fromFile = await this.backupRecords?.read(parsed.operationId, obj.objectApiName);
-      // Backups written before the file store still live in ConfigStore.
-      objects[obj.objectApiName] =
-        fromFile ?? this.deps.configStore.get<unknown[]>(`${metaKey}:${obj.objectApiName}`) ?? [];
+    try {
+      for (const obj of meta.objects ?? []) {
+        // The document is one message, which the page saves as one file: it
+        // carries every record of the backup, whichever form it was kept in.
+        const records: BackupRecord[] = [];
+        for await (const batch of await this.backupBatches(parsed.operationId, obj.objectApiName)) {
+          records.push(...batch);
+        }
+        objects[obj.objectApiName] = records;
+      }
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'backup:export', 'dataops:error', msg, err);
+      return;
     }
 
     const document = {
@@ -1262,6 +1601,33 @@ export class DataOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * One object's records of a backup, {@link RESTORE_BATCH_SIZE} at a time,
+   * wherever the backup keeps them: its file — one record to a line, or one
+   * array for a backup taken before — or the config store, for a backup taken
+   * before the files. Each pass over the answer reads them from the first.
+   */
+  private async backupBatches(
+    operationId: string,
+    objectApiName: string,
+  ): Promise<AsyncIterable<BackupRecord[]>> {
+    const fromFile = await this.backupRecords?.batches(
+      operationId,
+      objectApiName,
+      RESTORE_BATCH_SIZE,
+    );
+    if (fromFile) return fromFile;
+    const stored: unknown = this.deps.configStore.get(`backup:${operationId}:${objectApiName}`);
+    const held = Array.isArray(stored) ? (stored as BackupRecord[]) : [];
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (let i = 0; i < held.length; i += RESTORE_BATCH_SIZE) {
+          yield held.slice(i, i + RESTORE_BATCH_SIZE);
+        }
+      },
+    };
   }
 
   private pruneBackups(orgId: string): void {
@@ -1298,31 +1664,33 @@ export class DataOpsHandler implements DomainHandler {
    * upsert that follows reports it as refused, which is what it is. An object
    * whose rows cannot be read with the deleted ones, or a record the bin will
    * not give back, is likewise left to that upsert and its report.
+   *
+   * @param batches - The snapshot's records of the object, read a batch at a
+   *   time: every one is brought back before the upsert writes any, so a row
+   *   pointing at another of the same object finds it there.
    */
   private async undeleteFromRecycleBin(
     conn: Connection,
     objectApiName: string,
-    records: ReadonlyArray<Record<string, unknown>>,
+    batches: AsyncIterable<readonly BackupRecord[]>,
   ): Promise<{ undeleted: number }> {
-    const ids = records.map((r) => r.Id).filter((id): id is string => typeof id === 'string');
     const deleted: string[] = [];
-    try {
-      for (let i = 0; i < ids.length; i += 200) {
-        const inList = ids
-          .slice(i, i + 200)
-          .map((id) => `'${sanitizeSoqlValue(id)}'`)
-          .join(', ');
+    for await (const batch of batches) {
+      const ids = batch.map((r) => r.Id).filter((id): id is string => typeof id === 'string');
+      if (ids.length === 0) continue;
+      const inList = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+      try {
         const result = await conn.query<{ Id: string }>(
           `SELECT Id FROM ${objectApiName} WHERE Id IN (${inList}) AND IsDeleted = true`,
           { scanAll: true },
         );
         deleted.push(...result.records.map((r) => r.Id));
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] Rollback on ${objectApiName}: could not look for deleted records — ${extractErrorMessage(err)}`,
+        );
+        return { undeleted: 0 };
       }
-    } catch (err: unknown) {
-      this.deps.log(
-        `[WARN] Rollback on ${objectApiName}: could not look for deleted records — ${extractErrorMessage(err)}`,
-      );
-      return { undeleted: 0 };
     }
     let undeleted = 0;
     for (let i = 0; i < deleted.length; i += 200) {
@@ -1428,15 +1796,9 @@ export class DataOpsHandler implements DomainHandler {
       });
 
       const backupKey = `backup:${payload.operationId}`;
-      const backupMeta = this.deps.configStore.get<{
-        operationId: string;
-        orgId: string;
-        /** Absent from backups taken before it was recorded. */
-        organizationId?: string;
-        objects: Array<{ objectApiName: string; recordCount: number }>;
-        totalRecords: number;
-        timestamp?: string;
-      }>(backupKey);
+      const backupMeta = this.deps.configStore.get<
+        BackupMeta & { orgId: string; objects: BackupObjectHeld[]; totalRecords: number }
+      >(backupKey);
 
       if (!backupMeta) {
         throw new Error(`No backup found for operation ${payload.operationId}. Cannot rollback.`);
@@ -1555,20 +1917,24 @@ export class DataOpsHandler implements DomainHandler {
       let totalRestored = 0;
       let totalFailed = 0;
       const restoreErrors: Array<{ objectApiName: string; message: string }> = [];
+      /** Per object, the rows read of the backup: fewer than it lists are said. */
+      const rowsRead = new Map<string, number>();
       for (let i = 0; i < backupMeta.objects.length; i++) {
         const obj = backupMeta.objects[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
         failure.objectName = safeObj;
-        const fromFile = (await this.backupRecords?.read(
-          payload.operationId,
-          obj.objectApiName,
-        )) as Record<string, unknown>[] | null | undefined;
-        // Backups written before the file store still live in ConfigStore.
-        const records =
-          fromFile ??
-          this.deps.configStore.get<Record<string, unknown>[]>(`${backupKey}:${obj.objectApiName}`);
+        // A batch at a time, whichever form the backup was kept in: a backup
+        // now holds up to the cap of rows per object, and the whole of one in
+        // memory was what writing it a page at a time stopped doing.
+        const batches = await this.backupBatches(payload.operationId, obj.objectApiName);
+        let first: BackupRecord | undefined;
+        for await (const batch of batches) {
+          first = batch[0];
+          if (first !== undefined) break;
+        }
 
-        if (!records || records.length === 0) {
+        if (first === undefined) {
+          rowsRead.set(obj.objectApiName, 0);
           this.deps.log(`[WARN] No backup records for ${obj.objectApiName}, skipping.`);
           continue;
         }
@@ -1595,7 +1961,7 @@ export class DataOpsHandler implements DomainHandler {
         // verbatim `SELECT FIELDS(ALL)` snapshot, so it always carries fields
         // nobody may write. Asking "may I write ALL of these?" made every
         // restore fail; the describe answers the field-by-field question.
-        const payloadFields = Object.keys(records[0]).filter((k) => k !== 'attributes');
+        const payloadFields = Object.keys(first).filter((k) => k !== 'attributes');
         const { skipped, denied } = await crudFlsGuard.partitionWritableFields(
           safeObj,
           'upsert',
@@ -1628,7 +1994,7 @@ export class DataOpsHandler implements DomainHandler {
         // restore reported 204 restored and 1 rejected — the one record the
         // user had lost. It is brought back first, with its Id and whatever
         // pointed at it, and the upsert below then writes its fields.
-        const brought = await this.undeleteFromRecycleBin(conn, safeObj, records);
+        const brought = await this.undeleteFromRecycleBin(conn, safeObj, batches);
         if (brought.undeleted > 0) {
           this.deps.log(
             `[INFO] Rollback on ${safeObj}: ${brought.undeleted} record(s) brought back from the recycle bin`,
@@ -1636,12 +2002,12 @@ export class DataOpsHandler implements DomainHandler {
         }
 
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
-        const batchSize = 200;
-        failure.batchSize = batchSize;
+        failure.batchSize = RESTORE_BATCH_SIZE;
         let successCount = 0;
         let failureCount = 0;
-        for (let j = 0; j < records.length; j += batchSize) {
-          const batch = records.slice(j, j + batchSize);
+        let read = 0;
+        for await (const batch of batches) {
+          read += batch.length;
           const cleaned = batch.map((r) => {
             const copy: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(r)) {
@@ -1673,6 +2039,7 @@ export class DataOpsHandler implements DomainHandler {
           }
         }
         checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
+        rowsRead.set(obj.objectApiName, read);
         totalRestored += successCount;
         totalFailed += failureCount;
         // An upsert on the record's own Id writes over a record that exists —
@@ -1685,7 +2052,7 @@ export class DataOpsHandler implements DomainHandler {
           Math.round(((i + 1) / backupMeta.objects.length) * 100),
           i + 1,
           backupMeta.objects.length,
-          `Restored ${safeObj} (${successCount}/${records.length})`,
+          `Restored ${safeObj} (${successCount}/${read})`,
         );
       }
 
@@ -1697,10 +2064,21 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationCompleted(this.deps, rollbackOpId, { status, totalRestored, totalFailed });
       this.dmlTracker.markCompleted(rollbackOpId);
 
-      const message =
+      // A backup that holds only part of an object — stopped at the cap, a
+      // read that failed part-way, a file no longer all there — restores
+      // only that part, and the rest of the object stays as it is now: a
+      // restore after a masking run leaves those rows masked. Said with the
+      // result, as a restore of the whole would not need saying.
+      const shortfall = backupShortfall(backupMeta.objects, rowsRead);
+      const ranMessage =
         totalFailed === 0
           ? `Rollback completed: ${totalRestored} records restored`
           : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`;
+      const message =
+        shortfall === ''
+          ? ranMessage
+          : `${ranMessage}. The backup held only part of the org's records, and the rest were ` +
+            `left as they are: ${shortfall}.`;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
         status,
@@ -1708,13 +2086,14 @@ export class DataOpsHandler implements DomainHandler {
         totalRestored,
         totalFailed,
         errors: restoreErrors,
+        ...(shortfall !== '' ? { partial: true } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
       // The DataOps page reads only the error and notification channels: a
       // `partial` left in the response alone is as invisible as the count that
       // was dropped.
-      if (totalFailed > 0) {
+      if (totalFailed > 0 || shortfall !== '') {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -1787,6 +2166,8 @@ export class DataOpsHandler implements DomainHandler {
     let begun = false;
     /** Whether the end of the run already kept or forgot where it got. */
     let checkpointSettled = false;
+    /** The engine the run masks with, once made: what it drew is kept for a resume. */
+    let drawing: AnonymizationEngine | undefined;
     /**
      * Aborted by the registry: a cancel of the run, the window closing. A run
      * was never registered, so nothing could stop it, and it masked every
@@ -1879,6 +2260,9 @@ export class DataOpsHandler implements DomainHandler {
           fingerprint,
           savedAt: new Date().toISOString(),
           objects,
+          // The names the run made up, counted: a resume gives none of them
+          // again. A resume of a run that kept none adds its own to nothing.
+          ...(drawing ? { namesGiven: drawing.namesGiven() } : {}),
         });
         return true;
       } catch (err: unknown) {
@@ -2075,6 +2459,19 @@ export class DataOpsHandler implements DomainHandler {
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
+      drawing = engine;
+      // A resume carries on from the names the run it resumes made up: one
+      // starting with none given handed out again, to the rows it masked, the
+      // names and the addresses that run had written on others.
+      if (
+        resumed &&
+        !(resumed.namesGiven !== undefined && engine.continueFrom(resumed.namesGiven))
+      ) {
+        this.deps.log(
+          `[INFO] dataops:anonymize ${operationId}: the run it resumes kept no record of the ` +
+            'names it made up, so this one may give again a name or an address that run gave.',
+        );
+      }
 
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
       /** The fields the template's rules name that their object does not have. */
@@ -2513,12 +2910,14 @@ export class DataOpsHandler implements DomainHandler {
    * latest backup holds — what a restore can bring back once the run has
    * masked them all.
    *
-   * A backup reads each object up to the tier's cap (2,000 rows on a sandbox,
-   * 500 on production), and a masking run masks every row: a backup taken just
-   * before an Anonymize of an object larger than the cap brings back that many
-   * rows and leaves the rest masked, and nothing said so. Read-only: one count
-   * per object, and the backups kept on this machine. An object the org will
-   * not count is listed with no count rather than failing the answer.
+   * A backup reads each object up to a cap of rows the user sets
+   * (`sandforge.backup.maxRecordsPerObject`), and a masking run masks every
+   * row: a backup taken just before an Anonymize of an object larger than the
+   * cap brings back that many rows and leaves the rest masked, and nothing
+   * said so. Each object says whether its backup stopped at the cap, or on a
+   * read that failed. Read-only: one count per object, and the backups kept
+   * on this machine. An object the org will not count is listed with no count
+   * rather than failing the answer.
    */
   private async handleAnonymizeCoverage(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -2560,6 +2959,7 @@ export class DataOpsHandler implements DomainHandler {
           count,
           backedUp: held?.recordCount ?? 0,
           truncated: held?.truncated === true,
+          ...(held?.stoppedAt ? { stoppedAt: held.stoppedAt } : {}),
         });
       }
       // The last run of this template on this org, when it stopped short and

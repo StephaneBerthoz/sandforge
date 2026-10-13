@@ -1283,6 +1283,11 @@
     "title": "DataOps",
     "backup": "Backup",
     "backupPartial": "Parcial: {{objects}} têm mais linhas do que este backup leu. Uma restauração traz de volta apenas essas linhas.",
+    "backupPartialLead": "Parcial: uma restauração traz de volta apenas as linhas que este backup leu e deixa o resto de cada objeto como está.",
+    "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} linhas lidas — parou no limite (sandforge.backup.maxRecordsPerObject).",
+    "backupStoppedAtCapUncounted": "{{object}}: {{read}} linhas lidas — parou no limite (sandforge.backup.maxRecordsPerObject).",
+    "backupReadFailed": "{{object}}: {{read}} de {{held}} linhas lidas — a leitura falhou ali.",
+    "backupReadFailedUncounted": "{{object}}: {{read}} linhas lidas — a leitura falhou ali.",
     "backupDesc": "Criar e gerenciar backups de dados",
     "restore": "Restaurar",
     "restoreDesc": "Restaurar dados a partir de um backup",
@@ -1320,7 +1325,10 @@
       "inBackup": "Linhas no backup",
       "notCounted": "Não contado",
       "shortfall": "Mascarado de vez além do que o backup contém: {{objects}}.",
-      "confirmShortfall": "Depois de mascarados, uma restauração nunca poderá trazer estes registros de volta:"
+      "confirmShortfall": "Depois de mascarados, uma restauração nunca poderá trazer estes registros de volta:",
+      "stoppedAtCap": "{{rows}} (parou no limite)",
+      "readFailed": "{{rows}} (a leitura falhou)",
+      "capHint": "O backup parou no limite de linhas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject nas Configurações e faça o backup de novo para guardar todas as linhas."
     },
     "compliance": "Conformidade",
     "frameworks": {

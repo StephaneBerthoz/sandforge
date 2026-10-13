@@ -255,6 +255,60 @@ describe('AnonymizePanel', () => {
       ).toBeTruthy();
     });
 
+    it('says which objects the backup stopped at its cap, or on a read that failed, and which setting raises the cap', () => {
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{
+            templateId: 'tpl-1',
+            backup: { operationId: 'bk-2', timestamp: '2026-10-01T10:00:00.000Z' },
+            objects: [
+              {
+                objectApiName: 'Contact',
+                count: 1234,
+                backedUp: 700,
+                truncated: true,
+                stoppedAt: 'cap' as const,
+              },
+              {
+                objectApiName: 'Lead',
+                count: 900,
+                backedUp: 300,
+                truncated: true,
+                stoppedAt: 'failure' as const,
+              },
+              { objectApiName: 'Account', count: 120, backedUp: 120, truncated: false },
+            ],
+          }}
+        />,
+      );
+
+      expect(
+        within(screen.getByTestId('restore-coverage-Contact')).getByText(
+          '700 (stopped at the cap)',
+        ),
+      ).toBeDefined();
+      expect(
+        within(screen.getByTestId('restore-coverage-Lead')).getByText('300 (read failed)'),
+      ).toBeDefined();
+      // A whole object reads as a number, both columns of it.
+      expect(
+        within(screen.getByTestId('restore-coverage-Account')).getAllByText('120'),
+      ).toHaveLength(2);
+      expect(screen.getByTestId('restore-coverage-cap').textContent).toBe(
+        'The backup stopped at its cap of rows per object for Contact: raise ' +
+          'sandforge.backup.maxRecordsPerObject in Settings and back up again to hold every row.',
+      );
+    });
+
+    it('says nothing of a cap when no object stopped at it', () => {
+      render(
+        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+      );
+      expect(screen.queryByTestId('restore-coverage-cap')).toBeNull();
+    });
+
     it('says the org has no backup to bring anything back from', () => {
       render(
         <AnonymizePanel

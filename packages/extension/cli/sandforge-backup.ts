@@ -29,18 +29,12 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import {
-  mkdir as mkdirAsync,
-  readFile as readFileAsync,
-  rm as rmAsync,
-  writeFile as writeFileAsync,
-} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
-import { BackupRecordStore } from '../src/modules/dataops/BackupRecordStore.js';
+import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 
@@ -59,6 +53,9 @@ One of:
 
 Options:
   --store <dir>          where snapshots live      (default: a temp directory)
+  --max-records <n>      most records of each object a snapshot reads, as
+                         sandforge.backup.maxRecordsPerObject sets it
+                         (default: 50000; 100 to 1000000)
   --yes                  do not ask before a restore writes
   --json                 emit what the panel would receive
   --help                 this text
@@ -77,6 +74,8 @@ interface CliArgs {
   list: boolean;
   restoreId?: string;
   storeDir: string;
+  /** The cap of records per object a snapshot reads, when the line sets one. */
+  maxRecords?: number;
   yes: boolean;
   json: boolean;
 }
@@ -128,6 +127,11 @@ export function parseArgs(argv: string[]): CliArgs {
       process.exit(2);
     }
   }
+  const cap = get('--max-records');
+  if (cap !== undefined && !/^[1-9]\d*$/.test(cap)) {
+    process.stderr.write(`Not a number of records: "${cap}"\n`);
+    process.exit(2);
+  }
 
   return {
     org,
@@ -135,6 +139,7 @@ export function parseArgs(argv: string[]): CliArgs {
     list,
     restoreId,
     storeDir: get('--store', join(tmpdir(), 'sandforge-backups')) ?? '',
+    ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -171,11 +176,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         operationId: string;
         timestamp: string;
         totalRecords: number;
-        objects: Array<{ objectApiName: string; recordCount: number }>;
+        status?: string;
+        objects: Array<{
+          objectApiName: string;
+          recordCount: number;
+          orgCount?: number;
+          stoppedAt?: string;
+        }>;
       };
+      // Each object as `Contact:500/1234(cap)` when the snapshot holds part of it.
+      const held = meta.objects.map(
+        (o) =>
+          `${o.objectApiName}:${o.recordCount}` +
+          (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : ''),
+      );
       log(
-        `${meta.operationId}  ${meta.timestamp}  ${meta.totalRecords} record(s)  ` +
-          meta.objects.map((o) => `${o.objectApiName}:${o.recordCount}`).join(' '),
+        `${meta.operationId}  ${meta.timestamp}  ${meta.totalRecords} record(s)` +
+          `${meta.status === 'failed' ? ' failed part-way' : ''}  ${held.join(' ')}`,
       );
     }
     return;
@@ -204,6 +221,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }),
     },
     configStore,
+    // The one setting a snapshot reads, as the line sets it; every other one
+    // takes the extension's default.
+    services: {
+      getSandforgeSetting: <T>(key: string, fallback: T): T =>
+        key === 'backup.maxRecordsPerObject' && args.maxRecords !== undefined
+          ? (args.maxRecords as T)
+          : fallback,
+    },
     infraServices: {
       // A restore refuses to write without the guard, as in the extension.
       productionGuard: new ProductionGuard(),
@@ -226,19 +251,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // with one, and a message with no id settles nothing on the other side.
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   } as never);
-  // The store takes its own file operations, which is what lets the extension
-  // give it the VS Code filesystem API. Here they are Node's.
-  handler.setBackupRecordStore(
-    new BackupRecordStore({
-      storagePath: args.storeDir,
-      readFile: (filePath) => readFileAsync(filePath, 'utf8'),
-      writeFile: (filePath, content) => writeFileAsync(filePath, content, 'utf8'),
-      mkdir: async (dirPath) => {
-        await mkdirAsync(dirPath, { recursive: true });
-      },
-      rm: (filePath) => rmAsync(filePath, { force: true }),
-    }),
-  );
+  // The store takes its own file operations; here, as in the extension, they
+  // are Node's, under the directory given.
+  handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
 
   if (args.restoreId) {
     const meta = configStore.get(`backup:${args.restoreId}`);

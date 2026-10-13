@@ -41,6 +41,37 @@ describe('RestorePanel', () => {
     expect(screen.getByTestId('restore-backup-op-1')).toBeDefined();
   });
 
+  it('says, before the click, that a backup stopped at the cap holds only part of an object', () => {
+    render(
+      <RestorePanel
+        backups={[
+          {
+            ...backups[0],
+            partial: true,
+            objectResults: [
+              {
+                objectApiName: 'Contact',
+                recordCount: 700,
+                orgCount: 1234,
+                truncated: true,
+                stoppedAt: 'cap',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('restore-partial-op-1').textContent).toContain(
+      'Contact: 700 of 1,234 rows read — stopped at the cap',
+    );
+  });
+
+  it('says nothing of a whole backup', () => {
+    render(<RestorePanel backups={backups} />);
+    expect(screen.queryByTestId('restore-partial-op-1')).toBeNull();
+  });
+
   it('offers a backup whose stored time is not a date as taken at an unknown time', () => {
     // It read "Invalid Date" as the backup's title.
     render(<RestorePanel backups={[{ ...backups[0], timestamp: 'not a date' }]} />);

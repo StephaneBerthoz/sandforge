@@ -70,6 +70,18 @@ const checkpointSchema = z.object({
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   savedAt: z.string(),
   objects: z.array(progressSchema),
+  /**
+   * How many times each made-up name of the run was given, compressed
+   * (`AnonymizationEngine.namesGiven`): counts by name, no value read or
+   * written. A resume carries on from it, so that it gives no name and no
+   * address the run gave. Absent from a checkpoint kept before it was:
+   * such a resume starts with none given, as every resume did.
+   */
+  namesGiven: z
+    .string()
+    .max(60_000)
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/)
+    .optional(),
 });
 
 /** How far a masking run got through one object, as a checkpoint keeps it. */

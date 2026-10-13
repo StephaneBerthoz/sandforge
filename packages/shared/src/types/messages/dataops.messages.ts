@@ -43,6 +43,34 @@ export interface BackupListResult extends BaseMessage {
   payload: { backups: BackupSummary[] };
 }
 
+/**
+ * Why a backup holds fewer rows of an object than the object had: `cap`, the
+ * backup reached the cap of rows per object the user sets
+ * (`sandforge.backup.maxRecordsPerObject`); `failure`, the read failed past
+ * the rows it holds.
+ */
+export type BackupStopReason = 'cap' | 'failure';
+
+/** One object of a backup, as the backup's metadata records it. */
+export interface BackupObjectHeld {
+  objectApiName: string;
+  /** Rows the backup holds of it. */
+  recordCount: number;
+  /** Whether the object held more rows than the backup read. */
+  truncated?: boolean;
+  /**
+   * Rows the object held when the backup read it, as the org counted them;
+   * absent from backups taken before it was recorded.
+   */
+  orgCount?: number;
+  /**
+   * Why it holds fewer rows than the object: absent when it holds them all,
+   * and from a backup taken before it was recorded, which stopped at the
+   * tier's bound (2,000 rows on a sandbox, 500 on production).
+   */
+  stoppedAt?: BackupStopReason;
+}
+
 /** One entry of the backup history, as persisted by dataops:backup. */
 export interface BackupSummary {
   operationId: string;
@@ -50,13 +78,10 @@ export interface BackupSummary {
   timestamp: string;
   totalRecords: number;
   totalSize: number;
+  /** `failed` for a backup whose read failed part-way: it keeps the rows read before. */
   status: BackupStatus;
-  /**
-   * Each object read, with the rows taken; `truncated` when the read stopped
-   * at the tier's bound (2,000 rows on a sandbox, 500 on production) with
-   * rows left in the org.
-   */
-  objectResults: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
+  /** Each object read, with the rows taken, and why the read stopped short when it did. */
+  objectResults: BackupObjectHeld[];
   /** Some object holds more rows than the backup read: a restore brings back only those it holds. */
   partial?: boolean;
 }
@@ -161,6 +186,8 @@ export interface AnonymizeCoverageObject {
   backedUp: number;
   /** Whether the backup stopped at its cap of rows per object while the object held more. */
   truncated: boolean;
+  /** Why the backup holds fewer rows than the object had, when it says: see {@link BackupObjectHeld}. */
+  stoppedAt?: BackupStopReason;
 }
 
 /** What a restore of the latest backup can bring back of what a template masks. */
@@ -272,7 +299,7 @@ export interface DataOpsBackupResponse extends BaseMessage {
   payload: {
     operationId: string;
     status: string;
-    objects: Array<{ objectApiName: string; recordCount: number; truncated?: boolean }>;
+    objects: BackupObjectHeld[];
     totalRecords: number;
     /** Some object holds more rows than the backup read: see {@link BackupSummary.partial}. */
     partial?: boolean;
@@ -283,7 +310,18 @@ export interface DataOpsBackupResponse extends BaseMessage {
 /** Response after a successful rollback of a previous data operation. */
 export interface DataOpsRollbackResponse extends BaseMessage {
   type: 'dataops:rollback:response';
-  payload: { operationId: string; status: string; message: string; totalRestored: number };
+  payload: {
+    operationId: string;
+    status: string;
+    message: string;
+    totalRestored: number;
+    /**
+     * The backup held only part of some object — it stopped at the cap, its
+     * read failed, or its file is no longer all there — and the restore left
+     * the rest of that object as it is; `message` names each one.
+     */
+    partial?: boolean;
+  };
 }
 
 /**
